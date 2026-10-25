@@ -141,10 +141,8 @@ describe("leader thread tabs projected component behavior", () => {
     expect(q1).toHaveAttribute("data-needs-input", "true");
     expect(within(q1).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
     expect(listedThreadTab("q-2")).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
-    // The stale local tab is not open; Find lists its thread only as a closed tab.
-    expect(
-      within(screen.getByTestId("thread-tab-switcher")).getByText("Stale legacy tab").closest("[data-closed]"),
-    ).toHaveAttribute("data-closed", "true");
+    // The stale local tab is not open: it is no group's member.
+    expect(screen.queryByText("Stale legacy tab")).toBeNull();
 
     const ready = createLeaderThreadTabsProjectionValue({
       tabs: value.tabs,

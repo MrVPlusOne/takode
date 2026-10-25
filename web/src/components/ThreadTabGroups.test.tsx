@@ -1,14 +1,12 @@
 // @vitest-environment jsdom
 /**
- * Phone thread tab groups: how tabs are filed into groups, the chips and their lists,
- * Find's Tabs mode (open and closed tabs by recency), and the rail choosing groups on phones.
+ * Phone thread tab groups: how tabs are filed into groups, the chips and their lists, and the
+ * rail choosing groups on phones.
  */
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ThreadTabGroupBar, groupThreadTabs, threadKeyToSelectAfterClosing } from "./ThreadTabGroups.js";
 import { ThreadTabRail, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
-import { buildClosedThreadTabs } from "./WorkBoardBar.js";
-import { useStore } from "../store.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
 
 function tab(threadKey: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
@@ -113,13 +111,14 @@ describe("threadKeyToSelectAfterClosing", () => {
 });
 
 describe("ThreadTabGroupBar", () => {
-  it("shows Main, one item per non-empty group and search, marking the current tab's group", () => {
+  it("shows Main and one item per non-empty group, marking the current tab's group", () => {
     renderBar({ tabs: TABS.filter((item) => !item.needsInput) });
     // The quest strip names the current quest, so the bar repeats no title: it only
     // marks the group that holds it (q-10 is in progress).
     expect(screen.queryByText("Fix the relay proxy")).toBeNull();
     expect(screen.getByTestId("thread-tab-group-main").dataset.selected).toBe("false");
-    expect(screen.getByTestId("thread-tab-group-search")).toBeTruthy();
+    // Finding a tab or a message is Search everything's job; the bar has no Find.
+    expect(screen.queryByTestId("thread-tab-group-search")).toBeNull();
     const chips = screen.getAllByTestId("thread-tab-group-chip");
     // No prompt is waiting, so the Needs you chip is hidden rather than showing 0. The
     // groups read left to right as stages of the work: ongoing, then unread results, then done.
@@ -146,7 +145,7 @@ describe("ThreadTabGroupBar", () => {
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
   });
 
-  it("keeps Main out of the groups and Find, with its bell on its own tab", () => {
+  it("keeps Main out of the groups, with its bell on its own tab", () => {
     // Main has a prompt and the only quest prompt is answered, so no Needs you group shows:
     // counting Main there too duplicated it, and tapping that group from Main did nothing.
     renderBar({
@@ -160,12 +159,6 @@ describe("ThreadTabGroupBar", () => {
     expect(within(screen.getByTestId("thread-tab-group-main")).getByTestId("thread-tab-bell").dataset.kind).toBe(
       "needs-input",
     );
-    // Find lists quest tabs only; Main is always one tap away on the bar.
-    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    const keys = within(screen.getByTestId("thread-tab-switcher"))
-      .getAllByTestId("thread-tab-list-row")
-      .map((row) => row.dataset.threadKey);
-    expect(keys).not.toContain("main");
   });
 
   it("opens a larger group's list without switching tabs", () => {
@@ -247,14 +240,13 @@ describe("ThreadTabGroupBar", () => {
     expect(onSelect).toHaveBeenLastCalledWith("q-11");
   });
 
-  it("finds tabs by quest number in the switcher and closes them", () => {
+  it("closes a tab from its group's list", () => {
     const { onClose } = renderBar();
-    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    const sheet = screen.getByTestId("thread-tab-switcher");
-    fireEvent.change(within(sheet).getByTestId("thread-tab-switcher-search"), { target: { value: "q-13" } });
-    const rows = within(sheet).getAllByTestId("thread-tab-list-row");
-    expect(rows.map((row) => row.dataset.threadKey)).toEqual(["q-13"]);
-    fireEvent.click(within(rows[0]!).getByTestId("thread-tab-list-row-close"));
+    fireEvent.click(screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!);
+    const row = within(screen.getByTestId("thread-tab-group-list"))
+      .getAllByTestId("thread-tab-list-row")
+      .find((item) => item.dataset.threadKey === "q-13")!;
+    fireEvent.click(within(row).getByTestId("thread-tab-list-row-close"));
     expect(onClose).toHaveBeenCalledWith("q-13");
   });
 
@@ -314,11 +306,14 @@ describe("ThreadTabGroupBar", () => {
     renderBar();
     fireEvent.click(screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!);
     expect(screen.getByTestId("thread-tab-close-all")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    expect(within(screen.getByTestId("thread-tab-switcher")).queryByTestId("thread-tab-close-all")).toBeNull();
+    fireEvent.click(screen.getByTestId("thread-tab-group-backdrop"));
+    fireEvent.click(
+      screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "in-progress")!,
+    );
+    expect(screen.queryByTestId("thread-tab-close-all")).toBeNull();
   });
 
-  it("marks side quests with the branch icon in group lists and Find, naming where their answer goes", () => {
+  it("marks side quests with the branch icon in group lists, naming where their answer goes", () => {
     // q-13 is a side quest of Main: its answer is given there, so its tab can be skipped.
     renderBar({
       tabs: TABS.map((item) => (item.threadKey === "q-13" ? { ...item, sideQuestOf: "main" } : item)),
@@ -511,125 +506,5 @@ describe("ThreadTabRail", () => {
     const list = screen.getByTestId("thread-tab-group-list");
     expect(list.style.left).toBe("120px");
     expect(list.style.width).toBe("448px");
-  });
-});
-
-describe("Find's Tabs mode", () => {
-  // Open and closed tabs share one list, ordered by their latest activity: a chat, a prompt
-  // or result (groupChangedAt), or a board change (updatedAt), whichever is newest.
-  const OPEN = [
-    tab("q-10", { title: "Fix the relay proxy", updatedAt: 500 }),
-    tab("q-11", { needsInput: true, groupChangedAt: 900 }),
-    tab("q-13", { completed: true, canClose: true, updatedAt: 100 }),
-  ];
-  const CLOSED = [
-    tab("q-9", { title: "Relay proxy timeout", completed: true, stateLabel: "Done", updatedAt: 700 }),
-    tab("q-8", { title: "Board colors", completed: true, stateLabel: "Done", updatedAt: 300 }),
-    tab("q-7", { title: "Old relay cleanup", stateLabel: "Work", updatedAt: 50 }),
-  ];
-
-  function openFind(props: Partial<Parameters<typeof ThreadTabGroupBar>[0]> = {}) {
-    const result = renderBar({ tabs: OPEN, closedTabs: CLOSED, ...props });
-    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    return { ...result, sheet: screen.getByTestId("thread-tab-switcher") };
-  }
-
-  const rowKeys = (sheet: HTMLElement) =>
-    within(sheet)
-      .getAllByTestId("thread-tab-list-row")
-      .map((row) => row.dataset.threadKey);
-
-  it("lists open and closed tabs together, most recently active first, with no status sections", () => {
-    const { sheet } = openFind();
-    expect(rowKeys(sheet)).toEqual(["q-11", "q-9", "q-10", "q-8", "q-13", "q-7"]);
-    expect(within(sheet).queryByTestId("thread-tab-switcher-filter")).toBeNull();
-    expect(within(sheet).queryByTestId("thread-tab-switcher-section")).toBeNull();
-  });
-
-  it("marks closed tabs and reopens the one chosen", () => {
-    // A closed row reads muted, says Closed, has no close button, and selecting it opens its tab again.
-    const { sheet, onSelect } = openFind();
-    const closedRow = within(sheet)
-      .getAllByTestId("thread-tab-list-row")
-      .find((row) => row.dataset.threadKey === "q-9")!;
-    expect(closedRow.dataset.closed).toBe("true");
-    expect(closedRow.textContent).toContain("q-9 · Done · Closed");
-    expect(within(closedRow).queryByTestId("thread-tab-list-row-close")).toBeNull();
-    fireEvent.click(within(closedRow).getByTestId("thread-tab-list-row-select"));
-    expect(onSelect).toHaveBeenCalledWith("q-9");
-  });
-
-  it("searches open and closed tabs by title, keeping the newest first", () => {
-    const { sheet } = openFind();
-    fireEvent.change(within(sheet).getByTestId("thread-tab-switcher-search"), { target: { value: "relay" } });
-    expect(rowKeys(sheet)).toEqual(["q-9", "q-10", "q-7"]);
-  });
-
-  it("finds a closed tab by quest number", () => {
-    const { sheet } = openFind();
-    fireEvent.change(within(sheet).getByTestId("thread-tab-switcher-search"), { target: { value: "q-8" } });
-    expect(rowKeys(sheet)).toEqual(["q-8"]);
-  });
-
-  it("lists hundreds of tabs a page at a time", () => {
-    // Rendering every past quest at once would make Find slow for long-running leaders.
-    const many = Array.from({ length: 250 }, (_, index) => tab(`q-${1000 - index}`, { completed: true }));
-    const { sheet } = openFind({ tabs: [], closedTabs: many });
-    expect(rowKeys(sheet)).toHaveLength(100);
-    fireEvent.click(within(sheet).getByTestId("thread-tab-switcher-more"));
-    expect(rowKeys(sheet)).toHaveLength(200);
-    expect(within(sheet).getByTestId("thread-tab-switcher-more").textContent).toBe("Show 50 more");
-  });
-});
-
-describe("buildClosedThreadTabs", () => {
-  it("lists the leader's quest threads without an open tab, most recently active first", () => {
-    const closed = buildClosedThreadTabs(
-      [
-        { threadKey: "q-1", questId: "q-1", title: "Old", status: "done", section: "done", lastActiveAt: 100 },
-        { threadKey: "q-10", questId: "q-10", title: "Open already", section: "active", lastActiveAt: 900 },
-        { threadKey: "q-2", questId: "q-2", title: "Recent", status: "done", section: "done", lastActiveAt: 500 },
-        {
-          threadKey: "q-3",
-          questId: "q-3",
-          title: "Paused",
-          section: "active",
-          boardStatus: "PORTING",
-          lastActiveAt: 50,
-        },
-        // Known only from history: the row builder files it as done, but its status is unknown.
-        { threadKey: "q-4", questId: "q-4", title: "q-4", section: "done" },
-      ],
-      TABS,
-    );
-    expect(closed.map((item) => [item.threadKey, item.stateLabel, item.canClose])).toEqual([
-      ["q-2", "Done", false],
-      ["q-1", "Done", false],
-      ["q-3", "Port", false],
-      ["q-4", undefined, false],
-    ]);
-  });
-});
-
-describe("ThreadTabRail closed tab titles", () => {
-  it("fetches missing titles of closed quests when Find opens", () => {
-    // Threads known only from history carry their quest number as title until hydrated.
-    const original = useStore.getState().hydrateQuestTitles;
-    const hydrateQuestTitles = vi.fn(async () => {});
-    useStore.setState({ hydrateQuestTitles });
-    onTestFinished(() => useStore.setState({ hydrateQuestTitles: original }));
-    render(
-      <ThreadTabRail
-        mainState={MAIN}
-        tabs={TABS}
-        closedTabs={[tab("q-5", { title: "q-5" }), tab("q-6", { title: "Known" })]}
-        sessionId="rail-session"
-        currentThreadKey="q-10"
-        onSelectThread={vi.fn()}
-      />,
-    );
-    expect(hydrateQuestTitles).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    expect(hydrateQuestTitles).toHaveBeenCalledWith(["q-5"]);
   });
 });

@@ -632,8 +632,10 @@ describe("UniversalSearchOverlay", () => {
     fireEvent.change(input, { target: { value: "" } });
 
     expect(messagesButton).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("Enter a query to search messages.")).toBeInTheDocument();
-    expect(mockSearchSessionMessages).not.toHaveBeenCalled();
+    // Messages without a query lists messages newest first.
+    await waitFor(() =>
+      expect(mockSearchSessionMessages).toHaveBeenLastCalledWith("s-new", expect.objectContaining({ query: "" })),
+    );
   });
 
   it("treats Tab cycling as explicit mode selection and clears the query when it reaches Recent", () => {
@@ -669,13 +671,34 @@ describe("UniversalSearchOverlay", () => {
     expect(screen.getByRole("radio", { name: "Recent" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("keeps explicit empty-query Messages idle instead of browsing recent messages", () => {
-    // Message retrieval is exhaustive and query-driven; an empty explicit mode must not issue the legacy browse request.
+  it("lists every message newest first without a query, loading the next page as the list scrolls", async () => {
+    // Without a query, Messages browses the scope's messages newest first (the leader's Find used
+    // to). Scrolling down asks only for the next page, so a long history is read a page at a time.
+    const page = (from: number, count: number) =>
+      Array.from({ length: count }, (_, index) =>
+        messageResult({ messageId: `m-${from + index}`, snippet: `Message ${from + index}` }),
+      );
+    mockSearchSessionMessages
+      .mockResolvedValueOnce(messageSearchResponse(page(0, 20), { totalMatches: 45 }))
+      .mockResolvedValueOnce(messageSearchResponse(page(20, 20), { totalMatches: 45 }));
     renderOverlay({ initialMode: "messages", initialQuery: "" });
 
-    expect(screen.getByRole("radio", { name: "Messages" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("Enter a query to search messages.")).toBeInTheDocument();
-    expect(mockSearchSessionMessages).not.toHaveBeenCalled();
+    expect(await screen.findByText("Message 0")).toBeInTheDocument();
+    expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+      "s-new",
+      expect.objectContaining({ query: "", limit: 20 }),
+    );
+    const list = screen.getAllByRole("option")[0]!.closest(".overflow-y-auto") as HTMLElement;
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(list, "clientHeight", { configurable: true, value: 500 });
+    list.scrollTop = 480;
+    fireEvent.scroll(list);
+    expect(await screen.findByText("Message 20")).toBeInTheDocument();
+    expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+      "s-new",
+      expect.objectContaining({ query: "", offset: 20, limit: 20 }),
+    );
+    expect(screen.getByText("Message 0")).toBeInTheDocument();
   });
 
   it("restores persisted Session mode even without a current session", async () => {
@@ -1327,7 +1350,7 @@ describe("UniversalSearchOverlay", () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Copy quest number", "Go to leader session #11", "Go to worker session #12"]);
+    ).toEqual(["Copy quest number", "Open its tab in leader #11", "Go to worker session #12"]);
   });
 
   it("omits unavailable session actions and exposes the chevron options hint", async () => {
@@ -1350,7 +1373,7 @@ describe("UniversalSearchOverlay", () => {
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
     ).toEqual(["Copy quest number"]);
-    expect(within(menu).queryByText(/Go to leader session/)).not.toBeInTheDocument();
+    expect(within(menu).queryByText(/Open its tab in leader/)).not.toBeInTheDocument();
     expect(within(menu).queryByText(/Go to worker session/)).not.toBeInTheDocument();
   });
 
@@ -1381,6 +1404,16 @@ describe("UniversalSearchOverlay", () => {
     fireEvent.keyDown(dialog, { key: "Enter" });
 
     expect(window.location.hash).toBe("#/session/11?thread=q-406");
+    expect(callbacks.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a quest's tab in its leader from the row, while the row opens its details", async () => {
+    mockQuestResults([quest({ questId: "q-410", title: "Quest with a tab", leaderSessionId: "s-new" })]);
+    const callbacks = renderOverlay();
+    fireEvent.click(screen.getByRole("radio", { name: "Quests" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open the tab of q-410 in leader #11" }));
+    expect(window.location.hash).toBe("#/session/11?thread=q-410");
+    expect(callbacks.onOpenQuest).not.toHaveBeenCalled();
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 

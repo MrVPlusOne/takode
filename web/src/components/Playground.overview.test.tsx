@@ -173,7 +173,7 @@ describe("Playground", { timeout: 60_000 }, () => {
       expect(within(offBoard).getByRole("button", { name: "Close q-9011" })).toBeTruthy();
 
       // Opening the prompt's tab shows its quest strip with the timed Journey preview.
-      fireEvent.click(within(needsInput).getByTestId("thread-tab-list-row-select"));
+      fireEvent.click(within(listedThreadTab("q-9001", container)!).getByTestId("thread-tab-list-row-select"));
       fireEvent.click(within(container).getByTestId("quest-thread-journey-hover-target"));
       const preview = within(screen.getAllByTestId("quest-thread-journey-hover-card").at(-1)!).getByTestId(
         "quest-journey-preview-card",

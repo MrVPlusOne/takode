@@ -6,10 +6,8 @@
 import { useState } from "react";
 import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../../utils/quest-phase-theme.js";
-import type { MessageSearchResult } from "../../api/session-message-search.js";
 import type { TopicSummary } from "../../../shared/library-topics.js";
 import { ThreadTabGroupBar } from "../ThreadTabGroups.js";
-import type { LoadRecentMessages } from "../ThreadTabRecentMessages.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
@@ -67,52 +65,6 @@ const TABS: PrimaryThreadChip[] = [
 ];
 
 /** A long-running leader's past quests: Find's Tabs mode lists them with the open tabs, by recency. */
-const CLOSED_TITLES = ["Retire the tab strip", "Quest preview sheet", "Relay tunnel health check", "Voice retry"];
-const CLOSED_TABS: PrimaryThreadChip[] = Array.from({ length: 140 }, (_, index) =>
-  questTab(`q-${9460 - index}`, `${CLOSED_TITLES[index % CLOSED_TITLES.length]} ${index + 1}`, null, {
-    canClose: false,
-    updatedAt: NOW - (index + 3) * 4 * 60 * MINUTE,
-  }),
-);
-
-/** The user's latest messages to the leader, across open and closed tabs and Main. */
-const RECENT_MESSAGES: Array<[string, string, number]> = [
-  ["q-9482", "Can the tab show which group it moved to? I keep losing it after it finishes.", 2],
-  ["main", "What's still running from this morning?", 9],
-  ["q-9481", "Keep the send button where it is; move only the attention chip.", 25],
-  ["q-9459", "The preview sheet should close with the back gesture too, like the image viewer does.", 70],
-  ["q-9479", "Looks great on the phone. Ship it.", 130],
-  ["main", "Please file a quest for the relay timeout we saw yesterday and start it after the board fix lands.", 300],
-];
-
-/** Enough history for several pages, so scrolling to the end of the list loads older ones. */
-const PLAYGROUND_MESSAGES: MessageSearchResult[] = Array.from({ length: 130 }, (_, index) => {
-  const [threadKey, text, minutesAgo] = RECENT_MESSAGES[index % RECENT_MESSAGES.length]!;
-  const round = Math.floor(index / RECENT_MESSAGES.length);
-  return {
-    id: `playground:${index}`,
-    sessionId: "playground",
-    sessionNum: null,
-    messageId: `playground-recent-${index}`,
-    historyIndex: index,
-    role: "user",
-    category: "user",
-    timestamp: NOW - (minutesAgo + round * 24 * 60) * MINUTE,
-    snippet: text,
-    routeThreadKey: threadKey,
-    starred: false,
-  };
-});
-const PLAYGROUND_PAGE_SIZE = 50;
-
-const loadPlaygroundRecentMessages: LoadRecentMessages = async (query, offset) => {
-  // A short wait, as from the server, so the "Loading older messages" row shows.
-  if (offset > 0) await new Promise((resolve) => setTimeout(resolve, 400));
-  const matches = PLAYGROUND_MESSAGES.filter((result) => result.snippet.toLowerCase().includes(query.toLowerCase()));
-  const end = offset + PLAYGROUND_PAGE_SIZE;
-  return { results: matches.slice(offset, end), nextOffset: end < matches.length ? end : null };
-};
-
 /** For a leader with topics on: its topics by recent activity, for the Topics group. */
 const TOPICS: TopicSummary[] = [
   playgroundTopic("topic-feed", "Feed polish", 12, "Answer times sit on the last line of each answer.", 1),
@@ -146,21 +98,12 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
   // The topic whose conversation is on screen: the Topics group stays selected while it is.
   const [topicOpen, setTopicOpen] = useState<string | null>(null);
   const [tabs, setTabs] = useState(TABS);
-  const [closedTabs, setClosedTabs] = useState(CLOSED_TABS);
-  // Choosing a closed tab reopens it, as the leader's real tab state does.
   const select = (threadKey: string) => {
-    const reopened = closedTabs.find((tab) => tab.threadKey === threadKey);
-    if (reopened) {
-      setClosedTabs((existing) => existing.filter((tab) => tab !== reopened));
-      setTabs((existing) => [{ ...reopened, canClose: true }, ...existing]);
-    }
     setCurrent(threadKey);
     setTopicOpen(null);
   };
   const close = (threadKey: string) => {
-    const closing = tabs.find((tab) => tab.threadKey === threadKey);
     setTabs((existing) => existing.filter((tab) => tab.threadKey !== threadKey));
-    if (closing) setClosedTabs((existing) => [{ ...closing, canClose: false }, ...existing]);
   };
   return (
     <div
@@ -170,7 +113,6 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
       <ThreadTabGroupBar
         main={MAIN}
         tabs={tabs}
-        closedTabs={closedTabs}
         placement={placement}
         currentThreadKey={current}
         activeOutputThreadKey="q-9482"
@@ -188,8 +130,6 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
         }}
         onSelect={select}
         onClose={close}
-        loadRecentMessages={loadPlaygroundRecentMessages}
-        onOpenMessage={(threadKey) => select(threadKey)}
         topicsGroup={
           topics ? { topics: TOPICS, currentTopicId: topicOpen, onOpen: (topic) => setTopicOpen(topic.id) } : undefined
         }
@@ -203,10 +143,10 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done) and search; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Find has two modes and opens in the one chosen last: Messages lists the user's latest messages with the tab each is in (choosing one opens that tab at the message), and Tabs lists open and closed tabs together, most recently active first, searchable by title or quest number (choosing a closed one reopens it). For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
+        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done), and a Topics group after Main when topics are on; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
       >
         <div className="space-y-4">
-          <Card label="At the top (tap a group, or search)">
+          <Card label="At the top (tap a group)">
             <PhoneFrame placement="top" />
           </Card>
           <Card label="Topics on (open Topics, pick one)">

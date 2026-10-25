@@ -275,7 +275,7 @@ function getQuestResultActions(quest: QuestListPreview, sessions: SdkSessionInfo
   if (leaderSessionId) {
     actions.push({
       id: "leader",
-      label: `Go to leader session${leaderSessionNum != null ? ` #${leaderSessionNum}` : ""}`,
+      label: `Open its tab in leader${leaderSessionNum != null ? ` #${leaderSessionNum}` : ""}`,
       sessionId: leaderSessionId,
       sessionNum: leaderSessionNum,
     });
@@ -349,6 +349,8 @@ export function UniversalSearchOverlay({
   const listRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const requestSeqRef = useRef(0);
+  // Message results already loaded for one search, so scrolling fetches only the next page.
+  const messagePagesRef = useRef<{ key: string; loaded: number; total: number } | null>(null);
   const sessionByIdRef = useRef<Map<string, SdkSessionInfo>>(new Map());
   const searchKeyRef = useRef("");
   const copiedResetTimerRef = useRef<number | null>(null);
@@ -481,6 +483,8 @@ export function UniversalSearchOverlay({
   useEffect(() => {
     if (!open) return;
     const initialState = resolveInitialSearchState(initialMode, initialQuery);
+    // Opening searches afresh: no page of an earlier search is kept.
+    messagePagesRef.current = null;
     setMode(initialState.mode);
     setRecentSearchOrigin(initialState.recentSearchOrigin);
     setMessageSettings(readMessageSearchSettings());
@@ -603,7 +607,7 @@ export function UniversalSearchOverlay({
       const nextScopeLabel = currentSessionId
         ? localMessageScopeLabel(currentSession?.sessionNum ?? null, effectiveMessageScope, currentThreadKey)
         : "Current session required";
-      if (!currentSessionId || liveMessageQuery.length === 0) {
+      if (!currentSessionId) {
         setRemoteState({
           mode: "messages",
           status: "idle",
@@ -640,34 +644,46 @@ export function UniversalSearchOverlay({
         });
         return;
       }
+      // An empty query lists the messages newest first. Scrolling asks only for the next page of
+      // the same search, so a long history is read a page at a time.
+      const page = messagePagesRef.current?.key === searchKey ? messagePagesRef.current : null;
+      if (page && (page.loaded >= visibleLimit || page.loaded >= page.total)) return;
+      const offset = page?.loaded ?? 0;
       const controller = new AbortController();
-      setRemoteState({
-        mode: "messages",
-        status: "loading",
-        total: 0,
-        results: [],
-        scopeLabel: nextScopeLabel,
-        query: liveMessageQuery,
-      });
+      setRemoteState((current) =>
+        page && current.mode === "messages"
+          ? { ...current, status: "loading" }
+          : {
+              mode: "messages",
+              status: "loading",
+              total: 0,
+              results: [],
+              scopeLabel: nextScopeLabel,
+              query: liveMessageQuery,
+            },
+      );
       void api
         .searchSessionMessages(currentSessionId, {
           query: liveMessageQuery,
           scope: effectiveMessageScope,
           threadKey: effectiveMessageScope === "current_thread" ? currentThreadKey || "main" : undefined,
           filters: messageSettings.filters,
-          limit: visibleLimit,
+          limit: visibleLimit - offset,
+          ...(offset ? { offset } : {}),
           signal: controller.signal,
         })
         .then((response) => {
           if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
-          setRemoteState({
+          const added = response.results.map((message) => ({ kind: "message" as const, id: message.id, message }));
+          messagePagesRef.current = { key: searchKey, loaded: offset + added.length, total: response.totalMatches };
+          setRemoteState((current) => ({
             mode: "messages",
             status: "idle",
             total: response.totalMatches,
             scopeLabel: response.scope.label,
-            results: response.results.map((message) => ({ kind: "message", id: message.id, message })),
+            results: offset && current.mode === "messages" ? [...current.results, ...added] : added,
             query: liveMessageQuery,
-          });
+          }));
         })
         .catch((err) => {
           if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
@@ -740,6 +756,7 @@ export function UniversalSearchOverlay({
     open,
     recentAskPreviewResponse,
     recentSessionSpaceId,
+    searchKey,
     starredSearchPreviewResponse,
     visibleLimit,
   ]);
@@ -749,21 +766,14 @@ export function UniversalSearchOverlay({
     if (mode === "quests") return remoteState.mode === "quests" ? remoteState.results : [];
     if (mode === "sessions") return sessionResults;
     if (mode === "starred") return remoteState.mode === "starred" ? remoteState.results : [];
-    return remoteState.mode === "messages" && remoteState.query === liveMessageQuery && liveMessageQuery.length > 0
-      ? remoteState.results
-      : [];
+    return remoteState.mode === "messages" && remoteState.query === liveMessageQuery ? remoteState.results : [];
   }, [liveMessageQuery, mode, remoteState, sessionResults]);
 
   const totalResults = useMemo(() => {
     if (mode === "recent" && remoteState.mode === "recent") return remoteState.total;
     if (mode === "quests" && remoteState.mode === "quests") return remoteState.total;
     if (mode === "sessions") return totalSessionResults;
-    if (
-      mode === "messages" &&
-      remoteState.mode === "messages" &&
-      remoteState.query === liveMessageQuery &&
-      liveMessageQuery.length > 0
-    ) {
+    if (mode === "messages" && remoteState.mode === "messages" && remoteState.query === liveMessageQuery) {
       return remoteState.total;
     }
     if (mode === "starred" && remoteState.mode === "starred") return remoteState.total;
@@ -1122,7 +1132,7 @@ export function UniversalSearchOverlay({
                   ? "No recent conversations match these filters."
                   : "No recent conversations are available yet."
                 : mode === "messages" && !liveMessageQuery
-                  ? "Enter a query to search messages."
+                  ? "No messages here yet."
                   : mode === "starred"
                     ? debouncedQuery.trim()
                       ? "No starred messages match."
@@ -1389,6 +1399,7 @@ function QuestResultRow({
   const leaderSessionNum = sessionNumForId(sessions, leaderSessionId);
   const workerSessionNum = sessionNumForId(sessions, workerSessionId);
   const actions = getQuestResultActions(quest, sessions);
+  const leaderAction = actions.find((action) => action.id === "leader");
   const selectedActionIndex = Math.min(actionMenu?.selectedActionIndex ?? 0, actions.length - 1);
   const status = getQuestRecordStatusTheme(quest);
   function handleInteractiveKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -1482,6 +1493,38 @@ function QuestResultRow({
       >
         <span className="truncate text-[14px] text-cc-fg">{quest.title}</span>
       </SearchRowContent>
+      {leaderAction && (
+        // A quest has one tab in its leader: this opens it, while the row opens the quest's details.
+        <button
+          type="button"
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+          aria-label={`Open the tab of ${quest.questId} in leader #${leaderSessionNum ?? "?"}`}
+          title={`Open its tab in leader #${leaderSessionNum ?? "?"}`}
+          onKeyDown={handleInteractiveKeyDown}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onActivateAction(quest, leaderAction);
+          }}
+          data-testid="universal-search-quest-tab"
+        >
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-3.5 w-3.5"
+            aria-hidden="true"
+          >
+            <circle cx="8" cy="8" r="7" />
+            <path d="M4.5 8h6.5" />
+            <path d="M8 5l3 3-3 3" />
+          </svg>
+          <span>Tab</span>
+        </button>
+      )}
       <button
         type="button"
         className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${

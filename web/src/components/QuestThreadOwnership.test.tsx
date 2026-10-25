@@ -13,6 +13,7 @@ import {
 } from "../test-fixtures/leader-thread-tabs-projection.js";
 import { mergeProjectedLeaderThreadRows } from "../utils/leader-thread-tabs-navigation.js";
 import { QuestThreadBanner } from "./QuestThreadBanner.js";
+import { listedThreadTab } from "../test-fixtures/thread-tab-rows.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 
 /**
@@ -142,10 +143,8 @@ describe("quest tabs led by another leader", () => {
     installLeader(ownershipProjection());
     render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={() => {}} />);
 
-    // Every tab is listed in the all-tabs sheet, under its status group.
-    fireEvent.click(screen.getByTestId("thread-tab-group-search"));
-    const tab = (threadKey: string) =>
-      screen.getAllByTestId("thread-tab-list-row").find((candidate) => candidate.dataset.threadKey === threadKey)!;
+    // Every tab is listed in its status group's list.
+    const tab = (threadKey: string) => listedThreadTab(threadKey)!;
 
     // Own active work keeps its phase color, no ownership note and no close button.
     const own = tab("q-1");

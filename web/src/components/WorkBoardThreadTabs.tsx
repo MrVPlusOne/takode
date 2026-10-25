@@ -6,7 +6,7 @@
 import { openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
 import { useTopicTabTopics } from "./TopicTabList.js";
 import type { TopicSummary } from "../../shared/library-topics.js";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
@@ -18,12 +18,8 @@ import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js"
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { ThreadTabGroupBar } from "./ThreadTabGroups.js";
 import { useLeaderTopics } from "../utils/leader-topics.js";
-import type { LoadRecentMessages } from "./ThreadTabRecentMessages.js";
-import { searchSessionMessages } from "../api/session-message-search.js";
-import { navigateToSessionMessageId } from "../utils/routing.js";
 
 /** Find's Messages mode lists this many of the user's latest messages. */
-const RECENT_MESSAGE_PAGE_SIZE = 50;
 
 export const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
 const NORMAL_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
@@ -138,7 +134,6 @@ function cachedQuestForId(questId: string | undefined): QuestmasterTask | undefi
 export function ThreadTabRail({
   mainState,
   tabs,
-  closedTabs,
   sessionId,
   currentThreadKey,
   onSelectThread,
@@ -147,8 +142,6 @@ export function ThreadTabRail({
 }: {
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
-  /** Quest threads without an open tab, which Find lists and reopens. */
-  closedTabs?: readonly PrimaryThreadChip[];
   sessionId: string;
   currentThreadKey: string;
   onSelectThread?: (threadKey: string) => void;
@@ -202,25 +195,6 @@ export function ThreadTabRail({
     }
     return items;
   };
-  // Threads known only from history may lack a loaded title; fetch them so Find can match by title.
-  const hydrateClosedTitles = () => {
-    const untitled = (closedTabs ?? []).filter((tab) => tab.questId && tab.title === tab.questId);
-    if (untitled.length > 0) void useStore.getState().hydrateQuestTitles(untitled.map((tab) => tab.questId!));
-  };
-  // Find's Messages mode: the user's own messages across every tab of this leader, newest first,
-  // or best match then newest when searching, a page at a time. The server searches the session's whole history.
-  const loadRecentMessages = useCallback<LoadRecentMessages>(
-    (query, offset, signal) =>
-      searchSessionMessages(sessionId, {
-        query,
-        scope: "leader_all_tabs",
-        filters: { user: true, assistant: false, event: false },
-        limit: RECENT_MESSAGE_PAGE_SIZE,
-        offset,
-        signal,
-      }).then((response) => ({ results: response.results, nextOffset: response.nextOffset })),
-    [sessionId],
-  );
   // Every tab's topic: the Done list groups by them, and a quest tab names its topic at once.
   const leaderTopics = useLeaderTopics(
     sessionId,
@@ -243,8 +217,6 @@ export function ThreadTabRail({
     openThread(questId);
     openTopicConversation(sessionId, questId);
   };
-  const openMessage = (threadKey: string, messageId: string) =>
-    navigateToSessionMessageId(sessionId, messageId, { threadKey, preserveMainThreadRoute: true });
   const menuTab = tabMenu ? tabs.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
   const menuItems = menuTab ? tabMenuItems(menuTab) : [];
 
@@ -259,10 +231,6 @@ export function ThreadTabRail({
         key={sessionId}
         main={mainState}
         tabs={displayedTabs}
-        closedTabs={closedTabs}
-        onOpenFind={hydrateClosedTitles}
-        loadRecentMessages={onSelectThread ? loadRecentMessages : undefined}
-        onOpenMessage={onSelectThread ? openMessage : undefined}
         currentThreadKey={currentThreadKey}
         activeOutputThreadKey={runningRoute?.threadKey ?? null}
         monitors={monitors}

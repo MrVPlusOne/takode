@@ -1,8 +1,8 @@
 /**
  * Phone thread tabs as status groups: the bar names only the current tab and shows one
  * chip per kind of tab the user scans for (prompts waiting, unread results, quests in
- * progress, finished). A chip lists its tabs; Find opens a sheet that lists either the
- * user's messages or every tab, open and closed, newest first.
+ * progress, finished), with a Topics group after Main when the leader has topics on. A chip
+ * lists its tabs. Finding a tab or a message is Search everything's Tabs and Messages modes.
  */
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { TopicIcon } from "./library/library-icons.js";
@@ -13,12 +13,9 @@ import type { ThreadMonitoringProjectionValue } from "../../shared/thread-monito
 import { LONG_PRESS_TARGET_CLASS, useLongPress, type OpenContextMenu } from "../hooks/useLongPress.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { timeAgo } from "../utils/quest-helpers.js";
-import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { BellIcon } from "./AttentionKind.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 import { SessionRoleIcon } from "./SessionRoleLabel.js";
-import { SearchField, SearchModeSwitch, SearchSheet } from "./SearchSheet.js";
-import { ThreadTabRecentMessages, type LoadRecentMessages } from "./ThreadTabRecentMessages.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
@@ -126,14 +123,6 @@ interface RowContext {
 export interface ThreadTabGroupBarProps extends RowContext {
   main?: PrimaryThreadChip;
   tabs: readonly PrimaryThreadChip[];
-  /** Quest threads without an open tab, newest first; Find searches them and reopens one when chosen. */
-  closedTabs?: readonly PrimaryThreadChip[];
-  /** Called when Find opens. */
-  onOpenFind?: () => void;
-  /** With `onOpenMessage`, gives Find a Recent mode listing the user's latest messages here. */
-  loadRecentMessages?: LoadRecentMessages;
-  /** Opens a thread scrolled to one of its messages. */
-  onOpenMessage?: (threadKey: string, messageId: string) => void;
   /** Where the bar sits; group lists open away from the screen edge. */
   placement?: "top" | "bottom";
   /**
@@ -151,19 +140,8 @@ export interface ThreadTabGroupBarProps extends RowContext {
  * The phone tab bar: Main, one item per non-empty group, and search. The quest strip
  * below already names the current quest, so the bar only marks which group holds it.
  */
-export function ThreadTabGroupBar({
-  main,
-  tabs,
-  closedTabs = [],
-  onOpenFind,
-  loadRecentMessages,
-  onOpenMessage,
-  placement = "top",
-  topicsGroup,
-  ...rows
-}: ThreadTabGroupBarProps) {
+export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, ...rows }: ThreadTabGroupBarProps) {
   const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | "topics" | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
   // The input of the latest press on the bar: a click on an open group differs by mouse and finger.
   const lastPressRef = useRef<string>("mouse");
   const mainTab = main ?? {
@@ -190,7 +168,6 @@ export function ThreadTabGroupBar({
   useGroupMoveAnimation(barRef, currentKey, currentGroup, groups);
   const select = (threadKey: string) => {
     setOpenGroup(null);
-    setSheetOpen(false);
     rows.onSelect(threadKey);
   };
   const rowContext = { ...rows, onSelect: select };
@@ -222,11 +199,6 @@ export function ThreadTabGroupBar({
   const item = (key: string, props: Omit<BarItemProps, "placement" | "selectedSurface">) => (
     <BarItem key={key} placement={placement} selectedSurface={selectedSurface} {...props} />
   );
-  const openFind = () => {
-    setOpenGroup(null);
-    setSheetOpen(true);
-    onOpenFind?.();
-  };
   // The Topics group, right after Main.
   const topicsItem = () =>
     topicsGroup &&
@@ -305,20 +277,6 @@ export function ThreadTabGroupBar({
               })
             : null,
         )}
-        {item("search", {
-          label: "Find a tab",
-          selected: false,
-          open: sheetOpen,
-          compact: true,
-          testId: "thread-tab-group-search",
-          onClick: openFind,
-          children: (
-            <>
-              <SearchGlyph />
-              <span className="hidden md:inline">Find</span>
-            </>
-          ),
-        })}
       </div>
       {openGroup && (
         <>
@@ -371,25 +329,6 @@ export function ThreadTabGroupBar({
             )}
           </div>
         </>
-      )}
-      {sheetOpen && (
-        <ThreadTabSwitcherSheet
-          tabs={THREAD_TAB_GROUP_ORDER.flatMap((id) => groups[id])}
-          closedTabs={closedTabs}
-          context={rowContext}
-          recent={
-            loadRecentMessages && onOpenMessage
-              ? {
-                  load: loadRecentMessages,
-                  open: (threadKey, messageId) => {
-                    setSheetOpen(false);
-                    onOpenMessage(threadKey, messageId);
-                  },
-                }
-              : undefined
-          }
-          onClose={() => setSheetOpen(false)}
-        />
       )}
     </div>
   );
@@ -512,22 +451,6 @@ function BarItem({
 
 function isTouchPress(pointerType: string): boolean {
   return pointerType === "touch" || pointerType === "pen";
-}
-
-function SearchGlyph() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      className="h-3.5 w-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      aria-hidden="true"
-    >
-      <circle cx="7" cy="7" r="4.5" />
-      <path d="M10.5 10.5L14 14" strokeLinecap="round" />
-    </svg>
-  );
 }
 
 /** The group's name, shown before its count where the bar has room. */
@@ -736,13 +659,6 @@ function Highlight({ text, query }: { text: string; query: string }) {
   );
 }
 
-function matchesQuery(tab: PrimaryThreadChip, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  const number = (tab.questId ?? tab.threadKey).toLowerCase();
-  return number.includes(needle) || tab.title.toLowerCase().includes(needle);
-}
-
 /** When a tab last saw activity: a chat, a prompt or result, or a board change. */
 function lastActivityAt(tab: PrimaryThreadChip): number {
   return Math.max(tab.updatedAt, tab.groupChangedAt ?? 0);
@@ -774,142 +690,5 @@ function CloseAllButton({
     >
       {confirming ? `Close ${tabs.length} tabs?` : "Close all"}
     </button>
-  );
-}
-
-/** Tabs render in pages, so a leader with hundreds of past quests opens Find at once. */
-const TAB_PAGE_SIZE = 100;
-
-export type ThreadFindMode = "messages" | "tabs";
-/** Find opens in the mode the user last chose. */
-const FIND_MODE_STORAGE_KEY = "cc-thread-find-mode";
-const FIND_MODE_OPTIONS: ReadonlyArray<{ id: ThreadFindMode; label: string }> = [
-  { id: "messages", label: "Messages" },
-  { id: "tabs", label: "Tabs" },
-];
-
-function readFindMode(): ThreadFindMode {
-  return scopedGetItem(FIND_MODE_STORAGE_KEY) === "messages" ? "messages" : "tabs";
-}
-
-/**
- * Find: one search box over either the user's messages to this leader or the leader's
- * quest tabs, open and closed, both newest first. The last mode chosen is remembered.
- * Choosing a closed tab reopens it; Main is always on the bar, so it is not listed.
- */
-function ThreadTabSwitcherSheet({
-  tabs,
-  closedTabs,
-  context,
-  recent,
-  onClose,
-}: {
-  tabs: readonly PrimaryThreadChip[];
-  closedTabs: readonly PrimaryThreadChip[];
-  context: RowContext;
-  recent?: { load: LoadRecentMessages; open: (threadKey: string, messageId: string) => void };
-  onClose: () => void;
-}) {
-  const [storedMode, setStoredMode] = useState(readFindMode);
-  const mode: ThreadFindMode = recent ? storedMode : "tabs";
-  const [query, setQuery] = useState("");
-  const [shown, setShown] = useState(TAB_PAGE_SIZE);
-  const closedKeys = new Set(closedTabs.map((tab) => normalizeThreadKey(tab.threadKey)));
-  const allTabs = [...tabs, ...closedTabs];
-  const tabByKey = new Map(allTabs.map((tab) => [normalizeThreadKey(tab.threadKey), tab] as const));
-  const matches =
-    mode === "tabs"
-      ? allTabs
-          .filter((tab) => matchesQuery(tab, query))
-          .sort((left, right) => lastActivityAt(right) - lastActivityAt(left))
-      : [];
-  // Closed rows have no close button or menu; choosing one opens its tab again.
-  const closedContext: RowContext = { ...context, onClose: undefined, onOpenMenu: undefined };
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const chooseMode = (next: ThreadFindMode) => {
-    setStoredMode(next);
-    scopedSetItem(FIND_MODE_STORAGE_KEY, next);
-    if (listRef.current) listRef.current.scrollTop = 0;
-  };
-  // A new search starts at the top. Left deep in the last list, the end of the shorter new
-  // list would sit in view and load every older page of it at once.
-  useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = 0;
-  }, [query]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  return (
-    <SearchSheet
-      label="Find"
-      onClose={onClose}
-      testId="thread-tab-switcher"
-      backdropTestId="thread-tab-switcher-backdrop"
-      dataMode={mode}
-      header={
-        recent ? (
-          <SearchModeSwitch
-            label="Find"
-            options={FIND_MODE_OPTIONS}
-            value={mode}
-            onChange={chooseMode}
-            testId="thread-find-mode"
-          />
-        ) : (
-          <span className="text-[15px] text-cc-fg">Find a tab</span>
-        )
-      }
-    >
-      <SearchField
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder={mode === "messages" ? "Search your messages" : "Search tabs by title or quest number"}
-        aria-label={mode === "messages" ? "Search your messages" : "Find a tab"}
-        data-testid="thread-tab-switcher-search"
-      />
-      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-6">
-        {mode === "messages" && recent && (
-          <ThreadTabRecentMessages
-            query={query}
-            load={recent.load}
-            tabFor={(threadKey) => tabByKey.get(threadKey)}
-            onOpen={recent.open}
-          />
-        )}
-        {matches.slice(0, shown).map((tab) => {
-          const closed = closedKeys.has(normalizeThreadKey(tab.threadKey));
-          return (
-            <ThreadTabListRow
-              key={tab.threadKey}
-              tab={tab}
-              context={closed ? closedContext : context}
-              query={query}
-              closed={closed}
-            />
-          );
-        })}
-        {matches.length > shown && (
-          <button
-            type="button"
-            onClick={() => setShown((count) => count + TAB_PAGE_SIZE)}
-            className="w-full px-4 py-3 text-left text-[13px] text-cc-primary"
-            data-testid="thread-tab-switcher-more"
-          >
-            Show {Math.min(TAB_PAGE_SIZE, matches.length - shown)} more
-          </button>
-        )}
-        {mode === "tabs" && matches.length === 0 && (
-          <p className="px-4 py-6 text-[13px] text-cc-muted">
-            {query.trim() ? `No tab matches “${query}”.` : "No quest tabs yet."}
-          </p>
-        )}
-      </div>
-    </SearchSheet>
   );
 }

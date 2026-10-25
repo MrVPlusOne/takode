@@ -124,7 +124,12 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
   };
 });
 
-import { groupedThreadTabKeys, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
+import {
+  closeAllThreadTabs,
+  groupedThreadTabKeys,
+  listedThreadTab,
+  listedThreadTabs,
+} from "../test-fixtures/thread-tab-rows.js";
 
 // Must import after mocks are set up
 const { WorkBoardBar: CurrentWorkBoardBar } = await import("./WorkBoardBar.js");
@@ -367,7 +372,7 @@ describe("WorkBoardBar", () => {
         />,
       );
 
-      const tab = listedThreadTabs().find((node) => node.getAttribute("data-thread-key") === "q-977");
+      const tab = listedThreadTab("q-977");
       expect(tab).toBeTruthy();
       fireEvent.click(within(tab!).getByTestId("thread-tab-list-row-select"));
       vi.runOnlyPendingTimers();
@@ -540,7 +545,7 @@ describe("WorkBoardBar", () => {
     expect(boardActiveTab).toHaveAttribute("data-closable", "false");
     expect(within(boardActiveTab).queryByTestId("thread-tab-list-row-close")).not.toBeInTheDocument();
 
-    fireEvent.click(view.getByLabelText("Close q-5"));
+    fireEvent.click(within(listedThreadTab("q-5")!).getByLabelText("Close q-5"));
 
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-5", expectedNextThread);
     expect(onSelectThread).not.toHaveBeenCalled();
@@ -557,6 +562,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
+    closeAllThreadTabs();
     expect(view.queryByText("q-5 rework requested")).not.toBeInTheDocument();
     expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(
       expect.arrayContaining(["q-1", "q-2"]),
@@ -607,7 +613,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const q1066Tab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1066")!;
+    const q1066Tab = listedThreadTab("q-1066")!;
     expect(q1066Tab).toHaveTextContent("q-1066");
     expect(q1066Tab).toHaveTextContent("Keep Codex tool-router errors from stranding sessions");
     expect(q1066Tab).not.toHaveTextContent("rework requested");
@@ -699,14 +705,14 @@ describe("WorkBoardBar", () => {
 
     render(<WorkBoardBar sessionId="s1" />);
 
-    const implementingTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const implementingTab = listedThreadTab("q-1")!;
     expect(implementingTab).toHaveTextContent("Fix bug");
     const implementingMeta = within(implementingTab).getByTestId("thread-tab-list-row-meta");
     expect(implementingMeta).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
     expect(implementingMeta).toHaveTextContent("q-1 · Work");
 
     // A queued tab reads in the normal foreground, not the done gray.
-    const queuedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    const queuedTab = listedThreadTab("q-2")!;
     const queuedMeta = within(queuedTab).getByTestId("thread-tab-list-row-meta");
     expect(queuedMeta).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
     expect(queuedMeta).toHaveTextContent("q-2 · Queued");
@@ -792,7 +798,7 @@ describe("WorkBoardBar", () => {
     expect(progress).toHaveAttribute("data-selected", "true");
     expect(progress).toHaveAttribute("data-active-output", "true");
 
-    const activeTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const activeTab = listedThreadTab("q-1")!;
     expect(activeTab).toHaveAttribute("data-selected", "false");
     expect(activeTab).toHaveAttribute("data-active-output", "true");
     expect(within(activeTab).getByTestId("thread-tab-active-output-spinner")).toBeInTheDocument();
@@ -801,7 +807,7 @@ describe("WorkBoardBar", () => {
       getPhaseThreadTabTitleColor("WORKING"),
     );
 
-    const selectedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    const selectedTab = listedThreadTab("q-2")!;
     expect(selectedTab).toHaveAttribute("data-selected", "true");
     expect(selectedTab).toHaveAttribute("data-active-output", "false");
     expect(within(selectedTab).queryByTestId("thread-tab-active-output-spinner")).not.toBeInTheDocument();
@@ -815,12 +821,12 @@ describe("WorkBoardBar", () => {
 
     render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1", "q-2"]} />);
 
-    const implementingTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const implementingTab = listedThreadTab("q-1")!;
     const implementingMeta = within(implementingTab).getByTestId("thread-tab-list-row-meta");
     expect(implementingMeta).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("WORKING"));
     expect(implementingTab).toHaveTextContent("Fix bug");
 
-    const queuedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    const queuedTab = listedThreadTab("q-2")!;
     const queuedMeta = within(queuedTab).getByTestId("thread-tab-list-row-meta");
     expect(queuedMeta).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
     expect(queuedMeta).not.toHaveAttribute("data-title-color", "var(--color-cc-muted)");
@@ -849,7 +855,7 @@ describe("WorkBoardBar", () => {
 
     const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-3" openThreadKeys={["q-3"]} />);
 
-    const completedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
+    const completedTab = listedThreadTab("q-3")!;
     expect(completedTab).toHaveAttribute("data-selected", "true");
     const completedTitle = within(completedTab).getByTestId("thread-tab-list-row-meta");
     expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
@@ -878,7 +884,7 @@ describe("WorkBoardBar", () => {
 
     const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-3"]} />);
 
-    const completedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
+    const completedTab = listedThreadTab("q-3")!;
     const completedTitle = within(completedTab).getByTestId("thread-tab-list-row-meta");
     expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(completedTitle).not.toHaveStyle({
@@ -921,7 +927,7 @@ describe("WorkBoardBar", () => {
 
     const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-3" openThreadKeys={["q-3"]} />);
 
-    const tab = listedThreadTabs().find((candidate) => candidate.getAttribute("data-thread-key") === "q-3")!;
+    const tab = listedThreadTab("q-3")!;
     expect(tab).toHaveAttribute("data-closable", "false");
     const title = within(tab).getByTestId("thread-tab-list-row-meta");
     expect(title).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("USER_CHECKPOINTING"));
@@ -944,7 +950,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const doneTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-99")!;
+    const doneTab = listedThreadTab("q-99")!;
     expect(within(doneTab).getByTestId("thread-tab-list-row-meta")).toHaveAttribute(
       "data-title-color",
       "var(--color-cc-muted)",
@@ -984,7 +990,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const needsInputTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const needsInputTab = listedThreadTab("q-1")!;
     expect(needsInputTab).toHaveAttribute("data-active-output", "true");
     expect(within(needsInputTab).getByTestId("thread-tab-active-output-spinner")).toBeInTheDocument();
     expect(within(needsInputTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
@@ -993,7 +999,7 @@ describe("WorkBoardBar", () => {
       getPhaseThreadTabTitleColor("WORKING"),
     );
 
-    const inactiveTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    const inactiveTab = listedThreadTab("q-2")!;
     expect(inactiveTab).toHaveAttribute("data-active-output", "false");
     expect(within(inactiveTab).queryByTestId("thread-tab-active-output-spinner")).not.toBeInTheDocument();
     withBellView.unmount();
@@ -1006,7 +1012,7 @@ describe("WorkBoardBar", () => {
     });
 
     render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} />);
-    const noBellTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const noBellTab = listedThreadTab("q-1")!;
     expect(within(noBellTab).getByTestId("thread-tab-active-output-spinner")).toBeInTheDocument();
     expect(within(noBellTab).queryByTestId("thread-tab-bell")).not.toBeInTheDocument();
   });
@@ -1037,14 +1043,14 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const reviewTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const reviewTab = listedThreadTab("q-1")!;
     expect(reviewTab).toHaveAttribute("data-blue-notification", "true");
     expect(reviewTab).toHaveAttribute("data-needs-input", "true");
     // One bell per tab: the prompt's amber outranks the unread result's blue.
     expect(within(reviewTab).getAllByTestId("thread-tab-bell")).toHaveLength(1);
     expect(within(reviewTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
 
-    const currentTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    const currentTab = listedThreadTab("q-2")!;
     expect(currentTab).toHaveAttribute("data-selected", "true");
   });
 
@@ -1070,7 +1076,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const tab = listedThreadTabs().find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
+    const tab = listedThreadTab("q-1")!;
     expect(tab).toHaveAttribute("data-needs-input", "false");
     expect(tab).toHaveAttribute("data-muted-needs-input", "true");
     expect(within(tab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "muted");
@@ -1105,7 +1111,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const tab = listedThreadTabs().find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
+    const tab = listedThreadTab("q-1")!;
     expect(tab).toHaveAttribute("data-needs-input", "true");
     expect(tab).toHaveAttribute("data-muted-needs-input", "true");
     expect(within(tab).getAllByTestId("thread-tab-bell")).toHaveLength(1);
@@ -1176,7 +1182,7 @@ describe("WorkBoardBar", () => {
     expect(mainTab).not.toHaveTextContent("Answer");
     expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
 
-    const currentTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const currentTab = listedThreadTab("q-1")!;
     expect(currentTab).toHaveAttribute("data-selected", "true");
   });
 
@@ -1205,9 +1211,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    expect(listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-3")).toHaveTextContent(
-      "Finished work",
-    );
+    expect(listedThreadTab("q-3")).toHaveTextContent("Finished work");
     expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
   });
 
@@ -1226,8 +1230,8 @@ describe("WorkBoardBar", () => {
 
     expect(getByTestId("thread-tab-group-main")).toHaveTextContent("Main");
     expect(queryByLabelText("Close Main")).not.toBeInTheDocument();
-    const activeTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    const completedTab = listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
+    const activeTab = listedThreadTab("q-1")!;
+    const completedTab = listedThreadTab("q-3")!;
     expect(activeTab).toHaveAttribute("data-closable", "false");
     expect(completedTab).toHaveAttribute("data-closable", "true");
     expect(within(activeTab).queryByTestId("thread-tab-list-row-close")).not.toBeInTheDocument();
@@ -1254,7 +1258,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const tab = listedThreadTabs().find((candidate) => candidate.getAttribute("data-thread-key") === "q-99")!;
+    const tab = listedThreadTab("q-99")!;
     expect(tab.tagName).toBe("DIV");
     expect(tab.querySelector("button button")).toBeNull();
 
@@ -1296,7 +1300,7 @@ describe("WorkBoardBar", () => {
       "q-right",
     ]);
 
-    fireEvent.click(getByLabelText("Close q-middle"));
+    fireEvent.click(within(listedThreadTab("q-middle")!).getByLabelText("Close q-middle"));
 
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-middle", "q-right");
     expect(onSelectThread).not.toHaveBeenCalled();
@@ -1317,11 +1321,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    fireEvent.click(
-      within(listedThreadTabs().find((tab) => tab.getAttribute("data-thread-key") === "q-2")!).getByTestId(
-        "thread-tab-list-row-select",
-      ),
-    );
+    fireEvent.click(within(listedThreadTab("q-2")!).getByTestId("thread-tab-list-row-select"));
     expect(onSelectThread).toHaveBeenCalledWith("q-2");
   });
 });

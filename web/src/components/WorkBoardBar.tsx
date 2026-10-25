@@ -137,39 +137,6 @@ function projectedThreadTabDetail(tab: LeaderThreadTabsProjectionTab): string | 
   );
 }
 
-/**
- * The leader's quest threads that have no open tab, newest activity first, for Find to
- * search and reopen. They come from the board and the server's thread summaries the
- * browser already holds, so even hundreds of past quests cost no extra request.
- */
-export function buildClosedThreadTabs(
-  threadRows: ReadonlyArray<WorkBoardThreadNavigationRow>,
-  openTabs: ReadonlyArray<PrimaryThreadChip>,
-): PrimaryThreadChip[] {
-  const openKeys = new Set(openTabs.map((tab) => normalizeThreadKey(tab.threadKey)));
-  return threadRows
-    .filter((row) => !openKeys.has(normalizeThreadKey(row.threadKey)))
-    .sort((left, right) => (right.lastActiveAt ?? 0) - (left.lastActiveAt ?? 0))
-    .map((row) => {
-      // A thread known only from history has no loaded status; say nothing rather than guess.
-      const known = row.status !== undefined || row.boardStatus !== undefined;
-      const done = known && row.section === "done";
-      return {
-        threadKey: normalizeThreadKey(row.threadKey),
-        questId: row.questId,
-        title: row.title,
-        stateLabel: done ? "Done" : (getQuestJourneyPresentation(row.boardStatus)?.label ?? row.boardStatus),
-        titleColor: DONE_THREAD_TITLE_COLOR,
-        needsInput: false,
-        mutedNeedsInput: false,
-        blueNudge: false,
-        completed: done,
-        canClose: false,
-        updatedAt: row.lastActiveAt ?? 0,
-      };
-    });
-}
-
 function buildProjectedThreadTabs(
   projection: LeaderThreadTabsProjectionValue,
   questTitleById: ReadonlyMap<string, string>,
@@ -561,11 +528,6 @@ function WorkBoardBarComponent({
     });
   }, [openThreadKeys, projectedTabs, projection, questTitleById, threadRows]);
 
-  const closedThreadTabs = useMemo(
-    () => buildClosedThreadTabs(threadRows, displayedThreadTabs),
-    [displayedThreadTabs, threadRows],
-  );
-
   const mainThreadState = useMemo(() => {
     const attention = projection?.mainAttention;
     if (!attention) return undefined;
@@ -611,7 +573,6 @@ function WorkBoardBarComponent({
       <ThreadTabRail
         mainState={mainThreadState}
         tabs={displayedThreadTabs}
-        closedTabs={closedThreadTabs}
         sessionId={sessionId}
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}
