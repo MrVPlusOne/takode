@@ -24,6 +24,8 @@ vi.mock("../quest-store.js", () => {
       leaderSessionId: "leader",
       // Finished just now: its wrap-up and unticked checks are what the Scribe builds Now from.
       completedAt: Date.now(),
+      // Its status changed after the topic's own events (newer than any test's filing).
+      statusChangedAt: Date.now() + 60_000,
       debriefTldr: "Launched; not tried on an iPhone.",
       verificationItems: [
         { text: "Check the T7 dashboard on the phone", checked: false },
@@ -179,6 +181,17 @@ describe("topic routes", () => {
       leader: { sessionId: "leader" },
       scribe: { instructions: "Interviews in one topic." },
     });
+  });
+
+  it("counts a topic's quests' own changes as activity, for topics older than their events", async () => {
+    // Events exist only since topics were turned on; a quest that finished before that still says
+    // when its topic was last active.
+    const { app, store, setCaller } = await setup();
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
+    setCaller("leader");
+    const listed = (await (await app.request("/topics?leader=leader")).json()).topics[0];
+    expect(listed).toMatchObject({ name: "T7 run", latestActivity: { text: "q-1 finished", questId: "q-1" } });
+    expect(listed.activityAt).toBeGreaterThan(Date.now());
   });
 
   it("lets a Scribe add, edit and remove Now entries for its leader, and keeps Now out of the page text", async () => {

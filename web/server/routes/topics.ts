@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { getQuest, listQuests } from "../quest-store.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { getArtifactLibrary } from "../artifact-library.js";
-import type { TopicListResponse } from "../../shared/library-topics.js";
+import type { TopicListResponse, TopicSummary } from "../../shared/library-topics.js";
 import { type NowGroup, nowGroupOf, takeLegacyNow } from "../../shared/topic-now-items.js";
 import { TopicStoreError } from "../topic-store.js";
 import type { TopicService } from "../topic-service.js";
@@ -91,6 +91,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         const own = await leaderQuestIds(leaderId);
         topics = topics.filter((topic) => topic.questIds.some((questId) => own.has(questId)));
       }
+      topics = withQuestActivity(topics, await listQuests());
       return {
         topics,
         changes: svc.store.changes(scoped),
@@ -494,6 +495,34 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
   );
 
   return api;
+}
+
+/**
+ * Topics' recent activity also counts their quests' own changes, since events are recorded only
+ * since topics were turned on; most recent first.
+ */
+function withQuestActivity(topics: TopicSummary[], quests: QuestmasterTask[]): TopicSummary[] {
+  const byId = new Map(quests.map((quest) => [quest.questId, quest]));
+  return topics
+    .map((topic) => {
+      const newest = topic.questIds
+        .map((questId) => byId.get(questId))
+        .reduce<QuestmasterTask | undefined>(
+          (latest, quest) => (quest && (!latest || questChangedAt(quest) > questChangedAt(latest)) ? quest : latest),
+          undefined,
+        );
+      if (!newest || questChangedAt(newest) <= topic.activityAt) {
+        return topic.activityAt ? topic : { ...topic, activityAt: topic.createdAt };
+      }
+      const at = questChangedAt(newest);
+      const text = `${newest.questId} ${newest.status === "done" ? "finished" : "updated"}`;
+      return { ...topic, activityAt: at, latestActivity: { at, text, questId: newest.questId } };
+    })
+    .sort((a, b) => b.activityAt - a.activityAt);
+}
+
+function questChangedAt(quest: QuestmasterTask): number {
+  return (quest as { statusChangedAt?: number }).statusChangedAt ?? quest.createdAt;
 }
 
 /** A Now entry from a command's body; with `partial`, fields may be left out. */

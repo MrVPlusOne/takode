@@ -130,6 +130,41 @@ describe("topic store", () => {
     expect(store.findByName("MSI", "Seeded QA")).toBeUndefined();
   });
 
+  it("orders topics by their newest real activity and sums up each one's news", async () => {
+    // Main's topic list shows what moved: a page rewrite (every Scribe rewrites after a restart) is
+    // not activity, while a finished quest or the user's message is. Each topic also carries its
+    // newest History line and what in its Now waits on the user.
+    const store = await newStore();
+    now = NOW;
+    const t7 = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false }).topic;
+    now = NOW + 1000;
+    const qa = store.assign({ questId: "q-2", space: "MSI", name: "Seeded QA", by: "agent", byAgent: false }).topic;
+    now = NOW + 2000;
+    store.addEvent(t7.id, { at: now, kind: "quest_done", questId: "q-1", text: "Launch T7" });
+    now = NOW + 3000;
+    store.writePage(
+      qa.id,
+      "QA data.\n\n## History\n- **Oct 24** · Mix tuned ([q-2](quest:q-2)).\n- **Oct 23** · Older.",
+      now,
+    );
+    store.addNow(t7.id, { group: "you", text: "pick the **SBV** grading ([q-1](quest:q-1))." });
+    store.addNow(t7.id, { group: "next", text: "the verdict." });
+
+    const [first, second] = store.list("MSI");
+    expect(first).toMatchObject({
+      name: "T7 run",
+      activityAt: NOW + 2000,
+      latestActivity: { text: "q-1 finished", questId: "q-1" },
+      waitingOnYou: ["pick the SBV grading (q-1)."],
+      openNow: 2,
+    });
+    expect(second).toMatchObject({
+      name: "Seeded QA",
+      activityAt: NOW + 1000,
+      latestUpdate: "Oct 24 · Mix tuned (q-2).",
+    });
+  });
+
   it("counts events after the page and summarizes the page by its opening sentence", async () => {
     const store = await newStore();
     const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });

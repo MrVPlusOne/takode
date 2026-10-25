@@ -15,7 +15,8 @@ import { PhoneTopicFrame } from "./PhoneTopicFrame.js";
 import { useStore } from "../../store.js";
 import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
-import { ChangeList, LeaderSwitches, RenameSuggestions, TopicRow } from "./TopicPage.js";
+import { ChangeList, LeaderSwitches, RenameSuggestions } from "./TopicPage.js";
+import { TopicActivityList } from "./TopicActivityList.js";
 import { TopicView } from "./TopicView.js";
 import { readTopicConversation } from "../../utils/topic-conversation.js";
 import { navigateToSession } from "../../utils/routing.js";
@@ -176,9 +177,7 @@ export function TopicSidePanel({
               {threadKey.startsWith("q-") && (
                 <div className="px-4 pt-2 text-[12.5px] text-cc-muted">{threadKey} isn't filed under a topic yet.</div>
               )}
-              {data.topics.map((topic) => (
-                <TopicRow key={topic.id} topic={topic} selected={false} onOpen={() => setChosen(topic.id)} />
-              ))}
+              <TopicActivityList topics={data.topics} onOpen={setChosen} />
             </>
           )}
         </div>

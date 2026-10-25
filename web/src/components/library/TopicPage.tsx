@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { TopicListResponse, TopicSummary } from "../../../shared/library-topics.js";
+import type { TopicListResponse } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 
 /**
@@ -188,41 +188,4 @@ export function ChangeList({ data, act }: { data: TopicListResponse; act: (actio
         ))}
     </div>
   );
-}
-
-export function TopicRow({ topic, selected, onOpen }: { topic: TopicSummary; selected: boolean; onOpen: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={`flex w-full gap-3 border-b border-cc-border px-4 py-2.5 text-left ${selected ? "bg-cc-active" : "hover:bg-cc-hover"}`}
-      data-testid="library-topic-row"
-    >
-      <span
-        className={`w-[3px] shrink-0 self-stretch rounded ${topic.tentative ? "bg-cc-border" : "bg-cc-status-done"}`}
-      />
-      <span className="min-w-0 flex-1">
-        <span className={`flex items-center gap-2 text-[15px] ${topic.tentative ? "text-cc-muted" : "text-cc-fg"}`}>
-          <span className="min-w-0 truncate">{topic.name}</span>
-          {topic.tentative && (
-            <span className="shrink-0 rounded border border-cc-border px-1 text-[11px] text-cc-muted">new</span>
-          )}
-        </span>
-        {topic.summary && <span className="mt-0.5 line-clamp-2 text-[13.5px] text-cc-fg/90">{topic.summary}</span>}
-        <span className="mt-0.5 block text-[12.5px] text-cc-muted">
-          {topic.questIds.length} quest{topic.questIds.length === 1 ? "" : "s"}
-          {topic.pendingEvents ? ` · ${topic.pendingEvents} new` : ""} · {ago(topic.updatedAt)}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-function ago(at: number): string {
-  const minutes = Math.round((Date.now() - at) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
 }

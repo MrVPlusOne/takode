@@ -25,6 +25,15 @@ export interface TopicSummary {
   upToDateAt: number | null;
   /** Events since the page was last written. */
   pendingEvents: number;
+  /** When something last happened in the topic (a quest filed or finished, a message, an artifact). */
+  activityAt: number;
+  /** That newest thing, in a phrase ("q-12 finished", "You wrote in q-12"), with its quest. */
+  latestActivity?: { at: number; text: string; questId?: string };
+  /** The newest line of the page's History, as plain text. */
+  latestUpdate?: string;
+  /** Open Now entries waiting on the user, as plain text; and how many Now entries are open. */
+  waitingOnYou: string[];
+  openNow: number;
 }
 
 export interface TopicEvent {

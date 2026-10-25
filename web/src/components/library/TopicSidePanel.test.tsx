@@ -41,12 +41,18 @@ function topic(overrides: Partial<TopicSummary>): TopicSummary {
     summary: "Step ~165; the twin tracks T7.",
     upToDateAt: NOW,
     pendingEvents: 2,
+    activityAt: NOW,
+    waitingOnYou: [],
+    openNow: 0,
     ...overrides,
   };
 }
 
 const LIST: TopicListResponse = {
-  topics: [topic({}), topic({ id: "qa", name: "Seeded QA", tentative: true, summary: "" })],
+  topics: [
+    topic({ latestUpdate: "Oct 24 · Twin caught up at step 200.", waitingOnYou: ["pick the grading."] }),
+    topic({ id: "qa", name: "Seeded QA", tentative: true, summary: "" }),
+  ],
   changes: [
     { id: "c1", at: NOW, space: "MSI", text: 'Folded "256K twin" into "T7 run"', byAgent: true, undone: false },
   ],
@@ -153,11 +159,16 @@ describe("TopicSidePanel", () => {
     fireEvent.click(within(hint).getByText("Turn on"));
     expect(api.enable).toHaveBeenCalledWith("l1", true);
 
+    // Each topic shows its newest update (else its description) and what waits on the user.
     const rows = screen.getAllByTestId("library-topic-row");
     expect(rows.map((row) => row.textContent)).toEqual([
       expect.stringContaining("T7 run"),
       expect.stringContaining("Seeded QA"),
     ]);
+    expect(rows[0]).toHaveTextContent("Twin caught up at step 200.");
+    expect(rows[0]).not.toHaveTextContent("Oct 24 ·");
+    expect(rows[0]).toHaveTextContent("1 waiting on you");
+    expect(rows[1]).not.toHaveTextContent("waiting on you");
     fireEvent.click(within(screen.getByTestId("topic-changes")).getByText("Undo"));
     expect(api.undo).toHaveBeenCalledWith("c1");
   });

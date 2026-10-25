@@ -802,10 +802,11 @@ export class TopicStore {
     return byName.length === 1 ? byName[0] : undefined;
   }
 
+  /** Topics, most recent activity first (page rewrites don't count as activity). */
   list(space?: string): TopicSummary[] {
     return this.liveTopics(space)
       .map((topic) => this.summary(topic))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+      .sort((a, b) => b.activityAt - a.activityAt);
   }
 
   spaces(): string[] {
@@ -857,6 +858,12 @@ export class TopicStore {
       upToDateAt: topic.upToDateAt,
       // A done mark is already on the page (taken off it), so it is not waiting for a Scribe.
       pendingEvents: pendingOf(topic).filter((event) => event.kind !== "now_done").length,
+      ...activityOf(topic),
+      ...(latestHistoryLine(topic.page) ? { latestUpdate: latestHistoryLine(topic.page) } : {}),
+      waitingOnYou: this.prunedNow(topic)
+        .filter((entry) => entry.group === "you" && entry.doneAt === undefined)
+        .map((entry) => plainLine(entry.text)),
+      openNow: this.prunedNow(topic).filter((entry) => entry.doneAt === undefined).length,
     };
   }
 
@@ -1011,6 +1018,53 @@ function publicChange(change: StoredChange): TopicChange {
 }
 
 /** The page's one-sentence lead (text before its first heading), else "Where it stands", else its first paragraph. */
+/** What happened last in a topic: its newest event that is news (not a Scribe's own tidying). */
+function activityOf(topic: StoredTopic): Pick<TopicSummary, "activityAt" | "latestActivity"> {
+  const latest = topic.events
+    .filter((event) => !event.byScribe && event.kind !== "now_done" && event.kind !== "page_request")
+    .reduce<TopicEvent | null>((newest, event) => (!newest || event.at >= newest.at ? event : newest), null);
+  // Events exist only since topics were turned on; the route adds the quests' own changes.
+  if (!latest) return { activityAt: 0 };
+  const quest = latest.questId ?? "";
+  const text =
+    latest.kind === "quest_done"
+      ? `${quest} finished`
+      : latest.kind === "quest_filed"
+        ? `${quest} filed here`
+        : latest.kind === "message"
+          ? quest
+            ? `You wrote in ${quest}`
+            : plainLine(latest.text ?? "")
+          : latest.kind === "artifact"
+            ? `${plainLine(latest.text ?? "")} saved`
+            : latest.kind === "check"
+              ? `A check was ticked in ${quest}`
+              : latest.kind === "note"
+                ? `Note on ${quest}`
+                : plainLine(latest.text ?? "");
+  return {
+    activityAt: latest.at,
+    latestActivity: { at: latest.at, text, ...(latest.questId ? { questId: latest.questId } : {}) },
+  };
+}
+
+/** The first line under the page's History (or older Recent) heading, as plain text. */
+function latestHistoryLine(page: string | null): string | undefined {
+  const section = /^##\s+(?:History|Recent)\s*$([\s\S]*?)(?=^##\s|(?![\s\S]))/im.exec(page ?? "");
+  const line = section?.[1]?.split("\n").find((candidate) => /^[-*]\s+/.test(candidate));
+  return line ? plainLine(line.replace(/^[-*]\s+/, "")) : undefined;
+}
+
+/** Markdown in one plain line: link labels kept, emphasis dropped, capped. */
+function plainLine(markdown: string): string {
+  const plain = markdown
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return plain.length > 240 ? `${plain.slice(0, 239).trimEnd()}…` : plain;
+}
+
 export function pageSummary(page: string | null): string {
   if (!page) return "";
   // The page opens with its one-sentence summary; older pages lead with "Where it stands".
