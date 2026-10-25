@@ -142,7 +142,11 @@ function mockApi() {
   vi.spyOn(topicApi, "list").mockResolvedValue(LIST);
   vi.spyOn(topicApi, "get").mockResolvedValue(DETAIL);
   vi.spyOn(artifactApi, "list").mockResolvedValue({ artifacts: [], total: 0 } as never);
-  vi.spyOn(topicApi, "questMap").mockResolvedValue({ enabled: true, map: { "q-2713": { id: "t7", name: "T7 run" } } });
+  vi.spyOn(topicApi, "questMap").mockResolvedValue({
+    enabled: true,
+    map: { "q-2713": { id: "t7", name: "T7 run" } },
+    topics: { t7: { name: "T7 run", questIds: ["q-2713", "q-2797"], activityAt: NOW } },
+  });
   return {
     enable: vi.spyOn(topicApi, "setLeaderEnabled").mockResolvedValue({ enabled: true }),
     undo: vi.spyOn(topicApi, "undo").mockResolvedValue({}),

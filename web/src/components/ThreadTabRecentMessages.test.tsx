@@ -284,7 +284,10 @@ describe("ThreadTabRail Messages", () => {
     fireEvent.click(screen.getByTestId("thread-tab-group-search"));
     fireEvent.click(findMode(screen.getByTestId("thread-tab-switcher"), "messages"));
     const row = await screen.findByTestId("thread-tab-recent-row");
-    const url = new URL(String(fetchMock.mock.calls[0]![0]), "http://localhost");
+    // The tab bar also looks up its tabs' Library topics; find the search among the requests.
+    const url = fetchMock.mock.calls
+      .map(([call]) => new URL(String(call), "http://localhost"))
+      .find((candidate) => candidate.pathname.endsWith("/message-search"))!;
     expect(url.pathname).toBe("/api/sessions/leader-session/message-search");
     expect(Object.fromEntries(url.searchParams)).toMatchObject({
       scope: "leader_all_tabs",

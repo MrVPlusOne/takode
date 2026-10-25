@@ -271,23 +271,42 @@ describe("ThreadTabGroupBar", () => {
   });
 
   it("lists recent finished tabs, then topics that open as one conversation, for a leader with topics on", () => {
-    // Topics on: q-13 and q-15 share a topic, q-14 has none. Tapping the topic row opens the topic
-    // conversation from its newest tab and closes the list.
+    // Topics on: q-13 and q-15 share a topic with the open q-10, q-14 has another. Topics
+    // are ordered by their last activity, not tab order; a topic counts all its quests and lists its
+    // open one first, so its work is found here while its newest quest is still running. Tapping the
+    // topic row opens the topic conversation and closes the list.
     const onOpenConversation = vi.fn();
     renderBar({
       doneTopics: {
-        map: { "q-13": { id: "t1", name: "Relay" }, "q-15": { id: "t1", name: "Relay" } },
+        map: {
+          "q-10": { id: "t1", name: "Relay" },
+          "q-14": { id: "t2", name: "Briefing" },
+          "q-13": { id: "t1", name: "Relay" },
+          "q-15": { id: "t1", name: "Relay" },
+        },
+        topics: {
+          t1: { name: "Relay", questIds: ["q-9", "q-10", "q-13", "q-15"], activityAt: 2_000 },
+          t2: { name: "Briefing", questIds: ["q-14"], activityAt: 1_000 },
+        },
         onOpenConversation,
       },
     });
     fireEvent.click(screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!);
     const list = screen.getByTestId("done-topic-list");
     expect(within(list).getAllByTestId("thread-tab-list-row").length).toBeGreaterThan(0);
-    const topic = within(list).getByTestId("done-topic-row");
-    expect(topic.textContent).toContain("Relay");
-    fireEvent.click(within(topic).getByText("Relay"));
+    const [topic, other] = within(list).getAllByTestId("done-topic-row");
+    expect(topic!.textContent).toContain("Relay");
+    expect(topic!.textContent).toContain("4 quests · 1 open · latest: Fix the relay proxy");
+    expect(other!.textContent).toContain("Briefing");
+    fireEvent.click(within(topic!).getByRole("button", { name: "List the quests of Relay" }));
+    expect(
+      within(topic!)
+        .getAllByTestId("thread-tab-list-row")
+        .map((row) => row.dataset.threadKey),
+    ).toEqual(["q-10", "q-13", "q-15"]);
+    fireEvent.click(within(topic!).getByText("Relay"));
     expect(onOpenConversation).toHaveBeenCalledTimes(1);
-    expect(["q-13", "q-15"]).toContain(onOpenConversation.mock.calls[0]![0]);
+    expect(onOpenConversation.mock.calls[0]![0]).toBe("q-10");
     expect(screen.queryByTestId("done-topic-list")).toBeNull();
   });
 

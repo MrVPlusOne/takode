@@ -166,7 +166,7 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
         onClose={close}
         loadRecentMessages={loadPlaygroundRecentMessages}
         onOpenMessage={(threadKey) => select(threadKey)}
-        doneTopics={topics ? { map: DONE_TOPICS, onOpenConversation: () => {} } : undefined}
+        doneTopics={topics ? { map: DONE_TOPICS, topics: {}, onOpenConversation: () => {} } : undefined}
       />
     </div>
   );

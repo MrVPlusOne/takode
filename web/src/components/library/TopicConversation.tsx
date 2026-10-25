@@ -1,13 +1,10 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import { topicApi } from "../../api/topics.js";
+import { createContext, useContext } from "react";
+import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { openTopicInPanel } from "../../utils/topic-panel.js";
 import { TopicIcon } from "./library-icons.js";
 import { useQuestTopic } from "./TopicSidePanel.js";
 
 type TopicConversationInfo = { topicId: string; name: string; questIds: string[] };
-
-/** Topics already looked up, so switching between a topic's tabs names it right away. */
-const knownTopics = new Map<string, TopicConversationInfo>();
 
 /**
  * The topic of a leader's quest tab, with its quests, for reading the topic as one conversation;
@@ -15,25 +12,10 @@ const knownTopics = new Map<string, TopicConversationInfo>();
  */
 export function useTopicConversation(leaderId: string, threadKey: string): TopicConversationInfo | null {
   const topic = useQuestTopic(leaderId, threadKey);
-  const [found, setFound] = useState<TopicConversationInfo | null>(null);
-  useEffect(() => {
-    if (!topic) return;
-    let cancelled = false;
-    topicApi
-      .get(topic.id)
-      .then((detail) => {
-        const info = { topicId: topic.id, name: detail.name, questIds: detail.questIds };
-        knownTopics.set(topic.id, info);
-        if (!cancelled) setFound(info);
-      })
-      .catch((error: Error) => console.warn("[library] Could not load the tab's topic:", error.message));
-    return () => {
-      cancelled = true;
-    };
-  }, [topic]);
-  const info = found?.topicId === topic?.id ? found : topic ? knownTopics.get(topic.id) : undefined;
-  if (!info || info.questIds.length < 2) return null;
-  return info;
+  // Comes with the tab's topic lookup, so no second request delays the line.
+  const brief = useKnownTopicBrief(leaderId, topic?.id);
+  if (!topic || !brief || brief.questIds.length < 2) return null;
+  return { topicId: topic.id, name: brief.name, questIds: brief.questIds };
 }
 
 /**

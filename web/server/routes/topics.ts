@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { getQuest, listQuests } from "../quest-store.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { getArtifactLibrary } from "../artifact-library.js";
-import type { TopicListResponse, TopicSummary } from "../../shared/library-topics.js";
+import type { QuestTopicsResponse, TopicListResponse, TopicSummary } from "../../shared/library-topics.js";
 import { type NowGroup, nowGroupOf, takeLegacyNow } from "../../shared/topic-now-items.js";
 import { TopicStoreError } from "../topic-store.js";
 import type { TopicService } from "../topic-service.js";
@@ -131,12 +131,30 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
-  /** For a leader's tab bar: whether it has topics on, and the topic of each named quest. */
+  /**
+   * For a leader's tab bar and quest tabs: whether it has topics on, the topic of each named quest,
+   * and those topics in brief (name, quests, last activity), so a tab names its topic without
+   * loading the page.
+   */
   api.get("/topics/quest-map", (c) =>
-    run(c, (svc) => {
+    run(c, async (svc): Promise<QuestTopicsResponse> => {
       const leader = ctx.resolveId(c.req.query("leader") ?? "") ?? "";
       const quests = (c.req.query("quests") ?? "").split(",").filter(Boolean);
-      return { enabled: svc.store.isLeaderEnabled(leader), map: svc.store.questTopicMap(quests) };
+      const map = svc.store.questTopicMap(quests);
+      const ids = [...new Set(Object.values(map).map((topic) => topic.id))];
+      const summaries = ids.length
+        ? withQuestActivity(
+            ids.map((id) => svc.store.detail(id)),
+            await listQuests(),
+          )
+        : [];
+      const topics = Object.fromEntries(
+        summaries.map((topic) => [
+          topic.id,
+          { name: topic.name, questIds: topic.questIds, activityAt: topic.activityAt },
+        ]),
+      );
+      return { enabled: svc.store.isLeaderEnabled(leader), map, topics };
     }),
   );
 

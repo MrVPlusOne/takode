@@ -149,6 +149,22 @@ export interface TopicListResponse {
 /** Quests filed under a topic, for grouping the Done list: questId to topic. */
 export type QuestTopicMap = Record<string, { id: string; name: string }>;
 
+/** What a leader's tab bar and quest tabs need of a topic, without loading its page. */
+export interface TopicBrief {
+  name: string;
+  /** All the topic's quests, open ones included. */
+  questIds: string[];
+  /** When something last happened in it (see `TopicSummary.activityAt`). */
+  activityAt: number;
+}
+
+/** The quest-map answer: each named quest's topic, and those topics in brief. */
+export interface QuestTopicsResponse {
+  enabled: boolean;
+  map: QuestTopicMap;
+  topics: Record<string, TopicBrief>;
+}
+
 /** Leaders get a hint to turn topics on at this many quests. */
 export const TOPIC_HINT_QUEST_COUNT = 20;
 /** A topic stays tentative this long unless a second quest joins. */

@@ -4,7 +4,7 @@
  * progress, finished). A chip lists its tabs; Find opens a sheet that lists either the
  * user's messages or every tab, open and closed, newest first.
  */
-import type { QuestTopicMap } from "../../shared/library-topics.js";
+import type { QuestTopicMap, TopicBrief } from "../../shared/library-topics.js";
 import { DoneTopicList } from "./DoneTopicList.js";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
@@ -138,6 +138,8 @@ export interface ThreadTabGroupBarProps extends RowContext {
   /** For a leader with Library topics on: the Done list groups its tabs under their topics. */
   doneTopics?: {
     map: QuestTopicMap;
+    /** The topics in brief, for their quest counts and last activity. */
+    topics: Record<string, TopicBrief>;
     /** Opens the topic of a quest tab as one conversation. */
     onOpenConversation: (threadKey: string) => void;
   };
@@ -322,7 +324,9 @@ export function ThreadTabGroupBar({
             {openGroup === "done" && doneTopics ? (
               <DoneTopicList
                 tabs={groups.done}
+                openTabs={THREAD_TAB_GROUP_ORDER.flatMap((id) => (id === "done" ? [] : groups[id]))}
                 map={doneTopics.map}
+                topics={doneTopics.topics}
                 renderRow={(tab) => <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />}
                 onOpenConversation={(threadKey) => {
                   setOpenGroup(null);

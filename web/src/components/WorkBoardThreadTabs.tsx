@@ -15,7 +15,7 @@ import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { ThreadTabGroupBar } from "./ThreadTabGroups.js";
-import { useLeaderTopicMap } from "../hooks/use-leader-topic-map.js";
+import { useLeaderTopics } from "../utils/leader-topics.js";
 import type { LoadRecentMessages } from "./ThreadTabRecentMessages.js";
 import { searchSessionMessages } from "../api/session-message-search.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
@@ -219,10 +219,10 @@ export function ThreadTabRail({
       }).then((response) => ({ results: response.results, nextOffset: response.nextOffset })),
     [sessionId],
   );
-  const topicMap = useLeaderTopicMap(
+  // Every tab's topic: the Done list groups by them, and a quest tab names its topic at once.
+  const leaderTopics = useLeaderTopics(
     sessionId,
-    // Only the Done list is grouped by topic.
-    displayedTabs.flatMap((tab) => (tab.completed && tab.questId ? [tab.questId] : [])),
+    displayedTabs.flatMap((tab) => (tab.questId ? [tab.questId] : [])),
   );
   const openMessage = (threadKey: string, messageId: string) =>
     navigateToSessionMessageId(sessionId, messageId, { threadKey, preserveMainThreadRoute: true });
@@ -251,9 +251,10 @@ export function ThreadTabRail({
         onSelect={openThread}
         onClose={onCloseThreadTab}
         doneTopics={
-          topicMap
+          leaderTopics
             ? {
-                map: topicMap,
+                map: leaderTopics.map,
+                topics: leaderTopics.topics,
                 onOpenConversation: (threadKey) => {
                   openThread(threadKey);
                   openTopicConversation(sessionId, threadKey);

@@ -126,15 +126,17 @@ describe("thread tab context menu", () => {
       },
     });
 
+    // The tab bar also looks up its tabs' Library topics (a GET); only the updates have a body.
+    const updates = () => fetch.mock.calls.filter((call) => call[1]?.body).map((call) => JSON.parse(call[1].body));
     fireEvent.contextMenu(tab("q-7"));
     fireEvent.click(screen.getByRole("button", { name: "Turn off Notify Me" }));
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+    expect(updates()[0]).toEqual({
       action: "untrack",
     });
 
     fireEvent.contextMenu(tab("q-8"));
     fireEvent.click(screen.getByRole("button", { name: "Acknowledge result" }));
-    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({
+    expect(updates()[1]).toEqual({
       action: "acknowledge",
       resultId: "4",
     });

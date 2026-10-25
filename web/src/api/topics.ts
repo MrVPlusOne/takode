@@ -1,4 +1,4 @@
-import type { QuestTopicMap, TopicDetail, TopicListResponse, TopicSummary } from "../../shared/library-topics.js";
+import type { QuestTopicsResponse, TopicDetail, TopicListResponse, TopicSummary } from "../../shared/library-topics.js";
 
 const BASE = "/api";
 
@@ -66,7 +66,7 @@ export const topicApi = {
       body: { paused },
     }),
   questMap: (leaderSessionId: string, questIds: readonly string[]) =>
-    request<{ enabled: boolean; map: QuestTopicMap }>(
+    request<QuestTopicsResponse>(
       `/topics/quest-map?leader=${encodeURIComponent(leaderSessionId)}&quests=${encodeURIComponent(questIds.join(","))}`,
     ),
 };

@@ -3,6 +3,7 @@ import { Activity, type RefObject, useCallback, useEffect, useLayoutEffect, useR
 import type { QuestTopicMap, TopicListResponse } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 import { openLeaderLibrary } from "../../utils/library-nav.js";
+import { loadLeaderTopics, useKnownQuestTopic } from "../../utils/leader-topics.js";
 import {
   nextKeptTopicPages,
   setTopicPanelOpen,
@@ -30,22 +31,16 @@ const REFRESH_MS = 20_000;
  * null on Main or for a quest not filed under a topic.
  */
 export function useQuestTopic(leaderId: string, threadKey: string): QuestTopicMap[string] | null {
-  // Kept with the tab it belongs to: a panel shown again after being hidden re-runs this lookup,
-  // and must keep showing the topic meanwhile rather than flash the topic list.
-  const [found, setFound] = useState<{ key: string; topic: QuestTopicMap[string] | null } | null>(null);
-  const key = `${leaderId}|${threadKey}`;
+  // Read from what the tab bar already loaded for every tab, so the topic shows with the quest
+  // strip; asked again in the background in case the quest was filed meanwhile.
+  const known = useKnownQuestTopic(leaderId, threadKey);
   useEffect(() => {
     if (!threadKey.startsWith("q-")) return;
-    let cancelled = false;
-    topicApi
-      .questMap(leaderId, [threadKey])
-      .then((response) => !cancelled && setFound({ key, topic: response.map[threadKey] ?? null }))
-      .catch((error: Error) => console.warn("[library] Could not look up the tab's topic:", error.message));
-    return () => {
-      cancelled = true;
-    };
-  }, [key, leaderId, threadKey]);
-  return found?.key === key ? found.topic : null;
+    loadLeaderTopics(leaderId, [threadKey]).catch((error: Error) =>
+      console.warn("[library] Could not look up the tab's topic:", error.message),
+    );
+  }, [leaderId, threadKey]);
+  return threadKey.startsWith("q-") ? (known ?? null) : null;
 }
 
 /**
