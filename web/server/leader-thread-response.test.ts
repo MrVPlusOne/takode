@@ -266,6 +266,19 @@ describe("explicit routed leader answers", () => {
     });
   });
 
+  it("re-reads an answer whose content was replaced after its text was cached", () => {
+    // Answer text is cached per content array because the answer state is rebuilt from the
+    // whole history several times per turn end. A merged assistant message gets a new content
+    // array, and the new text must count: here the answer stops saying anything readable.
+    const target = session();
+    target.messageHistory.push(human("u1", 1));
+    const answer = appendAnswer(target, "answer-1", ["u1"], "Here is the answer.", 1);
+    expect(buildLeaderThreadResponseState(target, "main").responses).toHaveLength(1);
+
+    answer.message.content = [{ type: "text", text: "---" }];
+    expect(buildLeaderThreadResponseState(target, "main").responses).toHaveLength(0);
+  });
+
   it("supersedes only the repeated IDs while retaining append-only answer history", () => {
     const target = session();
     target.messageHistory.push(human("u1", 1), human("u2", 2));

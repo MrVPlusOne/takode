@@ -3,6 +3,7 @@ import {
   buildLeaderThreadRowsFromSummaries,
   buildProjectionAttentionRecords,
   collectLeaderThreadSummaries,
+  collectMessageAttentionRecords,
   mergeLeaderThreadSummaries,
 } from "./leader-projection.js";
 import { buildLeaderProjectionSnapshot } from "./test-fixtures/leader-projection-snapshot.js";
@@ -97,6 +98,32 @@ describe("leader projection summaries", () => {
       firstMessageAt: 4,
       lastMessageAt: 5,
     });
+  });
+
+  it("re-reads a message's threads and rework wording when its routing is replaced in place", () => {
+    // Per-message facts are cached because leader projections re-read the whole history on
+    // every change. Attaching a stored message to another thread replaces its routing fields,
+    // and the summaries and rework records must follow the new routing.
+    const message = {
+      type: "user_message",
+      id: "u-move",
+      content: "Please ask the agent to fix this.",
+      timestamp: 7,
+      threadKey: "q-400",
+      questId: "q-400",
+      threadRefs: [{ threadKey: "q-400", questId: "q-400", source: "explicit" as const }],
+    } as BrowserIncomingMessage;
+    const history = [message];
+    expect(collectLeaderThreadSummaries(history).map((summary) => summary.threadKey)).toEqual(["q-400"]);
+    expect(collectMessageAttentionRecords("leader-1", history).map((record) => record.questId)).toEqual(["q-400"]);
+
+    Object.assign(message, {
+      threadKey: "q-401",
+      questId: "q-401",
+      threadRefs: [{ threadKey: "q-401", questId: "q-401", source: "explicit" as const }],
+    });
+    expect(collectLeaderThreadSummaries(history).map((summary) => summary.threadKey)).toEqual(["q-401"]);
+    expect(collectMessageAttentionRecords("leader-1", history).map((record) => record.questId)).toEqual(["q-401"]);
   });
 
   it("builds board-backed rows and message-derived attention without feed hydration", () => {

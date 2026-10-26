@@ -28,12 +28,28 @@ export function isLeaderUserMessageWithId(
   );
 }
 
+/**
+ * Whether each message gets an ID, kept per message: the answer state reads every message's
+ * eligibility several times per leader turn end, and classifying user messages reads their text.
+ * Everything it depends on is fixed when the message is stored.
+ */
+const eligibility = new WeakMap<object, boolean>();
+
 function eligibleLeaderUserMessages(
   history: ReadonlyArray<BrowserIncomingMessage>,
 ): Array<Omit<LeaderUserMessageIdentity, "userMessageId">> {
-  return history.flatMap((message, historyIndex) =>
-    isLeaderUserMessageWithId(message) ? [{ historyMessageId: message.id, historyIndex, message }] : [],
-  );
+  const eligible: Array<Omit<LeaderUserMessageIdentity, "userMessageId">> = [];
+  history.forEach((message, historyIndex) => {
+    let withId = eligibility.get(message);
+    if (withId === undefined) {
+      withId = isLeaderUserMessageWithId(message);
+      eligibility.set(message, withId);
+    }
+    if (!withId) return;
+    const user = message as LeaderUserMessageIdentity["message"] & { id: string };
+    eligible.push({ historyMessageId: user.id, historyIndex, message: user });
+  });
+  return eligible;
 }
 
 /**

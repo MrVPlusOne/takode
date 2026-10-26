@@ -63,7 +63,7 @@ export function collectLeaderThreadSummaries(
 ): LeaderProjectionThreadSummary[] {
   const summaries = new Map<string, LeaderProjectionThreadSummary>();
   messages.forEach((message, index) => {
-    for (const key of messageThreadKeys(message)) {
+    for (const key of messageFacts(message).threadKeys) {
       const timestamp = timestampForMessage(message);
       const historyIndex = historyIndexForMessage(message, index);
       const existing = summaries.get(key);
@@ -231,8 +231,8 @@ export function collectMessageAttentionRecords(
 ): SessionAttentionRecord[] {
   const records: SessionAttentionRecord[] = [];
   messages.forEach((message, index) => {
-    const record = attentionRecordFromReworkMessage(leaderSessionId, message, index);
-    if (record) records.push(record);
+    const route = messageFacts(message).reworkRoute;
+    if (route) records.push(reworkAttentionRecord(leaderSessionId, message, index, route));
   });
   return records.sort(compareAttentionRecordsChronologically);
 }
@@ -271,6 +271,62 @@ export function buildProjectionAttentionRecords(input: {
 
   void input.completedBoardRows;
   return applyJourneyLifecyclePresentation([...records.values()].sort(compareAttentionRecordsChronologically));
+}
+
+/**
+ * What these projections read from one message, kept per message object. Leader projections go
+ * through the whole history on every change (each message of a turn), and reading every message's
+ * threads and rework wording took about 100 ms per pass on a 20k-message leader. A stored message
+ * only changes by having its routing replaced (an attach swaps in a new `threadRefs` array or adds
+ * a ref) or its content (a growing assistant message gets a new content array), so its facts are
+ * read again only when one of those fields is no longer the same value.
+ */
+interface MessageFacts {
+  threadKeys: string[];
+  reworkRoute: { threadKey: string; questId: string } | null;
+  threadKey: unknown;
+  questId: unknown;
+  threadRefs: unknown;
+  refCount: number;
+  content: unknown;
+  rawContent: unknown;
+  contentBlocks: unknown;
+  metadata: unknown;
+}
+
+const messageFactsCache = new WeakMap<object, MessageFacts>();
+
+function messageFacts(message: LeaderProjectionMessageLike): MessageFacts {
+  const rawContent = (message.message as { content?: unknown } | null | undefined)?.content;
+  const refCount = message.threadRefs?.length ?? 0;
+  const cached = messageFactsCache.get(message);
+  if (
+    cached &&
+    cached.threadKey === message.threadKey &&
+    cached.questId === message.questId &&
+    cached.threadRefs === message.threadRefs &&
+    cached.refCount === refCount &&
+    cached.content === message.content &&
+    cached.rawContent === rawContent &&
+    cached.contentBlocks === message.contentBlocks &&
+    cached.metadata === message.metadata
+  ) {
+    return cached;
+  }
+  const facts: MessageFacts = {
+    threadKeys: messageThreadKeys(message),
+    reworkRoute: reworkRequestRoute(message),
+    threadKey: message.threadKey,
+    questId: message.questId,
+    threadRefs: message.threadRefs,
+    refCount,
+    content: message.content,
+    rawContent,
+    contentBlocks: message.contentBlocks,
+    metadata: message.metadata,
+  };
+  messageFactsCache.set(message, facts);
+  return facts;
 }
 
 export function normalizeThreadKey(threadKey: string): string {
@@ -364,18 +420,23 @@ function isUserAuthoredMessage(message: LeaderProjectionMessageLike): boolean {
   return message.role === "user" || message.type === "user_message" || message.type === "leader_user_message";
 }
 
-function attentionRecordFromReworkMessage(
-  leaderSessionId: string,
-  message: LeaderProjectionMessageLike,
-  index: number,
-): SessionAttentionRecord | null {
+/** The quest thread a user's message asks for rework in, or null when it is not a rework request. */
+function reworkRequestRoute(message: LeaderProjectionMessageLike): { threadKey: string; questId: string } | null {
   if (!isUserAuthoredMessage(message)) return null;
   const content = typeof message.content === "string" ? message.content : "";
   if (!content.trim()) return null;
   const route = questRouteFromMessage(message);
   if (!route?.questId) return null;
-  if (!isReworkFeedbackText(content)) return null;
+  return isReworkFeedbackText(content) ? route : null;
+}
 
+function reworkAttentionRecord(
+  leaderSessionId: string,
+  message: LeaderProjectionMessageLike,
+  index: number,
+  route: { threadKey: string; questId: string },
+): SessionAttentionRecord {
+  const content = message.content as string;
   const messageId = messageIdForProjection(message, index);
   const createdAt = timestampForMessage(message);
   return {

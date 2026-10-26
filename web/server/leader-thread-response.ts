@@ -222,6 +222,24 @@ function responseMessageMarkdown(message: ResponseHistoryMessage): string {
   );
 }
 
+/**
+ * A response's text and whether it says anything, kept per assistant content array. The answer
+ * state is worked out from the whole history several times per leader turn end, and re-reading
+ * every answer's Markdown was most of that. Stored content only changes by being replaced with a
+ * new array, so the array identifies its text.
+ */
+const assistantResponseText = new WeakMap<object, { markdown: string; substantive: boolean }>();
+
+function responseText(message: ResponseHistoryMessage): { markdown: string; substantive: boolean } {
+  const content = message.type === "assistant" ? message.message.content : null;
+  const cached = content ? assistantResponseText.get(content) : undefined;
+  if (cached) return cached;
+  const markdown = responseMessageMarkdown(message);
+  const text = { markdown, substantive: isSubstantiveLeaderThreadAnswer(markdown) };
+  if (content) assistantResponseText.set(content, text);
+  return text;
+}
+
 function responseMessageTimestamp(message: ResponseHistoryMessage): number | null {
   return typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? message.timestamp : null;
 }
@@ -298,13 +316,13 @@ function parsedLegacyRevision(message: BrowserIncomingMessage, historyIndex: num
     return null;
   }
   const threadKey = exactResponseThreadKey(message);
-  const markdown = responseMessageMarkdown(message);
+  const { markdown, substantive } = responseText(message);
   const messageId = responseMessageId(message);
   const createdAt = responseMessageTimestamp(message);
   if (
     !threadKey ||
     !messageId ||
-    !isSubstantiveLeaderThreadAnswer(markdown) ||
+    !substantive ||
     message.threadResponse.contentHash !== leaderThreadResponseContentHash(markdown) ||
     createdAt === null ||
     createdAt < 0
@@ -683,7 +701,6 @@ function parsedExplicitCandidate(
     return null;
   }
   const threadKey = exactResponseThreadKey(message);
-  const markdown = responseMessageMarkdown(message);
   const messageId = responseMessageId(message);
   const createdAt = responseMessageTimestamp(message);
   const metadata = message.threadAnswer;
@@ -692,7 +709,7 @@ function parsedExplicitCandidate(
     !messageId ||
     metadata.observedHistoryLength > historyIndex ||
     metadata.observedHistoryLength > boundedLimit ||
-    !isSubstantiveLeaderThreadAnswer(markdown) ||
+    !responseText(message).substantive ||
     createdAt === null ||
     createdAt < 0
   ) {
