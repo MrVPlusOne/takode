@@ -795,9 +795,7 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByTestId("attention-list-button"));
 
     const list = screen.getByRole("dialog", { name: "Everything that needs attention" });
-    expect(within(list).getByRole("region", { name: "Needs-input prompts" })).toHaveTextContent(
-      "Pick deployment window",
-    );
+    expect(within(list).getByRole("region", { name: "Questions for you" })).toHaveTextContent("Pick deployment window");
     expect(within(list).queryByText("Confirm rollback plan")).not.toBeInTheDocument();
 
     fireEvent.click(within(list).getByRole("button", { name: /Muted questions/ }));

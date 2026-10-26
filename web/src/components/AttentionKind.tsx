@@ -1,4 +1,4 @@
-import type { NextAttentionItem } from "../utils/next-attention.js";
+import type { AttentionSection, NextAttentionItem } from "../utils/next-attention.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 
 /**
@@ -14,11 +14,12 @@ export const ATTENTION_KIND_TITLE: Record<AttentionKind, string> = {
   unread: "Unread result",
 };
 
-/** Group headings in the lists. */
-export const ATTENTION_GROUP_TITLE: Record<AttentionKind, string> = {
-  "needs-input": "Needs input",
-  "notify-me": "Notify Me",
+/** Section headings in the lists, in the order Next visits them. */
+export const ATTENTION_SECTION_TITLE: Record<AttentionSection, string> = {
+  "needs-input": "Questions",
+  reminder: "Reminders",
   unread: "Unread",
+  "notify-me": "Notify Me",
 };
 
 /** Text, border and background classes: amber for prompts, blue for results. */

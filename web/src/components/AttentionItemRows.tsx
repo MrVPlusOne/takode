@@ -1,25 +1,21 @@
 import { useState } from "react";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import { attentionItemMenuItems } from "../utils/attention-item-menu.js";
-import type { NextAttentionItem } from "../utils/next-attention.js";
+import { attentionSection, type AttentionSection, type NextAttentionItem } from "../utils/next-attention.js";
 import type { AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
-import {
-  ATTENTION_GROUP_TITLE,
-  AttentionKindIcon,
-  BellIcon,
-  formatRelativeTime,
-  type AttentionKind,
-} from "./AttentionKind.js";
+import { ATTENTION_SECTION_TITLE, AttentionKindIcon, BellIcon, formatRelativeTime } from "./AttentionKind.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
+import { TopicIcon } from "./library/library-icons.js";
 
 const GO_TO_BUTTON_CLASS =
   "inline-flex shrink-0 items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 cursor-pointer";
 
-const GROUP_ARIA_LABEL: Record<AttentionKind, string> = {
-  "needs-input": "Needs-input prompts",
+const GROUP_ARIA_LABEL: Record<AttentionSection, string> = {
+  "needs-input": "Questions for you",
+  reminder: "Reminders that came due",
   "notify-me": "Notify Me results",
   unread: "Unread results",
 };
@@ -31,9 +27,25 @@ const GROUP_ARIA_LABEL: Record<AttentionKind, string> = {
  */
 function itemLabel(item: NextAttentionItem): string {
   if (item.kind === "unread" && item.remindAt !== undefined) return `Reminder ${formatSnoozeUntil(item.remindAt)}`;
+  if (item.kind === "unread" && item.notification) return unreadMessageLabel(item.summary);
   if (item.kind === "unread") return item.threadKey === null ? "Latest result" : item.summary || "New result";
+  // The second line names the thread a reminder brings back.
+  if (item.kind === "notify-me" && item.entry.pending?.reminder) return "Reminder";
   if (item.kind === "notify-me") return item.entry.pending?.summary || withoutQuestId(item.label, item.threadKey ?? "");
   return item.label;
+}
+
+/**
+ * One unread message's words, without the thread its summary starts with ("Answer in q-12 | ",
+ * "Thread ready: q-12 | "): the row's second line names the thread already.
+ */
+export function unreadMessageLabel(summary: string | undefined): string {
+  const text = (summary ?? "").trim();
+  const words = text
+    .replace(/^(?:Answer|Report) in [^|]+\|\s*/i, "")
+    .replace(/^Thread ready: [^|]+\|\s*/i, "")
+    .replace(/^q-\d+ ready for review:\s*/i, "Finished: ");
+  return words || text || "New result";
 }
 
 /** Muted prompts and tracked threads without a result take quiet icons, so they never read as waiting. */
@@ -193,8 +205,9 @@ export function AttentionItemPlace({
 }
 
 /**
- * Items grouped by kind, in queue order: the order the Next steps visit them.
- * `kinds` picks which groups to show (the feed inbox renders its prompts itself).
+ * Items grouped by section, in queue order: the order the Next steps visit them. Unread answers
+ * are grouped by their Library topic under a small heading. `kinds` picks which sections to show
+ * (the feed inbox renders its prompts itself).
  */
 export function AttentionItemSections({
   items,
@@ -206,44 +219,74 @@ export function AttentionItemSections({
   nextKey,
 }: {
   items: readonly NextAttentionItem[];
-  kinds: readonly AttentionKind[];
+  kinds: readonly AttentionSection[];
   onOpen: (item: NextAttentionItem) => void;
   sessionLabelFor?: (item: NextAttentionItem) => string | undefined;
   sessionTagFor?: (item: NextAttentionItem) => string | undefined;
   threads?: AttentionThreadTitles;
   nextKey?: string | null;
 }) {
+  const row = (item: NextAttentionItem) => (
+    <AttentionItemRow
+      key={item.key}
+      item={item}
+      onOpen={onOpen}
+      sessionLabel={sessionLabelFor?.(item)}
+      sessionTag={sessionTagFor?.(item)}
+      threads={threads}
+      isNext={item.key === nextKey}
+    />
+  );
   return (
     <>
       {kinds.map((kind) => {
-        const group = items.filter((item) => item.kind === kind);
+        const group = items.filter((item) => attentionSection(item) === kind);
         if (group.length === 0) return null;
         return (
           <section
             key={kind}
             className="border-t border-cc-border/60 first:border-t-0"
             aria-label={GROUP_ARIA_LABEL[kind]}
+            data-attention-section={kind}
           >
             <div className="flex items-center justify-between bg-cc-hover/20 px-3 py-1.5">
-              <span className="text-[11px] font-medium text-cc-muted">{ATTENTION_GROUP_TITLE[kind]}</span>
+              <span className="text-[11px] font-medium text-cc-muted">{ATTENTION_SECTION_TITLE[kind]}</span>
               <span className="text-[10px] text-cc-muted/70">{group.length}</span>
             </div>
             <div className="divide-y divide-cc-border/20">
-              {group.map((item) => (
-                <AttentionItemRow
-                  key={item.key}
-                  item={item}
-                  onOpen={onOpen}
-                  sessionLabel={sessionLabelFor?.(item)}
-                  sessionTag={sessionTagFor?.(item)}
-                  threads={threads}
-                  isNext={item.key === nextKey}
-                />
-              ))}
+              {kind === "unread"
+                ? byTopic(group).map(({ heading, rows }) => (
+                    <div key={heading.key} data-testid="attention-topic-group">
+                      {heading.name && (
+                        <div className="flex items-center gap-1.5 px-3 pb-0.5 pt-1.5 text-[11px] text-cc-primary">
+                          <TopicIcon className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{heading.name}</span>
+                        </div>
+                      )}
+                      <div className="divide-y divide-cc-border/20">{rows.map(row)}</div>
+                    </div>
+                  ))
+                : group.map(row)}
             </div>
           </section>
         );
       })}
     </>
   );
+}
+
+const NO_TOPIC = "Not in a topic";
+
+/** Unread items split into runs of one topic each (queue order already keeps a topic together). */
+function byTopic(items: readonly NextAttentionItem[]) {
+  const groups: Array<{ heading: { key: string; name: string | null }; rows: NextAttentionItem[] }> = [];
+  for (const item of items) {
+    const topic = item.kind === "unread" ? item.topic : null;
+    const key = topic ? topic.id : "none";
+    const last = groups.at(-1);
+    if (last?.heading.key === key) last.rows.push(item);
+    // Items outside a topic get a heading only after a topic's, so they don't read as part of it.
+    else groups.push({ heading: { key, name: topic?.name ?? (groups.length > 0 ? NO_TOPIC : null) }, rows: [item] });
+  }
+  return groups;
 }

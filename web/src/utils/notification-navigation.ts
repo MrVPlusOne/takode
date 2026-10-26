@@ -14,6 +14,7 @@ export function navigateToNotification(
   sessionId: string,
   notification: Pick<SessionNotification, "id" | "messageId" | "threadKey" | "questId" | "unreadReason">,
   sdkSessions: SdkSessionInfo[],
+  options: { topicView?: boolean } = {},
 ): void {
   const threadKey = resolveNotificationOwnerThreadKey(notification);
   const routeSessionId = routeSessionRefForId(sessionId, sdkSessions);
@@ -29,6 +30,7 @@ export function navigateToNotification(
       threadKey,
       preserveMainThreadRoute: true,
       landing: resultLanding(notification),
+      ...(options.topicView ? { topicView: true } : {}),
     });
     return;
   }

@@ -120,6 +120,13 @@ export function openAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessi
     return;
   }
   const { sessionId, threadKey } = item;
+  // One unread message: open it where it is, in its topic's conversation when it has a topic
+  // (a finished quest opens its quest).
+  if (item.notification) {
+    const inTopic = !!item.topic && item.notification.unreadReason !== "quest-complete";
+    navigateToNotification(sessionId, item.notification, sdkSessions, { topicView: inTopic });
+    return;
+  }
   if (threadKey) {
     const inThread = (notification: SessionNotification) =>
       resolveNotificationOwnerThreadKey(notification) === threadKey;

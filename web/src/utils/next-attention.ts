@@ -14,9 +14,10 @@ import { MAIN_THREAD_KEY } from "./thread-projection.js";
  * attention navigators visit it (the global list and its Next, and each
  * session's feed chip).
  *
- * Groups come in a fixed priority (needs-input, then Notify Me results, then
- * unread Ready results), newest first within a group. A thread that already
- * appears in an earlier group is not repeated as unread.
+ * Sections come in a fixed priority: questions, reminders that came due, unread
+ * answers (grouped by topic), then watched quests with a result. Newest first
+ * within a section (and within a topic). A thread that already appears in an
+ * earlier section is not repeated as unread.
  */
 export type NextAttentionItem =
   | (NextAttentionBase & { kind: "needs-input"; entry: GlobalNeedsInputEntry })
@@ -26,6 +27,10 @@ export type NextAttentionItem =
       summary?: string;
       /** Set for a thread snoozed with "Remind me later": when it comes back. */
       remindAt?: number;
+      /** For one unread answer, report or finished quest: its notification and message. */
+      notification?: SessionNotification;
+      /** The Library topic of its quest, when the leader has topics on: the list groups by it. */
+      topic?: { id: string; name: string } | null;
     });
 
 interface NextAttentionBase {
@@ -45,6 +50,22 @@ export interface UnreadAttentionCandidate {
   timestamp: number;
   /** What the thread's newest unread result is, when the leader's tab projection says. */
   summary?: string;
+  /** Set for one unread message (answer, report or finished quest) rather than a whole thread. */
+  notification?: SessionNotification;
+}
+
+/**
+ * The sections of the attention list, in the order Next visits them: questions, reminders that
+ * came due, unread answers, and results of watched quests.
+ */
+export type AttentionSection = "needs-input" | "reminder" | "unread" | "notify-me";
+
+export const ATTENTION_SECTIONS: readonly AttentionSection[] = ["needs-input", "reminder", "unread", "notify-me"];
+
+/** An item's section: a Notify Me result that a "Remind me later" brought back is a reminder. */
+export function attentionSection(item: NextAttentionItem): AttentionSection {
+  if (item.kind === "notify-me" && item.entry.pending?.reminder) return "reminder";
+  return item.kind;
 }
 
 /**
@@ -54,16 +75,18 @@ export interface UnreadAttentionCandidate {
  */
 export interface AttentionCursor {
   key: string;
-  rank: number;
-  timestamp: number;
+  /** The item's place in queue order, compared element by element. */
+  place: readonly (number | string)[];
 }
 
-const GROUP_RANK: Record<NextAttentionItem["kind"], number> = { "needs-input": 0, "notify-me": 1, unread: 2 };
+/** The topic of a leader's quest thread, as known; null when it has none (or is Main). */
+export type AttentionTopicOf = (sessionId: string, threadKey: string | null) => { id: string; name: string } | null;
 
 export function buildNextAttentionQueue(input: {
   needsInput: readonly GlobalNeedsInputEntry[];
   notifyMe: readonly ThreadMonitoringEntry[];
   unread: readonly UnreadAttentionCandidate[];
+  topicOf?: AttentionTopicOf;
 }): NextAttentionItem[] {
   const items: NextAttentionItem[] = [];
   for (const entry of input.needsInput) {
@@ -96,9 +119,41 @@ export function buildNextAttentionQueue(input: {
       covered.has(coverageKey(candidate.sessionId, candidate.threadKey)) ||
       (candidate.threadKey === null && items.some((item) => item.sessionId === candidate.sessionId));
     if (alreadyQueued) continue;
-    items.push({ kind: "unread", key: `unread:${candidate.sessionId}:${candidate.threadKey ?? ""}`, ...candidate });
+    const key = candidate.notification
+      ? `unread:${candidate.sessionId}:${candidate.notification.id}`
+      : `unread:${candidate.sessionId}:${candidate.threadKey ?? ""}`;
+    items.push({
+      kind: "unread",
+      key,
+      ...candidate,
+      ...(input.topicOf ? { topic: input.topicOf(candidate.sessionId, candidate.threadKey) } : {}),
+    });
   }
-  return items.sort((a, b) => compareQueuePlace(attentionCursorFor(a), attentionCursorFor(b)));
+  // Unread answers are grouped by topic: the topic with the newest answer first.
+  const newestByTopic = new Map<string, number>();
+  for (const item of items) {
+    if (item.kind !== "unread") continue;
+    const group = topicGroupKey(item);
+    newestByTopic.set(group, Math.max(newestByTopic.get(group) ?? 0, item.timestamp));
+  }
+  for (const item of items) placeOf.set(item, queuePlace(item, newestByTopic));
+  return items.sort((a, b) => comparePlaces(placeOf.get(a)!, placeOf.get(b)!, a.key, b.key));
+}
+
+/** Each item's place, as computed when its queue was built (topic groups depend on the whole queue). */
+const placeOf = new WeakMap<NextAttentionItem, readonly (number | string)[]>();
+
+function queuePlace(item: NextAttentionItem, newestByTopic?: ReadonlyMap<string, number>): (number | string)[] {
+  const rank = ATTENTION_SECTIONS.indexOf(attentionSection(item));
+  if (item.kind !== "unread" || !newestByTopic) return [rank, -item.timestamp];
+  const group = topicGroupKey(item);
+  return [rank, -(newestByTopic.get(group) ?? item.timestamp), group, -item.timestamp];
+}
+
+/** Unread items group by topic; outside a topic, by session and thread. */
+function topicGroupKey(item: NextAttentionItem): string {
+  if (item.kind === "unread" && item.topic) return `topic:${item.topic.id}`;
+  return `thread:${item.sessionId}:${item.threadKey ?? ""}`;
 }
 
 /**
@@ -164,11 +219,29 @@ export function collectThreadReminders(
 }
 
 export function attentionCursorFor(item: NextAttentionItem): AttentionCursor {
-  return { key: item.key, rank: GROUP_RANK[item.kind], timestamp: item.timestamp };
+  return { key: item.key, place: placeOf.get(item) ?? queuePlace(item) };
 }
 
 function compareQueuePlace(a: AttentionCursor, b: AttentionCursor): number {
-  return a.rank - b.rank || b.timestamp - a.timestamp || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  return comparePlaces(a.place, b.place, a.key, b.key);
+}
+
+function comparePlaces(
+  a: readonly (number | string)[],
+  b: readonly (number | string)[],
+  aKey: string,
+  bKey: string,
+): number {
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const left = a[index];
+    const right = b[index];
+    if (left === right) continue;
+    if (left === undefined) return -1;
+    if (right === undefined) return 1;
+    if (typeof left === "number" && typeof right === "number") return left - right;
+    return String(left) < String(right) ? -1 : 1;
+  }
+  return aKey < bKey ? -1 : aKey > bKey ? 1 : 0;
 }
 
 /**
@@ -219,6 +292,7 @@ export function collectUnreadAttention(
   state: LeaderThreadTabsProjectionSource & {
     sdkSessions: readonly SdkSessionInfo[];
     sessionAttention?: ReadonlyMap<string, "action" | "error" | "review" | null>;
+    sessionNotifications?: ReadonlyMap<string, readonly SessionNotification[]>;
   },
 ): UnreadAttentionCandidate[] {
   const candidates: UnreadAttentionCandidate[] = [];
@@ -228,6 +302,27 @@ export function collectUnreadAttention(
     const tabs = session.isOrchestrator ? resolveLeaderThreadTabsProjection(state, session.sessionId) : null;
     if (tabs?.projectionState === "accepted") {
       const { mainAttention, tabs: threadTabs } = tabs.value;
+      // Once this browser has the leader's notifications, each unread message is its own item.
+      const notifications = state.sessionNotifications?.get(session.sessionId);
+      if (notifications) {
+        const titleOf = (threadKey: string) =>
+          threadKey === MAIN_THREAD_KEY
+            ? "Main"
+            : (threadTabs.find((tab) => tab.threadKey === threadKey)?.title ?? threadKey);
+        for (const notification of notifications) {
+          if (notification.category !== "review" || notification.done) continue;
+          const threadKey = resolveNotificationOwnerThreadKey(notification);
+          candidates.push({
+            sessionId: session.sessionId,
+            threadKey,
+            label: titleOf(threadKey),
+            timestamp: notification.timestamp,
+            ...(notification.summary ? { summary: notification.summary } : {}),
+            notification,
+          });
+        }
+        continue;
+      }
       // Name the unread result itself, not the thread's latest Ready status, which may be
       // a later quiet check that made nothing unread.
       const resultSummary = ({ reviewSummary }: typeof mainAttention) =>

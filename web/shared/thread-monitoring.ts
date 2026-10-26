@@ -6,6 +6,8 @@ export interface MonitoredThreadResult {
   messageId: string;
   timestamp: number;
   summary: string;
+  /** Set when a "Remind me later" brought the thread back: the attention list shows it as a reminder. */
+  reminder?: true;
 }
 
 export interface ThreadMonitor {

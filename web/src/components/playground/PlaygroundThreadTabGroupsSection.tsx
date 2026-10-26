@@ -66,12 +66,30 @@ const TABS: PrimaryThreadChip[] = [
 
 /** For a leader with topics on: its topics by recent activity, for the Topics group. */
 const TOPICS: TopicSummary[] = [
-  playgroundTopic("topic-feed", "Feed polish", 12, "Answer times sit on the last line of each answer."),
-  playgroundTopic("topic-light", "Light theme", 95, "Quest strips use the card color in light mode."),
-  playgroundTopic("topic-voice", "Voice input", 60 * 26, "Dictation keeps recording through a phone call."),
+  playgroundTopic("topic-feed", "Feed polish", 12, "Answer times sit on the last line of each answer.", [
+    "q-9482",
+    "q-9479",
+    "q-9470",
+  ]),
+  playgroundTopic("topic-light", "Light theme", 95, "Quest strips use the card color in light mode.", [
+    "q-9476",
+    "q-9469",
+  ]),
+  playgroundTopic("topic-voice", "Voice input", 60 * 26, "Dictation keeps recording through a phone call.", ["q-9480"]),
 ];
 
-function playgroundTopic(id: string, name: string, minutesAgo: number, update: string): TopicSummary {
+/** Each tab's topic; q-9481 and q-9468 are in none yet, so they show under "Not in a topic". */
+const TOPIC_OF_QUEST = Object.fromEntries(
+  TOPICS.flatMap((topic) => topic.questIds.map((questId) => [questId, topic.id])),
+);
+
+function playgroundTopic(
+  id: string,
+  name: string,
+  minutesAgo: number,
+  update: string,
+  questIds: string[],
+): TopicSummary {
   const at = NOW - minutesAgo * MINUTE;
   return {
     id,
@@ -81,7 +99,7 @@ function playgroundTopic(id: string, name: string, minutesAgo: number, update: s
     tentative: false,
     createdAt: at,
     updatedAt: at,
-    questIds: ["q-9479", "q-9470"],
+    questIds,
     summary: "",
     upToDateAt: at,
     pendingEvents: 0,
@@ -129,7 +147,14 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
         onSelect={select}
         onClose={close}
         topicsGroup={
-          topics ? { topics: TOPICS, currentTopicId: topicOpen, onOpen: (topic) => setTopicOpen(topic.id) } : undefined
+          topics
+            ? {
+                topics: TOPICS,
+                currentTopicId: topicOpen,
+                onOpen: (topic) => setTopicOpen(topic.id),
+                topicOfQuest: TOPIC_OF_QUEST,
+              }
+            : undefined
         }
       />
     </div>
@@ -141,7 +166,7 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size: Main, one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done), and a Topics group after Main when topics are on; wide screens add each group's name. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
+        description="Leader thread tabs on every screen size. Without topics: Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name. With topics on, the bar is topic-first: Main, Working on (the unfinished quests) and Topics, where each topic says what its quests are doing (in progress, new answers, Notify me) and quests under no topic are listed below. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group)">

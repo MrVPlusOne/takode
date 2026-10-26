@@ -84,7 +84,8 @@ describe("needsInputMenuItems", () => {
     // These are the prompt actions that used to sit inline on the row.
     const active = needsInputMenuItems("s1", prompt());
     expect(labels(active)).toEqual(["Mute", "Remind me later"]);
-    expect(labels(active[1]!.children!)).toEqual(["1 hour", "6 hours", "24 hours"]);
+    // The attention list's quick choices: soon, later today, or tomorrow morning.
+    expect(labels(active[1]!.children!)).toEqual(["30 minutes", "2 hours", "Tomorrow 9 AM"]);
     expect(labels(needsInputMenuItems("s1", prompt({ muted: true })))).toEqual(["Unmute", "Remind me later"]);
     expect(labels(needsInputMenuItems("s1", prompt({ muted: true, snoozedUntil: 5 })))).toEqual(["Cancel snooze"]);
     expect(needsInputMenuItems("s1", prompt({ done: true }))).toEqual([]);

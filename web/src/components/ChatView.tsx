@@ -66,6 +66,7 @@ import {
 } from "../utils/thread-viewport.js";
 import { ViewportHandoffThreadEntryGate } from "./ViewportHandoffEntryGate.js";
 import { useThreadReadOnScreen } from "../hooks/use-thread-read-on-screen.js";
+import { readsWhenSeen, useUnreadMessagesSeen } from "../hooks/use-unread-messages-seen.js";
 import { createViewportHandoffEntryId, noteViewportSelectionActivity } from "../utils/viewport-handoff-client.js";
 import { resolveInitialLeaderThreadKey } from "../utils/initial-leader-thread.js";
 import { applyCanonicalQuestTitles, buildCanonicalQuestTitleIndex } from "../utils/quest-title-index.js";
@@ -131,6 +132,8 @@ export function reviewNotificationIdsForSelectedThread(
   notifications: ReadonlyArray<SessionNotification> | undefined,
   attentionRecords: ReadonlyArray<SessionAttentionRecord>,
   selectedThreadKey: string,
+  /** A leader's answers and reports are read when seen (`useUnreadMessagesSeen`), not here. */
+  readWhenSeen = false,
 ): string[] {
   const selected = normalizeThreadKey(selectedThreadKey || MAIN_THREAD_KEY);
   if (selected === ALL_THREADS_KEY) return [];
@@ -148,6 +151,7 @@ export function reviewNotificationIdsForSelectedThread(
   const ids: string[] = [];
   for (const notification of notifications ?? []) {
     if (notification.done || notification.category !== "review") continue;
+    if (readWhenSeen && readsWhenSeen(notification)) continue;
     const parsedMultiQuestThreads = parseQuestIdsFromReviewSummary(notification.summary);
     const effectiveThreads =
       parsedMultiQuestThreads.length > 1
@@ -640,6 +644,13 @@ export function ChatView({
   const topicFeedOn = !!topicConversation && topicFeedFor === selectedThreadKey.toLowerCase();
   const feedThreadKey = topicFeedOn ? topicViewKey(topicConversation.topicId) : selectedThreadKey;
   useTopicWindowFollowsQuests(sessionId, topicFeedOn ? feedThreadKey : null, topicConversation?.questIds ?? []);
+  useUnreadMessagesSeen({
+    sessionId,
+    feedKey: feedThreadKey,
+    notifications: sessionNotifications,
+    enabled: isLeaderSession && !preview,
+    onSeen: (notificationId) => void api.markNotificationDone(sessionId, notificationId, true).catch(console.error),
+  });
   // Zooming between the quest and its topic keeps the reader's place and plays the zoom, once the
   // new feed is on screen.
   const zoomColumnRef = useRef<HTMLDivElement | null>(null);
@@ -757,6 +768,7 @@ export function ChatView({
             sessionNotifications,
             reviewAttentionRecords,
             isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY,
+            isLeaderSession,
           )
         : [],
     [isLeaderSession, reviewAttentionRecords, selectedThreadKey, selectedThreadReadOnScreen, sessionNotifications],

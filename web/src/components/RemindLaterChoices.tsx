@@ -14,6 +14,21 @@ export const NEEDS_INPUT_SNOOZE_PRESETS: ReadonlyArray<{ label: string; duration
   { label: "24 hours", durationMs: DAY_MS },
 ];
 
+/**
+ * The quick choices for "Remind me later" on an item of the attention list (a question or an
+ * unread answer): soon, later today, or tomorrow morning at 9 in the user's time.
+ */
+export function itemRemindPresets(now = new Date()): Array<{ label: string; durationMs: number }> {
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  tomorrow.setHours(9, 0, 0, 0);
+  return [
+    { label: "30 minutes", durationMs: 30 * 60 * 1000 },
+    { label: "2 hours", durationMs: 2 * HOUR_MS },
+    { label: "Tomorrow 9 AM", durationMs: tomorrow.getTime() - now.getTime() },
+  ];
+}
+
 const DATE_INPUT_CLASS =
   "rounded border border-cc-border bg-cc-bg/70 px-1.5 py-1 text-[11px] text-cc-fg outline-none focus:border-cc-attention [color-scheme:dark]";
 

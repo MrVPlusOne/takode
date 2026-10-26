@@ -6,6 +6,7 @@ import type { SdkSessionInfo, SessionNotification } from "../types.js";
 import type { GlobalNeedsInputEntry } from "./global-needs-input.js";
 import {
   attentionCursorFor,
+  attentionSection,
   buildNextAttentionQueue,
   buildSessionAttentionQueue,
   collectUnreadAttention,
@@ -36,9 +37,10 @@ function notifyMe(sessionId: string, threadKey: string, timestamp: number, pendi
 }
 
 describe("buildNextAttentionQueue", () => {
-  it("orders needs-input, then Notify Me, then unread, newest first within each group", () => {
-    // The user chose group priority with newest-first inside each group, so a
-    // fresh unread result never jumps ahead of an older needs-input prompt.
+  it("orders questions, then unread, then Notify Me, newest first within each section", () => {
+    // Questions come first, then unread answers, then results of watched quests (Jiayi's order
+    // for the topic-first design, Oct 26); newest first inside each, so a fresh unread result
+    // never jumps ahead of an older question.
     const queue = buildNextAttentionQueue({
       needsInput: [needsInput("a", "n-old", 100), needsInput("b", "n-new", 300)],
       notifyMe: [notifyMe("c", "q-1", 200), notifyMe("c", "q-2", 400), notifyMe("c", "q-3", 999, false)],
@@ -51,10 +53,10 @@ describe("buildNextAttentionQueue", () => {
     expect(queue.map((item) => item.key)).toEqual([
       "needs-input:b:n-new",
       "needs-input:a:n-old",
-      "notify-me:c:q-2:r-q-2",
-      "notify-me:c:q-1:r-q-1",
       "unread:e:",
       "unread:d:",
+      "notify-me:c:q-2:r-q-2",
+      "notify-me:c:q-1:r-q-1",
     ]);
   });
 
@@ -70,6 +72,52 @@ describe("buildNextAttentionQueue", () => {
     });
 
     expect(queue.filter((item) => item.kind === "unread").map((item) => item.label)).toEqual(["other thread"]);
+  });
+});
+
+describe("sections and topics", () => {
+  it("puts reminders that came due right after questions, and groups unread answers by topic", () => {
+    // A "Remind me later" that came due returns as a Notify Me result marked as a reminder: it
+    // is shown and visited before unread answers. Unread answers are grouped by their quest's
+    // topic, the topic with the newest answer first, and newest first inside a topic.
+    const reminder = notifyMe("a", "q-5", 10);
+    reminder.pending = { ...reminder.pending!, reminder: true };
+    const answer = (id: string, threadKey: string, timestamp: number) => ({
+      sessionId: "a",
+      threadKey,
+      label: threadKey,
+      timestamp,
+      notification: { id, category: "review", timestamp, messageId: `m-${id}`, done: false } as SessionNotification,
+    });
+    const topics: Record<string, { id: string; name: string }> = {
+      "q-1": { id: "t-relay", name: "Relay" },
+      "q-2": { id: "t-relay", name: "Relay" },
+      "q-3": { id: "t-voice", name: "Voice" },
+    };
+    const queue = buildNextAttentionQueue({
+      needsInput: [needsInput("a", "ask", 1)],
+      notifyMe: [notifyMe("a", "q-8", 500), reminder],
+      unread: [answer("u1", "q-1", 100), answer("u2", "q-3", 300), answer("u3", "q-2", 200), answer("u4", "q-9", 50)],
+      topicOf: (_sessionId, threadKey) => (threadKey ? (topics[threadKey] ?? null) : null),
+    });
+    expect(queue.map((item) => [attentionSection(item), item.key])).toEqual([
+      ["needs-input", "needs-input:a:ask"],
+      ["reminder", "notify-me:a:q-5:r-q-5"],
+      ["unread", "unread:a:u2"],
+      ["unread", "unread:a:u3"],
+      ["unread", "unread:a:u1"],
+      ["unread", "unread:a:u4"],
+      ["notify-me", "notify-me:a:q-8:r-q-8"],
+    ]);
+    // Next walks the same order, topic by topic.
+    const visited = [];
+    let cursor = null;
+    for (const _ of queue) {
+      const next = pickAttentionAfter(queue, cursor)!;
+      visited.push(next.item.key);
+      cursor = attentionCursorFor(next.item);
+    }
+    expect(visited).toEqual(queue.map((item) => item.key));
   });
 });
 
@@ -109,7 +157,7 @@ describe("pickAttentionAfter", () => {
   it("visits a new item when the walk reaches its place, without resetting", () => {
     // A newer prompt sorts before the cursor, so the walk finishes the list and
     // reaches it after wrapping; an older unread result is reached on the way.
-    const cursor = attentionCursorFor(queue[2]!);
+    const cursor = attentionCursorFor(queue[1]!);
     const grown = buildNextAttentionQueue({
       needsInput: [needsInput("a", "n3", 900), needsInput("a", "n2", 300), needsInput("a", "n1", 200)],
       notifyMe: [notifyMe("b", "q-1", 100)],
@@ -221,6 +269,61 @@ describe("collectUnreadAttention", () => {
   });
 });
 
+describe("collectUnreadAttention per message", () => {
+  it("lists each unread answer of a leader once its notifications are known", () => {
+    // Unread is per message: each open answer, report or finished quest is its own item, in
+    // its thread, named by the tab's title. Read ones and questions are left out.
+    const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, "leader");
+    const review = (id: string, threadKey: string, timestamp: number, done = false) =>
+      ({
+        id,
+        category: "review",
+        threadKey,
+        timestamp,
+        messageId: `m-${id}`,
+        summary: id,
+        done,
+      }) as SessionNotification;
+    const notifications = [
+      review("a1", "q-1", 10),
+      review("a2", "q-1", 20),
+      review("a3", "main", 30),
+      review("read", "q-1", 40, true),
+      { id: "ask", category: "needs-input", threadKey: "q-1", timestamp: 50, messageId: null, done: false },
+    ] as SessionNotification[];
+    const candidates = collectUnreadAttention({
+      sdkSessions: [{ sessionId: "leader", state: "connected", cwd: "/", createdAt: 1, isOrchestrator: true }],
+      sessionNotifications: new Map([["leader", notifications]]),
+      syncedProjectionKeys: new Set([entryId]),
+      syncedProjectionValues: new Map([
+        [
+          entryId,
+          {
+            currentQuestStateVersion: 1,
+            tabState: null,
+            tabs: [
+              {
+                threadKey: "q-1",
+                questId: "q-1",
+                title: "Relay",
+                attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: true, updatedAt: 20 },
+              },
+            ],
+            mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: true, updatedAt: 30 },
+            threadStatuses: {},
+            activePhaseSummary: [],
+          },
+        ],
+      ]),
+    });
+    expect(candidates.map((candidate) => [candidate.notification?.id, candidate.threadKey, candidate.label])).toEqual([
+      ["a1", "q-1", "Relay"],
+      ["a2", "q-1", "Relay"],
+      ["a3", "main", "Main"],
+    ]);
+  });
+});
+
 describe("buildSessionAttentionQueue", () => {
   it("keeps only this session's items, in Next's group order and coverage", () => {
     // The feed chip shows one session's queue: its prompts, then its Notify Me
@@ -242,8 +345,8 @@ describe("buildSessionAttentionQueue", () => {
     expect(queue.map((item) => item.key)).toEqual([
       "needs-input:a:n-new",
       "needs-input:a:n-old",
-      "notify-me:a:q-2:r-q-2",
       "unread:a:q-9",
+      "notify-me:a:q-2:r-q-2",
     ]);
   });
 });

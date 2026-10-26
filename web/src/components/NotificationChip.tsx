@@ -56,7 +56,7 @@ type NotificationCategory = SessionNotification["category"];
 const NOTIFICATION_POPOVER_MIN_OFFSET_PX = 56;
 const NOTIFICATION_POPOVER_ANCHOR_GAP_PX = 8;
 const NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX = 12;
-const OTHER_ATTENTION_KINDS = ["notify-me", "unread"] as const;
+const OTHER_ATTENTION_KINDS = ["reminder", "unread", "notify-me"] as const;
 
 /** Where the chip floats: the feed's lower right (phones) or its upper right (desktop, less mouse travel). */
 export type NotificationChipPlacement = "top" | "bottom";

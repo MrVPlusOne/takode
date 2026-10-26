@@ -55,28 +55,61 @@ const NOTIFY_ME: ThreadMonitoringEntry = {
   pending: { id: "7", messageId: "mock-notify", timestamp: NOW - 20 * 60_000, summary: "Landed; restart picks it up." },
 };
 
-/** A realistic cross-session queue: two prompts, one Notify Me result and three unread results. */
+/** A "Remind me later" on an answer that came due: shown right after the questions. */
+const DUE_REMINDER: ThreadMonitoringEntry = {
+  ...NOTIFY_ME,
+  threadKey: "q-2428",
+  title: "q-2428 Make offline hosts obvious in the session list",
+  pending: {
+    id: "8",
+    messageId: "mock-reminder",
+    timestamp: NOW - 2 * 60_000,
+    summary: "Reminder: q-2428 Make offline hosts obvious in the session list",
+    reminder: true,
+  },
+};
+
+/** One unread answer, report or finished quest of the leader, as the per-message list shows it. */
+function unreadMessage(id: string, threadKey: string, label: string, minutesAgo: number, summary: string) {
+  const timestamp = NOW - minutesAgo * 60_000;
+  return {
+    sessionId: "playground-attention-leader",
+    threadKey,
+    label,
+    timestamp,
+    summary,
+    notification: {
+      id,
+      category: "review",
+      unreadReason: "answer",
+      summary,
+      timestamp,
+      messageId: `mock-${id}`,
+      threadKey,
+      done: false,
+    } as SessionNotification,
+  };
+}
+
+const TOPICS: Record<string, { id: string; name: string }> = {
+  "q-2416": { id: "topic-restart", name: "Restart Server" },
+  "q-2415": { id: "topic-restart", name: "Restart Server" },
+};
+
+/**
+ * A realistic cross-session queue: questions, a reminder that came due, unread answers grouped
+ * by topic (two in Restart Server, one in Main), and a watched quest's result.
+ */
 const QUEUE = buildNextAttentionQueue({
   needsInput: [
     prompt("playground-attention-leader", "n-1", "Make offline hosts obvious: pick a chip style", 59, "q-2428"),
     prompt("playground-attention-other", "n-2", "Rotate the Codex token now or after the Execute window?", 45),
   ],
-  notifyMe: [NOTIFY_ME],
+  notifyMe: [NOTIFY_ME, DUE_REMINDER],
   unread: [
-    {
-      sessionId: "playground-attention-leader",
-      threadKey: "main",
-      label: "Main",
-      timestamp: NOW - 18 * 60_000,
-      summary: "Answer in Main | The phone fix landed; restart when convenient.",
-    },
-    {
-      sessionId: "playground-attention-leader",
-      threadKey: "q-2415",
-      label: "Restart must not hang waiting for accepted work",
-      timestamp: NOW - 4 * 3_600_000,
-      summary: "Journey finished: Restart must not hang waiting for accepted work",
-    },
+    unreadMessage("r-1", "main", "Main", 18, "Answer in Main | The phone fix landed; restart when convenient."),
+    unreadMessage("r-2", "q-2416", QUEST_TITLES["q-2416"]!, 12, "Restart now updates the checkout first."),
+    unreadMessage("r-3", "q-2415", QUEST_TITLES["q-2415"]!, 240, "A restart no longer waits on accepted work."),
     {
       sessionId: "playground-attention-worker",
       threadKey: null,
@@ -84,6 +117,7 @@ const QUEUE = buildNextAttentionQueue({
       timestamp: NOW - 5 * 3_600_000,
     },
   ],
+  topicOf: (_sessionId, threadKey) => (threadKey ? (TOPICS[threadKey] ?? null) : null),
 });
 
 /** Below the queue, collapsed: one muted prompt and one tracked thread still waiting for a result. */

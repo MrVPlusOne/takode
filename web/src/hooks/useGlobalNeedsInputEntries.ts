@@ -21,8 +21,8 @@ const fetchedNeedsInputKeys = new Set<string>();
 
 /**
  * Active and muted needs-input entries across sessions. Loads each session's
- * notification list when its server summary says it has prompts; every caller
- * shares one request per summary version.
+ * notification list when its server summary says it has prompts (or, for a leader,
+ * unread answers); every caller shares one request per summary version.
  */
 export function useGlobalNeedsInputEntries() {
   const { sessionNotifications, sdkSessions } = useStore(
@@ -60,7 +60,9 @@ function needsInputFetchRequests(state: GlobalNeedsInputState): NeedsInputFetchR
       const activeNeedsInputCount =
         session.activeNeedsInputNotificationCount ??
         (session.notificationUrgency === "needs-input" ? (session.activeNotificationCount ?? 0) : 0);
-      return activeNeedsInputCount > 0 || (session.mutedNeedsInputNotificationCount ?? 0) > 0;
+      // A leader's unread answers are items of the attention list too, one per message.
+      const unreadResults = session.isOrchestrator ? (session.activeReviewNotificationCount ?? 0) : 0;
+      return activeNeedsInputCount > 0 || (session.mutedNeedsInputNotificationCount ?? 0) > 0 || unreadResults > 0;
     })
     .map((session) => {
       const status: NotificationStatusSnapshot = {

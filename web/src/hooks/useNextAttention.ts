@@ -7,6 +7,8 @@ import { useGlobalNeedsInputEntries } from "./useGlobalNeedsInputEntries.js";
 import { useStore } from "../store.js";
 import { buildNextAttentionQueue, collectUnreadAttention, type NextAttentionItem } from "../utils/next-attention.js";
 import { useAttentionNavigator, type AttentionNavigator } from "./useAttentionNavigator.js";
+import { useQuestTopicsOf } from "../utils/leader-topics.js";
+import { isQuestThreadKey } from "../../shared/thread-routing.js";
 
 export { openAttentionItem, type NextAttentionLanding } from "./useAttentionNavigator.js";
 
@@ -23,13 +25,30 @@ export function useNextAttention(): AttentionNavigator & { queue: NextAttentionI
     useShallow((s) => ({
       sdkSessions: s.sdkSessions,
       sessionAttention: s.sessionAttention,
+      sessionNotifications: s.sessionNotifications,
       syncedProjectionValues: s.syncedProjectionValues,
       syncedProjectionKeys: s.syncedProjectionKeys,
     })),
   );
+  const unread = useMemo(() => collectUnreadAttention(unreadSource), [unreadSource]);
+  // Unread answers group by their quest's Library topic, looked up per leader.
+  const topicOfQuest = useQuestTopicsOf(
+    unread.flatMap((candidate) =>
+      candidate.threadKey && isQuestThreadKey(candidate.threadKey)
+        ? [{ leaderId: candidate.sessionId, questId: candidate.threadKey }]
+        : [],
+    ),
+  );
   const queue = useMemo(
-    () => buildNextAttentionQueue({ needsInput, notifyMe, unread: collectUnreadAttention(unreadSource) }),
-    [needsInput, notifyMe, unreadSource],
+    () =>
+      buildNextAttentionQueue({
+        needsInput,
+        notifyMe,
+        unread,
+        topicOf: (sessionId, threadKey) =>
+          threadKey && isQuestThreadKey(threadKey) ? (topicOfQuest(sessionId, threadKey) ?? null) : null,
+      }),
+    [needsInput, notifyMe, unread, topicOfQuest],
   );
   return { queue, ...useAttentionNavigator("global", queue) };
 }

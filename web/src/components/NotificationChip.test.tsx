@@ -1395,9 +1395,10 @@ describe("NotificationChip", () => {
       expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
     });
 
-    it("walks from the prompts into Notify Me and unread results and lists them after the prompts", () => {
+    it("walks from the prompts into unread and Notify Me results and lists them after the prompts", () => {
       // The walk must not stay in the top group, and the inbox (right-click or
-      // long-press) lists every item in the same order and marks the next one.
+      // long-press) lists every item in the same order and marks the next one:
+      // questions, then unread answers, then watched quests' results.
       setNotifications("s1", [
         { id: "ask", category: "needs-input", summary: "Pick one", timestamp: 100, messageId: "m-1", done: false },
       ]);
@@ -1427,7 +1428,7 @@ describe("NotificationChip", () => {
       expect(chipButton().getAttribute("aria-label")).toContain("Needs input, 1 of 3");
       fireEvent.click(chipButton());
       expect(chipButton()).toHaveTextContent("2/3·Next");
-      expect(chipButton().getAttribute("aria-label")).toContain("Notify Me result, 2 of 3");
+      expect(chipButton().getAttribute("aria-label")).toContain("Unread result, 2 of 3");
       fireEvent.click(chipButton());
       expect(chipButton()).toHaveTextContent("3/3·Next");
       expect(chipButton().getAttribute("aria-label")).toContain("of 3");
@@ -1441,9 +1442,9 @@ describe("NotificationChip", () => {
       expect(notifyMe).toHaveTextContent("q-5 Ship it");
       expect(notifyMe).toHaveTextContent("Landed");
       expect(unread).toHaveTextContent("q-6 Review");
-      expect(within(unread).getByTestId("attention-item-row")).toHaveAttribute("data-attention-next", "true");
-      expect(prompt.compareDocumentPosition(notifyMe) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(notifyMe.compareDocumentPosition(unread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(notifyMe).getByTestId("attention-item-row")).toHaveAttribute("data-attention-next", "true");
+      expect(prompt.compareDocumentPosition(unread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(unread.compareDocumentPosition(notifyMe) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it("names the thread tab of prompts and Notify Me results on their second line", () => {
@@ -1520,7 +1521,7 @@ describe("NotificationChip", () => {
         );
         openInbox();
         const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
-        const [notifyRow, unreadRow] = within(dialog).getAllByTestId("attention-item-row");
+        const [unreadRow, notifyRow] = within(dialog).getAllByTestId("attention-item-row");
         // Only Go to stays inline.
         expect(within(notifyRow!).queryByRole("button", { name: /Acknowledge/ })).toBeNull();
         expect(

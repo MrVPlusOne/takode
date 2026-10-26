@@ -267,45 +267,61 @@ describe("ThreadTabGroupBar", () => {
     expect(onClose.mock.calls.map(([key]) => key)).toEqual(["q-13", "q-14"]);
   });
 
-  it("lists topics by activity in a Topics group after Main, selected while a topic is on screen", () => {
-    // A leader with topics on gets a Topics group right after Main. It lists every topic, most
-    // recent activity first; choosing one opens it and closes the list. While a topic conversation
-    // is on screen the Topics group is the selected one (not the quest's status group) and that
-    // topic is marked. Done lists finished quests only.
+  it("is topic-first with topics on: Main, Working on and Topics, and no status groups", () => {
+    // Jiayi's pick (B): with topics as the home, the In progress, Needs you, New results and Done
+    // groups go away. Working on lists the unfinished quests for quick switching; Topics holds
+    // every quest tab, and is the selected tab on a topic conversation and on a quest that isn't
+    // in Working on.
     const onOpen = vi.fn();
-    const topic = (id: string, name: string, activityAt: number) =>
-      ({ id, name, activityAt, questIds: ["q-13"], latestUpdate: `${name} moved.` }) as never;
-    const { rerender } = renderBar({
-      currentThreadKey: "q-13",
-      topicsGroup: { topics: [topic("t1", "Relay", 2), topic("t2", "Briefing", 1)], currentTopicId: null, onOpen },
+    const topic = (id: string, name: string, activityAt: number, questIds: string[]) =>
+      ({ id, name, activityAt, questIds, latestUpdate: `${name} moved.` }) as never;
+    const topics = [topic("t1", "Relay", 2, ["q-10", "q-12"]), topic("t2", "Briefing", 1, ["q-13", "q-14"])];
+    const topicOfQuest = { "q-10": "t1", "q-12": "t1", "q-13": "t2", "q-14": "t2" };
+    const { rerender, onSelect } = renderBar({
+      currentThreadKey: "q-10",
+      topicsGroup: { topics, currentTopicId: null, onOpen, topicOfQuest },
     });
-    const bar = screen.getByTestId("thread-tab-group-bar");
-    const items = within(bar).getAllByRole("tab");
-    expect(items[1]?.getAttribute("data-group")).toBe("topics");
-    expect(items[1]?.getAttribute("data-selected")).toBe("false");
-    fireEvent.click(items[1]!);
-    const rows = screen.getAllByTestId("topic-tab-row");
-    expect(rows.map((row) => row.dataset.topic)).toEqual(["t1", "t2"]);
-    fireEvent.click(within(rows[1]!).getByRole("menuitem"));
-    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "t2" }));
-    expect(screen.queryByTestId("topic-tab-list")).toBeNull();
+    const groups = () =>
+      within(screen.getByTestId("thread-tab-group-bar"))
+        .getAllByRole("tab")
+        .map((item) => item.dataset.group ?? "main");
+    expect(groups()).toEqual(["main", "working-on", "topics"]);
+    expect(screen.queryAllByTestId("thread-tab-group-chip")).toEqual([]);
 
-    rerender({
-      currentThreadKey: "q-13",
-      topicsGroup: { topics: [topic("t1", "Relay", 2), topic("t2", "Briefing", 1)], currentTopicId: "t2", onOpen },
-    });
-    const topicsItem = within(screen.getByTestId("thread-tab-group-bar")).getAllByRole("tab")[1]!;
-    expect(topicsItem?.getAttribute("data-selected")).toBe("true");
-    const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
-    expect(done?.getAttribute("data-selected")).toBe("false");
-    fireEvent.click(topicsItem);
-    expect(within(screen.getAllByTestId("topic-tab-row")[1]!).getByRole("menuitem").getAttribute("aria-current")).toBe(
-      "true",
+    // Working on: the unfinished quests (q-10 in progress, q-11 waiting on a question), selected on one.
+    const workingOn = screen.getByTestId("thread-tab-group-working-on");
+    expect(workingOn.dataset.selected).toBe("true");
+    expect(workingOn.dataset.count).toBe("2");
+    fireEvent.click(workingOn);
+    const rows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
+    expect(rows.map((row) => row.dataset.threadKey).sort()).toEqual(["q-10", "q-11"]);
+    fireEvent.click(
+      within(rows.find((row) => row.dataset.threadKey === "q-11")!).getByTestId("thread-tab-list-row-select"),
     );
+    expect(onSelect).toHaveBeenCalledWith("q-11");
 
-    fireEvent.click(screen.getByTestId("thread-tab-group-backdrop"));
-    fireEvent.click(done);
-    expect(screen.queryByTestId("done-topic-list")).toBeNull();
+    // Topics: each topic says what its quests are doing; quests under no topic are listed below.
+    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
+    const [relay, briefing] = screen.getAllByTestId("topic-tab-row");
+    expect(within(relay!).getByTestId("topic-tab-status").textContent).toContain("1 in progress");
+    expect(within(relay!).getByTestId("topic-tab-status").textContent).toContain("1 new");
+    expect(within(briefing!).queryByTestId("topic-tab-status")).toBeNull();
+    const unsorted = screen.getByTestId("topic-tab-unsorted");
+    expect(
+      within(unsorted)
+        .getAllByTestId("thread-tab-list-row")
+        .map((row) => row.dataset.threadKey)
+        .sort(),
+    ).toEqual(["q-11", "q-15"]);
+    fireEvent.click(within(briefing!).getByRole("menuitem"));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "t2" }));
+
+    // A finished quest's tab, and a topic conversation, select Topics.
+    rerender({ currentThreadKey: "q-13", topicsGroup: { topics, currentTopicId: null, onOpen, topicOfQuest } });
+    expect(screen.getByTestId("thread-tab-group-topics").dataset.selected).toBe("true");
+    rerender({ currentThreadKey: "q-10", topicsGroup: { topics, currentTopicId: "t1", onOpen, topicOfQuest } });
+    expect(screen.getByTestId("thread-tab-group-topics").dataset.selected).toBe("true");
+    expect(screen.getByTestId("thread-tab-group-working-on").dataset.selected).toBe("false");
   });
 
   it("shows a topic's open questions in the Topics group, and opens one from there", () => {
@@ -330,9 +346,14 @@ describe("ThreadTabGroupBar", () => {
     const onOpen = vi.fn();
     renderBar({
       currentThreadKey: "main",
-      topicsGroup: { topics: [topic("asked", ["q-13"]), topic("quiet", ["q-14"])], currentTopicId: null, onOpen },
+      topicsGroup: {
+        topics: [topic("asked", ["q-13"]), topic("quiet", ["q-14"])],
+        currentTopicId: null,
+        onOpen,
+        topicOfQuest: {},
+      },
     });
-    fireEvent.click(within(screen.getByTestId("thread-tab-group-bar")).getAllByRole("tab")[1]!);
+    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
     const [asked, quiet] = screen.getAllByTestId("topic-tab-row");
     expect(within(quiet!).queryByTestId("topic-questions-badge")).toBeNull();
     const badge = within(asked!).getByTestId("topic-questions-badge");

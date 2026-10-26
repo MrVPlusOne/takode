@@ -80,7 +80,13 @@ export function wakeDueThreadReminders(
       Object.entries(reminders).filter(([, reminder]) => reminder.remindAt > now),
     );
     const alerted = due.filter((threadKey) =>
-      recordReminderResult(session, threadKey, `Reminder: ${threadTitle(session, threadKey)}`, now),
+      recordReminderResult(
+        session,
+        threadKey,
+        `Reminder: ${threadTitle(session, threadKey)}`,
+        now,
+        reminders[threadKey]!.messageId,
+      ),
     );
     for (const threadKey of alerted) {
       if (threadKey !== "main") deps.promoteLeaderThreadTabForAttention?.(session.id, threadKey, now, "primary");

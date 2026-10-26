@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { create } from "zustand";
 import type { QuestTopicMap, QuestTopicsResponse, TopicBrief } from "../../shared/library-topics.js";
 import { topicApi } from "../api/topics.js";
@@ -75,6 +75,41 @@ export function useKnownQuestTopic(leaderId: string, questId: string): QuestTopi
 /** A topic in brief (name, quests, last activity), as last known for a leader. */
 export function useKnownTopicBrief(leaderId: string, topicId: string | undefined): TopicBrief | undefined {
   return useLeaderTopicsStore((state) => (topicId ? state.byLeader[leaderId]?.topics[topicId] : undefined));
+}
+
+/**
+ * Every leader's known quest topics, for lists spanning leaders (the attention list groups unread
+ * answers by topic). Asks the server about the given quests the first time they appear.
+ */
+export function useQuestTopicsOf(
+  quests: ReadonlyArray<{ leaderId: string; questId: string }>,
+): (leaderId: string, questId: string) => { id: string; name: string } | null | undefined {
+  const byLeader = useLeaderTopicsStore((state) => state.byLeader);
+  const unknown = quests
+    .filter(({ leaderId, questId }) => !byLeader[leaderId]?.asked[questId])
+    .map(({ leaderId, questId }) => `${leaderId} ${questId}`);
+  const unknownKey = [...new Set(unknown)].sort().join(",");
+  useEffect(() => {
+    if (!unknownKey) return;
+    const byLeaderQuests = new Map<string, string[]>();
+    for (const pair of unknownKey.split(",")) {
+      const [leaderId, questId] = pair.split(" ") as [string, string];
+      byLeaderQuests.set(leaderId, [...(byLeaderQuests.get(leaderId) ?? []), questId]);
+    }
+    for (const [leaderId, questIds] of byLeaderQuests) {
+      loadLeaderTopics(leaderId, questIds).catch((error: Error) =>
+        console.warn("[library] Could not look up the topics of unread answers:", error.message),
+      );
+    }
+  }, [unknownKey]);
+  return useCallback(
+    (leaderId: string, questId: string) => {
+      const known = byLeader[leaderId];
+      if (!known?.asked[questId]) return undefined;
+      return known.map[questId] ?? null;
+    },
+    [byLeader],
+  );
 }
 
 /** For the Playground: the topics of some quests, as if the server had answered about them. */

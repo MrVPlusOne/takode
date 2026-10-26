@@ -3,6 +3,7 @@ import { cancelThreadReminder, setThreadReminder } from "../api/thread-reminders
 import { api } from "../api.js";
 import type { ContextMenuItem } from "../components/ContextMenu.js";
 import { NEEDS_INPUT_SNOOZE_PRESETS } from "../components/NeedsInputSnoozeControl.js";
+import { itemRemindPresets } from "../components/RemindLaterChoices.js";
 import { applyServerNotification } from "../notification-status.js";
 import { useStore } from "../store.js";
 import type { SessionNotification } from "../types.js";
@@ -47,7 +48,7 @@ export function needsInputMenuItems(sessionId: string, notification: SessionNoti
     {
       label: "Remind me later",
       onClick: () => {},
-      children: NEEDS_INPUT_SNOOZE_PRESETS.map((preset) => ({
+      children: itemRemindPresets().map((preset) => ({
         label: preset.label,
         onClick: () => apply(api.snoozeNotification(sessionId, notification.id, preset.durationMs), "Snooze"),
       })),
@@ -84,11 +85,31 @@ export function attentionItemMenuItems(item: NextAttentionItem): ContextMenuItem
         void updateThreadMonitoring(item.sessionId, threadKey, "untrack").catch(logFailure("Stop tracking")),
     });
   } else {
+    // One unread answer comes back later where it is; it counts as read until then.
+    const { notification } = item;
+    if (notification && item.threadKey) {
+      const { sessionId, threadKey } = item;
+      items.push({
+        label: "Remind me later",
+        onClick: () => {},
+        children: itemRemindPresets().map((preset) => ({
+          label: preset.label,
+          onClick: () =>
+            void remindMessageLater(sessionId, threadKey, notification, preset.durationMs).catch(
+              logFailure("Remind me later"),
+            ),
+        })),
+      });
+    }
     items.push({
       label: "Mark as read",
       onClick: () =>
         void (
-          item.threadKey === null ? api.markSessionRead(item.sessionId) : markThreadRead(item.sessionId, item.threadKey)
+          notification
+            ? api.markNotificationDone(item.sessionId, notification.id, true)
+            : item.threadKey === null
+              ? api.markSessionRead(item.sessionId)
+              : markThreadRead(item.sessionId, item.threadKey)
         ).catch(logFailure("Mark as read")),
     });
   }
@@ -160,6 +181,21 @@ export async function remindThreadLater(
   const target = normalizeThreadKey(threadKey);
   await setThreadReminder(sessionId, target, durationMs, messageId);
   await markThreadRead(sessionId, target);
+}
+
+/**
+ * Remind the user about one unread message later: its thread comes back with a reminder that
+ * opens at the message, and this message counts as read until then (other unread in the thread
+ * stay unread).
+ */
+export async function remindMessageLater(
+  sessionId: string,
+  threadKey: string,
+  notification: SessionNotification,
+  durationMs: number,
+): Promise<void> {
+  await setThreadReminder(sessionId, normalizeThreadKey(threadKey), durationMs, notification.messageId ?? undefined);
+  await api.markNotificationDone(sessionId, notification.id, true);
 }
 
 /**

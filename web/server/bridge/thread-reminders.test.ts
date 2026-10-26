@@ -53,11 +53,31 @@ describe("thread reminders", () => {
     expect(session.state.threadMonitoring.threads["q-7"]).toEqual({
       trackedAt: 2_000,
       afterHistoryIndex: -1,
-      pending: { id: "1", messageId: "", timestamp: 2_000, summary: "Reminder: q-7 Design the to-do page" },
+      pending: {
+        id: "1",
+        messageId: "",
+        timestamp: 2_000,
+        summary: "Reminder: q-7 Design the to-do page",
+        // Marked as a reminder: the attention list shows it under Reminders, right after questions.
+        reminder: true,
+      },
     });
     expect(session.notifications).toEqual([]);
     expect(d.promoteLeaderThreadTabForAttention).toHaveBeenCalledWith("leader", "q-7", 2_000, "primary");
     expect(d.onMonitoredThreadResult).toHaveBeenCalledWith(session, "q-7");
+  });
+
+  it("opens a reminder set from a message at that message", () => {
+    // "Remind me later" on one unread answer in the attention list records the answer's message;
+    // when it comes back, opening it lands there rather than on the thread's latest result.
+    const session = leader();
+    const d = deps();
+    setThreadReminder(session, { threadKey: "q-7", remindAt: 1_000, messageId: "answer-3" }, d);
+    wakeDueThreadReminders([session], 2_000, d);
+    expect(session.state.threadMonitoring.threads["q-7"].pending).toMatchObject({
+      messageId: "answer-3",
+      reminder: true,
+    });
   });
 
   it("keeps a result already waiting in Notify Me instead of replacing it", () => {

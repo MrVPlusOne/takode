@@ -17,7 +17,7 @@ import { AttentionKindIcon, BellIcon, NextChevron, attentionTone } from "./Atten
 import { useNotifyMeSummary } from "./NotifyMe.js";
 import { ATTENTION_LIST_HASH, ATTENTION_OPEN_EVENT } from "../utils/routing.js";
 
-const ALL_KINDS = ["needs-input", "notify-me", "unread"] as const;
+import { ATTENTION_SECTIONS } from "../utils/next-attention.js";
 
 /** Dispatched by the "Next Item Across Sessions" keyboard shortcut. */
 export const ATTENTION_NEXT_EVENT = "takode:attention-next";
@@ -300,7 +300,7 @@ export function GlobalAttentionPanel({
         {items.length === 0 && <p className="px-3 py-3 text-[12px] text-cc-muted">Nothing needs attention.</p>}
         <AttentionItemSections
           items={items}
-          kinds={ALL_KINDS}
+          kinds={ATTENTION_SECTIONS}
           onOpen={onOpen}
           nextKey={nextKey}
           sessionLabelFor={rowProps.sessionLabelFor}
@@ -317,7 +317,7 @@ export function GlobalAttentionPanel({
               onOpen={onOpen}
               rowProps={rowProps}
             />
-            <BacklogSection title="Reminders" items={backlog.reminders} onOpen={onOpen} rowProps={rowProps} />
+            <BacklogSection title="Snoozed" items={backlog.reminders} onOpen={onOpen} rowProps={rowProps} />
           </>
         )}
       </div>

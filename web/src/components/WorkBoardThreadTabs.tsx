@@ -20,6 +20,9 @@ import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js"
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { ThreadTabGroupBar } from "./ThreadTabGroups.js";
 import { useLeaderTopics } from "../utils/leader-topics.js";
+import { readsWhenSeen } from "../hooks/use-unread-messages-seen.js";
+import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
+import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 
 /** Find's Messages mode lists this many of the user's latest messages. */
 
@@ -208,7 +211,20 @@ export function ThreadTabRail({
   const currentTopicId =
     conversationTab && conversationTab === currentKey ? (leaderTopics?.map[currentKey]?.id ?? null) : null;
   const topicList = useTopicTabTopics(sessionId, !!leaderTopics, currentTopicId ?? "");
+  const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
+  const unreadIn = (questIds: readonly string[]) => {
+    const members = new Set(questIds.map(normalizeThreadKey));
+    return (notifications ?? []).filter(
+      (notification) => readsWhenSeen(notification) && members.has(resolveNotificationOwnerThreadKey(notification)),
+    );
+  };
   const openTopic = (topic: TopicSummary) => {
+    // A topic with unread answers opens at the first one, where its "New" line is.
+    const firstUnread = firstUnreadResult(unreadIn(topic.questIds), () => true);
+    if (firstUnread) {
+      navigateToNotification(sessionId, firstUnread, useStore.getState().sdkSessions, { topicView: true });
+      return;
+    }
     // The tab on screen when it is one of the topic's quests, else its newest quest with a tab.
     const inTabs = new Set(displayedTabs.map((tab) => tab.questId));
     const byNewest = [...topic.questIds].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)));
@@ -248,6 +264,10 @@ export function ThreadTabRail({
                 topics: topicList,
                 currentTopicId,
                 onOpen: openTopic,
+                unreadCountOf: (questIds) => unreadIn(questIds).length,
+                topicOfQuest: Object.fromEntries(
+                  Object.entries(leaderTopics.map).map(([questId, topic]) => [questId, topic.id]),
+                ),
               }
             : undefined
         }

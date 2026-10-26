@@ -4,6 +4,8 @@ import { topicApi } from "../api/topics.js";
 import type { GlobalNeedsInputEntry } from "../utils/global-needs-input.js";
 import { TopicIcon } from "./library/library-icons.js";
 import { TopicQuestionsBadge, useTopicQuestions } from "./library/topic-questions.js";
+import { NotifyMeIcon } from "./NotifyMe.js";
+import { PhaseDots, type TopicTabStatus } from "./ThreadTabGroups.js";
 
 /**
  * The Topics tab group: the topics of a leader's work, most recent activity first,
@@ -47,12 +49,15 @@ export function TopicTabList({
   currentTopicId,
   onOpen,
   onLeave,
+  statusOf,
 }: {
   topics: TopicSummary[];
   currentTopicId: string | null;
   onOpen: (topic: TopicSummary) => void;
   /** Called before the list opens a topic or a question, so its host can close. */
   onLeave: () => void;
+  /** The topic-first bar: what each topic's quest tabs say (work in progress, unread, watched). */
+  statusOf?: (topic: TopicSummary) => TopicTabStatus;
 }) {
   const { questionsOf, openQuestion } = useTopicQuestions();
   return (
@@ -63,6 +68,7 @@ export function TopicTabList({
           topic={topic}
           current={topic.id === currentTopicId}
           questions={questionsOf(topic.questIds)}
+          status={statusOf?.(topic)}
           onOpen={() => {
             onLeave();
             onOpen(topic);
@@ -81,12 +87,14 @@ function TopicTabRow({
   topic,
   current,
   questions,
+  status,
   onOpen,
   onOpenQuestion,
 }: {
   topic: TopicSummary;
   current: boolean;
   questions: GlobalNeedsInputEntry[];
+  status?: TopicTabStatus;
   onOpen: () => void;
   onOpenQuestion: (entry: GlobalNeedsInputEntry) => void;
 }) {
@@ -109,11 +117,45 @@ function TopicTabRow({
             <span className="shrink-0 text-[12px] text-cc-muted">{ago(topic.activityAt)}</span>
           </span>
           {line && <span className="line-clamp-2 text-[13px] text-cc-fg/80">{stripDate(line)}</span>}
+          {status && <TopicStatusLine status={status} />}
         </span>
       </button>
       {/* Beside the row's button, not inside it: it opens the question, not the topic. */}
       <TopicQuestionsBadge questions={questions} onOpen={onOpenQuestion} className="-mt-1 pb-2 pl-14 pr-4" />
     </div>
+  );
+}
+
+/**
+ * What a topic's quests are doing, in one quiet line under its update: work in progress (with the
+ * phase colors, a spinner while the leader writes there), unread answers, and Notify Me.
+ */
+function TopicStatusLine({ status }: { status: TopicTabStatus }) {
+  const { inProgress, unread, active, watching } = status;
+  if (!inProgress.length && !unread && !active && !watching) return null;
+  return (
+    <span className="mt-1 flex items-center gap-2.5 text-[12px] text-cc-muted" data-testid="topic-tab-status">
+      {(inProgress.length > 0 || active) && (
+        <span className="inline-flex items-center gap-1.5">
+          {active ? (
+            <span
+              aria-hidden="true"
+              className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-cc-info/30 border-t-cc-info motion-safe:animate-spin"
+            />
+          ) : (
+            <PhaseDots tabs={inProgress} />
+          )}
+          {inProgress.length > 0 ? `${inProgress.length} in progress` : "working"}
+        </span>
+      )}
+      {unread > 0 && (
+        <span className="inline-flex items-center gap-1 text-cc-info">
+          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cc-info" />
+          {unread} new
+        </span>
+      )}
+      {watching && <NotifyMeIcon pending={false} className="h-3.5 w-3.5" />}
+    </span>
   );
 }
 

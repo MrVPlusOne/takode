@@ -86,6 +86,7 @@ export function recordReminderResult(
   threadKey: string,
   summary: string,
   now = Date.now(),
+  messageId?: string,
 ): boolean {
   const current = session.state.threadMonitoring ?? { revision: 0, alertVersion: 0, threads: {} };
   const monitor = current.threads[threadKey];
@@ -102,9 +103,11 @@ export function recordReminderResult(
         afterHistoryIndex: monitor?.afterHistoryIndex ?? latestAcceptedReadyIndex(session, threadKey),
         pending: {
           id: String(revision),
-          messageId: ready?.kind === "ready" ? ready.messageId : "",
+          // The message the reminder was set from, else the thread's latest Ready result.
+          messageId: messageId ?? (ready?.kind === "ready" ? ready.messageId : ""),
           timestamp: now,
           summary: summary.slice(0, 200),
+          reminder: true,
         },
       },
     },

@@ -305,6 +305,36 @@ html, body {
 
 /* The turn guide owns activity indentation. Expanding a tool/worker group
  * must not add another guide or repeat the standalone worker avatar gutter. */
+/*
+ * "New" line above the first unread answer in a view (use-unread-messages-seen.ts), as in Slack:
+ * a thin line with the word at its right end, in the space above the message.
+ */
+[data-unread-start="true"] {
+  position: relative;
+}
+[data-unread-start="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -9px;
+  border-top: 1px solid var(--color-cc-error);
+  opacity: 0.7;
+  pointer-events: none;
+}
+[data-unread-start="true"]::after {
+  content: "New";
+  position: absolute;
+  right: 0;
+  top: -16px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--color-cc-error);
+  background: var(--color-cc-bg);
+  pointer-events: none;
+}
+
 [data-turn-activity] [data-activity-details] {
   border-left-width: 0;
   padding-left: 0;
