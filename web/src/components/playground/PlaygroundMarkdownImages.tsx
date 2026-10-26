@@ -3,7 +3,7 @@ import { ImagePreviewGroup } from "../ImagePreviewGroup.js";
 import { ImagePathLinkContext, useImagePathLinks } from "../image-path-links.js";
 import { imagePreviewIdForLocalPath, type ImagePreviewItem } from "../image-preview-utils.js";
 import { MarkdownContent } from "../MarkdownContent.js";
-import { READY_IMAGE } from "./PlaygroundPendingImagePreviews.js";
+import { MIXED_READY_IMAGE, READY_IMAGE } from "./PlaygroundPendingImagePreviews.js";
 
 const LOADED_PATH = "/tmp/takode-playground/tabs-after.png";
 const LOADING_PATH = "/tmp/takode-playground/tabs-loading.png";
@@ -44,6 +44,23 @@ export function PlaygroundMarkdownImages() {
         <MarkdownContent text={TEXT} />
         <ImagePreviewGroup ref={groupRef} images={images} testId="playground-markdown-image-group" />
       </ImagePathLinkContext.Provider>
+    </div>
+  );
+}
+
+const EMBEDDED_TEXT = `## Latest plots
+
+Embedded images open full size in the image viewer on click or tap:
+
+![Evals by training data](${READY_IMAGE})
+
+An image inside a link follows the link instead: [![Training by data](${MIXED_READY_IMAGE})](https://example.com)`;
+
+/** A page with images embedded by URL, as a Scribe writes plots into a topic page. */
+export function PlaygroundEmbeddedMarkdownImages() {
+  return (
+    <div data-testid="playground-embedded-markdown-images">
+      <MarkdownContent text={EMBEDDED_TEXT} />
     </div>
   );
 }

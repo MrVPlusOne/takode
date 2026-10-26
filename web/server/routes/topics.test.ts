@@ -125,6 +125,20 @@ describe("topic routes", () => {
     expect(store.resolve(topic.id)).toMatchObject({ name: "Coding T7", nameSource: "user" });
   });
 
+  it("lets the user dismiss changes from the panel without undoing them", async () => {
+    const { app, store, send, setCaller } = await setup();
+    const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "user", byAgent: false });
+    const { topic: twin } = store.assign({ questId: "q-2", space: "MSI", name: "Twin", by: "agent", byAgent: false });
+    store.merge(twin.id, topic.id, true, "Folded");
+    setCaller(null);
+    const before = await (await app.request("/topics?space=MSI")).json();
+    expect(before.changes).toHaveLength(1);
+    expect((await send("/topics/changes/dismiss", "POST", { ids: [before.changes[0].id] })).status).toBe(200);
+    expect((await (await app.request("/topics?space=MSI")).json()).changes).toEqual([]);
+    expect(store.topicOfQuest("q-2")?.name).toBe("T7 run");
+    expect((await send("/topics/changes/dismiss", "POST", {})).status).toBe(400);
+  });
+
   it("saves a page whose quoted decision is not in its linked message, and warns about it", async () => {
     // A warning instead of a refusal: the Scribe fixes the quote, and a wrong check can't make it loop.
     const { store, send } = await setup();

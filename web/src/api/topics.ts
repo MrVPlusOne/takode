@@ -30,6 +30,8 @@ export const topicApi = {
     request<TopicSummary>(`${topicPath(id)}/merge`, { method: "POST", body: { into } }),
   move: (questId: string, topic: string) =>
     request<TopicSummary>("/topics/move", { method: "POST", body: { questId, topic } }),
+  dismissChanges: (changeIds: string[]) =>
+    request<unknown>("/topics/changes/dismiss", { method: "POST", body: { ids: changeIds } }),
   undo: (changeId: string) =>
     request<unknown>(`/topics/changes/${encodeURIComponent(changeId)}/undo`, { method: "POST", body: {} }),
   /** Asks the Scribe of the leader whose panel this is to update the page now. */

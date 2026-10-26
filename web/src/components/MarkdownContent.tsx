@@ -54,7 +54,14 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 import { Lightbox } from "./Lightbox.js";
 import { ImagePathLinkContext, remarkImagePathLinks } from "./image-path-links.js";
-import { InlineLocalImage, InlineLocalImagesContext, localImageOf } from "./inline-local-images.js";
+import {
+  InlineLocalImage,
+  InlineLocalImagesContext,
+  MarkdownLinkContext,
+  ViewableImage,
+  localImageOf,
+  type ViewedImage,
+} from "./inline-local-images.js";
 import { openFileViewer, opensInBrowserTab } from "./FileViewer.js";
 import {
   buildFileLinkBrowserUrl,
@@ -780,6 +787,8 @@ export const MarkdownContent = memo(function MarkdownContent({
   const preparedMath = useMemo(() => prepareMarkdownMathSource(wrapSpacedFileLinkDestinations(text)), [text]);
   const imagePathLinks = useContext(ImagePathLinkContext);
   const inlineLocalImages = useContext(InlineLocalImagesContext);
+  // Kept here, not in the image: the components below are recreated on every render.
+  const [viewedImage, setViewedImage] = useState<ViewedImage | null>(null);
   const imagePathLinksPlugin = useMemo<NonNullable<MarkdownOptions["remarkPlugins"]>>(
     () =>
       imagePathLinks
@@ -917,7 +926,10 @@ export const MarkdownContent = memo(function MarkdownContent({
               {highlightChildren(children)}
             </li>
           ),
-          a: ({ href, children }) => {
+          a: ({ href, children: content }) => {
+            // An image inside a link follows the link instead of opening the image viewer.
+            const children =
+              content == null ? content : <MarkdownLinkContext.Provider value>{content}</MarkdownLinkContext.Provider>;
             const questTarget = parseQuestLinkTarget(href);
             if (questTarget?.delivery) {
               return (
@@ -1015,7 +1027,7 @@ export const MarkdownContent = memo(function MarkdownContent({
               </a>
             );
           },
-          img: ({ node: _node, src, alt, ...props }) => {
+          img: ({ node: _node, src, alt, title }) => {
             // A browser cannot load a local path as <img src>. Render it as a file link instead; feed
             // surfaces show local image paths as thumbnails below the text.
             const source = typeof src === "string" ? src : "";
@@ -1029,10 +1041,16 @@ export const MarkdownContent = memo(function MarkdownContent({
                   sessionId={inlineLocalImages!.sessionId ?? sessionId}
                   refreshKey={inlineLocalImages!.refreshKey}
                   fallback={fileLink}
+                  onOpen={setViewedImage}
                 />
               );
             }
-            return fileLink ?? <img src={src} alt={alt} {...props} />;
+            if (fileLink) return fileLink;
+            return source ? (
+              <ViewableImage src={source} alt={alt ?? ""} title={title} onOpen={setViewedImage} />
+            ) : (
+              <img alt={alt} />
+            );
           },
           blockquote: ({ children }) => (
             <blockquote className="border-l-2 border-cc-primary/30 pl-3 my-2 text-cc-muted italic">
@@ -1129,6 +1147,7 @@ export const MarkdownContent = memo(function MarkdownContent({
       >
         {preparedMath.renderText}
       </Markdown>
+      {viewedImage && <Lightbox src={viewedImage.src} alt={viewedImage.alt} onClose={() => setViewedImage(null)} />}
     </div>
   );
 }, areMarkdownContentPropsEqual);

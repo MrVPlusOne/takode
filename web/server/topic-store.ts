@@ -25,6 +25,8 @@ const MAX_EVENTS_PER_TOPIC = 200;
 const MAX_CHANGES = 300;
 const MAX_QUESTS_TOLD = 500;
 const DONE_KEPT_MS = 24 * 60 * 60 * 1000;
+/** How long the panel offers a change to undo before it goes away on its own. */
+export const CHANGE_SHOWN_MS = 24 * 60 * 60 * 1000;
 
 interface StoredTopic {
   id: string;
@@ -74,6 +76,8 @@ type Undo =
 
 interface StoredChange extends TopicChange {
   undo: Undo;
+  /** The user put it out of the panel without undoing it. */
+  dismissed?: boolean;
 }
 
 interface StoredSuggestion {
@@ -849,12 +853,27 @@ export class TopicStore {
     return clean;
   }
 
+  /**
+   * The changes the panel still offers to undo, newest first: made in the last day, not undone and
+   * not dismissed. Older ones go away on their own; tidying stays undoable while it is news.
+   */
   changes(space?: string, limit = 20): TopicChange[] {
+    const since = this.now() - CHANGE_SHOWN_MS;
     return this.s()
-      .changes.filter((change) => !space || change.space === space)
+      .changes.filter(
+        (change) => (!space || change.space === space) && !change.undone && !change.dismissed && change.at >= since,
+      )
       .slice(-limit)
       .reverse()
       .map(publicChange);
+  }
+
+  /** Takes changes out of the panel without undoing them. */
+  dismissChanges(changeIds: string[]): void {
+    for (const change of this.s().changes) {
+      if (changeIds.includes(change.id)) change.dismissed = true;
+    }
+    this.dirty = true;
   }
 
   summary(topic: StoredTopic): TopicSummary {
@@ -1025,7 +1044,7 @@ function checkNow(input: NowInput): NowInput {
 }
 
 function publicChange(change: StoredChange): TopicChange {
-  const { undo: _undo, ...rest } = change;
+  const { undo: _undo, dismissed: _dismissed, ...rest } = change;
   return rest;
 }
 

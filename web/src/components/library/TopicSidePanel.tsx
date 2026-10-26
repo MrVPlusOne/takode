@@ -16,13 +16,13 @@ import { PhoneTopicFrame } from "./PhoneTopicFrame.js";
 import { useStore } from "../../store.js";
 import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
-import { ChangeList, LeaderSwitches, RenameSuggestions } from "./TopicPage.js";
+import { ChangeList, RenameSuggestions, TopicSettings, TopicsOffHint } from "./TopicPage.js";
 import { TopicActivityList } from "./TopicActivityList.js";
 import { TopicView } from "./TopicView.js";
 import { readTopicConversation } from "../../utils/topic-conversation.js";
 import { navigateToSession } from "../../utils/routing.js";
 import type { ScribeActivity } from "../../../shared/library-topics.js";
-import { CollapseIcon, GalleryIcon, TopicIcon } from "./library-icons.js";
+import { CollapseIcon, GalleryIcon, SettingsIcon, TopicIcon } from "./library-icons.js";
 
 const REFRESH_MS = 20_000;
 
@@ -63,6 +63,7 @@ export function TopicSidePanel({
   const [data, setData] = useState<TopicListResponse | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const followed = useQuestTopic(leaderId, threadKey);
   // An expanded desktop composer can cover the panel's lower part; the feed gets the same room.
   const composerRoom = useComposerScrollSpace(`topic-panel:${leaderId}`);
@@ -105,6 +106,7 @@ export function TopicSidePanel({
   usePreviewSheetHistoryEntry(variant === "sheet" && (phone?.open ?? true), sheetRef, close);
   const act = (action: Promise<unknown>) => void action.then(load).catch((reason: Error) => setError(reason.message));
   const collapses = variant === "docked";
+  const topicsOn = !!data?.leaders.find((leader) => leader.sessionId === leaderId)?.enabled;
 
   const body = (
     <>
@@ -117,6 +119,25 @@ export function TopicSidePanel({
           <span className="font-medium text-cc-fg">Topics</span>
         )}
         <span className="min-w-0 flex-1" />
+        {topicsOn && (
+          <button
+            type="button"
+            onClick={() => {
+              // Settings show above the topic list: from a topic page the gear goes there and opens them.
+              setSettingsOpen((value) => (shown ? true : !value));
+              setChosen("");
+            }}
+            aria-label="Topic settings"
+            aria-expanded={settingsOpen && !shown}
+            title="Topic settings: instructions for the Scribe, pause, turn off"
+            className={`flex h-7 w-7 items-center justify-center rounded-md hover:bg-cc-hover hover:text-cc-fg ${
+              settingsOpen && !shown ? "text-cc-fg" : "text-cc-muted"
+            }`}
+            data-testid="topic-settings-button"
+          >
+            <SettingsIcon className="h-4 w-4" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => openLeaderLibrary(leaderId)}
@@ -167,8 +188,11 @@ export function TopicSidePanel({
             <div className="px-3 py-4 text-[13px] text-cc-muted">Loading…</div>
           ) : (
             <>
-              <LeaderSwitches data={data} leaderId={leaderId} act={act} />
-              {data.changes.some((change) => !change.undone) && <ChangeList data={data} act={act} />}
+              <TopicsOffHint data={data} leaderId={leaderId} act={act} />
+              {topicsOn && settingsOpen && (
+                <TopicSettings data={data} leaderId={leaderId} act={act} onClose={() => setSettingsOpen(false)} />
+              )}
+              <ChangeList data={data} act={act} />
               {threadKey.startsWith("q-") && (
                 <div className="px-4 pt-2 text-[12.5px] text-cc-muted">{threadKey} isn't filed under a topic yet.</div>
               )}

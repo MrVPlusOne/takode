@@ -3,17 +3,16 @@ import type { TopicListResponse } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 
 /**
- * The parts of a leader's topic panel around the topic pages (`TopicView`): the per-leader switch
- * and its Scribe's settings, the latest tidying a Scribe did (each with Undo), rename suggestions and
- * a topic's row in the list.
+ * The parts of a leader's topic panel around the topic pages (`TopicView`): the offer to turn
+ * topics on, the topic settings, recent changes to the topics (each with Undo) and rename
+ * suggestions.
  */
 
 /**
- * A leader's topics switch and settings. Off: an offer to turn topics on (with the quest count once
- * there are about 20). On: Settings opens the pause, the user's instructions for the Scribe,
- * and turning topics off.
+ * The offer to turn topics on for a leader whose topics are off (with the quest count once there
+ * are about 20); null while they are on.
  */
-export function LeaderSwitches({
+export function TopicsOffHint({
   data,
   leaderId,
   act,
@@ -22,71 +21,84 @@ export function LeaderSwitches({
   leaderId: string;
   act: (action: Promise<unknown>) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const leader = data.leaders.find((candidate) => candidate.sessionId === leaderId);
-  if (!leader) return null;
-  if (!leader.enabled) {
-    return (
-      <div className="border-b border-cc-border px-4 py-3 text-[13px]" data-testid="topic-hint">
-        <div className="text-cc-fg">
-          {leader.suggest
-            ? `#${leader.sessionNum} ${leader.name} has ${leader.questCount} quests. Group them by topic?`
-            : "Topics are off for this leader."}
-        </div>
-        <div className="mt-0.5 text-cc-muted">
-          A Scribe keeps a page per topic: where it stands, your decisions, what was made.
-        </div>
-        <div className="mt-2 flex gap-2">
-          <button
-            type="button"
-            onClick={() => act(topicApi.setLeaderEnabled(leader.sessionId, true))}
-            className="rounded-md bg-cc-primary px-2.5 py-1 text-white"
-          >
-            Turn on
-          </button>
-          {leader.suggest && (
-            <button
-              type="button"
-              onClick={() => act(topicApi.dismissHint(leader.sessionId))}
-              className="rounded-md px-2.5 py-1 text-cc-muted hover:bg-cc-hover"
-            >
-              Not now
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
+  if (!leader || leader.enabled) return null;
   return (
-    <div className="border-b border-cc-border px-4 py-2 text-[13px]">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-        className="text-cc-primary hover:underline"
-      >
-        {open ? "Hide settings" : "Settings and instructions"}
-      </button>
-      {open && (
-        <div className="mt-2 flex flex-col gap-2.5" data-testid="topic-settings">
-          <ScribeInstructionsBox leaderId={leader.sessionId} saved={data.scribe?.instructions ?? ""} act={act} />
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={!data.scribe?.paused}
-              onChange={(event) => act(topicApi.setScribePaused(leader.sessionId, !event.target.checked))}
-            />
-            <span className="text-cc-fg">Keep pages up to date</span>
-          </label>
+    <div className="border-b border-cc-border px-4 py-3 text-[13px]" data-testid="topic-hint">
+      <div className="text-cc-fg">
+        {leader.suggest
+          ? `#${leader.sessionNum} ${leader.name} has ${leader.questCount} quests. Group them by topic?`
+          : "Topics are off for this leader."}
+      </div>
+      <div className="mt-0.5 text-cc-muted">
+        A Scribe keeps a page per topic: where it stands, your decisions, what was made.
+      </div>
+      <div className="mt-2 flex gap-2">
+        <button
+          type="button"
+          onClick={() => act(topicApi.setLeaderEnabled(leader.sessionId, true))}
+          className="rounded-md bg-cc-primary px-2.5 py-1 text-white"
+        >
+          Turn on
+        </button>
+        {leader.suggest && (
           <button
             type="button"
-            onClick={() => act(topicApi.setLeaderEnabled(leader.sessionId, false))}
-            className="self-start text-cc-muted hover:text-cc-fg"
+            onClick={() => act(topicApi.dismissHint(leader.sessionId))}
+            className="rounded-md px-2.5 py-1 text-cc-muted hover:bg-cc-hover"
           >
-            Turn topics off for this leader
+            Not now
           </button>
-        </div>
-      )}
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A leader's topic settings, opened from the panel header's gear: the user's instructions for the
+ * Scribe, the pause, and turning topics off.
+ */
+export function TopicSettings({
+  data,
+  leaderId,
+  act,
+  onClose,
+}: {
+  data: TopicListResponse;
+  leaderId: string;
+  act: (action: Promise<unknown>) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="border-b border-cc-border bg-cc-card px-4 py-3 text-[13px]" data-testid="topic-settings">
+      <div className="mb-2 flex items-center">
+        <h3 className="flex-1 font-medium text-cc-fg">Topic settings</h3>
+        <button type="button" onClick={onClose} className="text-cc-primary hover:underline">
+          Done
+        </button>
+      </div>
+      <div className="flex flex-col gap-2.5">
+        <ScribeInstructionsBox leaderId={leaderId} saved={data.scribe?.instructions ?? ""} act={act} />
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={!data.scribe?.paused}
+            onChange={(event) => act(topicApi.setScribePaused(leaderId, !event.target.checked))}
+          />
+          <span className="text-cc-fg">Keep pages up to date</span>
+        </label>
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            act(topicApi.setLeaderEnabled(leaderId, false));
+          }}
+          className="self-start text-cc-muted hover:text-cc-fg"
+        >
+          Turn topics off for this leader
+        </button>
+      </div>
     </div>
   );
 }
@@ -167,15 +179,38 @@ export function RenameSuggestions({ data, act }: { data: TopicListResponse; act:
   );
 }
 
+/**
+ * Recent changes to the topics (mostly a Scribe's tidying), folded into one line so they don't
+ * crowd the list: Show lists them with Undo, Dismiss puts them away. The server drops undone ones
+ * and those older than a day.
+ */
 export function ChangeList({ data, act }: { data: TopicListResponse; act: (action: Promise<unknown>) => void }) {
+  const [open, setOpen] = useState(false);
+  const changes = data.changes;
+  if (changes.length === 0) return null;
   return (
-    <div className="border-b border-cc-border px-4 py-2" data-testid="topic-changes">
-      {/* Undone changes have nothing left to act on. */}
-      {data.changes
-        .filter((change) => !change.undone)
-        .slice(0, 3)
-        .map((change) => (
-          <div key={change.id} className="flex items-center gap-2 py-0.5 text-[13px]">
+    <div className="border-b border-cc-border px-4 py-1.5 text-[13px]" data-testid="topic-changes">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="min-w-0 flex-1 truncate text-left text-cc-muted hover:text-cc-fg"
+        >
+          {open ? "▾" : "›"} {changes.length === 1 ? "1 recent change" : `${changes.length} recent changes`} to topics
+        </button>
+        <button
+          type="button"
+          onClick={() => act(topicApi.dismissChanges(changes.map((change) => change.id)))}
+          className="shrink-0 text-cc-muted hover:text-cc-fg"
+          title="Keep these changes and stop showing them"
+        >
+          Dismiss
+        </button>
+      </div>
+      {open &&
+        changes.map((change) => (
+          <div key={change.id} className="flex items-center gap-2 py-0.5 pl-3.5">
             <span className="min-w-0 flex-1 truncate text-cc-fg">{change.text}</span>
             <button
               type="button"

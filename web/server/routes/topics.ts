@@ -235,6 +235,17 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
+  /** The user puts changes out of the panel without undoing them. */
+  api.post("/topics/changes/dismiss", (c) =>
+    run(c, async (svc) => {
+      const body = await c.req.json().catch(() => ({}));
+      const ids = Array.isArray(body.ids) ? body.ids.filter((id: unknown): id is string => typeof id === "string") : [];
+      if (ids.length === 0) throw new TopicStoreError("Send ids: the changes to dismiss.");
+      svc.store.dismissChanges(ids);
+      return { dismissed: ids.length };
+    }),
+  );
+
   api.post("/topics/changes/:changeId/undo", (c) =>
     run(c, (svc) => {
       const change = svc.store.undo(c.req.param("changeId"));

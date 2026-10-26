@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestmasterTask } from "./quest-types.js";
-import { TopicStore, pageSummary } from "./topic-store.js";
+import { CHANGE_SHOWN_MS, TopicStore, pageSummary } from "./topic-store.js";
 import { PAGE_FORMAT, TopicService, historyMessageText, type TopicSessionLike } from "./topic-service.js";
 import { TOPIC_TENTATIVE_MS, type TopicRenameSuggestion } from "../shared/library-topics.js";
 
@@ -128,6 +128,31 @@ describe("topic store", () => {
     expect(store.topicOfQuest("q-1")?.name).toBe("T7 run");
     // The topic the move created is gone again.
     expect(store.findByName("MSI", "Seeded QA")).toBeUndefined();
+  });
+
+  it("offers changes to undo for a day, until undone or dismissed", async () => {
+    // The panel lists recent changes with Undo; they must not stay there for good: undone,
+    // dismissed and day-old changes leave the list (dismissing keeps the change itself).
+    const store = await newStore();
+    const t7 = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false }).topic;
+    const twin = store.assign({ questId: "q-2", space: "MSI", name: "256K twin", by: "agent", byAgent: false }).topic;
+    const qa = store.assign({ questId: "q-3", space: "MSI", name: "Seeded QA", by: "agent", byAgent: false }).topic;
+    store.merge(twin.id, t7.id, true, "Folded");
+    now += 1000;
+    store.merge(qa.id, t7.id, true, "Folded");
+    const [newer, older] = store.changes("MSI");
+    expect(newer.text).toBe('Folded "Seeded QA" into "T7 run"');
+
+    store.dismissChanges([newer.id]);
+    expect(store.changes("MSI").map((change) => change.id)).toEqual([older.id]);
+    expect(store.topicOfQuest("q-3")?.name).toBe("T7 run");
+    store.undo(older.id);
+    expect(store.changes("MSI")).toEqual([]);
+
+    store.move("q-1", { name: "Evals" }, "MSI", false);
+    expect(store.changes("MSI")).toHaveLength(1);
+    now += CHANGE_SHOWN_MS + 1;
+    expect(store.changes("MSI")).toEqual([]);
   });
 
   it("orders topics by their newest real activity and sums up each one's news", async () => {

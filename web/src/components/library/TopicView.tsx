@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicSummary } from "../../../shared/library-topics.js";
 import { NOW_ENTRY_STALE_MS, NOW_GROUPS, type NowEntry, nowGroupLabel } from "../../../shared/topic-now-items.js";
@@ -52,6 +52,10 @@ export function TopicView({
   const [notice, setNotice] = useState<string | null>(null);
   const loadedFor = useRef<string | null>(null);
   const { questionsOf, openQuestion } = useTopicQuestions();
+  // Pages show local images inline, re-read each minute: monitors rewrite plots in place. A stable
+  // value spares the page's Markdown a re-render on every refresh of the panel.
+  const refreshKey = String(Math.floor(Date.now() / IMAGE_REFRESH_MS));
+  const inlineImages = useMemo(() => ({ sessionId: leaderId, refreshKey }), [leaderId, refreshKey]);
 
   const load = useCallback(() => {
     topicApi
@@ -199,10 +203,7 @@ export function TopicView({
 
         <div className="mt-3" data-testid="topic-page">
           {body ? (
-            // Pages show local images inline, re-read each minute: monitors rewrite plots in place.
-            <InlineLocalImagesContext.Provider
-              value={{ sessionId: leaderId, refreshKey: String(Math.floor(Date.now() / IMAGE_REFRESH_MS)) }}
-            >
+            <InlineLocalImagesContext.Provider value={inlineImages}>
               <TopicPageBody
                 body={body}
                 entries={detail.now ?? []}

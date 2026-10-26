@@ -208,8 +208,17 @@ describe("TopicSidePanel", () => {
     // The badge opens the question where it was asked; the 🔔 list stays the place to answer.
     fireEvent.click(within(rows[0]!).getByTestId("topic-questions-badge"));
     expect(navigateToNotification).toHaveBeenCalledWith("l1", question, expect.any(Array));
-    fireEvent.click(within(screen.getByTestId("topic-changes")).getByText("Undo"));
+    // Recent changes to the topics fold into one line, so they don't crowd the list: Show lists
+    // them with Undo, Dismiss puts them away without undoing them.
+    const changes = screen.getByTestId("topic-changes");
+    expect(within(changes).queryByText("Undo")).toBeNull();
+    fireEvent.click(within(changes).getByText(/1 recent change to\s+topics/));
+    expect(changes).toHaveTextContent('Folded "256K twin" into "T7 run"');
+    fireEvent.click(within(changes).getByText("Undo"));
     expect(api.undo).toHaveBeenCalledWith("c1");
+    const dismiss = vi.spyOn(topicApi, "dismissChanges").mockResolvedValue({});
+    fireEvent.click(within(changes).getByText("Dismiss"));
+    expect(dismiss).toHaveBeenCalledWith(["c1"]);
   });
 
   it("follows the quest tab on screen to its topic's page: summary, open quests, Now before History", async () => {
@@ -395,11 +404,16 @@ describe("TopicSidePanel", () => {
     fireEvent.click(within(suggestions).getByText("Accept"));
     expect(answer).toHaveBeenCalledWith("s1", true);
 
-    fireEvent.click(screen.getByText("Settings and instructions"));
+    // Settings open from the header's gear, as a titled box above the topics, not a list row.
+    expect(screen.queryByTestId("topic-settings")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Topic settings" }));
+    expect(screen.getByTestId("topic-settings")).toHaveTextContent("Topic settings");
     fireEvent.change(screen.getByLabelText("Instructions for the Scribe"), { target: { value: "One topic per run." } });
     fireEvent.click(within(screen.getByTestId("scribe-instructions")).getByText("Save"));
     expect(instructions).toHaveBeenCalledWith("l1", "One topic per run.");
     expect(api.enable).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByTestId("topic-settings")).getByText("Done"));
+    expect(screen.queryByTestId("topic-settings")).toBeNull();
   });
 
   it("is part of the desktop layout: open by default, collapsing to a rail naming the topic", async () => {
