@@ -98,13 +98,18 @@ export function SessionContextMenu({
                   },
                 ]
               : []),
-            {
-              label: "Rename",
-              onClick: () => {
-                const name = sessionInfo?.name || "";
-                onRename(contextMenu.sessionId, name);
-              },
-            },
+            // A Scribe keeps its role name, which the user and its leader know it by.
+            ...(!sdk?.scribeFor
+              ? [
+                  {
+                    label: "Rename",
+                    onClick: () => {
+                      const name = sessionInfo?.name || "";
+                      onRename(contextMenu.sessionId, name);
+                    },
+                  },
+                ]
+              : []),
             ...(!isArchived
               ? [
                   {

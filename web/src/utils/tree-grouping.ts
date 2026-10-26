@@ -12,7 +12,7 @@ const PENDING_TREE_GROUP: TreeGroup = { id: PENDING_TREE_GROUP_ID, name: "Locati
 export interface TreeNode {
   /** Leader session or standalone session (the root of this node). */
   leader: SessionItem;
-  /** Herded workers (empty for standalone sessions). */
+  /** Herded workers (empty for standalone sessions), the leader's Scribe last. */
   workers: SessionItem[];
   /** Reviewer sessions (displayed as chips, not separate rows). */
   reviewers: SessionItem[];
@@ -222,6 +222,8 @@ export function buildTreeViewGroups(
       } else {
         sortByCustomOrder(leaderWorkers);
       }
+      // The leader's Scribe goes last: the user rarely opens it, unlike quest workers.
+      leaderWorkers.sort((a, b) => Number(!!a.scribeFor) - Number(!!b.scribeFor));
 
       // Collect reviewers for the leader and all its workers
       const nodeReviewers: SessionItem[] = [];

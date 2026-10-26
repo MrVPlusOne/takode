@@ -769,6 +769,46 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     expect(screen.getByText("Leader Worker Open").closest("button")).not.toHaveClass("ring-amber-400/70");
   });
 
+  it("lists the leader's Scribe last, apart from the worker count and status dots", () => {
+    // The Scribe is a background helper with no worker slot: it sits below the quest
+    // workers even when newer, the summary names it instead of counting it as a worker,
+    // and its near-constant running turns do not light the herd's running count.
+    mockState = createMockState({
+      sessions: new Map([
+        ["leader-s", makeSession("leader-s")],
+        ["scribe-s", makeSession("scribe-s")],
+        ["worker-s", makeSession("worker-s")],
+      ]),
+      sdkSessions: [
+        makeSdkSession("leader-s", { name: "Leader S", isOrchestrator: true, sessionNum: 51, createdAt: 100 }),
+        makeSdkSession("worker-s", { name: "Worker S", herdedBy: "leader-s", sessionNum: 52, createdAt: 200 }),
+        makeSdkSession("scribe-s", {
+          name: "Scribe",
+          herdedBy: "leader-s",
+          scribeFor: "leader-s",
+          sessionNum: 53,
+          createdAt: 300,
+          state: "running",
+        }),
+      ],
+      expandedHerdNodes: new Set(["leader-s"]),
+    });
+
+    render(<Sidebar />);
+
+    const summary = screen.getByTestId("herd-summary-leader-s");
+    expect(summary).toHaveTextContent("1 worker, Scribe");
+    expect(within(summary).queryByTestId("status-count-running")).not.toBeInTheDocument();
+
+    const workerRow = screen.getByText("Worker S").closest("button")!;
+    const scribeRow = screen.getByText("Scribe").closest("button")!;
+    expect(workerRow.compareDocumentPosition(scribeRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(screen.getByTestId("herd-scribe-leader-s")).getByText("Scribe")).toHaveAttribute(
+      "title",
+      "Keeps this leader's topic pages",
+    );
+  });
+
   it("tree view renders herd leaders before expanded worker rows", () => {
     mockState = createMockState({
       sessions: new Map([

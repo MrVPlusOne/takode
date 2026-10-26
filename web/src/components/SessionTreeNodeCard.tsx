@@ -94,15 +94,25 @@ export function SessionTreeNodeCard({
 
   // Herded nodes (leader with workers): collapsible container pattern
   if (node.workers.length > 0) {
-    const childSessions = [...node.workers, ...node.reviewers];
+    // The Scribe uses no worker slot and works in the background, so the summary
+    // (count and status dots) covers quest workers and reviewers only.
+    const questWorkers = node.workers.filter((w) => !w.scribeFor);
+    const scribes = node.workers.filter((w) => !!w.scribeFor);
+    const childSessions = [...questWorkers, ...node.reviewers];
     const childSummary = computeChildSessionSummary(childSessions, sessionAttention);
     const idleCount =
       childSessions.length -
       (childSummary.running + childSummary.permission + childSummary.unread + (childSummary.waiting ?? 0));
     const reviewerCount = node.reviewers.length;
-    const workerLabel = `${node.workers.length} worker${node.workers.length !== 1 ? "s" : ""}`;
-    const memberLabel =
-      reviewerCount > 0 ? `${workerLabel}, ${reviewerCount} reviewer${reviewerCount !== 1 ? "s" : ""}` : workerLabel;
+    const memberLabel = [
+      questWorkers.length > 0 || scribes.length === 0
+        ? `${questWorkers.length} worker${questWorkers.length !== 1 ? "s" : ""}`
+        : null,
+      reviewerCount > 0 ? `${reviewerCount} reviewer${reviewerCount !== 1 ? "s" : ""}` : null,
+      scribes.length > 0 ? "Scribe" : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
 
     return (
       <div className="border border-cc-border/40 rounded-lg overflow-hidden bg-cc-card/20 border-l-[3px] border-l-cc-primary/30">
@@ -144,7 +154,7 @@ export function SessionTreeNodeCard({
         {/* Workers container -- only when expanded */}
         {isExpanded && (
           <div className="border-t border-cc-border/30 pl-3">
-            {node.workers.map((w) => {
+            {questWorkers.map((w) => {
               const workerReviewer = node.reviewers.find((r) => r.reviewerOf === w.sessionNum);
               return (
                 <div key={w.id}>
@@ -155,6 +165,14 @@ export function SessionTreeNodeCard({
                 </div>
               );
             })}
+            {scribes.length > 0 && (
+              <div
+                data-testid={`herd-scribe-${node.leader.id}`}
+                className={questWorkers.length > 0 ? "border-t border-dashed border-cc-border/40" : undefined}
+              >
+                {scribes.map((w) => renderSessionItem(w, { compact: true }))}
+              </div>
+            )}
           </div>
         )}
       </div>

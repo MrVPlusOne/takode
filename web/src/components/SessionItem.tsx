@@ -25,6 +25,7 @@ import { describeSessionWaits } from "../../shared/session-waits.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { selectLeaderActivePhaseSummary } from "../utils/leader-thread-tabs-resolver.js";
 import { HostBadge } from "./HostBadge.js";
+import { TopicIcon } from "./library/library-icons.js";
 import { useLongPress } from "../hooks/useLongPress.js";
 
 type SearchMatchedField =
@@ -311,6 +312,7 @@ function SessionItemComponent({
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
   const isEditing = editingSessionId === s.id;
+  const isScribe = !!s.scribeFor;
   const questStatus = s.claimedQuestStatus;
   const questReviewInboxUnread = s.claimedQuestVerificationInboxUnread;
   const isQuestNamed = !s.isOrchestrator && questOwnsSessionName(questStatus, questReviewInboxUnread);
@@ -683,9 +685,11 @@ function SessionItemComponent({
               />
             ) : (
               <span
-                className={`text-[13px] truncate leading-snug text-cc-fg ${effectiveAttention || (s.isOrchestrator && !useStatusBar) ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
+                className={`text-[13px] truncate leading-snug ${isScribe ? "text-cc-muted" : "text-cc-fg"} ${effectiveAttention || (s.isOrchestrator && !useStatusBar) ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
+                title={isScribe ? "Keeps this leader's topic pages" : undefined}
                 onAnimationEnd={() => onClearRecentlyRenamed(s.id)}
               >
+                {isScribe && <TopicIcon className="mr-1 inline-block h-3.5 w-3.5 align-[-2px]" />}
                 {questLabel(label, isQuestNamed, questStatus, questReviewInboxUnread)}
               </span>
             )}

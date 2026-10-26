@@ -299,6 +299,28 @@ describe("Sidebar session context menu", () => {
     expect(mockWriteClipboardText).toHaveBeenCalledWith("#1147");
   });
 
+  it("offers no Rename for a leader's Scribe, which keeps its role name", () => {
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", makeSession("s1")],
+        ["s2", makeSession("s2", { model: "other-model" })],
+      ]),
+      sdkSessions: [makeSdkSession("s1", { scribeFor: "leader-1" }), makeSdkSession("s2", { model: "other-model" })],
+    });
+
+    render(<Sidebar />);
+    fireEvent.contextMenu(screen.getByText("claude-sonnet-4-5-20250929").closest("button")!, {
+      clientX: 100,
+      clientY: 120,
+    });
+    expect(screen.getByText("Copy Session ID")).toBeInTheDocument();
+    expect(screen.queryByText("Rename")).not.toBeInTheDocument();
+
+    // Ordinary sessions keep it.
+    fireEvent.contextMenu(screen.getByText("other-model").closest("button")!, { clientX: 100, clientY: 160 });
+    expect(screen.getByText("Rename")).toBeInTheDocument();
+  });
+
   it("opens Configure Session from the session context menu", async () => {
     const session = makeSession("s1", { backend_type: "codex", model: "gpt-5.4" });
     const sdk = makeSdkSession("s1", { sessionNum: 1533, backendType: "codex", model: "gpt-5.4" });
