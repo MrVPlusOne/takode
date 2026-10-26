@@ -35,8 +35,10 @@ export async function startLibraryTopics(input: {
       isOrchestrator: info.isOrchestrator === true,
       archived: info.archived === true,
       ...(info.backendType ? { backendType: info.backendType } : {}),
+      ...(info.hostId ? { hostId: info.hostId } : {}),
     };
   };
+  const leaderCwd = (leader: TopicLeaderInfo) => launcher.getSession(leader.sessionId)?.cwd;
   const service = new TopicService(new TopicStore(join(homedir(), ".companion", "library", input.serverId)), {
     getSession: (sessionId) => wsBridge.getSession(sessionId) as TopicSessionLike | undefined,
     getLeaderInfo: leaderInfo,
@@ -62,7 +64,10 @@ export async function startLibraryTopics(input: {
       const { sessionId } = await createLibrarySession(
         {
           backend,
-          cwd: homedir(),
+          // On the leader's machine, in its home folder (the leader's folder if the host's home is unknown).
+          ...(leader.hostId
+            ? { hostId: leader.hostId, cwd: launcher.remoteHosts?.links.homeDir(leader.hostId) ?? leaderCwd(leader) }
+            : { cwd: homedir() }),
           // Full access without prompts, as a leader's workers usually run; nobody watches a Scribe.
           ...(backend === "codex"
             ? { permissionMode: "codex-full-access", askPermission: false }
@@ -76,6 +81,7 @@ export async function startLibraryTopics(input: {
       launcher.herdSessions(leader.sessionId, [sessionId], { force: true });
       return sessionId;
     },
+    hostOf: (sessionId) => launcher.getSession(sessionId)?.hostId || undefined,
     isScribeAlive: (sessionId) => {
       const info = launcher.getSession(sessionId);
       return !!info && !info.archived;

@@ -72,6 +72,7 @@ async function setup() {
       return true;
     },
     createScribe: async () => "scribe",
+    hostOf: () => undefined,
     isScribeAlive: () => true,
     isScribeBusy: () => false,
     retireScribe: async () => {},

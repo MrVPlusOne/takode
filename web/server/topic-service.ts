@@ -47,6 +47,8 @@ export interface TopicLeaderInfo {
   archived: boolean;
   /** The leader's backend; its Scribe uses the same one unless Settings name another. */
   backendType?: string;
+  /** The remote host the leader runs on; its Scribe runs there too. Unset: the coordinator's machine. */
+  hostId?: string;
 }
 
 export interface TopicServiceDeps {
@@ -62,6 +64,8 @@ export interface TopicServiceDeps {
   /** Starts a leader's Scribe as a worker in its herd; returns its session ID. */
   createScribe: (leader: TopicLeaderInfo) => Promise<string>;
   isScribeAlive: (sessionId: string) => boolean;
+  /** The remote host a session runs on, or undefined on the coordinator's machine. */
+  hostOf: (sessionId: string) => string | undefined;
   /** Whether the Scribe is working on a turn now. */
   isScribeBusy: (sessionId: string) => boolean;
   /** Archives a Scribe (its leader turned topics off). */
@@ -405,6 +409,8 @@ export class TopicService {
     const failing = this.failing.get(leaderId);
     if (failing && failing.retryAt > this.now() && !forcedIds.length) return "waiting";
     const scribe = await this.ensureScribe(leader);
+    // Its machine can't start one now (a remote host offline): the changes wait for the next event.
+    if (!scribe) return "waiting";
     if (failing?.resend) {
       const resend = failing.resend;
       if (!this.deps.inject(scribe, retryMessage(resend.text))) return "busy";
@@ -685,13 +691,26 @@ export class TopicService {
     }
   }
 
-  /** The leader's Scribe, started when it has none (or its session is gone). */
-  private async ensureScribe(leader: TopicLeaderInfo): Promise<string> {
+  /**
+   * The leader's Scribe, started on the leader's machine when it has none (or its session is gone).
+   * A Scribe on another machine (started before Scribes followed their leader) is replaced here, at
+   * its next message: a conversation cannot resume on another machine. The new one starts first,
+   * so a leader whose machine can't start one keeps its old Scribe. Null when none can run.
+   */
+  private async ensureScribe(leader: TopicLeaderInfo): Promise<string | null> {
     const existing = this.store.scribeSession(leader.sessionId);
-    if (existing && this.deps.isScribeAlive(existing)) return existing;
-    const sessionId = await this.deps.createScribe(leader);
+    const alive = !!existing && this.deps.isScribeAlive(existing);
+    if (alive && this.deps.hostOf(existing) === leader.hostId) return existing;
+    let sessionId: string;
+    try {
+      sessionId = await this.deps.createScribe(leader);
+    } catch (error) {
+      console.warn(`[library-topics] Could not start a Scribe for leader ${leader.sessionId}:`, error);
+      return alive ? existing : null;
+    }
     this.store.setScribeSession(leader.sessionId, sessionId);
     await this.store.flush();
+    if (alive) await this.deps.retireScribe(existing);
     return sessionId;
   }
 

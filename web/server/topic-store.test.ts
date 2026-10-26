@@ -260,10 +260,19 @@ async function setupService() {
   const busy = new Set<string>();
   const retired: string[] = [];
   const messages = new Map<string, string>();
+  // The remote host each session and leader runs on; absent means the coordinator's machine.
+  const hosts = new Map<string, string>();
+  const leaderHosts = new Map<string, string>();
+  const unstartable = new Set<string>();
+  const leaderInfo = (id: string) => {
+    const leader = LEADERS[id as keyof typeof LEADERS];
+    const hostId = leaderHosts.get(id);
+    return leader && hostId ? { ...leader, hostId } : leader;
+  };
   const service = new TopicService(store, {
     getSession: (id) => sessions.get(id),
-    getLeaderInfo: (id) => LEADERS[id as keyof typeof LEADERS],
-    listLeaders: () => Object.values(LEADERS),
+    getLeaderInfo: leaderInfo,
+    listLeaders: () => Object.keys(LEADERS).map((id) => leaderInfo(id)!),
     sessionNum: (id) => (id.startsWith("scribe") ? 100 + Number(id.split("-")[2]) : 7),
     leaderOf: (id) => (id in LEADERS ? id : undefined),
     listQuests: async () => quests as unknown as QuestmasterTask[],
@@ -272,12 +281,15 @@ async function setupService() {
       return true;
     },
     createScribe: async (info) => {
+      if (info.hostId && unstartable.has(info.hostId)) throw new Error(`Host ${info.hostId} is offline`);
       const id = `scribe-${info.sessionId}-${created.length + 1}`;
       created.push(id);
       sessions.set(id, { id, messageHistory: [], state: {} });
+      if (info.hostId) hosts.set(id, info.hostId);
       return id;
     },
     isScribeAlive: (id) => sessions.has(id),
+    hostOf: (id) => hosts.get(id),
     isScribeBusy: (id) => busy.has(id),
     retireScribe: async (id) => {
       retired.push(id);
@@ -288,7 +300,10 @@ async function setupService() {
     broadcastChanged: () => {},
     now: () => Date.now(),
   });
-  return { store, service, leader, sessions, quests, injected, notices, created, busy, retired, messages };
+  return {
+    ...{ store, service, leader, sessions, quests, injected, notices, created, busy, retired, messages },
+    ...{ leaderHosts, unstartable },
+  };
 }
 
 /** Turns topics on for a leader and ends its initialization turn, so later tests start from quiet. */
@@ -641,6 +656,49 @@ describe("topic service", () => {
     const saved = JSON.parse(await readFile(join(root, "topics.json"), "utf-8"));
     expect(saved.topics[topic.id].now[0].group).toBe("followup");
     await rm(root, { recursive: true, force: true });
+  });
+
+  it("starts a Scribe on its leader's machine and moves one started elsewhere at its next message", async () => {
+    // A leader on a remote host gets its Scribe there. A Scribe started on another machine (before
+    // Scribes followed their leader) is replaced at its next message; the old one is archived only
+    // after the new one starts, so a machine that can't start one leaves the old Scribe working.
+    const { service, injected, store, created, retired, leaderHosts, unstartable } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    expect(scribe).toBe("scribe-leader-1");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    await service.scribeTurnEnded(scribe);
+    const artifact = (title: string) =>
+      service.artifactSaved({ sessionId: "leader", threadKey: "q-1", title, kind: "figure", version: 1 });
+
+    // The leader's laptop can't start one now: the old Scribe keeps working.
+    leaderHosts.set("leader", "laptop");
+    unstartable.add("laptop");
+    artifact("First");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(created).toEqual(["scribe-leader-1"]);
+    expect(retired).toEqual([]);
+    expect(injected.at(-1)).toMatchObject({ sessionId: "scribe-leader-1", text: expect.stringContaining("First") });
+    writePage(store, "T7 run");
+    await service.scribeTurnEnded(scribe);
+
+    // Once it can, the next message goes to a new Scribe on the laptop and the old one is archived.
+    unstartable.delete("laptop");
+    artifact("Second");
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    // Lets the delivery the timer started finish (it saves the store on the way).
+    await service.deliver("leader");
+    expect(created).toEqual(["scribe-leader-1", "scribe-leader-2"]);
+    expect(retired).toEqual(["scribe-leader-1"]);
+    expect(store.scribeSession("leader")).toBe("scribe-leader-2");
+    expect(injected.at(-1)).toMatchObject({ sessionId: "scribe-leader-2", text: expect.stringContaining("Second") });
+
+    // On the leader's machine it stays.
+    writePage(store, "T7 run");
+    await service.scribeTurnEnded("scribe-leader-2");
+    artifact("Third");
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(created).toHaveLength(2);
+    expect(injected.at(-1)).toMatchObject({ sessionId: "scribe-leader-2", text: expect.stringContaining("Third") });
   });
 
   it("sends the leader's first event at once, debounces a burst, and debounces the user's own", async () => {
