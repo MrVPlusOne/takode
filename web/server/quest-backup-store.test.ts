@@ -140,6 +140,16 @@ describe("Questmaster local backups", () => {
     expect(manifest.text.snapshots.map((entry) => entry.reason)).toEqual(["test-3", "test-2"]);
     const files = await readdir(join(backupRoot(), "text", "snapshots"));
     expect(files).toHaveLength(2);
+
+    // A snapshot is a JSON document holding the store exactly as recorded, so a
+    // restore can read it back; its recorded size is the file's size.
+    const latest = manifest.text.snapshots[0]!;
+    const raw = await readFile(join(backupRoot(), latest.relativePath), "utf-8");
+    const parsed = JSON.parse(raw) as { kind: string; version: number; store: typeof baseStore };
+    expect(parsed.kind).toBe("questmaster-text-snapshot");
+    expect(parsed.version).toBe(1);
+    expect(parsed.store).toEqual({ ...baseStore, updatedAt: 3, quests: [{ ...baseStore.quests[0], title: "C" }] });
+    expect(latest.bytes).toBe(Buffer.byteLength(raw));
   });
 
   it("deduplicates quest image backups by content hash", async () => {

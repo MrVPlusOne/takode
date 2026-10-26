@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { resolveSessionMessageTarget, searchSessionMessages } from "./session-message-search.js";
 import { LEADER_KICKOFF_PREFIX } from "../shared/injected-event-message.js";
@@ -464,4 +464,48 @@ it("does not expose a child-only message as a normal feed navigation target", ()
   const child = assistant("child-source", "Private child text", 1);
   child.codexSubagent = { childId: "opaque-child", rootTurnId: "root-turn" };
   expect(resolveSessionMessageTarget([child], "child-source", true)).toBeNull();
+});
+
+describe("reusing a scope's candidates between requests", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function search(messageHistory: BrowserIncomingMessage[], offset = 0) {
+    return searchSessionMessages({
+      sessionId: "leader-session",
+      sessionNum: 1,
+      isLeaderSession: true,
+      messageHistory,
+      threadKey: "main",
+      filters: { user: true, assistant: true, event: false },
+      limit: 2,
+      offset,
+    });
+  }
+
+  it("pages consistently and sees appended messages at once", () => {
+    // Paging requests reuse one projection of the history; a new message must
+    // still show up immediately, since it changes the history's length.
+    const history = [user("u1", "one", 1), assistant("a1", "two", 2), user("u2", "three", 3)];
+    expect(search(history).results.map((result) => result.messageId)).toEqual(["u2", "a1"]);
+    expect(search(history, 2).results.map((result) => result.messageId)).toEqual(["u1"]);
+
+    history.push(user("u3", "four", 4));
+    expect(search(history).results.map((result) => result.messageId)).toEqual(["u3", "u2"]);
+  });
+
+  it("picks up an older message edited in place once the reuse window has passed", () => {
+    // A thread handoff can move an older message to another thread without
+    // changing the history's length; reuse is time-limited so the edit shows up.
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const history = [user("u1", "one", 1), user("u2", "two", 2), user("u3", "three", 3)];
+    expect(search(history).totalMatches).toBe(3);
+
+    Object.assign(history[0]!, { threadKey: "q-9", questId: "q-9" });
+    vi.setSystemTime(1_000_000 + 60_000);
+    expect(search(history).results.map((result) => result.messageId)).not.toContain("u1");
+    expect(search(history).totalMatches).toBe(2);
+  });
 });

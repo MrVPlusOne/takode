@@ -45,6 +45,7 @@ import {
   rememberWrittenJsonFile,
 } from "./cached-json-file.js";
 import { applyQuestPatch } from "./quest-store-patch.js";
+import { questStoreFileChunks, replaceFileWithChunks } from "./quest-store-file.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
 import {
   MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS,
@@ -303,10 +304,6 @@ function emptyLiveQuestStore(): LiveQuestStore {
   };
 }
 
-function liveStoreTempPath(): string {
-  return `${LIVE_STORE_FILE}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-}
-
 async function readLiveQuestStore(): Promise<LiveQuestStore | null> {
   const preferred = await readLiveQuestStoreAtPath(LIVE_STORE_FILE, ensureLiveDir);
   if (preferred) return preferred;
@@ -329,7 +326,6 @@ async function readLiveQuestStoreAtPath(
  */
 async function writeLiveQuestStore(store: LiveQuestStore, previous?: LiveQuestStore): Promise<void> {
   await ensureLiveDir();
-  const tempPath = liveStoreTempPath();
   const unchanged = new Set(previous?.quests);
   const normalized = {
     format: "mutable_current_record",
@@ -343,8 +339,8 @@ async function writeLiveQuestStore(store: LiveQuestStore, previous?: LiveQuestSt
     updatedAt: Date.now(),
     ...(store.legacyBackupDir?.trim() ? { legacyBackupDir: store.legacyBackupDir } : {}),
   } satisfies LiveQuestStore;
-  await writeFile(tempPath, JSON.stringify(normalized, null, 2), "utf-8");
-  await rename(tempPath, LIVE_STORE_FILE);
+  // Frozen first: the file is built from per-quest bytes cached on frozen quests.
+  await replaceFileWithChunks(LIVE_STORE_FILE, questStoreFileChunks(deepFreeze(normalized)));
   await rememberWrittenJsonFile(LIVE_STORE_FILE, normalized);
 }
 

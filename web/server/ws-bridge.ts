@@ -7,7 +7,7 @@ import type { KnownSnapshotParts } from "../shared/snapshot-part-hash.js";
 import { viewportHandoffStateMessage } from "./bridge/browser-subscribe-snapshots.js";
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
-import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
+import { computeCodexRetainedPayloadBytes, computeReplayHistoryBytes } from "./session-payload-metrics.js";
 import { notifyCodexWorkerV2RolloutActivity } from "./codex-worker-v2-rollout-hooks.js";
 import { WsBridgeSyncedProjectionController } from "./ws-bridge-synced-projections.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
@@ -1924,10 +1924,11 @@ export class WsBridge {
   }
 
   private recomputeAndBroadcastHistoryBytes(session: Session): void {
-    const { replayHistoryBytes, codexRetainedPayloadBytes } = computeSessionPayloadMetrics(
-      session.messageHistory,
-      session.toolResults,
-    );
+    const replayHistoryBytes = computeReplayHistoryBytes(session.messageHistory);
+    const codexRetainedPayloadBytes =
+      session.backendType === "codex"
+        ? computeCodexRetainedPayloadBytes(session.messageHistory, session.toolResults)
+        : 0;
     const prevReplayBytes = session.state.message_history_bytes ?? 0;
     const prevRetainedBytes = session.state.codex_retained_payload_bytes ?? 0;
 

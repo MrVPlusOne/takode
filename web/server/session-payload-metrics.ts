@@ -4,22 +4,49 @@ export interface IndexedToolResultPayload {
   content: string;
 }
 
-export interface SessionPayloadMetrics {
-  replayHistoryBytes: number;
-  codexRetainedPayloadBytes: number;
+/**
+ * Serialized size of each history entry, computed once per entry object. These stats are
+ * recomputed on every subscribe and turn end, and serializing a leader's whole history took
+ * about 200 ms each time. Entries are almost always appended and replaced rather than edited,
+ * so a cached size stays right; the newest entries are measured afresh on every call because
+ * a turn's last assistant message can still grow in place. An older entry edited in place
+ * (for example a backfilled thread reference) keeps its old size, which only skews a display stat.
+ */
+const entryBytes = new WeakMap<object, number>();
+const FRESHLY_MEASURED_TAIL = 20;
+
+function measureEntry(entry: BrowserIncomingMessage): number {
+  return Buffer.byteLength(JSON.stringify(entry), "utf-8");
 }
 
-function computeReplayHistoryBytes(messageHistory: BrowserIncomingMessage[]): number {
-  return Buffer.byteLength(JSON.stringify(messageHistory), "utf-8");
-}
-
-function getRetainedHistorySlice(messageHistory: BrowserIncomingMessage[]): BrowserIncomingMessage[] {
-  for (let i = messageHistory.length - 1; i >= 0; i--) {
-    if (messageHistory[i]?.type === "compact_marker") {
-      return messageHistory.slice(i);
+/** Bytes of `JSON.stringify(entries)`, from per-entry sizes. */
+function serializedArrayBytes(entries: readonly BrowserIncomingMessage[], start = 0): number {
+  const count = entries.length - start;
+  if (count <= 0) return 2;
+  let total = 2 + (count - 1);
+  const freshFrom = entries.length - FRESHLY_MEASURED_TAIL;
+  for (let i = start; i < entries.length; i++) {
+    const entry = entries[i]!;
+    let bytes = i < freshFrom ? entryBytes.get(entry) : undefined;
+    if (bytes === undefined) {
+      bytes = measureEntry(entry);
+      entryBytes.set(entry, bytes);
     }
+    total += bytes;
   }
-  return messageHistory;
+  return total;
+}
+
+/** Size of the history a browser replays: the serialized `messageHistory`. */
+export function computeReplayHistoryBytes(messageHistory: readonly BrowserIncomingMessage[]): number {
+  return serializedArrayBytes(messageHistory);
+}
+
+function retainedHistoryStart(messageHistory: readonly BrowserIncomingMessage[]): number {
+  for (let i = messageHistory.length - 1; i >= 0; i--) {
+    if (messageHistory[i]?.type === "compact_marker") return i;
+  }
+  return 0;
 }
 
 function isToolResultPreviewMessage(
@@ -34,16 +61,17 @@ function isToolResultPreviewMessage(
  * includes the preview payload, so only add the hidden delta between preview
  * text and the indexed full result content.
  */
-function computeCodexRetainedPayloadBytes(
-  messageHistory: BrowserIncomingMessage[],
+export function computeCodexRetainedPayloadBytes(
+  messageHistory: readonly BrowserIncomingMessage[],
   toolResults: Map<string, IndexedToolResultPayload>,
 ): number {
-  const retainedHistory = getRetainedHistorySlice(messageHistory);
-  const retainedHistoryBytes = Buffer.byteLength(JSON.stringify(retainedHistory), "utf-8");
+  const start = retainedHistoryStart(messageHistory);
+  const retainedHistoryBytes = serializedArrayBytes(messageHistory, start);
 
   let hiddenToolPayloadDelta = 0;
 
-  for (const message of retainedHistory) {
+  for (let i = start; i < messageHistory.length; i++) {
+    const message = messageHistory[i]!;
     if (!isToolResultPreviewMessage(message)) continue;
     for (const preview of message.previews) {
       const previewBytes = Buffer.byteLength(preview.content, "utf-8");
@@ -56,15 +84,4 @@ function computeCodexRetainedPayloadBytes(
   }
 
   return retainedHistoryBytes + hiddenToolPayloadDelta;
-}
-
-export function computeSessionPayloadMetrics(
-  messageHistory: BrowserIncomingMessage[],
-  toolResults: Map<string, IndexedToolResultPayload>,
-): SessionPayloadMetrics {
-  const replayHistoryBytes = computeReplayHistoryBytes(messageHistory);
-  return {
-    replayHistoryBytes,
-    codexRetainedPayloadBytes: computeCodexRetainedPayloadBytes(messageHistory, toolResults),
-  };
 }

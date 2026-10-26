@@ -3,6 +3,7 @@ import { access, mkdir, readFile, rename, rm, stat, unlink, writeFile } from "no
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import type { QuestImage, QuestmasterTask } from "./quest-types.js";
+import { questStoreFileChunks, replaceFileWithChunks } from "./quest-store-file.js";
 
 type QuestStoreSnapshot = {
   format: string;
@@ -270,16 +271,20 @@ export async function recordQuestStoreSnapshotBackup(
   const root = options.root ?? backupRoot();
   await mkdir(snapshotDir(root), { recursive: true });
   let manifest = await readManifest(root);
-  const storeData = JSON.stringify(store);
-  const digest = sha256(storeData);
+  // The store's bytes come from the same per-quest cache as the live store file, so a
+  // snapshot of a large store does not serialize it again on the event loop.
+  const storeChunks = questStoreFileChunks(store);
+  const hash = createHash("sha256");
+  for (const chunk of storeChunks) hash.update(chunk);
+  const digest = hash.digest("hex");
   const existing = manifest.text.snapshots.find((entry) => entry.sha256 === digest);
   if (existing) return existing;
 
   const id = "snapshot-" + timestampForPath() + "-" + digest.slice(0, 12);
   const path = join(snapshotDir(root), id + ".json");
-  const data =
-    JSON.stringify({ kind: "questmaster-text-snapshot", version: 1, createdAt: Date.now(), store }, null, 2) + "\n";
-  await writeFile(path, data, "utf-8");
+  const header = { kind: "questmaster-text-snapshot", version: 1, createdAt: Date.now() };
+  const chunks = [Buffer.from(JSON.stringify(header).slice(0, -1) + ',"store":'), ...storeChunks, Buffer.from("}\n")];
+  await replaceFileWithChunks(path, chunks);
   const entry: QuestTextBackupEntry = {
     id,
     kind: "text_snapshot",
@@ -288,7 +293,7 @@ export async function recordQuestStoreSnapshotBackup(
     questCount: store.quests.length,
     nextQuestNumber: store.nextQuestNumber,
     sha256: digest,
-    bytes: Buffer.byteLength(data),
+    bytes: chunks.reduce((total, chunk) => total + chunk.length, 0),
     relativePath: relativeToRoot(root, path),
   };
   manifest = {

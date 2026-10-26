@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
+import { computeCodexRetainedPayloadBytes, computeReplayHistoryBytes } from "./session-payload-metrics.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 
-describe("computeSessionPayloadMetrics", () => {
+function computeSessionPayloadMetrics(
+  history: BrowserIncomingMessage[],
+  toolResults: Map<string, { content: string }>,
+) {
+  return {
+    replayHistoryBytes: computeReplayHistoryBytes(history),
+    codexRetainedPayloadBytes: computeCodexRetainedPayloadBytes(history, toolResults),
+  };
+}
+
+describe("session payload metrics", () => {
   it("matches replay history bytes when no hidden tool payload exists", () => {
     // Without tool payload deltas or compaction, retained bytes should match
     // the same replay-history payload the browser receives.
@@ -140,5 +150,25 @@ describe("computeSessionPayloadMetrics", () => {
     expect(metrics.codexRetainedPayloadBytes).toBe(
       retainedHistoryBytes + Buffer.byteLength("n".repeat(1_200), "utf-8") - Buffer.byteLength(newPreview, "utf-8"),
     );
+  });
+
+  it("matches a full serialization while reusing cached sizes of older entries", () => {
+    // Sizes are cached per entry so leader-sized histories are not reserialized on
+    // every subscribe and turn end. The total must still equal the serialized
+    // array, including non-ASCII text, and an entry still among the newest ones
+    // may grow in place (a turn's assistant message gains content blocks).
+    const history: BrowserIncomingMessage[] = Array.from({ length: 60 }, (_, index) => ({
+      type: "user_message",
+      id: `u-${index}`,
+      content: `message ${index} ✓ é`,
+      timestamp: index,
+    }));
+    expect(computeReplayHistoryBytes(history)).toBe(Buffer.byteLength(JSON.stringify(history), "utf-8"));
+
+    const tail = history.at(-1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    tail.content += " grown in place";
+    history.push({ type: "user_message", id: "u-new", content: "appended", timestamp: 61 });
+    expect(computeReplayHistoryBytes(history)).toBe(Buffer.byteLength(JSON.stringify(history), "utf-8"));
+    expect(computeReplayHistoryBytes([])).toBe(2);
   });
 });

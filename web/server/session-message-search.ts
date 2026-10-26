@@ -124,20 +124,7 @@ export function searchSessionMessages(input: SearchSessionMessagesInput): Messag
     isLeaderSession: input.isLeaderSession,
     sessionNum: input.sessionNum,
   });
-  const projectionKey = scope.kind === "current_thread" ? scope.threadKey : ALL_THREADS_KEY;
-  const entries = buildProjectedThreadEntries(input.messageHistory, projectionKey, {
-    includeMessage: (message) => isRootAgentHistoryMessage(message),
-  });
-  const candidates = entries
-    .map((entry) =>
-      buildCandidate({
-        sessionId: input.sessionId,
-        entryMessage: entry.message,
-        historyIndex: entry.history_index,
-        scope,
-      }),
-    )
-    .filter((candidate): candidate is CandidateMessage => candidate !== null)
+  const candidates = scopeCandidates(input.sessionId, input.messageHistory, scope)
     .filter((candidate) => filters[candidate.category])
     .filter((candidate) => !filters.starredOnly || Boolean(input.starredMessages?.[candidate.messageId]));
 
@@ -172,6 +159,51 @@ export function searchSessionMessages(input: SearchSessionMessagesInput): Messag
     hasMore: nextOffset !== null,
     tookMs: Date.now() - startedAt,
   };
+}
+
+/**
+ * The user-message navigator pages through a leader thread with up to five
+ * requests in a row, and projecting a leader's whole history took about 370 ms
+ * per request, holding the server each time. A scope's candidates are reused
+ * while the history has neither grown nor changed its last entry. Older entries
+ * are occasionally edited in place (a thread handoff adds a reference), so reuse
+ * is also limited to a few seconds, which covers one round of paging.
+ */
+const CANDIDATE_REUSE_MS = 5_000;
+type CandidateCacheEntry = { length: number; tail: unknown; at: number; candidates: CandidateMessage[] };
+const candidateCache = new WeakMap<ReadonlyArray<BrowserIncomingMessage>, Map<string, CandidateCacheEntry>>();
+
+function scopeCandidates(
+  sessionId: string,
+  history: ReadonlyArray<BrowserIncomingMessage>,
+  scope: MessageSearchScope,
+): CandidateMessage[] {
+  const projectionKey = scope.kind === "current_thread" ? scope.threadKey : ALL_THREADS_KEY;
+  const key = `${sessionId}\u0000${scope.kind}\u0000${projectionKey}`;
+  const now = Date.now();
+  let byScope = candidateCache.get(history);
+  const cached = byScope?.get(key);
+  if (
+    cached &&
+    cached.length === history.length &&
+    cached.tail === history.at(-1) &&
+    now - cached.at < CANDIDATE_REUSE_MS
+  ) {
+    return cached.candidates;
+  }
+  const candidates = buildProjectedThreadEntries(history, projectionKey, {
+    includeMessage: (message) => isRootAgentHistoryMessage(message),
+  })
+    .map((entry) =>
+      buildCandidate({ sessionId, entryMessage: entry.message, historyIndex: entry.history_index, scope }),
+    )
+    .filter((candidate): candidate is CandidateMessage => candidate !== null);
+  if (!byScope) {
+    byScope = new Map();
+    candidateCache.set(history, byScope);
+  }
+  byScope.set(key, { length: history.length, tail: history.at(-1), at: now, candidates });
+  return candidates;
 }
 
 function resolveMessageSearchScope(input: {

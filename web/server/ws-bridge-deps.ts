@@ -3,7 +3,6 @@ import { hostIsOnline } from "./remote-host/session-machine.js";
 import { serverWorkAdmission } from "./server-work-admission.js";
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
-import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import {
   beforeCodexWorkerV2SessionMetaDispatch,
   isCodexWorkerV2DeliveryFrozen,
