@@ -19,11 +19,9 @@ import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
 import { ChangeList, RenameSuggestions, TopicSettings, TopicsOffHint } from "./TopicPage.js";
 import { TopicActivityList } from "./TopicActivityList.js";
 import { TopicView } from "./TopicView.js";
-import {
-  closeTopicConversation,
-  readTopicConversation,
-  useTopicConversationTab,
-} from "../../utils/topic-conversation.js";
+import { readTopicConversation, useTopicConversationTab } from "../../utils/topic-conversation.js";
+import { topicThreadKey } from "../../../shared/topic-thread-key.js";
+import { prepareZoom } from "../topic-zoom.js";
 import { navigateToSession, navigateToSessionThread } from "../../utils/routing.js";
 import type { ScribeActivity } from "../../../shared/library-topics.js";
 import { CollapseIcon, GalleryIcon, SettingsIcon, TopicIcon } from "./library-icons.js";
@@ -180,15 +178,19 @@ export function TopicSidePanel({
               embedded
               leaderId={leaderId}
               onReadConversation={(questIds) => {
-                readTopicConversation(leaderId, questIds, threadKey);
+                // Zooms out at the tab's quest's place when the tab's quest is in this topic.
+                prepareZoom(leaderId, topicThreadKey(questIds), "out", { feedKey: tabKey });
+                // From the phone sheet the step replaces the sheet's own history entry, so back
+                // returns to the view the sheet was opened over, not to a closed sheet.
+                readTopicConversation(leaderId, questIds, threadKey, { replace: variant === "sheet" });
                 if (variant === "sheet") close();
               }}
               conversationQuestId={conversationQuestId}
               currentQuestId={tabKey.startsWith("q-") ? tabKey : null}
               onOpenQuest={(questId) => {
-                // A quest picked from the topic reads alone, also when its tab showed the topic.
-                if (conversationTab === questId) closeTopicConversation(leaderId);
-                navigateToSessionThread(leaderId, questId);
+                // A quest picked from the topic opens zoomed in, also when its tab showed the topic.
+                prepareZoom(leaderId, questId, "in");
+                navigateToSessionThread(leaderId, questId, variant === "sheet", leaderId, { topicView: false });
                 if (variant === "sheet") close();
               }}
             />

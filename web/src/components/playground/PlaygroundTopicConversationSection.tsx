@@ -1,3 +1,4 @@
+import { TopicLabelButton } from "../MessageTopicLabel.js";
 import { useEffect } from "react";
 import type { QuestmasterTask } from "../../types.js";
 import { useStore } from "../../store.js";
@@ -42,9 +43,9 @@ export function PlaygroundTopicConversationSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Topic Conversation"
-        description="A topic's quests read as one conversation, opened from the topic line above a quest's strip, the Part of line at the start of the quest's conversation, View topic tab on the topic page, or the Topics tab group. The topic header replaces the quest strip (× goes back to the quest alone); each quest's strip sits in the feed where its part starts and sticks to the top while you read it, until the next one covers it. Tapping a strip opens that quest's own tab."
+        description="A quest tab is the quest zoomed in from its topic. The topic line above the quest's strip (‹ topic name) zooms out to the topic's quests read as one conversation, at this quest's place; so do the Part of line at the start of the quest's conversation, View topic tab on the topic page and the Topics tab group. The topic header replaces the quest strip; each quest's strip sits in the feed where its part starts and sticks to the top while you read it, until the next one covers it. Tapping a strip zooms into that quest; back zooms out again."
       >
-        <Card label="Ways in from a quest tab: the topic line above its strip, and the line its conversation opens with">
+        <Card label="Zooming out from a quest tab: the topic line above its strip, and the line its conversation opens with">
           <div className="max-w-md overflow-hidden rounded-lg border border-cc-border">
             <TopicEntryLine name="Guided review and diffs" count={QUESTS.length} onOpen={() => {}} />
             <div className="px-3 py-3">
@@ -56,12 +57,23 @@ export function PlaygroundTopicConversationSection() {
             </div>
           </div>
         </Card>
+        <Card label="A user's message shown where it doesn't belong (here, Main after a handoff) names its topic; tapping opens the topic at the message">
+          <div className="flex max-w-md justify-end">
+            <div className="rounded-[14px] rounded-br-[4px] bg-cc-user-bubble px-4 py-2.5 text-sm text-cc-fg">
+              <TopicLabelButton
+                name="Guided review and diffs"
+                title="In the topic Guided review and diffs"
+                onClick={() => {}}
+              />
+              Could the diff header stay on screen while I scroll?
+            </div>
+          </div>
+        </Card>
         <Card label="Scroll inside the box">
           <div className="max-w-md overflow-hidden rounded-lg border border-cc-border">
             <TopicConversationHeader
               leaderId="playground-leader"
               topic={{ topicId: "t", name: "Guided review and diffs", questIds: QUESTS.map((quest) => quest.questId) }}
-              onClose={() => {}}
             />
             <div className="h-72 overflow-y-auto px-3">
               {QUESTS.map((quest) => (

@@ -9,6 +9,7 @@ import {
 } from "./library/TopicConversation.js";
 import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
 import { closeTopicConversation, openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
+import { landZoom, prepareZoom } from "./topic-zoom.js";
 import { topicThreadKey } from "../../shared/topic-thread-key.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
@@ -633,6 +634,15 @@ export function ChatView({
   const topicConversation = useTopicConversation(sessionId, showQuestThreadBanner && !preview ? selectedThreadKey : "");
   const topicFeedOn = !!topicConversation && topicFeedFor === selectedThreadKey.toLowerCase();
   const feedThreadKey = topicFeedOn ? topicThreadKey(topicConversation.questIds) : selectedThreadKey;
+  // Zooming between the quest and its topic keeps the reader's place and plays the zoom, once the
+  // new feed is on screen.
+  const zoomColumnRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => landZoom(sessionId, feedThreadKey, zoomColumnRef.current), [sessionId, feedThreadKey]);
+  const zoomOutToTopic = useCallback(() => {
+    if (!topicConversation) return;
+    prepareZoom(sessionId, topicThreadKey(topicConversation.questIds), "out", { feedKey: selectedThreadKey });
+    openTopicConversation(sessionId, selectedThreadKey);
+  }, [sessionId, selectedThreadKey, topicConversation]);
 
   // Reconnects and handoff refetches request the window of the feed on screen, which the saved
   // selection does not always match: a topic conversation shows its topic's window, not its tab's
@@ -647,19 +657,19 @@ export function ChatView({
         ? {
             name: topicConversation.name,
             count: topicConversation.questIds.length,
-            onOpen: () => openTopicConversation(sessionId, selectedThreadKey),
+            onOpen: zoomOutToTopic,
           }
         : null,
-    [topicConversation, topicFeedOn, sessionId, selectedThreadKey],
+    [topicConversation, topicFeedOn, zoomOutToTopic],
   );
   // Set once handleSelectThread exists, below.
-  const openTopicQuestRef = useRef<(questId: string) => void>(() => {});
+  const openTopicQuestRef = useRef<(questId: string, part?: HTMLElement | null) => void>(() => {});
   const topicFeed = useMemo<TopicFeed | null>(
     () =>
       topicFeedOn
         ? {
             questIds: topicConversation.questIds,
-            openQuest: (questId: string) => openTopicQuestRef.current(questId),
+            openQuest: (questId: string, part?: HTMLElement | null) => openTopicQuestRef.current(questId, part),
           }
         : null,
     [topicFeedOn, topicConversation],
@@ -866,9 +876,12 @@ export function ChatView({
       sessionNotifications,
     ],
   );
-  openTopicQuestRef.current = (questId) => {
-    closeTopicConversation(sessionId);
-    handleSelectThread(questId);
+  // Zooming into a quest from its strip in the topic: the tab's own quest drops the topic view,
+  // another quest opens its own tab (which shows it alone), each one history step.
+  openTopicQuestRef.current = (questId, part) => {
+    prepareZoom(sessionId, questId, "in", { feedKey: feedThreadKey, part });
+    if (normalizeThreadKey(questId) === normalizeThreadKey(selectedThreadKey)) closeTopicConversation(sessionId);
+    else handleSelectThread(questId);
   };
   // Closing the tab on screen plays its quest strip away (any close path, not only the strip's button).
   const questStripRef = useRef<HTMLDivElement | null>(null);
@@ -1171,14 +1184,10 @@ export function ChatView({
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col">
+            <div ref={zoomColumnRef} className="flex min-w-0 flex-1 flex-col">
               {!preview && !phoneTopicsOpen && topicFeedOn && (
                 <div ref={questStripRef} className="contents">
-                  <TopicConversationHeader
-                    leaderId={sessionId}
-                    topic={topicConversation}
-                    onClose={() => closeTopicConversation(sessionId)}
-                  />
+                  <TopicConversationHeader leaderId={sessionId} topic={topicConversation} />
                 </div>
               )}
               {!preview && !phoneTopicsOpen && showQuestThreadBanner && !topicFeedOn && (
@@ -1187,7 +1196,7 @@ export function ChatView({
                     <TopicEntryLine
                       name={topicConversation.name}
                       count={topicConversation.questIds.length}
-                      onOpen={() => openTopicConversation(sessionId, selectedThreadKey)}
+                      onOpen={zoomOutToTopic}
                     />
                   )}
                   <QuestThreadBanner

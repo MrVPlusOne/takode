@@ -129,7 +129,8 @@ export function ContinuedInLinks({
 /**
  * "Continued in q-N Title ›" or "Side quest q-N Title ›": the number previews the quest
  * like any quest link, and the title opens the quest's thread either way, since a side
- * quest's thread can grow into a conversation of its own.
+ * quest's thread can grow into a conversation of its own: a continued request at the message
+ * itself, where its conversation goes on.
  */
 function QuestForkLink({
   quest,
@@ -163,7 +164,15 @@ function QuestForkLink({
       </QuestInlineLink>
       <button
         type="button"
-        onClick={() => onSelectThread(normalizeThreadKey(quest.questId))}
+        onClick={() =>
+          // A request that moved into its quest continues right there, at that message; a side
+          // quest's thread opens as usual.
+          continued
+            ? navigateToSessionMessageId(quest.startedFrom.sessionId, quest.startedFrom.messageId, {
+                threadKey: normalizeThreadKey(quest.questId),
+              })
+            : onSelectThread(normalizeThreadKey(quest.questId))
+        }
         className="group inline-flex min-w-0 items-center gap-0.5 hover:text-cc-fg"
         data-testid="quest-fork-thread-link"
       >

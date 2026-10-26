@@ -3,6 +3,7 @@ import { persistLeaderViewportPosition } from "../utils/thread-viewport.js";
 import { useStore } from "../store.js";
 import { annotationPassageRects, resolveAnnotationRange } from "./annotation-passages.js";
 import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
+import { takeZoomPlacement } from "./topic-zoom.js";
 import type { TurnCollapseState } from "../hooks/use-collapse-policy.js";
 import type { MessageJumpLanding } from "../store-types.js";
 import { getQuestCompletionFeedBlockId } from "./message-feed-utils.js";
@@ -83,7 +84,10 @@ export function scrollMessageFeedTargetIntoView({
   const targetRect = passage ?? target.getBoundingClientRect();
   const scale = container.offsetHeight ? containerRect.height / container.offsetHeight || 1 : 1;
   const visibleTargetHeight = Math.min(targetRect.height / scale, container.clientHeight);
-  const targetOffsetTop = passage ? 24 : Math.max(0, Math.round((container.clientHeight - visibleTargetHeight) / 2));
+  // A zoom between a quest and its topic keeps the message where the reader had it, unflashed.
+  const zoomOffset = passage ? null : takeZoomPlacement(targetMessageId);
+  const targetOffsetTop =
+    zoomOffset ?? (passage ? 24 : Math.max(0, Math.round((container.clientHeight - visibleTargetHeight) / 2)));
   const nextTop = container.scrollTop + (targetRect.top - containerRect.top) / scale - targetOffsetTop;
   if (passage) {
     const end = container.querySelector<HTMLElement>("[data-feed-end-slack]");
@@ -115,7 +119,7 @@ export function scrollMessageFeedTargetIntoView({
   };
   setFeedScrollPosition(viewportKey, position);
   if (isLeaderSession) persistLeaderViewportPosition(sessionId, threadKey, position);
-  if (!passage) flashMessageFeedTarget(target);
+  if (!passage && zoomOffset === null) flashMessageFeedTarget(target);
   return position;
 }
 

@@ -18,7 +18,8 @@ describe("TopicFeedQuestStart", () => {
         </TopicFeedContext.Provider>
       </QuestRecordFetchContext.Provider>,
     );
-    fireEvent.click(screen.getByTitle("Open this quest's own tab"));
-    expect(openQuest).toHaveBeenCalledWith("q-12");
+    // Tapping the strip zooms into the quest, passing the strip so that part's place carries over.
+    fireEvent.click(screen.getByTitle("Zoom into this quest"));
+    expect(openQuest).toHaveBeenCalledWith("q-12", screen.getByTestId("topic-feed-quest-start"));
   });
 });

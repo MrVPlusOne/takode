@@ -26,7 +26,7 @@ import { useStore } from "../../store.js";
 import type { SdkSessionInfo, SessionNotification } from "../../types.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { setTopicSheetOpen, useTopicPanel } from "../../utils/topic-panel.js";
-import { closeTopicConversation, openTopicConversation } from "../../utils/topic-conversation.js";
+
 import { LeaderTopicPanel, TopicSidePanel } from "./TopicSidePanel.js";
 
 /**
@@ -37,6 +37,12 @@ import { LeaderTopicPanel, TopicSidePanel } from "./TopicSidePanel.js";
  */
 
 const NOW = Date.now();
+
+/** Puts the browser on a route, as navigation would (the hash store listens to hashchange). */
+function showRoute(hash: string) {
+  history.replaceState(null, "", hash || "#/");
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
 
 function topic(overrides: Partial<TopicSummary>): TopicSummary {
   return {
@@ -298,12 +304,13 @@ describe("TopicSidePanel", () => {
     expect(view.tagName).toBe("BUTTON");
     expect(view).toHaveTextContent("View topic tab");
     fireEvent.click(view);
-    expect(readTopicConversation).toHaveBeenCalledWith("l1", ["q-2713", "q-2797"], "q-2713");
+    expect(readTopicConversation).toHaveBeenCalledWith("l1", ["q-2713", "q-2797"], "q-2713", { replace: false });
 
-    act(() => openTopicConversation("l1", "q-2713"));
+    // The route says the tab shows its topic (zoomed out).
+    act(() => showRoute("#/session/l1?thread=q-2713&topic=1"));
     expect(screen.getByTestId("topic-viewing-conversation")).toHaveTextContent("Viewing topic tab");
     expect(screen.queryByTestId("topic-read-conversation")).toBeNull();
-    act(() => closeTopicConversation("l1"));
+    act(() => showRoute("#/session/l1?thread=q-2713"));
   });
 
   it("turns the quest count into a picker of the topic's quests, most recent first", async () => {
@@ -318,7 +325,7 @@ describe("TopicSidePanel", () => {
       ],
     });
     // The tab on screen shows the topic's conversation; picking its own quest reads it alone.
-    openTopicConversation("l1", "q-2713");
+    showRoute("#/session/l1?thread=q-2713&topic=1");
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
     const picker = await screen.findByTestId("topic-quest-picker");
     expect(picker).toHaveTextContent("3 quests");
@@ -330,20 +337,22 @@ describe("TopicSidePanel", () => {
     expect(rows[0]).toHaveTextContent("q-2797 · In Progress · 5m ago");
 
     fireEvent.click(rows[1]!);
-    expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-2801");
+    expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-2801", false, "l1", { topicView: false });
     expect(screen.queryByTestId("topic-quest-picker-list")).toBeNull();
 
+    // Picking the tab's own quest zooms in: the same tab, without the topic view.
     fireEvent.click(picker);
     fireEvent.click(screen.getAllByTestId("topic-quest-picker-row")[2]!);
-    expect(navigateToSessionThread).toHaveBeenLastCalledWith("l1", "q-2713");
-    await waitFor(() => expect(screen.getByTestId("topic-read-conversation")).toBeInTheDocument());
+    expect(navigateToSessionThread).toHaveBeenLastCalledWith("l1", "q-2713", false, "l1", { topicView: false });
+    showRoute("");
   });
 
-  it("keeps a plain count for a topic of one quest", async () => {
+  it("offers the topic view for a topic of one quest too", async () => {
+    // A quest tab is always a zoomed-in view of its topic, also while the topic holds one quest.
     mockApi();
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
     const view = await screen.findByTestId("topic-view");
-    expect(within(view).queryByTestId("topic-read-conversation")).toBeNull();
+    expect(within(view).getByTestId("topic-read-conversation")).toHaveTextContent("View topic tab");
     expect(view).toHaveTextContent(/1 quest\s*▾\s*· page updated/);
   });
 

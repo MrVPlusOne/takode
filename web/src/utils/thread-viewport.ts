@@ -286,6 +286,8 @@ function normalizeFiniteNumber(value: unknown): number | null {
 function normalizeRestorableThreadKey(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = normalizeThreadKey(value || MAIN_THREAD_KEY);
+  // A topic conversation (a quest tab zoomed out) keeps its own place too.
   if (normalized === MAIN_THREAD_KEY || normalized === "all" || /^q-\d+$/.test(normalized)) return normalized;
+  if (/^topic:q-\d+(\+q-\d+)*$/.test(normalized)) return normalized;
   return null;
 }

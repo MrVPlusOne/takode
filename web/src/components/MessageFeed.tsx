@@ -49,6 +49,7 @@ import {
 import { isSubagentToolName } from "../types.js";
 import { isAllThreadsKey, isMainThreadKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
+import { routeLeavesFeed } from "../utils/routing.js";
 import { useMessageFeedPending } from "./use-message-feed-pending.js";
 import type { SessionAttentionRecord } from "../types.js";
 import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
@@ -1528,6 +1529,7 @@ export function MessageFeed({
       notedDeliberateMessageTargetRef.current = null;
       return;
     }
+    if (routeLeavesFeed(sessionId, normalizedThreadKey)) return; // the feed the route opens takes it
     if (notedDeliberateMessageTargetRef.current !== scrollToMessageId) {
       notedDeliberateMessageTargetRef.current = scrollToMessageId;
       noteViewportDeliberateActivity(sessionId, normalizedThreadKey);

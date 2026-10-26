@@ -131,7 +131,7 @@ export function TopicView({
         )}
         <div className="relative mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12px] text-cc-muted">
           {onReadConversation &&
-            detail.questIds.length > 1 &&
+            detail.questIds.length > 0 &&
             (conversationQuestId && detail.questIds.includes(conversationQuestId) ? (
               <span
                 className="inline-flex items-center gap-1.5 rounded-md bg-cc-hover px-2.5 py-1 text-[13px] text-cc-muted"

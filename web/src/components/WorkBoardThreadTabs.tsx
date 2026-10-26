@@ -4,6 +4,8 @@
  * (close, Notify Me) behind a long-press or right-click on a listed tab.
  */
 import { openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
+import { topicThreadKey } from "../../shared/topic-thread-key.js";
+import { prepareZoom } from "./topic-zoom.js";
 import { useTopicTabTopics } from "./TopicTabList.js";
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { useState } from "react";
@@ -214,8 +216,11 @@ export function ThreadTabRail({
       ? currentKey
       : (byNewest.find((id) => inTabs.has(id)) ?? byNewest[0]);
     if (!questId) return;
+    // A zoom out to the topic, one history step: from the tab on screen, or after opening the tab.
+    prepareZoom(sessionId, topicThreadKey(topic.questIds), "out", { feedKey: questId });
+    if (questId === currentKey) return openTopicConversation(sessionId, questId);
     openThread(questId);
-    openTopicConversation(sessionId, questId);
+    openTopicConversation(sessionId, questId, { replace: true });
   };
   const menuTab = tabMenu ? tabs.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
   const menuItems = menuTab ? tabMenuItems(menuTab) : [];

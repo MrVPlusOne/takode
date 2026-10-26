@@ -16,6 +16,8 @@ import {
   navigateToSession,
   navigateToSessionMessageId,
   navigateToSessionThread,
+  routeLeavesFeed,
+  topicViewFromHash,
   navigateHome,
   navigateToMostRecentSession,
   openQuestOverlayRouteAware,
@@ -434,6 +436,18 @@ describe("navigateToSessionThread", () => {
     expect(window.location.hash).toBe("#/session/s1/msg/m-1?thread=q-1");
   });
 
+  it("keeps a quest tab's topic view on the same thread and opens another thread zoomed in", () => {
+    // `topic=1` shows the quest's whole topic; a link to another quest opens that quest alone.
+    window.location.hash = "#/session/s1?thread=q-1";
+    navigateToSessionThread("s1", "q-1", false, "s1", { topicView: true });
+    expect(window.location.hash).toBe("#/session/s1?thread=q-1&topic=1");
+    expect(topicViewFromHash(window.location.hash)).toBe(true);
+    navigateToSessionThread("s1", "q-1", true);
+    expect(window.location.hash).toBe("#/session/s1?thread=q-1&topic=1");
+    navigateToSessionThread("s1", "q-2");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-2");
+  });
+
   it("adds browser history entries for user-initiated leader thread changes", async () => {
     window.location.hash = "#/session/s1";
 
@@ -691,5 +705,22 @@ describe("navigateToMostRecentSession", () => {
     const result = navigateToMostRecentSession();
 
     expect(result).toBe(false);
+  });
+});
+
+describe("routeLeavesFeed", () => {
+  // A jump to a message is for the feed the route opens: a feed that the route leaves must not
+  // take it, even when it shows the same message (a quest's message is also in its topic).
+  it("says whether the route moved this session to another feed", () => {
+    window.location.hash = "#/session/s1?thread=q-2&topic=1";
+    expect(routeLeavesFeed("s1", "topic:q-1+q-2")).toBe(false);
+    expect(routeLeavesFeed("s1", "q-2")).toBe(true);
+    window.location.hash = "#/session/s1/msg/m-1?thread=main";
+    expect(routeLeavesFeed("s1", "topic:q-1+q-2")).toBe(true);
+    expect(routeLeavesFeed("s1", "main")).toBe(false);
+    // Another session, or a route without a thread, leaves this feed alone.
+    expect(routeLeavesFeed("s2", "q-2")).toBe(false);
+    window.location.hash = "#/session/s1";
+    expect(routeLeavesFeed("s1", "q-2")).toBe(false);
   });
 });

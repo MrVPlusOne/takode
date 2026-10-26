@@ -33,6 +33,7 @@ import {
   MessageThreadHeader,
   MessageThreadHeaderOwnedContext,
 } from "./MessageThreadHeader.js";
+import { MessageTopicLabel } from "./MessageTopicLabel.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 import { getDisplayReplyContext } from "../utils/reply-context.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
@@ -932,7 +933,14 @@ function UserMessage({
         data-testid="user-message-bubble"
         className="relative z-10 min-w-0 max-w-[calc(100%_-_2rem)] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg"
       >
-        <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
+        <MessageThreadHeader
+          threadKey={threadKey}
+          onSelectThread={onSelectThread}
+          message={{ sessionId, id: message.id }}
+        />
+        {onSelectThread && (
+          <MessageTopicLabel message={message} sessionId={sessionId} currentThreadKey={currentThreadKey} />
+        )}
         {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
         {replyContext && <UserReplyChip previewText={replyContext.previewText} messageId={replyContext.messageId} />}
         {message.metadata?.vscodeSelection && (
@@ -1264,7 +1272,11 @@ function AssistantMessage({
             {!readOnly && (
               <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
             )}
-            <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
+            <MessageThreadHeader
+              threadKey={threadKey}
+              onSelectThread={onSelectThread}
+              message={{ sessionId, id: message.id }}
+            />
             {!readOnly && <ReadAloudPlayer messageId={message.id} />}
             {rejectedRouteHeader && (
               <div className={collapseRejectedText ? undefined : "mb-3"}>{rejectedRouteHeader}</div>
@@ -1342,7 +1354,11 @@ function AssistantMessage({
           {!readOnly && (
             <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
           )}
-          <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
+          <MessageThreadHeader
+            threadKey={threadKey}
+            onSelectThread={onSelectThread}
+            message={{ sessionId, id: message.id }}
+          />
           {!readOnly && <ReadAloudPlayer messageId={message.id} />}
           {rejectedRouteHeader}
           {projection.shouldRenderContentFallback && !collapseRejectedText && (

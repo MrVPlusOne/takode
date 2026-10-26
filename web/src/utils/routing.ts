@@ -1,3 +1,4 @@
+import { topicThreadMembers } from "../../shared/topic-thread-key.js";
 import { useStore } from "../store.js";
 import type { MessageJumpLanding } from "../store-types.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
@@ -29,6 +30,7 @@ const QUEST_QUERY_PARAM = "quest";
 const FEEDBACK_QUERY_PARAM = "feedback";
 const ROUND_QUERY_PARAM = "round";
 const SECONDARY_VIEW_QUERY_PARAM = "view";
+const TOPIC_VIEW_QUERY_PARAM = "topic";
 
 function splitHash(hash: string): { path: string; params: URLSearchParams } {
   const normalized = hash ? (hash.startsWith("#") ? hash : `#${hash}`) : "#/";
@@ -278,6 +280,14 @@ export function threadRouteFromHash(hash: string): { hasThreadParam: boolean; th
 }
 
 /**
+ * Whether a leader's quest route shows the quest's whole topic as one conversation (zoomed out)
+ * rather than the quest alone. A route parameter, so back and forward zoom in and out.
+ */
+export function topicViewFromHash(hash: string): boolean {
+  return splitHash(hash).params.get(TOPIC_VIEW_QUERY_PARAM) === "1";
+}
+
+/**
  * Return a hash string with the leader thread route query param updated.
  * Main is the canonical default and is represented by removing the param.
  */
@@ -400,6 +410,26 @@ function routeTargetsSession(sessionRef: string, sessionId: string): boolean {
   return resolveSessionIdFromRoute(sessionRef, useStore.getState().sdkSessions as SdkSessionInfo[]) === sessionId;
 }
 
+/** Whether the hash shows the given session (by its ID or number). */
+export function routeShowsSession(hash: string, sessionId: string): boolean {
+  const route = parseHash(hash);
+  return route.page === "session" && routeTargetsSession(route.sessionId, sessionId);
+}
+
+/**
+ * Whether the route has moved this session on to another feed than `feedThreadKey`'s: a jump to a
+ * message that the route sends elsewhere is not this feed's to take, even when the message is in
+ * it too (a quest's message also shows in its topic). False when the route names no thread.
+ */
+export function routeLeavesFeed(sessionId: string, feedThreadKey: string): boolean {
+  const hash = window.location.hash;
+  const routeThreadKey = threadRouteFromHash(hash).threadKey;
+  if (!routeThreadKey || !routeShowsSession(hash, sessionId)) return false;
+  const members = topicThreadMembers(feedThreadKey);
+  if (members) return !(topicViewFromHash(hash) && members.includes(routeThreadKey));
+  return routeThreadKey !== normalizeThreadKey(feedThreadKey) || topicViewFromHash(hash);
+}
+
 /** Whether the hash already shows the given thread of the given session. */
 export function isSessionThreadRoute(hash: string, sessionId: string, threadKey: string): boolean {
   const route = parseHash(hash);
@@ -439,7 +469,11 @@ export function navigateToSessionThread(
   threadKey: string,
   replace = false,
   routeSessionId: string | number = sessionId,
-  options: { preserveMainThreadRoute?: boolean } = {},
+  options: {
+    preserveMainThreadRoute?: boolean;
+    /** Show the quest's whole topic (true) or the quest alone (false); kept on the same thread when unset. */
+    topicView?: boolean;
+  } = {},
 ): void {
   const currentRoute = parseHash(window.location.hash);
   const sameSession = currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId);
@@ -452,7 +486,15 @@ export function navigateToSessionThread(
   ) {
     const { params } = splitHash(currentHash);
     params.delete("msg");
+    // Another thread opens as itself, zoomed in, unless asked for its topic.
+    params.delete(TOPIC_VIEW_QUERY_PARAM);
     currentHash = joinHash(sessionHash(currentRoute.sessionId), params);
+  }
+  if (options.topicView !== undefined) {
+    const { path, params } = splitHash(currentHash);
+    if (options.topicView) params.set(TOPIC_VIEW_QUERY_PARAM, "1");
+    else params.delete(TOPIC_VIEW_QUERY_PARAM);
+    currentHash = joinHash(path, params);
   }
   const newHash = withThreadKeyInHashOptions(currentHash, threadKey, {
     preserveMain: options.preserveMainThreadRoute,
@@ -509,10 +551,12 @@ export function navigateToSessionMessageId(
     threadKey?: string;
     preserveMainThreadRoute?: boolean;
     landing?: MessageJumpLanding;
+    /** Show the quest thread's whole topic, at the message (a quest tab zoomed out). */
+    topicView?: boolean;
   } = {},
 ): void {
   const { replace = false, routeSessionId = sessionId, threadKey, preserveMainThreadRoute = false, landing } = options;
-  const messageHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}`;
+  const messageHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}${options.topicView ? `?${TOPIC_VIEW_QUERY_PARAM}=1` : ""}`;
   const newHash = threadKey
     ? withThreadKeyInHashOptions(messageHash, threadKey, { preserveMain: preserveMainThreadRoute })
     : messageHash;

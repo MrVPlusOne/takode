@@ -2,6 +2,7 @@ import { topicThreadMembers } from "../../shared/topic-thread-key.js";
 import { createContext } from "react";
 import type { ChatMessage } from "../types.js";
 import { leaderMessageThreadKey } from "../../shared/leader-thread-response-routing.js";
+import { navigateToSessionMessageId } from "../utils/routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 
 /**
@@ -38,13 +39,18 @@ export function getMessageThreadLinkKey(message: ChatMessage, currentThreadKey?:
   return threadKey === normalizeThreadKey(currentThreadKey) ? null : threadKey;
 }
 
-/** Header line of a feed message: a clickable link to the message's thread. */
+/**
+ * Header line of a feed message: a clickable link to the message's thread. With the message's
+ * session and ID, it opens that thread at the message, where the reader expects to land.
+ */
 export function MessageThreadHeader({
   threadKey,
   onSelectThread,
+  message,
 }: {
   threadKey: string | null;
   onSelectThread?: (threadKey: string) => void;
+  message?: { sessionId?: string; id: string };
 }) {
   if (!threadKey) return null;
   return (
@@ -53,7 +59,9 @@ export function MessageThreadHeader({
         type="button"
         onClick={(event) => {
           event.stopPropagation();
-          onSelectThread?.(threadKey);
+          if (onSelectThread && message?.sessionId) {
+            navigateToSessionMessageId(message.sessionId, message.id, { threadKey, preserveMainThreadRoute: true });
+          } else onSelectThread?.(threadKey);
         }}
         disabled={!onSelectThread}
         className="cc-thread-link min-w-0 truncate font-mono-code text-[11px] leading-none transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/35 disabled:cursor-default disabled:no-underline"

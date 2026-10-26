@@ -16,8 +16,11 @@ import { useQuestRecord } from "./QuestSummaryCard.js";
 export interface TopicFeed {
   /** The topic's quests (their threads make the feed). */
   questIds: string[];
-  /** Opens a quest alone: its own tab, leaving the topic view (also when it is this tab's quest). */
-  openQuest: (questId: string) => void;
+  /**
+   * Zooms into a quest: its own tab, showing it alone (also when it is this tab's quest). `part` is
+   * the strip tapped, whose messages on screen stay in place.
+   */
+  openQuest: (questId: string, part?: HTMLElement | null) => void;
 }
 
 export const TopicFeedContext = createContext<TopicFeed | null>(null);
@@ -41,7 +44,7 @@ export function topicQuestsOfTurns(turns: readonly Turn[], questIds: readonly st
   });
 }
 
-/** The strip naming `questId` where the conversation moves to it; tapping opens the quest's own tab. */
+/** The strip naming `questId` where the conversation moves to it; tapping zooms into the quest. */
 export function TopicFeedQuestStart({ questId }: { questId: string }) {
   const topicFeed = useContext(TopicFeedContext);
   const quest = useQuestRecord(questId);
@@ -56,9 +59,9 @@ export function TopicFeedQuestStart({ questId }: { questId: string }) {
     >
       <button
         type="button"
-        onClick={() => topicFeed?.openQuest(questId)}
+        onClick={(event) => topicFeed?.openQuest(questId, event.currentTarget.parentElement)}
         className="flex w-full min-w-0 items-baseline gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 px-3 py-1.5 text-left text-xs shadow-sm backdrop-blur-sm hover:bg-cc-hover sm:text-[13px]"
-        title="Open this quest's own tab"
+        title="Zoom into this quest"
       >
         <span className="cc-quest-link shrink-0 font-mono-code font-medium">{questId}</span>
         <span className="min-w-0 truncate font-medium text-cc-fg">{quest?.title ?? ""}</span>

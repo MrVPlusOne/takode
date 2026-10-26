@@ -26,7 +26,7 @@ describe("topic entry points", () => {
       </TopicEntryContext.Provider>,
     );
     const entry = screen.getByTestId("topic-feed-entry");
-    expect(entry).toHaveTextContent("Part of Library and topics · read all 3 quests");
+    expect(entry).toHaveTextContent("Part of Library and topics · view the whole topic");
     fireEvent.click(entry);
     expect(onOpen).toHaveBeenCalledOnce();
 

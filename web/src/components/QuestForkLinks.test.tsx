@@ -196,8 +196,10 @@ describe("Quest fork links under the source message", () => {
       "href",
       expect.stringContaining(QUEST_ID),
     );
+    // A request that moved into its quest continues there: the title opens the quest at that message.
     fireEvent.click(within(row).getByTestId("quest-fork-thread-link"));
-    expect(onSelectThread).toHaveBeenCalledWith(QUEST_ID);
+    expect(window.location.hash).toBe(`#/session/${SESSION_ID}/msg/main-ask?thread=${QUEST_ID}`);
+    expect(onSelectThread).not.toHaveBeenCalled();
   });
 
   it("leaves the link out in the quest's own thread, where the message may also show", async () => {
@@ -294,7 +296,11 @@ describe("Quest fork links under the source message", () => {
 
     expect(forkRow(QUEST_ID)).toHaveAttribute("data-mode", "continued");
     expect(within(forkRow(QUEST_ID)).getByText("Continued in")).toBeVisible();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Started quests were loaded once (the message's topic label looks up its quest separately).
+    const startedQuestCalls = (fetchMock.mock.calls as unknown as Array<[unknown]>).filter(([url]) =>
+      String(url).includes("started-quests"),
+    );
+    expect(startedQuestCalls).toHaveLength(1);
   });
 });
 
