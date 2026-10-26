@@ -60,6 +60,11 @@ export class KeyedListVersions<T> {
     return result;
   }
 
+  /** The entry ids of the remembered version hashed `hash`, if it is still remembered. */
+  idsOf(hash: string): readonly string[] | undefined {
+    return this.versions.find((version) => version.hash === hash)?.ids;
+  }
+
   private remember(list: readonly T[], hash: string | undefined): ListVersion {
     // A list identified by a hash of its own (a thread window) is often sent again unchanged; skip re-serializing it.
     const known = hash === undefined ? undefined : this.versions.find((version) => version.hash === hash);

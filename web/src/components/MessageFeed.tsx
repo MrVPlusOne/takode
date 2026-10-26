@@ -886,7 +886,8 @@ export function MessageFeed({
 
   const triggerSectionLoadNearBoundary = useCallback(
     (direction: "older" | "newer") => {
-      if (pendingSectionLoadKeyRef.current) return;
+      // The full window around a jump's target is already on its way.
+      if (pendingSectionLoadKeyRef.current || activeThreadWindow?.partial) return;
       if (direction === "older") {
         if (!hasOlderSections) return;
         handleLoadOlderSection();
@@ -895,7 +896,7 @@ export function MessageFeed({
       if (!hasNewerSections) return;
       handleLoadNewerSection();
     },
-    [handleLoadNewerSection, handleLoadOlderSection, hasNewerSections, hasOlderSections],
+    [activeThreadWindow?.partial, handleLoadNewerSection, handleLoadOlderSection, hasNewerSections, hasOlderSections],
   );
 
   const scrollToBottom = useCallback(

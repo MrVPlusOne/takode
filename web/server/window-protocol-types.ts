@@ -51,6 +51,11 @@ export interface ThreadWindowState {
   window_hash?: string;
   /** Stable target looked up for this delivery, even if it could not be found. */
   target_message_id?: string;
+  /**
+   * Only the conversations around the target, sent first so a jump shows them sooner; the full
+   * window follows in the next message and replaces it.
+   */
+  partial?: boolean;
 }
 
 export interface InitialThreadWindowRequest {

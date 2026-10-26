@@ -1784,7 +1784,8 @@ function contentBlocksForMessage(message: BrowserIncomingMessage): ContentBlock[
   return [];
 }
 
-function rawMessageId(message: BrowserIncomingMessage, fallbackIndex: number): string {
+/** A history message's stable id, as message jumps and window targets name it. */
+export function rawMessageId(message: BrowserIncomingMessage, fallbackIndex: number): string {
   if ("id" in message && typeof message.id === "string") return message.id;
   if (message.type === "assistant") return message.message.id;
   return `history-${fallbackIndex}`;

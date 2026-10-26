@@ -27,6 +27,7 @@ import {
   getThreadWindowItemCount,
   MAIN_THREAD_KEY,
   normalizeSelectedFeedThreadKey,
+  rawMessageId,
 } from "../../shared/thread-window.js";
 import { deriveWindowAvailability } from "../../shared/window-availability.js";
 import { selectHistoryWindowRange } from "../history-window-selection.js";
@@ -35,7 +36,7 @@ import { hasPendingMemoryCatalog } from "./memory-catalog-prelude.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
-import { syncThreadWindowEntries } from "./thread-window-versions.js";
+import { deliverThreadWindow, heldWindowMayHave } from "./thread-window-versions.js";
 import { leaderProjectionMessage } from "./leader-projection-lists.js";
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
 import { prepareLeaderHistoryWindow } from "../leader-user-message-id.js";
@@ -1288,63 +1289,41 @@ export function sendThreadWindowSync(
   const memberResponseProjection = memberResponseStates
     ? (questId: string) => memberResponseStates(questId).projection
     : undefined;
-  const sync = buildThreadWindowSync({
-    messageHistory: session.messageHistory,
-    threadKey,
-    fromItem: options.fromItem,
-    itemCount: normalizedItemCount,
-    sectionItemCount: normalizedSectionItemCount,
-    visibleItemCount: normalizedVisibleItemCount,
-    targetMessageId: options.targetMessageId,
-    targetHistoryIndex: options.targetHistoryIndex,
-    includeMessage: isRootAgentHistoryMessage,
-    currentThreadResponseProjection: responseState?.projection,
-    memberResponseProjection,
-  });
-  sync.entries = projectArtifactsInThreadEntries(session.id, sync.entries);
-  // The answer state is covered too, so a cache hit can leave it out.
-  const windowHash = computeHistoryPayloadSyncHash({
-    threadKey: sync.threadKey,
-    entries: sync.entries,
-    responseState: sync.threadResponseProjection ?? null,
-  });
-  const cacheHit = options.cachedWindowHash === windowHash;
-
-  const delivered = syncThreadWindowEntries(
-    session,
-    sync.threadKey,
-    sync.entries,
-    windowHash,
-    options.cachedWindowHash,
-  );
-
-  const window = {
-    ...sync.window,
-    window_hash: windowHash,
+  const build = (itemCount: number) => {
+    const sync = buildThreadWindowSync({
+      messageHistory: session.messageHistory,
+      threadKey,
+      fromItem: options.fromItem,
+      itemCount,
+      sectionItemCount: normalizedSectionItemCount,
+      visibleItemCount: normalizedVisibleItemCount,
+      targetMessageId: options.targetMessageId,
+      targetHistoryIndex: options.targetHistoryIndex,
+      includeMessage: isRootAgentHistoryMessage,
+      currentThreadResponseProjection: responseState?.projection,
+      memberResponseProjection,
+    });
+    sync.entries = projectArtifactsInThreadEntries(session.id, sync.entries);
+    return sync;
   };
-
-  const sent = sendToBrowser(ws, {
-    type: "thread_window_sync",
-    thread_key: sync.threadKey,
-    entries: cacheHit ? [] : delivered.entries,
-    ...(!cacheHit && delivered.delta ? { entries_delta: delivered.delta } : {}),
-    window,
-    ...(sync.threadResponseProjection && !cacheHit ? { response_state: sync.threadResponseProjection } : {}),
-    ...(cacheHit ? { cache_hit: true } : {}),
-  } as BrowserIncomingMessage);
-  if (sent) noteThreadWindowHeld(ws, sync.threadKey, windowHash);
+  // A jump shows the target and what surrounds it while the rest is built, sent and rendered,
+  // unless the browser may hold the target already (the full window is then usually a cache hit).
+  const { targetMessageId: target, cachedWindowHash: held } = options;
+  if (
+    target &&
+    normalizedItemCount > NEAREST_FIRST_ITEM_COUNT &&
+    !heldWindowMayHave(session, threadKey, held, target)
+  ) {
+    const near = build(NEAREST_FIRST_ITEM_COUNT);
+    const hasTarget = near.entries.some((entry) => rawMessageId(entry.message, entry.history_index) === target);
+    if (hasTarget && near.window.total_items > NEAREST_FIRST_ITEM_COUNT)
+      deliverThreadWindow(session, ws, near, null, sendToBrowser);
+  }
+  deliverThreadWindow(session, ws, build(normalizedItemCount), held, sendToBrowser);
 }
 
-/**
- * The socket's browser now holds the window just sent, so a later refresh of
- * the same thread view validates against it (a small cache hit, or only what
- * changed) instead of against the window named when the view was opened.
- */
-function noteThreadWindowHeld(ws: BrowserTransportSocketLike, threadKey: string, windowHash: string): void {
-  const view = ((ws.data ??= {}) as BrowserTransportSocketData).conversationView;
-  if (view?.kind !== "thread" || normalizeSelectedFeedThreadKey(view.request.threadKey) !== threadKey) return;
-  view.request = { ...view.request, cachedWindowHash: windowHash };
-}
+/** A jump's first window: the target's conversation and one on each side. */
+const NEAREST_FIRST_ITEM_COUNT = 3;
 
 function sendBoundedConversationView(
   session: Pick<BrowserTransportSessionLike, "id" | "messageHistory">,

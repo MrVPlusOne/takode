@@ -424,6 +424,25 @@ describe("ChatView leader open thread tabs", () => {
     );
   });
 
+  it("opens a routed leader thread from the session's own state before the session list arrives", () => {
+    // A cold load from a phone alert gets the session's state over its socket long before
+    // the session list (about a second on a busy server). Waiting for the list showed
+    // nothing, then Main, and asked the server for a Main window the route never wanted.
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [],
+    });
+    // Nor has the leader's tab projection arrived.
+    mockState.syncedProjectionValues = new Map();
+    mockState.syncedProjectionKeys = new Set();
+    window.location.hash = "#/session/s1/msg/context-1?thread=q-1200";
+
+    render(<ChatView sessionId="s1" hasThreadRoute routeThreadKey="q-1200" />);
+
+    expect(mockMessageFeedRenders).toHaveBeenCalledWith({ sessionId: "s1", threadKey: "q-1200" });
+    expect(mockMessageFeedRenders).not.toHaveBeenCalledWith({ sessionId: "s1", threadKey: "main" });
+  });
+
   it("sends open and close operations to the server without writing localStorage", () => {
     resetStore({
       messages: new Map([["s1", [threadMessage("q-941", 2)]]]),

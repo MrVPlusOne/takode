@@ -366,6 +366,37 @@ describe("MessageFeed selected-thread boundaries", () => {
     expect(screen.getByText("Loading older section...")).toBeTruthy();
   });
 
+  it("waits for a jump's full window instead of paging from its partial first window", () => {
+    // The server answers a jump with the conversations around the target, then the full
+    // window. Paging from the small window would send a request whose answer replaces the
+    // full window that is already on its way.
+    const sid = "test-selected-thread-partial-window";
+    const threadKey = "q-1027";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 40,
+      itemCount: 3,
+      totalItems: 100,
+      sectionItemCount: 10,
+      visibleItemCount: 3,
+      partial: true,
+      messages: [makeMessage({ id: "u-target", role: "user", content: "Jump target", timestamp: 3 })],
+    });
+
+    const { container } = render(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} />);
+    const scrollContainer = getScrollContainer(container);
+    mockSendToSession.mockClear();
+    setElementScrollMetrics(scrollContainer, 1000, 340, 0);
+    fireEvent.wheel(scrollContainer, { deltaY: -80 });
+
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({ type: "thread_window_request", thread_key: threadKey }),
+    );
+  });
+
   it("sends a cached selected-thread window hash for nearby boundary reuse", () => {
     // The first older load adds 60 ranges to the initial 30; cache identity must include that expanded budget.
     const sid = "test-selected-thread-cached-boundary-window";

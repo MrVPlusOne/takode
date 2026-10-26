@@ -335,6 +335,7 @@ export function setStoreSelectedThreadWindow({
   visibleItemCount,
   hasOlderItems,
   hasNewerItems,
+  partial,
   messages,
 }: {
   sessionId: string;
@@ -346,6 +347,8 @@ export function setStoreSelectedThreadWindow({
   visibleItemCount: number;
   hasOlderItems?: boolean;
   hasNewerItems?: boolean;
+  /** The first, partial window of a message jump. */
+  partial?: boolean;
   messages: ChatMessage[];
 }) {
   mockStoreValues.threadWindows = new Map([
@@ -364,6 +367,7 @@ export function setStoreSelectedThreadWindow({
             source_history_length: totalItems,
             section_item_count: sectionItemCount,
             visible_item_count: visibleItemCount,
+            ...(partial ? { partial } : {}),
           },
         ],
       ]),

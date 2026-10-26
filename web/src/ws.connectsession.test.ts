@@ -337,6 +337,83 @@ describe("connectSession", () => {
     });
   });
 
+  it("opens the thread a phone alert link names before the session is known", () => {
+    // A cold load from a phone alert subscribes before the session list arrives. The
+    // link names the thread, so the subscribe asks for it at once; without the hint the
+    // server first sent a large history window the thread view never shows.
+    window.location.hash = "#/session/s1/msg/message-42?thread=q-1825";
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    const subscribe = JSON.parse(lastWs.send.mock.calls[0][0]);
+    expect(subscribe.initial_thread_window).toMatchObject({
+      thread_key: "q-1825",
+      from_item: -1,
+      target_message_id: "message-42",
+    });
+    expect(useStore.getState().pendingThreadWindowRequests.get("s1")).toBe("q-1825");
+  });
+
+  it("keeps a session known not to lead on the history subscribe, whatever the route says", () => {
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: false } as any] });
+    window.location.hash = "#/session/s1/msg/message-42?thread=q-1825";
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    const subscribe = JSON.parse(lastWs.send.mock.calls[0][0]);
+    expect(subscribe.initial_thread_window).toBeUndefined();
+    expect(subscribe.history_window_target_message_id).toBe("message-42");
+  });
+
+  it("shows a partial jump window but keeps waiting for the full one", () => {
+    // The server answers a jump with the conversations around the target first. The
+    // browser shows them, but the request stays open and only the full window is cached.
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any] });
+    window.location.hash = "#/session/s1/msg/message-42?thread=q-1825";
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    const windowFor = (fromItem: number, itemCount: number, hash: string, partial?: true) => ({
+      thread_key: "q-1825",
+      from_item: fromItem,
+      item_count: itemCount,
+      total_items: 40,
+      has_older_items: true,
+      has_newer_items: true,
+      source_history_length: 400,
+      section_item_count: 10,
+      visible_item_count: 3,
+      window_hash: hash,
+      target_message_id: "message-42",
+      ...(partial ? { partial } : {}),
+    });
+    const entry = (id: string, index: number) => ({
+      message: { type: "user_message", id, content: id, timestamp: 1_700_000_000_000 + index, threadKey: "q-1825" },
+      history_index: index,
+    });
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "q-1825",
+      entries: [entry("message-41", 41), entry("message-42", 42)],
+      window: windowFor(19, 3, "partial-hash", true),
+    });
+    const store = useStore.getState();
+    expect(store.threadWindows.get("s1")?.get("q-1825")?.partial).toBe(true);
+    expect(store.pendingThreadWindowRequests.get("s1")).toBe("q-1825");
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "q-1825",
+      entries: [entry("message-30", 30), entry("message-41", 41), entry("message-42", 42)],
+      window: windowFor(5, 30, "full-hash"),
+    });
+    expect(useStore.getState().threadWindows.get("s1")?.get("q-1825")?.item_count).toBe(30);
+    expect(useStore.getState().pendingThreadWindowRequests.has("s1")).toBe(false);
+  });
+
   it("reuses a verified cached selected-thread window hash on reconnect", async () => {
     useStore.setState({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any],

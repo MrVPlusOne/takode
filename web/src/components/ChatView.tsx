@@ -480,7 +480,11 @@ export function ChatView({
         launcherState: sdkSession?.state,
         isArchived: sdkSession?.archived ?? false,
         serverReachable: s.serverReachable,
-        isLeaderSession: tabsProjection.projectionState === "accepted" || navigationSummary.isLeaderSession,
+        // The session's own state says so before the session list arrives (a cold load from a phone alert).
+        isLeaderSession:
+          tabsProjection.projectionState === "accepted" ||
+          navigationSummary.isLeaderSession ||
+          sessionState?.isOrchestrator === true,
         sessionMetadataKnown: Boolean(sessionState || sdkSession),
         historyLoading: s.historyLoading.get(sessionId) ?? false,
         hasKnownThreadSources:

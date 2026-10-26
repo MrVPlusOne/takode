@@ -44,7 +44,6 @@ function resolveSubscribedLeaderThreadKey(sessionId: string): string | null {
     leaderTabsProjection.projectionState === "accepted" ||
     bridgeSession?.isOrchestrator === true ||
     sdkSession?.isOrchestrator === true;
-  if (!isLeaderSession) return null;
 
   const route = typeof window === "undefined" ? null : parseHash(window.location.hash);
   const routeSessionId =
@@ -53,13 +52,17 @@ function resolveSubscribedLeaderThreadKey(sessionId: string): string | null {
   const threadRoute = routeMatchesSession
     ? threadRouteFromHash(window.location.hash)
     : { hasThreadParam: false, threadKey: null };
+  // Before the session is known (a cold load from a phone alert), a route naming a thread opens
+  // that thread with the subscribe itself; the server honours the request only for a leader.
+  const routeOpensUnknownSession = !sdkSession && !bridgeSession && threadRoute.hasThreadParam;
+  if (!isLeaderSession && !routeOpensUnknownSession) return null;
   // A reconnect must resubscribe to the thread on screen: live events and the
   // fresh window follow the subscribed view, so a stale guess leaves it frozen.
   return (
     readDisplayedLeaderThreadKey(sessionId) ??
     resolveInitialLeaderThreadKey({
       sessionId,
-      isLeaderSession,
+      isLeaderSession: true,
       hasThreadRoute: threadRoute.hasThreadParam,
       routeThreadKey: threadRoute.threadKey,
       leaderOpenThreadTabs: projectedLeaderOpenThreadTabs(leaderTabsProjection),

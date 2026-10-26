@@ -1846,13 +1846,16 @@ function handleParsedMessage(
         sourceEntries.map((entry) => entry.message),
       );
       if (sourceEntries.length > 0) store.setCliEverConnected(sessionId);
-      if (store.pendingThreadWindowRequests.get(sessionId) === data.thread_key) {
-        store.setPendingThreadWindowRequest(sessionId, null);
-      }
       clearPendingUploadsCoveredByHistory(
         sessionId,
         sourceEntries.map((entry) => entry.message),
       );
+      // A partial window only shows a jump's target sooner: the request it answers stays open
+      // until the full window arrives, and only that one is worth caching.
+      if (data.window.partial) break;
+      if (store.pendingThreadWindowRequests.get(sessionId) === data.thread_key) {
+        store.setPendingThreadWindowRequest(sessionId, null);
+      }
       if (data.cache_hit !== true) {
         cacheThreadWindow(sessionId, data.window, sourceEntries, responseState);
       }
