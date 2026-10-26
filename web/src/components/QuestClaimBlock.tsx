@@ -9,6 +9,7 @@ import type { QuestImage, QuestVerificationItem } from "../types.js";
 import { useStore } from "../store.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
+import { QuestTopicLink, useLeaderQuestTopic } from "./library/QuestTopicLink.js";
 
 interface QuestClaimData {
   questId: string;
@@ -75,13 +76,7 @@ export function QuestClaimBlock({
         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover ${statusInfo.text}`}>
           {statusInfo.label}
         </span>
-        {quest.tags &&
-          quest.tags.length > 0 &&
-          quest.tags.map((tag) => (
-            <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted">
-              {tag}
-            </span>
-          ))}
+        <QuestTopicOrTags quest={quest} onNavigate={() => setDetailsOpen(false)} />
         {quest.leaderSessionId && (
           <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
             <span>Leader</span>
@@ -248,4 +243,27 @@ export function QuestClaimBlock({
       {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
     </div>
   );
+}
+
+/**
+ * The quest's topic when it has one, else its tags: the topic replaces the tags, which Jiayi rarely
+ * reads. Mounted only while the card's details show, so a feed of claim cards asks nothing.
+ */
+function QuestTopicOrTags({ quest, onNavigate }: { quest: QuestClaimData; onNavigate: () => void }) {
+  const topic = useLeaderQuestTopic(quest.leaderSessionId ?? null, quest.questId);
+  if (topic && quest.leaderSessionId) {
+    return (
+      <QuestTopicLink
+        questId={quest.questId}
+        leaderSessionId={quest.leaderSessionId}
+        topic={topic}
+        onNavigate={onNavigate}
+      />
+    );
+  }
+  return (quest.tags ?? []).map((tag) => (
+    <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted">
+      {tag}
+    </span>
+  ));
 }

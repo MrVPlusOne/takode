@@ -716,9 +716,11 @@ export function QuestDetailPanel() {
     : indexedFeedbackEntries;
   const unaddressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && !e.addressed).length;
   const addressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && e.addressed).length;
+  // The topic replaces the tags: Jiayi reads the topic and rarely the tags.
+  const shownTags = topic ? [] : (quest.tags ?? []);
   const hasChips = Boolean(
     topic ||
-      quest.tags?.length ||
+      shownTags.length ||
       questOwner?.kind === "codex" ||
       commitDiffState.commitEntries.length > 0 ||
       quest.relatedQuests?.some((entry) => entry.kind !== "references"),
@@ -1108,7 +1110,7 @@ export function QuestDetailPanel() {
                   onNavigate={closePanel}
                 />
               )}
-              {quest.tags?.map((tag) => (
+              {shownTags.map((tag) => (
                 <span
                   key={tag}
                   className="min-w-0 max-w-full break-words rounded-full bg-cc-hover px-2 py-0.5 text-[11px] text-cc-muted"

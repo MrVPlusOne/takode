@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { topicApi } from "../api/topics.js";
+import type { QuestTopicMap } from "../../shared/library-topics.js";
+import { resetLeaderTopicsForTest } from "../utils/leader-topics.js";
 import { useStore } from "../store.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 
@@ -9,6 +12,39 @@ describe("QuestClaimBlock", () => {
   beforeEach(() => {
     useStore.getState().reset();
     window.history.replaceState({}, "", "/#/session/worker-1");
+  });
+
+  afterEach(() => {
+    resetLeaderTopicsForTest();
+    vi.restoreAllMocks();
+  });
+
+  it("shows the quest's topic in place of its tags, and the tags when it has no topic", async () => {
+    // Jiayi reads the topic and rarely the tags, so a quest with a topic shows only the topic.
+    const questMap = vi.spyOn(topicApi, "questMap").mockImplementation(async (_leader, questIds) => {
+      const map: QuestTopicMap = questIds.includes("q-90") ? { "q-90": { id: "t1", name: "Relay" } } : {};
+      return { enabled: true, map, topics: {} };
+    });
+    const tagged = (questId: string) => ({
+      questId,
+      title: "Tagged quest",
+      status: "in_progress",
+      tags: ["ui", "improvement"],
+      leaderSessionId: "leader-1",
+    });
+    const filed = render(<QuestClaimBlock quest={tagged("q-90")} />);
+    // Collapsed cards ask nothing, so a feed full of them costs no lookups.
+    expect(questMap).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Quest Claimed/i }));
+    await waitFor(() => expect(screen.getByTestId("quest-topic-link")).toHaveTextContent("Relay"));
+    expect(screen.queryByText("improvement")).toBeNull();
+    filed.unmount();
+
+    render(<QuestClaimBlock quest={tagged("q-91")} />);
+    fireEvent.click(screen.getByRole("button", { name: /Quest Claimed/i }));
+    await waitFor(() => expect(questMap).toHaveBeenCalledWith("leader-1", ["q-91"]));
+    expect(screen.getByText("improvement")).toBeInTheDocument();
+    expect(screen.queryByTestId("quest-topic-link")).toBeNull();
   });
 
   it("uses shared quest status colors for the status badge", () => {

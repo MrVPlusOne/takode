@@ -107,8 +107,9 @@ describe("QuestDetailPanel header", () => {
     }
   });
 
-  it("names the quest's topic first in the chip row, ahead of its tags", async () => {
-    // Jiayi reads the topic, rarely the tags, so the topic leads the row as a link to its conversation.
+  it("names the quest's topic first in the chip row, in place of its tags", async () => {
+    // Jiayi reads the topic, rarely the tags, so the topic leads the row as a link to its conversation
+    // and the tags are left out.
     vi.spyOn(topicApi, "questMap").mockResolvedValue({
       enabled: true,
       map: { "q-42": { id: "t1", name: "Relay" } },
@@ -124,6 +125,7 @@ describe("QuestDetailPanel header", () => {
       await waitFor(() => expect(screen.getByTestId("quest-topic-link")).toHaveTextContent("Relay"));
       expect(screen.getByTestId("quest-detail-chips").firstElementChild).toBe(screen.getByTestId("quest-topic-link"));
       expect(topicApi.questMap).toHaveBeenCalledWith("leader-42", ["q-42"]);
+      expect(screen.queryByText("improvement")).toBeNull();
     } finally {
       resetLeaderTopicsForTest();
       vi.restoreAllMocks();
