@@ -12,6 +12,11 @@ vi.mock("../../utils/topic-conversation.js", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   readTopicConversation,
 }));
+const navigateToSessionThread = vi.hoisted(() => vi.fn());
+vi.mock("../../utils/routing.js", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  navigateToSessionThread,
+}));
 
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicListResponse, TopicSummary } from "../../../shared/library-topics.js";
@@ -21,6 +26,7 @@ import { useStore } from "../../store.js";
 import type { SdkSessionInfo, SessionNotification } from "../../types.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { setTopicSheetOpen, useTopicPanel } from "../../utils/topic-panel.js";
+import { closeTopicConversation, openTopicConversation } from "../../utils/topic-conversation.js";
 import { LeaderTopicPanel, TopicSidePanel } from "./TopicSidePanel.js";
 
 /**
@@ -282,16 +288,55 @@ describe("TopicSidePanel", () => {
     expect(screen.queryByTestId("topic-questions")).toBeNull();
   });
 
-  it("turns the quest count into the way to read the topic as one conversation", async () => {
-    // Jiayi: the button shares the count's place instead of repeating the count on a line of its own.
+  it("offers a View topic tab button, which reads Viewing topic tab while the topic is on screen", async () => {
+    // Jiayi: the "Read all N quests" link was too subtle for how often she jumps to the topic's
+    // conversation, so it is a button; once that conversation is on screen it says so instead.
     mockApi();
     vi.mocked(topicApi.get).mockResolvedValue({ ...DETAIL, questIds: ["q-2713", "q-2797"] });
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
-    const read = await screen.findByTestId("topic-read-conversation");
-    expect(read).toHaveTextContent("Read all 2 quests");
-    expect(screen.queryByText(/^2 quests/)).toBeNull();
-    fireEvent.click(read);
+    const view = await screen.findByTestId("topic-read-conversation");
+    expect(view.tagName).toBe("BUTTON");
+    expect(view).toHaveTextContent("View topic tab");
+    fireEvent.click(view);
     expect(readTopicConversation).toHaveBeenCalledWith("l1", ["q-2713", "q-2797"], "q-2713");
+
+    act(() => openTopicConversation("l1", "q-2713"));
+    expect(screen.getByTestId("topic-viewing-conversation")).toHaveTextContent("Viewing topic tab");
+    expect(screen.queryByTestId("topic-read-conversation")).toBeNull();
+    act(() => closeTopicConversation("l1"));
+  });
+
+  it("turns the quest count into a picker of the topic's quests, most recent first", async () => {
+    mockApi();
+    vi.mocked(topicApi.get).mockResolvedValue({
+      ...DETAIL,
+      questIds: ["q-2713", "q-2797", "q-2801"],
+      quests: [
+        { questId: "q-2713", title: "Launch T7", status: "done", changedAt: NOW - 3 * 60 * 60_000 },
+        { questId: "q-2797", title: "Twin evals", status: "in_progress", changedAt: NOW - 5 * 60_000 },
+        { questId: "q-2801", title: "Grading check", status: "done", changedAt: NOW - 60 * 60_000 },
+      ],
+    });
+    // The tab on screen shows the topic's conversation; picking its own quest reads it alone.
+    openTopicConversation("l1", "q-2713");
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    const picker = await screen.findByTestId("topic-quest-picker");
+    expect(picker).toHaveTextContent("3 quests");
+    fireEvent.click(picker);
+    const rows = screen.getAllByTestId("topic-quest-picker-row");
+    expect(rows.map((row) => row.dataset.quest)).toEqual(["q-2797", "q-2801", "q-2713"]);
+    expect(rows[2]).toHaveAttribute("aria-selected", "true");
+    expect(rows[0]).toHaveTextContent("Twin evals");
+    expect(rows[0]).toHaveTextContent("q-2797 · In Progress · 5m ago");
+
+    fireEvent.click(rows[1]!);
+    expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-2801");
+    expect(screen.queryByTestId("topic-quest-picker-list")).toBeNull();
+
+    fireEvent.click(picker);
+    fireEvent.click(screen.getAllByTestId("topic-quest-picker-row")[2]!);
+    expect(navigateToSessionThread).toHaveBeenLastCalledWith("l1", "q-2713");
+    await waitFor(() => expect(screen.getByTestId("topic-read-conversation")).toBeInTheDocument());
   });
 
   it("keeps a plain count for a topic of one quest", async () => {
@@ -299,7 +344,7 @@ describe("TopicSidePanel", () => {
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
     const view = await screen.findByTestId("topic-view");
     expect(within(view).queryByTestId("topic-read-conversation")).toBeNull();
-    expect(view).toHaveTextContent(/1 quest\s*· page updated/);
+    expect(view).toHaveTextContent(/1 quest\s*▾\s*· page updated/);
   });
 
   it("dates each Now entry, mutes one with no news for a week, and marks one done for the Scribe", async () => {

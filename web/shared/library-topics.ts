@@ -74,7 +74,13 @@ export interface TopicDetail extends TopicSummary {
   instructions: string;
   events: TopicEvent[];
   /** Titles and states of the topic's quests, when the server includes them. */
-  quests?: Array<{ questId: string; title: string; status: string }>;
+  quests?: Array<{
+    questId: string;
+    title: string;
+    status: string;
+    /** When the quest last changed status, for listing the most recent first. */
+    changedAt?: number;
+  }>;
   /** The topic's Now entries, when the server includes them. */
   now?: NowEntry[];
 }

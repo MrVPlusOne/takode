@@ -319,7 +319,9 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
             entry.leaderId ? { ...entry, leaderNum: ctx.launcher.getSessionNum(entry.leaderId) ?? null } : entry,
           ),
         quests: quests.flatMap((quest) =>
-          quest ? [{ questId: quest.questId, title: quest.title, status: quest.status }] : [],
+          quest
+            ? [{ questId: quest.questId, title: quest.title, status: quest.status, changedAt: questChangedAt(quest) }]
+            : [],
         ),
       };
     }),

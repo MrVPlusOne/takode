@@ -19,8 +19,12 @@ import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
 import { ChangeList, RenameSuggestions, TopicSettings, TopicsOffHint } from "./TopicPage.js";
 import { TopicActivityList } from "./TopicActivityList.js";
 import { TopicView } from "./TopicView.js";
-import { readTopicConversation } from "../../utils/topic-conversation.js";
-import { navigateToSession } from "../../utils/routing.js";
+import {
+  closeTopicConversation,
+  readTopicConversation,
+  useTopicConversationTab,
+} from "../../utils/topic-conversation.js";
+import { navigateToSession, navigateToSessionThread } from "../../utils/routing.js";
 import type { ScribeActivity } from "../../../shared/library-topics.js";
 import { CollapseIcon, GalleryIcon, SettingsIcon, TopicIcon } from "./library-icons.js";
 
@@ -68,6 +72,10 @@ export function TopicSidePanel({
   // An expanded desktop composer can cover the panel's lower part; the feed gets the same room.
   const composerRoom = useComposerScrollSpace(`topic-panel:${leaderId}`);
   const focus = useTopicPanel((state) => (state.focus?.leaderId === leaderId ? state.focus : null));
+  // The quest tab on screen when it shows its topic as one conversation: the page then says so.
+  const tabKey = threadKey.toLowerCase();
+  const conversationTab = useTopicConversationTab(leaderId);
+  const conversationQuestId = conversationTab === tabKey ? tabKey : null;
 
   const load = useCallback(() => {
     topicApi
@@ -173,6 +181,14 @@ export function TopicSidePanel({
               leaderId={leaderId}
               onReadConversation={(questIds) => {
                 readTopicConversation(leaderId, questIds, threadKey);
+                if (variant === "sheet") close();
+              }}
+              conversationQuestId={conversationQuestId}
+              currentQuestId={tabKey.startsWith("q-") ? tabKey : null}
+              onOpenQuest={(questId) => {
+                // A quest picked from the topic reads alone, also when its tab showed the topic.
+                if (conversationTab === questId) closeTopicConversation(leaderId);
+                navigateToSessionThread(leaderId, questId);
                 if (variant === "sheet") close();
               }}
             />

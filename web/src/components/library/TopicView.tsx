@@ -8,6 +8,7 @@ import { openLibraryArtifact, openTopicLibrary } from "../../utils/library-nav.j
 import { MarkdownContent } from "../MarkdownContent.js";
 import { InlineLocalImagesContext } from "../inline-local-images.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
+import { TopicQuestPicker } from "./TopicQuestPicker.js";
 import { questOf, questionText, useTopicQuestions } from "./topic-questions.js";
 
 /**
@@ -32,6 +33,9 @@ export function TopicView({
   leaderId,
   bottomRoom = 0,
   onReadConversation,
+  conversationQuestId = null,
+  currentQuestId = null,
+  onOpenQuest,
 }: {
   id: string;
   topics: TopicSummary[];
@@ -45,6 +49,12 @@ export function TopicView({
   bottomRoom?: number;
   /** Reads the topic's quests as one conversation in the leader's feed. */
   onReadConversation?: (questIds: string[]) => void;
+  /** The quest tab on screen when it shows its topic as one conversation. */
+  conversationQuestId?: string | null;
+  /** The quest whose tab is on screen. */
+  currentQuestId?: string | null;
+  /** Opens one of the topic's quests in its tab. */
+  onOpenQuest?: (questId: string) => void;
 }) {
   const [detail, setDetail] = useState<TopicDetail | null>(null);
   const [artifacts, setArtifacts] = useState<{ items: ArtifactSummary[]; total: number }>({ items: [], total: 0 });
@@ -119,20 +129,38 @@ export function TopicView({
             {plainText(lead)}
           </p>
         )}
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[12px] text-cc-muted">
-          <span className="inline-flex flex-wrap items-center gap-x-1">
-            {onReadConversation && detail.questIds.length > 1 ? (
-              // The quest count doubles as the way to read them all as one conversation.
+        <div className="relative mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12px] text-cc-muted">
+          {onReadConversation &&
+            detail.questIds.length > 1 &&
+            (conversationQuestId && detail.questIds.includes(conversationQuestId) ? (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-md bg-cc-hover px-2.5 py-1 text-[13px] text-cc-muted"
+                data-testid="topic-viewing-conversation"
+              >
+                <ConversationIcon className="h-3.5 w-3.5" />
+                Viewing topic tab
+              </span>
+            ) : (
+              // How Jiayi jumps to the topic's conversation most of the time, so a button, not a link.
               <button
                 type="button"
                 onClick={() => onReadConversation(detail.questIds)}
-                className="inline-flex items-center gap-1 text-cc-primary hover:underline"
+                className="inline-flex items-center gap-1.5 rounded-md border border-cc-primary/40 bg-cc-primary/10 px-2.5 py-1 text-[13px] font-medium text-cc-primary hover:bg-cc-primary/15"
                 title="Read the topic's quests as one conversation"
                 data-testid="topic-read-conversation"
               >
                 <ConversationIcon className="h-3.5 w-3.5" />
-                Read all {detail.questIds.length} quests
+                View topic tab
               </button>
+            ))}
+          <span className="inline-flex flex-wrap items-center gap-x-1">
+            {onOpenQuest ? (
+              <TopicQuestPicker
+                quests={detail.quests ?? []}
+                count={detail.questIds.length}
+                currentQuestId={currentQuestId}
+                onOpen={onOpenQuest}
+              />
             ) : (
               `${detail.questIds.length} quest${detail.questIds.length === 1 ? "" : "s"}`
             )}
