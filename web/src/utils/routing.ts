@@ -287,6 +287,11 @@ export function topicViewFromHash(hash: string): boolean {
   return splitHash(hash).params.get(TOPIC_VIEW_QUERY_PARAM) === "1";
 }
 
+/** The route of a leader's quest tab zoomed out to the quest's whole topic. */
+export function sessionTopicViewHash(sessionId: string | number, threadKey: string): string {
+  return withThreadKeyInHash(`${sessionHash(sessionId)}?${TOPIC_VIEW_QUERY_PARAM}=1`, threadKey);
+}
+
 /**
  * Return a hash string with the leader thread route query param updated.
  * Main is the canonical default and is represented by removing the param.

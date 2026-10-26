@@ -71,4 +71,9 @@ export const topicApi = {
     request<QuestTopicsResponse>(
       `/topics/quest-map?leader=${encodeURIComponent(leaderSessionId)}&quests=${encodeURIComponent(questIds.join(","))}`,
     ),
+  /** The message where a leader last discussed a quest, for opening its topic conversation there. */
+  lastDiscussed: (leaderSessionId: string, questId: string) =>
+    request<{ messageId: string | null }>(
+      `/topics/last-discussed?leader=${encodeURIComponent(leaderSessionId)}&quest=${encodeURIComponent(questId)}`,
+    ),
 };

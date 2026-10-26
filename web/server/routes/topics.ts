@@ -7,6 +7,8 @@ import { type NowGroup, nowGroupOf, takeLegacyNow } from "../../shared/topic-now
 import { TopicStoreError } from "../topic-store.js";
 import type { TopicService } from "../topic-service.js";
 import { SCRIBE_BRIEF } from "../scribe-brief.js";
+import { findThreadLastDiscussedMessageId } from "../../shared/thread-window.js";
+import { isRootAgentHistoryMessage } from "../root-agent-feed-message.js";
 import type { RouteContext } from "./context.js";
 
 let activeService: TopicService | null = null;
@@ -306,6 +308,18 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       return { ok: true };
     }),
   );
+
+  /**
+   * For a quest's topic link: the message in the leader's conversation where the quest was last
+   * discussed, so its topic conversation opens there (null when the leader never discussed it).
+   */
+  api.get("/topics/last-discussed", (c) => {
+    const leaderId = ctx.resolveId(c.req.query("leader") ?? "");
+    const questId = c.req.query("quest") ?? "";
+    if (!leaderId || !questId) return c.json({ error: "Name the leader and the quest." }, 400);
+    const history = ctx.wsBridge.getSession(leaderId)?.messageHistory ?? [];
+    return c.json({ messageId: findThreadLastDiscussedMessageId(history, questId, isRootAgentHistoryMessage) });
+  });
 
   api.get("/topics/:id", (c) =>
     run(c, async (svc) => {

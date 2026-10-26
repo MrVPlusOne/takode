@@ -88,6 +88,18 @@ async function setup() {
       getSession: (id: string) => ({ memorySessionSpaceSlug: "MSI", isOrchestrator: id === "leader" }),
       getSessionNum: () => 7,
     },
+    wsBridge: {
+      // The leader discussed q-1 in one turn, opened by the user's message in its tab.
+      getSession: (id: string) =>
+        id === "leader"
+          ? {
+              messageHistory: [
+                { type: "user_message", id: "u-main", content: "status?", timestamp: 1 },
+                { type: "user_message", id: "u-q1", content: "launch", timestamp: 2, threadKey: "q-1", questId: "q-1" },
+              ],
+            }
+          : undefined,
+    },
   } as unknown as RouteContext;
   const app = createTopicRoutes(ctx, () => service);
   const send = (path: string, method: string, body: object) =>
@@ -331,6 +343,15 @@ describe("topic routes", () => {
     expect(unchanged.status).toBe(200);
     expect(store.pendingEvents(topic.id, "leader")).toEqual([]);
     expect(store.resolve(topic.id)?.page).toBe("## Where it stands\nLaunched.");
+  });
+
+  it("says where a leader last discussed a quest, for opening its topic conversation there", async () => {
+    const { app } = await setup();
+    const found = await (await app.request("/topics/last-discussed?leader=leader&quest=q-1")).json();
+    expect(found).toEqual({ messageId: "u-q1" });
+    const never = await (await app.request("/topics/last-discussed?leader=leader&quest=q-2")).json();
+    expect(never).toEqual({ messageId: null });
+    expect((await app.request("/topics/last-discussed?leader=leader")).status).toBe(400);
   });
 
   it("shows a leader's panel the topics of its own quests", async () => {

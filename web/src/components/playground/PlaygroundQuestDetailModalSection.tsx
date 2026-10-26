@@ -1,4 +1,5 @@
 import { useStore } from "../../store.js";
+import { seedLeaderTopics } from "../../utils/leader-topics.js";
 import { PlaygroundQuestLabelComparison } from "./PlaygroundQuestLabelComparison.js";
 import { Card, Section } from "./shared.js";
 
@@ -186,6 +187,10 @@ function openPlaygroundQuestDetail(questId: "q-42" | "q-44") {
         name: "Quest detail leader",
       },
     ],
+  });
+  seedLeaderTopics("playground-leader", {
+    "q-42": { id: "playground-topic-mobile", name: "Mobile layout" },
+    "q-44": { id: "playground-topic-mobile", name: "Mobile layout" },
   });
   useStore.getState().openQuestOverlay(questId);
 }

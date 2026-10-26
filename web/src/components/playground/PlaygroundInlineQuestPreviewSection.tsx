@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { QuestmasterTask, QuestTitlePreview, SdkSessionInfo } from "../../types.js";
 import { useStore } from "../../store.js";
+import { seedLeaderTopics } from "../../utils/leader-topics.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { QuestFeedInlineLink } from "../QuestFeedInlineLink.js";
 import { QuestQuizSection } from "../QuestQuizSection.js";
@@ -313,6 +314,11 @@ function useSeedPreviewFixtures(): boolean {
     }
 
     const linkTouchQuestId = PREVIEW_FIXTURE_BY_ID.get("link-touch")!.questId;
+    // Quests with a leader name their Library topic under the title.
+    seedLeaderTopics(PREVIEW_LEADER_SESSION_ID, {
+      [linkTouchQuestId]: { id: "playground-topic-images", name: "Image previews" },
+      [PREVIEW_FIXTURE_BY_ID.get("rich")!.questId]: { id: "playground-topic-links", name: "Quest links in the feed" },
+    });
     const previousActiveBoard = {
       present: state.sessionBoards.has(PREVIEW_LEADER_SESSION_ID),
       value: state.sessionBoards.get(PREVIEW_LEADER_SESSION_ID),

@@ -77,6 +77,11 @@ export function useKnownTopicBrief(leaderId: string, topicId: string | undefined
   return useLeaderTopicsStore((state) => (topicId ? state.byLeader[leaderId]?.topics[topicId] : undefined));
 }
 
+/** For the Playground: the topics of some quests, as if the server had answered about them. */
+export function seedLeaderTopics(leaderId: string, map: QuestTopicMap): void {
+  remember(leaderId, Object.keys(map), { enabled: true, map, topics: {} });
+}
+
 /** For tests: forget everything. */
 export function resetLeaderTopicsForTest(): void {
   useLeaderTopicsStore.setState({ byLeader: {} });

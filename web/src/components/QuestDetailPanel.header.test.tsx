@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { useStore } from "../store.js";
 import type { QuestmasterTask, SdkSessionInfo } from "../types.js";
 import { QuestDetailPanel } from "./QuestDetailPanel.js";
+import { topicApi } from "../api/topics.js";
+import { resetLeaderTopicsForTest } from "../utils/leader-topics.js";
 
 vi.mock("../api.js", () => ({
   api: {
@@ -102,6 +104,29 @@ describe("QuestDetailPanel header", () => {
       expect(screen.getByRole("link", { name: "Open Thread #777" })).toBeInTheDocument();
     } finally {
       window.innerWidth = desktopWidth;
+    }
+  });
+
+  it("names the quest's topic first in the chip row, ahead of its tags", async () => {
+    // Jiayi reads the topic, rarely the tags, so the topic leads the row as a link to its conversation.
+    vi.spyOn(topicApi, "questMap").mockResolvedValue({
+      enabled: true,
+      map: { "q-42": { id: "t1", name: "Relay" } },
+      topics: {},
+    });
+    useStore.setState({
+      quests: [makeQuest({ tags: ["ui", "improvement"] })],
+      questOverlayId: "q-42",
+      sessionBoards: workingBoard,
+    });
+    try {
+      render(<QuestDetailPanel />);
+      await waitFor(() => expect(screen.getByTestId("quest-topic-link")).toHaveTextContent("Relay"));
+      expect(screen.getByTestId("quest-detail-chips").firstElementChild).toBe(screen.getByTestId("quest-topic-link"));
+      expect(topicApi.questMap).toHaveBeenCalledWith("leader-42", ["q-42"]);
+    } finally {
+      resetLeaderTopicsForTest();
+      vi.restoreAllMocks();
     }
   });
 });

@@ -211,6 +211,36 @@ export function buildProjectedThreadEntries(
 }
 
 /**
+ * Where a quest thread was last discussed: the start of its part in the newest turn that touched
+ * it. That is the turn's opening message when it belongs to the thread (the user's message or the
+ * event that woke the leader about it), else the turn's first message routed there. Read backwards
+ * from the end, so a recently discussed quest costs only its last turn; null when nothing was.
+ */
+export function findThreadLastDiscussedMessageId(
+  messageHistory: ReadonlyArray<BrowserIncomingMessage>,
+  threadKey: string,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): string | null {
+  const key = normalizeSelectedFeedThreadKey(threadKey);
+  const routedHere = (index: number) => {
+    const message = messageHistory[index]!;
+    return (!includeMessage || includeMessage(message, index)) && messageHasThreadRef(message, key);
+  };
+  let last = messageHistory.length - 1;
+  while (last >= 0 && !routedHere(last)) last--;
+  if (last < 0) return null;
+  let first = last;
+  // Back to the start of that turn, keeping the earliest message routed here.
+  for (let index = last; index >= 0; index--) {
+    const message = messageHistory[index]!;
+    if (includeMessage && !includeMessage(message, index)) continue;
+    if (routedHere(index)) first = index;
+    if (isConversationStartingUserMessage(message)) break;
+  }
+  return rawMessageId(messageHistory[first]!, first);
+}
+
+/**
  * The leader feed turn a history window's first rows belong to, when the window starts inside it.
  * History windows are cut at backend turns, and every injected input (a herd event, a timer) starts
  * one, while the leader feed starts a turn only at a human or peer-leader message. Without this id

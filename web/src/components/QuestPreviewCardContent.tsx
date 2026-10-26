@@ -30,6 +30,7 @@ import { HoverCardSuppressionProvider } from "./hover-card-suppression-context.j
 import { QuestSessionActions } from "./QuestSessionActions.js";
 import { descriptionExcerpt } from "./QuestDescriptionSummaryCard.js";
 import { sideQuestOfText, useSideQuestOf } from "./SideQuestCue.js";
+import { QuestTopicLink, useLeaderQuestTopic } from "./library/QuestTopicLink.js";
 
 export interface QuestPreviewCardContentProps {
   quest: QuestmasterTask | QuestListPreview;
@@ -176,6 +177,7 @@ export function QuestPreviewCardContent({
   );
   const reviewerParticipant = journeyContext?.rowStatus?.reviewer ?? null;
   const sideQuestOf = useSideQuestOf(leaderSessionId ?? undefined, quest.questId);
+  const topic = useLeaderQuestTopic(leaderSessionId, quest.questId);
 
   const journeyStatus =
     isCompletedJourneyPresentationStatus(quest.status) || journeyContext?.completed ? "done" : journeyBoardRow?.status;
@@ -246,6 +248,15 @@ export function QuestPreviewCardContent({
           >
             {title}
           </h2>
+          {topic && leaderSessionId && (
+            <QuestTopicLink
+              className="mt-1.5"
+              questId={quest.questId}
+              leaderSessionId={leaderSessionId}
+              topic={topic}
+              onNavigate={onSessionNavigate}
+            />
+          )}
         </div>
         {headerAction}
       </div>

@@ -53,6 +53,7 @@ import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage, Q
 import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
+import { QuestTopicLink, useLeaderQuestTopic } from "./library/QuestTopicLink.js";
 
 type EditorTarget = "editTitle" | "editDescription";
 
@@ -118,6 +119,7 @@ export function QuestDetailPanel() {
     () => (quest ? resolveQuestSessionTargets(quest, journeyContext, sdkSessions) : null),
     [quest, journeyContext, sdkSessions],
   );
+  const topic = useLeaderQuestTopic(sessionTargets?.leaderSessionId ?? null, quest?.questId ?? "");
 
   // Local state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -715,7 +717,8 @@ export function QuestDetailPanel() {
   const unaddressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && !e.addressed).length;
   const addressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && e.addressed).length;
   const hasChips = Boolean(
-    quest.tags?.length ||
+    topic ||
+      quest.tags?.length ||
       questOwner?.kind === "codex" ||
       commitDiffState.commitEntries.length > 0 ||
       quest.relatedQuests?.some((entry) => entry.kind !== "references"),
@@ -1097,6 +1100,14 @@ export function QuestDetailPanel() {
           {/* One wrapping chip row; an expanded commits or related-quests list opens on its own line below it. */}
           {hasChips && (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5" data-testid="quest-detail-chips">
+              {topic && sessionTargets?.leaderSessionId && (
+                <QuestTopicLink
+                  questId={quest.questId}
+                  leaderSessionId={sessionTargets.leaderSessionId}
+                  topic={topic}
+                  onNavigate={closePanel}
+                />
+              )}
               {quest.tags?.map((tag) => (
                 <span
                   key={tag}
