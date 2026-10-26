@@ -1036,11 +1036,13 @@ export const MarkdownContent = memo(function MarkdownContent({
             if (localImage) {
               return (
                 <InlineLocalImage
-                  {...localImage}
+                  path={localImage.path}
+                  isRelative={localImage.isRelative}
+                  variant={localImage.variant}
                   alt={alt ?? ""}
-                  sessionId={inlineLocalImages!.sessionId ?? sessionId}
+                  sessionId={localImage.sessionId ?? inlineLocalImages!.sessionId ?? sessionId}
                   refreshKey={inlineLocalImages!.refreshKey}
-                  fallback={fileLink}
+                  fallback={fileLink ?? alt}
                   onOpen={setViewedImage}
                 />
               );

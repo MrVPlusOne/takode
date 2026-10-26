@@ -12,11 +12,39 @@ export const InlineLocalImagesContext = createContext<{ sessionId?: string; refr
 /** True inside a Markdown link: an image there follows the link instead of opening the image viewer. */
 export const MarkdownLinkContext = createContext(false);
 
-/** The local image a Markdown image's source names, or null when it is not one. */
-export function localImageOf(source: string): { path: string; isRelative: boolean } | null {
+/**
+ * The local image a Markdown image's source names, or null when it is not one: a local path, or
+ * the server's own image URL for a local file (`/api/fs/file-link/image?path=…`, as Scribes embed
+ * plots), so both forms get the page's refresh. Such a URL may name the session to read through, and
+ * the size shown on the page: Scribes ask for the full image, which keeps plots legible.
+ */
+export function localImageOf(source: string): LocalImage | null {
+  const served = servedLocalImageOf(source);
+  if (served) return served;
   const reference = findLocalImageReferences(`![](${source})`)[0];
   return reference ? { path: reference.path, isRelative: reference.isRelative } : null;
 }
+
+export type LocalImage = { path: string; isRelative: boolean; sessionId?: string; variant?: ImageVariant };
+type ImageVariant = "thumbnail" | "full";
+
+function servedLocalImageOf(source: string): LocalImage | null {
+  if (!source.startsWith(SERVED_IMAGE_PATH)) return null;
+  const params = new URLSearchParams(source.slice(SERVED_IMAGE_PATH.length));
+  const path = params.get("path");
+  if (!path) return null;
+  const sessionId = params.get("sessionId");
+  const isRelative = params.get("isRelative");
+  const variant = params.get("variant");
+  return {
+    path,
+    isRelative: isRelative === "1" || isRelative === "true",
+    ...(sessionId ? { sessionId } : {}),
+    ...(variant === "thumbnail" || variant === "full" ? { variant } : {}),
+  };
+}
+
+const SERVED_IMAGE_PATH = "/api/fs/file-link/image?";
 
 /** An image for the image viewer: its full-size source and its description. */
 export interface ViewedImage {
@@ -75,11 +103,14 @@ export function InlineLocalImage({
   alt,
   sessionId,
   refreshKey,
+  variant = "thumbnail",
   fallback,
   onOpen,
 }: {
   path: string;
   isRelative: boolean;
+  /** The size shown on the page; the viewer always shows the full image. */
+  variant?: ImageVariant;
   alt: string;
   sessionId?: string;
   refreshKey: string;
@@ -89,20 +120,21 @@ export function InlineLocalImage({
 }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <>{fallback}</>;
-  const url = (variant: "thumbnail" | "full") => {
-    const params = new URLSearchParams({ path, isRelative: isRelative ? "1" : "0", variant, v: refreshKey });
+  const url = (size: ImageVariant) => {
+    const params = new URLSearchParams({ path, isRelative: isRelative ? "1" : "0", variant: size, v: refreshKey });
     if (sessionId) params.set("sessionId", sessionId);
     return `/api/fs/file-link/image?${params.toString()}`;
   };
   return (
     <ViewableImage
-      src={url("thumbnail")}
+      src={url(variant)}
       fullSrc={url("full")}
       alt={alt}
       title={alt || path}
       loading="lazy"
       onError={() => setFailed(true)}
-      className="max-h-80 max-w-full rounded-lg border border-cc-border bg-cc-code-bg object-contain"
+      // A full image (a plot) takes the page's width; a thumbnail stays small.
+      className={`${variant === "thumbnail" ? "max-h-80 " : ""}max-w-full rounded-lg border border-cc-border bg-cc-code-bg object-contain`}
       onOpen={onOpen}
     />
   );

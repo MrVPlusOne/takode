@@ -35,6 +35,45 @@ describe("inline local images", () => {
     });
   });
 
+  it("refreshes plots a Scribe embeds as server image URLs, like local paths", () => {
+    // Scribes write plots as the server's image URL for a local file. On a topic page that URL
+    // must get the same thumbnail, session and refresh key as a local path, or a monitor's
+    // rewritten plot shows only after a reload.
+    const src = "/api/fs/file-link/image?path=%2Fdata%2Ft7%2Fevals.png&isRelative=0&variant=full";
+    render(
+      <InlineLocalImagesContext.Provider value={{ sessionId: "leader-1", refreshKey: "42" }}>
+        <MarkdownContent text={`![evals](${src})`} />
+      </InlineLocalImagesContext.Provider>,
+    );
+    // The page keeps the size the Scribe asked for (full keeps plots legible).
+    const image = screen.getByTestId("viewable-image").querySelector("img")!;
+    expect(Object.fromEntries(new URL(image.getAttribute("src")!, "http://x").searchParams)).toMatchObject({
+      path: "/data/t7/evals.png",
+      isRelative: "0",
+      variant: "full",
+      sessionId: "leader-1",
+      v: "42",
+    });
+    fireEvent.click(screen.getByTestId("viewable-image"));
+    const full = new URL(screen.getByTestId("viewer").getAttribute("src")!, "http://x").searchParams;
+    expect(Object.fromEntries(full)).toMatchObject({ path: "/data/t7/evals.png", variant: "full", v: "42" });
+  });
+
+  it("reads a server image URL through the session it names", () => {
+    const src = "/api/fs/file-link/image?path=plots%2Fa.png&isRelative=1&sessionId=worker-7&variant=full";
+    render(
+      <InlineLocalImagesContext.Provider value={{ sessionId: "leader-1", refreshKey: "42" }}>
+        <MarkdownContent text={`![a](${src})`} />
+      </InlineLocalImagesContext.Provider>,
+    );
+    const image = screen.getByTestId("viewable-image").querySelector("img")!;
+    expect(Object.fromEntries(new URL(image.getAttribute("src")!, "http://x").searchParams)).toMatchObject({
+      path: "plots/a.png",
+      isRelative: "1",
+      sessionId: "worker-7",
+    });
+  });
+
   it("keeps it a link elsewhere", () => {
     render(<MarkdownContent text="![evals](/data/t7/evals.png)" />);
     expect(screen.queryByTestId("viewable-image")).toBeNull();
