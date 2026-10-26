@@ -57,6 +57,50 @@ export function writeClipboardText(text: string): Promise<void> {
   return Promise.resolve();
 }
 
+/** Whether this browser can put image data on the clipboard (it needs a secure context and ClipboardItem). */
+export function canWriteClipboardImage(): boolean {
+  return typeof ClipboardItem !== "undefined" && typeof navigator !== "undefined" && !!navigator.clipboard?.write;
+}
+
+/**
+ * Put the image at `src` on the clipboard as PNG data, so it pastes into other apps (Slack, Mail, Docs) as
+ * an image rather than a link. PNG is the one image type every browser's clipboard accepts, so other types
+ * are redrawn as PNG. The clipboard write starts synchronously and receives the image as a promise:
+ * Safari only allows a clipboard write that starts inside the tap, however long the image takes to prepare.
+ */
+export function writeClipboardImage(src: string): Promise<void> {
+  return navigator.clipboard.write([new ClipboardItem({ "image/png": imageAsPng(src) })]);
+}
+
+async function imageAsPng(src: string): Promise<Blob> {
+  const response = await fetch(src);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const blob = await response.blob();
+  if (blob.type === "image/png") return blob;
+  // An <img> decodes every type the viewer shows, SVG included (createImageBitmap rejects SVG in Chrome),
+  // and loading it from the fetched bytes keeps the canvas readable.
+  const objectUrl = URL.createObjectURL(blob);
+  const canvas = document.createElement("canvas");
+  try {
+    const image = new Image();
+    image.src = objectUrl;
+    await image.decode();
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("No 2D canvas context");
+    context.drawImage(image, 0, 0);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((png) => (png ? resolve(png) : reject(new Error("PNG encoding failed"))), "image/png"),
+    );
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+    // Phones cap total canvas memory, so give a large image's canvas back at once.
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
 /**
  * Copy rich text (HTML) to clipboard using the Clipboard API.
  * Falls back to plain text if the ClipboardItem API is unavailable.

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getMessageMarkdown, getMessagePlainText, copyRichText, installPortableSelectionCopy } from "./copy-utils.js";
+import {
+  copyRichText,
+  getMessageMarkdown,
+  getMessagePlainText,
+  installPortableSelectionCopy,
+  writeClipboardImage,
+} from "./copy-utils.js";
 import type { ChatMessage } from "../types.js";
 
 function makeMessage(overrides: Partial<ChatMessage>): ChatMessage {
@@ -261,5 +267,115 @@ describe("installPortableSelectionCopy", () => {
     const { event, data } = copySelectionOf('<p>see <a href="https://example.com/pr">the PR</a></p>');
     expect(event.defaultPrevented).toBe(false);
     expect(data.size).toBe(0);
+  });
+});
+
+describe("writeClipboardImage", () => {
+  // Captures what the copy put on the clipboard: one item, keyed by MIME type, whose value is a promise.
+  class FakeClipboardItem {
+    constructor(readonly items: Record<string, Promise<Blob>>) {}
+  }
+  let written: FakeClipboardItem[] = [];
+  const write = vi.fn(async (items: FakeClipboardItem[]) => {
+    written = items;
+  });
+
+  beforeEach(() => {
+    written = [];
+    write.mockClear();
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { write },
+      configurable: true,
+    });
+  });
+
+  // jsdom lacks some of these properties, so they are set directly and put back after each test.
+  let restoreProperties: (() => void)[] = [];
+  function stubProperty<T extends object>(target: T, key: string, value: unknown) {
+    const original = Object.getOwnPropertyDescriptor(target, key);
+    Object.defineProperty(target, key, { value, configurable: true, writable: true });
+    restoreProperties.push(() =>
+      original ? Object.defineProperty(target, key, original) : delete (target as Record<string, unknown>)[key],
+    );
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    for (const restore of restoreProperties.reverse()) restore();
+    restoreProperties = [];
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+  });
+
+  it("starts the clipboard write at once and passes a PNG image through unchanged", async () => {
+    let finishFetch: (response: Response) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => (finishFetch = resolve))),
+    );
+
+    const copied = writeClipboardImage("blob:http://localhost/plot");
+    // Safari only accepts a clipboard write begun inside the tap, so it must not wait for the download.
+    expect(write).toHaveBeenCalledTimes(1);
+    finishFetch(new Response("png-bytes", { headers: { "Content-Type": "image/png" } }));
+    await copied;
+
+    expect(Object.keys(written[0]!.items)).toEqual(["image/png"]);
+    const blob = await written[0]!.items["image/png"];
+    expect(blob.type).toBe("image/png");
+    expect(await blob.text()).toBe("png-bytes");
+  });
+
+  it("redraws other image types as PNG and frees the canvas", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("webp-bytes", { headers: { "Content-Type": "image/webp" } })),
+    );
+    // jsdom cannot decode images: fake the object URL and a decoded 640x480 <img>.
+    const createObjectURL = vi.fn((_blob: Blob) => "blob:http://localhost/fetched");
+    const revokeObjectURL = vi.fn();
+    stubProperty(URL, "createObjectURL", createObjectURL);
+    stubProperty(URL, "revokeObjectURL", revokeObjectURL);
+    stubProperty(HTMLImageElement.prototype, "decode", async () => undefined);
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(640);
+    vi.spyOn(HTMLImageElement.prototype, "naturalHeight", "get").mockReturnValue(480);
+    const drawImage = vi.fn();
+    const canvases: HTMLCanvasElement[] = [];
+    const createElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const element = createElement(tag);
+      if (tag !== "canvas") return element;
+      const canvas = element as HTMLCanvasElement;
+      canvases.push(canvas);
+      canvas.getContext = (() => ({ drawImage })) as unknown as HTMLCanvasElement["getContext"];
+      canvas.toBlob = (callback, type) => {
+        expect([canvas.width, canvas.height]).toEqual([640, 480]);
+        callback(new Blob(["redrawn"], { type: type ?? "" }));
+      };
+      return canvas;
+    });
+
+    await writeClipboardImage("/api/fs/image?path=%2Ftmp%2Fplot.png&variant=full");
+    const blob = await written[0]!.items["image/png"];
+
+    expect(createObjectURL.mock.calls[0]![0].type).toBe("image/webp");
+    const drawn = drawImage.mock.calls[0]![0] as HTMLImageElement;
+    expect(drawn.src).toBe("blob:http://localhost/fetched");
+    expect(blob.type).toBe("image/png");
+    expect(await blob.text()).toBe("redrawn");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:http://localhost/fetched");
+    expect([canvases[0]!.width, canvases[0]!.height]).toEqual([0, 0]);
+  });
+
+  it("fails when the image cannot be fetched", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("missing", { status: 404 })),
+    );
+
+    await writeClipboardImage("/api/fs/image?path=%2Ftmp%2Fgone.png");
+
+    await expect(written[0]!.items["image/png"]).rejects.toThrow("HTTP 404");
   });
 });

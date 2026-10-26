@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ZoomableImage } from "./ZoomableImage.js";
+import { CopyImageButton } from "./CopyImageButton.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
 import { formatImageDownload, useImageDownload } from "../hooks/use-image-download.js";
@@ -18,8 +19,8 @@ interface LightboxProps {
  * Image lightbox: in the secondary view floating over the app's right side on wide
  * screens, otherwise a full-screen modal on document.body. The image is displayed at its
  * natural size, constrained to fit, and can be zoomed and panned, with its file size (and
- * download progress while it loads) in the top-left corner. Click around the image or press
- * Escape to close.
+ * download progress while it loads) in the top-left corner and a Copy image button beside Close.
+ * Click around the image or press Escape to close.
  */
 export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProps) {
   const dockTarget = useSecondaryViewTarget(true, onClose, "media");
@@ -77,6 +78,15 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
           <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
         </svg>
       </button>
+
+      <CopyImageButton
+        src={download.displaySrc}
+        className={`absolute top-4 right-16 z-10 h-9 rounded-full px-3 text-xs transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+          docked
+            ? "bg-cc-card text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+            : "bg-white/10 hover:bg-white/20 text-white"
+        }`}
+      />
 
       {sizeLabel && (
         <span

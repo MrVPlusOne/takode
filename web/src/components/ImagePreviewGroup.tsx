@@ -5,7 +5,8 @@ import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/s
 import { retainLocalImagePreviewUrls } from "../local-image-previews.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
 import { ZoomableImage } from "./ZoomableImage.js";
-import { writeClipboardText } from "../utils/copy-utils.js";
+import { canWriteClipboardImage, writeClipboardText } from "../utils/copy-utils.js";
+import { CopyImageButton } from "./CopyImageButton.js";
 import { formatImageDownload, useImageDownload } from "../hooks/use-image-download.js";
 import {
   forgetThumbnailLoaded,
@@ -503,7 +504,7 @@ function ImagePreviewModal({
             </IconButton>
           </div>
         </div>
-        {image.sourcePath && <ModalSourcePath key={image.sourcePath} path={image.sourcePath} />}
+        <ModalCopyRow key={image.id} path={image.sourcePath} imageSrc={download.displaySrc} />
         <ZoomableImage
           src={download.displaySrc}
           alt={image.filename}
@@ -518,13 +519,19 @@ function ImagePreviewModal({
   );
 }
 
-function ModalSourcePath({ path }: { path: string }) {
-  const [copied, setCopied] = useState(false);
+const MODAL_COPY_BUTTON_CLASS =
+  "shrink-0 rounded-md border border-cc-border px-2 py-1 text-xs text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40 disabled:cursor-not-allowed disabled:opacity-40";
+
+/** The row under the header: the image's full path when it has one, with Copy path, and Copy image. */
+function ModalCopyRow({ path, imageSrc }: { path: string | undefined; imageSrc: string | null }) {
+  const [pathCopied, setPathCopied] = useState(false);
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
+    if (!pathCopied) return;
+    const timer = setTimeout(() => setPathCopied(false), 1500);
     return () => clearTimeout(timer);
-  }, [copied]);
+  }, [pathCopied]);
+
+  if (!path && !canWriteClipboardImage()) return null;
 
   return (
     <div
@@ -532,19 +539,22 @@ function ModalSourcePath({ path }: { path: string }) {
       data-testid="image-preview-modal-path"
     >
       <span className="min-w-0 flex-1 select-text break-all font-mono-code text-xs text-cc-muted">{path}</span>
-      <button
-        type="button"
-        className="shrink-0 rounded-md border border-cc-border px-2 py-1 text-xs text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40"
-        onClick={(event) => {
-          event.stopPropagation();
-          writeClipboardText(path)
-            .then(() => setCopied(true))
-            .catch(console.error);
-        }}
-        aria-label="Copy image path"
-      >
-        {copied ? "Copied" : "Copy"}
-      </button>
+      {path && (
+        <button
+          type="button"
+          className={MODAL_COPY_BUTTON_CLASS}
+          onClick={(event) => {
+            event.stopPropagation();
+            writeClipboardText(path)
+              .then(() => setPathCopied(true))
+              .catch(console.error);
+          }}
+          aria-label="Copy image path"
+        >
+          {pathCopied ? "Copied" : "Copy path"}
+        </button>
+      )}
+      <CopyImageButton src={imageSrc} className={MODAL_COPY_BUTTON_CLASS} />
     </div>
   );
 }
