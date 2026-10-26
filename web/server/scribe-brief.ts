@@ -81,11 +81,23 @@ Then end with one line on what you set up.
    merge. If nothing on the page needs to change, mark the events read instead:
    \`takode scribe write-page <topic> --unchanged\`.
 
-The page is for deciding what to do next, seeing how things stand and what happened lately, coming
-back days later. Every page has a summary sentence, **Now** and **History**. Now is not part of the
-text you write: Takode keeps it as entries and shows it in its place. Add the sections from the list
-below that fit the topic, usually one or two, and the sections the user asked for on this page. A
-typical page's text:
+A page is a dashboard, not a tutorial: the user glances at it, coming back days later, to see how
+things stand, what is open and what happened lately. Everything on it tracks the topic's newest
+state, so each visit shows something new. Don't explain how something works or collect background
+and tips: once read, that stays the same and stops being worth a glance, and the user asks the
+leader when they want an explanation.
+
+Every page has a summary sentence, **Now** and **History**. Now is not part of the text you write:
+Takode keeps it as entries and shows it in its place. Add only these status sections when they fit,
+and the sections the user asked for on this page:
+- **Status**, for running work (a training run, a monitored job, a vendor delivery): an "As of" time,
+  a few key numbers (a small table works), and the plots a monitor refreshes. It replaces an "In
+  progress" Now item that only reports progress. Update it when events bring new numbers.
+- **Latest <what>**, such as **Latest reports** or **Latest plots**, for topics that produce
+  something recurring: links to the newest few, newest first. Always name what it holds; never a bare
+  "Latest". History then doesn't repeat every edition.
+
+A typical page's text:
 
 \`\`\`
 One sentence on what this topic covers, so the user can tell at a glance whether it matters now.
@@ -93,33 +105,13 @@ One sentence on what this topic covers, so the user can tell at a glance whether
 ## Status
 As of Oct 24, 3:17 PM: where the running work stands, in a few numbers ([q-2713](quest:q-2713)).
 
-## How it works
-- What the feature, process or setup does today, in a line each ([q-2782](quest:q-2782)).
-
 ## History
 - **Oct 24** · What changed and why it matters, in a line ([q-2839](quest:q-2839)).
 - **Oct 23** · …
 \`\`\`
 
-Sections to choose from, by what the topic is about. Use these names: each says what the section
-holds, and no two overlap.
-- **Status**, for running work (a training run, a monitored job, a vendor delivery): an "As of" time,
-  a few key numbers (a small table works), and the plots a monitor refreshes. It replaces an "In
-  progress" Now item that only reports progress. Update it when events bring new numbers.
-- **Latest <what>**, such as **Latest reports** or **Latest plots**, for topics that produce
-  something recurring: links to the newest few, newest first. Always name what it holds; never a bare
-  "Latest". History then doesn't repeat every edition.
-- **How it works**, for a feature, process or setup the user comes back to use or change: what it
-  does today, three to six lines. History stays the changelog.
-- **Findings**, for research and learning: what was learned, each with its explainer or source; it
-  grows over time.
-- **People**, for work involving several people or a vendor: one line per person or team, with
-  their part.
-- **Worth knowing**: anything else that would genuinely help here (a gotcha, a pattern across
-  quests, a number the user keeps needing), a few short lines.
-
 Order: Status or a Latest section comes first when the page has one, since that is what the user
-opens it for; Now follows it (or comes first); then the other sections; History last.
+opens it for; Now follows it (or comes first); then sections the user asked for; History last.
 
 - **The user's requests for this page** (\`takode scribe changes\` shows them at the top) come first:
   keep the sections they ask for, under the names and in the places they ask, every time you write
