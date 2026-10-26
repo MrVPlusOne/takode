@@ -30,8 +30,8 @@ import { formatSnoozeUntil } from "./NeedsInputSnoozeControl.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { canCloseThreadTab, closeThreadTab, needsInputMenuItems } from "../utils/attention-item-menu.js";
 import { useSessionAttention, type SessionAttentionPreview } from "../hooks/useSessionAttention.js";
-import type { NextAttentionItem } from "../utils/next-attention.js";
 import { AttentionItemSections, attentionThreadPlace } from "./AttentionItemRows.js";
+import { attentionPlaceIndex, countAttentionPlaces, type NextAttentionItem } from "../utils/next-attention.js";
 import {
   ATTENTION_KIND_TITLE,
   AttentionKindIcon,
@@ -975,7 +975,9 @@ export function NotificationChip({
   );
   const mutedNeedsInput = muted.length;
   const { next, goNext, peekNext, open: openItem } = attention;
-  const total = attention.queue.length;
+  // Places, as in the top bar: a topic's new answers count once while Next steps through each.
+  const total = countAttentionPlaces(attention.queue);
+  const place = next ? attentionPlaceIndex(attention.queue, next.item) : 0;
   const inboxLabel = useMemo(
     () => formatChipAriaLabel({ needsInput, review, waiting, mutedNeedsInput }),
     [mutedNeedsInput, needsInput, review, waiting],
@@ -1046,7 +1048,7 @@ export function NotificationChip({
           onClick={activate}
           aria-label={
             next
-              ? `Go to the next item that needs attention in this session: ${ATTENTION_KIND_TITLE[next.item.kind]}, ${next.position + 1} of ${total}. Right-click or long-press for the list or to close this tab.`
+              ? `Go to the next item that needs attention in this session: ${ATTENTION_KIND_TITLE[next.item.kind]}, ${place + 1} of ${total}. Right-click or long-press for the list or to close this tab.`
               : inboxLabel
           }
           title={
@@ -1066,7 +1068,7 @@ export function NotificationChip({
                 <AttentionKindIcon kind={next.item.kind} />
               </span>
               <span className="relative tabular-nums text-cc-fg/95" data-testid="session-attention-position">
-                {next.position + 1}/{total}
+                {place + 1}/{total}
               </span>
               <span className="relative text-cc-muted">·</span>
               {/* "Next" rather than the kind ("needs input" was long); the tinted icon tells the kinds apart. */}

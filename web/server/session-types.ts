@@ -1871,6 +1871,11 @@ export interface SessionNotification {
    * Absent on notifications an agent sent, and on older Thread Ready unread records.
    */
   unreadReason?: "answer" | "quest-complete" | "report";
+  /**
+   * For an answer: the user's requests (uN) it answers. Answers to the same request count as one
+   * new item in attention counts.
+   */
+  answerTo?: string[];
   /** When the notification was last marked done (answered, read or dismissed); absent while open. */
   doneAt?: number;
   /** Muted unresolved needs-input prompts stay answerable but leave active attention counts. */

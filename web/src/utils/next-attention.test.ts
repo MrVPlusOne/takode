@@ -6,7 +6,9 @@ import type { SdkSessionInfo, SessionNotification } from "../types.js";
 import type { GlobalNeedsInputEntry } from "./global-needs-input.js";
 import {
   attentionCursorFor,
+  attentionPlaceIndex,
   attentionSection,
+  countAttentionPlaces,
   buildNextAttentionQueue,
   buildSessionAttentionQueue,
   collectUnreadAttention,
@@ -118,6 +120,28 @@ describe("sections and topics", () => {
       cursor = attentionCursorFor(next.item);
     }
     expect(visited).toEqual(queue.map((item) => item.key));
+  });
+});
+
+describe("counting places", () => {
+  it("counts each question once and a topic's unread answers once, and says where Next is", () => {
+    const answer = (id: string, threadKey: string, timestamp: number) => ({
+      sessionId: "a",
+      threadKey,
+      label: threadKey,
+      timestamp,
+      notification: { id, category: "review", timestamp, messageId: `m-${id}`, done: false } as SessionNotification,
+    });
+    const queue = buildNextAttentionQueue({
+      needsInput: [needsInput("a", "ask1", 5), needsInput("a", "ask2", 4)],
+      notifyMe: [],
+      unread: [answer("u1", "q-1", 30), answer("u2", "q-2", 20), answer("u3", "q-1", 10)],
+      topicOf: (_sessionId, threadKey) => (threadKey === "q-1" || threadKey === "q-2" ? { id: "t", name: "T" } : null),
+    });
+    // Two questions and one topic.
+    expect(countAttentionPlaces(queue)).toBe(3);
+    // Next steps through each message, but stays on the topic's place number while it does.
+    expect(queue.map((item) => attentionPlaceIndex(queue, item))).toEqual([0, 1, 2, 2, 2]);
   });
 });
 

@@ -592,12 +592,14 @@ export function recordAnswerUnreadNotifications(
     const preview = answerPreview(answer);
     const label = threadKey === "main" ? "Main" : threadKey;
     const timestamp = typeof answer.timestamp === "number" ? answer.timestamp : Date.now();
+    const answerTo = answer.threadAnswer?.answerUserMessageIds ?? [];
     addLeaderUnreadNotification(session, {
       reason: "answer",
       threadKey,
       summary: `Answer in ${label}${preview ? ` | ${preview}` : ""}`,
       timestamp,
       messageId,
+      ...(answerTo.length ? { answerTo } : {}),
       deps,
     });
     deps.promoteLeaderThreadTabForAttention?.(session.id, threadKey, timestamp, "review");
@@ -681,6 +683,7 @@ function addLeaderUnreadNotification(
     summary: string;
     timestamp: number;
     messageId: string | null;
+    answerTo?: string[];
     deps: LeaderUnreadDeps;
   },
 ): void {
@@ -700,6 +703,7 @@ function addLeaderUnreadNotification(
         timestamp: input.timestamp,
         messageId: input.messageId,
         unreadReason: input.reason,
+        ...(input.answerTo ? { answerTo: [...input.answerTo] } : {}),
         done: false,
       },
       threadRoute,

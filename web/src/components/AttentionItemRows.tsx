@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
-import { attentionItemMenuItems } from "../utils/attention-item-menu.js";
-import { attentionSection, type AttentionSection, type NextAttentionItem } from "../utils/next-attention.js";
+import { attentionItemMenuItems, attentionPlaceMenuItems } from "../utils/attention-item-menu.js";
+import {
+  attentionPlaceKey,
+  attentionSection,
+  countNewThings,
+  type AttentionSection,
+  type NextAttentionItem,
+} from "../utils/next-attention.js";
+import { firstUnreadResult } from "../utils/notification-navigation.js";
 import type { AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { ATTENTION_SECTION_TITLE, AttentionKindIcon, BellIcon, formatRelativeTime } from "./AttentionKind.js";
@@ -251,20 +258,22 @@ export function AttentionItemSections({
           >
             <div className="flex items-center justify-between bg-cc-hover/20 px-3 py-1.5">
               <span className="text-[11px] font-medium text-cc-muted">{ATTENTION_SECTION_TITLE[kind]}</span>
-              <span className="text-[10px] text-cc-muted/70">{group.length}</span>
+              <span className="text-[10px] text-cc-muted/70">
+                {kind === "unread" ? byPlace(group).length : group.length}
+              </span>
             </div>
             <div className="divide-y divide-cc-border/20">
               {kind === "unread"
-                ? byTopic(group).map(({ heading, rows }) => (
-                    <div key={heading.key} data-testid="attention-topic-group">
-                      {heading.name && (
-                        <div className="flex items-center gap-1.5 px-3 pb-0.5 pt-1.5 text-[11px] text-cc-primary">
-                          <TopicIcon className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{heading.name}</span>
-                        </div>
-                      )}
-                      <div className="divide-y divide-cc-border/20">{rows.map(row)}</div>
-                    </div>
+                ? byPlace(group).map((place) => (
+                    <AttentionPlaceRow
+                      key={place.key}
+                      items={place.items}
+                      onOpen={onOpen}
+                      sessionTag={sessionTagFor?.(place.items[0]!)}
+                      sessionLabel={sessionLabelFor?.(place.items[0]!)}
+                      threads={threads}
+                      isNext={place.items.some((item) => item.key === nextKey)}
+                    />
                   ))
                 : group.map(row)}
             </div>
@@ -275,18 +284,121 @@ export function AttentionItemSections({
   );
 }
 
-const NO_TOPIC = "Not in a topic";
-
-/** Unread items split into runs of one topic each (queue order already keeps a topic together). */
-function byTopic(items: readonly NextAttentionItem[]) {
-  const groups: Array<{ heading: { key: string; name: string | null }; rows: NextAttentionItem[] }> = [];
+/** Unread items split into their places (queue order already keeps a place together). */
+function byPlace(items: readonly NextAttentionItem[]) {
+  const places: Array<{ key: string; items: NextAttentionItem[] }> = [];
   for (const item of items) {
-    const topic = item.kind === "unread" ? item.topic : null;
-    const key = topic ? topic.id : "none";
-    const last = groups.at(-1);
-    if (last?.heading.key === key) last.rows.push(item);
-    // Items outside a topic get a heading only after a topic's, so they don't read as part of it.
-    else groups.push({ heading: { key, name: topic?.name ?? (groups.length > 0 ? NO_TOPIC : null) }, rows: [item] });
+    const key = attentionPlaceKey(item);
+    const last = places.at(-1);
+    if (last?.key === key) last.items.push(item);
+    else places.push({ key, items: [item] });
   }
-  return groups;
+  return places;
+}
+
+/**
+ * One place with new things in the attention list: a topic (or a quest or Main outside topics)
+ * and how many new answers it holds ("3 new answers", answers to one request counted once).
+ * Go to opens its first unread; the menu marks it all read or brings it back later.
+ */
+function AttentionPlaceRow({
+  items,
+  onOpen,
+  sessionLabel,
+  sessionTag,
+  threads,
+  isNext,
+}: {
+  items: readonly NextAttentionItem[];
+  onOpen: (item: NextAttentionItem) => void;
+  sessionLabel?: string;
+  sessionTag?: string;
+  threads?: AttentionThreadTitles;
+  isNext: boolean;
+}) {
+  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+  const first = firstUnreadItem(items);
+  const newest = items.reduce((latest, item) => (item.timestamp > latest.timestamp ? item : latest), items[0]!);
+  const topic = first.kind === "unread" ? first.topic : null;
+  const threadPlace = attentionThreadPlace(first, threads);
+  const name =
+    topic?.name ??
+    (threadPlace
+      ? `${threadPlace.thread}${threadPlace.title ? ` ${threadPlace.title}` : ""}`
+      : (sessionLabel ?? "Latest result"));
+  const longPress = useLongPress((x, y) => {
+    const menuItems = attentionPlaceMenuItems(items, first);
+    if (menuItems.length > 0) setMenu({ x, y, items: menuItems });
+  });
+  return (
+    <>
+      <div
+        {...longPress.handlers}
+        style={longPress.pressStyle}
+        className={`flex items-start gap-2 px-3 py-2 ${LONG_PRESS_TARGET_CLASS} ${isNext ? "bg-cc-hover/30" : ""}`}
+        data-testid="attention-place-row"
+        data-attention-kind="unread"
+        data-attention-next={isNext ? "true" : undefined}
+      >
+        <span className="mt-0.5">
+          {topic ? <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" /> : <AttentionKindIcon kind="unread" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-start gap-2">
+            <span className="min-w-0 flex-1 truncate text-[12px] text-cc-fg/90">{name}</span>
+            {isNext && (
+              <span className="shrink-0 rounded border border-cc-border/70 px-1 py-px text-[10px] font-medium text-cc-muted">
+                Next
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => onOpen(first)}
+              className={GO_TO_BUTTON_CLASS}
+              aria-label={`Go to ${name}`}
+            >
+              Go to
+            </button>
+          </div>
+          <p
+            className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-cc-muted"
+            data-testid="attention-place-summary"
+          >
+            <span className="shrink-0 text-cc-info">{newThingsText(items)}</span>
+            <span className="min-w-0 truncate">· {itemLabel(newest)}</span>
+            <span className="shrink-0">
+              {[sessionTag, newest.timestamp > 0 ? formatRelativeTime(newest.timestamp) : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </p>
+        </div>
+      </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+    </>
+  );
+}
+
+/** "3 new answers", "1 new answer, 1 finished": answers to one request count once. */
+export function newThingsText(items: readonly NextAttentionItem[]): string {
+  const finished = items.filter(
+    (item) => item.kind === "unread" && item.notification?.unreadReason === "quest-complete",
+  );
+  const rest = items.filter((item) => !finished.includes(item));
+  const answers = countNewThings(rest);
+  const parts = [
+    answers ? `${answers} new ${answers === 1 ? "answer" : "answers"}` : null,
+    finished.length ? `${finished.length} finished` : null,
+  ];
+  return parts.filter(Boolean).join(", ");
+}
+
+/** The place's first unread, where opening it lands: answers and reports oldest first, then finished quests. */
+function firstUnreadItem(items: readonly NextAttentionItem[]): NextAttentionItem {
+  const withNotification = items.filter((item) => item.kind === "unread" && item.notification);
+  const notifications = withNotification.flatMap((item) =>
+    item.kind === "unread" && item.notification ? [item.notification] : [],
+  );
+  const first = firstUnreadResult(notifications, () => true);
+  return withNotification.find((item) => item.kind === "unread" && item.notification === first) ?? items[0]!;
 }

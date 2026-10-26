@@ -1521,7 +1521,9 @@ describe("NotificationChip", () => {
         );
         openInbox();
         const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
-        const [unreadRow, notifyRow] = within(dialog).getAllByTestId("attention-item-row");
+        // Unread results show one row per place; the Notify Me result is its own row.
+        const unreadRow = within(dialog).getByTestId("attention-place-row");
+        const notifyRow = within(dialog).getByTestId("attention-item-row");
         // Only Go to stays inline.
         expect(within(notifyRow!).queryByRole("button", { name: /Acknowledge/ })).toBeNull();
         expect(
@@ -1549,7 +1551,9 @@ describe("NotificationChip", () => {
       }
     });
 
-    it("leads unread rows with the Thread Ready summary and names their thread tab below", () => {
+    it("names each unread place first and its newest result below", () => {
+      // Counting by place: a row names the place (the thread tab here, no topic) and says what
+      // is new there, with the newest result's words.
       // The second line is always the thread tab the item belongs to, so an
       // unread row's first line is the result itself rather than the tab title.
       render(
@@ -1572,12 +1576,14 @@ describe("NotificationChip", () => {
       );
       openInbox();
       const [ready, noSummary] = within(screen.getByRole("dialog", { name: "Notification inbox" })).getAllByTestId(
-        "attention-item-row",
+        "attention-place-row",
       );
-      expect(ready).toHaveTextContent("landed and completed");
-      expect(within(ready!).getByTestId("attention-item-place")).toHaveTextContent(/^q-6 Review the gate· /);
-      expect(noSummary).toHaveTextContent("New result");
-      expect(within(noSummary!).getByTestId("attention-item-place")).toHaveTextContent(/^q-8 Older work· /);
+      expect(ready).toHaveTextContent(/^q-6 Review the gate/);
+      expect(within(ready!).getByTestId("attention-place-summary")).toHaveTextContent(
+        "1 new answer· landed and completed",
+      );
+      expect(noSummary).toHaveTextContent(/^q-8 Older work/);
+      expect(within(noSummary!).getByTestId("attention-place-summary")).toHaveTextContent("1 new answer· New result");
     });
 
     it("keeps its place across remounts, like switching threads", () => {

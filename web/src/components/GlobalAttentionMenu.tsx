@@ -7,7 +7,9 @@ import { useStore } from "../store.js";
 import { useAttentionThreadTitles, type AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import { useShallow } from "zustand/react/shallow";
 import {
+  attentionPlaceIndex,
   buildAttentionBacklog,
+  countAttentionPlaces,
   collectThreadReminders,
   type AttentionBacklog,
   type NextAttentionItem,
@@ -84,7 +86,11 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
   // While a question is open the pill counts only questions, so amber with a
   // large number never hides that just one needs an answer. The list still has everything.
   const topKind = queue[0]?.kind;
-  const count = topKind === "needs-input" ? queue.filter((item) => item.kind === "needs-input").length : queue.length;
+  // Otherwise it counts places (a topic with three new answers is one), not messages.
+  const count =
+    topKind === "needs-input"
+      ? queue.filter((item) => item.kind === "needs-input").length
+      : countAttentionPlaces(queue);
 
   return (
     <>
@@ -102,7 +108,7 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
         <GlobalAttentionPanel
           items={queue}
           nextKey={next?.item.key ?? null}
-          nextPosition={next ? next.position + 1 : null}
+          nextPosition={next ? attentionPlaceIndex(queue, next.item) + 1 : null}
           backlog={backlog}
           trackedCount={waitingTrackedCount}
           trigger={triggerRef.current}
@@ -244,6 +250,8 @@ export function GlobalAttentionPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [inline, onClose]);
 
+  // Counts are places, as on the pill; Next still steps through every message inside a place.
+  const placeCount = countAttentionPlaces(items);
   const panel = (
     <div
       ref={panelRef}
@@ -259,7 +267,7 @@ export function GlobalAttentionPanel({
       <div className="flex items-center justify-between gap-2 border-b border-cc-border/50 px-3 py-2.5">
         <h2 className="text-[13px] font-medium text-cc-fg">
           Needs attention
-          {items.length > 0 && <span className="ml-1 text-[11px] font-normal text-cc-muted">({items.length})</span>}
+          {items.length > 0 && <span className="ml-1 text-[11px] font-normal text-cc-muted">({placeCount})</span>}
         </h2>
         <div className="flex items-center gap-1.5">
           {nextPosition !== null && (
@@ -267,12 +275,12 @@ export function GlobalAttentionPanel({
               type="button"
               onClick={onNext}
               data-testid="attention-list-next"
-              aria-label={`Go to the next item that needs attention, ${nextPosition} of ${items.length}`}
+              aria-label={`Go to the next item that needs attention, ${nextPosition} of ${placeCount}`}
               className="inline-flex items-center gap-1 rounded-full border border-cc-border px-2 py-0.5 text-[11px] font-medium text-cc-fg transition-colors hover:bg-cc-hover cursor-pointer"
             >
               Next
               <span className="tabular-nums text-cc-muted">
-                {nextPosition}/{items.length}
+                {nextPosition}/{placeCount}
               </span>
               <NextChevron className="h-3 w-3" />
             </button>

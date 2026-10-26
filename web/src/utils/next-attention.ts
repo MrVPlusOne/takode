@@ -218,6 +218,44 @@ export function collectThreadReminders(
   return items.sort((a, b) => (a.kind === "unread" && b.kind === "unread" ? (a.remindAt ?? 0) - (b.remindAt ?? 0) : 0));
 }
 
+/**
+ * The place an item points to, for counting: every question, reminder and watched result is its
+ * own place; unread answers count once per topic (or per quest or Main outside topics). Counts
+ * show places, so a busy topic is one thing to look at, not ten.
+ */
+export function attentionPlaceKey(item: NextAttentionItem): string {
+  return item.kind === "unread" ? topicGroupKey(item) : item.key;
+}
+
+/** How many places the queue points to. */
+export function countAttentionPlaces(queue: readonly NextAttentionItem[]): number {
+  return new Set(queue.map(attentionPlaceKey)).size;
+}
+
+/** The 0-based place of `item` among the queue's places, in queue order. */
+export function attentionPlaceIndex(queue: readonly NextAttentionItem[], item: NextAttentionItem): number {
+  const places: string[] = [];
+  for (const candidate of queue) {
+    const place = attentionPlaceKey(candidate);
+    if (places.at(-1) !== place && !places.includes(place)) places.push(place);
+    if (candidate.key === item.key) return places.indexOf(place);
+  }
+  return Math.max(0, places.length - 1);
+}
+
+/**
+ * How many new things unread items hold: answers to the same request of the user count as one,
+ * as do repeats of one thread-level item.
+ */
+export function countNewThings(items: readonly NextAttentionItem[]): number {
+  const things = new Set<string>();
+  for (const item of items) {
+    const answerTo = item.kind === "unread" ? item.notification?.answerTo : undefined;
+    things.add(answerTo?.length ? `request:${[...answerTo].sort().join(",")}` : item.key);
+  }
+  return things.size;
+}
+
 export function attentionCursorFor(item: NextAttentionItem): AttentionCursor {
   return { key: item.key, place: placeOf.get(item) ?? queuePlace(item) };
 }

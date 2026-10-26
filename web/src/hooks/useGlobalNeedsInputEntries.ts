@@ -41,7 +41,9 @@ export function useGlobalNeedsInputEntries() {
       if (fetchedNeedsInputKeys.has(request.key)) continue;
       fetchedNeedsInputKeys.add(request.key);
       api
-        .getSessionNotifications(request.sessionId)
+        // What the user can still see: results in closed tabs or covered by an earlier read are left
+        // out, as in every count, so old hidden results never come back as unread.
+        .getSessionNotifications(request.sessionId, { visible: true })
         .then((notifications) => applySessionNotifications(request.sessionId, notifications, request.status))
         .catch((error) => {
           console.warn("Failed to load global needs-input notifications", error);

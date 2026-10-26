@@ -124,6 +124,49 @@ export function attentionItemMenuItems(item: NextAttentionItem): ContextMenuItem
 }
 
 /**
+ * Actions for one place of new answers in the attention list: Remind me later (it comes back at
+ * its first unread, and everything in it counts as read until then) and Mark as read.
+ */
+export function attentionPlaceMenuItems(
+  items: readonly NextAttentionItem[],
+  first: NextAttentionItem,
+): ContextMenuItem[] {
+  const notifications = items.flatMap((item) =>
+    item.kind === "unread" && item.notification ? [item.notification] : [],
+  );
+  const markAllRead = () =>
+    Promise.all(
+      items.map((item) =>
+        item.kind === "unread" && item.notification
+          ? api.markNotificationDone(item.sessionId, item.notification.id, true)
+          : item.threadKey === null
+            ? api.markSessionRead(item.sessionId)
+            : markThreadRead(item.sessionId, item.threadKey),
+      ),
+    );
+  const menu: ContextMenuItem[] = [];
+  if (first.kind === "unread" && first.notification && first.threadKey) {
+    const { sessionId, threadKey, notification } = first;
+    menu.push({
+      label: "Remind me later",
+      onClick: () => {},
+      children: itemRemindPresets().map((preset) => ({
+        label: preset.label,
+        onClick: () =>
+          void remindMessageLater(sessionId, threadKey, notification, preset.durationMs)
+            .then(markAllRead)
+            .catch(logFailure("Remind me later")),
+      })),
+    });
+  }
+  menu.push({
+    label: notifications.length > 1 ? "Mark all as read" : "Mark as read",
+    onClick: () => void markAllRead().catch(logFailure("Mark as read")),
+  });
+  return menu;
+}
+
+/**
  * Offered for an open, closable thread tab of any leader whose tab projection
  * this browser holds. The projection carries the server's closability, and
  * the server checks it again when closing.

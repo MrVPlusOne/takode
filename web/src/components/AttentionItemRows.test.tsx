@@ -2,7 +2,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { SessionNotification } from "../types.js";
-import { buildNextAttentionQueue } from "../utils/next-attention.js";
+import { buildNextAttentionQueue, countAttentionPlaces } from "../utils/next-attention.js";
 import { AttentionItemSections, unreadMessageLabel } from "./AttentionItemRows.js";
 
 /**
@@ -23,18 +23,35 @@ function answer(id: string, threadKey: string, timestamp: number, summary: strin
 }
 
 describe("AttentionItemSections", () => {
-  it("groups unread answers under their topic, with the rest under Not in a topic", () => {
-    const topics: Record<string, { id: string; name: string }> = { "q-1": { id: "t", name: "Relay" } };
+  it("shows one row per place with what is new there, answers to one request counted once", () => {
+    // Jiayi found per-message counts overwhelming: the list shows each topic (or quest outside
+    // topics) once, saying how many new answers it has; two answers to the same request are one.
+    const topics: Record<string, { id: string; name: string }> = {
+      "q-1": { id: "t", name: "Relay" },
+      "q-3": { id: "t", name: "Relay" },
+    };
+    const withRequest = (item: ReturnType<typeof answer>, request: string) => ({
+      ...item,
+      notification: { ...item.notification, answerTo: [request] },
+    });
     const queue = buildNextAttentionQueue({
       needsInput: [],
       notifyMe: [],
-      unread: [answer("a", "q-1", 300, "Answer in q-1 | Fixed"), answer("b", "q-2", 100, "Report in q-2 | Notes")],
+      unread: [
+        withRequest(answer("a", "q-1", 300, "Answer in q-1 | Fixed"), "u7"),
+        withRequest(answer("c", "q-3", 250, "Answer in q-3 | Also fixed"), "u7"),
+        answer("d", "q-3", 200, "Answer in q-3 | Separate"),
+        answer("b", "q-2", 100, "Report in q-2 | Notes"),
+      ],
       topicOf: (_sessionId, threadKey) => (threadKey ? (topics[threadKey] ?? null) : null),
     });
-    render(<AttentionItemSections items={queue} kinds={["needs-input", "reminder", "unread"]} onOpen={vi.fn()} />);
-    const groups = screen.getAllByTestId("attention-topic-group");
-    expect(groups.map((group) => group.textContent?.slice(0, 14))).toEqual(["RelayFixedGo t", "Not in a topic"]);
-    expect(within(groups[1]!).getByText("Notes")).toBeTruthy();
+    expect(countAttentionPlaces(queue)).toBe(2);
+    render(<AttentionItemSections items={queue} kinds={["unread"]} onOpen={vi.fn()} />);
+    const rows = screen.getAllByTestId("attention-place-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.textContent).toMatch(/^Relay/);
+    expect(within(rows[0]!).getByTestId("attention-place-summary").textContent).toContain("2 new answers");
+    expect(within(rows[1]!).getByTestId("attention-place-summary").textContent).toContain("1 new answer");
   });
 
   it("names an unread message by its words", () => {

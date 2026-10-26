@@ -1572,7 +1572,7 @@ describe("TopBar phone layout and Next", () => {
     fireEvent.click(pill);
     expect(
       within(screen.getByRole("dialog", { name: "Everything that needs attention" })).getAllByTestId(
-        "attention-item-row",
+        /^attention-(item|place)-row$/,
       ),
     ).toHaveLength(4);
     unmount();

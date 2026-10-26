@@ -220,6 +220,8 @@ describe("notification status fanout", () => {
       }) as any;
 
     expect(recordAnswerUnreadNotifications(session, [answer("q-1977", 11_000)], deps)).toBe(true);
+    // The unread names the request it answers, so answers to one request count once.
+    expect(session.notifications.at(-1)).toMatchObject({ unreadReason: "answer", answerTo: ["u1"] });
     await bridge.getSyncedProjectionController().flushForTest();
     workerBrowser.send.mockClear();
     leaderBrowser.send.mockClear();

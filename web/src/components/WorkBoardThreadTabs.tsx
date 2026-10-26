@@ -276,7 +276,15 @@ export function ThreadTabRail({
                 topics: topicList,
                 currentTopicId,
                 onOpen: openTopic,
-                unreadCountOf: (questIds) => unreadIn(questIds).length,
+                // Answers to one request of the user's count as one new thing.
+                unreadCountOf: (questIds) =>
+                  new Set(
+                    unreadIn(questIds).map((notification) =>
+                      notification.answerTo?.length
+                        ? `request:${[...notification.answerTo].sort().join(",")}`
+                        : notification.id,
+                    ),
+                  ).size,
                 topicOfQuest: topicOfQuest ?? {},
               }
             : undefined

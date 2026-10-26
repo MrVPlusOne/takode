@@ -9,7 +9,7 @@ import {
 import type { ThreadMonitoringEntry } from "../../../shared/thread-monitoring.js";
 import { useAttentionNavigator } from "../../hooks/useAttentionNavigator.js";
 import type { SessionNotification } from "../../types.js";
-import { buildAttentionBacklog, buildNextAttentionQueue } from "../../utils/next-attention.js";
+import { attentionPlaceIndex, buildAttentionBacklog, buildNextAttentionQueue } from "../../utils/next-attention.js";
 import { AttentionListPill, GlobalAttentionPanel } from "../GlobalAttentionMenu.js";
 import { NavigationButtons, NavigationHistoryPanel } from "../NavigationButtons.js";
 import { SidebarGlobalSearch } from "../SidebarGlobalSearch.js";
@@ -172,7 +172,7 @@ function InteractiveAttentionList() {
         inline
         items={QUEUE}
         nextKey={next?.item.key ?? null}
-        nextPosition={next ? next.position + 1 : null}
+        nextPosition={next ? attentionPlaceIndex(QUEUE, next.item) + 1 : null}
         onClose={() => {}}
         onNext={() => goNext()}
         onOpen={open}

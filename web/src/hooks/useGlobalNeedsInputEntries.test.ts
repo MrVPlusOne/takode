@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 
-const mockGetSessionNotifications = vi.fn(async (_sessionId: string): Promise<any[]> => []);
+const mockGetSessionNotifications = vi.fn(async (_sessionId: string, _options?: unknown): Promise<any[]> => []);
 vi.mock("../api.js", () => ({
-  api: { getSessionNotifications: (sessionId: string) => mockGetSessionNotifications(sessionId) },
+  api: {
+    getSessionNotifications: (sessionId: string, options?: unknown) => mockGetSessionNotifications(sessionId, options),
+  },
 }));
 
 import { useStore } from "../store.js";
@@ -16,6 +18,18 @@ beforeEach(() => {
 });
 
 describe("useGlobalNeedsInputEntries", () => {
+  it("loads a leader with unread answers, asking only for what the user can still see", async () => {
+    // Asking for the full list brought back old results the counts had long hidden (in closed
+    // tabs, or covered by an earlier read): 21 on one leader that would never clear.
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "leader", createdAt: 1, isOrchestrator: true, activeReviewNotificationCount: 2 } as any,
+      ],
+    });
+    renderHook(() => useGlobalNeedsInputEntries());
+    await waitFor(() => expect(mockGetSessionNotifications).toHaveBeenCalledWith("leader", { visible: true }));
+  });
+
   // Session summaries only carry counts; the hook loads the prompts themselves so
   // the attention list can show them without the session being open.
   it("loads notification details for sessions whose snapshot says needs-input is active", async () => {
@@ -38,7 +52,7 @@ describe("useGlobalNeedsInputEntries", () => {
     const { result } = renderHook(() => useGlobalNeedsInputEntries());
 
     await waitFor(() => expect(result.current.entries.map((entry) => entry.notification.id)).toEqual(["n-1"]));
-    expect(mockGetSessionNotifications).toHaveBeenCalledWith("s-load");
+    expect(mockGetSessionNotifications).toHaveBeenCalledWith("s-load", { visible: true });
     expect(useStore.getState().sdkSessions[0]).toMatchObject({
       activeNeedsInputNotificationCount: 1,
       activeReviewNotificationCount: 0,
@@ -70,7 +84,7 @@ describe("useGlobalNeedsInputEntries", () => {
     });
 
     const { result } = renderHook(() => useGlobalNeedsInputEntries());
-    await waitFor(() => expect(mockGetSessionNotifications).toHaveBeenCalledWith("s-late"));
+    await waitFor(() => expect(mockGetSessionNotifications).toHaveBeenCalledWith("s-late", { visible: true }));
 
     act(() => {
       useStore.setState({
