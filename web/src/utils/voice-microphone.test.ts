@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getMicrophoneOrder,
   getVoiceCaptureDeviceId,
+  getVoiceCaptureDeviceIds,
+  getVoiceCaptureSource,
+  isPhoneMicrophoneLabel,
+  setHeadsetMicrophoneChoice,
   listVoiceMicrophones,
   rememberMicrophone,
   resetMicrophoneOrder,
@@ -94,4 +98,61 @@ it("preserves the previous single preference until a pick or reset migrates it",
   expect(localStorage.getItem("cc-preferred-microphone")).toBeNull();
   resetMicrophoneOrder();
   expect(getVoiceCaptureDeviceId()).toBe("default");
+});
+
+// With AirPods connected, a request for "any mic" leaves routing to iOS, which first switches the
+// AirPods into call mode (seconds). Asking for the phone's own mic by exact ID avoids that, so the
+// phone mic is the default whenever it is known, after any mic the user picked while recording.
+describe("phone mic while a headset is connected", () => {
+  const iphone = { kind: "audioinput", deviceId: "iphone-mic", label: "iPhone Microphone" };
+  const airpods = { kind: "audioinput", deviceId: "airpods", label: "Jiayi's AirPods Pro" };
+
+  it("recognizes the phone's and tablet's own mic by its iOS name only", () => {
+    expect(isPhoneMicrophoneLabel("iPhone Microphone")).toBe(true);
+    expect(isPhoneMicrophoneLabel("iPad Microphone")).toBe(true);
+    expect(isPhoneMicrophoneLabel("Jiayi's AirPods Pro")).toBe(false);
+    expect(isPhoneMicrophoneLabel("MacBook Pro Microphone (Built-in)")).toBe(false);
+  });
+
+  it("asks for the phone mic by default once a listing has shown it, even before names are visible again", async () => {
+    expect(getVoiceCaptureSource()).toBe("system");
+    enumerateDevices.mockResolvedValue([iphone, airpods]);
+    await listVoiceMicrophones();
+    expect(getVoiceCaptureDeviceId()).toBe("iphone-mic");
+    expect(getVoiceCaptureSource()).toBe("phone");
+
+    // After a reload iOS hides names and IDs until the first recording, so the remembered ID is used.
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: Object.assign(new EventTarget(), {
+        enumerateDevices: vi.fn().mockResolvedValue([{ kind: "audioinput", deviceId: "", label: "" }]),
+      }),
+    });
+    await listVoiceMicrophones();
+    expect(getVoiceCaptureDeviceId()).toBe("iphone-mic");
+  });
+
+  it("keeps the system's choice when the headset mic is chosen", async () => {
+    enumerateDevices.mockResolvedValue([iphone, airpods]);
+    await listVoiceMicrophones();
+    setHeadsetMicrophoneChoice("headset");
+    expect(getVoiceCaptureDeviceId()).toBe("default");
+    expect(getVoiceCaptureSource()).toBe("system");
+  });
+
+  it("puts a mic picked while recording ahead of the phone mic", async () => {
+    enumerateDevices.mockResolvedValue([iphone, airpods]);
+    await listVoiceMicrophones();
+    rememberMicrophone(airpods);
+    expect(getVoiceCaptureDeviceIds()).toEqual(["airpods", "iphone-mic"]);
+    expect(getVoiceCaptureSource()).toBe("picked");
+  });
+
+  it("skips a remembered phone mic that a full listing no longer shows", async () => {
+    enumerateDevices.mockResolvedValue([iphone]);
+    await listVoiceMicrophones();
+    enumerateDevices.mockResolvedValue([airpods]);
+    await listVoiceMicrophones();
+    expect(getVoiceCaptureDeviceId()).toBe("default");
+  });
 });

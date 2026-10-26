@@ -10,23 +10,31 @@ export function formatRecordingElapsed(seconds: number): string {
 /**
  * While recording, takes over the left side of the composer's button row: cancel, the running
  * time and the input level. Cancel sits next to the mic so a thumb reaches it; the time counts
- * from when this bar appears, which is when recording starts.
+ * once the mic has opened.
  */
 export function ComposerRecordingBar({
+  preparing = false,
   currentLevel,
   samples,
   onCancel,
 }: {
+  /** The mic is still opening; cancel already works, and the time starts once audio flows. */
+  preparing?: boolean;
   currentLevel: number;
   samples: VoiceLevelSample[];
   onCancel: () => void;
 }) {
-  const [startedAt] = useState(() => Date.now());
+  const [startedAt, setStartedAt] = useState(() => Date.now());
   const [now, setNow] = useState(startedAt);
   useEffect(() => {
+    if (preparing) return;
+    // Count from when audio starts flowing, not from the tap.
+    const start = Date.now();
+    setStartedAt(start);
+    setNow(start);
     const timer = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(timer);
-  }, []);
+  }, [preparing]);
   const elapsed = formatRecordingElapsed(Math.max(0, Math.floor((now - startedAt) / 1000)));
 
   return (
@@ -42,19 +50,28 @@ export function ComposerRecordingBar({
           <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
         </svg>
       </button>
-      <span
-        data-testid="voice-recording-elapsed"
-        className="flex shrink-0 items-center gap-1.5 text-cc-primary tabular-nums"
-        aria-label={`Recording, ${elapsed}`}
-      >
-        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-cc-primary" />
-        {elapsed}
-      </span>
-      {/* In a narrow composer (or with Stop showing) the meter gives way first, clipping its oldest
+      {preparing ? (
+        <span data-testid="voice-preparing" role="status" className="flex min-w-0 items-center gap-1.5 text-cc-warning">
+          <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-cc-warning" />
+          <span className="truncate">Preparing mic…</span>
+        </span>
+      ) : (
+        <>
+          <span
+            data-testid="voice-recording-elapsed"
+            className="flex shrink-0 items-center gap-1.5 text-cc-primary tabular-nums"
+            aria-label={`Recording, ${elapsed}`}
+          >
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-cc-primary" />
+            {elapsed}
+          </span>
+          {/* In a narrow composer (or with Stop showing) the meter gives way first, clipping its oldest
           bars on the left so the current level stays visible. */}
-      <div className="flex min-w-0 shrink justify-end overflow-hidden">
-        <VoiceLevelWaveform currentLevel={currentLevel} samples={samples} />
-      </div>
+          <div className="flex min-w-0 shrink justify-end overflow-hidden">
+            <VoiceLevelWaveform currentLevel={currentLevel} samples={samples} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

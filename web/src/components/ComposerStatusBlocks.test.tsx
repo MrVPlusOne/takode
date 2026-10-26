@@ -20,7 +20,6 @@ vi.mock("../store.js", () => ({
 
 function createStatusBlockProps(overrides: Partial<Parameters<typeof ComposerStatusBlocks>[0]> = {}) {
   return {
-    isPreparing: false,
     isRecording: false,
     isTranscribing: false,
     transcriptionPhase: null,

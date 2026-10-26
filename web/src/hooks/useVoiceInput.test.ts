@@ -422,6 +422,20 @@ describe("requestVoiceCaptureStream", () => {
     });
   });
 
+  it("asks for the phone's own mic first, so AirPods are not switched into call mode", async () => {
+    // The phone mic's ID is remembered from a listing; the request for it must be the tap's first.
+    navigator.mediaDevices.enumerateDevices = vi.fn().mockResolvedValue([
+      { kind: "audioinput", deviceId: "iphone-mic", label: "iPhone Microphone" },
+      { kind: "audioinput", deviceId: "airpods", label: "AirPods Pro" },
+    ]);
+    await listVoiceMicrophones();
+    const request = requestVoiceCaptureStream();
+    expect(getUserMediaMock).toHaveBeenCalledExactlyOnceWith({
+      audio: expect.objectContaining({ deviceId: { exact: "iphone-mic" } }),
+    });
+    await request;
+  });
+
   it("does not retry a denied or unreadable preferred microphone", async () => {
     rememberMicrophone({ deviceId: "usb", label: "External microphone" });
     for (const name of ["NotAllowedError", "NotReadableError"]) {
@@ -828,7 +842,12 @@ describe("useVoiceInput — onAudioReady", () => {
     });
     expect(result.current.inputDeviceLabel).toBeNull();
     expect(onAudioReady.mock.calls[0][1]).toEqual(
-      expect.objectContaining({ audioInputLabel: "Default - Otter Pods Pro 3 (Bluetooth)" }),
+      expect.objectContaining({
+        audioInputLabel: "Default - Otter Pods Pro 3 (Bluetooth)",
+        // Saved so a slow mic start with a headset shows up in the recording's timing.
+        micOpenMs: expect.any(Number),
+        micRequest: "system",
+      }),
     );
   });
 

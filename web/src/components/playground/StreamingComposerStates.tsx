@@ -17,6 +17,10 @@ export function PlaygroundStreamingComposerStates() {
         <PlaygroundStreamingComposer initialDraft="Can you check why the keyboard closes?" recording />
       </Card>
       <div className="mt-4" />
+      <Card label="Preparing the mic: cancel works already; the time starts once audio flows">
+        <PlaygroundStreamingComposer initialDraft="" recording preparing />
+      </Card>
+      <div className="mt-4" />
       <Card label="Undo and redo after pause (touch screens only; open the Playground on a phone to see them)">
         <PlaygroundStreamingComposer initialDraft="My question" running={false} />
       </Card>
@@ -43,11 +47,13 @@ function PlaygroundStreamingComposer({
   initialDraft,
   blockedNotice,
   recording = false,
+  preparing = false,
   running = !recording,
 }: {
   initialDraft: string;
   blockedNotice?: string;
   recording?: boolean;
+  preparing?: boolean;
   running?: boolean;
 }) {
   const [draft, setDraft] = useState(initialDraft);
@@ -94,7 +100,12 @@ function PlaygroundStreamingComposer({
           }
           recordingBar={
             recording ? (
-              <ComposerRecordingBar currentLevel={0.5} samples={PLAYGROUND_LEVELS} onCancel={() => {}} />
+              <ComposerRecordingBar
+                preparing={preparing}
+                currentLevel={0.5}
+                samples={PLAYGROUND_LEVELS}
+                onCancel={() => {}}
+              />
             ) : undefined
           }
           onOpenFilePicker={() => {}}
@@ -103,8 +114,8 @@ function PlaygroundStreamingComposer({
           toggleVoiceUnsupportedInfo={() => {}}
           handleMicClick={() => {}}
           voiceButtonDisabled={false}
-          isPreparing={false}
-          isRecording={recording}
+          isPreparing={preparing}
+          isRecording={recording && !preparing}
           voiceButtonTitle="Voice input"
           canSend={canSend}
           sendBlocked={!!blockedNotice}

@@ -5,6 +5,7 @@ import { holdScreenWakeLock } from "../utils/screen-wake-lock.js";
 import {
   getVoiceCaptureDeviceId,
   getVoiceCaptureDeviceIds,
+  getVoiceCaptureSource,
   listVoiceMicrophones,
   rememberMicrophone,
   watchVoiceMicrophones,
@@ -338,6 +339,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     audioTrackStatesAtStart?: string;
     audioTrackMutedAtStart?: boolean;
     audioInputLabel?: string;
+    micOpenMs?: number;
+    micRequest?: VoiceRecordingTiming["micRequest"];
     trackEndedEventCount: number;
     trackMuteEventCount: number;
     trackUnmuteEventCount: number;
@@ -631,6 +634,9 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     cancelledRef.current = false;
     resetVolumeHistory();
     setIsPreparing(true);
+    // Saved with the recording, so a slow mic start (such as AirPods switching to call mode) shows up in the logs.
+    const micRequestedAt = Date.now();
+    const micRequest = getVoiceCaptureSource();
 
     try {
       // If warmMicrophone has an in-flight getUserMedia, await it instead of duplicating
@@ -709,6 +715,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         audioTrackStatesAtStart: formatAudioTrackStates(stream),
         audioTrackMutedAtStart: getAudioTrackMuted(stream),
         audioInputLabel,
+        micOpenMs: Date.now() - micRequestedAt,
+        micRequest,
         trackEndedEventCount: 0,
         trackMuteEventCount: 0,
         trackUnmuteEventCount: 0,
@@ -811,6 +819,9 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
                     : {}),
                   ...(audioTrackMutedAtStop !== undefined ? { audioTrackMutedAtStop } : {}),
                   ...(timing.audioInputLabel !== undefined ? { audioInputLabel: timing.audioInputLabel } : {}),
+                  ...(timing.micOpenMs !== undefined
+                    ? { micOpenMs: timing.micOpenMs, micRequest: timing.micRequest }
+                    : {}),
                   trackEndedEventCount: timing.trackEndedEventCount,
                   trackMuteEventCount: timing.trackMuteEventCount,
                   trackUnmuteEventCount: timing.trackUnmuteEventCount,

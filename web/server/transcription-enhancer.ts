@@ -1250,6 +1250,8 @@ export interface TranscriptionRecordingTiming {
   audioTrackMutedAtStart?: boolean;
   audioTrackMutedAtStop?: boolean;
   audioInputLabel?: string;
+  micOpenMs?: number;
+  micRequest?: "picked" | "phone" | "system";
   trackEndedEventCount?: number;
   trackMuteEventCount?: number;
   trackUnmuteEventCount?: number;

@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SettingsMicrophone } from "./SettingsMicrophone.js";
-import { getMicrophoneOrder, rememberMicrophone } from "../utils/voice-microphone.js";
+import { getHeadsetMicrophoneChoice, getMicrophoneOrder, rememberMicrophone } from "../utils/voice-microphone.js";
 
 const usb = { kind: "audioinput", deviceId: "usb", label: "External microphone" };
 let getUserMedia: ReturnType<typeof vi.fn>;
@@ -86,4 +86,19 @@ it("updates the read-only list when a recording-row pick changes the order", asy
     "Built-in microphone (not currently listed)",
     "External microphone",
   ]);
+});
+
+it("chooses which mic records while a headset is connected, the phone mic by default", () => {
+  // Saved in this browser only, like the learned order, since it is about this device's mics.
+  render(<SettingsMicrophone />);
+  const phone = screen.getByRole("radio", { name: "Phone mic" });
+  const headset = screen.getByRole("radio", { name: "Headset mic" });
+  expect(phone).toHaveAttribute("aria-checked", "true");
+
+  fireEvent.click(headset);
+  expect(getHeadsetMicrophoneChoice()).toBe("headset");
+  expect(headset).toHaveAttribute("aria-checked", "true");
+
+  fireEvent.click(phone);
+  expect(getHeadsetMicrophoneChoice()).toBe("phone");
 });

@@ -581,6 +581,26 @@ describe("Composer recording controls", () => {
     expect(mockTranscribe).not.toHaveBeenCalled();
   });
 
+  it("shows Preparing mic in the bar while the mic opens, with cancel already working", () => {
+    // With AirPods, opening the mic can take seconds; the bar shows it at once so the tap visibly took.
+    mockVoiceState.isPreparingOverride = true;
+    setupMockStore();
+    const { rerender } = render(<Composer sessionId="s1" />);
+
+    const bar = screen.getByTestId("composer-recording-bar");
+    expect(within(bar).getByText("Preparing mic…")).toBeTruthy();
+    expect(within(bar).queryByTestId("voice-recording-elapsed")).toBeNull();
+    fireEvent.click(within(bar).getByRole("button", { name: "Cancel recording" }));
+    expect(mockVoiceState.cancelRecording).toHaveBeenCalledTimes(1);
+
+    // Once audio flows the bar switches to the running time, counted from then.
+    mockVoiceState.isPreparingOverride = false;
+    mockVoiceState.isRecordingOverride = true;
+    rerender(<Composer sessionId="s1" />);
+    expect(screen.queryByText("Preparing mic…")).toBeNull();
+    expect(screen.getByTestId("voice-recording-elapsed").textContent).toBe("0:00");
+  });
+
   it("still cancels on Escape", () => {
     mockVoiceState.isRecordingOverride = true;
     setupMockStore();

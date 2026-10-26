@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
+import { SegmentedControl, SettingsRow } from "./settings-controls.js";
 import {
+  getHeadsetMicrophoneChoice,
   getMicrophoneOrder,
   resetMicrophoneOrder,
+  setHeadsetMicrophoneChoice,
   watchMicrophoneOrder,
   watchVoiceMicrophones,
 } from "../utils/voice-microphone.js";
@@ -9,17 +12,47 @@ import {
 /** Shows the order learned from recording-row picks; choosing microphones happens only there. */
 export function SettingsMicrophone() {
   const [order, setOrder] = useState(getMicrophoneOrder);
+  const [headsetChoice, setHeadsetChoice] = useState(getHeadsetMicrophoneChoice);
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
   const [error, setError] = useState("");
   useEffect(() => watchVoiceMicrophones(setInputs, () => setError("Could not check connected microphones.")), []);
-  useEffect(() => watchMicrophoneOrder(() => setOrder(getMicrophoneOrder())), []);
+  useEffect(
+    () =>
+      watchMicrophoneOrder(() => {
+        setOrder(getMicrophoneOrder());
+        setHeadsetChoice(getHeadsetMicrophoneChoice());
+      }),
+    [],
+  );
 
   return (
     <div className="space-y-2 mb-5" data-settings-item-id="voice-microphone">
+      <SettingsRow
+        label="Mic with a headset"
+        description="On iPhone and iPad with AirPods connected. The phone mic starts at once; the headset mic waits while AirPods switch to call mode."
+      >
+        <SegmentedControl
+          label="Mic with a headset"
+          options={[
+            { value: "phone", label: "Phone mic" },
+            { value: "headset", label: "Headset mic" },
+          ]}
+          value={headsetChoice}
+          onChange={(choice) => {
+            try {
+              setHeadsetMicrophoneChoice(choice);
+              setHeadsetChoice(choice);
+              setError("");
+            } catch {
+              setError("Could not save the headset choice. Allow browser storage and try again.");
+            }
+          }}
+        />
+      </SettingsRow>
       <h3 className="text-xs font-medium text-cc-muted">Microphone order</h3>
       <p className="text-xs text-cc-muted">
         Tap the microphone name while recording to choose. Your latest pick goes first; voice input uses the first
-        connected mic below, then the system mic.
+        connected mic below, then the phone mic if chosen above, then the system mic.
       </p>
       {order.length ? (
         <ol className="list-decimal pl-5 space-y-1 text-sm text-cc-fg" aria-label="Remembered microphone order">

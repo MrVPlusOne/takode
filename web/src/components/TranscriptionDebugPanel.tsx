@@ -681,6 +681,16 @@ export function TranscriptionDebugPanel({
                                 </span>
                               </span>
                             )}
+                            {expandedEntry.frontendTiming.recordingTiming.micOpenMs !== undefined && (
+                              <span className="ml-2">
+                                Mic opened in{" "}
+                                <span className="text-cc-fg">
+                                  {expandedEntry.frontendTiming.recordingTiming.micOpenMs} ms
+                                  {expandedEntry.frontendTiming.recordingTiming.micRequest &&
+                                    ` (${expandedEntry.frontendTiming.recordingTiming.micRequest} mic asked)`}
+                                </span>
+                              </span>
+                            )}
                             <span className="ml-2">
                               Blob{" "}
                               <span className="text-cc-fg">

@@ -1680,7 +1680,6 @@ export function Composer({
               />
 
               <ComposerStatusBlocks
-                isPreparing={isPreparing}
                 isRecording={isRecording}
                 isTranscribing={isTranscribing}
                 transcriptionPhase={transcriptionPhase}
@@ -1770,8 +1769,9 @@ export function Composer({
                   />
                 }
                 recordingBar={
-                  isRecording ? (
+                  isRecording || isPreparing ? (
                     <ComposerRecordingBar
+                      preparing={!isRecording}
                       currentLevel={volumeLevel}
                       samples={volumeHistory}
                       onCancel={handleCancelRecording}

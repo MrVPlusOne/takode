@@ -9,7 +9,6 @@ import { useStore } from "../store.js";
 import type { AlternateVoiceRerun, VoiceLevelSample } from "./composer-voice-types.js";
 
 export function ComposerStatusBlocks({
-  isPreparing,
   isRecording,
   isTranscribing,
   transcriptionPhase,
@@ -39,7 +38,6 @@ export function ComposerStatusBlocks({
   onSetVoiceModeEdit,
   onSetVoiceModeAppend,
 }: {
-  isPreparing: boolean;
   isRecording: boolean;
   isTranscribing: boolean;
   transcriptionPhase: string | null;
@@ -95,12 +93,6 @@ export function ComposerStatusBlocks({
 
   return (
     <>
-      {isPreparing && (
-        <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-cc-warning">
-          <span className="w-2 h-2 rounded-full bg-cc-warning animate-pulse shrink-0" />
-          <span className="shrink-0">Preparing mic...</span>
-        </div>
-      )}
       {isRecording && (
         <VoiceRecordingStatus
           currentLevel={volumeLevel}

@@ -261,6 +261,7 @@ function normalizeRecordingTiming(value: unknown): TranscriptionRecordingTiming 
     "trackEndedEventCount",
     "trackMuteEventCount",
     "trackUnmuteEventCount",
+    "micOpenMs",
   ] as const) {
     const normalized = normalizeFiniteMs(body[key]);
     if (normalized !== undefined) timing[key] = normalized;
@@ -301,6 +302,9 @@ function normalizeRecordingTiming(value: unknown): TranscriptionRecordingTiming 
   ] as const) {
     const normalized = normalizeRecordingState(body[key]);
     if (normalized !== undefined) timing[key] = normalized;
+  }
+  if (body.micRequest === "picked" || body.micRequest === "phone" || body.micRequest === "system") {
+    timing.micRequest = body.micRequest;
   }
   if (body.pageVisibility === "visible" || body.pageVisibility === "hidden" || body.pageVisibility === "prerender") {
     timing.pageVisibility = body.pageVisibility;

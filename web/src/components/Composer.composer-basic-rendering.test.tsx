@@ -1003,7 +1003,7 @@ describe("Composer basic rendering", () => {
         vi.advanceTimersByTime(350);
       });
 
-      expect(screen.getByText("Preparing mic...")).toBeTruthy();
+      expect(screen.getByText("Preparing mic…")).toBeTruthy();
       expect(screen.getByRole("textbox").getAttribute("aria-expanded")).toBe("true");
     } finally {
       vi.useRealTimers();

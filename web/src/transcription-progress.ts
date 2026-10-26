@@ -75,6 +75,10 @@ export interface VoiceRecordingTiming {
   audioTrackMutedAtStop?: boolean;
   /** Browser label of the recorded microphone track, e.g. "Default - MacBook Pro Microphone (Built-in)" */
   audioInputLabel?: string;
+  /** From the tap until the microphone delivered audio, including any permission prompt. */
+  micOpenMs?: number;
+  /** What the first microphone request asked for: a mic picked while recording, the phone's own mic, or the system's choice. */
+  micRequest?: "picked" | "phone" | "system";
   trackEndedEventCount?: number;
   trackMuteEventCount?: number;
   trackUnmuteEventCount?: number;
