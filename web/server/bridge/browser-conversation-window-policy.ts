@@ -1,6 +1,7 @@
 import { viewKeysOfRoutes } from "../topic-views.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
-import { MAIN_THREAD_KEY, messageThreadKeys, normalizeSelectedFeedThreadKey } from "../../shared/thread-window.js";
+import { messageThreadKeys } from "../../shared/message-threads.js";
+import { MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from "../../shared/thread-window.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import type {
   ActiveTurnRoute,

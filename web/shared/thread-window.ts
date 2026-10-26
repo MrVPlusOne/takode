@@ -21,12 +21,14 @@ import {
   isSessionSentSourceId,
 } from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
+import { isQuestThreadKey } from "./thread-routing.js";
 import {
-  inferThreadTargetFromTextContent,
-  isQuestThreadKey,
-  parseCommandThreadComment,
-  parseThreadTextPrefix,
-} from "./thread-routing.js";
+  explicitNonMainRoute,
+  hasExplicitNonMainRoute,
+  isHerdEventMessage,
+  messageHasThreadRef,
+  messageQuestThreads,
+} from "./message-threads.js";
 import { isTopicViewKey } from "./topic-thread-key.js";
 import { LEADER_THREAD_RESPONSE_VERSION } from "../server/leader-thread-response-types.js";
 
@@ -843,14 +845,10 @@ function latestQuestQuizSupportItems(
 ): FeedItem[] {
   const latestByQuest = new Map<string, FeedItem>();
   messages.forEach((message, historyIndex) => {
+    // The thread check is the cheap one (each message's threads are kept); reading the text is not.
+    if (historyIndex < cutoverHistoryIndex || !messageParticipatesInResponseThread(message, threadKey)) return;
     const text = questQuizMessageText(message);
-    if (
-      historyIndex < cutoverHistoryIndex ||
-      !text ||
-      !messageParticipatesInResponseThread(message, threadKey) ||
-      (includeMessage && !includeMessage(message, historyIndex))
-    )
-      return;
+    if (!text || (includeMessage && !includeMessage(message, historyIndex))) return;
     for (const questId of questQuizIds(text)) {
       latestByQuest.set(questId, { order: historyIndex, entry: { message, history_index: historyIndex } });
     }
@@ -1141,7 +1139,7 @@ function buildQuestThreadFeedItemsByThread(
   // Each included message's own routes among these threads (empty when it has none).
   const routed = messages.map((message, index) => {
     if (includeMessage && !includeMessage(message, index)) return null;
-    const keys = [...normalizedRouteKeys(message, true)].filter((key) => threads.has(key));
+    const keys = [...messageQuestThreads(message)].filter((key) => threads.has(key));
     const relations = keys.length > 0 ? relatedToolRelationKeys(message) : [];
     for (const key of keys) for (const relation of relations) threads.get(key)!.relations.add(relation);
     return keys;
@@ -1669,126 +1667,6 @@ function findMainSourceAttachmentMarker(
 function attachmentMarkerHasMainSource(message: Extract<BrowserIncomingMessage, { type: "thread_attachment_marker" }>) {
   const sourceKey = message.sourceThreadKey ?? message.sourceQuestId;
   return !sourceKey || normalizeSelectedFeedThreadKey(sourceKey) === MAIN_THREAD_KEY;
-}
-
-function normalizedRouteKeys(message: BrowserIncomingMessage, includeBackfill: boolean): Set<string> {
-  const keys = new Set<string>();
-  const add = (value: string | undefined) => {
-    if (!value) return;
-    const normalized = normalizeSelectedFeedThreadKey(value);
-    if (!normalized || normalized === MAIN_THREAD_KEY) return;
-    keys.add(normalized);
-  };
-
-  if (message.type === "thread_attachment_marker" || message.type === "thread_transition_marker") return keys;
-
-  add(message.threadKey);
-  add(message.questId);
-  for (const ref of message.threadRefs ?? []) {
-    if (!includeBackfill && ref.source === "backfill") continue;
-    add(ref.threadKey);
-    add(ref.questId);
-  }
-
-  const repaired = repairedRouteForMessage(message);
-  add(repaired?.threadKey);
-  add(repaired?.questId);
-
-  const inferred = inferredHerdEventRoute(message);
-  add(inferred?.threadKey);
-  add(inferred?.questId);
-  return keys;
-}
-
-function messageHasThreadRef(message: BrowserIncomingMessage, threadKey: string): boolean {
-  return normalizedRouteKeys(message, true).has(normalizeSelectedFeedThreadKey(threadKey));
-}
-
-/**
- * The threads a message belongs to by its own routing, exactly as thread windows place it: Main
- * unless it is routed elsewhere, and every quest it is routed or attached to. Attachment and
- * transition markers belong to no thread (Main shows them as summaries of their own). Null for a
- * message that carries no routing at all, whose thread only its context can tell (the turn it
- * streamed in, the tool it answers).
- */
-export function messageThreadKeys(message: BrowserIncomingMessage): string[] | null {
-  if (message.type === "thread_attachment_marker" || message.type === "thread_transition_marker") return [];
-  const quests = [...normalizedRouteKeys(message, true)];
-  const main = !hasExplicitNonMainRoute(message);
-  if (quests.length === 0 && !message.threadKey && leaderResponseOriginalThreadKey(message) !== MAIN_THREAD_KEY) {
-    return null;
-  }
-  return main ? [MAIN_THREAD_KEY, ...quests] : quests;
-}
-
-function hasExplicitNonMainRoute(message: BrowserIncomingMessage): boolean {
-  if (leaderResponseOriginalThreadKey(message) === MAIN_THREAD_KEY) return false;
-  return normalizedRouteKeys(message, false).size > 0;
-}
-
-function explicitNonMainRoute(message: BrowserIncomingMessage): RouteTarget | null {
-  const metadataRoute = routeFromMessageFields(message, false);
-  if (metadataRoute) return metadataRoute;
-  return repairedRouteForMessage(message) ?? inferredHerdEventRoute(message);
-}
-
-function routeFromMessageFields(message: BrowserIncomingMessage, includeBackfill: boolean): RouteTarget | null {
-  if (message.type === "thread_attachment_marker" || message.type === "thread_transition_marker") return null;
-  if (message.threadKey && normalizeSelectedFeedThreadKey(message.threadKey) !== MAIN_THREAD_KEY) {
-    return {
-      threadKey: normalizeSelectedFeedThreadKey(message.threadKey),
-      ...(message.questId ? { questId: message.questId } : {}),
-    };
-  }
-  if (message.questId && normalizeSelectedFeedThreadKey(message.questId) !== MAIN_THREAD_KEY) {
-    return { threadKey: normalizeSelectedFeedThreadKey(message.questId), questId: message.questId };
-  }
-  const ref = (message.threadRefs ?? []).find((candidate) => {
-    return (
-      (includeBackfill || candidate.source !== "backfill") &&
-      normalizeSelectedFeedThreadKey(candidate.threadKey) !== MAIN_THREAD_KEY
-    );
-  });
-  if (!ref) return null;
-  return {
-    threadKey: normalizeSelectedFeedThreadKey(ref.threadKey),
-    ...(ref.questId ? { questId: ref.questId } : {}),
-  };
-}
-
-function repairedRouteForMessage(message: BrowserIncomingMessage): RouteTarget | null {
-  if (message.type === "user_message" || message.type === "leader_user_message") {
-    const parsed = parseThreadTextPrefix(message.content);
-    return parsed.ok ? parsed.target : null;
-  }
-  if (message.type !== "assistant") return null;
-  const content = message.message.content;
-  const firstText = content.find((block) => block.type === "text" && block.text.trim());
-  if (firstText?.type === "text") {
-    const parsed = parseThreadTextPrefix(firstText.text);
-    if (parsed.ok) return parsed.target;
-  }
-  const firstBash = content.find(
-    (block) => block.type === "tool_use" && block.name === "Bash" && typeof block.input?.command === "string",
-  );
-  if (!firstBash || firstBash.type !== "tool_use" || typeof firstBash.input.command !== "string") return null;
-  return parseCommandThreadComment(firstBash.input.command);
-}
-
-function isHerdEventMessage(message: BrowserIncomingMessage): boolean {
-  return (message as { agentSource?: { sessionId?: string } }).agentSource?.sessionId === "herd-events";
-}
-
-function inferredHerdEventRoute(message: BrowserIncomingMessage): RouteTarget | null {
-  if (!isHerdEventMessage(message)) return null;
-  const content = message.type === "user_message" ? message.content : null;
-  if (typeof content !== "string") return null;
-  const target = inferThreadTargetFromTextContent(content);
-  if (!target || normalizeSelectedFeedThreadKey(target.threadKey) === MAIN_THREAD_KEY) return null;
-  return {
-    threadKey: normalizeSelectedFeedThreadKey(target.threadKey),
-    ...(target.questId ? { questId: target.questId } : {}),
-  };
 }
 
 function messageToolUseIds(message: BrowserIncomingMessage): string[] {
