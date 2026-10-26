@@ -1,5 +1,11 @@
 import type { ErrorInfo, ReactNode } from "react";
 import { Component } from "react";
+import { checkHealthStatus } from "../api/server-status.js";
+import {
+  beginBuildIdentityObservation,
+  getBuildCompatibilitySnapshot,
+  observeServerBuildIdentity,
+} from "../build-compatibility.js";
 import { useStore } from "../store.js";
 import { getUiTraceSnapshot, recordUiTrace } from "../utils/ui-crash-debug.js";
 
@@ -11,16 +17,67 @@ interface State {
   hasError: boolean;
   error: Error | null;
   componentStack: string | null;
+  /** A newer Takode is ready on the server and the page is reloading into it. */
+  updating: boolean;
 }
 
+/** How often the error page asks the server whether a newer Takode is ready. */
+const UPDATE_CHECK_MS = 5_000;
+/** The server build this tab last reloaded into after a crash, so a broken update can't reload forever. */
+const UPDATE_RELOAD_KEY = "takode-crash-update-reload";
+
+/**
+ * Catches a crash of the app and shows what happened, with Reload and Retry.
+ *
+ * A page left open across a server update keeps running the previous frontend against the new
+ * server until the user reloads, and data whose shape changed can crash it (the Oct 25 crash:
+ * the old topic list read a field the new server no longer sends). The crash page then can't hold
+ * any work, so when the server has a newer frontend ready it reloads into it at once. The app's
+ * own build checks stop with the crash, so the page keeps asking the server while it is shown.
+ */
 export class AppErrorBoundary extends Component<Props, State> {
+  private updateTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null, componentStack: null };
+    this.state = { hasError: false, error: null, componentStack: null, updating: false };
   }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error, componentStack: null };
+  }
+
+  componentWillUnmount() {
+    this.stopUpdateChecks();
+  }
+
+  private stopUpdateChecks() {
+    if (this.updateTimer) clearInterval(this.updateTimer);
+    this.updateTimer = null;
+  }
+
+  private startUpdateChecks() {
+    if (this.reloadIntoUpdate() || this.updateTimer) return;
+    const check = async () => {
+      const observation = beginBuildIdentityObservation();
+      const status = await checkHealthStatus();
+      if (status.ok) observeServerBuildIdentity(status.buildId, status.servedFrontendBuildId, observation);
+      if (this.state.hasError) this.reloadIntoUpdate();
+    };
+    void check();
+    this.updateTimer = setInterval(() => void check(), UPDATE_CHECK_MS);
+  }
+
+  /** Reloads when the server serves a newer frontend than this page runs, once per server build. */
+  private reloadIntoUpdate(): boolean {
+    const compatibility = getBuildCompatibilitySnapshot();
+    if (compatibility.status !== "reload-required" || !compatibility.backendBuildId) return false;
+    if (sessionStorage.getItem(UPDATE_RELOAD_KEY) === compatibility.backendBuildId) return false;
+    sessionStorage.setItem(UPDATE_RELOAD_KEY, compatibility.backendBuildId);
+    this.stopUpdateChecks();
+    this.setState({ updating: true });
+    window.location.reload();
+    return true;
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -49,9 +106,19 @@ export class AppErrorBoundary extends Component<Props, State> {
       context: errorContext,
       recentUiTrace: trace,
     });
+    this.startUpdateChecks();
   }
 
   render() {
+    if (this.state.updating) {
+      return (
+        <div className="h-[100dvh] flex items-center justify-center bg-cc-bg text-cc-fg px-4">
+          <p className="text-sm text-cc-muted" data-testid="app-update-reloading">
+            Takode was updated. Loading the new version…
+          </p>
+        </div>
+      );
+    }
     if (this.state.hasError) {
       const { error, componentStack } = this.state;
       const errorMessage = error?.message || "Unknown error";
@@ -76,7 +143,10 @@ export class AppErrorBoundary extends Component<Props, State> {
               </button>
               <button
                 type="button"
-                onClick={() => this.setState({ hasError: false, error: null, componentStack: null })}
+                onClick={() => {
+                  this.stopUpdateChecks();
+                  this.setState({ hasError: false, error: null, componentStack: null });
+                }}
                 className="inline-flex items-center rounded-md border border-cc-border px-3 py-1.5 text-sm text-cc-fg hover:bg-cc-hover cursor-pointer"
               >
                 Retry
