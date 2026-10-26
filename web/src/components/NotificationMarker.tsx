@@ -25,6 +25,7 @@ import {
   NeedsInputSendButton,
   NeedsInputSuggestedAnswers,
 } from "./NeedsInputAnswerField.js";
+import { IncludeCommentsCheckbox, usePendingReplyComments } from "./NeedsInputIncludeComments.js";
 import { NeedsInputResponseHistory } from "./NeedsInputResponseHistory.js";
 import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
 
@@ -91,6 +92,7 @@ export function NotificationMarker({
   } = useNeedsInputDraft(isAction ? sessionId : undefined, notif?.id);
   const [historyOpen, setHistoryOpen] = useState(false);
   const reply = usePendingAction("Reply failed.");
+  const pendingComments = usePendingReplyComments(isAction ? sessionId : undefined);
   const toggle = usePendingAction(isReview ? "Review update failed." : "Update failed.");
   const answeredKey = sessionId && notif ? `${sessionId}:${notif.id}` : null;
   const answeredHere = answeredKey !== null && answeredInThisBrowser.has(answeredKey);
@@ -169,6 +171,7 @@ export function NotificationMarker({
           const threadKey = resolveNotificationOwnerThreadKey(notif);
           const content = formatNeedsInputResponse(notif.summary ?? summary, questionViews, answersByQuestion);
           const key = `${sessionId}:${notif.id}`;
+          const annotations = pendingComments.toSend;
           answeredInThisBrowser.add(key);
           void reply
             .run(() =>
@@ -176,6 +179,7 @@ export function NotificationMarker({
                 content,
                 threadKey,
                 ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
+                ...(annotations ? { annotations } : {}),
               }),
             )
             .then((sent) => {
@@ -185,6 +189,7 @@ export function NotificationMarker({
               }
               useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
               clearAnswers();
+              pendingComments.retire(annotations);
             });
         },
       });
@@ -196,6 +201,8 @@ export function NotificationMarker({
       currentThreadKey,
       notif,
       onSelectThread,
+      pendingComments.retire,
+      pendingComments.toSend,
       questionViews,
       reply.pending,
       reply.run,
@@ -232,6 +239,13 @@ export function NotificationMarker({
       </svg>
     </button>
   ) : null;
+  const includeComments = (
+    <IncludeCommentsCheckbox
+      count={pendingComments.count}
+      checked={pendingComments.checked}
+      onChange={pendingComments.setChecked}
+    />
+  );
   const snoozeControl =
     isAction && sessionId && notif ? <NeedsInputSnoozeControl sessionId={sessionId} notification={notif} /> : null;
   const voiceThreadKey = notif ? resolveNotificationOwnerThreadKey(notif) : MAIN_THREAD_KEY;
@@ -385,6 +399,7 @@ export function NotificationMarker({
               )}
               {questionViews.length === 1 && (
                 <div className={`${NEEDS_INPUT_ACTION_ROW_CLASS} pt-0.5`} data-testid="notification-answer-footer">
+                  {includeComments}
                   {snoozeControl}
                   {replyButton}
                   <NeedsInputSendButton
@@ -399,6 +414,7 @@ export function NotificationMarker({
           ))}
           {questionViews.length > 1 && (
             <div className={NEEDS_INPUT_ACTION_ROW_CLASS}>
+              {includeComments}
               {snoozeControl}
               {replyButton}
               <NeedsInputSendButton

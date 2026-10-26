@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { formatAnnotatedMessage, readConversationAnnotations } from "../../shared/conversation-annotations.js";
 import { formatReplyContentForAssistant } from "../../shared/reply-context.js";
 import { markNotificationDone as markNotificationDoneController } from "../bridge/session-registry-controller.js";
 import { normalizeThreadRoute } from "../thread-routing-metadata.js";
@@ -38,6 +39,13 @@ export function registerTakodeNotificationResponseRoute(
     if (typeof body.content !== "string" || !body.content.trim()) {
       return c.json({ error: "content is required" }, 400);
     }
+    // The user's pending conversation comments, when they chose to send them with the answer.
+    let annotations: ReturnType<typeof readConversationAnnotations>;
+    try {
+      annotations = readConversationAnnotations(body.annotations);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Invalid annotations." }, 400);
+    }
 
     const bodyThreadKey =
       typeof body.threadKey === "string"
@@ -65,7 +73,8 @@ export function registerTakodeNotificationResponseRoute(
       suppressScheduledNotificationCancel: true,
     });
     const delivery = wsBridge.injectUserMessage(id, body.content, undefined, undefined, threadRoute, {
-      deliveryContent: formatReplyContentForAssistant(body.content, replyContext),
+      deliveryContent: formatReplyContentForAssistant(formatAnnotatedMessage(body.content, annotations), replyContext),
+      ...(annotations.length ? { annotations } : {}),
       replyContext,
       sessionId: id,
       bypassPause: true,

@@ -246,6 +246,59 @@ describe("takode needs-input notification response routing", () => {
     expect(pushoverNotifier.cancelNotification).toHaveBeenCalledWith("worker-1", "n-1");
   });
 
+  it("sends pending comments chosen on the card with the answer, composed like a composer message", async () => {
+    // The card's "Include my comments" checkbox sends the composer's pending comments as structured
+    // annotations; the agent must get the quote/comment pairs before the answer, inside the reply framing.
+    const { app, injectUserMessage, session } = createTestApp();
+    session.notifications.push({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Confirm scope",
+      timestamp: 123,
+      messageId: "msg-123",
+      done: false,
+    });
+    const annotations = [{ id: "a-1", selectedText: "passage", comment: "too vague", sourceMessageId: "msg-9" }];
+
+    const res = await app.request("/api/sessions/worker-1/notifications/n-1/response", {
+      method: "POST",
+      body: JSON.stringify({ content: "Answer: yes", annotations }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(injectUserMessage).toHaveBeenCalledWith(
+      "worker-1",
+      "Answer: yes",
+      undefined,
+      undefined,
+      expect.anything(),
+      expect.objectContaining({
+        annotations,
+        deliveryContent: "[reply] Confirm scope\n\n> passage\n[comment 1] too vague\n\n---\nAnswer: yes",
+      }),
+    );
+  });
+
+  it("rejects malformed comments without resolving the notification", async () => {
+    const { app, injectUserMessage, session } = createTestApp();
+    session.notifications.push({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Confirm scope",
+      timestamp: 123,
+      done: false,
+    });
+
+    const res = await app.request("/api/sessions/worker-1/notifications/n-1/response", {
+      method: "POST",
+      body: JSON.stringify({ content: "Answer: yes", annotations: [{ id: "a-1", selectedText: "", comment: "x" }] }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(injectUserMessage).not.toHaveBeenCalled();
+    expect(session.notifications[0].done).toBe(false);
+  });
+
   it("accepts queued delivery and marks the notification done", async () => {
     const { app, injectUserMessage, session } = createTestApp();
     injectUserMessage.mockReturnValueOnce("queued");

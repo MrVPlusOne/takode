@@ -1044,6 +1044,36 @@ describe("NotificationChip", () => {
     expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
+  it("sends pending comments with the panel's response when the user checks Include", () => {
+    // The panel answers the same questions as the feed card, so it offers the same opt-in for the
+    // composer's unsent comments.
+    const pending = { id: "c-1", selectedText: "passage", comment: "why?" };
+    mockComposerDrafts.set("s1", { text: "", images: [], annotations: [pending] });
+    setNotifications("s1", [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Ship it?",
+        questions: [{ prompt: "Ship it?", suggestedAnswers: ["yes"] }],
+        timestamp: Date.now(),
+        messageId: "msg-123",
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    openInbox();
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Include my comment" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
+
+    expect(mockSendNeedsInputResponse).toHaveBeenCalledWith(
+      "s1",
+      "n-1",
+      expect.objectContaining({ annotations: [pending] }),
+    );
+  });
+
   it("does not surface active review rows or clear them from the lower-right panel", () => {
     const observer = installIntersectionObserverMock();
     setNotifications("s1", [

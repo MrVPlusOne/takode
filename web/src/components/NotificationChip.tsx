@@ -41,6 +41,7 @@ import {
 } from "./AttentionKind.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
+import { IncludeCommentsCheckbox, usePendingReplyComments } from "./NeedsInputIncludeComments.js";
 import { useAttentionThreadTitles, type AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import {
   NEEDS_INPUT_ACTION_ROW_CLASS,
@@ -353,6 +354,7 @@ function NotificationItem({
 }) {
   const toggle = usePendingAction("Update failed.");
   const response = usePendingAction("Response could not be delivered.");
+  const pendingComments = usePendingReplyComments(notif.category === "needs-input" ? sessionId : undefined);
   const toggleDone = useCallback(() => {
     void toggle.run(() => api.markNotificationDone(sessionId, notif.id, !notif.done));
   }, [sessionId, notif.id, notif.done, toggle.run]);
@@ -474,18 +476,21 @@ function NotificationItem({
           const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
           const threadKey = ownerThreadKey || MAIN_THREAD_KEY;
           const content = formatNeedsInputResponse(notif.summary, questionViews, answersByQuestion);
+          const annotations = pendingComments.toSend;
           void response
             .run(() =>
               api.sendNeedsInputResponse(sessionId, notif.id, {
                 content,
                 threadKey,
                 ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
+                ...(annotations ? { annotations } : {}),
               }),
             )
             .then((sent) => {
               if (!sent) return;
               useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
               setAnswersByQuestion({});
+              pendingComments.retire(annotations);
             });
         },
       });
@@ -496,6 +501,8 @@ function NotificationItem({
       currentThreadKey,
       notif,
       onSelectThread,
+      pendingComments.retire,
+      pendingComments.toSend,
       questionViews,
       response.pending,
       response.run,
@@ -692,6 +699,11 @@ function NotificationItem({
               </div>
             ))}
             <div className={NEEDS_INPUT_ACTION_ROW_CLASS}>
+              <IncludeCommentsCheckbox
+                count={pendingComments.count}
+                checked={pendingComments.checked}
+                onChange={pendingComments.setChecked}
+              />
               <button
                 type="button"
                 onClick={startReply()}

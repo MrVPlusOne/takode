@@ -8,7 +8,6 @@ import type {
   SideChatFallbackMode,
   SideChatPreflight,
   StreamRecord,
-  SessionNotification,
   StarredMessageRecord,
 } from "./types.js";
 import type {
@@ -28,6 +27,7 @@ import { getMemoryCatalog, getMemoryRecord, getMemoryUpdateDiff, listMemorySpace
 import type { MemoryUpdateDiffSourceFile } from "./api/memory.js";
 import { transcribe } from "./api/transcription.js";
 import { todoApi } from "./api/todos.js";
+import { notificationApi } from "./api/notifications.js";
 import { commitRangeQuery, type CommitRange } from "../shared/quest-delivery.js";
 import {
   isInterruptRestartBlockersResponse,
@@ -47,7 +47,6 @@ import type { NeedsInputReminderSettings } from "../shared/needs-input-reminder-
 import type { SendKeyScheme } from "../shared/send-key-scheme.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 import type { WorkerSlotLimits } from "../shared/takode-constants.js";
-import { observedThreadMonitorResultId } from "./utils/thread-monitoring.js";
 
 export { checkHealth, checkHealthStatus, checkReadiness, checkReadinessStatus } from "./api/server-status.js";
 export type { ServerStatusProbe } from "./api/server-status.js";
@@ -1198,62 +1197,7 @@ export const api = {
 
   markAllSessionsRead: () => post<{ ok: boolean }>("/sessions/mark-all-read"),
 
-  markNotificationDone: (sessionId: string, notifId: string, done = true) =>
-    post<{ ok: boolean }>(
-      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/done`,
-      { done },
-    ),
-
-  setNotificationMuted: (sessionId: string, notifId: string, muted: boolean) =>
-    post<{ ok: boolean; muted: boolean; changed: boolean; notification: SessionNotification }>(
-      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/muted`,
-      { muted },
-    ),
-
-  snoozeNotification: (sessionId: string, notifId: string, durationMs: number) =>
-    post<{ ok: boolean; notification: SessionNotification }>(
-      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/snooze`,
-      { durationMs },
-    ),
-
-  sendNeedsInputResponse: (
-    sessionId: string,
-    notifId: string,
-    response: { content: string; threadKey?: string; questId?: string },
-  ) =>
-    post<{ ok: boolean; sessionId: string; notificationId: string; delivery: "sent" | "queued" | "already_done" }>(
-      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/response`,
-      {
-        ...response,
-        threadMonitorResultId: observedThreadMonitorResultId(sessionId, response.threadKey ?? response.questId),
-      },
-    ),
-
-  /** `visible` returns only what the browser's own list holds: read results and closed tabs left out. */
-  getSessionNotifications: (sessionId: string, options: { visible?: boolean } = {}) =>
-    get<SessionNotification[]>(
-      `/sessions/${encodeURIComponent(sessionId)}/notifications${options.visible ? "?visible=1" : ""}`,
-    ),
-
-  getNotificationReplies: (sessionId: string, notifId: string) =>
-    get<{ replies: Array<{ content: string }> }>(
-      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/replies`,
-    ),
-
-  fetchNotificationContext: async (sessionId: string, notifId: string): Promise<string | null> => {
-    try {
-      const data = await get<{ context: string | null }>(
-        `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/context`,
-      );
-      return data.context ?? null;
-    } catch (error) {
-      console.warn("Failed to fetch notification context", error);
-      return null;
-    }
-  },
-
-  markAllNotificationsDone: (sessionId: string, done = true) =>
-    post<{ ok: boolean; count: number }>(`/sessions/${encodeURIComponent(sessionId)}/notifications/done-all`, { done }),
+  ...notificationApi,
 
   setDiffBase: (sessionId: string, branch: string) =>
     patch<{ ok: boolean; diff_base_branch: string }>(`/sessions/${encodeURIComponent(sessionId)}/diff-base`, {

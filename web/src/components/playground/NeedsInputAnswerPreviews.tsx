@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+import { useStore } from "../../store.js";
+import { NotificationMarker } from "../NotificationMarker.js";
 import {
   NEEDS_INPUT_ANSWER_TEXTAREA_CLASS,
   NEEDS_INPUT_CARD_CLASS,
@@ -121,5 +124,50 @@ export function PlaygroundNeedsInputReplyPendingPreview() {
         <NeedsInputSendButton label="Reply" pending disabled={false} onClick={() => undefined} />
       </div>
     </div>
+  );
+}
+
+const PENDING_COMMENTS_SESSION = "playground-pending-comments-notify";
+
+/**
+ * A question card while the user has unsent conversation comments: the real card with its
+ * "Include my 2 comments" checkbox. Drafts are seeded straight into the store so nothing syncs.
+ */
+export function PlaygroundNeedsInputPendingCommentsPreview() {
+  useEffect(() => {
+    const { sessionNotifications, composerDrafts } = useStore.getState();
+    const notifications = new Map(sessionNotifications);
+    notifications.set(PENDING_COMMENTS_SESSION, [
+      {
+        id: "n-pending-comments-1",
+        category: "needs-input",
+        timestamp: Date.now() - 60_000,
+        messageId: "playground-pending-comments-msg",
+        summary: "Build the attention designs?",
+        suggestedAnswers: ["Yes, build designs", "Change something"],
+        done: false,
+      },
+    ]);
+    const drafts = new Map(composerDrafts);
+    drafts.set(PENDING_COMMENTS_SESSION, {
+      text: "",
+      images: [],
+      annotations: [
+        { id: "pc-1", selectedText: "Remind me later moves onto items", comment: "Keep the tab reminder too." },
+        { id: "pc-2", selectedText: "One list, one order", comment: "Questions first is right." },
+      ],
+    });
+    useStore.setState({ sessionNotifications: notifications, composerDrafts: drafts });
+    return () => useStore.setState({ sessionNotifications, composerDrafts });
+  }, []);
+
+  return (
+    <NotificationMarker
+      category="needs-input"
+      summary="Build the attention designs?"
+      sessionId={PENDING_COMMENTS_SESSION}
+      messageId="playground-pending-comments-msg"
+      notificationId="n-pending-comments-1"
+    />
   );
 }

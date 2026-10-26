@@ -25,6 +25,7 @@ import { PlaygroundQuestSessionAutocompletePreview } from "./PlaygroundComposerA
 import { PlaygroundContextCommands } from "./PlaygroundContextCommands.js";
 import {
   PlaygroundNeedsInputRecordingPreview,
+  PlaygroundNeedsInputPendingCommentsPreview,
   PlaygroundNeedsInputReplyPendingPreview,
   PlaygroundNeedsInputTranscriptionFailurePreview,
 } from "./NeedsInputAnswerPreviews.js";
@@ -868,6 +869,13 @@ export function PlaygroundInteractiveSections() {
               <p className="mb-1">Reply was pressed on a slow connection.</p>
               <p className="text-cc-muted">The button shows it is waiting until the server answers.</p>
               <PlaygroundNeedsInputReplyPendingPreview />
+            </div>
+          </Card>
+          <Card label="needs-input with pending comments">
+            <div className="text-cc-fg text-sm">
+              <p className="mb-1">The user has two unsent conversation comments.</p>
+              <p className="text-cc-muted">Checking the box sends them with the reply, as the composer would.</p>
+              <PlaygroundNeedsInputPendingCommentsPreview />
             </div>
           </Card>
           <Card label="needs-input with structured questions">
