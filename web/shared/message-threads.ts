@@ -28,6 +28,8 @@ interface RouteKeys {
 }
 
 interface Memo extends RouteKeys {
+  /** The route the message's text names (a thread prefix or comment, a herd event's target). */
+  textRoute: ThreadRoute | null;
   threadKey: unknown;
   questId: unknown;
   threadRefs: unknown;
@@ -75,7 +77,8 @@ export function messageThreadKeys(message: BrowserIncomingMessage): string[] | n
 
 /** The first thread a message is explicitly routed to away from Main, if any. */
 export function explicitNonMainRoute(message: BrowserIncomingMessage): ThreadRoute | null {
-  return routeFromMessageFields(message, false) ?? textRoute(message);
+  if (isMarker(message)) return null;
+  return routeFromMessageFields(message, false) ?? memoOf(message).textRoute;
 }
 
 /** Whether a message is a herd event injected into the leader. */
@@ -84,7 +87,10 @@ export function isHerdEventMessage(message: BrowserIncomingMessage): boolean {
 }
 
 function routeKeys(message: BrowserIncomingMessage): RouteKeys {
-  if (isMarker(message)) return { all: NO_KEYS, explicit: NO_KEYS };
+  return isMarker(message) ? { all: NO_KEYS, explicit: NO_KEYS } : memoOf(message);
+}
+
+function memoOf(message: BrowserIncomingMessage): Memo {
   const text = textSource(message);
   const textLength = typeof text === "string" || Array.isArray(text) ? text.length : 0;
   const refCount = message.threadRefs?.length ?? 0;
@@ -100,21 +106,28 @@ function routeKeys(message: BrowserIncomingMessage): RouteKeys {
   ) {
     return memo;
   }
+  const repaired = repairedRoute(message);
+  const inferred = inferredHerdEventRoute(message);
   const next: Memo = {
+    textRoute: repaired ?? inferred,
     threadKey: message.threadKey,
     questId: message.questId,
     threadRefs: message.threadRefs,
     refCount,
     text,
     textLength,
-    all: computeRouteKeys(message, true),
-    explicit: computeRouteKeys(message, false),
+    all: computeRouteKeys(message, true, [repaired, inferred]),
+    explicit: computeRouteKeys(message, false, [repaired, inferred]),
   };
   memos.set(message, next);
   return next;
 }
 
-function computeRouteKeys(message: BrowserIncomingMessage, includeBackfill: boolean): Set<string> {
+function computeRouteKeys(
+  message: BrowserIncomingMessage,
+  includeBackfill: boolean,
+  textRoutes: ReadonlyArray<ThreadRoute | null>,
+): Set<string> {
   const keys = new Set<string>();
   const add = (value: string | undefined) => {
     if (!value) return;
@@ -128,12 +141,10 @@ function computeRouteKeys(message: BrowserIncomingMessage, includeBackfill: bool
     add(ref.threadKey);
     add(ref.questId);
   }
-  const repaired = repairedRoute(message);
-  add(repaired?.threadKey);
-  add(repaired?.questId);
-  const inferred = inferredHerdEventRoute(message);
-  add(inferred?.threadKey);
-  add(inferred?.questId);
+  for (const route of textRoutes) {
+    add(route?.threadKey);
+    add(route?.questId);
+  }
   return keys;
 }
 
@@ -150,11 +161,6 @@ function routeFromMessageFields(message: BrowserIncomingMessage, includeBackfill
   );
   if (!ref) return null;
   return { threadKey: normalizeKey(ref.threadKey), ...(ref.questId ? { questId: ref.questId } : {}) };
-}
-
-/** The route a message's text names: its thread prefix or first command's thread comment, or a herd event's target. */
-function textRoute(message: BrowserIncomingMessage): ThreadRoute | null {
-  return repairedRoute(message) ?? inferredHerdEventRoute(message);
 }
 
 function repairedRoute(message: BrowserIncomingMessage): ThreadRoute | null {

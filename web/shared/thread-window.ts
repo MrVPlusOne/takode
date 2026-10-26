@@ -85,7 +85,28 @@ export function getThreadWindowItemCount(visibleItemCount: number, sectionItemCo
   return Math.max(1, Math.floor(visibleItemCount)) * Math.max(1, Math.floor(sectionItemCount));
 }
 
-export function buildThreadWindowSync(input: BuildThreadWindowInput): {
+export function buildThreadWindowSync(input: BuildThreadWindowInput): ReturnType<typeof buildThreadWindowSyncInScope> {
+  // Facts about the whole history that several threads ask for (a topic asks once per quest) are
+  // worked out once per build.
+  if (buildScope) return buildThreadWindowSyncInScope(input);
+  buildScope = { messages: input.messageHistory, values: new Map() };
+  try {
+    return buildThreadWindowSyncInScope(input);
+  } finally {
+    buildScope = null;
+  }
+}
+
+let buildScope: { messages: ReadonlyArray<BrowserIncomingMessage>; values: Map<string, unknown> } | null = null;
+
+/** `compute(messages)`, once per window build for the build's own history. */
+function oncePerBuild<T>(name: string, messages: ReadonlyArray<BrowserIncomingMessage>, compute: () => T): T {
+  if (!buildScope || buildScope.messages !== messages) return compute();
+  if (!buildScope.values.has(name)) buildScope.values.set(name, compute());
+  return buildScope.values.get(name) as T;
+}
+
+function buildThreadWindowSyncInScope(input: BuildThreadWindowInput): {
   threadKey: string;
   entries: ThreadWindowEntry[];
   window: ThreadWindowState;
@@ -541,14 +562,10 @@ function addCurrentThreadResponseSupport(
   projection.pendingMessages.forEach((pending) => referencedIds.add(pending.historyMessageId));
   if (referencedIds.size > THREAD_WINDOW_SUPPORT_RECORD_LIMIT) return { items: selectedItems, complete: false };
 
-  const usersById = new Map<string, { message: BrowserIncomingMessage; historyIndex: number }>();
-  const duplicateUserIds = new Set<string>();
-  messages.forEach((message, historyIndex) => {
-    if (message.type !== "user_message" || !message.id) return;
-    if (usersById.has(message.id)) duplicateUserIds.add(message.id);
-    usersById.set(message.id, { message, historyIndex });
-  });
-  const userMessageIdsByHistoryId = projectedLeaderUserMessageIdsByHistoryId(messages);
+  const { usersById, duplicateUserIds } = oncePerBuild("users", messages, () => historyUsers(messages));
+  const userMessageIdsByHistoryId = oncePerBuild("leaderUserMessageIds", messages, () =>
+    projectedLeaderUserMessageIdsByHistoryId(messages),
+  );
   const required = new Map<string, FeedItem>();
   const addRequired = (message: BrowserIncomingMessage, historyIndex: number): boolean => {
     if (includeMessage && !includeMessage(message, historyIndex)) return false;
@@ -715,6 +732,17 @@ function pendingProjectionMatchesMessage(
   );
 }
 
+function historyUsers(messages: ReadonlyArray<BrowserIncomingMessage>) {
+  const usersById = new Map<string, { message: BrowserIncomingMessage; historyIndex: number }>();
+  const duplicateUserIds = new Set<string>();
+  messages.forEach((message, historyIndex) => {
+    if (message.type !== "user_message" || !message.id) return;
+    if (usersById.has(message.id)) duplicateUserIds.add(message.id);
+    usersById.set(message.id, { message, historyIndex });
+  });
+  return { usersById, duplicateUserIds };
+}
+
 function projectedLeaderUserMessageIdsByHistoryId(
   messages: ReadonlyArray<BrowserIncomingMessage>,
 ): Map<string, string> {
@@ -844,16 +872,25 @@ function latestQuestQuizSupportItems(
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): FeedItem[] {
   const latestByQuest = new Map<string, FeedItem>();
-  messages.forEach((message, historyIndex) => {
-    // The thread check is the cheap one (each message's threads are kept); reading the text is not.
-    if (historyIndex < cutoverHistoryIndex || !messageParticipatesInResponseThread(message, threadKey)) return;
-    const text = questQuizMessageText(message);
-    if (!text || (includeMessage && !includeMessage(message, historyIndex))) return;
-    for (const questId of questQuizIds(text)) {
+  for (const { historyIndex, message, questIds } of oncePerBuild("quizzes", messages, () =>
+    questQuizMessages(messages),
+  )) {
+    if (historyIndex < cutoverHistoryIndex || !messageParticipatesInResponseThread(message, threadKey)) continue;
+    if (includeMessage && !includeMessage(message, historyIndex)) continue;
+    for (const questId of questIds) {
       latestByQuest.set(questId, { order: historyIndex, entry: { message, history_index: historyIndex } });
     }
-  });
+  }
   return [...latestByQuest.values()];
+}
+
+/** The history's messages that start quest quizzes, with the quests they name. */
+function questQuizMessages(messages: ReadonlyArray<BrowserIncomingMessage>) {
+  return messages.flatMap((message, historyIndex) => {
+    const text = questQuizMessageText(message);
+    const questIds = text ? questQuizIds(text) : [];
+    return questIds.length ? [{ historyIndex, message, questIds }] : [];
+  });
 }
 
 function threadWindowEntryRendersChatRow(message: BrowserIncomingMessage): boolean {
@@ -1130,38 +1167,33 @@ function buildQuestThreadFeedItemsByThread(
   threadKeys: readonly string[],
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): Map<string, FeedItem[]> {
-  const threads = new Map(
-    threadKeys.map((key) => [
-      normalizeSelectedFeedThreadKey(key),
-      { relations: new Set<string>(), items: [] as FeedItem[] },
-    ]),
-  );
+  const threads = new Map(threadKeys.map((key) => [normalizeSelectedFeedThreadKey(key), [] as FeedItem[]]));
+  // The threads each tool relation belongs to: those of the routed messages that carry it.
+  const relationThreads = new Map<string, Set<string>>();
   // Each included message's own routes among these threads (empty when it has none).
   const routed = messages.map((message, index) => {
     if (includeMessage && !includeMessage(message, index)) return null;
     const keys = [...messageQuestThreads(message)].filter((key) => threads.has(key));
-    const relations = keys.length > 0 ? relatedToolRelationKeys(message) : [];
-    for (const key of keys) for (const relation of relations) threads.get(key)!.relations.add(relation);
+    if (keys.length === 0) return keys;
+    for (const relation of relatedToolRelationKeys(message)) {
+      const owners = relationThreads.get(relation) ?? new Set<string>();
+      for (const key of keys) owners.add(key);
+      relationThreads.set(relation, owners);
+    }
     return keys;
   });
 
   messages.forEach((message, index) => {
     const keys = routed[index];
     if (!keys) return;
+    const targets = new Set(keys);
     const parentToolUseId = (message as { parent_tool_use_id?: unknown }).parent_tool_use_id;
-    const parentRelation = typeof parentToolUseId === "string" ? toolRelationKey(message, parentToolUseId) : null;
     const relations = messageToolRelationKeys(message);
-    for (const [key, thread] of threads) {
-      if (
-        keys.includes(key) ||
-        (parentRelation && thread.relations.has(parentRelation)) ||
-        relations.some((relation) => thread.relations.has(relation))
-      ) {
-        thread.items.push({ order: index, entry: { message, history_index: index } });
-      }
-    }
+    if (typeof parentToolUseId === "string") relations.push(toolRelationKey(message, parentToolUseId));
+    for (const relation of relations) for (const key of relationThreads.get(relation) ?? []) targets.add(key);
+    for (const key of targets) threads.get(key)!.push({ order: index, entry: { message, history_index: index } });
   });
-  return new Map([...threads].map(([key, thread]) => [key, thread.items]));
+  return threads;
 }
 
 function addTurnClosingResults(
