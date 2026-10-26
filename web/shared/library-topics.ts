@@ -31,8 +31,7 @@ export interface TopicSummary {
   latestActivity?: { at: number; text: string; questId?: string };
   /** The newest line of the page's History, as plain text. */
   latestUpdate?: string;
-  /** Open Now entries waiting on the user, as plain text; and how many Now entries are open. */
-  waitingOnYou: string[];
+  /** How many Now entries are open. */
   openNow: number;
 }
 

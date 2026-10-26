@@ -1,42 +1,53 @@
 import type { TopicSummary } from "../../../shared/library-topics.js";
+import type { GlobalNeedsInputEntry } from "../../utils/global-needs-input.js";
+import { TopicQuestionsBadge, useTopicQuestions } from "./topic-questions.js";
 
 /**
  * The topic panel's list of a leader's topics on Main: most recent activity first, each with its
- * newest update and how much waits on the user, so Main shows what moved before choosing what to
- * dispatch. Quest tabs open their own topic's page instead.
+ * newest update and its open questions to the user, so Main shows what moved before choosing what
+ * to dispatch. Quest tabs open their own topic's page instead.
  */
 export function TopicActivityList({ topics, onOpen }: { topics: TopicSummary[]; onOpen: (id: string) => void }) {
+  const { questionsOf, openQuestion } = useTopicQuestions();
   return (
     <div data-testid="topic-activity-list">
       {topics.map((topic) => (
-        <LatestRow key={topic.id} topic={topic} onOpen={() => onOpen(topic.id)} />
+        <LatestRow
+          key={topic.id}
+          topic={topic}
+          questions={questionsOf(topic.questIds)}
+          onOpen={() => onOpen(topic.id)}
+          onOpenQuestion={openQuestion}
+        />
       ))}
     </div>
   );
 }
 
 /** A topic with its newest update line, or its description before it has one. */
-function LatestRow({ topic, onOpen }: { topic: TopicSummary; onOpen: () => void }) {
+function LatestRow({
+  topic,
+  questions,
+  onOpen,
+  onOpenQuestion,
+}: {
+  topic: TopicSummary;
+  questions: GlobalNeedsInputEntry[];
+  onOpen: () => void;
+  onOpenQuestion: (entry: GlobalNeedsInputEntry) => void;
+}) {
   const line = topic.latestUpdate ?? topic.summary;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="block w-full border-b border-cc-border px-4 py-2.5 text-left hover:bg-cc-hover"
-      data-testid="library-topic-row"
-    >
-      <span className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-[15px] text-cc-fg">{topic.name}</span>
-        <span className="shrink-0 text-[12px] text-cc-muted">{ago(topic.activityAt)}</span>
-      </span>
-      {line && <span className="mt-0.5 line-clamp-2 text-[13.5px] text-cc-fg/80">{stripDate(line)}</span>}
-      {topic.waitingOnYou.length > 0 && (
-        <span className="mt-1 flex items-center gap-1.5 text-[12.5px] text-[var(--color-cc-phase-accent-amber)]">
-          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--color-cc-phase-accent-amber)]" />
-          {topic.waitingOnYou.length} waiting on you
+    <div className="border-b border-cc-border" data-testid="library-topic-row">
+      <button type="button" onClick={onOpen} className="block w-full px-4 py-2.5 text-left hover:bg-cc-hover">
+        <span className="flex items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate text-[15px] text-cc-fg">{topic.name}</span>
+          <span className="shrink-0 text-[12px] text-cc-muted">{ago(topic.activityAt)}</span>
         </span>
-      )}
-    </button>
+        {line && <span className="mt-0.5 line-clamp-2 text-[13.5px] text-cc-fg/80">{stripDate(line)}</span>}
+      </button>
+      <TopicQuestionsBadge questions={questions} onOpen={onOpenQuestion} className="-mt-1 px-4 pb-2.5" />
+    </div>
   );
 }
 

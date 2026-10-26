@@ -158,7 +158,10 @@ export class TopicStore {
       const parsed = JSON.parse(await readFile(join(this.root, "topics.json"), "utf-8")) as TopicState;
       if (parsed?.version !== 1 || typeof parsed.topics !== "object") throw new Error("unknown topics format");
       this.state = parsed;
-      for (const topic of Object.values(parsed.topics)) this.moveNowOffPage(topic);
+      for (const topic of Object.values(parsed.topics)) {
+        this.moveNowOffPage(topic);
+        this.retireWaitingOnYou(topic);
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
         console.error("[library-topics] Unreadable topics file, keeping it aside:", error);
@@ -773,6 +776,18 @@ export class TopicStore {
     this.dirty = true;
   }
 
+  /**
+   * The retired "Waiting on you" group: open questions to the user now come from the notifications
+   * of the topic's quests, and what Scribes kept there are optional follow-ups.
+   */
+  private retireWaitingOnYou(topic: StoredTopic): void {
+    for (const entry of topic.now ?? []) {
+      if ((entry.group as string) !== "you") continue;
+      entry.group = "followup";
+      this.dirty = true;
+    }
+  }
+
   /** The leader's events up to `upToDateAt` need nothing on the page: they count as covered. */
   markCovered(topicId: string, upToDateAt: number, leaderId: string): void {
     const topic = this.require(topicId);
@@ -860,9 +875,6 @@ export class TopicStore {
       pendingEvents: pendingOf(topic).filter((event) => event.kind !== "now_done").length,
       ...activityOf(topic),
       ...(latestHistoryLine(topic.page) ? { latestUpdate: latestHistoryLine(topic.page) } : {}),
-      waitingOnYou: this.prunedNow(topic)
-        .filter((entry) => entry.group === "you" && entry.doneAt === undefined)
-        .map((entry) => plainLine(entry.text)),
       openNow: this.prunedNow(topic).filter((entry) => entry.doneAt === undefined).length,
     };
   }

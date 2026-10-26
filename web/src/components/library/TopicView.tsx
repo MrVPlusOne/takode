@@ -8,10 +8,12 @@ import { openLibraryArtifact, openTopicLibrary } from "../../utils/library-nav.j
 import { MarkdownContent } from "../MarkdownContent.js";
 import { InlineLocalImagesContext } from "../inline-local-images.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
+import { questOf, questionText, useTopicQuestions } from "./topic-questions.js";
 
 /**
  * A topic's page, for deciding what to do next and seeing what happened lately. From the top: the
- * name with its one-sentence summary, the topic's quests still open (live), the Scribe's page (Now
+ * name with its one-sentence summary, the user's open questions in its quests and the quests still
+ * open (both live), the Scribe's page (Now
  * and History, with the sections that fit the topic), and the newest artifacts with a link to all of
  * them in the gallery. Rename, merge and the user's requests for the page sit in a menu; corrections
  * go through the leader.
@@ -49,6 +51,7 @@ export function TopicView({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const loadedFor = useRef<string | null>(null);
+  const { questionsOf, openQuestion } = useTopicQuestions();
 
   const load = useCallback(() => {
     topicApi
@@ -93,6 +96,7 @@ export function TopicView({
   }
   const { lead, body } = splitPage(detail.page);
   const open = (detail.quests ?? []).filter((quest) => quest.status !== "done");
+  const questions = questionsOf(detail.questIds);
   return (
     <TopicFrame onBack={onBack} embedded={embedded}>
       <div
@@ -145,6 +149,38 @@ export function TopicView({
         </div>
         {notice && <div className="mt-1 text-[13px] text-cc-muted">{notice}</div>}
         {error && <div className="mt-1 text-[13px] text-cc-error">{error}</div>}
+
+        {questions.length > 0 && (
+          // The questions themselves, from the notifications: answering one removes it here.
+          <section className="mt-4" data-testid="topic-questions">
+            <h3 className="mb-1 text-[11px] uppercase tracking-wide text-[var(--color-cc-phase-accent-amber)]">
+              {questions.length === 1 ? "A question for you" : `${questions.length} questions for you`}
+            </h3>
+            <ul className="flex flex-col gap-1.5">
+              {questions.map((entry) => (
+                <li key={`${entry.sessionId}:${entry.notification.id}`}>
+                  <button
+                    type="button"
+                    onClick={() => openQuestion(entry)}
+                    className="flex w-full items-start gap-2 text-left text-[14px] text-cc-fg hover:underline"
+                    data-testid="topic-question"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="mt-[0.55em] h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-cc-phase-accent-amber)]"
+                    />
+                    <span className="min-w-0 flex-1">
+                      {questionText(entry)}
+                      <span className="ml-1.5 text-[12px] text-cc-muted">
+                        {questOf(entry)} · {clock(entry.notification.timestamp)} ›
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {open.length > 0 && (
           <section className="mt-4" data-testid="topic-open-quests">
@@ -324,16 +360,28 @@ function NowItemRow({
 }) {
   const done = entry.doneAt !== undefined;
   const stale = !done && Date.now() - entry.lastNews > NOW_ENTRY_STALE_MS;
+  // Follow-ups are optional: shown quietly, never as something waiting on the user.
+  const quiet = entry.group === "followup";
   const facts = [
     ...(showLeader && entry.leaderNum != null ? [`#${entry.leaderNum}`] : []),
     ...(entry.due ? [`Due ${dueDay(entry.due)}`] : []),
     stale ? `No news since ${when(entry.lastNews)}` : `Since ${when(entry.since)}`,
   ];
   return (
-    <li className="flex items-start gap-2" data-testid="topic-now-item" data-stale={stale || undefined}>
-      <span aria-hidden="true" className="mt-[0.6em] h-[6px] w-[6px] shrink-0 rounded-full bg-cc-fg/80" />
+    <li
+      className="flex items-start gap-2"
+      data-testid="topic-now-item"
+      data-stale={stale || undefined}
+      data-quiet={quiet || undefined}
+    >
+      <span
+        aria-hidden="true"
+        className={`mt-[0.6em] h-[6px] w-[6px] shrink-0 rounded-full ${quiet ? "bg-cc-muted" : "bg-cc-fg/80"}`}
+      />
       <div className="min-w-0 flex-1">
-        <div className={done ? "line-through opacity-50" : stale ? "opacity-60" : ""}>
+        <div
+          className={`${done ? "line-through opacity-50" : stale ? "opacity-60" : ""} ${quiet ? "text-cc-muted" : ""}`}
+        >
           <MarkdownContent text={entry.text} questLinkSurface="chat-feed" />
         </div>
         <div className="text-[12px] text-cc-muted">

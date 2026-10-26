@@ -147,7 +147,7 @@ describe("topic store", () => {
       "QA data.\n\n## History\n- **Oct 24** · Mix tuned ([q-2](quest:q-2)).\n- **Oct 23** · Older.",
       now,
     );
-    store.addNow(t7.id, { group: "you", text: "pick the **SBV** grading ([q-1](quest:q-1))." });
+    store.addNow(t7.id, { group: "followup", text: "pick the **SBV** grading ([q-1](quest:q-1))." });
     store.addNow(t7.id, { group: "next", text: "the verdict." });
 
     const [first, second] = store.list("MSI");
@@ -155,7 +155,6 @@ describe("topic store", () => {
       name: "T7 run",
       activityAt: NOW + 2000,
       latestActivity: { text: "q-1 finished", questId: "q-1" },
-      waitingOnYou: ["pick the SBV grading (q-1)."],
       openNow: 2,
     });
     expect(second).toMatchObject({
@@ -590,6 +589,32 @@ describe("topic service", () => {
       { group: "try", who: undefined, text: "the panel.", leaderId: "leader" },
       { group: "next", who: undefined, text: "Asked: track formal methods.", leaderId: "leader" },
     ]);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("turns stored Waiting on you entries into Follow-ups at load, and saves that", async () => {
+    // Open questions to the user now come from notifications; what Scribes kept under the retired
+    // "you" group are optional follow-ups. Each entry keeps its ID, text and dates.
+    const root = await mkdtemp(join(tmpdir(), "topics-followups-"));
+    const first = new TopicStore(root, () => NOW);
+    await first.load();
+    const { topic } = first.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true });
+    const entry = first.addNow(topic.id, { group: "next", text: "set up the hosts." });
+    first.addNow(topic.id, { group: "next", text: "the verdict." });
+    await first.flush();
+    const raw = JSON.parse(await readFile(join(root, "topics.json"), "utf-8"));
+    raw.topics[topic.id].now[0].group = "you";
+    await writeFile(join(root, "topics.json"), JSON.stringify(raw));
+
+    const second = new TopicStore(root, () => NOW);
+    await second.load();
+    expect(second.nowEntries(topic.id).map(({ id, group }) => ({ id, group }))).toEqual([
+      { id: entry.id, group: "followup" },
+      { id: expect.any(String), group: "next" },
+    ]);
+    await second.flush();
+    const saved = JSON.parse(await readFile(join(root, "topics.json"), "utf-8"));
+    expect(saved.topics[topic.id].now[0].group).toBe("followup");
     await rm(root, { recursive: true, force: true });
   });
 

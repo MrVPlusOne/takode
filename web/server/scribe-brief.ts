@@ -128,16 +128,19 @@ opens it for; Now follows it (or comes first); then the other sections; History 
   wanted). Requests about all topics go in \`takode scribe instructions\`.
 - **Now** is the open items: what the user reads first after Status or a Latest section. Keep it
   short and current with these commands, for your leader's work:
-  - \`takode scribe now add <topic> --group <group> "<text>"\`, where the group is \`you\` (waiting on
-    the user), \`waiting --who "<who>"\` (another person or team), \`progress\`, \`next\` or \`try\`
-    (something to check, such as on the phone); add \`--due YYYY-MM-DD\` when it has a date;
+  - \`takode scribe now add <topic> --group <group> "<text>"\`, where the group is
+    \`waiting --who "<who>"\` (another person or team), \`progress\`, \`next\`, \`followup\` (something
+    the user may do when they choose, such as setting something up or sending a draft; shown quietly)
+    or \`try\` (something to check, such as on the phone); add \`--due YYYY-MM-DD\` when it has a date;
   - \`takode scribe now edit <topic> <id> ...\` to reword or regroup it (it keeps its date);
   - \`takode scribe now remove <topic> <id>\` when it is done or no longer matters.
   Write the text as a short phrase with its links; the group is shown as its heading.
 - Build Now from evidence: \`takode scribe changes <topic>\` lists each quest with the checks it left
   for the user that are still unticked and, for quests finished in the last two weeks, their wrap-up
-  (limits, things not tested, follow-ups). Add the leader's final messages, the user's ideas for
-  later and unanswered questions. Use judgment: the user rarely ticks checks, so drop ones later work
+  (limits, things not tested, follow-ups). Add the leader's final messages and the user's ideas for
+  later. Nothing in Now waits on the user: the page shows the open questions of the topic's quests
+  by itself, from the leader's notifications, and drops each once it is answered, so don't add
+  questions or decisions the leader asked the user. Use judgment: the user rarely ticks checks, so drop ones later work
   made moot (a restart that has long since happened) and fold routine "try it on the phone" checks
   of one area into one entry. The panel also lists the topic's open quests itself, so say what they
   are waiting for rather than repeating their titles.

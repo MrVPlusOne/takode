@@ -5,6 +5,10 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+const navigateToNotification = vi.hoisted(() => vi.fn());
+vi.mock("../utils/notification-navigation.js", () => ({ navigateToNotification }));
+import { useStore } from "../store.js";
+import type { SdkSessionInfo } from "../types.js";
 import { ThreadTabGroupBar, groupThreadTabs, threadKeyToSelectAfterClosing } from "./ThreadTabGroups.js";
 import { ThreadTabRail, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
@@ -270,7 +274,7 @@ describe("ThreadTabGroupBar", () => {
     // topic is marked. Done lists finished quests only.
     const onOpen = vi.fn();
     const topic = (id: string, name: string, activityAt: number) =>
-      ({ id, name, activityAt, questIds: ["q-13"], latestUpdate: `${name} moved.`, waitingOnYou: [] }) as never;
+      ({ id, name, activityAt, questIds: ["q-13"], latestUpdate: `${name} moved.` }) as never;
     const { rerender } = renderBar({
       currentThreadKey: "q-13",
       topicsGroup: { topics: [topic("t1", "Relay", 2), topic("t2", "Briefing", 1)], currentTopicId: null, onOpen },
@@ -282,7 +286,7 @@ describe("ThreadTabGroupBar", () => {
     fireEvent.click(items[1]!);
     const rows = screen.getAllByTestId("topic-tab-row");
     expect(rows.map((row) => row.dataset.topic)).toEqual(["t1", "t2"]);
-    fireEvent.click(rows[1]!);
+    fireEvent.click(within(rows[1]!).getByRole("menuitem"));
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "t2" }));
     expect(screen.queryByTestId("topic-tab-list")).toBeNull();
 
@@ -295,11 +299,49 @@ describe("ThreadTabGroupBar", () => {
     const done = screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!;
     expect(done?.getAttribute("data-selected")).toBe("false");
     fireEvent.click(topicsItem);
-    expect(screen.getAllByTestId("topic-tab-row")[1]?.getAttribute("aria-current")).toBe("true");
+    expect(within(screen.getAllByTestId("topic-tab-row")[1]!).getByRole("menuitem").getAttribute("aria-current")).toBe(
+      "true",
+    );
 
     fireEvent.click(screen.getByTestId("thread-tab-group-backdrop"));
     fireEvent.click(done);
     expect(screen.queryByTestId("done-topic-list")).toBeNull();
+  });
+
+  it("shows a topic's open questions in the Topics group, and opens one from there", () => {
+    // "Waiting on you" on a topic means only an open question in one of its quests: the user's
+    // needs-input notifications, as the question list shows them. The badge opens the newest one
+    // where it was asked and closes the list; the row itself still opens the topic.
+    const question = {
+      id: "n1",
+      category: "needs-input" as const,
+      summary: "Keep strict grading?",
+      timestamp: 5,
+      messageId: "m1",
+      threadKey: "q-13",
+      done: false,
+    };
+    useStore.setState({
+      sdkSessions: [{ sessionId: "leader", name: "Leader", sessionNum: 7 } as SdkSessionInfo],
+      sessionNotifications: new Map([["leader", [question]]]),
+    });
+    const topic = (id: string, questIds: string[]) =>
+      ({ id, name: id, activityAt: 1, questIds, latestUpdate: "Moved." }) as never;
+    const onOpen = vi.fn();
+    renderBar({
+      currentThreadKey: "main",
+      topicsGroup: { topics: [topic("asked", ["q-13"]), topic("quiet", ["q-14"])], currentTopicId: null, onOpen },
+    });
+    fireEvent.click(within(screen.getByTestId("thread-tab-group-bar")).getAllByRole("tab")[1]!);
+    const [asked, quiet] = screen.getAllByTestId("topic-tab-row");
+    expect(within(quiet!).queryByTestId("topic-questions-badge")).toBeNull();
+    const badge = within(asked!).getByTestId("topic-questions-badge");
+    expect(badge.textContent).toBe("1 question for you");
+    fireEvent.click(badge);
+    expect(navigateToNotification).toHaveBeenCalledWith("leader", question, expect.any(Array));
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("topic-tab-list")).toBeNull();
+    useStore.getState().reset();
   });
 
   it("offers Close all only in the Done list", () => {

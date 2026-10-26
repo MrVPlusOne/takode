@@ -548,7 +548,7 @@ function nowInput(body: Record<string, unknown>, partial = false) {
   const text = typeof body.text === "string" ? body.text : undefined;
   const group = typeof body.group === "string" ? nowGroupOf(body.group) : null;
   if (typeof body.group === "string" && !group) {
-    throw new TopicStoreError(`Unknown group "${body.group}"; use you, waiting, progress, next or try.`);
+    throw new TopicStoreError(`Unknown group "${body.group}"; use waiting, progress, next, followup or try.`);
   }
   if (!partial && (!group || text === undefined)) throw new TopicStoreError("Send the group and the text.");
   return {

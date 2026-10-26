@@ -32,7 +32,8 @@ describe("takeLegacyNow", () => {
     );
     expect(legacy.items).toEqual([
       { group: "next", text: "compare with the twin at step 200 ([q-1](quest:q-1), [message](session:7:12))." },
-      { group: "you", text: "pick a name." },
+      // The retired "Waiting on you" label: such items are optional follow-ups now.
+      { group: "followup", text: "pick a name." },
       { group: "waiting", who: "Parsewave", text: "the rebuilt images." },
       { group: "try", text: "the panel." },
       { group: "next", text: "Cleanup candidate: an unused command." },
@@ -49,7 +50,11 @@ describe("takeLegacyNow", () => {
 describe("Now groups", () => {
   it("reads group names and labels, and names a waiting entry after whom it waits on", () => {
     expect(nowGroupOf("next")).toEqual({ group: "next" });
-    expect(nowGroupOf("Waiting on you:")).toEqual({ group: "you" });
+    // "Waiting on you" was retired: Scribes' old labels and the old `you` argument mean Follow-ups.
+    expect(nowGroupOf("Waiting on you:")).toEqual({ group: "followup" });
+    expect(nowGroupOf("you")).toEqual({ group: "followup" });
+    expect(nowGroupOf("Follow-ups")).toEqual({ group: "followup" });
+    expect(nowGroupLabel({ group: "followup" })).toBe("Follow-ups");
     expect(nowGroupOf("waiting")).toEqual({ group: "waiting" });
     expect(nowGroupOf("To try")).toEqual({ group: "try" });
     expect(nowGroupOf("maybe")).toBeNull();

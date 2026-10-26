@@ -28,7 +28,7 @@ For the Scribe:
                                                        what changes showed as read
   takode scribe now add <topic> --group <group> [--who "<who>"] [--due YYYY-MM-DD] "<text>"
                                                        Add a Now entry for your leader's work; groups:
-                                                       you, waiting (needs --who), progress, next, try
+                                                       waiting (needs --who), progress, next, followup, try
   takode scribe now edit <topic> <id> [--group <group>] [--who "<who>"] [--due YYYY-MM-DD] ["<text>"]
   takode scribe now remove <topic> <id>                It is done or no longer matters
   takode scribe quests [--unsorted] [--since 30d]      Your leader's recent quests (--unsorted: those

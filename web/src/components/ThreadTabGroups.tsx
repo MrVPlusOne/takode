@@ -304,10 +304,8 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
                   <TopicTabList
                     topics={topicsGroup.topics}
                     currentTopicId={onTopic ? topicsGroup.currentTopicId : null}
-                    onOpen={(topic) => {
-                      setOpenGroup(null);
-                      topicsGroup.onOpen(topic);
-                    }}
+                    onOpen={topicsGroup.onOpen}
+                    onLeave={() => setOpenGroup(null)}
                   />
                 </>
               )

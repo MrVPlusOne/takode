@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../api.js", () => ({ api: {} }));
 vi.mock("../MarkdownContent.js", () => ({ MarkdownContent: ({ text }: { text: string }) => <div>{text}</div> }));
 const readTopicConversation = vi.hoisted(() => vi.fn());
+const navigateToNotification = vi.hoisted(() => vi.fn());
+vi.mock("../../utils/notification-navigation.js", () => ({ navigateToNotification }));
 vi.mock("../../utils/topic-conversation.js", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   readTopicConversation,
@@ -15,6 +17,8 @@ import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicListResponse, TopicSummary } from "../../../shared/library-topics.js";
 import type { NowEntry } from "../../../shared/topic-now-items.js";
 import { topicApi } from "../../api/topics.js";
+import { useStore } from "../../store.js";
+import type { SdkSessionInfo, SessionNotification } from "../../types.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { setTopicSheetOpen, useTopicPanel } from "../../utils/topic-panel.js";
 import { LeaderTopicPanel, TopicSidePanel } from "./TopicSidePanel.js";
@@ -42,7 +46,6 @@ function topic(overrides: Partial<TopicSummary>): TopicSummary {
     upToDateAt: NOW,
     pendingEvents: 2,
     activityAt: NOW,
-    waitingOnYou: [],
     openNow: 0,
     ...overrides,
   };
@@ -50,8 +53,8 @@ function topic(overrides: Partial<TopicSummary>): TopicSummary {
 
 const LIST: TopicListResponse = {
   topics: [
-    topic({ latestUpdate: "Oct 24 · Twin caught up at step 200.", waitingOnYou: ["pick the grading."] }),
-    topic({ id: "qa", name: "Seeded QA", tentative: true, summary: "" }),
+    topic({ latestUpdate: "Oct 24 · Twin caught up at step 200." }),
+    topic({ id: "qa", name: "Seeded QA", tentative: true, summary: "", questIds: ["q-2790"] }),
   ],
   changes: [
     { id: "c1", at: NOW, space: "MSI", text: 'Folded "256K twin" into "T7 run"', byAgent: true, undone: false },
@@ -136,7 +139,30 @@ afterEach(() => {
   vi.restoreAllMocks();
   localStorage.clear();
   useTopicPanel.setState({ panels: {}, sheets: [], focus: null });
+  useStore.getState().reset();
 });
+
+/**
+ * The leader's open questions to the user, as the top bar's question list reads them: the leader's
+ * needs-input notifications, each asked in a quest's thread. A topic's questions are only these.
+ */
+function askQuestions(...questions: Array<Partial<SessionNotification> & { questId: string }>) {
+  const notifications = questions.map((question, index) => ({
+    id: `n-${index + 1}`,
+    category: "needs-input" as const,
+    summary: `Question ${index + 1}`,
+    timestamp: NOW - index * 60_000,
+    messageId: `m-${index + 1}`,
+    threadKey: question.questId,
+    done: false,
+    ...question,
+  }));
+  useStore.setState({
+    sdkSessions: [{ sessionId: "l1", name: "Leader", sessionNum: 7, isOrchestrator: true } as SdkSessionInfo],
+    sessionNotifications: new Map([["l1", notifications]]),
+  });
+  return notifications;
+}
 
 function mockApi() {
   vi.spyOn(topicApi, "list").mockResolvedValue(LIST);
@@ -157,13 +183,19 @@ function mockApi() {
 describe("TopicSidePanel", () => {
   it("offers to turn topics on, lists topics and undoes the Scribe's tidying", async () => {
     const api = mockApi();
+    // q-2713 (T7 run) has an open question; an answered one and a muted one don't count.
+    const [question] = askQuestions(
+      { questId: "q-2713", summary: "Pick the grading?" },
+      { questId: "q-2713", done: true },
+      { questId: "q-2713", muted: true },
+    );
     render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
     const hint = await screen.findByTestId("topic-hint");
     expect(hint).toHaveTextContent("#2851 Daily Leader has 24 quests. Group them by topic?");
     fireEvent.click(within(hint).getByText("Turn on"));
     expect(api.enable).toHaveBeenCalledWith("l1", true);
 
-    // Each topic shows its newest update (else its description) and what waits on the user.
+    // Each topic shows its newest update (else its description) and its open questions to the user.
     const rows = screen.getAllByTestId("library-topic-row");
     expect(rows.map((row) => row.textContent)).toEqual([
       expect.stringContaining("T7 run"),
@@ -171,8 +203,11 @@ describe("TopicSidePanel", () => {
     ]);
     expect(rows[0]).toHaveTextContent("Twin caught up at step 200.");
     expect(rows[0]).not.toHaveTextContent("Oct 24 ·");
-    expect(rows[0]).toHaveTextContent("1 waiting on you");
-    expect(rows[1]).not.toHaveTextContent("waiting on you");
+    expect(rows[0]).toHaveTextContent("1 question for you");
+    expect(rows[1]).not.toHaveTextContent("for you");
+    // The badge opens the question where it was asked; the 🔔 list stays the place to answer.
+    fireEvent.click(within(rows[0]!).getByTestId("topic-questions-badge"));
+    expect(navigateToNotification).toHaveBeenCalledWith("l1", question, expect.any(Array));
     fireEvent.click(within(screen.getByTestId("topic-changes")).getByText("Undo"));
     expect(api.undo).toHaveBeenCalledWith("c1");
   });
@@ -202,6 +237,40 @@ describe("TopicSidePanel", () => {
 
     fireEvent.click(within(view).getByText("Update now"));
     expect(api.update).toHaveBeenCalledWith("t7", "l1");
+  });
+
+  it("shows the topic's open questions on its page, and drops one once it is answered", async () => {
+    mockApi();
+    vi.mocked(topicApi.get).mockResolvedValue({ ...DETAIL, questIds: ["q-2713", "q-2797"] });
+    askQuestions({ questId: "q-2797", summary: "Keep strict grading?" }, { questId: "q-9", summary: "Elsewhere?" });
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    const questions = await screen.findByTestId("topic-questions");
+    expect(questions).toHaveTextContent("A question for you");
+    expect(questions).toHaveTextContent("Keep strict grading?");
+    expect(questions).toHaveTextContent("q-2797");
+    expect(questions).not.toHaveTextContent("Elsewhere?");
+    fireEvent.click(within(questions).getByTestId("topic-question"));
+    expect(navigateToNotification).toHaveBeenCalledWith(
+      "l1",
+      expect.objectContaining({ id: "n-1" }),
+      expect.any(Array),
+    );
+
+    // Answered: the notification is done, and the page drops it without waiting for a reload.
+    act(() => {
+      useStore.setState({
+        sessionNotifications: new Map([
+          [
+            "l1",
+            useStore
+              .getState()
+              .sessionNotifications.get("l1")!
+              .map((item) => ({ ...item, done: true })),
+          ],
+        ]),
+      });
+    });
+    expect(screen.queryByTestId("topic-questions")).toBeNull();
   });
 
   it("turns the quest count into the way to read the topic as one conversation", async () => {
@@ -264,6 +333,7 @@ describe("TopicSidePanel", () => {
   it("shows Now after a leading Status section, in fixed groups, the panel leader's first", async () => {
     // Now is kept as entries and placed by the page: after Status (or a Latest section), grouped
     // in a fixed order, newest first; a shared topic's other leaders' entries fold below.
+    // Nothing in Now waits on the user (open questions come from notifications).
     mockApi();
     const day = 24 * 60 * 60 * 1000;
     vi.mocked(topicApi.get).mockResolvedValue({
@@ -274,6 +344,7 @@ describe("TopicSidePanel", () => {
         entry({ id: "b", group: "progress", text: "the run.", since: NOW - day }),
         entry({ id: "c", text: "new step." }),
         entry({ id: "d", group: "waiting", who: "Parsewave", text: "images." }),
+        entry({ id: "g", group: "followup", text: "set up Open in VS Code." }),
         entry({ id: "e", text: "send the guide.", doneAt: NOW }),
         entry({ id: "f", text: "a hosts check.", leaderId: "l2", leaderNum: 2763 }),
       ],
@@ -288,7 +359,12 @@ describe("TopicSidePanel", () => {
       "Waiting on Parsewave",
       "In progress",
       "Next",
+      "Follow-ups",
     ]);
+    // Follow-ups are optional: shown quietly (grey), and they keep their done button.
+    const followUp = within(groups[3]!).getByTestId("topic-now-item");
+    expect(followUp).toHaveAttribute("data-quiet", "true");
+    expect(within(followUp).getByTestId("topic-now-done")).toBeInTheDocument();
     expect(
       within(groups[2]!)
         .getAllByTestId("topic-now-item")

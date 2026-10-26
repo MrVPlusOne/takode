@@ -5,16 +5,20 @@
  * the page view and the `takode scribe now` commands.
  */
 
-/** The fixed groups, in the order the page shows them. */
-export type NowGroup = "you" | "waiting" | "progress" | "next" | "try";
+/**
+ * The fixed groups, in the order the page shows them. Nothing here waits on the user: open questions
+ * to the user are the needs-input notifications of the topic's quests, which the page shows itself.
+ * Follow-ups are optional things the user may do when they choose (set up, send, decide later).
+ */
+export type NowGroup = "waiting" | "progress" | "next" | "followup" | "try";
 
-export const NOW_GROUPS: readonly NowGroup[] = ["you", "waiting", "progress", "next", "try"];
+export const NOW_GROUPS: readonly NowGroup[] = ["waiting", "progress", "next", "followup", "try"];
 
 const GROUP_LABELS: Record<NowGroup, string> = {
-  you: "Waiting on you",
   waiting: "Waiting on",
   progress: "In progress",
   next: "Next",
+  followup: "Follow-ups",
   try: "To try",
 };
 
@@ -50,10 +54,13 @@ export function nowGroupLabel(entry: Pick<NowEntry, "group" | "who">): string {
   return entry.group === "waiting" ? `Waiting on ${entry.who || "others"}` : GROUP_LABELS[entry.group];
 }
 
-/** The group a page label or command argument names, accepting the labels Scribes wrote before. */
+/**
+ * The group a page label or command argument names, accepting the labels Scribes wrote before:
+ * the retired "Waiting on you" group became Follow-ups.
+ */
 export function nowGroupOf(label: string): { group: NowGroup; who?: string } | null {
   const text = label.trim().replace(/:$/, "");
-  if (/^(you|waiting on you)$/i.test(text)) return { group: "you" };
+  if (/^(you|waiting on you|follow-?ups?)$/i.test(text)) return { group: "followup" };
   const waiting = /^waiting(?: on (.+))?$/i.exec(text);
   if (waiting) return { group: "waiting", ...(waiting[1] ? { who: waiting[1] } : {}) };
   if (/^(progress|in progress)$/i.test(text)) return { group: "progress" };

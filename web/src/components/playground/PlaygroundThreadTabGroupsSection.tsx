@@ -64,15 +64,14 @@ const TABS: PrimaryThreadChip[] = [
   ),
 ];
 
-/** A long-running leader's past quests: Find's Tabs mode lists them with the open tabs, by recency. */
 /** For a leader with topics on: its topics by recent activity, for the Topics group. */
 const TOPICS: TopicSummary[] = [
-  playgroundTopic("topic-feed", "Feed polish", 12, "Answer times sit on the last line of each answer.", 1),
+  playgroundTopic("topic-feed", "Feed polish", 12, "Answer times sit on the last line of each answer."),
   playgroundTopic("topic-light", "Light theme", 95, "Quest strips use the card color in light mode."),
   playgroundTopic("topic-voice", "Voice input", 60 * 26, "Dictation keeps recording through a phone call."),
 ];
 
-function playgroundTopic(id: string, name: string, minutesAgo: number, update: string, waiting = 0): TopicSummary {
+function playgroundTopic(id: string, name: string, minutesAgo: number, update: string): TopicSummary {
   const at = NOW - minutesAgo * MINUTE;
   return {
     id,
@@ -88,8 +87,7 @@ function playgroundTopic(id: string, name: string, minutesAgo: number, update: s
     pendingEvents: 0,
     activityAt: at,
     latestUpdate: update,
-    waitingOnYou: Array.from({ length: waiting }, () => "Pick a layout."),
-    openNow: waiting,
+    openNow: 0,
   };
 }
 

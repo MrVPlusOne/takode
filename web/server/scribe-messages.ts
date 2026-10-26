@@ -51,7 +51,7 @@ export function updateMessage(
   if (rewritePages) {
     lines.push(
       "",
-      "Your brief's page guidance changed. Rewrite each page of your leader's topics (`takode topic list` lists them) in the current format. For each one, run `takode scribe changes <topic>` first, then bring its Now entries in line with what its quests left open (unticked checks, wrap-ups) and with recent messages, using `takode scribe now`.",
+      "Your brief's page guidance changed. Rewrite each page of your leader's topics (`takode topic list` lists them) in the current format. For each one, run `takode scribe changes <topic>` first, then bring its Now entries in line with what its quests left open (unticked checks, wrap-ups) and with recent messages, using `takode scribe now`. Latest change: Now no longer has a 'Waiting on you' group; its entries became Follow-ups. Keep the ones that are optional things for the user to do, and remove questions to the user: the page now shows those itself from the leader's open questions.",
     );
   }
   if (instructions) lines.push("", `The user's instructions changed: "${instructions}"`);
