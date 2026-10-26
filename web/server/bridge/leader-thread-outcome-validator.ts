@@ -3,6 +3,7 @@ import { isRootAgentHistoryMessage } from "../root-agent-feed-message.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
 import {
   buildLeaderThreadResponseState,
+  buildLeaderThreadResponseStates,
   leaderResponseThreadKeyForUserMessage,
   pendingLeaderAnswerInputsForThread,
   type LeaderThreadResponseSession,
@@ -672,8 +673,9 @@ function buildPendingResponseReminderContent(
   pendingMissing: TouchedThread[],
   outcomeMissing: TouchedThread[],
 ): string {
+  const responseStates = buildLeaderThreadResponseStates(session);
   const pendingStates = pendingMissing.map((thread) => {
-    const state = buildLeaderThreadResponseState(session, thread.key);
+    const state = responseStates(thread.key);
     const queued = pendingLeaderAnswerInputsForThread(session, thread.key);
     const { userMessageIds } = pendingLeaderAnswerSnapshot(session, thread.key);
     return { thread, state, queued, userMessageIds };

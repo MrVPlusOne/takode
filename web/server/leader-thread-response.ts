@@ -512,11 +512,10 @@ function answerOwnerGroups(referenced: readonly AnswerTargetMessage[]): {
 }
 
 function resolveExplicitAnswerMessagesForOwner(
-  answerTargets: readonly AnswerTargetMessage[],
+  byId: ReadonlyMap<string, AnswerTargetMessage>,
   answerUserMessageIds: readonly string[],
   observedHistoryLength: number,
 ): AnswerRouteResolution {
-  const byId = new Map(answerTargets.map((message) => [message.userMessageId, message]));
   const unresolved = answerUserMessageIds.filter((id) => {
     const message = byId.get(id);
     return !message || message.historyIndex >= observedHistoryLength;
@@ -671,7 +670,7 @@ function clearAnswerRouteDiagnostic(message: Extract<BrowserIncomingMessage, { t
 function parsedExplicitCandidate(
   message: BrowserIncomingMessage,
   historyIndex: number,
-  answerTargets: readonly AnswerTargetMessage[],
+  targetsByUserMessageId: ReadonlyMap<string, AnswerTargetMessage>,
   boundedLimit: number,
 ): AnswerCandidate | null {
   if (
@@ -700,7 +699,7 @@ function parsedExplicitCandidate(
     return null;
   }
   const resolution = resolveExplicitAnswerMessagesForOwner(
-    answerTargets,
+    targetsByUserMessageId,
     metadata.answerUserMessageIds,
     metadata.observedHistoryLength,
   );
@@ -765,12 +764,29 @@ function projectCurrentAnswers(
   });
 }
 
+/**
+ * The answer state of a leader's whole history, for every thread at once. It reads the whole
+ * history, so a request that needs several threads' answers (a topic conversation) computes it
+ * once and projects each thread from it (`buildLeaderThreadResponseStates`).
+ */
 function evaluateResponses(
   session: Pick<LeaderThreadResponseSession, "id" | "messageHistory">,
   historyLimit = session.messageHistory.length,
 ): Evaluation {
   const boundedLimit = Math.max(0, Math.min(Math.floor(historyLimit), session.messageHistory.length));
+  return computeEvaluation(session, boundedLimit);
+}
+
+function targetsByUserMessageId(answerTargets: readonly AnswerTargetMessage[]): Map<string, AnswerTargetMessage> {
+  return new Map(answerTargets.map((message) => [message.userMessageId, message]));
+}
+
+function computeEvaluation(
+  session: Pick<LeaderThreadResponseSession, "id" | "messageHistory">,
+  boundedLimit: number,
+): Evaluation {
   const answerTargets = collectAnswerTargets(session.messageHistory, boundedLimit);
+  const byUserMessageId = targetsByUserMessageId(answerTargets);
   // Firing answerability is optional. Only direct humans create pending/Ready
   // obligations, and legacy batch revisions remain confined to those humans.
   const directMessages = answerTargets.filter((message) => isCanonicalLeaderUserMessageId(message.userMessageId));
@@ -779,7 +795,7 @@ function evaluateResponses(
     const candidate = parsedExplicitCandidate(
       session.messageHistory[historyIndex]!,
       historyIndex,
-      answerTargets,
+      byUserMessageId,
       boundedLimit,
     );
     if (candidate) candidates.push(candidate);
@@ -807,7 +823,7 @@ function projectCurrentAnswerForThread(
   ) {
     return null;
   }
-  if (answer.source !== "explicit") return answer.threadKey === threadKey ? answer : null;
+  if (answer.source !== "explicit") return answer.threadKey === threadKey ? { ...answer } : null;
 
   const referencedMessages = answer.referencedUserMessageIds.map((messageId) => answerTargetsById.get(messageId));
   if (referencedMessages.some((message) => !message)) return null;
@@ -834,9 +850,27 @@ function buildLeaderThreadResponseStateAt(
   requestedThreadKey: string,
   historyLimit: number,
 ): { projection: LeaderThreadResponseProjection; responses: LeaderThreadResponseState[] } {
-  const threadKey = normalizeThreadKey(requestedThreadKey);
   const boundedLimit = Math.max(0, Math.min(Math.floor(historyLimit), session.messageHistory.length));
-  const evaluation = evaluateResponses(session, boundedLimit);
+  return projectThreadResponseState(session, evaluateResponses(session, boundedLimit), requestedThreadKey);
+}
+
+/**
+ * Several threads' answer state from one reading of the history: a topic conversation needs each
+ * of its quests' own, and reading the history once per quest made it several times slower.
+ */
+export function buildLeaderThreadResponseStates(
+  session: Pick<LeaderThreadResponseSession, "id" | "messageHistory">,
+): (threadKey: string) => { projection: LeaderThreadResponseProjection; responses: LeaderThreadResponseState[] } {
+  let evaluation: Evaluation | null = null;
+  return (threadKey) => projectThreadResponseState(session, (evaluation ??= evaluateResponses(session)), threadKey);
+}
+
+function projectThreadResponseState(
+  session: Pick<LeaderThreadResponseSession, "id" | "messageHistory">,
+  evaluation: Evaluation,
+  requestedThreadKey: string,
+): { projection: LeaderThreadResponseProjection; responses: LeaderThreadResponseState[] } {
+  const threadKey = normalizeThreadKey(requestedThreadKey);
   const answerTargetsById = new Map(
     evaluation.answerTargets.map((message) => [message.historyMessageId, message] as const),
   );
@@ -1038,7 +1072,11 @@ export function finalizeRoutedLeaderResponseMessage(
   }
 
   const answerTargets = collectAnswerTargets(session.messageHistory, session.messageHistory.length);
-  const resolution = resolveExplicitAnswerMessagesForOwner(answerTargets, answerUserMessageIds, observedHistoryLength!);
+  const resolution = resolveExplicitAnswerMessagesForOwner(
+    targetsByUserMessageId(answerTargets),
+    answerUserMessageIds,
+    observedHistoryLength!,
+  );
   if (!resolution.ok) {
     return rejectAnswerRoute(message, resolution.reason, {
       selectedThreadKey,

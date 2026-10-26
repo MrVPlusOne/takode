@@ -19,7 +19,7 @@ import {
 } from "../../shared/history-sync-hash.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { getLeaderMessageVisualInputs } from "../leader-thread-tabs-projection.js";
-import { buildLeaderThreadResponseState } from "../leader-thread-response.js";
+import { buildLeaderThreadResponseState, buildLeaderThreadResponseStates } from "../leader-thread-response.js";
 import { attachRecentHistoryIndex } from "./browser-history-index.js";
 import {
   buildThreadWindowSync,
@@ -1283,8 +1283,10 @@ export function sendThreadWindowSync(
   // A topic conversation keeps each quest's own answer state.
   const members = topicThreadMembers(threadKey);
   const responseState = members ? null : buildLeaderThreadResponseState(session, threadKey);
-  const memberResponseProjection = members
-    ? (questId: string) => buildLeaderThreadResponseState(session, questId).projection
+  // The quests of a topic share one reading of the history for their answer state.
+  const memberResponseStates = members ? buildLeaderThreadResponseStates(session) : null;
+  const memberResponseProjection = memberResponseStates
+    ? (questId: string) => memberResponseStates(questId).projection
     : undefined;
   const sync = buildThreadWindowSync({
     messageHistory: session.messageHistory,
