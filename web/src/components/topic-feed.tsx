@@ -5,6 +5,7 @@ import type { FeedSection } from "./message-feed-sections.js";
 import { resolveThreadResponses, type ThreadResponsePresentation } from "./thread-response-presentation.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import { topicMemberOfMessage } from "../utils/thread-projection.js";
+import { QuestInlineLink } from "./QuestInlineLink.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 
 /**
@@ -44,7 +45,10 @@ export function topicQuestsOfTurns(turns: readonly Turn[], questIds: readonly st
   });
 }
 
-/** The strip naming `questId` where the conversation moves to it; tapping zooms into the quest. */
+/**
+ * The strip naming `questId` where the conversation moves to it: the ID is a quest link like any in
+ * the feed, and tapping the rest of the strip zooms into the quest.
+ */
 export function TopicFeedQuestStart({ questId }: { questId: string }) {
   const topicFeed = useContext(TopicFeedContext);
   const quest = useQuestRecord(questId);
@@ -57,19 +61,25 @@ export function TopicFeedQuestStart({ questId }: { questId: string }) {
       data-testid="topic-feed-quest-start"
       data-quest={questId}
     >
-      <button
-        type="button"
-        onClick={(event) => topicFeed?.openQuest(questId, event.currentTarget.parentElement)}
-        className="flex w-full min-w-0 items-baseline gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 px-3 py-1.5 text-left text-xs shadow-sm backdrop-blur-sm hover:bg-cc-hover sm:text-[13px]"
-        title="Zoom into this quest"
-      >
-        <span className="cc-quest-link shrink-0 font-mono-code font-medium">{questId}</span>
-        <span className="min-w-0 truncate font-medium text-cc-fg">{quest?.title ?? ""}</span>
-        {status && <span className="shrink-0 text-cc-muted">· {status}</span>}
-        <span aria-hidden="true" className="ml-auto shrink-0 pl-1 text-cc-muted">
-          ›
+      {/* The quest ID is a real quest link (hover preview, jump icon); the rest of the strip zooms. */}
+      <div className="flex w-full min-w-0 items-baseline gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 pl-3 text-xs shadow-sm backdrop-blur-sm sm:text-[13px]">
+        <span className="shrink-0 py-1.5 font-mono-code font-medium">
+          <QuestInlineLink questId={questId} surface="chat-feed" />
         </span>
-      </button>
+        <button
+          type="button"
+          onClick={(event) => topicFeed?.openQuest(questId, event.currentTarget.closest<HTMLElement>("[data-quest]"))}
+          className="flex min-w-0 flex-1 items-baseline gap-1.5 self-stretch rounded-r-lg py-1.5 pr-3 text-left hover:bg-cc-hover"
+          title="Zoom into this quest"
+          data-testid="topic-feed-quest-zoom"
+        >
+          <span className="min-w-0 truncate font-medium text-cc-fg">{quest?.title ?? ""}</span>
+          {status && <span className="shrink-0 text-cc-muted">· {status}</span>}
+          <span aria-hidden="true" className="ml-auto shrink-0 pl-1 text-cc-muted">
+            ›
+          </span>
+        </button>
+      </div>
     </div>
   );
 }

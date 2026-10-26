@@ -347,6 +347,44 @@ describe("TopicSidePanel", () => {
     showRoute("");
   });
 
+  it("folds sections at their headings, remembered per topic, and lists all quests folded at the end", async () => {
+    // Every section folds (a long History can be put away to reach what follows); the topic keeps
+    // what the user folded across reloads. The full quest list comes from the topic's records, not
+    // the Scribe, and starts folded since it is rarely needed.
+    mockApi();
+    vi.mocked(topicApi.get).mockResolvedValue({
+      ...DETAIL,
+      page: "T7.\n## Status\nAs of Oct 24: step 215.\n## History\n- Oct 23 step 165",
+      quests: [
+        { questId: "q-2713", title: "Launch T7", status: "done", changedAt: NOW - 1000 },
+        { questId: "q-2797", title: "Twin evals", status: "in_progress", changedAt: NOW },
+      ],
+    });
+    const { unmount } = render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    const view = await screen.findByTestId("topic-view");
+    const history = within(view).getByRole("button", { name: "History" });
+    expect(within(view).getByText("- Oct 23 step 165")).toBeInTheDocument();
+    fireEvent.click(history);
+    expect(history).toHaveAttribute("aria-expanded", "false");
+    expect(within(view).queryByText("- Oct 23 step 165")).toBeNull();
+    expect(within(view).getByText("As of Oct 24: step 215.")).toBeInTheDocument();
+
+    const all = within(view).getByTestId("topic-all-quests");
+    expect(all).toHaveTextContent("All quests · 2");
+    expect(all).not.toHaveTextContent("Launch T7");
+    fireEvent.click(within(all).getByTestId("topic-section-toggle"));
+    expect(all.textContent!.indexOf("Twin evals · in progress")).toBeLessThan(
+      all.textContent!.indexOf("Launch T7 · done"),
+    );
+
+    // Reopened later: History stays folded and the quest list stays open, as the user left them.
+    unmount();
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    const again = await screen.findByTestId("topic-view");
+    expect(within(again).getByRole("button", { name: "History" })).toHaveAttribute("aria-expanded", "false");
+    expect(within(again).getByTestId("topic-all-quests")).toHaveTextContent("Launch T7 · done");
+  });
+
   it("offers the topic view for a topic of one quest too", async () => {
     // A quest tab is always a zoomed-in view of its topic, also while the topic holds one quest.
     mockApi();

@@ -7,6 +7,8 @@ import { TopicFeedContext, TopicFeedQuestStart } from "./topic-feed.js";
 /**
  * Tapping a quest's strip in a topic conversation opens that quest alone, the tab's own quest
  * included (selecting the tab already on screen used to do nothing and leave the topic view on).
+ * The quest ID in the strip is a real quest link, like any quest link in the feed, so it is not
+ * part of the button that zooms.
  */
 describe("TopicFeedQuestStart", () => {
   it("opens the quest alone through the topic feed", () => {
@@ -21,5 +23,9 @@ describe("TopicFeedQuestStart", () => {
     // Tapping the strip zooms into the quest, passing the strip so that part's place carries over.
     fireEvent.click(screen.getByTitle("Zoom into this quest"));
     expect(openQuest).toHaveBeenCalledWith("q-12", screen.getByTestId("topic-feed-quest-start"));
+
+    const link = screen.getByRole("link", { name: "q-12" });
+    expect(link.getAttribute("href")).toContain("q-12");
+    expect(screen.getByTitle("Zoom into this quest").contains(link)).toBe(false);
   });
 });

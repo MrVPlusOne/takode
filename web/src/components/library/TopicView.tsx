@@ -9,15 +9,17 @@ import { MarkdownContent } from "../MarkdownContent.js";
 import { InlineLocalImagesContext } from "../inline-local-images.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
 import { TopicQuestPicker } from "./TopicQuestPicker.js";
+import { isLeadingSection, pageSections, TopicSection, useCollapsedSections } from "./topic-page-sections.js";
 import { questOf, questionText, useTopicQuestions } from "./topic-questions.js";
 
 /**
  * A topic's page, for deciding what to do next and seeing what happened lately. From the top: the
  * name with its one-sentence summary, the user's open questions in its quests and the quests still
- * open (both live), the Scribe's page (Now
- * and History, with the sections that fit the topic), and the newest artifacts with a link to all of
- * them in the gallery. Rename, merge and the user's requests for the page sit in a menu; corrections
- * go through the leader.
+ * open (both live), the Scribe's page (Now and History, with the sections that fit the topic), then
+ * two lists Takode keeps from the topic's records: the newest artifacts with a link to all of them in
+ * the gallery, and every quest of the topic (folded until opened). Every section but the questions
+ * folds at its heading. Rename, merge and the user's requests for the page sit in a menu;
+ * corrections go through the leader.
  */
 
 const REFRESH_MS = 20_000;
@@ -62,6 +64,7 @@ export function TopicView({
   const [notice, setNotice] = useState<string | null>(null);
   const loadedFor = useRef<string | null>(null);
   const { questionsOf, openQuestion } = useTopicQuestions();
+  const sections = useCollapsedSections(id);
   // Pages show local images inline, re-read each minute: monitors rewrite plots in place. A stable
   // value spares the page's Markdown a re-render on every refresh of the panel.
   const refreshKey = String(Math.floor(Date.now() / IMAGE_REFRESH_MS));
@@ -109,7 +112,8 @@ export function TopicView({
     );
   }
   const { lead, body } = splitPage(detail.page);
-  const open = (detail.quests ?? []).filter((quest) => quest.status !== "done");
+  const quests = [...(detail.quests ?? [])].sort((a, b) => (b.changedAt ?? 0) - (a.changedAt ?? 0));
+  const open = quests.filter((quest) => quest.status !== "done");
   const questions = questionsOf(detail.questIds);
   return (
     <TopicFrame onBack={onBack} embedded={embedded}>
@@ -215,18 +219,17 @@ export function TopicView({
         )}
 
         {open.length > 0 && (
-          <section className="mt-4" data-testid="topic-open-quests">
-            <h3 className="mb-1 text-[11px] uppercase tracking-wide text-cc-muted">Open quests</h3>
-            <MarkdownContent
-              text={open
-                .map(
-                  (quest) =>
-                    `- [${quest.questId}](quest:${quest.questId}) ${quest.title} · ${statusLabel(quest.status)}`,
-                )
-                .join("\n")}
-              questLinkSurface="chat-feed"
-            />
-          </section>
+          <div className="mt-4">
+            <TopicSection
+              title="Open quests"
+              size="meta"
+              collapsed={sections.isCollapsed("Open quests")}
+              onToggle={() => sections.toggle("Open quests")}
+              testId="topic-open-quests"
+            >
+              <QuestList quests={open} />
+            </TopicSection>
+          </div>
         )}
 
         <div className="mt-3" data-testid="topic-page">
@@ -236,6 +239,7 @@ export function TopicView({
                 body={body}
                 entries={detail.now ?? []}
                 leaderId={leaderId}
+                sections={sections}
                 onDone={leaderId ? (id, done) => act(topicApi.nowDone(detail.id, id, leaderId, done)) : undefined}
               />
             </InlineLocalImagesContext.Provider>
@@ -245,31 +249,53 @@ export function TopicView({
         </div>
 
         {artifacts.items.length > 0 && (
-          <section className="mt-5" data-testid="topic-artifacts">
-            <div className="mb-1 flex items-baseline gap-2">
-              <h3 className="text-[11px] uppercase tracking-wide text-cc-muted">Latest artifacts</h3>
-              <button
-                type="button"
-                onClick={() =>
-                  openTopicLibrary(leaderId ?? null, { id: detail.id, name: detail.name, questIds: detail.questIds })
-                }
-                className="ml-auto text-[13px] text-cc-primary hover:underline"
-              >
-                All {artifacts.total} in the gallery ›
-              </button>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {artifacts.items.map((artifact) => (
-                <ArtifactCard
-                  key={artifact.id}
-                  artifact={artifact}
-                  showKind
-                  showSpace={false}
-                  onOpen={() => openLibraryArtifact(artifact.id)}
-                />
-              ))}
-            </div>
-          </section>
+          <div className="mt-5">
+            <TopicSection
+              title="Latest artifacts"
+              size="meta"
+              collapsed={sections.isCollapsed("Latest artifacts")}
+              onToggle={() => sections.toggle("Latest artifacts")}
+              testId="topic-artifacts"
+              aside={
+                <button
+                  type="button"
+                  onClick={() =>
+                    openTopicLibrary(leaderId ?? null, { id: detail.id, name: detail.name, questIds: detail.questIds })
+                  }
+                  className="text-[13px] text-cc-primary hover:underline"
+                >
+                  All {artifacts.total} in the gallery ›
+                </button>
+              }
+            >
+              <div className="grid grid-cols-3 gap-2">
+                {artifacts.items.map((artifact) => (
+                  <ArtifactCard
+                    key={artifact.id}
+                    artifact={artifact}
+                    showKind
+                    showSpace={false}
+                    onOpen={() => openLibraryArtifact(artifact.id)}
+                  />
+                ))}
+              </div>
+            </TopicSection>
+          </div>
+        )}
+
+        {quests.length > 0 && (
+          // Every quest of the topic, most recent first, for the rare time it's needed: folded until opened.
+          <div className="mt-5">
+            <TopicSection
+              title={`All quests · ${quests.length}`}
+              size="meta"
+              collapsed={sections.isCollapsed("All quests", true)}
+              onToggle={() => sections.toggle("All quests", true)}
+              testId="topic-all-quests"
+            >
+              <QuestList quests={quests} />
+            </TopicSection>
+          </div>
         )}
 
         <p className="mt-6 text-[12px] text-cc-muted">
@@ -289,51 +315,73 @@ function TopicPageBody({
   body,
   entries,
   leaderId,
+  sections,
   onDone,
 }: {
   body: string;
   entries: NowEntry[];
   leaderId?: string;
+  sections: ReturnType<typeof useCollapsedSections>;
   onDone?: (id: string, done: boolean) => void;
 }) {
   const [othersOpen, setOthersOpen] = useState(false);
-  const { first, rest } = splitLeadingSections(body);
+  const all = pageSections(body);
+  let leading = 0;
+  while (leading < all.length && isLeadingSection(all[leading]!)) leading += 1;
   const mine = entries.filter((entry) => !leaderId || !entry.leaderId || entry.leaderId === leaderId);
   const others = entries.filter((entry) => !mine.includes(entry));
+  const section = (part: (typeof all)[number], index: number) =>
+    part.title === null ? (
+      <MarkdownContent key={index} text={part.text} questLinkSurface="chat-feed" />
+    ) : (
+      <TopicSection
+        key={index}
+        title={plainText(part.title)}
+        collapsed={sections.isCollapsed(part.title)}
+        onToggle={() => sections.toggle(part.title!)}
+      >
+        <MarkdownContent text={part.text} questLinkSurface="chat-feed" />
+      </TopicSection>
+    );
   return (
     <>
-      {first && <MarkdownContent text={first} questLinkSurface="chat-feed" />}
+      {all.slice(0, leading).map(section)}
       {entries.length > 0 && (
-        <div className="mb-3" data-testid="topic-now">
-          <MarkdownContent text="## Now" />
-          <NowGroups entries={mine} onDone={onDone} />
-          {others.length > 0 && (
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={() => setOthersOpen((open) => !open)}
-                aria-expanded={othersOpen}
-                className="text-[13px] text-cc-muted hover:text-cc-fg"
-                data-testid="topic-now-others"
-              >
-                {othersOpen ? "▾" : "›"} From other leaders ({others.length})
-              </button>
-              {othersOpen && <NowGroups entries={others} onDone={onDone} showLeader />}
-            </div>
-          )}
+        <div className={sections.isCollapsed("Now") ? "" : "mb-3"} data-testid="topic-now">
+          <TopicSection title="Now" collapsed={sections.isCollapsed("Now")} onToggle={() => sections.toggle("Now")}>
+            <NowGroups entries={mine} onDone={onDone} />
+            {others.length > 0 && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => setOthersOpen((open) => !open)}
+                  aria-expanded={othersOpen}
+                  className="text-[13px] text-cc-muted hover:text-cc-fg"
+                  data-testid="topic-now-others"
+                >
+                  {othersOpen ? "▾" : "›"} From other leaders ({others.length})
+                </button>
+                {othersOpen && <NowGroups entries={others} onDone={onDone} showLeader />}
+              </div>
+            )}
+          </TopicSection>
         </div>
       )}
-      {rest && <MarkdownContent text={rest} questLinkSurface="chat-feed" />}
+      {all.slice(leading).map((part, index) => section(part, leading + index))}
     </>
   );
 }
 
-/** The page's leading Status and "Latest …" sections, which come before Now, and the rest. */
-function splitLeadingSections(body: string): { first: string; rest: string } {
-  const sections = body.split(/\n(?=## )/);
-  let count = 0;
-  while (count < sections.length && /^## +(Status|Latest\b.*)\s*$/m.test(sections[count]!.split("\n")[0]!)) count += 1;
-  return { first: sections.slice(0, count).join("\n"), rest: sections.slice(count).join("\n") };
+/** Quests as linked lines with their state, in the order given. */
+function QuestList({ quests }: { quests: NonNullable<TopicDetail["quests"]> }) {
+  return (
+    <MarkdownContent
+      text={quests
+        .map((quest) => `- [${quest.questId}](quest:${quest.questId}) ${quest.title} · ${statusLabel(quest.status)}`)
+        .join("\n")}
+      questLinkSurface="chat-feed"
+    />
+  );
 }
 
 /** Entries in the fixed groups, newest first within each; entries marked done follow, struck through. */

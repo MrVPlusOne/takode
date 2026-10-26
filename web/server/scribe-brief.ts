@@ -147,8 +147,9 @@ opens it for; Now follows it (or comes first); then sections the user asked for;
   last two weeks or so in full; condense older days to a line each, and drop what no longer matters.
 - Don't keep a list of past decisions: a decision that changes what is left goes in Now, one that
   changed something goes in History.
-- Don't list artifacts or quests just to list them: the panel shows the latest artifacts with a link
-  to the gallery, and the quest tabs group the quests. A Latest section links the few that matter.
+- Don't list artifacts or quests just to list them: Takode ends every page with the latest artifacts
+  (linking to the gallery) and a list of all the topic's quests. A Latest section links the few that
+  matter.
 - Link every line: messages as \`[message](session:N:index)\`, quests as \`[q-N](quest:q-N)\`,
   artifacts as \`[title](artifact:<id>)\`, using what \`takode scribe changes\` shows.
 - Quote the user only when the exact words matter, followed by the link to the message. Saving warns
