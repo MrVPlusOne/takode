@@ -49,8 +49,10 @@ export function useUnreadMessagesSeen({
     if (!enabled) return;
     const firstSeen = new Map<string, number>();
     const reported = new Set<string>();
+    // The message the "New" line sits above, chosen once per view; its element is marked again
+    // whenever the feed re-renders it (a window update can replace the element).
+    let newLineMessageId: string | null = null;
     let newLine: HTMLElement | null = null;
-    let newLinePlaced = false;
 
     const poll = () => {
       if (document.visibilityState === "hidden") {
@@ -58,17 +60,21 @@ export function useUnreadMessagesSeen({
         return;
       }
       const unread = (latest.current.notifications ?? []).filter(readsWhenSeen);
-      if (unread.length === 0) return;
       const feed = visibleFeed(sessionId, feedKey);
       if (!feed) return;
+      if (newLineMessageId && !newLine?.isConnected) {
+        newLine = messageElements(feed, new Set([newLineMessageId])).get(newLineMessageId) ?? null;
+        newLine?.setAttribute("data-unread-start", "true");
+      }
+      if (unread.length === 0) return;
       const elements = messageElements(feed, new Set(unread.map((notification) => notification.messageId!)));
-      if (!newLinePlaced && elements.size > 0) {
-        newLinePlaced = true;
+      if (!newLineMessageId && elements.size > 0) {
         // The oldest unread message this view shows: the reader starts there.
         const oldest = [...unread]
           .sort((a, b) => a.timestamp - b.timestamp)
           .find((notification) => elements.has(notification.messageId!));
-        newLine = oldest ? (elements.get(oldest.messageId!) ?? null) : null;
+        newLineMessageId = oldest?.messageId ?? null;
+        newLine = newLineMessageId ? (elements.get(newLineMessageId) ?? null) : null;
         newLine?.setAttribute("data-unread-start", "true");
       }
       const now = Date.now();

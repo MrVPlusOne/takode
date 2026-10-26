@@ -8,7 +8,7 @@ import { topicViewKey } from "../../shared/topic-thread-key.js";
 import { prepareZoom } from "./topic-zoom.js";
 import { useTopicTabTopics } from "./TopicTabList.js";
 import type { TopicSummary } from "../../shared/library-topics.js";
-import { useState } from "react";
+import { useLayoutEffect, useState, type MutableRefObject } from "react";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
@@ -18,7 +18,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
-import { ThreadTabGroupBar } from "./ThreadTabGroups.js";
+import { ThreadTabGroupBar, topicFirstTabOrder } from "./ThreadTabGroups.js";
 import { useLeaderTopics } from "../utils/leader-topics.js";
 import { readsWhenSeen } from "../hooks/use-unread-messages-seen.js";
 import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
@@ -144,6 +144,7 @@ export function ThreadTabRail({
   onSelectThread,
   onCloseThreadTab,
   threadStatuses,
+  tabOrderRef,
 }: {
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
@@ -152,6 +153,8 @@ export function ThreadTabRail({
   onSelectThread?: (threadKey: string) => void;
   onCloseThreadTab?: (threadKey: string) => void;
   threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
+  /** Filled with the topic-first bar's tab order (null for the status groups), for picking the tab after a close. */
+  tabOrderRef?: MutableRefObject<readonly string[] | null>;
 }) {
   const openThread = (threadKey: string) => {
     const target = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
@@ -211,6 +214,15 @@ export function ThreadTabRail({
   const currentTopicId =
     conversationTab && conversationTab === currentKey ? (leaderTopics?.map[currentKey]?.id ?? null) : null;
   const topicList = useTopicTabTopics(sessionId, !!leaderTopics, currentTopicId ?? "");
+  const topicOfQuest = leaderTopics
+    ? Object.fromEntries(Object.entries(leaderTopics.map).map(([questId, topic]) => [questId, topic.id]))
+    : null;
+  useLayoutEffect(() => {
+    if (!tabOrderRef) return;
+    tabOrderRef.current = topicOfQuest
+      ? topicFirstTabOrder(displayedTabs, topicList, topicOfQuest, currentThreadKey)
+      : null;
+  });
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
   const unreadIn = (questIds: readonly string[]) => {
     const members = new Set(questIds.map(normalizeThreadKey));
@@ -265,9 +277,7 @@ export function ThreadTabRail({
                 currentTopicId,
                 onOpen: openTopic,
                 unreadCountOf: (questIds) => unreadIn(questIds).length,
-                topicOfQuest: Object.fromEntries(
-                  Object.entries(leaderTopics.map).map(([questId, topic]) => [questId, topic.id]),
-                ),
+                topicOfQuest: topicOfQuest ?? {},
               }
             : undefined
         }

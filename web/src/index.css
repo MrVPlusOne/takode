@@ -307,17 +307,19 @@ html, body {
  * must not add another guide or repeat the standalone worker avatar gutter. */
 /*
  * "New" line above the first unread answer in a view (use-unread-messages-seen.ts), as in Slack:
- * a thin line with the word at its right end, in the space above the message.
+ * the message gets room above it for a thin line with the word at its right end, so the line
+ * never draws over the row above.
  */
 [data-unread-start="true"] {
   position: relative;
+  margin-top: 1.5rem;
 }
 [data-unread-start="true"]::before {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  top: -9px;
+  top: -0.75rem;
   border-top: 1px solid var(--color-cc-error);
   opacity: 0.7;
   pointer-events: none;
@@ -326,7 +328,7 @@ html, body {
   content: "New";
   position: absolute;
   right: 0;
-  top: -16px;
+  top: calc(-0.75rem - 7px);
   padding: 0 6px;
   font-size: 11px;
   line-height: 14px;

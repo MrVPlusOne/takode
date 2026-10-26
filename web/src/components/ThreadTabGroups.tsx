@@ -88,8 +88,16 @@ export function threadKeyToSelectAfterClosing(
   threadKey: string,
   tabs: readonly PrimaryThreadChip[],
   currentThreadKey: string,
+  /** The topic-first bar's order of quest tabs (`topicFirstTabOrder`), for leaders with topics on. */
+  topicFirstOrder?: readonly string[] | null,
 ): string {
   const closing = normalizeThreadKey(threadKey);
+  if (topicFirstOrder) {
+    const order = topicFirstOrder.filter((key) => tabs.some((tab) => normalizeThreadKey(tab.threadKey) === key));
+    const index = order.indexOf(closing);
+    if (index < 0) return MAIN_THREAD_KEY;
+    return order[index + 1] ?? order[index - 1] ?? MAIN_THREAD_KEY;
+  }
   const currentKey = normalizeThreadKey(currentThreadKey);
   const groups = groupThreadTabs(tabs.map((tab) => readOnScreen(tab, currentKey)));
   for (const group of Object.values(groups)) {
@@ -730,6 +738,35 @@ function CloseAllButton({
       {confirming ? `Close ${tabs.length} tabs?` : "Close all"}
     </button>
   );
+}
+
+/**
+ * The topic-first bar's quest tabs in the order it lists them: Working on, then each topic's
+ * other tabs in the order Topics lists the topics (newest change first within a topic), then the
+ * tabs under no topic. Closing a tab opens the next one in this order.
+ */
+export function topicFirstTabOrder(
+  tabs: readonly PrimaryThreadChip[],
+  topics: readonly TopicSummary[],
+  topicOfQuest: Readonly<Record<string, string>>,
+  currentThreadKey: string,
+): string[] {
+  const currentKey = normalizeThreadKey(currentThreadKey);
+  const questTabs = tabs.map((tab) => readOnScreen(tab, currentKey)).filter((tab) => !isMain(tab));
+  const working = workingOnTabs(questTabs);
+  const listed = new Set(working.map((tab) => normalizeThreadKey(tab.threadKey)));
+  const rest = [...questTabs]
+    .filter((tab) => !listed.has(normalizeThreadKey(tab.threadKey)))
+    .sort((left, right) => lastActivityAt(right) - lastActivityAt(left));
+  const topicRank = new Map(topics.map((topic, index) => [topic.id, index]));
+  const rankOf = (tab: PrimaryThreadChip) => {
+    const topicId = tab.questId ? topicOfQuest[tab.questId] : undefined;
+    return topicId !== undefined ? (topicRank.get(topicId) ?? topics.length) : topics.length + 1;
+  };
+  const byTopic = rest
+    .map((tab, index) => ({ tab, index }))
+    .sort((a, b) => rankOf(a.tab) - rankOf(b.tab) || a.index - b.index);
+  return [...working, ...byTopic.map(({ tab }) => tab)].map((tab) => normalizeThreadKey(tab.threadKey));
 }
 
 /**

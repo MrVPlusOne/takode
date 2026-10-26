@@ -9,7 +9,12 @@ const navigateToNotification = vi.hoisted(() => vi.fn());
 vi.mock("../utils/notification-navigation.js", () => ({ navigateToNotification }));
 import { useStore } from "../store.js";
 import type { SdkSessionInfo } from "../types.js";
-import { ThreadTabGroupBar, groupThreadTabs, threadKeyToSelectAfterClosing } from "./ThreadTabGroups.js";
+import {
+  ThreadTabGroupBar,
+  groupThreadTabs,
+  threadKeyToSelectAfterClosing,
+  topicFirstTabOrder,
+} from "./ThreadTabGroups.js";
 import { ThreadTabRail, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
 
@@ -105,6 +110,28 @@ describe("threadKeyToSelectAfterClosing", () => {
   it("opens the tab above when the closed tab was last, and Main when the group empties", () => {
     expect(threadKeyToSelectAfterClosing("q-33", tabs, "q-33")).toBe("q-30");
     expect(threadKeyToSelectAfterClosing("q-30", [tab("q-30", { completed: true }), tab("q-32")], "q-30")).toBe("main");
+  });
+
+  it("follows the topic-first bar's order with topics on: Working on, then Topics", () => {
+    // Working on lists q-40 (newest change first); Topics lists Relay (q-41, q-42) before Voice
+    // (q-43), then the quest under no topic (q-44). Closing opens the next tab in that order,
+    // the one before when it was last, and Main when none is left.
+    const topicTabs = [
+      tab("q-41", { completed: true, canClose: true, groupChangedAt: 300 }),
+      tab("q-43", { completed: true, canClose: true, groupChangedAt: 900 }),
+      tab("q-40", { groupChangedAt: 100 }),
+      tab("q-44", { completed: true, canClose: true, groupChangedAt: 50 }),
+      tab("q-42", { completed: true, canClose: true, groupChangedAt: 200 }),
+    ];
+    const topics = [
+      { id: "relay", questIds: ["q-41", "q-42"] },
+      { id: "voice", questIds: ["q-43"] },
+    ] as never[];
+    const order = topicFirstTabOrder(topicTabs, topics, { "q-41": "relay", "q-42": "relay", "q-43": "voice" }, "main");
+    expect(order).toEqual(["q-40", "q-41", "q-42", "q-43", "q-44"]);
+    expect(threadKeyToSelectAfterClosing("q-41", topicTabs, "q-41", order)).toBe("q-42");
+    expect(threadKeyToSelectAfterClosing("q-44", topicTabs, "q-44", order)).toBe("q-43");
+    expect(threadKeyToSelectAfterClosing("q-44", [tab("q-44")], "q-44", ["q-44"])).toBe("main");
   });
 
   it("files the tab on screen the way the bar shows it", () => {

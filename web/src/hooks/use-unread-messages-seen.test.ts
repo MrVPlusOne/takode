@@ -85,6 +85,33 @@ describe("useUnreadMessagesSeen", () => {
     expect(onSeen.mock.calls).toEqual([["a1"]]);
   });
 
+  it("keeps the New line when the feed replaces the message's element, after it was read", () => {
+    // A window update can re-render the message as a new element: the line follows it, and it
+    // stays after the message is read, until the view changes.
+    const elements = mountFeed("q-1", [{ id: "m-a1", top: 100 }]);
+    const notifications = [answer("a1", 1)];
+    const { rerender } = renderHook(
+      ({ list }) =>
+        useUnreadMessagesSeen({
+          sessionId: "leader",
+          feedKey: "q-1",
+          notifications: list,
+          enabled: true,
+          onSeen: vi.fn(),
+        }),
+      { initialProps: { list: notifications } },
+    );
+    const replacement = elements["m-a1"]!.cloneNode() as HTMLElement;
+    replacement.removeAttribute("data-unread-start");
+    replacement.getBoundingClientRect = () => rect(100, 100);
+    elements["m-a1"]!.replaceWith(replacement);
+    rerender({ list: [{ ...notifications[0]!, done: true }] });
+    act(() => {
+      vi.advanceTimersByTime(SEEN_DWELL_MS);
+    });
+    expect(replacement.getAttribute("data-unread-start")).toBe("true");
+  });
+
   it("restarts the wait when the message leaves the screen, and removes the New line with the view", () => {
     const elements = mountFeed("q-1", [{ id: "m-a1", top: 100 }]);
     const onSeen = vi.fn();

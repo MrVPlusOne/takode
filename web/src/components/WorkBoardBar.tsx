@@ -553,9 +553,16 @@ function WorkBoardBarComponent({
         ? null
         : activeView;
 
+  // The topic-first bar's order, which the rail fills in: closing follows Working on, then Topics.
+  const tabOrderRef = useRef<readonly string[] | null>(null);
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);
-    const nextThreadKey = threadKeyToSelectAfterClosing(normalized, displayedThreadTabs, currentThreadKey);
+    const nextThreadKey = threadKeyToSelectAfterClosing(
+      normalized,
+      displayedThreadTabs,
+      currentThreadKey,
+      tabOrderRef.current,
+    );
     onCloseThreadTab?.(normalized, nextThreadKey);
   };
   // The quest strip's close button closes through here too, so every close picks the next
@@ -578,6 +585,7 @@ function WorkBoardBarComponent({
         onSelectThread={onSelectThread}
         onCloseThreadTab={onCloseThreadTab ? handleCloseThreadTab : undefined}
         threadStatuses={threadStatuses}
+        tabOrderRef={tabOrderRef}
       />
 
       {showMainBanner && !hideThreadStrip && (
