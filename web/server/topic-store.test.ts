@@ -854,6 +854,68 @@ describe("topic service", () => {
     expect(injected).toHaveLength(2);
   });
 
+  it("counts pages rewritten before a reminder as rewritten", async () => {
+    // After the Oct 26 restart a Scribe rewrote 3 pages, was reminded of the other 29, rewrote those,
+    // and its leader was still told it stopped twice: the reminder restarted the clock, so the 3
+    // pages from before it looked unwritten. Work counts from the request itself.
+    const { service, injected, notices, store } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    store.assign({ questId: "q-2", space: "MSI", name: "Twin", by: "agent", byAgent: true, leaderId: "leader" });
+    store.setPageFormat("leader", PAGE_FORMAT - 1);
+    service.askOutdatedScribes();
+    await vi.advanceTimersByTimeAsync(0);
+    injected.length = 0;
+    const rewrite = (name: string) => {
+      vi.advanceTimersByTime(10);
+      now = Date.now(); // the store's clock, which stamps when the page was checked
+      store.markCovered(store.findByName("MSI", name)!.id, Date.now(), "leader");
+      vi.advanceTimersByTime(10); // the turn ends a little after the page was saved
+    };
+
+    rewrite("T7 run");
+    await service.scribeTurnEnded(scribe);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain('1 page isn\'t rewritten yet: "Twin"');
+
+    rewrite("Twin");
+    await service.scribeTurnEnded(scribe);
+    expect(notices).toHaveLength(0);
+    expect(store.pageFormat("leader")).toBe(PAGE_FORMAT);
+  });
+
+  it("clears a Scribe's stopped state once a later turn leaves nothing of the request", async () => {
+    // A Scribe that stopped twice may finish later, on its own or asked by its leader, in a turn
+    // that answers no message of Takode's. Its status said "Stopped before finishing" until the
+    // next message went; now the next finished turn checks again.
+    const { service, injected, notices, store } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    store.setPageFormat("leader", PAGE_FORMAT - 1);
+    service.askOutdatedScribes();
+    await vi.advanceTimersByTimeAsync(0);
+    await service.scribeTurnEnded(scribe);
+    await service.scribeTurnEnded(scribe);
+    expect(notices).toHaveLength(1);
+    expect((await service.activity("leader")).text).toBe("Stopped before finishing; your leader was told");
+
+    // A turn that still leaves the page keeps the state.
+    await service.scribeTurnEnded(scribe);
+    expect((await service.activity("leader")).text).toBe("Stopped before finishing; your leader was told");
+
+    vi.advanceTimersByTime(10);
+    now = Date.now();
+    store.markCovered(store.findByName("MSI", "T7 run")!.id, Date.now(), "leader");
+    const sent = injected.length;
+    await service.scribeTurnEnded(scribe);
+    expect((await service.activity("leader")).text).toBe("Up to date");
+    expect(store.pageFormat("leader")).toBe(PAGE_FORMAT);
+    // Nothing more is sent or told for it.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(sent);
+    expect(notices).toHaveLength(1);
+  });
+
   it("sends a request again after a failed turn, waiting longer each time, and tells the leader once", async () => {
     // A Scribe whose backend fails at once (no login, an outage) used to be sent its message again
     // at once, over a thousand turns in ten minutes. Now each failure in a row doubles the wait,

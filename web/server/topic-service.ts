@@ -116,7 +116,10 @@ const FAILURES_BEFORE_NOTICE = 3;
 
 /** A message the Scribe got and has not finished a turn on yet. */
 interface Delivery {
+  /** When it, or its reminder or resend, last went: a turn that never ends stops blocking after a while. */
   sentAt: number;
+  /** When the message first went. Work done since counts toward it, also work done before a reminder. */
+  askedAt: number;
   purpose: "initialize" | "update";
   /** The message, sent again when the turn that took it was interrupted or failed. */
   text: string;
@@ -138,8 +141,11 @@ export class TopicService {
   private awaiting = new Map<string, Delivery>();
   /** Per leader: topics the user asked to have updated now, sent with the next message. */
   private forced = new Map<string, Set<string>>();
-  /** Per leader: what was left when the Scribe stopped again after a reminder (shown in its status). */
-  private stalled = new Map<string, string[]>();
+  /**
+   * Per leader: the message its Scribe stopped on again after a reminder (shown in its status), until
+   * a later finished turn leaves nothing of it or a new message goes.
+   */
+  private stalled = new Map<string, Delivery>();
   /**
    * Per leader whose Scribe's last turns failed: how many in a row, when it is tried again, the
    * message to send again then, and whether the leader was told. Without a wait, a Scribe whose
@@ -439,6 +445,7 @@ export class TopicService {
       );
       this.awaiting.set(leaderId, {
         sentAt: this.now(),
+        askedAt: this.now(),
         purpose: "initialize",
         text,
         rewrite: false,
@@ -520,6 +527,7 @@ export class TopicService {
       : [...new Set([...forcedNames, ...topics.map((topic) => topic.name)])];
     this.awaiting.set(leaderId, {
       sentAt: this.now(),
+      askedAt: this.now(),
       purpose: "update",
       text,
       rewrite: rewritePages,
@@ -575,16 +583,25 @@ export class TopicService {
         return;
       }
       if (left.length) {
-        this.stalled.set(leaderId, left);
+        this.stalled.set(leaderId, delivery);
         this.deps.notifyLeader(leaderId, leaderNotice(this.deps.sessionNum(sessionId), left));
       } else {
-        this.stalled.delete(leaderId);
-        // The pages are rewritten only once the Scribe has actually done it.
-        if (delivery.rewrite) this.store.setPageFormat(leaderId, PAGE_FORMAT);
+        this.settled(leaderId, delivery);
       }
+    } else {
+      // A Scribe that stopped may finish later, on its own or asked by its leader.
+      const stall = this.stalled.get(leaderId);
+      if (stall && !(await this.workLeft(leaderId, stall)).length) this.settled(leaderId, stall);
     }
     this.deps.broadcastChanged();
     await this.deliver(leaderId);
+  }
+
+  /** Everything a message asked for is done. */
+  private settled(leaderId: string, delivery: Delivery): void {
+    this.stalled.delete(leaderId);
+    // The pages are rewritten only once the Scribe has actually done it.
+    if (delivery.rewrite) this.store.setPageFormat(leaderId, PAGE_FORMAT);
   }
 
   /**
@@ -630,8 +647,9 @@ export class TopicService {
       return done === 0 && total > 0 ? [`none of ${total} recent quests is under a topic yet`, ...pageless] : pageless;
     }
     if (delivery.rewrite) {
-      // A page confirmed as already current (`--unchanged`) counts as rewritten.
-      const stale = topics.filter((topic) => this.store.pageTouchedAt(topic.id) < delivery.sentAt);
+      // A page confirmed as already current (`--unchanged`) counts as rewritten, whenever it was
+      // done after the request: a page rewritten before a reminder stays rewritten.
+      const stale = topics.filter((topic) => this.store.pageTouchedAt(topic.id) < delivery.askedAt);
       if (stale.length) {
         return [
           `${stale.length} page${stale.length === 1 ? " isn't" : "s aren't"} rewritten yet: ${stale
