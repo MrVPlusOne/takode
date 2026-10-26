@@ -1,5 +1,7 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
+import { useStore } from "../../store.js";
 import { useKnownTopicBrief } from "../../utils/leader-topics.js";
+import { sendToSession } from "../../ws.js";
 import { openTopicInPanel } from "../../utils/topic-panel.js";
 import { TopicIcon } from "./library-icons.js";
 import { useQuestTopic } from "./TopicSidePanel.js";
@@ -16,6 +18,34 @@ export function useTopicConversation(leaderId: string, threadKey: string): Topic
   const brief = useKnownTopicBrief(leaderId, topic?.id);
   if (!topic || !brief || brief.questIds.length === 0) return null;
   return { topicId: topic.id, name: brief.name, questIds: brief.questIds };
+}
+
+/**
+ * Keeps an open topic conversation in step with its quests. Its view key names the topic, so a
+ * quest joining or leaving changes no key; when the quests known for the topic change and differ
+ * from those its latest window was built with, the window is asked for again. A reader paging
+ * through older messages keeps their place; the view catches up when they return to the latest.
+ */
+export function useTopicWindowFollowsQuests(sessionId: string, viewKey: string | null, questIds: readonly string[]) {
+  const questsKey = questIds
+    .map((id) => id.toLowerCase())
+    .sort()
+    .join(",");
+  useEffect(() => {
+    if (!viewKey) return;
+    const window = useStore.getState().threadWindows.get(sessionId)?.get(viewKey);
+    if (!window?.topic_members || window.has_newer_items) return;
+    if ([...window.topic_members].sort().join(",") === questsKey) return;
+    sendToSession(sessionId, {
+      type: "thread_window_request",
+      thread_key: viewKey,
+      from_item: -1,
+      item_count: window.item_count,
+      section_item_count: window.section_item_count,
+      visible_item_count: window.visible_item_count,
+      activate_view: true,
+    });
+  }, [sessionId, viewKey, questsKey]);
 }
 
 /**

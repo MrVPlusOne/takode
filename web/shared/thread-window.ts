@@ -27,7 +27,7 @@ import {
   parseCommandThreadComment,
   parseThreadTextPrefix,
 } from "./thread-routing.js";
-import { topicThreadMembers } from "./topic-thread-key.js";
+import { isTopicViewKey } from "./topic-thread-key.js";
 import { LEADER_THREAD_RESPONSE_VERSION } from "../server/leader-thread-response-types.js";
 
 export const MAIN_THREAD_KEY = "main";
@@ -50,6 +50,8 @@ export interface BuildThreadWindowInput {
    * whose turns are in the window, because building it reads the whole history.
    */
   memberResponseProjection?: (questId: string) => LeaderThreadResponseProjection | undefined;
+  /** For a topic conversation's view key: its quests, as the server's topic store says now. */
+  topicMembers?: readonly string[];
 }
 
 interface FeedItem {
@@ -95,13 +97,18 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     1,
     Math.floor(input.itemCount || getThreadWindowItemCount(visibleItemCount, sectionItemCount)),
   );
-  const members = topicThreadMembers(threadKey);
+  const members = isTopicViewKey(threadKey) ? (input.topicMembers ?? []) : null;
   const memberItems = members
     ? buildQuestThreadFeedItemsByThread(input.messageHistory, members, input.includeMessage)
     : undefined;
-  const items = memberItems
-    ? buildTopicConversationItems(memberItems, input.messageHistory, input.includeMessage)
-    : buildThreadConversationItems(input.messageHistory, threadKey, input.includeMessage);
+  const items = withSentFromViewItems(
+    memberItems
+      ? buildTopicConversationItems(memberItems, input.messageHistory, input.includeMessage)
+      : buildThreadConversationItems(input.messageHistory, threadKey, input.includeMessage),
+    input.messageHistory,
+    threadKey,
+    input.includeMessage,
+  );
   const ranges = buildVisibleConversationRanges(items);
   const totalItems = ranges.length;
   const requestedFromItem = Math.floor(input.fromItem);
@@ -958,17 +965,30 @@ function buildThreadConversationItems(
   threadKey: string,
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): FeedItem[] {
-  const members = topicThreadMembers(threadKey);
-  if (members) {
-    return buildTopicConversationItems(
-      buildQuestThreadFeedItemsByThread(messages, members, includeMessage),
-      messages,
-      includeMessage,
-    );
-  }
   const items = buildFeedItems(messages, threadKey, includeMessage);
   if (threadKey === ALL_THREADS_KEY) return items;
   return dedupeFeedItems(addTurnClosingResults(items, messages, includeMessage));
+}
+
+/**
+ * A message the user sent from a view stays in that view, wherever the leader files it later: it
+ * appears at once where it was written. Main already shows what was written there.
+ */
+function withSentFromViewItems(
+  items: FeedItem[],
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  viewKey: string,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): FeedItem[] {
+  if (viewKey === MAIN_THREAD_KEY || viewKey === ALL_THREADS_KEY) return items;
+  const included = new Set(items.map((item) => item.order));
+  const added: FeedItem[] = [];
+  messages.forEach((message, index) => {
+    if (included.has(index) || (includeMessage && !includeMessage(message, index))) return;
+    if (message.type !== "user_message" || message.sentFromView !== viewKey) return;
+    added.push({ order: index, entry: { message, history_index: index } });
+  });
+  return added.length ? dedupeFeedItems([...items, ...added]) : items;
 }
 
 /** A topic conversation is its quests' threads merged in time order. */
@@ -1682,6 +1702,23 @@ function normalizedRouteKeys(message: BrowserIncomingMessage, includeBackfill: b
 
 function messageHasThreadRef(message: BrowserIncomingMessage, threadKey: string): boolean {
   return normalizedRouteKeys(message, true).has(normalizeSelectedFeedThreadKey(threadKey));
+}
+
+/**
+ * The threads a message belongs to by its own routing, exactly as thread windows place it: Main
+ * unless it is routed elsewhere, and every quest it is routed or attached to. Attachment and
+ * transition markers belong to no thread (Main shows them as summaries of their own). Null for a
+ * message that carries no routing at all, whose thread only its context can tell (the turn it
+ * streamed in, the tool it answers).
+ */
+export function messageThreadKeys(message: BrowserIncomingMessage): string[] | null {
+  if (message.type === "thread_attachment_marker" || message.type === "thread_transition_marker") return [];
+  const quests = [...normalizedRouteKeys(message, true)];
+  const main = !hasExplicitNonMainRoute(message);
+  if (quests.length === 0 && !message.threadKey && leaderResponseOriginalThreadKey(message) !== MAIN_THREAD_KEY) {
+    return null;
+  }
+  return main ? [MAIN_THREAD_KEY, ...quests] : quests;
 }
 
 function hasExplicitNonMainRoute(message: BrowserIncomingMessage): boolean {

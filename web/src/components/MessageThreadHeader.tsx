@@ -1,9 +1,8 @@
-import { topicThreadMembers } from "../../shared/topic-thread-key.js";
 import { createContext } from "react";
 import type { ChatMessage } from "../types.js";
 import { leaderMessageThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
-import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
+import { isAllThreadsKey, normalizeThreadKey, threadViewShows } from "../utils/thread-projection.js";
 
 /**
  * Set by a row that renders a message's header line itself (answer rows), so
@@ -35,8 +34,7 @@ export function getMessageThreadLinkKey(message: ChatMessage, currentThreadKey?:
   const threadKey = getMessageThreadKey(message);
   if (!threadKey || !currentThreadKey || isAllThreadsKey(currentThreadKey)) return threadKey;
   // In a topic conversation the quest strip in the feed already names each message's quest.
-  if (topicThreadMembers(currentThreadKey)?.includes(threadKey)) return null;
-  return threadKey === normalizeThreadKey(currentThreadKey) ? null : threadKey;
+  return threadViewShows(currentThreadKey, threadKey) ? null : threadKey;
 }
 
 /**

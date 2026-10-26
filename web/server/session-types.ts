@@ -426,6 +426,8 @@ export interface ThreadAttachmentMarker {
   count: number;
   firstMessageId?: string;
   firstMessageIndex?: number;
+  /** In live updates: the views the marker belongs to. */
+  viewKeys?: string[];
 }
 
 export interface ThreadAttachmentMovementSummary {
@@ -440,6 +442,8 @@ export interface ThreadAttachmentUpdateChangedMessage {
   historyIndex: number;
   messageId: string;
   threadRefs: ThreadRef[];
+  /** The views the message now belongs to, replacing those it was first sent with. */
+  viewKeys?: string[];
 }
 
 export interface ThreadAttachmentUpdateEntry {
@@ -645,6 +649,8 @@ export type BrowserOutgoingMessage =
       threadKey?: string;
       questId?: string;
       threadRefs?: ThreadRef[];
+      /** The view the user sent it from, such as a topic conversation, where it shows at once. */
+      viewKey?: string;
       /** Side Chat branch backed by a hidden child backend session. Persisted as slackThreadId for compatibility. */
       slackThreadId?: string;
       /** Present when the message was injected programmatically (e.g. via takode CLI or cron). */
@@ -1187,6 +1193,8 @@ export type BrowserIncomingMessageBase =
       threadKey?: string;
       questId?: string;
       threadRefs?: ThreadRef[];
+      /** A topic conversation the user sent it from: it stays in that view wherever it is filed. */
+      sentFromView?: string;
       slackThreadId?: string;
       threadRoutingError?: ThreadRoutingError;
       takodeHerdEventKeys?: string[];

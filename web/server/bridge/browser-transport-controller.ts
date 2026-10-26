@@ -1,4 +1,4 @@
-import { topicThreadMembers } from "../../shared/topic-thread-key.js";
+import { topicViewMembers } from "../topic-views.js";
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { isInactiveCodexRecoverySource } from "./codex-interrupted-turn-recovery.js";
 import { randomUUID } from "node:crypto";
@@ -69,6 +69,7 @@ import {
   recordBoundedConversationRequest,
   recordBoundedConversationViewUpdate,
   shouldDeliverBrowserEventToSocket,
+  withMessageViewKeys,
   type BoundedConversationView,
   type BrowserConversationWindowSocketData,
 } from "./browser-conversation-window-policy.js";
@@ -1282,7 +1283,8 @@ export function sendThreadWindowSync(
   );
   const threadKey = normalizeSelectedFeedThreadKey(options.threadKey);
   // A topic conversation keeps each quest's own answer state.
-  const members = topicThreadMembers(threadKey);
+  // A topic conversation's quests, as the topic store says now; each keeps its own answer state.
+  const members = topicViewMembers(threadKey);
   const responseState = members ? null : buildLeaderThreadResponseState(session, threadKey);
   // The quests of a topic share one reading of the history for their answer state.
   const memberResponseStates = members ? buildLeaderThreadResponseStates(session) : null;
@@ -1302,8 +1304,10 @@ export function sendThreadWindowSync(
       includeMessage: isRootAgentHistoryMessage,
       currentThreadResponseProjection: responseState?.projection,
       memberResponseProjection,
+      ...(members ? { topicMembers: members } : {}),
     });
     sync.entries = projectArtifactsInThreadEntries(session.id, sync.entries);
+    if (members) sync.window = { ...sync.window, topic_members: members };
     return sync;
   };
   // A jump shows the target and what surrounds it while the rest is built, sent and rendered,
@@ -1514,6 +1518,7 @@ export function broadcastToBrowsers(
   if (msg.type === "board_updated") msg = projectBoardUpdateForBrowsers(session, msg);
   msg = projectFeedAttentionUpdateForBrowsers(session, msg);
   msg = attachRecentHistoryIndex(session.messageHistory, msg);
+  msg = withMessageViewKeys(session, msg);
   if (session.browserSockets.size === 0 && msg.type === "result") {
     console.log(
       `[ws-bridge] ⚠ Broadcasting result to 0 browsers for session ${sessionTag(session.id)} (stored in history: true)`,

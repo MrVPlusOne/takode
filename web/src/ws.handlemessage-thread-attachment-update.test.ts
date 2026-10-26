@@ -212,6 +212,36 @@ async function expectMalformedRecovery(input: { payload: unknown; recoveryReason
 }
 
 describe("handleMessage: thread_attachment_update", () => {
+  it("replaces a moved message's views with the server's new list", async () => {
+    // A live message carries the views it belongs to; once the leader files it elsewhere, those
+    // views come with the update, so it shows in its new quest and topic at once.
+    const { filterMessagesForThread } = await import("./utils/thread-projection.js");
+    connectAndHydrateSession();
+    useStore.getState().setMessages(
+      "s1",
+      [
+        {
+          id: "u2",
+          role: "user",
+          content: "move me",
+          timestamp: 1001,
+          historyIndex: 1,
+          metadata: { viewKeys: ["main"] },
+        },
+      ],
+      { frozenCount: 1 },
+    );
+    const update = threadAttachmentUpdate();
+    update.updates[0]!.changedMessages[0]!.viewKeys = ["main", "q-1087", "topic:t1"];
+    update.updates[0]!.markers[0]!.viewKeys = [];
+    fireMessage(update);
+
+    const messages = useStore.getState().messages.get("s1")!;
+    expect(messages.find((message) => message.id === "u2")?.metadata?.viewKeys).toEqual(["main", "q-1087", "topic:t1"]);
+    expect(filterMessagesForThread(messages, "topic:t1").map((message) => message.id)).toEqual(["u2"]);
+    expect(filterMessagesForThread(messages, "q-2").map((message) => message.id)).toEqual([]);
+  });
+
   it("patches visible threadRefs, appends movement markers, invalidates windows, and requests bounded refreshes", async () => {
     connectAndHydrateSession();
     useStore.getState().setMessages(

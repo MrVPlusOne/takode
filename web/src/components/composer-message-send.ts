@@ -9,7 +9,7 @@ import { nextPendingUploadId } from "./composer-image-utils.js";
 export function sendComposerDraft(
   sessionId: string,
   draft: ComposerDraft,
-  route: { threadKey: string; questId?: string; vscodeSelection?: VsCodeSelectionContextPayload },
+  route: { threadKey: string; questId?: string; viewKey?: string; vscodeSelection?: VsCodeSelectionContextPayload },
   isCodex: boolean,
 ): "sent" | "retained" | "failed" {
   const store = useStore.getState();
@@ -28,6 +28,8 @@ export function sendComposerDraft(
     ...(route.vscodeSelection ? { vscodeSelection: route.vscodeSelection } : {}),
     threadKey: route.threadKey,
     ...(route.threadKey !== "main" ? { questId: route.questId ?? route.threadKey } : {}),
+    // The view it was sent from shows it at once (the server keeps this for topic conversations).
+    ...(route.viewKey ? { viewKey: route.viewKey } : {}),
   };
   const ownsPending = isCodex || draft.images.length > 0 || !!draft.annotations?.length;
   const pendingId = ownsPending ? nextPendingUploadId() : undefined;

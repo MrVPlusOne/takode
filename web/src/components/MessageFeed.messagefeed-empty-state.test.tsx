@@ -588,6 +588,7 @@ describe("MessageFeed - empty state", () => {
         cancelable: true,
         threadKey: "q-1546",
         questId: "q-1546",
+        viewKeys: ["q-1546"],
       },
     ]);
 
@@ -610,6 +611,7 @@ describe("MessageFeed - empty state", () => {
         cancelable: true,
         threadKey: "q-1546",
         questId: "q-1546",
+        viewKeys: ["q-1546"],
       },
     ]);
 
@@ -632,6 +634,7 @@ describe("MessageFeed - empty state", () => {
         cancelable: true,
         threadKey: "q-1546",
         questId: "q-1546",
+        viewKeys: ["q-1546"],
       },
     ]);
 
@@ -654,6 +657,7 @@ describe("MessageFeed - empty state", () => {
         cancelable: true,
         threadKey: "q-1546",
         questId: "q-1546",
+        viewKeys: ["q-1546"],
       },
     ]);
 

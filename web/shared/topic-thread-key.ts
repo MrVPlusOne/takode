@@ -1,27 +1,27 @@
 /**
- * A topic conversation: the feed of several quest threads of one leader stitched into one, in
- * time order. Its thread key names the member quests itself (`topic:q-2838+q-2839`), so the
- * server builds its windows and the browser filters its live messages without asking which quests
- * a topic holds.
+ * A topic conversation: the threads of a topic's quests read as one conversation (a quest tab
+ * zoomed out to its topic). Its view key names the topic (`topic:<topic id>`), not its quests, so
+ * it stays the same while quests join or leave the topic. Which quests a topic holds is the
+ * server's to say: it builds the view's windows and decides which messages belong to it, and sends
+ * the browser that membership with each window and message.
  */
 
 const PREFIX = "topic:";
 
-/** The thread key of a conversation over these quests (oldest quest first). */
-export function topicThreadKey(questIds: readonly string[]): string {
-  const ids = [...new Set(questIds.map((id) => id.toLowerCase()))].sort(
-    (a, b) => Number(a.slice(2)) - Number(b.slice(2)),
-  );
-  return `${PREFIX}${ids.join("+")}`;
+/** The view key of a topic's conversation. */
+export function topicViewKey(topicId: string): string {
+  return `${PREFIX}${topicId.trim().toLowerCase()}`;
 }
 
-/** The member quests of a topic conversation's thread key; null for any other key. */
-export function topicThreadMembers(threadKey: string): string[] | null {
-  const key = threadKey.trim().toLowerCase();
+/** The topic a view key names; null for any other view key. */
+export function topicIdOfViewKey(viewKey: string): string | null {
+  const key = viewKey.trim().toLowerCase();
   if (!key.startsWith(PREFIX)) return null;
-  const members = key
-    .slice(PREFIX.length)
-    .split("+")
-    .filter((id) => /^q-\d+$/.test(id));
-  return members.length ? members : null;
+  const id = key.slice(PREFIX.length);
+  return /^[\w-]+$/.test(id) ? id : null;
+}
+
+/** Whether a view key is a topic conversation's. */
+export function isTopicViewKey(viewKey: string): boolean {
+  return topicIdOfViewKey(viewKey) !== null;
 }

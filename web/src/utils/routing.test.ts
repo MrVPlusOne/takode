@@ -38,6 +38,7 @@ import {
   withSecondaryPageInHash,
 } from "./routing.js";
 import { useStore } from "../store.js";
+import { rememberTopicViewMembers } from "./thread-projection.js";
 
 describe("parseHash", () => {
   it("returns home for empty string", () => {
@@ -712,11 +713,12 @@ describe("routeLeavesFeed", () => {
   // A jump to a message is for the feed the route opens: a feed that the route leaves must not
   // take it, even when it shows the same message (a quest's message is also in its topic).
   it("says whether the route moved this session to another feed", () => {
+    rememberTopicViewMembers("topic:t1", ["q-1", "q-2"]);
     window.location.hash = "#/session/s1?thread=q-2&topic=1";
-    expect(routeLeavesFeed("s1", "topic:q-1+q-2")).toBe(false);
+    expect(routeLeavesFeed("s1", "topic:t1")).toBe(false);
     expect(routeLeavesFeed("s1", "q-2")).toBe(true);
     window.location.hash = "#/session/s1/msg/m-1?thread=main";
-    expect(routeLeavesFeed("s1", "topic:q-1+q-2")).toBe(true);
+    expect(routeLeavesFeed("s1", "topic:t1")).toBe(true);
     expect(routeLeavesFeed("s1", "main")).toBe(false);
     // Another session, or a route without a thread, leaves this feed alone.
     expect(routeLeavesFeed("s2", "q-2")).toBe(false);

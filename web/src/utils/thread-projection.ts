@@ -12,7 +12,7 @@ import {
   normalizeThreadTarget,
 } from "../../shared/thread-routing.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
-import { topicThreadMembers } from "../../shared/topic-thread-key.js";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { leaderResponseOriginalThreadKey } from "../../shared/leader-thread-response-routing.js";
 
 export const MAIN_THREAD_KEY = "main";
@@ -26,11 +26,21 @@ export function isMainThreadKey(threadKey: string): boolean {
   return normalizeThreadKey(threadKey) === MAIN_THREAD_KEY;
 }
 
-/** Whether a feed for `viewKey` shows `threadKey`'s work: the thread itself, or a topic conversation holding it. */
+/** A topic conversation's quests, as the server sent them with the view's latest window. */
+const topicViewMembers = new Map<string, readonly string[]>();
+
+export function rememberTopicViewMembers(viewKey: string, members: readonly string[]): void {
+  topicViewMembers.set(normalizeThreadKey(viewKey), members.map(normalizeThreadKey));
+}
+
+/**
+ * Whether a feed for `viewKey` shows `threadKey`'s work: the thread itself, or a topic
+ * conversation holding it (by the server's membership).
+ */
 export function threadViewShows(viewKey: string, threadKey: string): boolean {
   const view = normalizeThreadKey(viewKey);
   const thread = normalizeThreadKey(threadKey);
-  return view === thread || (topicThreadMembers(view)?.includes(thread) ?? false);
+  return view === thread || (topicViewMembers.get(view)?.includes(thread) ?? false);
 }
 
 export function isAllThreadsKey(threadKey: string): boolean {
@@ -462,28 +472,47 @@ export function formatThreadLabel(threadKey: string): string {
   return isMainThreadKey(threadKey) ? "Main" : `thread:${threadKey}`;
 }
 
+/**
+ * The messages a view shows. A message the server sent with its views (`viewKeys`, every live
+ * message) shows by that list alone, or as the status line it carries for a thread the view
+ * shows; others (history windows the server already chose, local fixtures) by the thread rules
+ * below. A topic conversation has no rules of its own.
+ */
 export function filterMessagesForThread(messages: ChatMessage[], threadKey: string): ChatMessage[] {
   if (isAllThreadsKey(threadKey)) return messages;
-  const members = topicThreadMembers(threadKey);
-  if (members) {
-    const included = new Set(members.flatMap((member) => filterQuestThreadMessages(messages, member)));
-    return messages.filter((message) => included.has(message));
+  const view = normalizeThreadKey(threadKey);
+  const shown: ChatMessage[] = [];
+  let run: ChatMessage[] = [];
+  const flushRun = () => {
+    if (run.length === 0 || isTopicViewKey(view)) {
+      run = [];
+      return;
+    }
+    shown.push(...(isMainThreadKey(view) ? filterMainThreadMessages(run) : filterQuestThreadMessages(run, view)));
+    run = [];
+  };
+  for (const message of messages) {
+    const viewKeys = message.metadata?.viewKeys;
+    if (!viewKeys) {
+      run.push(message);
+      continue;
+    }
+    flushRun();
+    const item = viewKeys.includes(view) ? message : statusOnlyForView(message, view);
+    if (item) shown.push(item);
   }
-  return isMainThreadKey(threadKey)
-    ? filterMainThreadMessages(messages)
-    : filterQuestThreadMessages(messages, normalizeThreadKey(threadKey));
+  flushRun();
+  return shown;
 }
 
-function pendingCodexInputOwnerKeys(input: PendingCodexInput): { mapped: boolean; keys: Set<string> } {
-  const directTarget = pendingThreadKey(input.threadKey, input.questId);
-  if (directTarget) return { mapped: true, keys: new Set([directTarget]) };
-
-  const keys = new Set<string>();
-  for (const ref of input.threadRefs ?? []) {
-    const refTarget = pendingThreadKey(ref.threadKey, ref.questId);
-    if (refTarget) keys.add(refTarget);
+/** The status line a message carries for a thread this view shows, if any. */
+function statusOnlyForView(message: ChatMessage, view: string): ChatMessage | null {
+  const threads = isTopicViewKey(view) ? (topicViewMembers.get(view) ?? []) : [view];
+  for (const thread of threads) {
+    const statusOnly = projectThreadStatusOnlyMessage(message, thread);
+    if (statusOnly) return statusOnly;
   }
-  return { mapped: keys.size > 0, keys };
+  return null;
 }
 
 function pendingThreadKey(threadKey?: string, questId?: string): string | null {
@@ -492,17 +521,16 @@ function pendingThreadKey(threadKey?: string, questId?: string): string | null {
   return (normalizeThreadTarget(threadKey ?? "") ?? normalizeThreadTarget(questId ?? ""))?.threadKey ?? null;
 }
 
+/**
+ * The queued inputs a view shows: by the views the server sent with each (where its message will
+ * show); an input with no known destination shows everywhere.
+ */
 export function filterPendingCodexInputsForThread(inputs: PendingCodexInput[], threadKey: string): PendingCodexInput[] {
   const target = normalizeThreadKey(threadKey);
   if (isAllThreadsKey(target)) return inputs;
-  return inputs.filter((input) => {
-    const owner = pendingCodexInputOwnerKeys(input);
-    if (!owner.mapped) return true;
-    return owner.keys.has(target);
-  });
+  return inputs.filter((input) => !input.viewKeys || input.viewKeys.includes(target));
 }
 
-/** Keep browser-local preparation scoped when known and globally visible otherwise. */
 export function filterPendingUserUploadsForThread(
   uploads: PendingUserUpload[],
   threadKey: string,
@@ -510,6 +538,8 @@ export function filterPendingUserUploadsForThread(
   const target = normalizeThreadKey(threadKey);
   if (isAllThreadsKey(target)) return uploads;
   return uploads.filter((upload) => {
+    // Shown in the view it was sent from, whatever thread it goes to.
+    if (upload.viewKey) return normalizeThreadKey(upload.viewKey) === target;
     const destination = pendingThreadKey(upload.threadKey, upload.questId);
     return destination === null || destination === target;
   });

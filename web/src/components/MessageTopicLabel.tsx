@@ -1,6 +1,6 @@
 import { useContext, useEffect } from "react";
 import { leaderMessageThreadKey, leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
-import { topicThreadMembers } from "../../shared/topic-thread-key.js";
+import { topicIdOfViewKey } from "../../shared/topic-thread-key.js";
 import type { ChatMessage } from "../types.js";
 import { loadLeaderTopics, useKnownQuestTopic } from "../utils/leader-topics.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
@@ -31,7 +31,7 @@ export function MessageTopicLabel({
   return <TopicLabel sessionId={sessionId} messageId={message.id} questId={questId} view={currentThreadKey} />;
 }
 
-/** The quest a message belongs to, unless the view on screen is that quest or a topic holding it. */
+/** The quest a message belongs to, unless the view on screen is that quest. */
 function useHomeQuest(message: Pick<ChatMessage, "id" | "metadata">, currentThreadKey?: string): string | null {
   const started = useContext(StartedQuestsContext)?.get(message.id);
   const metadata = message.metadata ?? {};
@@ -40,7 +40,7 @@ function useHomeQuest(message: Pick<ChatMessage, "id" | "metadata">, currentThre
   if (!questId) return null;
   const quest = normalizeThreadKey(questId);
   const view = normalizeThreadKey(currentThreadKey ?? "");
-  return view === quest || topicThreadMembers(view)?.includes(quest) ? null : quest;
+  return view === quest ? null : quest;
 }
 
 function TopicLabel({
@@ -67,8 +67,9 @@ function TopicLabel({
       console.warn("[library] Could not look up a message's topic:", error.message),
     );
   }, [sessionId, unknown]);
-  // Another quest of the topic on screen: the message is in its topic already.
-  if (topic && viewTopic && topic.id === viewTopic.id) return null;
+  // The topic on screen, or another quest of it: the message is in its topic already.
+  const viewTopicId = topicIdOfViewKey(view) ?? viewTopic?.id;
+  if (topic && viewTopicId && topic.id.toLowerCase() === viewTopicId.toLowerCase()) return null;
   return (
     <TopicLabelButton
       name={topic ? topic.name : questId}

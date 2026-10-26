@@ -291,6 +291,11 @@ export interface ChatMessage {
     threadRefs?: ThreadRef[];
     threadKey?: string;
     questId?: string;
+    /**
+     * Live messages: the views the server says this message belongs to (its threads, the topic
+     * conversations showing them, the view it was sent from). Views show it by this list alone.
+     */
+    viewKeys?: string[];
     slackThreadId?: string;
     threadAttachmentMarker?: ThreadAttachmentMarker;
     crossThreadActivityMarker?: {
@@ -383,6 +388,8 @@ export interface PendingUserUpload {
   vscodeSelection?: VsCodeSelectionMetadata;
   threadKey?: string;
   questId?: string;
+  /** The view it was sent from (a topic conversation, a quest tab), where it shows until delivered. */
+  viewKey?: string;
   prepared?: {
     deliveryContent: string;
     imageRefs: ImageRef[];

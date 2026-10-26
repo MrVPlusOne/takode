@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Turn } from "../hooks/use-feed-model.js";
 import type { ChatMessage } from "../types.js";
 import { filterMessagesForThread } from "../utils/thread-projection.js";
-import { topicThreadKey } from "../../shared/topic-thread-key.js";
+import { topicViewKey } from "../../shared/topic-thread-key.js";
+import { rememberTopicViewMembers } from "../utils/thread-projection.js";
 import { topicQuestsOfTurns } from "./topic-feed.js";
 import { getMessageThreadLinkKey } from "./MessageThreadHeader.js";
 
@@ -45,14 +46,25 @@ describe("topic feed", () => {
     expect(topicQuestsOfTurns(turns, quests)).toEqual(["q-3", "q-12", "q-12", "q-3"]);
   });
 
-  it("keeps live messages of any of its quests", () => {
-    const messages = [message("a", "q-3"), message("b"), message("c", "q-12"), message("d", "q-99")];
-    const kept = filterMessagesForThread(messages, topicThreadKey(["q-3", "q-12"])).map((item) => item.id);
-    expect(kept).toEqual(["a", "c"]);
+  it("keeps the live messages the server says belong to it, and nothing by rules of its own", () => {
+    // Every live message comes with the server's list of views; a topic conversation has no
+    // membership rules in the browser, so an unlisted message stays out.
+    const key = topicViewKey("t1");
+    const listed = (msg: ChatMessage, viewKeys: string[]) => ({ ...msg, metadata: { ...msg.metadata, viewKeys } });
+    const messages = [
+      listed(message("a", "q-3"), ["q-3", key]),
+      listed(message("b"), ["main"]),
+      listed(message("c", "q-12"), ["q-12", key]),
+      message("d", "q-12"),
+    ];
+    expect(filterMessagesForThread(messages, key).map((item) => item.id)).toEqual(["a", "c"]);
+    // A quest tab follows the same list, and old-style messages by the thread rules.
+    expect(filterMessagesForThread(messages, "q-12").map((item) => item.id)).toEqual(["c", "d"]);
   });
 
   it("labels only messages of other threads, since each quest's strip names its own", () => {
-    const key = topicThreadKey(["q-3", "q-12"]);
+    const key = topicViewKey("t1");
+    rememberTopicViewMembers(key, ["q-3", "q-12"]);
     expect(getMessageThreadLinkKey(message("a", "q-3"), key)).toBeNull();
     expect(getMessageThreadLinkKey(message("b", "main"), key)).toBe("main");
   });

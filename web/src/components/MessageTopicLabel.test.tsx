@@ -51,8 +51,9 @@ describe("MessageTopicLabel", () => {
     mockTopics();
     const { rerender } = render(<MessageTopicLabel message={MOVED} sessionId="l1" currentThreadKey="q-7" />);
     expect(screen.queryByTestId("message-topic-label")).toBeNull();
-    rerender(<MessageTopicLabel message={MOVED} sessionId="l1" currentThreadKey="topic:q-7+q-8" />);
-    expect(screen.queryByTestId("message-topic-label")).toBeNull();
+    rerender(<MessageTopicLabel message={MOVED} sessionId="l1" currentThreadKey="topic:t1" />);
+    await waitFor(() => expect(topicApi.questMap).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId("message-topic-label")).toBeNull());
     // Another quest of the same topic: hidden once both topics are known.
     rerender(<MessageTopicLabel message={MOVED} sessionId="l1" currentThreadKey="q-8" />);
     await waitFor(() => expect(topicApi.questMap).toHaveBeenCalled());

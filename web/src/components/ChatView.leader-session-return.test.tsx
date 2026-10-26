@@ -50,6 +50,7 @@ function createMockState() {
     setActiveTab: vi.fn(),
     changedFiles: new Map(),
     diffFileStats: new Map(),
+    threadWindows: new Map(),
     pendingPermissions: new Map(),
     connectionStatus: new Map([
       [LEADER_SESSION_ID, "connected" as const],
@@ -219,7 +220,7 @@ vi.mock("./session-participant-status.js", () => ({ useParticipantSessionStatusD
 import { ChatView } from "./ChatView.js";
 import { topicApi } from "../api/topics.js";
 import { closeTopicConversation, openTopicConversation } from "../utils/topic-conversation.js";
-import { topicThreadKey } from "../../shared/topic-thread-key.js";
+import { topicViewKey } from "../../shared/topic-thread-key.js";
 
 function RouteAwareChatView() {
   const hash = useSyncExternalStore(
@@ -280,7 +281,7 @@ describe("ChatView passive leader-session returns", () => {
     });
     act(() => openTopicConversation(LEADER_SESSION_ID, QUEST_ID));
     render(<RouteAwareChatView />);
-    const topicKey = topicThreadKey([QUEST_ID, "q-1945"]);
+    const topicKey = topicViewKey("t1");
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicKey));
     expect(readDisplayedLeaderThreadKey(LEADER_SESSION_ID)).toBe(topicKey);
     act(() => closeTopicConversation(LEADER_SESSION_ID));

@@ -1,6 +1,6 @@
-import { topicThreadMembers } from "../../shared/topic-thread-key.js";
+import { viewKeysOfRoutes } from "../topic-views.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
-import { MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from "../../shared/thread-window.js";
+import { MAIN_THREAD_KEY, messageThreadKeys, normalizeSelectedFeedThreadKey } from "../../shared/thread-window.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import type {
   ActiveTurnRoute,
@@ -373,12 +373,32 @@ export function shouldDeliverBrowserEventToSocket(
   if (!view) return false;
   if (view.kind === "history") return true;
   const selectedThreadKey = normalizeSelectedFeedThreadKey(view.request.threadKey);
-  const routeKeys = conversationRouteKeys(session, message);
-  if (selectedThreadKey === MAIN_THREAD_KEY) return routeKeys.size === 0 || routeKeys.has(MAIN_THREAD_KEY);
-  // A topic conversation shows its quests' live work as each quest's own tab would.
-  const members = topicThreadMembers(selectedThreadKey);
-  if (members) return members.some((member) => routeKeys.has(member));
-  return routeKeys.has(selectedThreadKey);
+  return messageViewKeys(session, message).includes(selectedThreadKey);
+}
+
+type ViewStampedMessage = BrowserIncomingMessage & { viewKeys?: string[] };
+
+/**
+ * The views a conversation message belongs to: Main or the quest threads it is routed to, the
+ * topic conversations showing those quests, and the topic conversation it was sent from. The
+ * server's one answer to "does this message belong in this view": live delivery uses it, and the
+ * browser gets it with each live message (`viewKeys`), so neither side has rules of its own for
+ * topic conversations.
+ */
+export function messageViewKeys(session: ConversationWindowSessionLike, message: BrowserIncomingMessage): string[] {
+  const stamped = (message as ViewStampedMessage).viewKeys;
+  if (stamped) return stamped;
+  const sentFrom = (message as { sentFromView?: unknown }).sentFromView;
+  return viewKeysOfRoutes(conversationRouteKeys(session, message), typeof sentFrom === "string" ? sentFrom : undefined);
+}
+
+/** A conversation message as sent to browsers: with the views it belongs to. */
+export function withMessageViewKeys(
+  session: ConversationWindowSessionLike,
+  message: BrowserIncomingMessage,
+): BrowserIncomingMessage {
+  if (!isConversationScopedMessage(message) || (message as ViewStampedMessage).viewKeys) return message;
+  return { ...message, viewKeys: messageViewKeys(session, message) } as unknown as BrowserIncomingMessage;
 }
 
 function threadViewFromInitialRequest(request: InitialThreadWindowRequest): BoundedConversationView {
@@ -416,28 +436,18 @@ function isConversationScopedMessage(message: BrowserIncomingMessage): boolean {
   );
 }
 
+/**
+ * The threads a live message belongs to: by its own routing, the same rule thread windows use;
+ * else, for turn activity that carries none, the turn it belongs to; else Main.
+ */
 function conversationRouteKeys(session: ConversationWindowSessionLike, message: BrowserIncomingMessage): Set<string> {
+  const own = messageThreadKeys(message);
+  if (own) return new Set(own);
   const keys = new Set<string>();
   const add = (value: string | undefined) => {
-    if (!value) return;
-    keys.add(normalizeSelectedFeedThreadKey(value));
+    if (value) keys.add(normalizeSelectedFeedThreadKey(value));
   };
-  const threaded = message as BrowserIncomingMessage & {
-    threadKey?: string;
-    questId?: string;
-    threadRefs?: Array<{ threadKey: string; questId?: string }>;
-  };
-  add(threaded.threadKey);
-  add(threaded.questId);
-  for (const ref of threaded.threadRefs ?? []) {
-    add(ref.threadKey);
-    add(ref.questId);
-  }
-  const directRoute = routeFromHistoryEntry(threaded);
-  add(directRoute?.threadKey);
-  add(directRoute?.questId);
-
-  if (keys.size === 0 && usesActiveTurnRoute(message)) {
+  if (usesActiveTurnRoute(message)) {
     add(session.activeTurnRoute?.threadKey);
     add(session.activeTurnRoute?.questId);
   }

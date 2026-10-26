@@ -1,3 +1,4 @@
+import { rememberTopicViewMembers } from "./utils/thread-projection.js";
 import { compactionMarkerLabel } from "../shared/compaction-marker.js";
 import { useStore } from "./store.js";
 import { api } from "./api.js";
@@ -17,6 +18,7 @@ import {
   extractTextFromBlocks,
   isVisibleTaskCompletionNotice,
   normalizeCodexReasoningDetailMessage,
+  messageViewKeysOf,
   normalizeHistoryMessageToChatMessages,
   normalizeLiveAssistantThreadMetadata,
   normalizeLiveLeaderUserThreadMetadata,
@@ -1341,6 +1343,7 @@ function handleParsedMessage(
         ...(data.annotations?.length ? { annotations: data.annotations } : {}),
         ...(data.replyContext ? { replyContext: data.replyContext } : {}),
         ...(data.vscodeSelection ? { vscodeSelection: data.vscodeSelection } : {}),
+        ...(messageViewKeysOf(data) ? { viewKeys: messageViewKeysOf(data) } : {}),
         ...(data.threadRefs ? { threadRefs: data.threadRefs } : {}),
         ...(data.threadKey ? { threadKey: data.threadKey } : {}),
         ...(data.questId ? { questId: data.questId } : {}),
@@ -1826,6 +1829,8 @@ function handleParsedMessage(
     }
 
     case "thread_window_sync": {
+      // A topic conversation's quests, as the server says, for the views' membership checks.
+      if (data.window.topic_members) rememberTopicViewMembers(data.window.thread_key, data.window.topic_members);
       const cached = data.cache_hit === true ? resolveCachedThreadWindow(sessionId, data.window) : null;
       const sourceEntries =
         data.cache_hit === true

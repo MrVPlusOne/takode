@@ -49,6 +49,10 @@ export interface PendingCodexInput {
   agentSource?: { sessionId: string; sessionLabel?: string };
   takodeHerdBatch?: TakodeHerdBatchSnapshot;
   vscodeSelection?: VsCodeSelectionMetadata;
+  /** A topic conversation the user sent it from (see the user message's `sentFromView`). */
+  sentFromView?: string;
+  /** Browser copies only: the views it belongs to (the server's answer, as for live messages). */
+  viewKeys?: string[];
   threadKey?: string;
   questId?: string;
   threadRefs?: ThreadRef[];

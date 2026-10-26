@@ -8,6 +8,7 @@ import { archiveLibrarySession, createLibrarySession } from "./library-session-c
 import { setTopicService } from "./routes/topics.js";
 import { TopicService, historyMessageText, type TopicLeaderInfo, type TopicSessionLike } from "./topic-service.js";
 import { TopicStore } from "./topic-store.js";
+import { setTopicViewSource } from "./topic-views.js";
 import { setScribeHooks } from "./scribe-registry.js";
 import { getSettings } from "./settings-manager.js";
 import { LIBRARY_MESSAGE_SOURCE } from "../shared/library-topics.js";
@@ -109,6 +110,12 @@ export async function startLibraryTopics(input: {
   });
   launcher.scribeLeaderName = (leaderId) => input.sessionName(leaderId);
   setTopicService(service);
+  // Topic conversations ask the store which quests a topic holds, live, so a quest moving to
+  // another topic moves between their views at once.
+  setTopicViewSource({
+    questsOf: (topicId) => (service.store.loaded ? service.store.questsOf(topicId) : []),
+    topicOfQuest: (questId) => (service.store.loaded ? (service.store.topicOfQuest(questId)?.id ?? null) : null),
+  });
   addSessionSaveListener((sessionId) => service.sessionSaved(sessionId));
   return service;
 }

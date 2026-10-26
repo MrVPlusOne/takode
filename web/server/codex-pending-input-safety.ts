@@ -1,3 +1,5 @@
+import { normalizeThreadTarget } from "../shared/thread-routing.js";
+import { viewKeysOfRoutes } from "./topic-views.js";
 import type { PendingCodexInput } from "./session-types.js";
 import { isCodexTurnRecoverySourceId } from "../shared/injected-event-message.js";
 
@@ -40,7 +42,11 @@ export function getCodexPendingInputSizeLimit(
 
 export function compactPendingCodexInputsForBrowser(inputs: PendingCodexInput[]): PendingCodexInput[] {
   const maxPreviewBytes = getCodexPendingInputBrowserPreviewBytes();
-  return inputs.map((input) => compactPendingCodexInputForBrowser(input, maxPreviewBytes));
+  return inputs.map((input) => {
+    const viewKeys = pendingInputViewKeys(input);
+    const compacted = compactPendingCodexInputForBrowser(input, maxPreviewBytes);
+    return viewKeys ? { ...compacted, viewKeys } : compacted;
+  });
 }
 
 /** Browser cancellation payload: preserves composer restoration data but omits delivery and server policy fields. */
@@ -131,4 +137,20 @@ function truncateUtf8(text: string, maxBytes: number): string {
 function readPositiveIntegerEnv(name: string, fallback: number): number {
   const parsed = Number(process.env[name]);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+/**
+ * The views a queued input belongs to, so each view shows it as it will show the message: its
+ * destination thread (or, without one, the threads it references) and their topics, and the view
+ * it was sent from. An input with no known destination (a herd event) has none: it shows in every
+ * view.
+ */
+function pendingInputViewKeys(input: PendingCodexInput): string[] | undefined {
+  const target = (thread?: string, quest?: string) =>
+    (normalizeThreadTarget(thread ?? "") ?? normalizeThreadTarget(quest ?? ""))?.threadKey ?? null;
+  const direct = target(input.threadKey, input.questId);
+  const destinations = direct
+    ? [direct]
+    : (input.threadRefs ?? []).flatMap((ref) => target(ref.threadKey, ref.questId) ?? []);
+  return destinations.length > 0 ? viewKeysOfRoutes(destinations, input.sentFromView) : undefined;
 }

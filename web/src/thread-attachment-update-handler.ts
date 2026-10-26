@@ -315,10 +315,14 @@ function patchLoadedThreadRefs(sessionId: string, update: SafeThreadAttachmentUp
   for (const changed of update.updates.flatMap((item) => item.changedMessages)) {
     const message = findLoadedMessage(messages, changed.historyIndex, changed.messageId);
     if (!message) continue;
+    // The views the message was first sent with no longer hold: take the server's new list, or
+    // fall back to the thread rules when an older server sent none.
+    const { viewKeys: _staleViewKeys, ...metadata } = message.metadata ?? {};
     store.updateMessage(sessionId, message.id, {
       metadata: {
-        ...(message.metadata ?? {}),
+        ...metadata,
         threadRefs: changed.threadRefs,
+        ...(changed.viewKeys ? { viewKeys: changed.viewKeys } : {}),
       },
     });
   }

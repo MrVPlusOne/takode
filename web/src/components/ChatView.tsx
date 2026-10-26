@@ -6,11 +6,12 @@ import {
   TopicEntryContext,
   TopicEntryLine,
   useTopicConversation,
+  useTopicWindowFollowsQuests,
 } from "./library/TopicConversation.js";
 import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
 import { closeTopicConversation, openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
 import { landZoom, prepareZoom } from "./topic-zoom.js";
-import { topicThreadKey } from "../../shared/topic-thread-key.js";
+import { topicViewKey } from "../../shared/topic-thread-key.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useShallow } from "zustand/react/shallow";
@@ -637,14 +638,15 @@ export function ChatView({
   const topicFeedFor = useTopicConversationTab(sessionId);
   const topicConversation = useTopicConversation(sessionId, showQuestThreadBanner && !preview ? selectedThreadKey : "");
   const topicFeedOn = !!topicConversation && topicFeedFor === selectedThreadKey.toLowerCase();
-  const feedThreadKey = topicFeedOn ? topicThreadKey(topicConversation.questIds) : selectedThreadKey;
+  const feedThreadKey = topicFeedOn ? topicViewKey(topicConversation.topicId) : selectedThreadKey;
+  useTopicWindowFollowsQuests(sessionId, topicFeedOn ? feedThreadKey : null, topicConversation?.questIds ?? []);
   // Zooming between the quest and its topic keeps the reader's place and plays the zoom, once the
   // new feed is on screen.
   const zoomColumnRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => landZoom(sessionId, feedThreadKey, zoomColumnRef.current), [sessionId, feedThreadKey]);
   const zoomOutToTopic = useCallback(() => {
     if (!topicConversation) return;
-    prepareZoom(sessionId, topicThreadKey(topicConversation.questIds), "out", { feedKey: selectedThreadKey });
+    prepareZoom(sessionId, topicViewKey(topicConversation.topicId), "out", { feedKey: selectedThreadKey });
     openTopicConversation(sessionId, selectedThreadKey);
   }, [sessionId, selectedThreadKey, topicConversation]);
 
@@ -1362,6 +1364,7 @@ export function ChatView({
           sessionId={sessionId}
           threadKey={composerThreadKey}
           questId={composerQuestId}
+          viewKey={isLeaderSession ? feedThreadKey : undefined}
           transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
           transcriptionThreadTitle={composerThreadTitle}
         />

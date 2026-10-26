@@ -56,6 +56,8 @@ export interface ThreadWindowState {
    * window follows in the next message and replaces it.
    */
   partial?: boolean;
+  /** For a topic conversation: its quests, as the server's topic store says now. */
+  topic_members?: string[];
 }
 
 export interface InitialThreadWindowRequest {

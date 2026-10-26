@@ -53,11 +53,11 @@ describe("zooming between a quest and its topic", () => {
       { id: "hist-error-1", top: 200 },
     ]);
     const request = vi.spyOn(useStore.getState(), "requestScrollToMessage");
-    prepareZoom("s1", "topic:q-5+q-9", "out", { feedKey: "q-5" });
+    prepareZoom("s1", "topic:t1", "out", { feedKey: "q-5" });
     // Nothing happens until the topic feed is on screen.
     landZoom("s1", "q-5", null);
     expect(request).not.toHaveBeenCalled();
-    landZoom("s1", "topic:q-5+q-9", null);
+    landZoom("s1", "topic:t1", null);
     expect(request).toHaveBeenCalledWith("s1", "m-2");
     expect(takeZoomPlacement("m-2")).toBe(30);
     expect(takeZoomPlacement("m-2")).toBeNull();
@@ -65,7 +65,7 @@ describe("zooming between a quest and its topic", () => {
 
   it("zooming in from a strip keeps that part's first message on screen", () => {
     // Messages of the part above the tapped strip's quest are skipped; so is the next part.
-    mountFeed("topic:q-5+q-9", [
+    mountFeed("topic:t1", [
       { id: "a-1", top: 120 },
       { strip: "q-9", top: 100 },
       { id: "b-1", top: 40 },
@@ -75,7 +75,7 @@ describe("zooming between a quest and its topic", () => {
     ]);
     const part = document.querySelector<HTMLElement>('[data-quest="q-9"]');
     const request = vi.spyOn(useStore.getState(), "requestScrollToMessage");
-    prepareZoom("s1", "q-9", "in", { feedKey: "topic:q-5+q-9", part });
+    prepareZoom("s1", "q-9", "in", { feedKey: "topic:t1", part });
     landZoom("s1", "q-9", null);
     expect(request).toHaveBeenCalledWith("s1", "b-2");
     expect(takeZoomPlacement("b-2")).toBe(60);
@@ -87,8 +87,8 @@ describe("zooming between a quest and its topic", () => {
     column.animate = animate as never;
     const request = vi.spyOn(useStore.getState(), "requestScrollToMessage");
     request.mockClear();
-    prepareZoom("s1", "topic:q-5+q-9", "out");
-    landZoom("s1", "topic:q-5+q-9", column);
+    prepareZoom("s1", "topic:t1", "out");
+    landZoom("s1", "topic:t1", column);
     expect(request).not.toHaveBeenCalled();
     expect(animate).toHaveBeenCalledWith(
       [{ transform: "scale(1.05)" }, { transform: "scale(1)" }],

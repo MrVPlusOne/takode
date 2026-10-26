@@ -1,8 +1,8 @@
-import { topicThreadMembers } from "../../shared/topic-thread-key.js";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { useStore } from "../store.js";
 import type { MessageJumpLanding } from "../store-types.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
-import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey, threadViewShows } from "./thread-projection.js";
 import type { QuestLinkTarget } from "./quest-link-target.js";
 
 export type Route =
@@ -430,8 +430,8 @@ export function routeLeavesFeed(sessionId: string, feedThreadKey: string): boole
   const hash = window.location.hash;
   const routeThreadKey = threadRouteFromHash(hash).threadKey;
   if (!routeThreadKey || !routeShowsSession(hash, sessionId)) return false;
-  const members = topicThreadMembers(feedThreadKey);
-  if (members) return !(topicViewFromHash(hash) && members.includes(routeThreadKey));
+  if (isTopicViewKey(feedThreadKey))
+    return !(topicViewFromHash(hash) && threadViewShows(feedThreadKey, routeThreadKey));
   return routeThreadKey !== normalizeThreadKey(feedThreadKey) || topicViewFromHash(hash);
 }
 

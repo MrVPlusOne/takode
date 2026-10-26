@@ -1,3 +1,4 @@
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 import { scopedGetItem, scopedSetItem } from "./scoped-storage.js";
 
@@ -288,6 +289,6 @@ function normalizeRestorableThreadKey(value: unknown): string | null {
   const normalized = normalizeThreadKey(value || MAIN_THREAD_KEY);
   // A topic conversation (a quest tab zoomed out) keeps its own place too.
   if (normalized === MAIN_THREAD_KEY || normalized === "all" || /^q-\d+$/.test(normalized)) return normalized;
-  if (/^topic:q-\d+(\+q-\d+)*$/.test(normalized)) return normalized;
+  if (isTopicViewKey(normalized)) return normalized;
   return null;
 }

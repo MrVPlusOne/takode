@@ -1,4 +1,5 @@
-import type { ThreadAttachmentUpdate, ThreadAttachmentUpdateEntry } from "../session-types.js";
+import { messageViewKeys } from "../bridge/browser-conversation-window-policy.js";
+import type { BrowserIncomingMessage, ThreadAttachmentUpdate, ThreadAttachmentUpdateEntry } from "../session-types.js";
 import type { RouteContext } from "./context.js";
 import { normalizeAffectedThreadKey } from "./takode-route-thread-helpers.js";
 
@@ -114,11 +115,29 @@ export function scheduleThreadAttachmentUpdateBroadcast(
       affectedThreadKeys: [...affectedThreadKeys],
       maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
       maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
-      updates,
+      updates: updates.map((item) => withViewKeys(session, item)),
     };
     wsBridge.broadcastToSession(sessionId, event);
   }, THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS);
   pendingThreadAttachmentUpdates.set(sessionId, { timer, changedCount, updates });
+}
+
+/**
+ * An update as sent to browsers: each moved message and marker with the views it now belongs to,
+ * which replace the views it was first sent with.
+ */
+function withViewKeys(
+  session: { messageHistory: BrowserIncomingMessage[] },
+  item: ThreadAttachmentUpdateEntry,
+): ThreadAttachmentUpdateEntry {
+  return {
+    ...item,
+    markers: item.markers.map((marker) => ({ ...marker, viewKeys: messageViewKeys(session, marker) })),
+    changedMessages: item.changedMessages.map((changed) => {
+      const entry = session.messageHistory[changed.historyIndex];
+      return entry ? { ...changed, viewKeys: messageViewKeys(session, entry) } : changed;
+    }),
+  };
 }
 
 export function _resetThreadAttachmentBroadcastsForTest(): void {

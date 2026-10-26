@@ -141,6 +141,12 @@ describe("POST /api/sessions/:id/thread/attach", () => {
       ],
     });
     expect(event).not.toMatchObject({ type: "message_history" });
+    // Each moved message and marker goes out with the views it now belongs to, so browsers
+    // replace the views the message was first sent with.
+    const moved = event.updates[1].changedMessages[0];
+    expect(moved.viewKeys).toEqual(expect.arrayContaining(["main", "q-1084"]));
+    // Markers belong to no thread view, as in thread windows (Main summarizes them its own way).
+    expect(event.updates[2].markers[0].viewKeys).toEqual([]);
 
     const markers = session.messageHistory.filter((entry) => entry.type === "thread_attachment_marker");
     expect(markers).toHaveLength(3);

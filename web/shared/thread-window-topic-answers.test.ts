@@ -5,7 +5,7 @@ import { resolveThreadResponses } from "../src/components/thread-response-presen
 import { buildFeedModel } from "../src/hooks/use-feed-model.js";
 import { normalizeHistoryMessageToChatMessages } from "../src/utils/history-message-normalization.js";
 import { buildThreadWindowSync } from "./thread-window.js";
-import { topicThreadKey } from "./topic-thread-key.js";
+import { topicViewKey } from "./topic-thread-key.js";
 
 /**
  * A topic conversation shows answers as each quest's own tab does: its window carries every
@@ -90,10 +90,11 @@ describe("topic conversation answers", () => {
       human("raw-u2", "u2", 3, "q-2"),
       answer("a2", 4, "q-2", ["u2"]),
     ];
-    const topicKey = topicThreadKey(["q-1", "q-2"]);
+    const topicKey = topicViewKey("t1");
     const sync = buildThreadWindowSync({
       messageHistory: messages,
       threadKey: topicKey,
+      topicMembers: ["q-1", "q-2"],
       fromItem: -1,
       itemCount: 10,
       sectionItemCount: 10,
@@ -135,7 +136,8 @@ describe("topic conversation answers", () => {
     const asked: string[] = [];
     const sync = buildThreadWindowSync({
       messageHistory: messages,
-      threadKey: topicThreadKey(["q-1", "q-2"]),
+      threadKey: topicViewKey("t1"),
+      topicMembers: ["q-1", "q-2"],
       fromItem: -1,
       // Only the newest turn (q-2's) is in the window.
       itemCount: 1,

@@ -163,11 +163,14 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     !msg.leaderThreadRole &&
     !msg.threadAnswer &&
     !msg.threadResponse &&
-    !msg.artifacts?.length
+    !msg.artifacts?.length &&
+    !messageViewKeysOf(msg)
   ) {
     return undefined;
   }
+  const viewKeys = messageViewKeysOf(msg);
   return {
+    ...(viewKeys ? { viewKeys } : {}),
     ...(msg.threadRefs ? { threadRefs: msg.threadRefs } : {}),
     ...(msg.threadKey ? { threadKey: msg.threadKey } : {}),
     ...(msg.questId ? { questId: msg.questId } : {}),
@@ -261,10 +264,34 @@ function isReplayDuplicatedAssistantTail(blocks: ContentBlock[]): boolean {
   return false;
 }
 
+/**
+ * The chat messages of a history or live message. A live message carries the server's list of
+ * views it belongs to (`viewKeys`); it goes on every chat message made from it.
+ */
 export function normalizeHistoryMessageToChatMessages(
   histMsg: BrowserIncomingMessage,
   historyIndex: number,
   options: NormalizeHistoryMessageOptions = {},
+): ChatMessage[] {
+  const messages = normalizeHistoryMessage(histMsg, historyIndex, options);
+  const viewKeys = messageViewKeysOf(histMsg);
+  return viewKeys ? messages.map((message) => withViewKeys(message, viewKeys)) : messages;
+}
+
+/** The server's views for a live message, when it sent them. */
+export function messageViewKeysOf(message: unknown): string[] | undefined {
+  const viewKeys = (message as { viewKeys?: unknown }).viewKeys;
+  return Array.isArray(viewKeys) ? (viewKeys as string[]) : undefined;
+}
+
+export function withViewKeys(message: ChatMessage, viewKeys: string[]): ChatMessage {
+  return { ...message, metadata: { ...message.metadata, viewKeys } };
+}
+
+function normalizeHistoryMessage(
+  histMsg: BrowserIncomingMessage,
+  historyIndex: number,
+  options: NormalizeHistoryMessageOptions,
 ): ChatMessage[] {
   const {
     includeSuccessfulResult = false,
