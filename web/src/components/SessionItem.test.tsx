@@ -113,7 +113,6 @@ function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>
       permCount={0}
       isRecentlyRenamed={false}
       onSelect={onSelect}
-      onStartRename={vi.fn()}
       onUnarchive={vi.fn()}
       onDelete={vi.fn()}
       onClearRecentlyRenamed={vi.fn()}
@@ -165,7 +164,6 @@ function EditingSessionItem({
       permCount={0}
       isRecentlyRenamed={false}
       onSelect={vi.fn()}
-      onStartRename={vi.fn()}
       onUnarchive={vi.fn()}
       onDelete={vi.fn()}
       onClearRecentlyRenamed={vi.fn()}

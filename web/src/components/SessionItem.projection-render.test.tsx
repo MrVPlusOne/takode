@@ -37,7 +37,6 @@ const commonProps: Omit<ComponentProps<typeof SessionItem>, "session" | "session
   permCount: 0,
   isRecentlyRenamed: false,
   onSelect: () => {},
-  onStartRename: () => {},
   onUnarchive: () => {},
   onDelete: () => {},
   onClearRecentlyRenamed: () => {},

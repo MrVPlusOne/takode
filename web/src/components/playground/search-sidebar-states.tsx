@@ -321,7 +321,6 @@ function PlaygroundSidebarOverflowGroup({ expanded }: { expanded: boolean }) {
           currentSessionId="overflow-implement"
           recentlyRenamed={EMPTY_STRING_SET}
           onSelect={noop}
-          onStartRename={noop}
           onUnarchive={noopMouse}
           onDelete={noopMouse}
           onClearRecentlyRenamed={noop}

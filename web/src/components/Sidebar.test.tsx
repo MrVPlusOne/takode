@@ -453,7 +453,6 @@ describe("Sidebar", { timeout: 10000 }, () => {
         permCount={0}
         isRecentlyRenamed={false}
         onSelect={() => {}}
-        onStartRename={() => {}}
         onUnarchive={() => {}}
         onDelete={() => {}}
         onClearRecentlyRenamed={() => {}}

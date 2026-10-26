@@ -215,7 +215,6 @@ export interface SessionItemProps {
   permCount: number;
   isRecentlyRenamed: boolean;
   onSelect: (id: string) => void;
-  onStartRename: (id: string, currentName: string) => void;
   onUnarchive: (e: React.MouseEvent, id: string) => void;
   onRetryWorktreeCleanup?: (e: React.MouseEvent, id: string) => void;
   onDelete: (e: React.MouseEvent, id: string) => void;
@@ -271,7 +270,6 @@ function SessionItemComponent({
   permCount,
   isRecentlyRenamed,
   onSelect,
-  onStartRename,
   onUnarchive,
   onRetryWorktreeCleanup,
   onDelete,
@@ -681,7 +679,6 @@ function SessionItemComponent({
                 }}
                 onBlur={onConfirmRename}
                 onClick={(e) => e.stopPropagation()}
-                onDoubleClick={(e) => e.stopPropagation()}
                 className="text-[13px] font-medium flex-1 min-w-0 text-cc-fg bg-transparent border border-cc-border rounded px-1 py-0 outline-none focus:border-cc-primary/50"
               />
             ) : (
@@ -947,10 +944,6 @@ function SessionItemComponent({
           aria-selected={isSearchSelected ? "true" : undefined}
           data-search-selected={isSearchSelected ? "true" : undefined}
           onClick={handleSelect}
-          onDoubleClick={(e) => {
-            e.preventDefault();
-            onStartRename(s.id, label);
-          }}
           {...longPress.handlers}
           onMouseEnter={() => {
             if (!longPress.isSuppressingMouse()) showParentHoverCard();

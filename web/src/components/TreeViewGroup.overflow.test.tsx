@@ -160,7 +160,6 @@ function renderGroup(props: Partial<ComponentProps<typeof TreeViewGroup>> = {}) 
     currentSessionId: null,
     recentlyRenamed: new Set(),
     onSelect: vi.fn(),
-    onStartRename: vi.fn(),
     onUnarchive: vi.fn(),
     onDelete: vi.fn(),
     onClearRecentlyRenamed: vi.fn(),

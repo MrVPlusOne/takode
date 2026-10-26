@@ -10,7 +10,6 @@ import { useStore } from "../store.js";
 export type SessionTreeRowProps = Pick<
   SessionItemProps,
   | "onSelect"
-  | "onStartRename"
   | "onUnarchive"
   | "onDelete"
   | "onClearRecentlyRenamed"

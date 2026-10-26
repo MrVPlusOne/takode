@@ -30,7 +30,6 @@ interface TreeViewGroupProps {
   currentSessionId: string | null;
   recentlyRenamed: Set<string>;
   onSelect: (id: string) => void;
-  onStartRename: (id: string, currentName: string) => void;
   onUnarchive: (e: React.MouseEvent, id: string) => void;
   onDelete: (e: React.MouseEvent, id: string) => void;
   onClearRecentlyRenamed: (id: string) => void;
@@ -141,7 +140,6 @@ export function TreeViewGroup({
   currentSessionId,
   recentlyRenamed,
   onSelect,
-  onStartRename,
   onUnarchive,
   onDelete,
   onClearRecentlyRenamed,
@@ -256,7 +254,6 @@ export function TreeViewGroup({
 
   const rowProps: SessionTreeRowProps = {
     onSelect,
-    onStartRename,
     onUnarchive,
     onDelete,
     onClearRecentlyRenamed,
