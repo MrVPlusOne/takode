@@ -1383,6 +1383,9 @@ export class SessionStore {
               metrics.skippedSessions++;
               return;
             }
+            // Server records such as the build record and restart plans share this folder. Only a
+            // file with a session's id and state is a session; leave anything else untouched.
+            if (typeof hot?.id !== "string" || typeof hot.state !== "object" || hot.state === null) return;
             incremental = Object.hasOwn(hot, "_historyRef");
             if (incremental && hot.id !== sessionId)
               throw new SessionHistoryError("Session history head identity mismatch");

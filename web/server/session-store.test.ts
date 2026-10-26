@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -450,6 +450,34 @@ describe("loadAll", () => {
     );
     expect(errorSpy).not.toHaveBeenCalled();
     expect(readFileSync(join(tempDir, "bad.json"), "utf-8")).toBe('{"id":"bad","state":{"x":"unterminated');
+  });
+
+  it("leaves server records in the sessions folder alone", async () => {
+    // The server keeps its build record and restart plans next to session files. Startup once
+    // restored server-build.json as a session and logged "Failed to persist session server-build"
+    // on every start. Files that are not sessions are skipped quietly and never rewritten.
+    store.saveSync(makeSession("good"));
+    await store.flushAll();
+    const records = {
+      "server-build.json": JSON.stringify({ commit: "a".repeat(40), previous: { commit: "b".repeat(40) } }),
+      "restart-continuations.json": JSON.stringify({ version: 1, sessions: [] }),
+      "empty-array.json": "[]",
+      "null.json": "null",
+    };
+    for (const [name, contents] of Object.entries(records)) writeFileSync(join(tempDir, name), contents, "utf-8");
+    const filesBefore = readdirSync(tempDir).sort();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const all = await store.loadAll();
+    await store.flushAll();
+
+    expect(all.map((session) => session.id)).toEqual(["good"]);
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(readdirSync(tempDir).sort()).toEqual(filesBefore);
+    for (const [name, contents] of Object.entries(records))
+      expect(readFileSync(join(tempDir, name), "utf-8")).toBe(contents);
   });
 
   it("excludes launcher.json from results", async () => {
