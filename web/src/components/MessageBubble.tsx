@@ -971,7 +971,7 @@ function UserMessage({
             setLightboxSelection({
               id: image.id,
               src: image.fullUrl,
-              usesLocalPreview: Boolean(image.localImageId),
+              usesLocalPreview: Boolean(image.localImageId && image.fallback),
             })
           }
           onImageSettled={retireLocalImage}

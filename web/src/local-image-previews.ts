@@ -10,6 +10,9 @@ type PreviewSource = {
 };
 
 const managedObjectUrlsBySession = new Map<string, Set<string>>();
+// Browsers never reuse an object URL, so remembering each revoked one is exact; it grows by one
+// short string per sent image.
+const revokedObjectUrls = new Set<string>();
 const mountedObjectUrlStates = new Map<string, { mounted: number; settled: number; settlementNotified: boolean }>();
 
 function mountedObjectUrlStateKey(sessionId: string, previewUrl: string): string {
@@ -155,6 +158,7 @@ function createManagedPreview(
     const urls = managedObjectUrlsBySession.get(sessionId) ?? new Set<string>();
     urls.add(previewUrl);
     managedObjectUrlsBySession.set(sessionId, urls);
+    revokedObjectUrls.delete(previewUrl);
     return { imageId: image.imageId, name: image.name, mediaType: image.mediaType, previewUrl };
   } catch {
     return image;
@@ -211,6 +215,7 @@ function revokeManagedUrl(sessionId: string, previewUrl: string): void {
   const urls = managedObjectUrlsBySession.get(sessionId);
   if (!urls?.delete(previewUrl)) return;
   mountedObjectUrlStates.delete(mountedObjectUrlStateKey(sessionId, previewUrl));
+  revokedObjectUrls.add(previewUrl);
   try {
     URL.revokeObjectURL(previewUrl);
   } catch {
@@ -235,6 +240,15 @@ export function reconcileLocalImagePreviewUrls(
       revokeManagedUrl(sessionId, url);
     }
   }
+}
+
+/**
+ * Whether this module revoked a local preview URL. A view can outlive its ownership (a kept
+ * chat hidden in an `<Activity>` releases its URLs but keeps their decoded pixels on screen),
+ * so it must not hand a revoked URL to a viewer, which would load it afresh and show it broken.
+ */
+export function isLocalImagePreviewUrlRevoked(previewUrl: string): boolean {
+  return revokedObjectUrls.has(previewUrl);
 }
 
 /**

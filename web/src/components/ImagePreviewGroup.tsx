@@ -2,7 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 import type { ReactNode, Ref } from "react";
 import { createPortal } from "react-dom";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
-import { retainLocalImagePreviewUrls } from "../local-image-previews.js";
+import { isLocalImagePreviewUrlRevoked, retainLocalImagePreviewUrls } from "../local-image-previews.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
 import { ZoomableImage } from "./ZoomableImage.js";
 import { canWriteClipboardImage, writeClipboardText } from "../utils/copy-utils.js";
@@ -92,13 +92,7 @@ export function ImagePreviewGroup({
           return settled;
         }
         if (!image.fallback || fallbackFromUrls.get(image.id) !== image.thumbnailUrl) return image;
-        return {
-          ...image,
-          thumbnailUrl: image.fallback.thumbnailUrl,
-          fullUrl: image.fallback.fullUrl,
-          immediatelyAvailable: false,
-          fallback: undefined,
-        };
+        return serverCopyOf(image, image.fallback);
       }),
     [fallbackFromUrls, images, settledLocalImages],
   );
@@ -226,8 +220,12 @@ export function ImagePreviewGroup({
   const selectedImage = selectedId
     ? (activeImages.find((image) => image.id === selectedId && !isFailed(image)) ?? null)
     : null;
+  // A thumbnail keeps showing its decoded local preview after the preview's URL is revoked
+  // (a kept chat that was hidden), but a viewer would load that URL afresh and show it broken.
+  const viewable = (image: ImagePreviewItem) =>
+    image.fallback && isLocalImagePreviewUrlRevoked(image.fullUrl) ? serverCopyOf(image, image.fallback) : image;
   const modalImages = selectedImage
-    ? activeImages.filter((image) => image.id === selectedId || (isLoaded(image) && !isFailed(image)))
+    ? activeImages.filter((image) => image.id === selectedId || (isLoaded(image) && !isFailed(image))).map(viewable)
     : [];
   const selectedIndex = selectedImage ? modalImages.findIndex((image) => image.id === selectedImage.id) : -1;
 
@@ -236,7 +234,7 @@ export function ImagePreviewGroup({
   }, [selectedId, selectedImage]);
 
   const openImage = (image: ImagePreviewItem) => {
-    if (onOpenImage) onOpenImage(image);
+    if (onOpenImage) onOpenImage(viewable(image));
     else setSelectedId(image.id);
   };
 
@@ -334,6 +332,17 @@ export function ImagePreviewGroup({
       )}
     </>
   );
+}
+
+/** The attachment as the server holds it, for a local preview that failed or is gone. */
+function serverCopyOf(image: ImagePreviewItem, fallback: NonNullable<ImagePreviewItem["fallback"]>): ImagePreviewItem {
+  return {
+    ...image,
+    thumbnailUrl: fallback.thumbnailUrl,
+    fullUrl: fallback.fullUrl,
+    immediatelyAvailable: false,
+    fallback: undefined,
+  };
 }
 
 function ImageLoadingPlaceholder({ compact }: { compact: boolean }) {

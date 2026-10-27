@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { StrictMode } from "react";
+import { Activity, StrictMode } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -353,6 +353,64 @@ describe("origin-browser local image previews across authoritative windows", () 
     view.rerender(<MountedViews showA={false} showB={false} />);
     await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledTimes(2));
     expect(revokeObjectURL.mock.calls.map(([url]) => url)).toEqual(["blob:local-preview-1", "blob:local-preview-2"]);
+  });
+
+  it("opens the server's copy once a kept chat went hidden and its object URL was revoked", async () => {
+    // A kept recent chat sits in a hidden <Activity>: its effects are disconnected, so the
+    // preview group releases its object URLs and they are revoked, while its state (the
+    // settled blob descriptors) and the decoded thumbnails survive. When the chat shows
+    // again, opening the image must not hand the viewer the revoked blob URL, which shows
+    // as a broken image; the attachment's server copy is the one to open.
+    useStore.getState().addPendingUserUpload(SESSION_ID, pendingUpload());
+    handleMessage(SESSION_ID, committedMessage());
+
+    function StoredMessage() {
+      const message = useStore((state) => state.messages.get(SESSION_ID)?.[0]);
+      return message ? <MessageBubble message={message} sessionId={SESSION_ID} /> : null;
+    }
+    function KeptChat({ visible }: { visible: boolean }) {
+      return (
+        <Activity mode={visible ? "visible" : "hidden"}>
+          <StoredMessage />
+        </Activity>
+      );
+    }
+
+    const view = render(<KeptChat visible />);
+    for (const thumbnail of screen.getAllByTestId("image-preview-thumbnail-image")) fireEvent.load(thumbnail);
+    await waitFor(() => expect(useStore.getState().messages.get(SESSION_ID)?.[0]?.localImages).toBeUndefined());
+
+    view.rerender(<KeptChat visible={false} />);
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledTimes(2));
+    view.rerender(<KeptChat visible />);
+
+    // The thumbnails keep their decoded pixels in place; only opening changes source.
+    expect(screen.getAllByTestId("image-preview-thumbnail-image").map((image) => image.getAttribute("src"))).toEqual([
+      "blob:local-preview-1",
+      "blob:local-preview-2",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Open image first.png" }));
+    const lightboxImage = await screen.findByTestId("lightbox-image");
+    await waitFor(() => expect(lightboxImage).toHaveAttribute("src", `/api/images/${SESSION_ID}/image-a/full`));
+  });
+
+  it("opens the local preview while its object URL is still alive", async () => {
+    // Settling alone does not revoke anything: a mounted group keeps its object URLs,
+    // so the viewer can open the bytes already in the browser at once.
+    useStore.getState().addPendingUserUpload(SESSION_ID, pendingUpload());
+    handleMessage(SESSION_ID, committedMessage());
+
+    function StoredMessage() {
+      const message = useStore((state) => state.messages.get(SESSION_ID)?.[0]);
+      return message ? <MessageBubble message={message} sessionId={SESSION_ID} /> : null;
+    }
+
+    render(<StoredMessage />);
+    for (const thumbnail of screen.getAllByTestId("image-preview-thumbnail-image")) fireEvent.load(thumbnail);
+    await waitFor(() => expect(useStore.getState().messages.get(SESSION_ID)?.[0]?.localImages).toBeUndefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Open image second.jpg" }));
+    expect(await screen.findByTestId("lightbox-image")).toHaveAttribute("src", "blob:local-preview-2");
   });
 
   it("falls back only the failed local attachment and revokes its object URL", async () => {
