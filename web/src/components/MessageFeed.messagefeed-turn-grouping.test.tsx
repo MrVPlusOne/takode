@@ -132,6 +132,8 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
+import { formatMessageTimestamp } from "./MessageTimestamp.js";
+import { formatFeedDayLabel } from "./message-feed-utils.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -497,18 +499,14 @@ describe("MessageFeed - turn grouping", () => {
 
     // Both sides get a time; the turn-ending answer keeps its duration in normal feeds.
     const [userTime, answerTime] = screen.getAllByTestId("message-time-label");
-    expect(userTime.textContent).toBe(
-      new Date(timestamp - 4_200).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-    );
-    expect(answerTime.textContent).toContain(
-      new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-    );
+    expect(userTime.textContent).toBe(formatMessageTimestamp(timestamp - 4_200));
+    expect(answerTime.textContent).toContain(formatMessageTimestamp(timestamp));
     expect(answerTime.textContent).toContain("· 4.2s");
   });
 
   it("shows message times without durations in Leader feeds, alongside date dividers", () => {
-    // Leader feeds show each message's clock time in its corner but not generation durations;
-    // the day comes from the date dividers.
+    // Leader feeds show each message's time in its corner but not generation durations;
+    // date dividers still separate the days.
     const sid = "test-leader-inline-timing";
     const firstDay = new Date(2026, 8, 3, 17, 10).getTime();
     const secondDay = new Date(2026, 8, 4, 9, 15).getTime();
@@ -537,11 +535,11 @@ describe("MessageFeed - turn grouping", () => {
     expect(screen.getByText("First day answer")).toBeTruthy();
     expect(screen.getByText("Second day answer")).toBeTruthy();
     const labels = screen.getAllByTestId("message-time-label").map((item) => item.textContent ?? "");
-    expect(labels).toContain(new Date(firstDay).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    expect(labels).toContain(formatMessageTimestamp(firstDay));
     expect(labels.some((label) => label.includes("·"))).toBe(false);
     expect(screen.getAllByTestId("minute-boundary-timestamp").map((item) => item.textContent)).toEqual([
-      new Date(firstDay).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }),
-      new Date(secondDay).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }),
+      formatFeedDayLabel(firstDay),
+      formatFeedDayLabel(secondDay),
     ]);
   });
 

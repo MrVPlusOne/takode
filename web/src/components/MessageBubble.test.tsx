@@ -54,6 +54,7 @@ vi.mock("remark-gfm", () => ({
 }));
 
 import { MessageBubble } from "./MessageBubble.js";
+import { formatMessageTimestamp } from "./MessageTimestamp.js";
 import { MessageTimeLabelContext, MessageTimeLabelStore } from "./message-time-labels.js";
 import { HidePawContext } from "./PawTrail.js";
 import { useStore } from "../store.js";
@@ -217,7 +218,8 @@ describe("MessageBubble - user messages", () => {
 
     const time = screen.getByTestId("message-time-label");
     expect(time.getAttribute("dateTime")).toBe(new Date(ts).toISOString());
-    expect(time.textContent).toBe(new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    // The label carries the day too (this timestamp is from 2023), as every message time does.
+    expect(time.textContent).toBe(formatMessageTimestamp(ts));
     expect(screen.getByTestId("user-message-content").className).toContain("message-time-trail");
   });
 

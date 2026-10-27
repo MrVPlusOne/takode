@@ -102,6 +102,7 @@ import { AnswerReferencesContext, useAllThreadsAnswerReferences } from "./answer
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
 import { useMessageFeedStatusContentBottomSync, useMessageFeedStatusLayout } from "./use-message-feed-status-layout.js";
+import { MessageFeedDayPill } from "./MessageFeedDayPill.js";
 import { MessageFeedEndSlack } from "./MessageFeedEndSlack.js";
 import { useMessageFeedViewportPersistence } from "./use-message-feed-viewport-persistence.js";
 import { noteViewportDeliberateActivity } from "../utils/viewport-handoff-client.js";
@@ -1929,6 +1930,12 @@ export function MessageFeed({
           onRunwayHeightChange={setFloatingStatusRunwayHeight}
           currentThreadKey={threadKey}
           onSelectThread={onSelectThread}
+        />
+
+        <MessageFeedDayPill
+          containerRef={containerRef}
+          contentRootRef={contentRootRef}
+          layoutSignature={viewportLayoutSignature}
         />
 
         {feedTopControls}

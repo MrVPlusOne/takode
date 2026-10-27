@@ -14,6 +14,7 @@ import { api } from "../api.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import { escapeSelectorValue } from "./message-feed-utils.js";
 import { StarIcon } from "./StarredMessageIndicator.js";
+import { formatMessageTimestamp, isValidMessageTimestamp } from "./MessageTimestamp.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 
 type ElementRef<T> = RefObject<T | null>;
@@ -424,6 +425,5 @@ function previewText(content: string): string {
 }
 
 function formatNavigatorTime(timestamp: number): string {
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
-  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return isValidMessageTimestamp(timestamp) ? formatMessageTimestamp(timestamp) : "";
 }

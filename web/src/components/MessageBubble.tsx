@@ -66,6 +66,7 @@ import {
   isValidMessageTimestamp,
   messageTimeLabelReserve,
 } from "./MessageTimestamp.js";
+import { useLocalToday } from "./local-today.js";
 import { ContinuedInLinks } from "./QuestForkLinks.js";
 import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
@@ -905,6 +906,7 @@ function UserMessage({
     setLightboxSelection(null);
   }, [message.id]);
   const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
+  const today = useLocalToday();
   const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
   // A pending message keeps its future time's space invisibly, so landing changes no line breaks.
   const timeLabel =
@@ -915,7 +917,9 @@ function UserMessage({
         <MessageTimeLabel id={message.id} side="user" timestamp={message.timestamp} />
       )
     ) : null;
-  const timeLabelReserve = timeLabel ? messageTimeLabelReserve(formatMessageTimeLabel(message.timestamp)) : undefined;
+  const timeLabelReserve = timeLabel
+    ? messageTimeLabelReserve(formatMessageTimeLabel(message.timestamp, undefined, today))
+    : undefined;
 
   return (
     <div className="relative flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
@@ -1156,6 +1160,7 @@ function AssistantMessage({
   const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
   const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
   const showDuration = useContext(InlineMessageTimingVisibilityContext);
+  const today = useLocalToday();
   const starred = useFeedStarredMessage(sessionId, message);
   const starAction = useMessageStarActions(sessionId, message);
   const sideChat = useSideChatForMessage(sessionId, message);
@@ -1212,7 +1217,7 @@ function AssistantMessage({
     ) : null;
   const timeLabelReserve = timeLabel
     ? messageTimeLabelReserve(
-        formatMessageTimeLabel(message.timestamp, showDuration ? message.turnDurationMs : undefined),
+        formatMessageTimeLabel(message.timestamp, showDuration ? message.turnDurationMs : undefined, today),
       )
     : undefined;
   // The time trails the last line of text when the message ends with text; otherwise it

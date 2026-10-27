@@ -95,6 +95,17 @@ export function appendTimedMessagesFromEntries(entries: FeedEntry[], out: ChatMe
 
 export { isTimedChatMessage };
 
+/** A feed day's name: "Mon, Oct 26", with the year when it isn't this year. */
+export function formatFeedDayLabel(timestamp: number, now: number = Date.now()): string {
+  const date = new Date(timestamp);
+  return date.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(date.getFullYear() === new Date(now).getFullYear() ? {} : { year: "numeric" }),
+  });
+}
+
 function formatMinuteBoundaryLabel(timestamp: number, previousTimestamp: number | null): string | null {
   const current = new Date(timestamp);
   if (Number.isNaN(current.getTime())) return null;
@@ -107,11 +118,7 @@ function formatMinuteBoundaryLabel(timestamp: number, previousTimestamp: number 
     current.getDate() !== prev.getDate();
 
   if (includesDate) {
-    return current.toLocaleDateString([], {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    });
+    return formatFeedDayLabel(timestamp);
   }
 
   return null;
