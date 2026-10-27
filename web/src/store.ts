@@ -435,6 +435,13 @@ export const useStore = create<AppState>((set, get) => ({
       persistShortcutSettingsToServer(shortcutSettings, setShortcutSettingsFromServer);
       return { shortcutSettings };
     }),
+  setTypeToCompose: (typeToCompose) =>
+    set((s) => {
+      const shortcutSettings = { ...s.shortcutSettings, typeToCompose };
+      if (shortcutsEqual(shortcutSettings, s.shortcutSettings)) return {};
+      persistShortcutSettingsToServer(shortcutSettings, setShortcutSettingsFromServer);
+      return { shortcutSettings };
+    }),
   setShortcutPreset: (preset) =>
     set((s) => {
       const shortcutSettings = { ...s.shortcutSettings, preset };

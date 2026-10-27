@@ -28,6 +28,7 @@ export interface MockStoreState {
     enabled: boolean;
     preset: "standard" | "vscode-light" | "vim-light";
     overrides: Record<string, string | null>;
+    typeToCompose: boolean;
   };
   zoomLevel: number;
   currentSessionId: string | null;
@@ -47,6 +48,7 @@ export interface MockStoreState {
   setChatMessageLineHeight: ReturnType<typeof vi.fn>;
   setSendKeyScheme: ReturnType<typeof vi.fn>;
   setShortcutsEnabled: ReturnType<typeof vi.fn>;
+  setTypeToCompose: ReturnType<typeof vi.fn>;
   setShortcutPreset: ReturnType<typeof vi.fn>;
   setShortcutOverride: ReturnType<typeof vi.fn>;
   resetShortcutOverrides: ReturnType<typeof vi.fn>;
@@ -71,6 +73,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
       enabled: false,
       preset: "standard",
       overrides: {},
+      typeToCompose: true,
     },
     zoomLevel: 1.0,
     currentSessionId: null,
@@ -85,6 +88,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     setChatMessageLineHeight: vi.fn(),
     setSendKeyScheme: vi.fn(),
     setShortcutsEnabled: vi.fn(),
+    setTypeToCompose: vi.fn(),
     setShortcutPreset: vi.fn(),
     setShortcutOverride: vi.fn(),
     resetShortcutOverrides: vi.fn(),

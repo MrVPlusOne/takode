@@ -282,6 +282,7 @@ export interface AppState {
   /** Apply the scheme locally and persist it server-side; reverts if the save fails. */
   setSendKeyScheme: (scheme: import("../shared/send-key-scheme.js").SendKeyScheme) => void;
   setShortcutsEnabled: (enabled: boolean) => void;
+  setTypeToCompose: (typeToCompose: boolean) => void;
   setShortcutPreset: (preset: import("./shortcuts.js").ShortcutPresetId) => void;
   setShortcutOverride: (
     actionId: import("./shortcuts.js").ShortcutActionId,

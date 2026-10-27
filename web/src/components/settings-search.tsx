@@ -83,6 +83,10 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         text: "Send Key Enter Shift+Enter Cmd+Enter Ctrl+Enter new line newline submit save comment",
       },
       {
+        id: "type-to-compose",
+        text: "Type anywhere to write a message focus composer message box typing paste Escape",
+      },
+      {
         id: "shortcuts-enabled",
         text: "Keyboard Shortcuts enabled hotkeys",
         subsection: "shortcuts",

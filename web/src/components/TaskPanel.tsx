@@ -683,6 +683,8 @@ function SystemPromptModal({
       {/* Modal */}
       <div
         data-session-info-modal="true"
+        role="dialog"
+        aria-modal="true"
         className="fixed inset-4 sm:inset-8 md:inset-x-[10%] md:inset-y-[5%] z-50 flex flex-col bg-cc-bg border border-cc-border rounded-2xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >

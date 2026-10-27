@@ -41,7 +41,7 @@ describe("shortcuts", () => {
 
   it("matches preset bindings when enabled", () => {
     const action = getMatchingShortcutAction(
-      { enabled: true, preset: "vscode-light", overrides: {} },
+      { enabled: true, preset: "vscode-light", typeToCompose: true, overrides: {} },
       { key: "`", metaKey: false, ctrlKey: true, altKey: false, shiftKey: false },
     );
 
@@ -50,7 +50,7 @@ describe("shortcuts", () => {
   });
 
   it("uses Ctrl/Cmd+Shift+F for the Standard Universal Search shortcut", () => {
-    const settings = { enabled: true, preset: "standard" as const, overrides: {} };
+    const settings = { enabled: true, preset: "standard" as const, typeToCompose: true, overrides: {} };
 
     expect(getShortcutHint(settings, "search_session", "MacIntel")).toBe("Cmd+Shift+F");
     expect(getShortcutHint(settings, "search_session", "Linux x86_64")).toBe("Ctrl+Shift+F");
@@ -75,7 +75,7 @@ describe("shortcuts", () => {
   });
 
   it("includes voice start and stop in preset shortcuts", () => {
-    const settings = { enabled: true, preset: "standard" as const, overrides: {} };
+    const settings = { enabled: true, preset: "standard" as const, typeToCompose: true, overrides: {} };
 
     expect(getShortcutHint(settings, "voice_start", "MacIntel")).toBe("Double Shift");
     expect(getShortcutHint(settings, "voice_stop", "MacIntel")).toBe("Shift");
@@ -83,7 +83,7 @@ describe("shortcuts", () => {
     expect(getMatchingShortcutTapAction(settings, "Shift", 1)).toBe("voice_stop");
     expect(
       getMatchingShortcutTapAction(
-        { enabled: true, preset: "standard", overrides: { voice_stop: "Tap:Ctrl" } },
+        { enabled: true, preset: "standard", typeToCompose: true, overrides: { voice_stop: "Tap:Ctrl" } },
         "Control",
         1,
       ),
@@ -91,7 +91,7 @@ describe("shortcuts", () => {
   });
 
   it("keeps tap gestures out of keydown chord matching", () => {
-    const settings = { enabled: true, preset: "standard" as const, overrides: {} };
+    const settings = { enabled: true, preset: "standard" as const, typeToCompose: true, overrides: {} };
 
     expect(
       getMatchingShortcutAction(settings, {
@@ -158,7 +158,7 @@ describe("shortcuts", () => {
   });
 
   it("finds the action already using a recorded shortcut", () => {
-    const standard = { enabled: true, preset: "standard" as const, overrides: {} };
+    const standard = { enabled: true, preset: "standard" as const, typeToCompose: true, overrides: {} };
     // Mod is Cmd on Mac, so a recorded Cmd+N collides with the preset's Mod+N for New Session.
     expect(findShortcutBindingConflict(standard, "next_attention", "Cmd+N", "MacIntel")).toBe("new_session");
     expect(findShortcutBindingConflict(standard, "next_attention", "Ctrl+N", "MacIntel")).toBeNull();
@@ -172,11 +172,21 @@ describe("shortcuts", () => {
   });
 
   it("frees the keys of a shortcut that is turned off", () => {
-    const newSessionOff = { enabled: true, preset: "standard" as const, overrides: { new_session: null } };
+    const newSessionOff = {
+      enabled: true,
+      preset: "standard" as const,
+      typeToCompose: true,
+      overrides: { new_session: null },
+    };
     expect(findShortcutBindingConflict(newSessionOff, "next_attention", "Cmd+N", "MacIntel")).toBeNull();
 
     // A custom binding holds its keys, and the action's preset keys are then free.
-    const movedNewSession = { enabled: true, preset: "standard" as const, overrides: { new_session: "Alt+N" } };
+    const movedNewSession = {
+      enabled: true,
+      preset: "standard" as const,
+      typeToCompose: true,
+      overrides: { new_session: "Alt+N" },
+    };
     expect(findShortcutBindingConflict(movedNewSession, "next_attention", "Cmd+N", "MacIntel")).toBeNull();
     expect(findShortcutBindingConflict(movedNewSession, "next_attention", "Alt+N", "MacIntel")).toBe("new_session");
   });
@@ -406,11 +416,11 @@ describe("shortcuts", () => {
 
   it("matches the standard preset shifted bracket session navigation bindings", () => {
     const previousAction = getMatchingShortcutAction(
-      { enabled: true, preset: "standard", overrides: {} },
+      { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
       { key: "{", code: "BracketLeft", metaKey: false, ctrlKey: true, altKey: false, shiftKey: true },
     );
     const nextAction = getMatchingShortcutAction(
-      { enabled: true, preset: "standard", overrides: {} },
+      { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
       { key: "}", code: "BracketRight", metaKey: false, ctrlKey: true, altKey: false, shiftKey: true },
     );
 
@@ -520,7 +530,7 @@ describe("shortcuts", () => {
   it("gives the two attention steps different preset keys", () => {
     // Every preset binds both, and never to the same keys.
     for (const preset of ["standard", "vscode-light", "vim-light"] as const) {
-      const settings = { enabled: true, preset, overrides: {} };
+      const settings = { enabled: true, preset, typeToCompose: true, overrides: {} };
       const inSession = getEffectiveShortcutBinding(settings, "next_attention");
       const global = getEffectiveShortcutBinding(settings, "next_attention_global");
       expect(inSession).toBeTruthy();
@@ -574,11 +584,19 @@ describe("shortcuts", () => {
 
   it("only blurs editable targets on Escape in vim mode", () => {
     const input = document.createElement("input");
-    expect(shouldBlurVimEscape({ enabled: true, preset: "vim-light", overrides: {} }, { key: "Escape" }, input)).toBe(
-      true,
-    );
-    expect(shouldBlurVimEscape({ enabled: true, preset: "standard", overrides: {} }, { key: "Escape" }, input)).toBe(
-      false,
-    );
+    expect(
+      shouldBlurVimEscape(
+        { enabled: true, preset: "vim-light", typeToCompose: true, overrides: {} },
+        { key: "Escape" },
+        input,
+      ),
+    ).toBe(true);
+    expect(
+      shouldBlurVimEscape(
+        { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
+        { key: "Escape" },
+        input,
+      ),
+    ).toBe(false);
   });
 });

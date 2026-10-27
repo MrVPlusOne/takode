@@ -54,11 +54,13 @@ afterEach(async () => {
 
 describe("settings routes", () => {
   it("accepts shortcut-only settings updates", async () => {
+    // Type-to-compose is saved off here so the round trip also proves the server keeps that switch.
     const app = createApp();
     const shortcutSettings = {
       enabled: true,
       preset: "standard",
       overrides: { search_session: "Ctrl+Shift+F" },
+      typeToCompose: false,
     };
 
     const res = await app.request("/api/settings", {
@@ -81,7 +83,7 @@ describe("settings routes", () => {
       SHORTCUT_ACTION_IDS.map((actionId) => [actionId, null]),
     );
     overrides.next_attention = "Cmd+N";
-    const shortcutSettings = { enabled: true, preset: "standard", overrides };
+    const shortcutSettings = { enabled: true, preset: "standard", overrides, typeToCompose: true };
 
     const res = await app.request("/api/settings", {
       method: "PUT",

@@ -25,6 +25,8 @@ const pressesByBackdrop = new WeakMap<EventTarget, Press>();
  */
 export function backdropClickProps<T extends Element>(onBackdropClick: (event: MouseEvent<T>) => void) {
   return {
+    // Marks an open modal surface, so page-wide keys (type-to-compose) leave the keyboard to it.
+    "data-modal-backdrop": true,
     onPointerDownCapture: (event: PointerEvent<T>) => {
       pressesByBackdrop.set(event.currentTarget, {
         down: event.target,

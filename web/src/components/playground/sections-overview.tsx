@@ -396,7 +396,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Universal Search",
-              { enabled: true, preset: "standard", overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
               "search_session",
               "MacIntel",
             )}
@@ -408,7 +408,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "New session",
-              { enabled: true, preset: "standard", overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
               "new_session",
               "MacIntel",
             )}
@@ -420,7 +420,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Toggle sidebar",
-              { enabled: true, preset: "standard", overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
               "toggle_sidebar",
               "MacIntel",
             )}
@@ -432,7 +432,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Terminal",
-              { enabled: true, preset: "standard", overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
               "open_terminal",
               "MacIntel",
             )}
@@ -444,7 +444,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Start voice input",
-              { enabled: true, preset: "standard", overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
               "voice_start",
               "MacIntel",
             )}
@@ -456,7 +456,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Stop voice recording",
-              { enabled: true, preset: "standard", overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
               "voice_stop",
               "MacIntel",
             )}

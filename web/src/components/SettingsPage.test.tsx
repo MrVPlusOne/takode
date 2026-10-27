@@ -767,11 +767,25 @@ describe("SettingsPage", () => {
     expect(mockState.setSendKeyScheme).toHaveBeenCalledWith("mod-enter");
   });
 
+  it("offers type-to-compose, on by default, even while shortcuts are disabled", async () => {
+    // It binds no key of its own, so it must not hide behind the shortcuts toggle.
+    render(<SettingsPage />);
+
+    await waitForSettingsPage();
+    const toggle = within(settingsSection("Keyboard") as HTMLElement).getByRole("switch", {
+      name: "Type anywhere to write a message",
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(toggle);
+    expect(mockState.setTypeToCompose).toHaveBeenCalledWith(false);
+  });
+
   it("shows shortcut preset controls when shortcuts are enabled", async () => {
     setMockState({
       shortcutSettings: {
         enabled: true,
         preset: "standard",
+        typeToCompose: true,
         overrides: {},
       },
     });
@@ -789,6 +803,7 @@ describe("SettingsPage", () => {
       shortcutSettings: {
         enabled: true,
         preset: "standard",
+        typeToCompose: true,
         overrides: { search_session: "Ctrl+K" },
       },
     });
@@ -814,6 +829,7 @@ describe("SettingsPage", () => {
       shortcutSettings: {
         enabled: true,
         preset: "standard",
+        typeToCompose: true,
         overrides: { voice_start: null },
       },
     });
@@ -841,6 +857,7 @@ describe("SettingsPage", () => {
       shortcutSettings: {
         enabled: true,
         preset: "standard",
+        typeToCompose: true,
         overrides: {},
       },
     });
@@ -861,6 +878,7 @@ describe("SettingsPage", () => {
       shortcutSettings: {
         enabled: true,
         preset: "standard",
+        typeToCompose: true,
         overrides: { new_session: null },
       },
     });
@@ -880,7 +898,7 @@ describe("SettingsPage", () => {
 
   it("refuses a recorded shortcut another action uses and names that action", async () => {
     // jsdom reports a non-Mac platform, so the Standard preset's Mod+N is Ctrl+N for New Session.
-    setMockState({ shortcutSettings: { enabled: true, preset: "standard", overrides: {} } });
+    setMockState({ shortcutSettings: { enabled: true, preset: "standard", typeToCompose: true, overrides: {} } });
 
     render(<SettingsPage />);
 
@@ -896,7 +914,9 @@ describe("SettingsPage", () => {
   });
 
   it("records the keys of a shortcut that is turned off", async () => {
-    setMockState({ shortcutSettings: { enabled: true, preset: "standard", overrides: { new_session: null } } });
+    setMockState({
+      shortcutSettings: { enabled: true, preset: "standard", typeToCompose: true, overrides: { new_session: null } },
+    });
 
     render(<SettingsPage />);
 
@@ -911,7 +931,9 @@ describe("SettingsPage", () => {
 
   it("explains when the browser takes a shortcut before Takode sees it", async () => {
     // Browsers handle Ctrl/Cmd+N themselves: the page only sees the modifier go down, then loses focus.
-    setMockState({ shortcutSettings: { enabled: true, preset: "standard", overrides: { new_session: null } } });
+    setMockState({
+      shortcutSettings: { enabled: true, preset: "standard", typeToCompose: true, overrides: { new_session: null } },
+    });
 
     render(<SettingsPage />);
 
@@ -930,7 +952,7 @@ describe("SettingsPage", () => {
   });
 
   it("keeps recording when the window loses focus with no key held", async () => {
-    setMockState({ shortcutSettings: { enabled: true, preset: "standard", overrides: {} } });
+    setMockState({ shortcutSettings: { enabled: true, preset: "standard", typeToCompose: true, overrides: {} } });
 
     render(<SettingsPage />);
 

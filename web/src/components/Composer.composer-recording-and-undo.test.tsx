@@ -2,7 +2,15 @@
 import { renderExpandedComposer as render } from "./composer-test-utils.js";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Profiler } from "react";
-import { screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
+import {
+  screen,
+  fireEvent,
+  createEvent,
+  waitFor,
+  act,
+  within,
+  render as renderCollapsed,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { SessionState } from "../../server/session-types.js";
 import type { VoiceTranscriptionResult } from "../api.js";
@@ -682,5 +690,69 @@ describe("Composer undo and redo", () => {
 
     await waitFor(() => expect(mockSendToSession).toHaveBeenCalled());
     expect((screen.getByRole("button", { name: "Undo last change" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+// Type anywhere to reach the composer: keys typed with nothing focused open it, Escape closes it,
+// and Escape keeps stopping voice input while voice is active (the user's explicit condition).
+describe("Composer type-to-compose and Escape", () => {
+  const isCollapsed = () => screen.getByTestId("composer-minimizer").getAttribute("data-collapsed") === "true";
+  const textarea = () => screen.getByRole("textbox") as HTMLTextAreaElement;
+
+  it("opens the collapsed composer when a character is typed with nothing focused", () => {
+    setupMockStore({ draftText: "hello" });
+    renderCollapsed(<Composer sessionId="s1" />);
+    expect(isCollapsed()).toBe(true);
+
+    fireEvent.keyDown(document.body, { key: "a" });
+
+    expect(document.activeElement).toBe(textarea());
+    expect(isCollapsed()).toBe(false);
+  });
+
+  it("collapses on Escape, keeping the draft and handing the keys back to the page", () => {
+    setupMockStore({ draftText: "hello" });
+    render(<Composer sessionId="s1" />);
+    expect(isCollapsed()).toBe(false);
+
+    fireEvent.keyDown(textarea(), { key: "Escape" });
+
+    expect(isCollapsed()).toBe(true);
+    expect(document.activeElement).not.toBe(textarea());
+    expect(textarea().value).toBe("hello");
+  });
+
+  it("lets Escape cancel an active recording instead of collapsing", () => {
+    mockVoiceState.isRecordingOverride = true;
+    setupMockStore();
+    render(<Composer sessionId="s1" />);
+
+    fireEvent.keyDown(textarea(), { key: "Escape" });
+
+    expect(mockVoiceState.cancelRecording).toHaveBeenCalledTimes(1);
+    expect(isCollapsed()).toBe(false);
+  });
+
+  it("does not collapse on Escape while a recording is being transcribed", () => {
+    mockVoiceState.isTranscribingOverride = true;
+    setupMockStore();
+    render(<Composer sessionId="s1" />);
+
+    fireEvent.keyDown(textarea(), { key: "Escape" });
+
+    expect(isCollapsed()).toBe(false);
+  });
+
+  it("does neither when turned off in Settings", () => {
+    setupMockStore({ draftText: "hello" });
+    mockStoreState.shortcutSettings = { enabled: false, preset: "standard", overrides: {}, typeToCompose: false };
+    render(<Composer sessionId="s1" />);
+
+    fireEvent.keyDown(textarea(), { key: "Escape" });
+    expect(isCollapsed()).toBe(false);
+
+    act(() => textarea().blur());
+    fireEvent.keyDown(document.body, { key: "a" });
+    expect(document.activeElement).not.toBe(textarea());
   });
 });

@@ -33,12 +33,18 @@ export interface ShortcutSettings {
   preset: ShortcutPresetId;
   /** Per-action bindings that replace the preset's; null turns the action's shortcut off. */
   overrides: Partial<Record<ShortcutActionId, ShortcutBinding | null>>;
+  /**
+   * Typing a character with nothing else focused opens the collapsed composer with it. Independent
+   * of `enabled`: it binds no key of its own, so it stays on while the shortcut presets are off.
+   */
+  typeToCompose: boolean;
 }
 
 export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
   enabled: false,
   preset: "standard",
   overrides: {},
+  typeToCompose: true,
 };
 
 const ACTION_ID_SET = new Set<string>(SHORTCUT_ACTION_IDS);
@@ -69,5 +75,7 @@ export function parseShortcutSettings(raw: unknown): ShortcutSettings | undefine
       ? (candidate.preset as ShortcutPresetId)
       : DEFAULT_SHORTCUT_SETTINGS.preset,
     overrides,
+    typeToCompose:
+      typeof candidate.typeToCompose === "boolean" ? candidate.typeToCompose : DEFAULT_SHORTCUT_SETTINGS.typeToCompose,
   };
 }

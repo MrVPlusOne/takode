@@ -214,3 +214,18 @@ export function SendKeySchemeSetting({
     </div>
   );
 }
+
+/** Type-to-compose switch. Always active, independent of the keyboard shortcut toggle. */
+export function TypeToComposeSetting({ hidden = false }: { hidden?: boolean }) {
+  const typeToCompose = useStore((s) => s.shortcutSettings.typeToCompose);
+  const setTypeToCompose = useStore((s) => s.setTypeToCompose);
+  return (
+    <SettingsToggle
+      label="Type anywhere to write a message"
+      description="When nothing else has focus, typing or pasting opens the message box with what you typed, and Enter opens it empty. Esc closes it again and keeps your draft."
+      checked={typeToCompose}
+      onChange={setTypeToCompose}
+      hidden={hidden}
+    />
+  );
+}

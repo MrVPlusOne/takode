@@ -1,4 +1,5 @@
 import { ComposerMinimizer } from "./ComposerMinimizer.js";
+import { useComposerTypeToCompose } from "./use-composer-type-to-compose.js";
 import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
@@ -54,6 +55,7 @@ import {
 } from "../utils/vscode-context.js";
 import { isNarrowComposerLayout } from "../utils/layout.js";
 import {
+  DEFAULT_SHORTCUT_SETTINGS,
   SHORTCUT_DOUBLE_TAP_WINDOW_MS,
   getMatchingShortcutAction,
   getMatchingShortcutTapAction,
@@ -752,6 +754,9 @@ export function Composer({
   }, [zoomLevel]);
 
   useComposerNavigationFocus({ textareaRef, sessionId, threadKey, usesTouchKeyboard });
+  // Desktop only: a phone has no keyboard to type with until a text box already has focus.
+  const typeToCompose = (shortcutSettings ?? DEFAULT_SHORTCUT_SETTINGS).typeToCompose && !usesTouchKeyboard;
+  useComposerTypeToCompose({ textareaRef, enabled: typeToCompose });
 
   useEffect(() => {
     setVoiceEditProposal(null);
@@ -1628,6 +1633,8 @@ export function Composer({
       destination={`${sessionId}:${threadKey}`}
       expanded={!isCollapsed}
       onExpandedChange={setComposerExpanded}
+      // Escape while voice input records or transcribes stays voice's (it cancels the recording).
+      collapseOnEscape={typeToCompose && !keepComposerOpen}
       overlay
     >
       <div

@@ -8,7 +8,7 @@ import { SidebarGlobalSearch } from "./SidebarGlobalSearch.js";
 beforeEach(() => {
   useStore.setState({
     sidebarOpen: true,
-    shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
+    shortcutSettings: { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
   });
 });
 
@@ -26,7 +26,7 @@ describe("SidebarGlobalSearch", () => {
 
   // With shortcuts turned off there is no binding to advertise in the tooltip.
   it("omits the shortcut hint when shortcuts are disabled", () => {
-    useStore.setState({ shortcutSettings: { enabled: false, preset: "standard", overrides: {} } });
+    useStore.setState({ shortcutSettings: { enabled: false, preset: "standard", typeToCompose: true, overrides: {} } });
     render(<SidebarGlobalSearch closePanelOnOpen={false} />);
     const search = screen.getByRole("button", { name: "Universal Search" });
     expect(search.title).toBe("Search everything");

@@ -9,12 +9,15 @@ export function ComposerMinimizer({
   destination,
   expanded,
   onExpandedChange,
+  collapseOnEscape = false,
   overlay = false,
 }: {
   children: ReactNode;
   destination: string;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
+  /** Escape inside the composer collapses it, handing the keys back to the page. */
+  collapseOnEscape?: boolean;
   overlay?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
@@ -68,6 +71,13 @@ export function ComposerMinimizer({
         onFocusCapture={(event) => {
           insideFocusEvent.current = event.nativeEvent;
           onExpandedChange(true);
+        }}
+        onKeyDown={(event) => {
+          if (!collapseOnEscape || event.key !== "Escape" || event.defaultPrevented) return;
+          // A portal, such as an attachment lightbox, closes itself on Escape.
+          if (!root.current?.contains(event.target as Node)) return;
+          event.preventDefault();
+          onExpandedChange(false);
         }}
       >
         <ComposerVisibilityContext.Provider value={expanded}>{children}</ComposerVisibilityContext.Provider>

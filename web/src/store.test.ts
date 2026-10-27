@@ -178,13 +178,19 @@ describe("Shortcut settings hydration", () => {
   it("uses explicit server shortcut settings and clears legacy browser storage", async () => {
     localStorage.setItem(
       "test-server:cc-shortcuts",
-      JSON.stringify({ enabled: true, preset: "vim-light", overrides: { search_session: "Alt+/" } }),
+      JSON.stringify({
+        enabled: true,
+        preset: "vim-light",
+        typeToCompose: true,
+        overrides: { search_session: "Alt+/" },
+      }),
     );
 
     await hydrateShortcutSettingsFromServer({
       shortcutSettings: {
         enabled: true,
         preset: "standard",
+        typeToCompose: true,
         overrides: { search_session: "Ctrl+K" },
       },
     });
@@ -192,6 +198,7 @@ describe("Shortcut settings hydration", () => {
     expect(useStore.getState().shortcutSettings).toEqual({
       enabled: true,
       preset: "standard",
+      typeToCompose: true,
       overrides: { search_session: "Ctrl+K" },
     });
     expect(localStorage.getItem("test-server:cc-shortcuts")).toBeNull();
@@ -202,6 +209,7 @@ describe("Shortcut settings hydration", () => {
     const legacySettings = {
       enabled: true,
       preset: "vscode-light" as const,
+      typeToCompose: true,
       overrides: { search_session: "Ctrl+L", voice_stop: null },
     };
     localStorage.setItem("test-server:cc-shortcuts", JSON.stringify(legacySettings));
@@ -220,6 +228,7 @@ describe("Shortcut settings hydration", () => {
     expect(useStore.getState().shortcutSettings).toEqual({
       enabled: false,
       preset: "standard",
+      typeToCompose: true,
       overrides: {},
     });
     expect(mockUpdateSettings).not.toHaveBeenCalled();
@@ -231,12 +240,22 @@ describe("Shortcut settings hydration", () => {
     expect(useStore.getState().shortcutSettings).toEqual({
       enabled: true,
       preset: "standard",
+      typeToCompose: true,
       overrides: {},
     });
     expect(mockUpdateSettings).toHaveBeenCalledWith({
-      shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
+      shortcutSettings: { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
     });
     expect(localStorage.getItem("test-server:cc-shortcuts")).toBeNull();
+  });
+
+  it("saves the type-to-compose switch with the other shortcut settings", () => {
+    useStore.getState().setTypeToCompose(false);
+
+    expect(useStore.getState().shortcutSettings.typeToCompose).toBe(false);
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      shortcutSettings: { enabled: false, preset: "standard", overrides: {}, typeToCompose: false },
+    });
   });
 
   it("turns a preset shortcut off and back to its preset default", () => {
@@ -250,7 +269,7 @@ describe("Shortcut settings hydration", () => {
 
     useStore.getState().setShortcutOverride("new_session", null);
 
-    const offSettings = { enabled: true, preset: "standard", overrides: { new_session: null } };
+    const offSettings = { enabled: true, preset: "standard", typeToCompose: true, overrides: { new_session: null } };
     expect(useStore.getState().shortcutSettings).toEqual(offSettings);
     expect(mockUpdateSettings).toHaveBeenCalledWith({ shortcutSettings: offSettings });
     expect(getMatchingShortcutAction(useStore.getState().shortcutSettings, ctrlN)).toBeNull();

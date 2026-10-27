@@ -1584,6 +1584,7 @@ describe("settings", () => {
     const shortcutSettings = {
       enabled: true,
       preset: "standard" as const,
+      typeToCompose: true,
       overrides: { search_session: "Ctrl+Shift+F" },
     };
     mockFetch.mockResolvedValueOnce(mockResponse({ serverName: "", serverId: "test-id", shortcutSettings }));
