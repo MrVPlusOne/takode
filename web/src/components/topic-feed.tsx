@@ -46,6 +46,21 @@ export function topicQuestsOfTurns(turns: readonly Turn[], questIds: readonly st
 }
 
 /**
+ * In a topic conversation: which of the topic's quests a message belongs to, so the feed starts a
+ * new turn (and shows the quest's strip) wherever the conversation moves to another quest, also
+ * in the middle of what would otherwise be one turn. Null outside topic conversations.
+ */
+export function useTopicTurnPartOf(): ((message: ChatMessage) => string | null) | null {
+  const topicFeed = useContext(TopicFeedContext);
+  const key = topicFeed?.questIds.join(",") ?? "";
+  return useMemo(() => {
+    if (!key) return null;
+    const questIds = key.split(",");
+    return (message: ChatMessage) => topicMemberOfMessage(message, questIds);
+  }, [key]);
+}
+
+/**
  * The strip naming `questId` where the conversation moves to it: the ID is a quest link like any in
  * the feed, and tapping the rest of the strip zooms into the quest.
  */

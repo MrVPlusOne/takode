@@ -1403,6 +1403,56 @@ export function groupIntoTurns(
   return turns;
 }
 
+/**
+ * Starts a new turn wherever the conversation moves to another part (`partOf` of a message names
+ * its part, null for none). A topic conversation uses it so each quest's work is its own turn:
+ * in a leader session turns start only at the user's messages, so a quest worked on only through
+ * herd events (a daily briefing published by a worker) otherwise ran on inside the previous
+ * quest's turn, under that quest's strip. A turn keeps its id for its first part.
+ */
+export function splitTurnsByPart(
+  turns: readonly Turn[],
+  partOf: (message: ChatMessage) => string | null,
+  options: {
+    leaderMode: boolean;
+    leaderSessionMode: boolean;
+    anchoredNotificationMessageIds?: readonly string[];
+    visibleAssistantChildMessageIds?: readonly string[];
+  },
+): Turn[] {
+  const anchored = new Set(options.anchoredNotificationMessageIds ?? []);
+  const visibleChildren = new Set(options.visibleAssistantChildMessageIds ?? []);
+  const partOfEntry = (entry: FeedEntry | null) => (entry?.kind === "message" ? partOf(entry.msg) : null);
+  const result: Turn[] = [];
+  for (const turn of turns) {
+    let part = partOfEntry(turn.userEntry);
+    const pieces: FeedEntry[][] = [[]];
+    for (const entry of turn.allEntries) {
+      const entryPart = partOfEntry(entry);
+      if (entryPart && part && entryPart !== part && pieces.at(-1)!.length > 0) pieces.push([]);
+      if (entryPart) part = entryPart;
+      pieces.at(-1)!.push(entry);
+    }
+    if (pieces.length === 1) {
+      result.push(turn);
+      continue;
+    }
+    pieces.forEach((entries, index) => {
+      const piece = makeTurn(
+        index === 0 ? turn.userEntry : null,
+        entries,
+        result.length,
+        options.leaderMode,
+        options.leaderSessionMode,
+        anchored,
+        visibleChildren,
+      );
+      result.push(index === 0 ? { ...piece, id: turn.id } : piece);
+    });
+  }
+  return result;
+}
+
 export function buildFeedModel(
   messages: ChatMessage[],
   leaderMode = false,

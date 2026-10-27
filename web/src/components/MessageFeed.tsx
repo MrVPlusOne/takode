@@ -101,6 +101,7 @@ import { useTopicResponsePresentations } from "./topic-feed.js";
 import { AnswerReferencesContext, useAllThreadsAnswerReferences } from "./answer-references.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
+import { useTopicTurnPartOf } from "./topic-feed.js";
 import { useMessageFeedStatusContentBottomSync, useMessageFeedStatusLayout } from "./use-message-feed-status-layout.js";
 import { MessageFeedDayPill } from "./MessageFeedDayPill.js";
 import { MessageFeedEndSlack } from "./MessageFeedEndSlack.js";
@@ -343,6 +344,7 @@ export function MessageFeed({
     () => (isCodexSession ? collectCodexTerminalEntries(messages, toolResults, toolProgress, toolStartTimestamps) : []),
     [isCodexSession, messages, toolProgress, toolResults, toolStartTimestamps],
   );
+  const topicTurnPartOf = useTopicTurnPartOf();
   const { turns } = useCodexSafeFeedModel({
     messages,
     // The canonical frozen count is indexed against the unfiltered store. Once
@@ -364,6 +366,7 @@ export function MessageFeed({
     sessionNotifications: feedMessageModel.displayNotifications,
     userBoundarySourceSessionId: herdingLeaderSessionId ?? null,
     visibleAssistantChildMessageIds,
+    turnPartOf: topicTurnPartOf,
     perf: { sessionId, threadKey: normalizedThreadKey },
   });
   const userNavigationTargets = useMessageFeedUserNavigationTargets({

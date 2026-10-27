@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Turn } from "../hooks/use-feed-model.js";
+import { buildFeedModel, splitTurnsByPart, type Turn } from "../hooks/use-feed-model.js";
+import { topicMemberOfMessage } from "../utils/thread-projection.js";
 import type { ChatMessage } from "../types.js";
 import { filterMessagesForThread } from "../utils/thread-projection.js";
 import { topicViewKey } from "../../shared/topic-thread-key.js";
@@ -44,6 +45,43 @@ describe("topic feed", () => {
       turn(message("d", "q-3")),
     ];
     expect(topicQuestsOfTurns(turns, quests)).toEqual(["q-3", "q-12", "q-12", "q-3"]);
+  });
+
+  it("starts a quest's own turn where herd events move the conversation to it", () => {
+    // Jiayi's Daily briefing topic showed "q-2856 Daily briefing: October 25" over Oct 26's
+    // briefing: q-2871's work came only through herd events (a worker publishing the report),
+    // and a leader's turns start only at the user's messages, so it ran on inside q-2856's turn.
+    const user = (id: string, threadKey: string, herd = false): ChatMessage =>
+      ({
+        id,
+        role: "user",
+        content: herd ? `1 event from 1 session\n\n#2978 | turn_end | ${threadKey}: done` : id,
+        timestamp: 1,
+        metadata: { threadKey, questId: threadKey },
+        ...(herd ? { agentSource: { sessionId: "herd-events", sessionLabel: "Herd" } } : {}),
+      }) as ChatMessage;
+    const messages = [
+      user("ask", "q-2856"),
+      message("oct25", "q-2856"),
+      user("herd-2871", "q-2871", true),
+      message("oct26-report", "q-2871"),
+    ];
+    const quests = ["q-2856", "q-2871"];
+    const { turns } = buildFeedModel(messages, true);
+    expect(turns).toHaveLength(1);
+    expect(topicQuestsOfTurns(turns, quests)).toEqual(["q-2856"]);
+
+    const split = splitTurnsByPart(turns, (msg) => topicMemberOfMessage(msg, quests), {
+      leaderMode: true,
+      leaderSessionMode: true,
+    });
+    expect(split.map((item) => item.allEntries.map((entry) => entry.kind === "message" && entry.msg.id))).toEqual([
+      ["oct25"],
+      ["herd-2871", "oct26-report"],
+    ]);
+    // The first part keeps the turn's id; the strip now changes where q-2871 starts.
+    expect(split[0]!.id).toBe(turns[0]!.id);
+    expect(topicQuestsOfTurns(split, quests)).toEqual(["q-2856", "q-2871"]);
   });
 
   it("keeps the live messages the server says belong to it, and nothing by rules of its own", () => {
