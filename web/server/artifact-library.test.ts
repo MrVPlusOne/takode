@@ -326,6 +326,58 @@ describe("versions and projection", () => {
     expect(reloaded.list().artifacts.map((artifact) => artifact.title)).toEqual(["New"]);
   });
 
+  it("captures a message whose text arrives after its thinking was already read", async () => {
+    // Claude sends a message's thinking and its text as separate parts with one message ID. When
+    // the session was saved between them, the library read the thinking-only row, moved past it,
+    // and never saw the text: on Oct 26 two revisions of a titled draft never became versions
+    // (and their older card never collapsed). The text either replaces that row (a leader's routed
+    // answer) or joins it in place; both are read now, once.
+    const draft = (body: string) => `\`\`\`\`draft\ntitle: Latest evals for Dan\n---\n${body}\n\`\`\`\``;
+    const thinkingOnly = (at: number) => {
+      const row = assistant("", at, "q-1");
+      if (row.type === "assistant") row.message.content = [{ type: "thinking", thinking: "" }];
+      return row;
+    };
+    const withText = (row: BrowserIncomingMessage, text: string) => {
+      if (row.type !== "assistant") return row;
+      return {
+        ...row,
+        message: { ...row.message, content: [...row.message.content, { type: "text" as const, text }] },
+      };
+    };
+    const first = assistant(draft("First."), NOW, "q-1");
+    const session: LibrarySessionLike = { id: "s1", messageHistory: [first] };
+    const { store, library } = await setup([session]);
+    library.sessionSaved("s1");
+    await library.idle();
+
+    // Replaced: the routed row with the text takes the thinking row's place.
+    const second = thinkingOnly(NOW + 60_000);
+    session.messageHistory.push(second);
+    library.sessionSaved("s1");
+    await library.idle();
+    session.messageHistory[1] = withText(second, draft("Second."));
+    library.sessionSaved("s1");
+    await library.idle();
+
+    // In place: the text joins the row already saved, after a tool result was saved behind it.
+    const third = thinkingOnly(NOW + 120_000);
+    session.messageHistory.push(third);
+    library.sessionSaved("s1");
+    await library.idle();
+    if (third.type === "assistant") third.message.content.push({ type: "text", text: draft("Third.") });
+    session.messageHistory.push({ type: "result", data: {} } as unknown as BrowserIncomingMessage);
+    library.sessionSaved("s1");
+    await library.idle();
+
+    // Saved again with nothing new: no version is added twice.
+    library.sessionSaved("s1");
+    await library.idle();
+    const [artifact] = store.list().artifacts;
+    expect(store.get(artifact.id)!.versions.map((version) => version.n)).toEqual([1, 2, 3]);
+    expect(textOf(library.projectMessage("s1", session.messageHistory[0]))).toContain(ARTIFACT_PLACEHOLDER_LANGUAGE);
+  });
+
   it("renames, stars, filters, and merges separately saved revisions", async () => {
     const session = {
       id: "s1",
@@ -385,5 +437,11 @@ describe("versions and projection", () => {
     expect(shown).toEqual([{ sessionId: "s1", paths: [figure, "docs/shot.png"] }]);
     expect(figures).toEqual(store.list({ kind: "figure" }).artifacts.map((artifact) => artifact.id));
     expect(figures).toHaveLength(1);
+
+    // The newest answer is read again on later saves (it may still grow), but its images go once.
+    session.messageHistory.push({ type: "result", data: {} } as unknown as BrowserIncomingMessage);
+    library.sessionSaved("s1");
+    await library.idle();
+    expect(shown).toHaveLength(1);
   });
 });

@@ -203,8 +203,9 @@ export class ArtifactLibraryStore {
   ): Promise<void> {
     const index = this.state();
     const messageKey = messageIndexKey(ctx.sessionId, extracted.messageId);
+    // A message read again (its kind new to the library, or grown since) adds only captures it
+    // didn't have; the ones it had stay as captured.
     const existing = index.messages[messageKey];
-    if (existing && !options.onlyKinds) return;
     const ref: ArtifactMessageRef = {
       sessionId: ctx.sessionId,
       messageId: extracted.messageId,
@@ -214,7 +215,6 @@ export class ArtifactLibraryStore {
     const entries: MessageEntry[] = [];
     const figureIdsByLabel = new Map<string, string>();
     for (const capture of extracted.captures) {
-      // Reading a message again for a new kind adds only that kind's captures.
       if (options.onlyKinds && !options.onlyKinds.includes(capture.kind)) continue;
       if (existing?.some((entry) => entry.label === capture.label)) continue;
       const entry = await this.captureOne(ctx, ref, capture, figureIdsByLabel, result);

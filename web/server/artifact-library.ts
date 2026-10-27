@@ -52,6 +52,11 @@ const CAPTURE_DELAY_MS = 50;
 
 export class ArtifactLibrary {
   private pending = new Set<string>();
+  /** Per session: the newest agent message as last read, which the next read starts from. */
+  private lastAgentMessage = new Map<
+    string,
+    { index: number; message: BrowserIncomingMessage | undefined; blocks: number; readTo: number }
+  >();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running: Promise<void> = Promise.resolve();
 
@@ -150,6 +155,12 @@ export class ArtifactLibrary {
     for (const id of toRefresh) this.deps.refreshConversation(id);
   }
 
+  /**
+   * Reads a session's messages since the last read. The newest agent message is read again next
+   * time, since it can still grow: Claude sends a message's thinking and its text as separate parts,
+   * and the text joins the row already saved (in place, or replacing it). Reading the thinking alone
+   * and moving past it lost every draft, table and report in that text.
+   */
   private async captureSession(session: LibrarySessionLike, live: boolean): Promise<CaptureResult> {
     const result: CaptureResult = { captured: 0, affectedSessions: new Set(), newVersions: [] };
     const history = session.messageHistory;
@@ -157,9 +168,18 @@ export class ArtifactLibrary {
     const start = this.store.cursorFor(session.id, history, (index) => historyMessageId(history[index]));
     const cutoff = this.store.backfillCutoff();
     const space = this.deps.spaceFor(session.id);
+    const reread = this.lastAgentMessage.get(session.id);
+    let next = length;
     for (let index = start; index < length; index += 1) {
       const message = history[index];
       if (!message || !isRootAgentHistoryMessage(message)) continue;
+      if (message.type === "assistant") next = index;
+      // Read last time and unchanged: only the newest agent message can have grown since.
+      if (reread && index < reread.readTo) {
+        const grown =
+          index === reread.index && (message !== reread.message || contentBlockCount(message) !== reread.blocks);
+        if (!grown) continue;
+      }
       const at = (message as { timestamp?: unknown }).timestamp;
       if (typeof at === "number" && at < cutoff) continue;
       if (live) {
@@ -170,7 +190,18 @@ export class ArtifactLibrary {
       if (!extracted) continue;
       await this.store.captureMessage({ sessionId: session.id, space }, extracted, result);
     }
-    this.store.setCursor(session.id, length, length > 0 ? historyMessageId(history[length - 1]) : undefined);
+    if (next < length) {
+      const message = history[next];
+      this.lastAgentMessage.set(session.id, {
+        index: next,
+        message,
+        blocks: contentBlockCount(message),
+        readTo: length,
+      });
+    } else {
+      this.lastAgentMessage.delete(session.id);
+    }
+    this.store.setCursor(session.id, next, next > 0 ? historyMessageId(history[next - 1]) : undefined);
     return result;
   }
 
@@ -285,6 +316,11 @@ export class ArtifactLibrary {
 /** The placeholder on its own lines, so it renders as a block even where an image sat inside a paragraph. */
 function collapsedLine(marker: ArtifactMessageMarker): string {
   return `\n${formatArtifactPlaceholder(marker)}\n`;
+}
+
+function contentBlockCount(message: BrowserIncomingMessage | undefined): number {
+  const content = message?.type === "assistant" ? message.message?.content : undefined;
+  return Array.isArray(content) ? content.length : 0;
 }
 
 function historyMessageId(message: BrowserIncomingMessage | undefined): string | undefined {
