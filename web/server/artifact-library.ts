@@ -321,21 +321,10 @@ export class ArtifactLibrary {
     for (const capture of extractFromTextBlocks(texts)) {
       const entry = superseded.get(capture.label);
       if (!entry || !("spans" in capture)) continue;
-      // A post's message the newest version still has stays; only the replaced ones collapse. A
-      // copy of the newest version that a later message repeats collapses whole.
-      const latestParts = capture.kind === "post" && !entry.marker.repeated ? entry.latestParts : undefined;
-      const replacedParts = capture.spans
-        .map((_, part) => part)
-        .filter((part) => !latestParts || !latestParts.includes(capture.kind === "post" ? capture.parts[part] : ""));
-      const marker =
-        replacedParts.length < capture.spans.length ? { ...entry.marker, parts: replacedParts } : entry.marker;
-      replacedParts.forEach((part, position) => {
-        const span = capture.spans[part];
+      // A replaced version collapses whole: its first block becomes the collapsed line, the rest go.
+      capture.spans.forEach((span, position) => {
         const list = edits.get(span.block) ?? [];
-        list.push({
-          span,
-          replacement: position === 0 ? collapsedLine(marker) : "",
-        });
+        list.push({ span, replacement: position === 0 ? collapsedLine(entry.marker) : "" });
         edits.set(span.block, list);
       });
     }

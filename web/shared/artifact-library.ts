@@ -1,3 +1,4 @@
+import type { PostPartChanges } from "./draft-posts.js";
 /**
  * The artifact library: things agents made for the user (drafts and posts, reports, figures,
  * visuals, guided reviews), saved by the server as they appear in conversations, with revisions of
@@ -54,6 +55,8 @@ export interface ArtifactVersionSummary {
   parts?: number;
   /** Figures shown in the same answer as a post version. */
   figureIds?: string[];
+  /** For a post version after the first: how its parts changed from the version before. */
+  changes?: PostPartChanges;
   /** The message it first appeared in; later appearances of identical content add no version. */
   source: ArtifactMessageRef;
 }
@@ -91,7 +94,13 @@ export interface ArtifactDetail extends ArtifactSummary {
 
 /** A version's content: post parts, Markdown (reports, reviews), visual source, or a figure file. */
 export type ArtifactVersionContent =
-  | { kind: "post"; parts: string[]; figureIds: string[] }
+  | {
+      kind: "post";
+      parts: string[];
+      figureIds: string[];
+      /** Per part: the files attached to it (`attach:` lines), when any part has some. */
+      attachments?: PostAttachment[][];
+    }
   | {
       kind: "report" | "review";
       markdown: string;
@@ -102,6 +111,12 @@ export type ArtifactVersionContent =
   | { kind: "table"; markdown: string }
   | { kind: "visual"; source: string }
   | { kind: "figure"; path: string; fileUrl: string | null };
+
+/** A file attached to a post's part: its path, and the Library figure keeping it when it is an image. */
+export interface PostAttachment {
+  path: string;
+  figureId?: string;
+}
 
 /** What opens a guided review's walkthrough: its message, where answers go, and the review itself. */
 export interface ArtifactGuidedReview {
@@ -152,11 +167,8 @@ export interface ArtifactMessageMarker {
   title: string;
   version: number;
   versionCount: number;
-  /**
-   * On a collapsed post version: which of its messages (0-based) were replaced, when the others
-   * are still current and stay shown in the conversation.
-   */
-  parts?: number[];
+  /** On a current post version: how its parts changed from the version before (new, edited, removed). */
+  changes?: PostPartChanges;
   /** On a collapsed version: a later message shows this same version again. */
   repeated?: boolean;
 }
@@ -204,17 +216,4 @@ export function parseArtifactLinkHref(href: string | undefined | null): { id: st
   const match = /^artifact:([0-9a-f-]{4,36})(?::v(\d+))?$/i.exec(href?.trim() ?? "");
   if (!match) return null;
   return { id: match[1].toLowerCase(), ...(match[2] ? { version: Number(match[2]) } : {}) };
-}
-
-/**
- * A draft may start with a `title:` line and a `---` line, naming it so its revisions group as
- * versions of one post. The header is not part of the message: it is neither shown nor copied.
- */
-export function parseDraftHeader(text: string): {
-  title?: string;
-  body: string;
-} {
-  const match = /^title:[ \t]*(.+?)[ \t]*\r?\n---[ \t]*(?:\r?\n|$)/i.exec(text);
-  if (!match) return { body: text };
-  return { title: match[1], body: text.slice(match[0].length) };
 }

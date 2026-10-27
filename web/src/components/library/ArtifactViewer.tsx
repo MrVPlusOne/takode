@@ -161,6 +161,8 @@ export function ArtifactViewer({ id, onBack, onChanged }: { id: string; onBack: 
           <ArtifactVersionLoader
             id={detail.id}
             version={version.n}
+            title={detail.title}
+            changes={version.changes}
             renderMarkdown={(markdown, options) => (
               <MarkdownContent text={markdown} sessionId={source.sessionId} fileBasePath={options?.fileBasePath} />
             )}

@@ -6,9 +6,17 @@ import {
   type ArtifactMessageMarker,
   type ArtifactVersionContent,
 } from "../../shared/artifact-library.js";
+import type { GroupedDraftPost, PostPartChanges } from "../../shared/draft-posts.js";
 import { artifactApi } from "../api/artifacts.js";
 import { openLibraryArtifact } from "../utils/library-nav.js";
-import { MarkdownDraftCard } from "./MarkdownDraftCard.js";
+import {
+  DraftPostCard,
+  feedPostParts,
+  postPartsOf,
+  removedPartLabels,
+  useVersionContent,
+  type AttachmentRendering,
+} from "./DraftPostCard.js";
 import { VisualBlock } from "./VisualBlock.js";
 
 /** Renders Markdown with the caller's settings; passed in so these components don't import MarkdownContent. */
@@ -55,7 +63,7 @@ export function CollapsedArtifact({
           <ArtifactVersionLoader
             id={marker.id}
             version={marker.version}
-            onlyParts={marker.parts}
+            title={marker.title}
             renderMarkdown={renderMarkdown}
           />
           <button
@@ -75,12 +83,18 @@ export function CollapsedArtifact({
 export function ArtifactVersionLoader({
   id,
   version,
+  title,
+  changes,
   onlyParts,
   renderMarkdown,
 }: {
   id: string;
   version: number;
-  /** For a post, show only these messages (0-based): the ones a newer version replaced. */
+  /** The artifact's title, shown on a post's card. */
+  title?: string;
+  /** For a post: how this version's parts changed from the one before, to mark them. */
+  changes?: PostPartChanges;
+  /** For a post, show only these messages (0-based), such as a part a later version removed. */
   onlyParts?: readonly number[];
   renderMarkdown: RenderMarkdown;
 }) {
@@ -101,34 +115,62 @@ export function ArtifactVersionLoader({
   }, [id, version]);
   if (state.error) return <p className="py-1 text-[13px] text-cc-muted">{state.error}.</p>;
   if (!state.content) return <p className="py-1 text-[13px] text-cc-muted">Loading…</p>;
-  const content =
-    onlyParts && state.content.kind === "post"
-      ? { ...state.content, parts: state.content.parts.filter((_, index) => onlyParts.includes(index)), figureIds: [] }
-      : state.content;
-  return <ArtifactVersionContentView content={content} renderMarkdown={renderMarkdown} />;
+  return (
+    <ArtifactVersionContentView
+      content={state.content}
+      title={title}
+      changes={changes}
+      onlyParts={onlyParts}
+      renderMarkdown={renderMarkdown}
+      removedFrom={{ id, version }}
+    />
+  );
 }
 
 /** A version's content as the user saw it: posts as draft cards, reports as Markdown, visuals, figures. */
 export function ArtifactVersionContentView({
   content,
+  title,
+  changes,
+  onlyParts,
+  removedFrom,
   renderMarkdown,
 }: {
   content: ArtifactVersionContent;
+  title?: string;
+  changes?: PostPartChanges;
+  onlyParts?: readonly number[];
+  /** The version shown, whose predecessor holds the parts it removed. */
+  removedFrom?: { id: string; version: number };
   renderMarkdown: RenderMarkdown;
 }) {
   switch (content.kind) {
     case "post":
       return (
         <div>
-          {content.parts.map((part, index) => (
-            <MarkdownDraftCard
-              key={index}
-              label={content.parts.length > 1 ? `Part ${index + 1} of ${content.parts.length}` : undefined}
-            >
-              {renderMarkdown(part)}
-            </MarkdownDraftCard>
-          ))}
-          {content.figureIds.length > 0 && (
+          <DraftPostCard
+            title={title}
+            parts={postPartsOf(content, changes).filter((_, index) => !onlyParts || onlyParts.includes(index))}
+            removed={
+              onlyParts || !removedFrom
+                ? []
+                : removedPartLabels(changes).map(({ index, label }) => ({
+                    label,
+                    open: () => (
+                      <ArtifactVersionLoader
+                        id={removedFrom.id}
+                        version={removedFrom.version - 1}
+                        title={title}
+                        onlyParts={[index]}
+                        renderMarkdown={renderMarkdown}
+                      />
+                    ),
+                  }))
+            }
+            renderMarkdown={(text) => renderMarkdown(text)}
+            attachments={LIBRARY_ATTACHMENTS}
+          />
+          {!onlyParts && content.figureIds.length > 0 && (
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
               {content.figureIds.map((figureId) => (
                 <FigureImage key={figureId} id={figureId} />
@@ -216,6 +258,61 @@ export function ArtifactCardLink({ marker }: { marker: ArtifactMessageMarker }) 
   );
 }
 
+/** Attachments of a saved version: the Library's copy of an image, else the file's name. */
+const LIBRARY_ATTACHMENTS: AttachmentRendering = {
+  render: (attachment) =>
+    attachment.figureId ? (
+      <ZoomableFigure src={`/api/artifacts/${encodeURIComponent(attachment.figureId)}/file`} thumbnail />
+    ) : (
+      <span className="text-[12px] text-cc-muted">{attachment.path.split("/").pop()}</span>
+    ),
+  copySource: (attachment) =>
+    attachment.figureId ? `/api/artifacts/${encodeURIComponent(attachment.figureId)}/file` : null,
+};
+
+/**
+ * A post's draft blocks in a conversation message, as one card. Its saved version (from the
+ * message's Library markers) adds the version link, change marks and removed parts; a revision that
+ * names its parts shows the whole saved version.
+ */
+export function FeedDraftPost({
+  post,
+  renderMarkdown,
+  attachments,
+}: {
+  post: GroupedDraftPost;
+  renderMarkdown: (text: string) => ReactNode;
+  attachments: AttachmentRendering;
+}) {
+  const marker = useDraftArtifactMarker(post.title);
+  const partial = post.blocks.some((block) => block.part);
+  const saved = useVersionContent(marker, partial);
+  const removed = marker
+    ? removedPartLabels(marker.changes).map(({ index, label }) => ({
+        label,
+        open: () => (
+          <ArtifactVersionLoader
+            id={marker.id}
+            version={marker.version - 1}
+            title={marker.title}
+            onlyParts={[index]}
+            renderMarkdown={renderMarkdown}
+          />
+        ),
+      }))
+    : [];
+  return (
+    <DraftPostCard
+      title={post.title}
+      parts={feedPostParts(post.blocks, marker, saved)}
+      removed={removed}
+      headerLink={marker ? <ArtifactCardLink marker={marker} /> : undefined}
+      renderMarkdown={renderMarkdown}
+      attachments={attachments}
+    />
+  );
+}
+
 export function artifactKindLabel(kind: ArtifactMessageMarker["kind"]): string {
   return ARTIFACT_KIND_LABELS[kind];
 }
@@ -255,7 +352,7 @@ export function StarIcon({ filled = false, className = "h-4 w-4" }: { filled?: b
 }
 
 /** A figure shown large; tapping it opens the image viewer, as in chat. */
-function ZoomableFigure({ src }: { src: string }) {
+function ZoomableFigure({ src, thumbnail = false }: { src: string; thumbnail?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -265,7 +362,11 @@ function ZoomableFigure({ src }: { src: string }) {
         className="block max-w-full cursor-zoom-in"
         aria-label="Open the figure"
       >
-        <img src={src} alt="" className="max-h-[70vh] max-w-full rounded-lg border border-cc-border" />
+        <img
+          src={src}
+          alt=""
+          className={`${thumbnail ? "max-h-40" : "max-h-[70vh]"} max-w-full rounded-lg border border-cc-border`}
+        />
       </button>
       {open && <Lightbox src={src} onClose={() => setOpen(false)} />}
     </>

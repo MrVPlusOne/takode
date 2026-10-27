@@ -6,7 +6,8 @@ import type { BrowserIncomingMessage } from "./session-types.js";
 import { extractFromTextBlocks, extractMessageArtifacts } from "./artifact-extract.js";
 import { ArtifactLibraryStore, UNTITLED_POST_GROUPING_MS } from "./artifact-library-store.js";
 import { ArtifactLibrary, type ArtifactLibraryDeps, type LibrarySessionLike } from "./artifact-library.js";
-import { ARTIFACT_PLACEHOLDER_LANGUAGE, parseDraftHeader } from "../shared/artifact-library.js";
+import { ARTIFACT_PLACEHOLDER_LANGUAGE } from "../shared/artifact-library.js";
+import { parseDraftBlock } from "../shared/draft-posts.js";
 
 /**
  * The artifact library end to end on disposable state: what counts as an artifact in a message,
@@ -132,12 +133,14 @@ describe("extraction", () => {
   });
 
   it("reads a draft's title header and splits differently titled drafts", () => {
-    expect(parseDraftHeader("title: T7 thread update\n---\nBody")).toEqual({
+    expect(parseDraftBlock("title: T7 thread update\n---\nBody")).toEqual({
       title: "T7 thread update",
       body: "Body",
+      attachments: [],
     });
-    expect(parseDraftHeader("No header\n---\nBody")).toEqual({
+    expect(parseDraftBlock("No header\n---\nBody")).toEqual({
       body: "No header\n---\nBody",
+      attachments: [],
     });
     const captures = extractFromTextBlocks([
       "```draft\ntitle: Reply to Dan\n---\nA\n```\n```draft\ntitle: Reply to Frank\n---\nB\n```\n```draft\nC\n```",
@@ -145,6 +148,24 @@ describe("extraction", () => {
     expect(captures.map((capture) => capture.kind === "post" && [capture.title, capture.parts])).toEqual([
       ["Reply to Dan", ["A"]],
       ["Reply to Frank", ["B", "C"]],
+    ]);
+  });
+
+  it("reads a post's part numbers and attached files, keeping attached images as figures", () => {
+    const captures = extractFromTextBlocks([
+      "```draft\ntitle: T7 status\npart: 2\n---\nTwin is ahead.\nattach: /tmp/plot.png\nattach: /tmp/notes.pdf\n```",
+    ]);
+    expect(captures.map((capture) => [capture.kind, capture.label])).toEqual([
+      ["figure", "figure:/tmp/plot.png"],
+      ["post", "post#0"],
+    ]);
+    // Attached figures sit inside the draft block: there is nothing of theirs to collapse.
+    expect(captures[0]!.kind === "figure" && captures[0]!.spans).toEqual([]);
+    const post = captures[1]!;
+    expect(post.kind === "post" && [post.parts, post.partNumbers, post.attachments]).toEqual([
+      ["Twin is ahead."],
+      [2],
+      [["/tmp/plot.png", "/tmp/notes.pdf"]],
     ]);
   });
 
@@ -196,36 +217,59 @@ describe("versions and projection", () => {
     });
   });
 
-  it("revises one message of a multi-message post and keeps the others current", async () => {
-    // Oct 23: the update was split into three Slack messages, then only the first was redrafted
-    // ("the other two messages stay as drafted").
-    const split = assistant(
-      [
-        "```draft\nQuick T7 update (step ~163):\nold table\n```",
-        "```draft\n384K vs 256K twin: tracks T7\n```",
-        "```draft\nTraining side: twin is faster\n```",
-      ].join("\n\n"),
-      NOW - 1000,
+  it("revises named parts of a post, rewrites it whole otherwise, and records how parts changed", async () => {
+    // Oct 27 (replacing the Oct 23 guess that a shorter redraft only revised its first message):
+    // a revision repeats just the parts it changes by number and the rest carry over; a block
+    // without numbers is the whole post, which is how parts are dropped, inserted or reordered.
+    // Each version records how its parts changed, and an older version collapses whole.
+    const post = (...blocks: string[]) => blocks.map((block) => `\`\`\`draft\n${block}\n\`\`\``).join("\n\n");
+    const first = assistant(
+      post(
+        "title: T7 status\n---\nT7 at step 340.\nattach: /tmp/missing-plot.png",
+        "Twin is level.",
+        "Eval jobs recovered.",
+      ),
+      NOW,
+      "q-1",
     );
-    const firstOnly = assistant("```draft\nQuick T7 update (step ~165):\nnew table\n```", NOW);
-    const { store, library } = await setup([{ id: "s1", messageHistory: [split, firstOnly] }]);
+    const editTwo = assistant(post("title: T7 status\npart: 2\n---\nTwin is slightly ahead."), NOW + 1, "q-1");
+    const dropThree = assistant(
+      post("title: T7 status\n---\nT7 at step 340.\nattach: /tmp/missing-plot.png", "Twin is slightly ahead."),
+      NOW + 2,
+      "q-1",
+    );
+    const session = { id: "s1", messageHistory: [first, editTwo, dropThree] };
+    const { store, library } = await setup([session]);
     await library.backfill();
 
-    const [post] = store.list().artifacts;
-    expect(await store.versionContent(post.id, 2)).toMatchObject({
-      parts: [
-        "Quick T7 update (step ~165):\nnew table",
-        "384K vs 256K twin: tracks T7",
-        "Training side: twin is faster",
-      ],
+    const [artifact] = store.list().artifacts.filter((entry) => entry.kind === "post");
+    const v1 = await store.versionContent(artifact.id, 1);
+    expect(v1).toMatchObject({
+      parts: ["T7 at step 340.", "Twin is level.", "Eval jobs recovered."],
+      attachments: [[{ path: "/tmp/missing-plot.png" }], [], []],
     });
-    const older = textOf(library.projectMessage("s1", split));
+    expect(await store.versionContent(artifact.id, 2)).toMatchObject({
+      parts: ["T7 at step 340.", "Twin is slightly ahead.", "Eval jobs recovered."],
+      attachments: [[{ path: "/tmp/missing-plot.png" }], [], []],
+    });
+    expect(await store.versionContent(artifact.id, 3)).toMatchObject({
+      parts: ["T7 at step 340.", "Twin is slightly ahead."],
+    });
+    const detail = store.get(artifact.id)!;
+    expect(detail.versions.map((version) => version.changes)).toEqual([
+      undefined,
+      { parts: ["same", "edited", "same"], removed: [] },
+      { parts: ["same", "same"], removed: [2] },
+    ]);
+
+    // The newest message carries how its parts changed; older ones collapse whole.
+    expect((library.projectMessage("s1", dropThree) as { artifacts?: unknown }).artifacts).toEqual([
+      expect.objectContaining({ version: 3, changes: { parts: ["same", "same"], removed: [2] } }),
+    ]);
+    const older = textOf(library.projectMessage("s1", first));
     expect(older).toContain(ARTIFACT_PLACEHOLDER_LANGUAGE);
-    expect(older).not.toContain("old table");
-    expect(older).toContain("384K vs 256K twin");
-    expect(older).toContain("Training side");
-    // Show on the collapsed line loads only the replaced message.
-    expect(older).toContain('"parts":[0]');
+    expect(older).not.toContain("Twin is level");
+    expect(older).not.toContain("Eval jobs recovered");
   });
 
   it("starts a new post when an untitled first line comes back much later, but titled drafts keep grouping", async () => {

@@ -82,4 +82,73 @@ describe("artifacts in the feed", () => {
     );
     expect(screen.getByText(/version 3, sent again later/)).toBeInTheDocument();
   });
+
+  it("shows a post's message and replies as one card, with marks, attachments and removed parts", async () => {
+    // The T7 status update before Wednesday: three blocks, the second with a figure, after a
+    // revision that edited reply 1 and dropped a reply. One card, a Copy for Slack per part plus
+    // Copy all, the figure under its part, and the dropped reply as a line that opens.
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ kind: "post", parts: ["M", "R1", "R2", "Old dropped reply"], figureIds: [] }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const text = [
+      "```draft\ntitle: T7 status update before Wednesday\n---\n:update: T7 status\n```",
+      "```draft\n384K vs 256K: level\nattach: /tmp/t7_vs_twin.png\n```",
+      "```draft\nFYI eval jobs recovered\n```",
+    ].join("\n\n");
+    render(
+      <ArtifactMarkersContext.Provider
+        value={[
+          {
+            ...POST,
+            title: "T7 status update before Wednesday",
+            version: 2,
+            versionCount: 2,
+            changes: { parts: ["same", "edited", "same"], removed: [3] },
+          },
+        ]}
+      >
+        <MarkdownContent text={text} />
+      </ArtifactMarkersContext.Provider>,
+    );
+    expect(screen.getAllByTestId("draft-post-card")).toHaveLength(1);
+    const parts = screen.getAllByTestId("draft-post-part");
+    expect(parts.map((part) => part.textContent)).toEqual([
+      expect.stringContaining("Message"),
+      expect.stringContaining("Reply 1edited"),
+      expect.stringContaining("Reply 2"),
+    ]);
+    expect(screen.getAllByTestId("markdown-draft-copy")).toHaveLength(3);
+    expect(screen.getByTestId("draft-post-copy-all")).toBeInTheDocument();
+    expect(screen.getByTestId("draft-post-attachments").closest("[data-testid=draft-post-part]")).toBe(parts[1]);
+    expect(screen.queryByText(/attach:/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Reply 3 removed/ }));
+    await waitFor(() => expect(screen.getByText("Old dropped reply")).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-1/versions/1", expect.anything());
+  });
+
+  it("shows a revision that names its parts as the whole saved version", async () => {
+    // `part: 2` repeats only reply 1; the card loads the saved version so all parts show.
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ kind: "post", parts: ["Message text", "New reply text"], figureIds: [] }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const marker = { ...POST, version: 3, versionCount: 3, changes: { parts: ["same", "edited"], removed: [] } };
+    render(
+      <ArtifactMarkersContext.Provider value={[marker as ArtifactMessageMarker]}>
+        <MarkdownContent text={"```draft\ntitle: T7 thread update\npart: 2\n---\nNew reply text\n```"} />
+      </ArtifactMarkersContext.Provider>,
+    );
+    // Until the version loads, the named part shows on its own, marked edited.
+    expect(screen.getByTestId("draft-post-card")).toHaveTextContent("New reply text");
+    await waitFor(() => expect(screen.getByText("Message text")).toBeInTheDocument());
+    expect(screen.getAllByTestId("draft-post-part")).toHaveLength(2);
+  });
 });

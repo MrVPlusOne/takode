@@ -1,6 +1,6 @@
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
-import { parseDraftHeader } from "../shared/artifact-library.js";
+import { groupDraftPosts, parseDraftBlock, scanFences } from "../shared/draft-posts.js";
 import { findLocalImageReferences, type LocalImageReference } from "../shared/local-image-references.js";
 
 /**
@@ -26,7 +26,12 @@ export type MessageCapture =
       /** From a `title:` line; absent means the title is derived from the text. */
       title?: string;
       autoTitle: string;
+      /** The blocks' texts, without their headers and `attach:` lines. */
       parts: string[];
+      /** Per block: the part it replaces (`part: N`), when it names one. */
+      partNumbers: Array<number | null>;
+      /** Per block: the files attached to it (`attach:` lines). */
+      attachments: string[][];
       spans: TextSpan[];
       /** Labels of the figure captures shown in the same answer. */
       figureLabels: string[];
@@ -194,13 +199,17 @@ export function extractFromTextBlocks(blocks: Array<string | null>): MessageCapt
     }
   }
 
-  let post: Extract<MessageCapture, { kind: "post" }> | null = null;
-  let postCount = 0;
+  // Visual blocks and posts in order of their first block; a post's blocks may be apart.
+  const fenceCaptures: MessageCapture[] = [];
+  const drafts = fences
+    .filter((fence) => fence.language === "draft")
+    .map((fence) => ({ fence, ...parseDraftBlock(fence.body) }));
+  const posts = groupDraftPosts(drafts);
   let visualCount = 0;
   for (const fence of fences) {
     if (fence.language === "visual") {
       const title = /^title:[ \t]*(.+?)[ \t]*$/im.exec(fence.body.split(/\n---[ \t]*\n/)[0] ?? "")?.[1];
-      captures.push({
+      fenceCaptures.push({
         kind: "visual",
         label: `visual#${visualCount++}`,
         ...(title ? { title } : {}),
@@ -209,23 +218,30 @@ export function extractFromTextBlocks(blocks: Array<string | null>): MessageCapt
       });
       continue;
     }
-    const { title, body } = parseDraftHeader(fence.body);
-    if (!post || (title && title !== post.title)) {
-      post = {
-        kind: "post",
-        label: `post#${postCount++}`,
-        ...(title ? { title } : {}),
-        autoTitle: autoTitle(body),
-        parts: [],
-        spans: [],
-        // Figures shown in an answer go with its first post.
-        figureLabels: postCount === 1 ? figureLabels : [],
-      };
-      captures.push(post);
-    }
-    post.parts.push(body);
-    post.spans.push(spanOf(fence));
+    const index = posts.findIndex((blocks) => blocks[0]!.fence === fence);
+    if (index < 0) continue;
+    const blocks = posts[index]!;
+    const title = blocks[0]!.title;
+    fenceCaptures.push({
+      kind: "post",
+      label: `post#${index}`,
+      ...(title ? { title } : {}),
+      autoTitle: autoTitle(blocks[0]!.body),
+      parts: blocks.map((block) => block.body),
+      partNumbers: blocks.map((block) => block.part ?? null),
+      attachments: blocks.map((block) => block.attachments),
+      spans: blocks.map((block) => spanOf(block.fence)),
+      // Figures shown in an answer go with its first post.
+      figureLabels: index === 0 ? figureLabels : [],
+    });
   }
+  // Files attached to a draft are kept as figures too (images only), before the posts that use them.
+  for (const path of drafts.flatMap((draft) => draft.attachments)) {
+    if (seenPaths.has(path) || !IMAGE_EXTENSION.test(path) || !path.startsWith("/")) continue;
+    seenPaths.add(path);
+    captures.push({ kind: "figure", label: `figure:${path}`, path, alt: "", spans: [] });
+  }
+  captures.push(...fenceCaptures);
   tables.forEach((table, index) => {
     captures.push({
       kind: "table",
@@ -246,55 +262,21 @@ function sameSpan(span: TextSpan, item: { block: number; start: number }): boole
   return span.block === item.block && span.start === item.start;
 }
 
-const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})[ \t]*([^\s`]*)[^\n]*$/;
-
 /** Collects draft and visual fences, and images and tables outside any code fence, from one text block. */
 function scanText(text: string, block: number, fences: Fence[], images: ImageRef[], tables: TableRef[]): void {
-  const scanProse = (prose: string, base: number) => {
-    scanImages(prose, base, block, images);
-    scanTables(prose, base, block, tables);
+  const scanProse = (from: number, to: number) => {
+    const prose = text.slice(from, to);
+    scanImages(prose, from, block, images);
+    scanTables(prose, from, block, tables);
   };
-  let offset = 0;
-  let open: {
-    marker: string;
-    language: string;
-    start: number;
-    bodyStart: number;
-  } | null = null;
+  const scan = scanFences(text);
   let proseStart = 0;
-  for (const line of text.split("\n")) {
-    const lineStart = offset;
-    const lineEnd = offset + line.length;
-    offset = lineEnd + 1;
-    if (open) {
-      const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
-      if (close && close[1][0] === open.marker[0] && close[1].length >= open.marker.length) {
-        if (open.language === "draft" || open.language === "visual") {
-          fences.push({
-            block,
-            start: open.start,
-            end: lineEnd,
-            language: open.language,
-            body: text.slice(open.bodyStart, Math.max(open.bodyStart, lineStart - 1)),
-          });
-        }
-        open = null;
-        proseStart = offset;
-      }
-      continue;
-    }
-    const opening = FENCE_OPEN.exec(line);
-    if (opening && !(opening[2][0] === "`" && opening[3].includes("`"))) {
-      scanProse(text.slice(proseStart, lineStart), proseStart);
-      open = {
-        marker: opening[2],
-        language: opening[3].toLowerCase(),
-        start: lineStart,
-        bodyStart: offset,
-      };
-    }
+  for (const fence of scan.fences) {
+    scanProse(proseStart, fence.start);
+    proseStart = fence.end + 1;
+    if (fence.language === "draft" || fence.language === "visual") fences.push({ block, ...fence });
   }
-  if (!open) scanProse(text.slice(proseStart), proseStart);
+  scanProse(proseStart, scan.unclosedFrom ?? text.length);
 }
 
 /** Tables smaller than this many data rows are part of the answer's wording, not something to find later. */

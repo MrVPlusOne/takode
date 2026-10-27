@@ -28,7 +28,6 @@ import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CodeBlock } from "./MarkdownCodeBlock.js";
 import { VisualBlock } from "./VisualBlock.js";
 import { MarkdownTableCopyButton } from "./MarkdownTableCopyButton.js";
-import { MarkdownDraftCard } from "./MarkdownDraftCard.js";
 import { showEditorOpenError } from "../utils/vscode-bridge.js";
 import { editorOpenFor } from "../utils/editor-open.js";
 import { useFileMachine } from "../remote-hosts.js";
@@ -78,9 +77,15 @@ import {
   ARTIFACT_PLACEHOLDER_LANGUAGE,
   parseArtifactLinkHref,
   parseArtifactPlaceholder,
-  parseDraftHeader,
 } from "../../shared/artifact-library.js";
-import { ArtifactCardLink, CollapsedArtifact, useDraftArtifactMarker } from "./ArtifactInline.js";
+import {
+  DRAFT_POST_LANGUAGE,
+  groupDraftPostsInMarkdown,
+  parseDraftBlock,
+  parseGroupedDraftPost,
+} from "../../shared/draft-posts.js";
+import { isSupportedLocalImagePath } from "../../shared/local-image-references.js";
+import { CollapsedArtifact, FeedDraftPost } from "./ArtifactInline.js";
 
 interface MarkdownAstNode {
   type: string;
@@ -784,7 +789,10 @@ export const MarkdownContent = memo(function MarkdownContent({
 
   const isConservative = variant === "conservative";
   const chatMessageLineHeight = useStore((s) => s.chatMessageLineHeight);
-  const preparedMath = useMemo(() => prepareMarkdownMathSource(wrapSpacedFileLinkDestinations(text)), [text]);
+  const preparedMath = useMemo(
+    () => prepareMarkdownMathSource(wrapSpacedFileLinkDestinations(groupDraftPostsInMarkdown(text))),
+    [text],
+  );
   const imagePathLinks = useContext(ImagePathLinkContext);
   const inlineLocalImages = useContext(InlineLocalImagesContext);
   // Kept here, not in the image: the components below are recreated on every render.
@@ -1065,26 +1073,56 @@ export const MarkdownContent = memo(function MarkdownContent({
             const match = /language-(\w+)/.exec(className || "");
             const isBlock = match || (typeof children === "string" && children.includes("\n"));
 
-            if (match?.[1] === "draft") {
-              // A message draft shows as the message it will become, ready to copy into Slack. Its
-              // optional title header names it in the Library and is neither shown nor copied.
-              const draft = parseDraftHeader(String(children).replace(/\n$/, ""));
-              return (
-                <LibraryDraftCard title={draft.title}>
-                  <MarkdownContent
-                    text={draft.body}
-                    size={size}
-                    sessionId={sessionId}
-                    fileBasePath={fileBasePath}
-                    enableChatSelectionMenu={enableChatSelectionMenu}
-                    wrapLongContent={wrapLongContent}
-                    onSessionNavigate={onSessionNavigate}
-                    stopLinkPropagation={stopLinkPropagation}
-                    fileLinkMode={fileLinkMode}
-                    questLinkSurface={questLinkSurface}
+            // A post's draft blocks, gathered into one fence: one card with the message and its replies.
+            const postFence = className?.split(/\s+/).includes(`language-${DRAFT_POST_LANGUAGE}`);
+            if (postFence || match?.[1] === "draft") {
+              const post = postFence
+                ? parseGroupedDraftPost(String(children).trim())
+                : (() => {
+                    const block = parseDraftBlock(String(children).replace(/\n$/, ""));
+                    return { ...(block.title ? { title: block.title } : {}), blocks: [block] };
+                  })();
+              if (post) {
+                return (
+                  <FeedDraftPost
+                    post={post}
+                    renderMarkdown={(markdown) => (
+                      <MarkdownContent
+                        text={markdown}
+                        size={size}
+                        sessionId={sessionId}
+                        fileBasePath={fileBasePath}
+                        enableChatSelectionMenu={enableChatSelectionMenu}
+                        wrapLongContent={wrapLongContent}
+                        onSessionNavigate={onSessionNavigate}
+                        stopLinkPropagation={stopLinkPropagation}
+                        fileLinkMode={fileLinkMode}
+                        questLinkSurface={questLinkSurface}
+                      />
+                    )}
+                    attachments={{
+                      render: (attachment) =>
+                        isSupportedLocalImagePath(attachment.path) ? (
+                          <InlineLocalImage
+                            path={attachment.path}
+                            isRelative={false}
+                            alt=""
+                            sessionId={inlineLocalImages?.sessionId ?? sessionId}
+                            refreshKey={inlineLocalImages?.refreshKey ?? ""}
+                            fallback={renderFileLink(`file:${attachment.path}`, getPathBasename(attachment.path))}
+                            onOpen={setViewedImage}
+                          />
+                        ) : (
+                          renderFileLink(`file:${attachment.path}`, getPathBasename(attachment.path) || attachment.path)
+                        ),
+                      copySource: (attachment) =>
+                        isSupportedLocalImagePath(attachment.path)
+                          ? localImageFileUrl(attachment.path, inlineLocalImages?.sessionId ?? sessionId)
+                          : null,
+                    }}
                   />
-                </LibraryDraftCard>
-              );
+                );
+              }
             }
 
             // A library version a newer one replaced: one collapsed line; its content was not sent.
@@ -1448,12 +1486,9 @@ function FileMarkdownLink({
   );
 }
 
-/** A draft card with its Library link in the header, when its message saved it as a post. */
-function LibraryDraftCard({ title, children }: { title: string | undefined; children: ReactNode }) {
-  const marker = useDraftArtifactMarker(title);
-  return (
-    <MarkdownDraftCard label={title} actions={marker ? <ArtifactCardLink marker={marker} /> : undefined}>
-      {children}
-    </MarkdownDraftCard>
-  );
+/** The URL of a local image's full file, as the image viewer loads it (see `InlineLocalImage`). */
+function localImageFileUrl(path: string, sessionId: string | undefined): string {
+  const params = new URLSearchParams({ path, isRelative: "0", variant: "full", v: "" });
+  if (sessionId) params.set("sessionId", sessionId);
+  return `/api/fs/file-link/image?${params.toString()}`;
 }

@@ -165,7 +165,7 @@ function stripFileLocationSuffix(path: string): string {
   return path;
 }
 
-function isSupportedLocalImagePath(path: string): boolean {
+export function isSupportedLocalImagePath(path: string): boolean {
   if (path.startsWith("//")) return false;
   const extension = path.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
   return Boolean(extension && SUPPORTED_IMAGE_EXTENSIONS.has(extension));

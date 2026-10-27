@@ -1,3 +1,4 @@
+import { draftAttachmentPaths } from "../../shared/draft-posts.js";
 import type { ChatMessage, ImageRef, LocalImageAttachment, QuestImage } from "../types.js";
 import { api } from "../api.js";
 import { buildFileLinkImageVariantUrl } from "../api/file-link-actions.js";
@@ -56,7 +57,14 @@ export function buildAssistantImagePreviewItems(message: ChatMessage, sessionId?
   if (sessionId) {
     items.push(...imagePreviewItemsFromStoredRefs(message.images ?? [], sessionId));
   }
-  items.push(...extractMentionedLocalImagePreviewItems(assistantVisibleText(message), { sessionId }));
+  const text = assistantVisibleText(message);
+  // A file attached to a draft shows in the draft's card, not again under the message.
+  const attached = draftAttachmentPaths(text);
+  items.push(
+    ...extractMentionedLocalImagePreviewItems(text, { sessionId }).filter(
+      (item) => !(item.sourcePath && attached.has(item.sourcePath)),
+    ),
+  );
   return dedupePreviewItems(items);
 }
 

@@ -13,6 +13,7 @@ import type {
   ArtifactVersionSummary,
 } from "../shared/artifact-library.js";
 import { untitledPostKey, type ExtractedMessage, type MessageCapture } from "./artifact-extract.js";
+import { comparePostParts, revisePostParts, type PostPartChanges } from "../shared/draft-posts.js";
 
 /**
  * The server's artifact library: an index of artifacts and their versions, plus the saved content
@@ -57,8 +58,6 @@ interface StoredArtifact {
   excerpt?: string;
   /** The figure's file path, for figures. */
   path?: string;
-  /** The newest version's parts, for posts: an older message's draft equal to one of them is still current. */
-  latestParts?: string[];
   versions: StoredVersion[];
 }
 
@@ -268,7 +267,12 @@ export class ArtifactLibraryStore {
     const key = groupingKey(ctx, ref, capture);
     let artifact = this.artifactForKey(key, capture, ref.at);
     if (onlyNewer && artifact && (artifact.versions.at(-1)?.at ?? 0) > ref.at) return null;
-    const prepared = await this.prepare(capture, figureIdsByLabel, artifact?.latestParts);
+    const previous = artifact?.versions.at(-1);
+    const prepared = await this.prepare(
+      capture,
+      figureIdsByLabel,
+      artifact && previous ? await this.versionContent(artifact.id, previous.n) : null,
+    );
     if (!prepared) return null;
     if (!artifact) {
       artifact = {
@@ -306,11 +310,11 @@ export class ArtifactLibraryStore {
       ...(prepared.stored ? { stored: prepared.stored } : {}),
       ...(prepared.parts ? { parts: prepared.parts } : {}),
       ...(prepared.figureIds?.length ? { figureIds: prepared.figureIds } : {}),
+      ...(latest && prepared.changes ? { changes: prepared.changes } : {}),
       source: ref,
     };
     if (latest && artifact.kind === "figure") await this.dropFigureFile(latest);
     artifact.versions.push(version);
-    if (prepared.postParts) artifact.latestParts = prepared.postParts;
     artifact.updatedAt = Math.max(artifact.updatedAt, ref.at);
     artifact.preview = prepared.preview;
     if (prepared.excerpt !== undefined) artifact.excerpt = prepared.excerpt;
@@ -344,7 +348,8 @@ export class ArtifactLibraryStore {
   private async prepare(
     capture: MessageCapture,
     figureIdsByLabel: Map<string, string>,
-    previousParts: readonly string[] | undefined,
+    /** The artifact's newest version so far, which a post revision builds on and is compared with. */
+    previous: ArtifactVersionContent | null,
   ): Promise<{
     sha: string;
     bytes: number;
@@ -355,7 +360,7 @@ export class ArtifactLibraryStore {
     stored?: string;
     parts?: number;
     figureIds?: string[];
-    postParts?: string[];
+    changes?: PostPartChanges;
   } | null> {
     if (capture.kind === "figure") return this.prepareFigure(capture);
     let content: ArtifactVersionContent;
@@ -366,7 +371,7 @@ export class ArtifactLibraryStore {
       const figureIds = capture.figureLabels
         .map((label) => figureIdsByLabel.get(label))
         .filter((id): id is string => !!id);
-      content = { kind: "post", parts: mergePostParts(previousParts, capture.parts), figureIds };
+      content = postContent(capture, figureIdsByLabel, previous?.kind === "post" ? previous : null, figureIds);
       title = capture.title ?? capture.autoTitle;
       titleSource = capture.title ? "explicit" : "derived";
       previewText = content.parts.join("\n\n");
@@ -391,7 +396,10 @@ export class ArtifactLibraryStore {
       previewText = capture.markdown;
     }
     // The hash covers what the user sees; a post's figure list changes with every new figure ID.
-    const shaInput = content.kind === "post" ? JSON.stringify(content.parts) : JSON.stringify(content);
+    const shaInput =
+      content.kind === "post"
+        ? JSON.stringify(content.attachments ? [content.parts, attachmentPaths(content)] : content.parts)
+        : JSON.stringify(content);
     const sha = sha256(shaInput);
     const json = JSON.stringify(content);
     const stored = `${sha}.json`;
@@ -405,7 +413,11 @@ export class ArtifactLibraryStore {
       ...(content.kind === "visual" ? {} : { excerpt: excerptOf(content) }),
       stored,
       ...(content.kind === "post"
-        ? { parts: content.parts.length, figureIds: content.figureIds, postParts: content.parts }
+        ? {
+            parts: content.parts.length,
+            figureIds: content.figureIds,
+            ...(previous?.kind === "post" ? { changes: comparePosts(previous, content) } : {}),
+          }
         : {}),
     };
   }
@@ -474,7 +486,6 @@ export class ArtifactLibraryStore {
     label: string;
     marker: ArtifactMessageMarker;
     superseded: boolean;
-    latestParts?: readonly string[];
   }> {
     const key = messageIndexKey(sessionId, messageId);
     const entries = this.index?.messages[key];
@@ -485,6 +496,8 @@ export class ArtifactLibraryStore {
       const latest = artifact?.versions.at(-1);
       if (!artifact || !latest) continue;
       const repeated = entry.n === latest.n && this.newestShowingLatest().get(artifact.id) !== key;
+      const superseded = entry.n !== latest.n || repeated;
+      const changes = superseded ? undefined : artifact.versions.find((version) => version.n === entry.n)?.changes;
       markers.push({
         label: entry.label,
         marker: {
@@ -494,9 +507,9 @@ export class ArtifactLibraryStore {
           version: entry.n,
           versionCount: artifact.versions.length,
           ...(repeated ? { repeated: true } : {}),
+          ...(changes ? { changes } : {}),
         },
-        superseded: entry.n !== latest.n || repeated,
-        ...(artifact.latestParts ? { latestParts: artifact.latestParts } : {}),
+        superseded,
       });
     }
     return markers;
@@ -676,7 +689,6 @@ export class ArtifactLibraryStore {
     const latest = into.versions.at(-1)!;
     if (from.versions.some((version) => version.sha === latest.sha)) {
       into.preview = from.preview;
-      if (from.latestParts) into.latestParts = from.latestParts;
     }
     delete index.artifacts[fromId];
     this.markChanged();
@@ -765,23 +777,49 @@ function groupingKey(ctx: CaptureContext, ref: ArtifactMessageRef, capture: Mess
  * of them ("the other two messages stay as drafted"): each new message replaces the old one with
  * the same first line, and the rest are kept. Otherwise the revision is the whole post.
  */
-export function mergePostParts(previous: readonly string[] | undefined, next: string[]): string[] {
-  if (!previous || next.length >= previous.length) return next;
-  const keyOf = (part: string) => untitledPostKey(part.split("\n").find((line) => line.trim()) ?? "");
-  const merged = [...previous];
-  const replaced = new Set<number>();
-  for (const part of next) {
-    const index = merged.findIndex(
-      (candidate, position) => !replaced.has(position) && keyOf(candidate) === keyOf(part),
-    );
-    if (index < 0) {
-      merged.push(part);
-      continue;
-    }
-    merged[index] = part;
-    replaced.add(index);
-  }
-  return merged;
+/**
+ * A post version from a message's draft blocks: the whole post, or, when blocks name the parts they
+ * replace, the previous version with those parts replaced (see `revisePostParts`).
+ */
+function postContent(
+  capture: Extract<MessageCapture, { kind: "post" }>,
+  figureIdsByLabel: Map<string, string>,
+  previous: Extract<ArtifactVersionContent, { kind: "post" }> | null,
+  figureIds: string[],
+): Extract<ArtifactVersionContent, { kind: "post" }> {
+  const blocks = capture.parts.map((text, index) => ({
+    part: capture.partNumbers[index] ?? undefined,
+    value: {
+      text,
+      attachments: capture.attachments[index]!.map((path) => {
+        const figureId = figureIdsByLabel.get(`figure:${path}`);
+        return figureId ? { path, figureId } : { path };
+      }),
+    },
+  }));
+  const before = previous?.parts.map((text, index) => ({ text, attachments: previous.attachments?.[index] ?? [] }));
+  const parts = revisePostParts(before, blocks);
+  const attachments = parts.map((part) => part.attachments);
+  return {
+    kind: "post",
+    parts: parts.map((part) => part.text),
+    figureIds,
+    ...(attachments.some((list) => list.length) ? { attachments } : {}),
+  };
+}
+
+function attachmentPaths(content: Extract<ArtifactVersionContent, { kind: "post" }>): string[][] {
+  return content.parts.map((_, index) => (content.attachments?.[index] ?? []).map((attachment) => attachment.path));
+}
+
+/** How a post version's parts differ from the previous version's, attachments included. */
+function comparePosts(
+  previous: Extract<ArtifactVersionContent, { kind: "post" }>,
+  next: Extract<ArtifactVersionContent, { kind: "post" }>,
+): PostPartChanges {
+  const keys = (content: Extract<ArtifactVersionContent, { kind: "post" }>) =>
+    content.parts.map((text, index) => JSON.stringify([text, attachmentPaths(content)[index]]));
+  return comparePostParts(keys(previous), keys(next));
 }
 
 function normalizeTitle(title: string): string {

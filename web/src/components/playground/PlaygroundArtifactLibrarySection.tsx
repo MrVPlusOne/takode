@@ -58,6 +58,61 @@ const REPEATED_VERSION_MESSAGE: ChatMessage = {
   content: `Here's the DM reworked:\n\n${formatArtifactPlaceholder({ ...POST, version: 3, versionCount: 3, repeated: true })}`,
 };
 
+/** A post with two replies, revised: reply 1 edited (with its figure attached), a reply dropped. */
+const THREAD_POST_MESSAGE: ChatMessage = {
+  id: "playground-artifact-thread-post",
+  role: "assistant",
+  timestamp: 0,
+  content: [
+    "Here's the update, reworked around the 384K vs 256K comparison:",
+    "",
+    "```draft",
+    "title: T7 status update before Wednesday",
+    "---",
+    ":update: T7 status ahead of Wednesday's discussion (T7 at step ~340, 256K twin at step ~380, both healthy)",
+    "```",
+    "",
+    "```draft",
+    "384K vs 256K: at equal problems trained the twin is level with or slightly ahead of T7 on every eval.",
+    "",
+    "attach: /home/coder/.companion/artifacts/coding-captain/t7-monitor/t7_vs_twin_evals_by_data.png",
+    "```",
+    "",
+    "```draft",
+    "FYI some T7 eval jobs slowed down overnight, but both have recovered.",
+    "```",
+  ].join("\n"),
+  metadata: {
+    artifacts: [
+      {
+        id: "playground-thread-post",
+        kind: "post",
+        title: "T7 status update before Wednesday",
+        version: 2,
+        versionCount: 2,
+        changes: { parts: ["same", "edited", "same"], removed: [3] },
+      },
+    ],
+  },
+};
+
+/** A revision that repeats only the part it changes; without its saved version, that part shows alone. */
+const PART_REVISION_MESSAGE: ChatMessage = {
+  id: "playground-artifact-part-revision",
+  role: "assistant",
+  timestamp: 0,
+  content: [
+    "Only the second message changes:",
+    "",
+    "```draft",
+    "title: T7 status update before Wednesday",
+    "part: 2",
+    "---",
+    "384K vs 256K: the twin is level with T7 on every eval, including DeepSWE (0.281 vs 0.288).",
+    "```",
+  ].join("\n"),
+};
+
 /** A message mentioning artifacts with Takode artifact links (hover shows a card; click opens the Library). */
 const LINK_MESSAGE: ChatMessage = {
   id: "playground-artifact-links",
@@ -122,6 +177,16 @@ export function PlaygroundArtifactLibrarySection() {
       <Card label="Older version, collapsed">
         <div className="max-w-[640px]" data-testid="playground-artifact-older">
           <MessageBubble message={OLDER_VERSION_MESSAGE} sessionId="playground-session" />
+        </div>
+      </Card>
+      <Card label="Post with replies: one card, marks, attachment, removed reply">
+        <div className="max-w-[640px]" data-testid="playground-artifact-thread-post">
+          <MessageBubble message={THREAD_POST_MESSAGE} sessionId="playground-session" />
+        </div>
+      </Card>
+      <Card label="Revision naming one part (shown alone until its version loads)">
+        <div className="max-w-[640px]" data-testid="playground-artifact-part-revision">
+          <MessageBubble message={PART_REVISION_MESSAGE} sessionId="playground-session" />
         </div>
       </Card>
       <Card label="Earlier copy of a version sent again, collapsed">
