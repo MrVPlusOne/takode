@@ -140,6 +140,8 @@ type ClaudeInputMessage = {
   message: { role: "user"; content: Array<{ type: "text"; text: string }> };
   parent_tool_use_id: null;
   session_id: string;
+  /** Claude lists it in the result of the turn that consumed this prompt (`user_message_uuids`). */
+  uuid: string;
 };
 
 /**
@@ -210,6 +212,11 @@ export class ClaudeSdkAdapter
   private pendingOutgoing: BrowserOutgoingMessage[] = [];
   /** True from handing Claude a prompt until its turn's result arrives. */
   private turnInFlight = false;
+  /**
+   * Prompts handed to Claude that no result has consumed yet, oldest first. Claude folds a prompt
+   * sent mid-turn into that turn or runs it as its own turn afterwards; each result says which.
+   */
+  private unconsumedPrompts: string[] = [];
   /** Cached MCP servers from the last session_init, used to respond to mcp_get_status. */
   private mcpManager: ClaudeMcpManager;
   /** Live background tasks of this Claude process, by task id (see `updateBackgroundTasks`). */
@@ -282,6 +289,7 @@ export class ClaudeSdkAdapter
   async disconnect(): Promise<void> {
     this.connected = false;
     this.turnInFlight = false;
+    this.unconsumedPrompts = [];
     this.clearBackgroundTasks();
     try {
       // Ends Claude's input, then stops the process after a short grace period.
@@ -321,6 +329,23 @@ export class ClaudeSdkAdapter
     const discarded = this.pendingOutgoing.length - kept.length;
     this.pendingOutgoing = kept;
     return discarded;
+  }
+
+  /**
+   * A result, with how many prompts Claude still runs as turns of their own after it
+   * (`prompts_waiting`), when Claude says which prompts the turn consumed. Without that, every
+   * prompt counts as consumed, as before.
+   */
+  private withPromptsWaiting(result: any): any {
+    const consumed: unknown = result.user_message_uuids;
+    if (!Array.isArray(consumed)) {
+      this.unconsumedPrompts = [];
+      this.turnInFlight = false;
+      return result;
+    }
+    this.unconsumedPrompts = this.unconsumedPrompts.filter((uuid) => !consumed.includes(uuid));
+    this.turnInFlight = this.unconsumedPrompts.length > 0;
+    return { ...result, prompts_waiting: this.unconsumedPrompts.length };
   }
 
   // ─── Initialization ─────────────────────────────────────────────────────────
@@ -552,8 +577,7 @@ export class ClaudeSdkAdapter
       }
 
       case "result":
-        this.turnInFlight = false;
-        this.emitBrowserMessage(msg as BrowserIncomingMessage);
+        this.emitBrowserMessage(this.withPromptsWaiting(msg) as BrowserIncomingMessage);
         break;
 
       case "assistant":
@@ -678,11 +702,14 @@ export class ClaudeSdkAdapter
         const blocks: Array<{ type: "text"; text: string }> = [{ type: "text", text: content }];
         if (selectionText) blocks.push({ type: "text", text: selectionText });
         this.turnInFlight = true;
+        const uuid = randomUUID();
+        this.unconsumedPrompts.push(uuid);
         this.prompts.push({
           type: "user",
           message: { role: "user", content: blocks },
           parent_tool_use_id: null,
           session_id: "",
+          uuid,
         });
         return true;
       }
@@ -882,6 +909,7 @@ export class ClaudeSdkAdapter
     if (!this.connected) return;
     this.connected = false;
     this.turnInFlight = false;
+    this.unconsumedPrompts = [];
     this.clearBackgroundTasks();
     this.settleStarted(false);
     // Reject pending permissions

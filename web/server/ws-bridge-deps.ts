@@ -894,7 +894,7 @@ export function getClaudeMessageHandlers(host: any) {
     validateLeaderThreadOutcomes: (
       targetSession: unknown,
       turnTriggerSource: unknown,
-      rejectedReadyThreadKeys?: string[],
+      options: { rejectedReadyThreadKeys: string[]; awaitingUserMessageIndexes: number[] },
     ) => {
       validateLeaderThreadOutcomesController(
         targetSession as Session,
@@ -913,7 +913,7 @@ export function getClaudeMessageHandlers(host: any) {
           },
           persistSession: (concreteSession) => host.persistSession(concreteSession as Session),
         },
-        { rejectedReadyThreadKeys },
+        options,
       );
     },
     onTurnCompleted: (targetSession: unknown) => {

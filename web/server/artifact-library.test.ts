@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "./session-types.js";
@@ -376,6 +376,51 @@ describe("versions and projection", () => {
     const [artifact] = store.list().artifacts;
     expect(store.get(artifact.id)!.versions.map((version) => version.n)).toEqual([1, 2, 3]);
     expect(textOf(library.projectMessage("s1", session.messageHistory[0]))).toContain(ARTIFACT_PLACEHOLDER_LANGUAGE);
+  });
+
+  it("reads history once more for what was skipped, without putting a version out of order", async () => {
+    // Libraries that skipped messages (text arriving after their thinking was read) recover them
+    // once at the next start: the index is backed up, skipped drafts become versions, and a
+    // skipped draft older than its artifact's newest version stays out, since it would otherwise
+    // become the newest and collapse the card that really is. Nobody is told about these.
+    const titled = (title: string, body: string, at: number) =>
+      assistant(`\`\`\`draft\ntitle: ${title}\n---\n${body}\n\`\`\``, at, "q-1");
+    const session: LibrarySessionLike = { id: "s1", messageHistory: [titled("B", "Newest B.", NOW + 3)] };
+    const first = await setup([session]);
+    first.library.sessionSaved("s1");
+    await first.library.idle();
+
+    // Messages read past without their text, as the old cursor left them.
+    session.messageHistory.push(titled("B", "Older B.", NOW + 1), titled("A", "A one.", NOW + 2));
+    session.messageHistory.push(titled("A", "A two.", NOW + 4));
+    const index = JSON.parse(await readFile(join(root, "index.json"), "utf-8"));
+    delete index.skippedTextReread;
+    index.cursors.s1 = { count: session.messageHistory.length };
+    await writeFile(join(root, "index.json"), JSON.stringify(index));
+
+    const told: string[] = [];
+    const store = new ArtifactLibraryStore(root, () => NOW);
+    await store.load();
+    const library = new ArtifactLibrary(store, {
+      getSession: () => session,
+      listSessions: () => [session],
+      spaceFor: () => "MSI",
+      refreshConversation: () => {},
+      onNewVersion: (version) => told.push(version.title),
+    });
+    await library.backfill();
+
+    const versions = (title: string) =>
+      store
+        .get(store.list().artifacts.find((artifact) => artifact.title === title)!.id)!
+        .versions.map((version) => version.n);
+    expect(versions("A")).toEqual([1, 2]);
+    expect(versions("B")).toEqual([1]);
+    expect(told).toEqual([]);
+    expect((await readdir(root)).filter((name) => name.startsWith("index.backup-skipped-text-"))).toHaveLength(1);
+    expect(store.needsSkippedTextReread()).toBe(false);
+    // A new library has nothing skipped to read again.
+    expect(first.store.needsSkippedTextReread()).toBe(false);
   });
 
   it("renames, stars, filters, and merges separately saved revisions", async () => {

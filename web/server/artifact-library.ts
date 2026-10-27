@@ -1,5 +1,6 @@
 import type { BrowserIncomingMessage, ThreadWindowEntry } from "./session-types.js";
 import {
+  ARTIFACT_KINDS,
   formatArtifactPlaceholder,
   type ArtifactKind,
   type ArtifactMessageMarker,
@@ -79,19 +80,49 @@ export class ArtifactLibrary {
 
   /**
    * Reads every loaded session once, so history from before the library (up to a month) is
-   * captured. Kinds the library learned later are read from that history once as well.
+   * captured. Kinds the library learned later are read from that history once as well, and so
+   * were, once, the messages skipped before the newest message was read again (see `captureSession`).
    */
   backfill(): Promise<void> {
     const ids = this.deps.listSessions().map((session) => session.id);
     this.running = this.running.then(async () => {
       await this.captureSessions(ids, { yieldBetween: true });
       const kinds = this.store.kindsToBackfill();
-      if (kinds.length === 0) return;
-      await this.captureSessions(ids, { yieldBetween: true, onlyKinds: kinds });
-      this.store.markKindsBackfilled(kinds);
-      await this.store.flush();
+      if (kinds.length > 0) {
+        await this.captureSessions(ids, { yieldBetween: true, onlyKinds: kinds });
+        this.store.markKindsBackfilled(kinds);
+        await this.store.flush();
+      }
+      if (this.store.needsSkippedTextReread()) await this.rereadSkippedText(ids);
     });
     return this.running;
+  }
+
+  /**
+   * Captures, once, what the library skipped while a message's text could arrive after its
+   * thinking was read. A skipped draft older than its artifact's newest version is left out:
+   * added, it would become the newest and collapse the card that really is. The index is backed up
+   * first, and nobody is told about these old versions.
+   */
+  private async rereadSkippedText(ids: string[]): Promise<void> {
+    const backup = await this.store.backUpIndex("skipped-text");
+    const before = this.store.list().total;
+    let versions = 0;
+    await this.captureSessions(ids, {
+      yieldBetween: true,
+      onlyKinds: ARTIFACT_KINDS.filter((kind) => kind !== "figure"),
+      onlyNewer: true,
+      quiet: true,
+      onVersions: (count) => {
+        versions += count;
+      },
+    });
+    this.store.markSkippedTextReread();
+    await this.store.flush();
+    console.log(
+      `[artifact-library] Read history again for skipped captures: ${versions} new version(s), ` +
+        `${this.store.list().total - before} of them new artifacts; index backed up to ${backup}`,
+    );
   }
 
   spaceFor(sessionId: string): string {
@@ -122,6 +153,11 @@ export class ArtifactLibrary {
       onlyKinds?: readonly ArtifactKind[];
       /** New messages, rather than history read at startup: their images are prepared. */
       live?: boolean;
+      /** Skip captures older than their artifact's newest version (see `rereadSkippedText`). */
+      onlyNewer?: boolean;
+      /** Old versions found late: nobody is told about them. */
+      quiet?: boolean;
+      onVersions?: (count: number) => void;
     } = {},
   ): Promise<void> {
     const toRefresh = new Set<string>();
@@ -130,10 +166,11 @@ export class ArtifactLibrary {
       if (!session) continue;
       try {
         const result = options.onlyKinds
-          ? await this.captureKinds(session, options.onlyKinds)
+          ? await this.captureKinds(session, options.onlyKinds, options.onlyNewer ?? false)
           : await this.captureSession(session, options.live ?? false);
         if (result.captured > 0) toRefresh.add(id);
-        for (const added of result.newVersions ?? []) {
+        options.onVersions?.(result.newVersions?.length ?? 0);
+        for (const added of options.quiet ? [] : (result.newVersions ?? [])) {
           const artifact = this.store.get(added.artifactId);
           if (!artifact) continue;
           if (options.live && artifact.kind === "figure") this.deps.onFigureSaved?.(artifact.id);
@@ -206,7 +243,11 @@ export class ArtifactLibrary {
   }
 
   /** Reads a session's whole history (within the backfill month) for some kinds only, leaving its cursor alone. */
-  private async captureKinds(session: LibrarySessionLike, kinds: readonly ArtifactKind[]): Promise<CaptureResult> {
+  private async captureKinds(
+    session: LibrarySessionLike,
+    kinds: readonly ArtifactKind[],
+    onlyNewer: boolean,
+  ): Promise<CaptureResult> {
     const result: CaptureResult = { captured: 0, affectedSessions: new Set(), newVersions: [] };
     const cutoff = this.store.backfillCutoff();
     const space = this.deps.spaceFor(session.id);
@@ -216,7 +257,10 @@ export class ArtifactLibrary {
       if (typeof at === "number" && at < cutoff) continue;
       const extracted = extractMessageArtifacts(message);
       if (!extracted?.captures.some((capture) => kinds.includes(capture.kind))) continue;
-      await this.store.captureMessage({ sessionId: session.id, space }, extracted, result, { onlyKinds: kinds });
+      await this.store.captureMessage({ sessionId: session.id, space }, extracted, result, {
+        onlyKinds: kinds,
+        onlyNewer,
+      });
     }
     return result;
   }

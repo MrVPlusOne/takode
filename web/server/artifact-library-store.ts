@@ -81,6 +81,11 @@ interface LibraryIndex {
   cursors: Record<string, { count: number; lastId?: string }>;
   /** Kinds added after the library started whose earlier history was already read for them. */
   backfilledKinds?: ArtifactKind[];
+  /**
+   * The month of history was read once more for messages whose text arrived after their thinking
+   * was read, which the library skipped until Oct 27, 2026 (see `ArtifactLibrary.backfill`).
+   */
+  skippedTextReread?: boolean;
 }
 
 export interface CaptureContext {
@@ -130,8 +135,9 @@ export class ArtifactLibraryStore {
         keys: {},
         messages: {},
         cursors: {},
-        // A new library reads every kind from the start.
+        // A new library reads every kind from the start, and every message whole.
         backfilledKinds: [...KINDS_ADDED_LATER],
+        skippedTextReread: true,
       };
       this.dirty = true;
       await this.flush();
@@ -148,6 +154,23 @@ export class ArtifactLibraryStore {
     const index = this.state();
     index.backfilledKinds = [...new Set([...(index.backfilledKinds ?? []), ...kinds])];
     this.dirty = true;
+  }
+
+  needsSkippedTextReread(): boolean {
+    return !this.state().skippedTextReread;
+  }
+
+  markSkippedTextReread(): void {
+    this.state().skippedTextReread = true;
+    this.dirty = true;
+  }
+
+  /** Writes a copy of the index as it is now beside it, before a one-time repair; returns its path. */
+  async backUpIndex(label: string): Promise<string> {
+    await this.writeChain;
+    const path = join(this.root, `index.backup-${label}-${this.now()}.json`);
+    await writeFile(path, JSON.stringify(this.state()), "utf-8");
+    return path;
   }
 
   /** Artifacts saved before excerpts existed get one from their newest saved text. */
@@ -199,7 +222,11 @@ export class ArtifactLibraryStore {
     ctx: CaptureContext,
     extracted: ExtractedMessage,
     result: CaptureResult,
-    options: { onlyKinds?: readonly ArtifactKind[] } = {},
+    options: {
+      onlyKinds?: readonly ArtifactKind[];
+      /** Skip a capture older than its artifact's newest version, so no version is put out of order. */
+      onlyNewer?: boolean;
+    } = {},
   ): Promise<void> {
     const index = this.state();
     const messageKey = messageIndexKey(ctx.sessionId, extracted.messageId);
@@ -217,7 +244,7 @@ export class ArtifactLibraryStore {
     for (const capture of extracted.captures) {
       if (options.onlyKinds && !options.onlyKinds.includes(capture.kind)) continue;
       if (existing?.some((entry) => entry.label === capture.label)) continue;
-      const entry = await this.captureOne(ctx, ref, capture, figureIdsByLabel, result);
+      const entry = await this.captureOne(ctx, ref, capture, figureIdsByLabel, result, options.onlyNewer);
       if (!entry) continue;
       entries.push(entry);
       if (capture.kind === "figure") figureIdsByLabel.set(capture.label, entry.artifactId);
@@ -234,9 +261,11 @@ export class ArtifactLibraryStore {
     capture: MessageCapture,
     figureIdsByLabel: Map<string, string>,
     result: CaptureResult,
+    onlyNewer = false,
   ): Promise<MessageEntry | null> {
     const key = groupingKey(ctx, ref, capture);
     let artifact = this.artifactForKey(key, capture, ref.at);
+    if (onlyNewer && artifact && (artifact.versions.at(-1)?.at ?? 0) > ref.at) return null;
     const prepared = await this.prepare(capture, figureIdsByLabel, artifact?.latestParts);
     if (!prepared) return null;
     if (!artifact) {

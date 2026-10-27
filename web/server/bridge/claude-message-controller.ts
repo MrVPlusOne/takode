@@ -258,6 +258,7 @@ export interface ResultMessageSessionLike {
   messageCountAtTurnStart?: number;
   interruptedDuringTurn: boolean;
   queuedTurnStarts: number;
+  queuedTurnUserMessageIds: number[][];
   queuedTurnInterruptSources: Array<"user" | "leader" | "system" | null>;
   activeTurnRoute?: ActiveTurnRoute | null;
   userMessageIdsThisTurn: number[];
@@ -363,7 +364,7 @@ interface ResultMessageDeps {
   validateLeaderThreadOutcomes: (
     session: ResultMessageSessionLike,
     turnTriggerSource: "user" | "leader" | "system" | "unknown",
-    rejectedReadyThreadKeys?: string[],
+    options: { rejectedReadyThreadKeys: string[]; awaitingUserMessageIndexes: number[] },
   ) => void;
   onTurnCompleted: (session: ResultMessageSessionLike) => void;
   injectUserMessage: (
@@ -748,6 +749,31 @@ function isFirstRoutableChunkForUnroutedRow(session: AssistantMessageSessionLike
   return row?.type === "assistant" && !hasLeaderRoutedActivityContent(row.message.content);
 }
 
+/**
+ * Messages sent while Claude runs a turn go to Claude at once, and Claude either folds them into
+ * that turn (between tool calls) or runs them as their own turns after it. A result says how many
+ * prompts are still waiting (`prompts_waiting`, from the adapter): those queued turns stay, so
+ * each is started when the result before it arrives and ended by its own result. The rest, or all
+ * of them when the count is unknown, were folded in and are dropped.
+ */
+function drainQueuedTurnsTheResultConsumed(session: ClaudeSdkBrowserMessageSessionLike, promptsWaiting: unknown): void {
+  if (session.queuedTurnStarts <= 0) return;
+  const queued = session.queuedTurnStarts;
+  const waiting = typeof promptsWaiting === "number" ? Math.max(0, Math.min(promptsWaiting, queued)) : 0;
+  if (waiting < queued) {
+    console.log(
+      `[ws-bridge] Draining ${queued - waiting} queued turn(s) for SDK session ${sessionTag(session.id)} — CLI already processed them inline`,
+    );
+  }
+  // The turns still waiting are the newest ones: Claude takes prompts in the order they were sent.
+  const keep = <T>(list: T[] | undefined) => (waiting > 0 ? (list ?? []).slice(-waiting) : []);
+  session.queuedTurnStarts = waiting;
+  session.queuedTurnReasons = keep(session.queuedTurnReasons);
+  session.queuedTurnUserMessageIds = keep(session.queuedTurnUserMessageIds);
+  session.queuedTurnInterruptSources = keep(session.queuedTurnInterruptSources);
+  session.queuedTurnActiveRoutes = keep(session.queuedTurnActiveRoutes);
+}
+
 function findAssistantHistoryIndex(session: AssistantMessageSessionLike, messageId: string): number {
   return session.messageHistory.findLastIndex((entry) => entry.type === "assistant" && entry.message.id === messageId);
 }
@@ -1032,11 +1058,14 @@ export function handleResultMessage(
   deps.persistSession(session);
 
   if (!turnWasInterrupted) {
-    if (leaderTurnControls.rejectedReadyThreadKeys.length > 0) {
-      deps.validateLeaderThreadOutcomes(session, turnTriggerSource, leaderTurnControls.rejectedReadyThreadKeys);
-    } else {
-      deps.validateLeaderThreadOutcomes(session, turnTriggerSource);
-    }
+    // A queued turn started as this one ended: its messages are answered by that turn, not this one.
+    const awaitingUserMessageIndexes = session.isGenerating
+      ? [...session.userMessageIdsThisTurn, ...session.queuedTurnUserMessageIds.flat()]
+      : [];
+    deps.validateLeaderThreadOutcomes(session, turnTriggerSource, {
+      rejectedReadyThreadKeys: leaderTurnControls.rejectedReadyThreadKeys,
+      awaitingUserMessageIndexes,
+    });
     deps.onResultAttentionAndNotifications(session, msg, turnTriggerSource);
   }
   deps.onTurnCompleted(session);
@@ -1341,17 +1370,9 @@ function handleSdkBrowserMessage(
   }
 
   if (msg.type === "result") {
-    if (session.queuedTurnStarts > 0) {
-      console.log(
-        `[ws-bridge] Draining ${session.queuedTurnStarts} queued turn(s) for SDK session ${sessionTag(session.id)} — CLI already processed them inline`,
-      );
-      session.queuedTurnStarts = 0;
-      session.queuedTurnReasons = [];
-      session.queuedTurnUserMessageIds = [];
-      session.queuedTurnInterruptSources = [];
-      session.queuedTurnActiveRoutes = [];
-    }
-    handleResultMessage(session, (msg as any).data ?? msg, resultMessageDeps);
+    const result = (msg as any).data ?? msg;
+    drainQueuedTurnsTheResultConsumed(session, result.prompts_waiting);
+    handleResultMessage(session, result, resultMessageDeps);
     return true;
   }
 

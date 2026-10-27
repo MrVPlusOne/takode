@@ -35,6 +35,7 @@ function makeSession(): ResultMessageSessionLike {
     messageCountAtTurnStart: 0,
     interruptedDuringTurn: false,
     queuedTurnStarts: 0,
+    queuedTurnUserMessageIds: [],
     queuedTurnInterruptSources: [],
     userMessageIdsThisTurn: [],
     isGenerating: false,
@@ -251,7 +252,10 @@ describe("result-message-controller", () => {
     );
     expect(deps.cancelPermissionNotification).toHaveBeenCalledWith("s1", "perm-1");
     expect(deps.onSessionActivityStateChanged).toHaveBeenCalledWith("s1", "result_cleared_permissions");
-    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", {
+      rejectedReadyThreadKeys: [],
+      awaitingUserMessageIndexes: [],
+    });
     expect(deps.onResultAttentionAndNotifications).toHaveBeenCalled();
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
   });
@@ -279,7 +283,10 @@ describe("result-message-controller", () => {
       ready: true,
       pendingMessageCount: 0,
     });
-    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", {
+      rejectedReadyThreadKeys: [],
+      awaitingUserMessageIndexes: [],
+    });
     expect(deps.invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
     expect(deps.refreshSessionConversation).toHaveBeenCalledWith(session.id);
   });
@@ -361,7 +368,10 @@ describe("result-message-controller", () => {
     expect(displayReady.threadRoutingError).toBeUndefined();
     expect(rejected.state.leaderThreadStatuses?.["q-1"]).toBeUndefined();
     expect(rejected.state.leaderThreadStatuses?.["q-2"]).toBeUndefined();
-    expect(rejectedDeps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(rejected, "user", ["q-2"]);
+    expect(rejectedDeps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(rejected, "user", {
+      rejectedReadyThreadKeys: ["q-2"],
+      awaitingUserMessageIndexes: [],
+    });
   });
 
   it("rejects sibling Ready on a canonicalized display-only thread", () => {
@@ -390,7 +400,10 @@ describe("result-message-controller", () => {
       threadAnswer: { answerUserMessageIds: ["u1"] },
     });
     expect(session.state.leaderThreadStatuses?.["q-2"]).toBeUndefined();
-    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["q-2"]);
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", {
+      rejectedReadyThreadKeys: ["q-2"],
+      awaitingUserMessageIndexes: [],
+    });
   });
 
   it("allows sibling Ready when the selected thread also owns current answer coverage in the turn", () => {
@@ -428,7 +441,10 @@ describe("result-message-controller", () => {
       kind: "ready",
       messageId: ready.message.id,
     });
-    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", {
+      rejectedReadyThreadKeys: [],
+      awaitingUserMessageIndexes: [],
+    });
   });
 
   it("rejects display-only Main Ready after a same-turn answer is fully superseded", () => {
@@ -467,7 +483,10 @@ describe("result-message-controller", () => {
       { currentMessageId: later.message.id, coveredAnswerUserMessageIds: ["u1"] },
     ]);
     expect(session.state.leaderThreadStatuses?.main).toBeUndefined();
-    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["main"]);
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", {
+      rejectedReadyThreadKeys: ["main"],
+      awaitingUserMessageIndexes: [],
+    });
   });
 
   it.each([
@@ -542,7 +561,9 @@ describe("result-message-controller", () => {
     expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(
       session,
       "user",
-      expect.arrayContaining(questReady ? ["q-8"] : ["q-1", "q-8"]),
+      expect.objectContaining({
+        rejectedReadyThreadKeys: expect.arrayContaining(questReady ? ["q-8"] : ["q-1", "q-8"]),
+      }),
     );
     expect(session.messageHistory.filter((entry) => entry.type === "assistant" && entry.threadAnswer)).toEqual([
       response,
@@ -709,7 +730,10 @@ describe("result-message-controller", () => {
 
     expect(commentary.threadAnswer).toBeUndefined();
     expect(session.state.leaderThreadStatuses?.main).toBeUndefined();
-    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["main"]);
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", {
+      rejectedReadyThreadKeys: ["main"],
+      awaitingUserMessageIndexes: [],
+    });
   });
 
   it.each([
@@ -746,7 +770,10 @@ describe("result-message-controller", () => {
 
     expect(session.state.leaderThreadStatuses?.main).toBeUndefined();
     expect(attempted.deferredThreadStatusMarkers).toBeUndefined();
-    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["main"]);
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", {
+      rejectedReadyThreadKeys: ["main"],
+      awaitingUserMessageIndexes: [],
+    });
   });
 
   it("does not finalize a routed answer or Ready marker from an interrupted turn", () => {
@@ -950,7 +977,10 @@ describe("result-message-controller", () => {
     const result = session.messageHistory.at(-1) as Extract<BrowserIncomingMessage, { type: "result" }>;
     expect(result.type).toBe("result");
     expect(result.interrupted).toBeUndefined();
-    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "leader");
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "leader", {
+      rejectedReadyThreadKeys: [],
+      awaitingUserMessageIndexes: [],
+    });
     expect(deps.onResultAttentionAndNotifications).toHaveBeenCalledWith(
       session,
       expect.objectContaining({ uuid: "normal-completed-leader-result" }),
@@ -1064,7 +1094,10 @@ describe("result-message-controller", () => {
       expect.anything(),
     );
     expect(deps.injectUserMessage).not.toHaveBeenCalled();
-    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "system");
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "system", {
+      rejectedReadyThreadKeys: [],
+      awaitingUserMessageIndexes: [],
+    });
     expect(deps.onResultAttentionAndNotifications).toHaveBeenCalledWith(
       session,
       expect.objectContaining({ uuid: "system-kickoff-result" }),

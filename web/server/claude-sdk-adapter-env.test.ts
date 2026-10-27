@@ -145,6 +145,35 @@ describe("ClaudeSdkAdapter launch env", () => {
     expect((await input.next()).done).toBe(true);
   });
 
+  it("says on each result how many prompts Claude still runs as turns of their own", async () => {
+    // A prompt sent while Claude runs a turn is either folded into that turn or run as its own
+    // turn afterwards. Claude lists the prompts each turn consumed (by the uuid each prompt
+    // carries), so the bridge knows whether another result follows. Before, every queued prompt
+    // was taken as folded in, and a leader was reminded to answer a message it was about to answer.
+    const { adapter, prompt } = await launchOptions();
+    const results: any[] = [];
+    adapter.onBrowserMessage((msg) => results.push(msg));
+    adapter.sendBrowserMessage({ type: "user_message", content: "first" });
+    adapter.sendBrowserMessage({ type: "user_message", content: "second" });
+    const input = prompt[Symbol.asyncIterator]();
+    const [first, second] = [(await input.next()).value, (await input.next()).value].map((msg: any) => msg.uuid);
+    expect(first).not.toBe(second);
+
+    (adapter as any).handleSdkMessage({ type: "result", user_message_uuids: [first] });
+    expect(results.at(-1).prompts_waiting).toBe(1);
+    expect(adapter.hasTurnInFlight()).toBe(true);
+    (adapter as any).handleSdkMessage({ type: "result", user_message_uuids: [second] });
+    expect(results.at(-1).prompts_waiting).toBe(0);
+    expect(adapter.hasTurnInFlight()).toBe(false);
+
+    // A Claude that doesn't say: nothing is assumed to be waiting.
+    adapter.sendBrowserMessage({ type: "user_message", content: "third" });
+    (adapter as any).handleSdkMessage({ type: "result" });
+    expect(results.at(-1)).not.toHaveProperty("prompts_waiting");
+    expect(adapter.hasTurnInFlight()).toBe(false);
+    await adapter.disconnect();
+  });
+
   it("lets Claude retry model requests longest inside a turn unless a value is configured", async () => {
     // Longer in-turn retries let most network outages end without a hidden
     // continue prompt; an explicit session or server setting must still win.

@@ -290,6 +290,8 @@ export interface Session {
   drafts?: import("../../shared/session-drafts.js").SessionDraftsState;
   /** History length after the latest leader-thread outcome validation pass. */
   leaderThreadOutcomeValidatedHistoryLength?: number;
+  /** User messages whose outcome check waits for the turn that answers them (not persisted). */
+  leaderThreadOutcomeDeferredUserMessageIndexes?: number[];
   /** Recovered Ready rejections awaiting the next normal outcome-validation boundary. */
   pendingLeaderRejectedReadyThreadKeys: string[];
   /** Server-authoritative attention records for Main ledger rows and top chips. */

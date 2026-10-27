@@ -568,6 +568,37 @@ function coveredHumanMessage(id: string, timestamp: number, threadKey = "main"):
 }
 
 describe("explicit answer reminders", () => {
+  it("checks a message Claude queued behind the turn that just ended with the turn that answers it", () => {
+    // Oct 26: a user message arrived while the leader answered a herd event. Claude ran it as its
+    // own next turn, but the check at the first turn's end counted it as unanswered and reminded
+    // the leader, who then answered it twice. A message a later turn answers waits for that
+    // turn's check; it is not dropped, so an answer that never comes is still reminded.
+    const session = {
+      id: "leader",
+      messageHistory: [
+        coveredHumanMessage("u2", 10, "q-42"),
+        assistantMessage({ id: "herd-answer", text: "Herd event handled.", timestamp: 20 }),
+      ] as BrowserIncomingMessage[],
+      notifications: [],
+      state: { leaderThreadStatuses: { main: threadStatus({ kind: "waiting", timestamp: 30 }) } },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps, { awaitingUserMessageIndexes: [0] })).toEqual({
+      checked: true,
+      missing: [],
+      injected: false,
+    });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+
+    // The next turn ends without answering it: now it is reminded.
+    session.messageHistory.push(assistantMessage({ id: "other", text: "Something else.", timestamp: 40 }));
+    session.state.leaderThreadStatuses.main = threadStatus({ kind: "waiting", timestamp: 50 });
+    expect(validateLeaderThreadOutcomes(session, deps)).toMatchObject({ checked: true, missing: ["q-42"] });
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("Pending answer IDs: q-42 (u2)");
+  });
+
   it("delivers one precise persisted answer-route diagnostic instead of the generic correction", () => {
     const rejected = assistantMessage({
       id: "misrouted-answer",

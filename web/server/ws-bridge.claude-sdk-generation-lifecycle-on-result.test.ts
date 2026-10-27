@@ -667,6 +667,49 @@ describe("Claude SDK generation lifecycle on result", () => {
     expect(session.isGenerating).toBe(false);
   });
 
+  it("keeps a queued turn Claude still runs on its own, so the next result ends it", async () => {
+    // A message sent during the turn's last model call is not folded in: Claude runs it as its
+    // own turn after this result, and the result says so (prompts_waiting from the adapter).
+    // That turn starts as this one ends, and its message is not counted as owed by this turn.
+    const sid = "sdk-gen-queued-waiting";
+    const cli = makeCliSocket(sid);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
+    const session = bridge.getSession(sid)!;
+    session.backendType = "claude-sdk";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+    session.isGenerating = true;
+    session.generationStartedAt = Date.now() - 10000;
+    session.userMessageIdsThisTurn = [0];
+    session.queuedTurnStarts = 1;
+    session.queuedTurnReasons = ["user_message"];
+    session.queuedTurnUserMessageIds = [[1]];
+    session.queuedTurnInterruptSources = [null];
+
+    adapter.emitBrowserMessage({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "First turn done",
+      duration_ms: 10000,
+      duration_api_ms: 9000,
+      num_turns: 1,
+      total_cost_usd: 0.01,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid: "sdk-result-waiting",
+      session_id: sid,
+      prompts_waiting: 1,
+    } as any);
+
+    expect(session.queuedTurnStarts).toBe(0);
+    expect(session.isGenerating).toBe(true);
+    expect(session.userMessageIdsThisTurn).toEqual([1]);
+  });
+
   it("computes context_used_percent from result.usage when assistant usage is all zeros", () => {
     // SDK sessions have all-zero usage on assistant messages but real per-turn
     // usage on result messages. The context % computation must fall through

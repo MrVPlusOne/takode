@@ -44,6 +44,8 @@ type LeaderThreadOutcomeSession = {
   state?: { leaderThreadStatuses?: Record<string, LeaderThreadStatus> };
   leaderThreadOutcomeValidatedHistoryLength?: number;
   pendingLeaderRejectedReadyThreadKeys?: string[];
+  /** User messages a later turn was still to answer when the window holding them was checked. */
+  leaderThreadOutcomeDeferredUserMessageIndexes?: number[];
 };
 
 export type LeaderThreadOutcomeTurnSource = "user" | "leader" | "system" | "unknown";
@@ -86,7 +88,14 @@ const BLOCKING_PROMPT_PATTERNS = [
 export function validateLeaderThreadOutcomes(
   session: LeaderThreadOutcomeSession,
   deps: LeaderThreadOutcomeValidationDeps,
-  options: { rejectedReadyThreadKeys?: string[] } = {},
+  options: {
+    rejectedReadyThreadKeys?: string[];
+    /**
+     * History indexes of user messages a turn that has not run yet will answer (Claude queued
+     * them behind the turn that just ended). They are checked with that turn instead.
+     */
+    awaitingUserMessageIndexes?: number[];
+  } = {},
 ): LeaderThreadOutcomeValidationResult {
   if (!deps.isLeaderSession(session.id)) return { checked: false, reason: "not_leader" };
 
@@ -100,11 +109,16 @@ export function validateLeaderThreadOutcomes(
     if (clearedBlockedReady) deps.persistSession?.(session);
     return { checked: false, reason: "no_new_history" };
   }
+  // Messages a later turn answers wait for its check; ones that waited before are checked now.
+  const awaiting = new Set(options.awaitingUserMessageIndexes ?? []);
+  const carried = session.leaderThreadOutcomeDeferredUserMessageIndexes ?? [];
+  session.leaderThreadOutcomeDeferredUserMessageIndexes = [...awaiting];
   if (deps.getTurnSource?.(session) === "system") {
     // System-triggered turns must not inject routing reminders, but a semantic
     // rejection recovered from an earlier normal turn still needs the next
     // normal validation boundary. Keep that exact row unconsumed instead of
     // silently losing its actionable diagnostic during recovery/preload work.
+    session.leaderThreadOutcomeDeferredUserMessageIndexes = [...new Set([...carried, ...awaiting])];
     const deferredAnswerRouteRejection = findPersistedAnswerRouteRejection(history, startIndex);
     session.leaderThreadOutcomeValidatedHistoryLength = deferredAnswerRouteRejection?.historyIndex ?? history.length;
     deps.persistSession?.(session);
@@ -118,7 +132,19 @@ export function validateLeaderThreadOutcomes(
     ...(options.rejectedReadyThreadKeys ?? []),
     ...deferredRejectedReadyThreadKeys,
   ]);
-  const touchedThreads = collectTouchedLeaderThreads(history, startIndex);
+  // A thread with a message a later turn answers is checked with that turn, not before it.
+  const awaitingThreads = new Set(
+    [...awaiting].flatMap((index) => {
+      const entry = history[index];
+      const threadKey = entry && isActualHumanUserMessage(entry) ? leaderResponseThreadKeyForUserMessage(entry) : null;
+      return threadKey ? [routeKey(threadRouteForTarget(threadKey))] : [];
+    }),
+  );
+  const touchedThreads = collectTouchedLeaderThreads(
+    history,
+    startIndex,
+    carried.filter((index) => index < startIndex && !awaiting.has(index)),
+  ).filter((thread) => !awaitingThreads.has(thread.key));
   addRejectedReadyThreads(touchedThreads, [...rejectedReadyThreadKeys], history);
   session.leaderThreadOutcomeValidatedHistoryLength = history.length;
 
@@ -524,7 +550,12 @@ function clampHistoryIndex(value: number | undefined, historyLength: number): nu
   return Math.min(value, historyLength);
 }
 
-function collectTouchedLeaderThreads(history: BrowserIncomingMessage[], startIndex: number): TouchedThread[] {
+/** Threads the history from `startIndex` touched, plus those of earlier user messages left to check. */
+function collectTouchedLeaderThreads(
+  history: BrowserIncomingMessage[],
+  startIndex: number,
+  earlierUserMessages: readonly number[] = [],
+): TouchedThread[] {
   const byThread = new Map<string, TouchedThread>();
   const touch = (
     route: ThreadRouteMetadata,
@@ -560,7 +591,9 @@ function collectTouchedLeaderThreads(history: BrowserIncomingMessage[], startInd
     existing.rejectedAnswerObserved ||= rejectedAnswerObserved;
   };
 
-  for (let index = startIndex; index < history.length; index += 1) {
+  const indexes = earlierUserMessages.filter((index) => index < history.length);
+  for (let index = startIndex; index < history.length; index += 1) indexes.push(index);
+  for (const index of indexes) {
     const entry = history[index]!;
     const timestamp = getHistoryTimestamp(entry);
     if (
