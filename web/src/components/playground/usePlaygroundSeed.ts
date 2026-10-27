@@ -599,6 +599,12 @@ export function usePlaygroundSeed() {
       historyMessageCount: 131,
       selectedTailCount: 30,
     });
+    // The synthetic fixture numbers message times 1, 2, 3...; spread them a minute apart over the
+    // last couple of hours so the demo's message times and day pill read like a real feed.
+    const leaderReturnBase = Date.now() - leaderReturnFixture.allMessages.length * 60_000;
+    for (const message of leaderReturnFixture.allMessages) {
+      message.timestamp = leaderReturnBase + message.timestamp * 60_000;
+    }
     const leaderReturnSession: SessionState = {
       ...session,
       session_id: PLAYGROUND_LEADER_RETURN_SESSION_ID,

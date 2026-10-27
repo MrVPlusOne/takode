@@ -1786,6 +1786,13 @@ export function MessageFeed({
         setDismissedSubagentChips((prev) => new Map(prev).set(taskToolUseId, freshnessToken));
       }}
       showCodexSubagents={showCodexSubagentControl}
+      dayPill={
+        <MessageFeedDayPill
+          containerRef={containerRef}
+          contentRootRef={contentRootRef}
+          layoutSignature={viewportLayoutSignature}
+        />
+      }
     />
   );
   if (showConversationLoading || showSelectedWindowLoading) {
@@ -1930,12 +1937,6 @@ export function MessageFeed({
           onRunwayHeightChange={setFloatingStatusRunwayHeight}
           currentThreadKey={threadKey}
           onSelectThread={onSelectThread}
-        />
-
-        <MessageFeedDayPill
-          containerRef={containerRef}
-          contentRootRef={contentRootRef}
-          layoutSignature={viewportLayoutSignature}
         />
 
         {feedTopControls}

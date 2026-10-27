@@ -12,6 +12,9 @@ import type { ChatMessage } from "../../types.js";
 import { formatAnnotatedMessage } from "../../../shared/conversation-annotations.js";
 import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
 
+// A few minutes ago, so message times in these demos read like real ones.
+const PLAYGROUND_TIME = Date.now() - 5 * 60_000;
+
 const SESSION = "playground-conversation-annotations";
 
 export function PlaygroundAnnotationsSection() {
@@ -120,7 +123,7 @@ export function PlaygroundAnnotationsSection() {
                       id: "stored-annotation-example",
                       role: "user",
                       content: draft?.text ?? "",
-                      timestamp: 1,
+                      timestamp: PLAYGROUND_TIME,
                       metadata: { annotations: draft?.annotations },
                     })
                   }
@@ -156,7 +159,7 @@ function SentCommentExamples() {
     {
       type: "user_message",
       id: `sent-comments-${example}`,
-      timestamp: 1,
+      timestamp: PLAYGROUND_TIME,
       content: example === "multiple" ? "Please address each comment before changing the refresh behavior." : "",
       annotations: Array.from({ length: example === "multiple" ? 3 : 1 }, (_, index) => ({
         id: `sent-comment-${index}`,

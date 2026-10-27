@@ -8,6 +8,9 @@ import { ReadyThreadResponseRows } from "../ReadyThreadResponseRows.js";
 import { TurnActivityDisclosure } from "../TurnActivitySummary.js";
 import { Card } from "./shared.js";
 
+// A few minutes ago, so message times in this demo read like real ones.
+const PLAYGROUND_TIME = Date.now() - 5 * 60_000;
+
 const SESSION_ID = "playground-collapsed-answered-decision";
 const THREAD_KEY = "q-2042";
 const NOTIFICATION_ID = "n-answered-decision";
@@ -19,7 +22,7 @@ const ANSWER: Extract<FeedEntry, { kind: "message" }> = {
     id: "playground-answered-decision-answer",
     role: "assistant",
     content: "All three decisions are recorded and with the worker. The smoke run comes first, then the full check.",
-    timestamp: 1,
+    timestamp: PLAYGROUND_TIME + 1,
     historyIndex: 4,
     metadata: {
       leaderThreadRole: "answer",
@@ -36,7 +39,7 @@ const CONTEXT: Extract<FeedEntry, { kind: "message" }> = {
     content:
       "The dataset passed the full check: 1,325 tasks are ready. Writing it to shared storage needs your go-ahead.\n\n" +
       "- **Write** under the `coding_tasks` name (recommended).\n- **Hold** and keep it in the stage folder.",
-    timestamp: 2,
+    timestamp: PLAYGROUND_TIME + 2,
     historyIndex: 9,
     metadata: { leaderThreadRole: "commentary" },
   },
@@ -45,7 +48,12 @@ const TURN: Turn = {
   id: "playground-answered-decision-user",
   userEntry: {
     kind: "message",
-    msg: { id: "playground-answered-decision-user", role: "user", content: "Approve smoke + full.", timestamp: 0 },
+    msg: {
+      id: "playground-answered-decision-user",
+      role: "user",
+      content: "Approve smoke + full.",
+      timestamp: PLAYGROUND_TIME,
+    },
   },
   allEntries: [ANSWER, CONTEXT],
   presentationEntries: [ANSWER, CONTEXT],
@@ -90,7 +98,7 @@ const PRESENTATION: ThreadResponsePresentation = {
 const NOTIFICATION: SessionNotification = {
   id: NOTIFICATION_ID,
   category: "needs-input",
-  timestamp: 2,
+  timestamp: PLAYGROUND_TIME + 2,
   messageId: CONTEXT.msg.id,
   contextMessageId: CONTEXT.msg.id,
   questionOnly: true,

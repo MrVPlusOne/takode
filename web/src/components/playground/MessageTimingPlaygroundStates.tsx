@@ -110,7 +110,9 @@ function DayPillFeed() {
           ))}
         </div>
       </div>
-      <MessageFeedDayPill containerRef={containerRef} contentRootRef={contentRootRef} layoutSignature="playground" />
+      <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center">
+        <MessageFeedDayPill containerRef={containerRef} contentRootRef={contentRootRef} layoutSignature="playground" />
+      </div>
     </div>
   );
 }

@@ -145,7 +145,8 @@ describe("MessageFeedTopControls", () => {
     const controls = screen.getByTestId("message-feed-top-controls");
     const liveRail = within(controls).getByTestId("live-activity-rail");
     const childAnchor = within(controls).getByTestId("codex-subagent-feed-control-row");
-    expect(controls).toHaveClass("absolute", "inset-x-2", "flex", "gap-2", "pointer-events-none");
+    expect(controls).toHaveClass("flex", "gap-2");
+    expect(controls.parentElement).toHaveClass("absolute", "inset-x-2", "pointer-events-none");
     expect(liveRail).toHaveClass("pointer-events-auto", "min-w-0", "flex-1");
     expect(liveRail).not.toHaveClass("absolute");
     expect(childAnchor).toHaveClass("pointer-events-auto", "ml-auto", "shrink-0");
@@ -221,5 +222,43 @@ describe("MessageFeedTopControls", () => {
     );
 
     expect(view.container).toBeEmptyDOMElement();
+  });
+
+  describe("day pill placement", () => {
+    const pill = <span data-testid="day-pill">Sun, Oct 25 · 2 days ago</span>;
+    const baseProps = {
+      sessionId: "session-1",
+      subagents: [],
+      selectedToolUseId: null,
+      onSelect: vi.fn(),
+      onSelectSubagent: vi.fn(),
+      onDismissSubagent: vi.fn(),
+    };
+
+    it("puts the pill on its own line under a live rail, which can span the whole row", () => {
+      // On phones the terminal/subagent rail is full width, so sharing its line would overlap it.
+      installSession(false);
+      render(<MessageFeedTopControls {...baseProps} terminals={[terminal]} dayPill={pill} />);
+      const row = screen.getByTestId("message-feed-top-controls");
+      const pillSlot = screen.getByTestId("day-pill").parentElement!;
+      expect(pillSlot).not.toHaveClass("absolute");
+      expect(row.nextElementSibling).toBe(pillSlot);
+    });
+
+    it("shows the pill alone at the top when there are no controls", () => {
+      installSession(false);
+      render(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} />);
+      expect(screen.queryByTestId("message-feed-top-controls")).toBeNull();
+      expect(screen.getByTestId("day-pill").parentElement).not.toHaveClass("absolute");
+    });
+
+    it("shares the row's top edge with the desktop attention chip", () => {
+      // A wide desktop feed has room for the centered pill beside the right-hand chip.
+      setViewportWidth(1280);
+      installSession(false);
+      installNeedsInput();
+      render(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} />);
+      expect(screen.getByTestId("day-pill").parentElement).toHaveClass("absolute", "top-0");
+    });
   });
 });

@@ -10,6 +10,9 @@ import { PlaygroundAnswersApart } from "./PlaygroundAnswersApart.js";
 import { PlaygroundCollapsedAnsweredDecision } from "./PlaygroundCollapsedAnsweredDecision.js";
 import { PlaygroundQuestCompletionSummary, PlaygroundQuestDescriptionSummary } from "./PlaygroundQuestSummaryCards.js";
 
+// A few minutes ago, so message times in these demos read like real ones.
+const PLAYGROUND_TIME = Date.now() - 5 * 60_000;
+
 const SESSION_ID = "playground-thread-responses";
 
 function assistantEntry(
@@ -23,7 +26,7 @@ function assistantEntry(
       id,
       role: "assistant",
       content,
-      timestamp: 1,
+      timestamp: PLAYGROUND_TIME,
       metadata: {
         leaderThreadRole,
         ...(leaderThreadRole === "answer"
@@ -70,7 +73,7 @@ const READY_TURN: Turn = {
       id: "playground-user-second",
       role: "user",
       content: "Please include the mobile behavior too.",
-      timestamp: 1,
+      timestamp: PLAYGROUND_TIME,
     },
   },
   allEntries: [EARLIER_RESPONSE, INTERMEDIATE, CURRENT_RESPONSE],
@@ -153,7 +156,7 @@ const QUIZ_PROMPT: Extract<FeedEntry, { kind: "message" }> = {
       id: "playground-quiz-prompt-notification",
       category: "needs-input",
       summary: "Choose the follow-up boundary",
-      timestamp: 8,
+      timestamp: PLAYGROUND_TIME + 7,
     },
   },
 };
@@ -175,7 +178,7 @@ const ANSWER_ONLY_TURN: Turn = {
       id: "playground-answer-only-user",
       role: "user",
       content: "Show the answer-only collapsed state.",
-      timestamp: 1,
+      timestamp: PLAYGROUND_TIME,
     },
   },
   allEntries: [ANSWER_ONLY_RESPONSE],
@@ -248,7 +251,7 @@ const LONG_QUOTE_TURN: Turn = {
   id: "playground-long-quote-turn",
   userEntry: {
     kind: "message",
-    msg: { id: "playground-long-quote-turn", role: "user", content: "Worker event", timestamp: 1 },
+    msg: { id: "playground-long-quote-turn", role: "user", content: "Worker event", timestamp: PLAYGROUND_TIME },
   },
   allEntries: [LONG_QUOTE_RESPONSE],
   presentationEntries: [LONG_QUOTE_RESPONSE],
@@ -392,7 +395,7 @@ const ASSOCIATED_MAIN_TURN: Turn = {
       id: "playground-associated-main-user",
       role: "user",
       content: "Main request attached to this quest.",
-      timestamp: 1,
+      timestamp: PLAYGROUND_TIME,
       metadata: {
         leaderResponseCoverageVersion: 1,
         leaderUserMessageId: "u25",
@@ -518,7 +521,7 @@ const PUBLISHED_REPORT: Extract<FeedEntry, { kind: "message" }> = {
     role: "assistant",
     content:
       "# Daily briefing: Tuesday\n\n## Needs you today\n\n- **Card payment:** statement balance due Monday.\n- **Two pipeline decisions** from the data leader.\n\n## Your to-dos\n\nNo changes.\n\n## What you got done\n\n- Reviewed the weights pull request.\n- Closed two stale quests.\n\n## Still waiting on you\n\n- **Benchmark checkpoint** (since last week): close or reassign.\n- **Slack reminder:** feedback submissions due Friday.",
-    timestamp: 1,
+    timestamp: PLAYGROUND_TIME,
     historyIndex: 1,
     metadata: {
       threadKey: "q-2042",

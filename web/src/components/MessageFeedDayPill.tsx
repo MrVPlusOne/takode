@@ -31,7 +31,8 @@ export function findFeedDayAtTop(root: ParentNode, viewTop: number): number | nu
 }
 
 /**
- * The day of what's at the top of the feed, pinned there while it isn't today, so a jump into an
+ * The day of what's at the top of the feed, shown there (by `MessageFeedTopControls`, so it never
+ * covers the live terminal and subagent rail) while it isn't today, so a jump into an
  * older conversation always says which day it is and how long ago that was. Today's content
  * needs no pill: its times are bare clock times. Nothing shows at the very top of the feed, where
  * the pill would cover the first row, or while the oldest loaded day's divider is still in view,
@@ -78,14 +79,12 @@ export function MessageFeedDayPill({
   if (topDay === null || localDaysAgo(topDay, today) <= 0) return null;
   const age = formatMessageDayAge(topDay, today);
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center sm:top-3">
-      <time
-        data-testid="message-feed-day-pill"
-        dateTime={new Date(topDay).toISOString()}
-        className="rounded-full border border-cc-border bg-cc-card/95 px-2.5 py-0.5 text-[11px] text-cc-muted shadow-md backdrop-blur-sm"
-      >
-        {formatFeedDayLabel(topDay, today)} · {age.charAt(0).toUpperCase() + age.slice(1)}
-      </time>
-    </div>
+    <time
+      data-testid="message-feed-day-pill"
+      dateTime={new Date(topDay).toISOString()}
+      className="rounded-full border border-cc-border bg-cc-card/95 px-2.5 py-0.5 text-[11px] text-cc-muted shadow-md backdrop-blur-sm"
+    >
+      {formatFeedDayLabel(topDay, today)} · {age.charAt(0).toUpperCase() + age.slice(1)}
+    </time>
   );
 }

@@ -213,8 +213,10 @@ describe("MessageFeed needs-input card under an answer shown in another tab", ()
       render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} onSelectThread={onSelectThread} />);
       fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: Yes, file and dispatch" }));
       fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+      // Only the timers pending now: message time labels keep a daily midnight timer that
+      // reschedules itself, which runAllTimers would follow forever.
       act(() => {
-        vi.runAllTimers();
+        vi.runOnlyPendingTimers();
       });
 
       // The reply opens the thread the question was asked in, where it is delivered.
