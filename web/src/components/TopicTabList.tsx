@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { TopicSummary } from "../../shared/library-topics.js";
+import { topicRowLine } from "./library/topic-search.js";
 import { topicApi } from "../api/topics.js";
 import type { GlobalNeedsInputEntry } from "../utils/global-needs-input.js";
 import { TopicIcon } from "./library/library-icons.js";
@@ -98,7 +99,7 @@ function TopicTabRow({
   onOpen: () => void;
   onOpenQuestion: (entry: GlobalNeedsInputEntry) => void;
 }) {
-  const line = topic.latestUpdate ?? topic.summary;
+  const line = topicRowLine(topic);
   return (
     <div className={current ? "bg-cc-active" : ""} data-testid="topic-tab-row" data-topic={topic.id}>
       <button
@@ -116,7 +117,7 @@ function TopicTabRow({
             <span className="min-w-0 flex-1 truncate text-[15px] text-cc-fg">{topic.name}</span>
             <span className="shrink-0 text-[12px] text-cc-muted">{ago(topic.activityAt)}</span>
           </span>
-          {line && <span className="line-clamp-2 text-[13px] text-cc-fg/80">{stripDate(line)}</span>}
+          {line && <span className="line-clamp-2 text-[13px] text-cc-fg/80">{line}</span>}
           {status && <TopicStatusLine status={status} />}
         </span>
       </button>
@@ -157,11 +158,6 @@ function TopicStatusLine({ status }: { status: TopicTabStatus }) {
       {watching && <NotifyMeIcon pending={false} className="h-3.5 w-3.5" />}
     </span>
   );
-}
-
-/** A History line starts with its date ("Oct 25 · …"); the row shows the time separately. */
-function stripDate(line: string): string {
-  return line.replace(/^[A-Z][a-z]{2} \d{1,2}(?:\s*(?:-|to)\s*\d{1,2})?\s*·\s*/, "");
 }
 
 function ago(at: number): string {

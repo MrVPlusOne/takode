@@ -233,6 +233,24 @@ describe("TopicSidePanel", () => {
     expect(dismiss).toHaveBeenCalledWith(["c1"]);
   });
 
+  it("searches the topic list from its header, and hides the box on a topic's page", async () => {
+    // The same search as the Topics tab group: names first, then the newest update line.
+    mockApi();
+    render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
+    const box = await screen.findByRole("textbox", { name: "Search topics" });
+    const names = () => screen.queryAllByTestId("library-topic-row").map((row) => row.textContent);
+    fireEvent.change(box, { target: { value: "twin" } });
+    expect(names()).toEqual([expect.stringContaining("T7 run")]);
+    fireEvent.change(box, { target: { value: "qa seeded" } });
+    expect(names()).toEqual([expect.stringContaining("Seeded QA")]);
+    fireEvent.change(box, { target: { value: "nothing like it" } });
+    expect(screen.getByTestId("topic-search-empty")).toBeTruthy();
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(names()).toHaveLength(2);
+    fireEvent.click(screen.getAllByTestId("library-topic-row")[0]!.querySelector("button")!);
+    expect(screen.queryByRole("textbox", { name: "Search topics" })).toBeNull();
+  });
+
   it("follows the quest tab on screen to its topic's page: summary, open quests, Now before History", async () => {
     const api = mockApi();
     vi.mocked(artifactApi.list).mockResolvedValue({

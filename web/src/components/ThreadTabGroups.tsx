@@ -7,7 +7,16 @@
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { TopicIcon } from "./library/library-icons.js";
 import { TopicTabList } from "./TopicTabList.js";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { matchesSearch, NoTopicMatches, searchTopics, TopicSearchBox } from "./library/topic-search.js";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress, type OpenContextMenu } from "../hooks/useLongPress.js";
@@ -211,6 +220,8 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
   };
   const rowContext = { ...rows, onSelect: select };
   const [listLeft, setListLeft] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const listMaxHeight = useHeightAboveKeyboard(listRef, !!openGroup && placement === "top");
 
   // On wide screens a group's list opens under its own tab instead of spanning the bar.
   useLayoutEffect(() => {
@@ -351,7 +362,11 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
             className={`absolute inset-x-0 z-50 max-h-[60dvh] overflow-y-auto rounded-xl border border-cc-border bg-cc-card py-1 shadow-xl ${
               placement === "bottom" ? "bottom-full mb-1" : "top-full mt-1"
             }`}
-            style={listLeft === null ? undefined : { left: listLeft, right: "auto", width: WIDE_LIST_WIDTH_PX }}
+            ref={listRef}
+            style={{
+              ...(listLeft === null ? {} : { left: listLeft, right: "auto", width: WIDE_LIST_WIDTH_PX }),
+              ...(listMaxHeight === null ? {} : { maxHeight: `min(60dvh, ${listMaxHeight}px)` }),
+            }}
             role="menu"
             data-testid="thread-tab-group-list"
             data-group={openGroup}
@@ -365,29 +380,14 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
               </>
             ) : openGroup === "topics" ? (
               topicsGroup && (
-                <>
-                  <ListHeading label="Topics" count={topicsGroup.topics.length} />
-                  <TopicTabList
-                    topics={topicsGroup.topics}
-                    currentTopicId={onTopic ? topicsGroup.currentTopicId : null}
-                    onOpen={topicsGroup.onOpen}
-                    onLeave={() => setOpenGroup(null)}
-                    statusOf={
-                      topicFirst
-                        ? (topic) => ({
-                            ...topicStatus(topic, questTabs, rows.activeOutputThreadKey, rows.monitors),
-                            ...(topicFirst.unreadCountOf ? { unread: topicFirst.unreadCountOf(topic.questIds) } : {}),
-                          })
-                        : undefined
-                    }
-                  />
-                  {topicFirst && (
-                    <UnsortedTabs
-                      tabs={questTabs.filter((tab) => !tab.questId || !topicFirst.topicOfQuest[tab.questId])}
-                      context={rowContext}
-                    />
-                  )}
-                </>
+                <TopicsGroupList
+                  topicsGroup={topicsGroup}
+                  topicFirst={!!topicFirst}
+                  currentTopicId={onTopic ? topicsGroup.currentTopicId : null}
+                  questTabs={questTabs}
+                  rowContext={rowContext}
+                  onLeave={() => setOpenGroup(null)}
+                />
               )
             ) : (
               <>
@@ -858,24 +858,114 @@ export function PhaseDots({ tabs }: { tabs: readonly PrimaryThreadChip[] }) {
   );
 }
 
-function ListHeading({ label, count }: { label: string; count: number }) {
+function ListHeading({ label, count, children }: { label: string; count: number; children?: ReactNode }) {
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 bg-cc-card/95 px-4 pb-1 pt-2.5 backdrop-blur">
-      <span className="text-[11px] uppercase tracking-wide text-cc-muted">{label}</span>
-      <span className="text-[11px] tabular-nums text-cc-muted">{count}</span>
+      <span className="shrink-0 text-[11px] uppercase tracking-wide text-cc-muted">{label}</span>
+      <span className="shrink-0 text-[11px] tabular-nums text-cc-muted">{count}</span>
+      {children}
     </div>
   );
 }
 
+/**
+ * The Topics group's list: its topics with a search box in the heading, then (topic-first) the
+ * quest tabs under no topic, which the search narrows by title and quest number too.
+ */
+function TopicsGroupList({
+  topicsGroup,
+  topicFirst,
+  currentTopicId,
+  questTabs,
+  rowContext,
+  onLeave,
+}: {
+  topicsGroup: NonNullable<ThreadTabGroupBarProps["topicsGroup"]>;
+  topicFirst: boolean;
+  currentTopicId: string | null;
+  questTabs: readonly PrimaryThreadChip[];
+  rowContext: RowContext;
+  onLeave: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const topics = searchTopics(topicsGroup.topics, query);
+  const unsorted = topicFirst
+    ? questTabs.filter(
+        (tab) =>
+          (!tab.questId || !topicsGroup.topicOfQuest[tab.questId]) &&
+          matchesSearch(`${tab.title} ${tab.questId ?? ""}`, query),
+      )
+    : [];
+  return (
+    <>
+      <ListHeading label="Topics" count={topicsGroup.topics.length}>
+        <TopicSearchBox query={query} onChange={setQuery} />
+      </ListHeading>
+      {query.trim() && topics.length === 0 && unsorted.length === 0 && <NoTopicMatches query={query} />}
+      <TopicTabList
+        topics={topics}
+        currentTopicId={currentTopicId}
+        onOpen={topicsGroup.onOpen}
+        onLeave={onLeave}
+        statusOf={
+          topicFirst
+            ? (topic) => ({
+                ...topicStatus(topic, questTabs, rowContext.activeOutputThreadKey, rowContext.monitors),
+                ...(topicsGroup.unreadCountOf ? { unread: topicsGroup.unreadCountOf(topic.questIds) } : {}),
+              })
+            : undefined
+        }
+      />
+      {topicFirst && <UnsortedTabs tabs={unsorted} context={rowContext} query={query} />}
+    </>
+  );
+}
+
+/**
+ * The most a list opened downward from the top can be tall and still end above the phone's
+ * keyboard (the visual viewport's bottom), while `active`; null when it need not be limited.
+ */
+function useHeightAboveKeyboard(ref: RefObject<HTMLElement | null>, active: boolean): number | null {
+  const [height, setHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const viewport = window.visualViewport;
+    if (!active || !viewport) {
+      setHeight(null);
+      return;
+    }
+    const update = () => {
+      const top = ref.current?.getBoundingClientRect().top;
+      if (top === undefined) return;
+      setHeight(Math.max(120, Math.floor(viewport.offsetTop + viewport.height - top - 8)));
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [ref, active]);
+  return height;
+}
+
 /** Below the topics: quest tabs not filed under a topic yet, as ordinary tab rows. */
-function UnsortedTabs({ tabs, context }: { tabs: readonly PrimaryThreadChip[]; context: RowContext }) {
+function UnsortedTabs({
+  tabs,
+  context,
+  query,
+}: {
+  tabs: readonly PrimaryThreadChip[];
+  context: RowContext;
+  query: string;
+}) {
   if (tabs.length === 0) return null;
   const sorted = [...tabs].sort((left, right) => lastActivityAt(right) - lastActivityAt(left));
   return (
     <div className="border-t border-cc-border/60" data-testid="topic-tab-unsorted">
       <ListHeading label="Not in a topic" count={sorted.length} />
       {sorted.map((tab) => (
-        <ThreadTabListRow key={tab.threadKey} tab={tab} context={context} />
+        <ThreadTabListRow key={tab.threadKey} tab={tab} context={context} query={query} />
       ))}
     </div>
   );

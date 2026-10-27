@@ -18,6 +18,7 @@ import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
 import { ChangeList, RenameSuggestions, TopicSettings, TopicsOffHint } from "./TopicPage.js";
 import { TopicActivityList } from "./TopicActivityList.js";
+import { NoTopicMatches, searchTopics, TopicSearchBox } from "./topic-search.js";
 import { TopicView } from "./TopicView.js";
 import { readTopicConversation, useTopicConversationTab } from "../../utils/topic-conversation.js";
 import { topicViewKey } from "../../../shared/topic-thread-key.js";
@@ -66,6 +67,7 @@ export function TopicSidePanel({
   const [chosen, setChosen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const followed = useQuestTopic(leaderId, threadKey);
   // An expanded desktop composer can cover the panel's lower part; the feed gets the same room.
   const composerRoom = useComposerScrollSpace(`topic-panel:${leaderId}`);
@@ -112,6 +114,7 @@ export function TopicSidePanel({
   usePreviewSheetHistoryEntry(variant === "sheet" && (phone?.open ?? true), sheetRef, close);
   const act = (action: Promise<unknown>) => void action.then(load).catch((reason: Error) => setError(reason.message));
   const collapses = variant === "docked";
+  const matching = searchTopics(data?.topics ?? [], query);
   const topicsOn = !!data?.leaders.find((leader) => leader.sessionId === leaderId)?.enabled;
 
   const body = (
@@ -124,7 +127,11 @@ export function TopicSidePanel({
         ) : (
           <span className="font-medium text-cc-fg">Topics</span>
         )}
-        <span className="min-w-0 flex-1" />
+        {shown || !data?.topics.length ? (
+          <span className="min-w-0 flex-1" />
+        ) : (
+          <TopicSearchBox query={query} onChange={setQuery} />
+        )}
         {topicsOn && (
           <button
             type="button"
@@ -214,7 +221,11 @@ export function TopicSidePanel({
               {threadKey.startsWith("q-") && (
                 <div className="px-4 pt-2 text-[12.5px] text-cc-muted">{threadKey} isn't filed under a topic yet.</div>
               )}
-              <TopicActivityList topics={data.topics} onOpen={setChosen} />
+              {matching.length === 0 && query.trim() ? (
+                <NoTopicMatches query={query} />
+              ) : (
+                <TopicActivityList topics={matching} onOpen={setChosen} />
+              )}
             </>
           )}
         </div>

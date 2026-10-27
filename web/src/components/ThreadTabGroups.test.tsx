@@ -4,7 +4,7 @@
  * rail choosing groups on phones.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 const navigateToNotification = vi.hoisted(() => vi.fn());
 vi.mock("../utils/notification-navigation.js", () => ({ navigateToNotification }));
 import { useStore } from "../store.js";
@@ -349,6 +349,73 @@ describe("ThreadTabGroupBar", () => {
     rerender({ currentThreadKey: "q-10", topicsGroup: { topics, currentTopicId: "t1", onOpen, topicOfQuest } });
     expect(screen.getByTestId("thread-tab-group-topics").dataset.selected).toBe("true");
     expect(screen.getByTestId("thread-tab-group-working-on").dataset.selected).toBe("false");
+  });
+
+  it("searches the Topics list from its heading, and Escape or clearing brings every topic back", () => {
+    // Jiayi asked for a small search box after "Topics 10": names match first, then the newest
+    // update; the quests under no topic narrow by title too. Escape clears a query without
+    // closing the list, and closes it once nothing is typed.
+    const topic = (id: string, name: string, activityAt: number, questIds: string[], latestUpdate: string) =>
+      ({ id, name, activityAt, questIds, latestUpdate }) as never;
+    const topics = [
+      topic("t1", "Formal verification", 3, ["q-10"], "Lean evals use the relay."),
+      topic("t2", "Relay", 2, ["q-12"], "Proxy fixed."),
+      topic("t3", "Briefing", 1, ["q-13", "q-14"], "Nothing new."),
+    ];
+    const topicOfQuest = { "q-10": "t1", "q-12": "t2", "q-13": "t3", "q-14": "t3" };
+    renderBar({ topicsGroup: { topics, currentTopicId: null, onOpen: vi.fn(), topicOfQuest } });
+    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
+    const listed = () => screen.queryAllByTestId("topic-tab-row").map((row) => row.dataset.topic);
+    const unsorted = () => screen.queryAllByTestId("thread-tab-list-row").map((row) => row.dataset.threadKey);
+    expect(listed()).toEqual(["t1", "t2", "t3"]);
+    const box = screen.getByRole("textbox", { name: "Search topics" });
+    expect(screen.getByTestId("topic-search").dataset.wide).toBe("false");
+    fireEvent.focus(box);
+    expect(screen.getByTestId("topic-search").dataset.wide).toBe("true");
+
+    fireEvent.change(box, { target: { value: "relay" } });
+    expect(listed()).toEqual(["t2", "t1"]);
+    expect(unsorted()).toEqual([]);
+    fireEvent.change(box, { target: { value: "q-11" } });
+    expect(listed()).toEqual([]);
+    expect(unsorted()).toEqual(["q-11"]);
+    fireEvent.change(box, { target: { value: "nowhere" } });
+    expect(screen.getByTestId("topic-search-empty").textContent).toContain('"nowhere"');
+
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(listed()).toEqual(["t1", "t2", "t3"]);
+    expect(screen.getByTestId("thread-tab-group-list")).toBeTruthy();
+    fireEvent.change(box, { target: { value: "brief" } });
+    fireEvent.click(screen.getByTestId("topic-search-clear"));
+    expect(listed()).toEqual(["t1", "t2", "t3"]);
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
+  });
+
+  it("keeps an open list above the phone keyboard", () => {
+    // iOS lays the keyboard over the page without resizing it, so a list sized to 60% of the
+    // screen ran under the keyboard while searching. The list ends above the visual viewport.
+    const listeners = new Map<string, () => void>();
+    const viewport = {
+      height: 900,
+      offsetTop: 0,
+      addEventListener: (type: string, listener: () => void) => listeners.set(type, listener),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal("visualViewport", viewport);
+    try {
+      const topics = [{ id: "t1", name: "Relay", activityAt: 1, questIds: ["q-10"] }] as never[];
+      renderBar({ topicsGroup: { topics, currentTopicId: null, onOpen: vi.fn(), topicOfQuest: { "q-10": "t1" } } });
+      fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
+      const list = screen.getByTestId("thread-tab-group-list");
+      // jsdom places the list at the top (0), less the 8px gap kept above the keyboard.
+      expect(list.style.maxHeight).toBe("min(60dvh, 892px)");
+      viewport.height = 500;
+      act(() => listeners.get("resize")!());
+      expect(list.style.maxHeight).toBe("min(60dvh, 492px)");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("shows a topic's open questions in the Topics group, and opens one from there", () => {

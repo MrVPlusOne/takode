@@ -1,4 +1,5 @@
 import type { TopicSummary } from "../../../shared/library-topics.js";
+import { topicRowLine } from "./topic-search.js";
 import type { GlobalNeedsInputEntry } from "../../utils/global-needs-input.js";
 import { TopicQuestionsBadge, useTopicQuestions } from "./topic-questions.js";
 
@@ -36,7 +37,7 @@ function LatestRow({
   onOpen: () => void;
   onOpenQuestion: (entry: GlobalNeedsInputEntry) => void;
 }) {
-  const line = topic.latestUpdate ?? topic.summary;
+  const line = topicRowLine(topic);
   return (
     <div className="border-b border-cc-border" data-testid="library-topic-row">
       <button type="button" onClick={onOpen} className="block w-full px-4 py-2.5 text-left hover:bg-cc-hover">
@@ -44,16 +45,11 @@ function LatestRow({
           <span className="min-w-0 flex-1 truncate text-[15px] text-cc-fg">{topic.name}</span>
           <span className="shrink-0 text-[12px] text-cc-muted">{ago(topic.activityAt)}</span>
         </span>
-        {line && <span className="mt-0.5 line-clamp-2 text-[13.5px] text-cc-fg/80">{stripDate(line)}</span>}
+        {line && <span className="mt-0.5 line-clamp-2 text-[13.5px] text-cc-fg/80">{line}</span>}
       </button>
       <TopicQuestionsBadge questions={questions} onOpen={onOpenQuestion} className="-mt-1 px-4 pb-2.5" />
     </div>
   );
-}
-
-/** A History line starts with its date ("Oct 25 · …"); the row shows the time separately. */
-function stripDate(line: string): string {
-  return line.replace(/^[A-Z][a-z]{2} \d{1,2}(?:\s*(?:-|to)\s*\d{1,2})?\s*·\s*/, "");
 }
 
 function ago(at: number): string {
