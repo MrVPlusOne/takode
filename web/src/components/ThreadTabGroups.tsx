@@ -176,6 +176,27 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
   const inWorkingOn = workingOn.some((tab) => normalizeThreadKey(tab.threadKey) === currentKey);
   // Topic-first: every quest tab lives under Topics (or Working on while it is listed there).
   const onTopic = !onMain && (!!topicsGroup?.currentTopicId || (!!topicFirst && !inWorkingOn));
+  // Which bar tab spins: only one, and none for writing already on screen (the feed's "Active
+  // here" chip shows it). The writing is on screen in its own thread, in the All view, and in a
+  // topic conversation holding its quest.
+  const writingKey = rows.activeOutputThreadKey ? normalizeThreadKey(rows.activeOutputThreadKey) : null;
+  const writingOnScreen =
+    !!writingKey &&
+    (writingKey === currentKey ||
+      currentKey === ALL_THREADS_KEY ||
+      (!!topicsGroup?.currentTopicId && topicsGroup.topicOfQuest[writingKey] === topicsGroup.currentTopicId));
+  const spinningTab: "main" | "working-on" | "topics" | ThreadTabGroupId | null =
+    !writingKey || writingOnScreen
+      ? null
+      : writingKey === MAIN_THREAD_KEY
+        ? "main"
+        : topicFirst
+          ? workingOn.some((tab) => normalizeThreadKey(tab.threadKey) === writingKey)
+            ? "working-on"
+            : "topics"
+          : (THREAD_TAB_GROUP_ORDER.find((id) =>
+              groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === writingKey),
+            ) ?? null);
   const currentGroup =
     onMain || onTopic || topicFirst
       ? null
@@ -226,7 +247,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
       open: openGroup === "topics",
       group: "topics",
       count: topicsGroup.topics.length,
-      activeOutput: !!topicFirst && questTabs.some((tab) => isActiveOutput(tab, rows.activeOutputThreadKey)),
+      activeOutput: spinningTab === "topics",
       testId: "thread-tab-group-topics",
       onClick: () => setOpenGroup((open) => (open === "topics" ? null : "topics")),
       children: (
@@ -245,7 +266,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
       open: openGroup === "working-on",
       group: "working-on",
       count: workingOn.length,
-      activeOutput: workingOn.some((tab) => isActiveOutput(tab, rows.activeOutputThreadKey)),
+      activeOutput: spinningTab === "working-on",
       testId: "thread-tab-group-working-on",
       onClick: () => setOpenGroup((open) => (open === "working-on" ? null : "working-on")),
       children: (
@@ -276,7 +297,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
         {item("main", {
           label: "Main Thread",
           selected: onMain,
-          activeOutput: isActiveOutput(mainTab, rows.activeOutputThreadKey),
+          activeOutput: spinningTab === "main",
           testId: "thread-tab-group-main",
           onClick: () => select(MAIN_THREAD_KEY),
           children: (
@@ -297,7 +318,7 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
                   open: openGroup === id,
                   group: id,
                   count: groups[id].length,
-                  activeOutput: groups[id].some((tab) => isActiveOutput(tab, rows.activeOutputThreadKey)),
+                  activeOutput: spinningTab === id,
                   testId: "thread-tab-group-chip",
                   // A group of one opens its tab on a tap; its list (with the tab's latest
                   // result and menu) stays a long-press or right-click away. A larger group

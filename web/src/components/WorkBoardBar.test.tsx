@@ -718,7 +718,7 @@ describe("WorkBoardBar", () => {
     expect(queuedMeta).toHaveTextContent("q-2 · Queued");
   });
 
-  it("keeps selected Main joined to its strip while marking the thread being written in", () => {
+  it("keeps selected Main joined to its strip, without a spinner for writing on screen", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", []]]),
@@ -754,13 +754,14 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    // Main is the selected tab, joined to the Main strip by its card color, and marks the
-    // thread the leader is writing in. A prompt outranks the unread result on its bell.
+    // Main is the selected tab, joined to the Main strip by its card color. The leader writes in
+    // Main, which is on screen, so no tab spins (the feed's "Active here" shows it). A prompt
+    // outranks the unread result on its bell.
     const mainTab = getByTestId("thread-tab-group-main");
     expect(mainTab).toHaveAttribute("aria-selected", "true");
-    expect(mainTab).toHaveAttribute("data-active-output", "true");
+    expect(mainTab).toHaveAttribute("data-active-output", "false");
     expect(mainTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
-    expect(within(mainTab).getByTestId("thread-tab-active-output-spinner")).toBeInTheDocument();
+    expect(within(mainTab).queryByTestId("thread-tab-active-output-spinner")).toBeNull();
     expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
   });
 

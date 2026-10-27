@@ -438,11 +438,49 @@ describe("ThreadTabGroupBar at the bottom of the screen", () => {
 });
 
 describe("ThreadTabGroupBar active output", () => {
-  it("marks the group whose tab the leader is writing in", () => {
+  const spinning = () =>
+    within(screen.getByTestId("thread-tab-group-bar"))
+      .getAllByRole("tab")
+      .filter((item) => item.dataset.activeOutput === "true")
+      .map((item) => item.dataset.group ?? "main");
+
+  it("marks the group whose tab the leader is writing in, unless that tab is on screen", () => {
     renderBar({ activeOutputThreadKey: "q-11" });
-    const chips = screen.getAllByTestId("thread-tab-group-chip");
-    const withDot = chips.filter((chip) => within(chip).queryByTestId("thread-tab-active-output-spinner"));
-    expect(withDot.map((chip) => chip.dataset.group)).toEqual(["needs-input"]);
+    expect(spinning()).toEqual(["needs-input"]);
+    cleanup();
+    renderBar({ activeOutputThreadKey: "q-11", currentThreadKey: "q-11" });
+    expect(spinning()).toEqual([]);
+  });
+
+  it("spins exactly one topic-first tab, and none for writing on screen", () => {
+    // Jiayi saw Working on and Topics both spin for the same writing, often the conversation on
+    // screen. Now: none for writing on screen (its quest, its topic's conversation, Main, All),
+    // Working on for a quest it lists, Topics only for a quest it doesn't, and Main for Main.
+    const topics = [{ id: "t", name: "Relay", activityAt: 1, questIds: ["q-10", "q-13"] }] as never[];
+    const topicOfQuest = { "q-10": "t", "q-13": "t" };
+    const bar = (activeOutputThreadKey: string, currentThreadKey: string, currentTopicId: string | null = null) => {
+      cleanup();
+      renderBar({
+        activeOutputThreadKey,
+        currentThreadKey,
+        topicsGroup: { topics, currentTopicId, onOpen: vi.fn(), topicOfQuest },
+      });
+      return spinning();
+    };
+    expect(bar("q-10", "main")).toEqual(["working-on"]);
+    expect(bar("q-13", "main")).toEqual(["topics"]);
+    expect(bar("main", "q-10")).toEqual(["main"]);
+    expect(bar("q-10", "q-10")).toEqual([]);
+    expect(bar("q-13", "q-10", "t")).toEqual([]);
+    expect(bar("main", "main")).toEqual([]);
+    expect(bar("q-10", "all")).toEqual([]);
+    // Inside an open list, the row being written in keeps its own spinner.
+    bar("q-10", "q-10");
+    fireEvent.click(screen.getByTestId("thread-tab-group-working-on"));
+    const row = within(screen.getByTestId("thread-tab-group-list"))
+      .getAllByTestId("thread-tab-list-row")
+      .find((item) => item.dataset.threadKey === "q-10")!;
+    expect(row.dataset.activeOutput).toBe("true");
   });
 });
 
