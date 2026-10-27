@@ -252,13 +252,13 @@ describe("MessageFeedTopControls", () => {
       expect(screen.getByTestId("day-pill").parentElement).not.toHaveClass("absolute");
     });
 
-    it("shares the row's top edge with the desktop attention chip", () => {
+    it("sits level with the desktop attention chip, on the row instead of its own line", () => {
       // A wide desktop feed has room for the centered pill beside the right-hand chip.
       setViewportWidth(1280);
       installSession(false);
       installNeedsInput();
       render(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} />);
-      expect(screen.getByTestId("day-pill").parentElement).toHaveClass("absolute", "top-0");
+      expect(screen.getByTestId("day-pill").parentElement).toHaveClass("absolute", "inset-0", "items-center");
     });
   });
 });

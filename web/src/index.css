@@ -1425,11 +1425,12 @@ select {
   }
 }
 
-/* Reserve the compact input's 24px viewport, vertical padding and borders.
+/* Reserve the compact input's 24px viewport, vertical padding (4px each side in the card,
+   6px each side around it) and borders.
    Desktop expansion covers the feed instead of resizing its scroll container. */
 @media (hover: hover) and (pointer: fine) {
   .composer-dock {
-    height: calc(24px + 2.25rem + 3px);
+    height: calc(24px + 1.25rem + 3px);
   }
   .composer-dock > .composer-boundary {
     position: absolute;

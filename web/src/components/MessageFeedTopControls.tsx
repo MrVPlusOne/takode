@@ -13,7 +13,7 @@ import { NotificationChip } from "./NotificationChip.js";
  *
  * The feed's day pill sits centered at the top too. The live rail can span the whole row, and on
  * a phone the Codex subagent control leaves little room beside the pill, so then the pill takes
- * its own line under the row; otherwise it shares the row's top edge.
+ * its own line under the row; otherwise it sits centered on the row, level with the attention chip.
  */
 export function MessageFeedTopControls({
   sessionId,
@@ -84,7 +84,7 @@ export function MessageFeedTopControls({
     <div className="pointer-events-none absolute inset-x-2 top-2 z-20 flex min-w-0 flex-col gap-1.5 sm:inset-x-3 sm:top-3">
       {row}
       {dayPill && (
-        <div className={`flex justify-center ${pillOnOwnLine ? "" : "absolute inset-x-0 top-0"}`}>{dayPill}</div>
+        <div className={`flex justify-center ${pillOnOwnLine ? "" : "absolute inset-0 items-center"}`}>{dayPill}</div>
       )}
     </div>
   );

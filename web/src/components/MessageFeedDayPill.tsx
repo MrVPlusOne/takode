@@ -5,6 +5,8 @@ import { formatFeedDayLabel } from "./message-feed-utils.js";
 
 /** How far below the top edge the pill reads the feed: the content under the pill itself. */
 const DAY_PILL_PROBE_PX = 8;
+/** How long the pill stays after scrolling stops before it fades out. */
+const DAY_PILL_LINGER_MS = 1500;
 /** Scrolled less than this, the top of the feed shows and the pill would only cover its first row. */
 const DAY_PILL_MIN_SCROLL_PX = 24;
 
@@ -37,6 +39,9 @@ export function findFeedDayAtTop(root: ParentNode, viewTop: number): number | nu
  * needs no pill: its times are bare clock times. Nothing shows at the very top of the feed, where
  * the pill would cover the first row, or while the oldest loaded day's divider is still in view,
  * since the divider already names that day; message times carry their day there.
+ *
+ * It shows only while the feed scrolls (including a jump to a message) and fades out shortly
+ * after, like the date label in iOS Photos, so a feed at rest is never covered by it.
  */
 export function MessageFeedDayPill({
   containerRef,
@@ -50,11 +55,13 @@ export function MessageFeedDayPill({
 }) {
   const today = useLocalToday();
   const [topDay, setTopDay] = useState<number | null>(null);
+  const [scrolling, setScrolling] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     let frame = 0;
+    let lingerTimer: number | undefined;
     const read = () => {
       frame = 0;
       // Without layout (a hidden feed) every position reads as zero and says nothing.
@@ -66,12 +73,19 @@ export function MessageFeedDayPill({
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(read);
     };
+    const onScroll = () => {
+      schedule();
+      setScrolling(true);
+      window.clearTimeout(lingerTimer);
+      lingerTimer = window.setTimeout(() => setScrolling(false), DAY_PILL_LINGER_MS);
+    };
     read();
-    container.addEventListener("scroll", schedule, { passive: true });
+    container.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", schedule);
     return () => {
       cancelAnimationFrame(frame);
-      container.removeEventListener("scroll", schedule);
+      window.clearTimeout(lingerTimer);
+      container.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", schedule);
     };
   }, [containerRef, contentRootRef, layoutSignature]);
@@ -81,8 +95,10 @@ export function MessageFeedDayPill({
   return (
     <time
       data-testid="message-feed-day-pill"
+      data-visible={scrolling ? "true" : undefined}
+      aria-hidden={scrolling ? undefined : true}
       dateTime={new Date(topDay).toISOString()}
-      className="rounded-full border border-cc-border bg-cc-card/95 px-2.5 py-0.5 text-[11px] text-cc-muted shadow-md backdrop-blur-sm"
+      className={`rounded-full border border-cc-border bg-cc-card/95 px-2 text-[11px] leading-4 text-cc-muted shadow-sm backdrop-blur-sm transition-opacity motion-reduce:transition-none ${scrolling ? "opacity-100 duration-150" : "opacity-0 duration-500"}`}
     >
       {formatFeedDayLabel(topDay, today)} · {age.charAt(0).toUpperCase() + age.slice(1)}
     </time>

@@ -173,7 +173,7 @@ export function ComposerInputSurface({
         <div hidden={!expanded}>{topChildren}</div>
 
         <div
-          className={`relative ${expanded ? "" : "px-4 py-2.5"}`}
+          className={`relative ${expanded ? "" : "px-4 py-1"}`}
           onClick={() => {
             if (!expanded) textareaRef.current?.focus();
           }}

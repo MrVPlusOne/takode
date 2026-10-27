@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
-import { findFeedDayAtTop } from "./MessageFeedDayPill.js";
+import { act, render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom";
+import { useRef } from "react";
+import { MessageFeedDayPill, findFeedDayAtTop } from "./MessageFeedDayPill.js";
 
 /**
  * Builds a feed of dated markers (message time labels and day dividers) with fixed vertical
@@ -45,5 +48,73 @@ describe("findFeedDayAtTop", () => {
 
   it("shows no day for a feed without dated content", () => {
     expect(findFeedDayAtTop(feed([]), 10)).toBeNull();
+  });
+});
+
+describe("MessageFeedDayPill", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 27, 12, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A scrolled feed whose top shows a message from two days ago (jsdom has no layout, so it is faked). */
+  function Feed() {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const contentRootRef = useRef<HTMLDivElement>(null);
+    const twoDaysAgo = new Date(2026, 9, 25, 10, 0).getTime();
+    return (
+      <>
+        <div
+          ref={(el) => {
+            containerRef.current = el;
+            if (!el) return;
+            Object.defineProperty(el, "clientHeight", { configurable: true, value: 500 });
+            el.scrollTop = 300;
+          }}
+          data-testid="feed"
+        >
+          <div ref={contentRootRef}>
+            <time
+              data-feed-time={twoDaysAgo}
+              ref={(el) => {
+                if (el) el.getBoundingClientRect = () => ({ top: 10, bottom: 30 }) as DOMRect;
+              }}
+            />
+          </div>
+        </div>
+        <MessageFeedDayPill containerRef={containerRef} contentRootRef={contentRootRef} layoutSignature="x" />
+      </>
+    );
+  }
+
+  it("shows the day only while the feed scrolls, then fades out", () => {
+    // A feed at rest is never covered by the pill: it appears on scroll (including jumps) and
+    // goes away shortly after scrolling stops.
+    render(<Feed />);
+    const pill = screen.getByTestId("message-feed-day-pill");
+    expect(pill.textContent).toContain("2 days ago");
+    expect(pill).toHaveAttribute("aria-hidden", "true");
+    expect(pill.className).toContain("opacity-0");
+
+    act(() => {
+      screen.getByTestId("feed").dispatchEvent(new Event("scroll"));
+    });
+    expect(pill.className).toContain("opacity-100");
+    expect(pill).not.toHaveAttribute("aria-hidden");
+
+    // Further scrolling keeps it up; it fades only once scrolling has stopped for a while.
+    act(() => {
+      vi.advanceTimersByTime(1000);
+      screen.getByTestId("feed").dispatchEvent(new Event("scroll"));
+      vi.advanceTimersByTime(1000);
+    });
+    expect(pill.className).toContain("opacity-100");
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    expect(pill.className).toContain("opacity-0");
   });
 });

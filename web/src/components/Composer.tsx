@@ -1627,7 +1627,7 @@ export function Composer({
       overlay
     >
       <div
-        className={`shrink-0 border-t border-cc-border bg-cc-card ${isCollapsed ? "px-2 py-2" : "px-2 sm:px-4 py-2 sm:py-3"}`}
+        className={`shrink-0 border-t border-cc-border bg-cc-card ${isCollapsed ? "px-2 py-1.5" : "px-2 sm:px-4 py-2 sm:py-3"}`}
       >
         <ComposerInputSurface
           imageSrcs={imageSrcs}
