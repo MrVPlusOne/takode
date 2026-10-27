@@ -58,7 +58,7 @@ const REPEATED_VERSION_MESSAGE: ChatMessage = {
   content: `Here's the DM reworked:\n\n${formatArtifactPlaceholder({ ...POST, version: 3, versionCount: 3, repeated: true })}`,
 };
 
-/** A post with two replies, revised: reply 1 edited (with its figure attached), a reply dropped. */
+/** A post with two replies and where to post it, revised: reply 1 edited (with its figure attached), a reply dropped. */
 const THREAD_POST_MESSAGE: ChatMessage = {
   id: "playground-artifact-thread-post",
   role: "assistant",
@@ -68,6 +68,7 @@ const THREAD_POST_MESSAGE: ChatMessage = {
     "",
     "```draft",
     "title: T7 status update before Wednesday",
+    "to: [#ws-bc-coding thread](https://microsoft-ai.slack.com/archives/C0BJY99DVGC/p1793138032493319)",
     "---",
     ":update: T7 status ahead of Wednesday's discussion (T7 at step ~340, 256K twin at step ~380, both healthy)",
     "```",
@@ -179,7 +180,7 @@ export function PlaygroundArtifactLibrarySection() {
           <MessageBubble message={OLDER_VERSION_MESSAGE} sessionId="playground-session" />
         </div>
       </Card>
-      <Card label="Post with replies: one card, marks, attachment, removed reply">
+      <Card label="Post with replies: one card, where to post it, marks, attachment, removed reply">
         <div className="max-w-[640px]" data-testid="playground-artifact-thread-post">
           <MessageBubble message={THREAD_POST_MESSAGE} sessionId="playground-session" />
         </div>

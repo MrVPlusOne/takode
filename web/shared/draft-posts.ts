@@ -3,8 +3,9 @@
  * replies: a block with a `title:` header starts it, and untitled blocks after it (or blocks with the
  * same title) add its replies. A block may name the part it replaces (`part: 2`), so a revision can
  * repeat only the parts that changed, and may end with `attach: <path>` lines, files sent with that
- * part (as a Slack message carries images). The server reads posts into the Library and the feed
- * shows each post as one card, both with these rules.
+ * part (as a Slack message carries images). A `to:` header names where the post is to be sent (a
+ * Slack channel or thread, a pull request), shown on the card as a link. The server reads posts into
+ * the Library and the feed shows each post as one card, both with these rules.
  */
 
 /** One ```draft block: its header, the text to send and the files attached under it. */
@@ -12,8 +13,16 @@ export interface DraftBlock {
   title?: string;
   /** The part this block replaces, 1-based (1 is the message, 2 its first reply). */
   part?: number;
+  /** Where the post is to be sent (`to:`). */
+  destination?: DraftDestination;
   body: string;
   attachments: string[];
+}
+
+/** Where a post is to be sent: a link that opens the place, and its name when the agent knew it. */
+export interface DraftDestination {
+  url: string;
+  label?: string;
 }
 
 /** A fenced code block at the top level of Markdown text: `[start, end)` covers its fence lines. */
@@ -32,20 +41,25 @@ export interface PostPartChanges {
   removed: number[];
 }
 
-const HEADER = /^((?:(?:title|part):[^\n]*\r?\n)+)---[ \t]*(?:\r?\n|$)/i;
+const HEADER = /^((?:(?:title|part|to):[^\n]*\r?\n)+)---[ \t]*(?:\r?\n|$)/i;
 const ATTACH = /^attach:[ \t]*(.+?)[ \t]*$/i;
 
-/** A draft block's header (`title:`, `part:` lines ended by `---`), its text and its `attach:` lines. */
+/**
+ * A draft block's header (`title:`, `part:` and `to:` lines ended by `---`), its text and its
+ * `attach:` lines.
+ */
 export function parseDraftBlock(text: string): DraftBlock {
   let body = text;
   let title: string | undefined;
   let part: number | undefined;
+  let destination: DraftDestination | undefined;
   const header = HEADER.exec(text);
   if (header) {
     for (const line of header[1].split(/\r?\n/)) {
-      const [, key, value] = /^(title|part):[ \t]*(.*?)[ \t]*$/i.exec(line) ?? [];
+      const [, key, value] = /^(title|part|to):[ \t]*(.*?)[ \t]*$/i.exec(line) ?? [];
       if (key?.toLowerCase() === "title" && value) title = value;
       if (key?.toLowerCase() === "part" && /^[1-9]\d*$/.test(value ?? "")) part = Number(value);
+      if (key?.toLowerCase() === "to") destination = parseDestination(value ?? "") ?? destination;
     }
     body = text.slice(header[0].length);
   }
@@ -63,6 +77,7 @@ export function parseDraftBlock(text: string): DraftBlock {
   return {
     ...(title ? { title } : {}),
     ...(part ? { part } : {}),
+    ...(destination ? { destination } : {}),
     body: attachments.length ? lines.slice(0, end).join("\n") : body,
     attachments,
   };
@@ -255,4 +270,46 @@ export function draftAttachmentPaths(text: string): Set<string> {
       .fences.filter((fence) => fence.language === "draft")
       .flatMap((fence) => parseDraftBlock(fence.body).attachments),
   );
+}
+
+/**
+ * A `to:` value: a web link, either bare or as `[name](url)`, optionally followed by its name. Only
+ * http(s) links are taken, so a draft can't make the card open anything else.
+ */
+export function parseDestination(value: string): DraftDestination | null {
+  const markdown = /^\[([^\]]+)\]\(<?([^)\s>]+)>?\)$/.exec(value.trim());
+  const bare = /^<?(\S+?)>?(?:[ \t]+(.+))?$/.exec(value.trim());
+  const url = markdown?.[2] ?? bare?.[1];
+  const label = (markdown?.[1] ?? bare?.[2])?.replace(/^\(|\)$/g, "").trim();
+  if (!url || !/^https?:\/\/[^\s]+$/i.test(url)) return null;
+  return { url, ...(label ? { label } : {}) };
+}
+
+/**
+ * How the card names a destination: the name the agent gave, else what the link shows (a Slack
+ * thread or channel, a pull request or issue), else the site.
+ */
+export function destinationLabel(destination: DraftDestination): string {
+  if (destination.label) return destination.label;
+  let url: URL;
+  try {
+    url = new URL(destination.url);
+  } catch {
+    return destination.url;
+  }
+  if (/(^|\.)slack\.com$/i.test(url.hostname)) {
+    return /\/p\d+/.test(url.pathname) || url.searchParams.has("thread_ts") ? "Slack thread" : "Slack channel";
+  }
+  const github = /^\/[^/]+\/([^/]+)\/(pull|issues)\/(\d+)/.exec(url.pathname);
+  if (/(^|\.)github\.com$/i.test(url.hostname) && github) {
+    return `${github[2] === "pull" ? "PR" : "Issue"} #${github[3]} in ${github[1]}`;
+  }
+  return url.hostname.replace(/^www\./, "");
+}
+
+/** A post's destination: the first block that names one. */
+export function postDestination(
+  blocks: ReadonlyArray<{ destination?: DraftDestination }>,
+): DraftDestination | undefined {
+  return blocks.find((block) => block.destination)?.destination;
 }

@@ -151,4 +151,30 @@ describe("artifacts in the feed", () => {
     await waitFor(() => expect(screen.getByText("Message text")).toBeInTheDocument());
     expect(screen.getAllByTestId("draft-post-part")).toHaveLength(2);
   });
+
+  it("links a post's destination in its header, from its to: line or its saved version", () => {
+    render(
+      <MarkdownContent
+        text={
+          "```draft\ntitle: Note\nto: [#ws-bc-coding thread](https://x.slack.com/archives/C1/p17)\n---\nHi Dan\n```"
+        }
+      />,
+    );
+    const link = screen.getByTestId("draft-post-destination");
+    expect(link).toHaveTextContent("Post in #ws-bc-coding thread");
+    expect(link).toHaveAttribute("href", "https://x.slack.com/archives/C1/p17");
+    expect(link).toHaveAttribute("target", "_blank");
+    // The header line isn't part of the message.
+    expect(screen.queryByText(/to:/)).not.toBeInTheDocument();
+
+    // A revision without a to: line still links the destination its version kept.
+    render(
+      <ArtifactMarkersContext.Provider
+        value={[{ ...POST, title: "Revised note", destination: { url: "https://x.slack.com/archives/C9" } }]}
+      >
+        <MarkdownContent text={"```draft\ntitle: Revised note\n---\nHi again\n```"} />
+      </ArtifactMarkersContext.Provider>,
+    );
+    expect(screen.getAllByTestId("draft-post-destination")[1]).toHaveTextContent("Post in Slack channel");
+  });
 });

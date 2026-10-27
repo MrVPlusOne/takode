@@ -13,7 +13,12 @@ import type {
   ArtifactVersionSummary,
 } from "../shared/artifact-library.js";
 import { untitledPostKey, type ExtractedMessage, type MessageCapture } from "./artifact-extract.js";
-import { comparePostParts, revisePostParts, type PostPartChanges } from "../shared/draft-posts.js";
+import {
+  comparePostParts,
+  revisePostParts,
+  type DraftDestination,
+  type PostPartChanges,
+} from "../shared/draft-posts.js";
 
 /**
  * The server's artifact library: an index of artifacts and their versions, plus the saved content
@@ -311,6 +316,7 @@ export class ArtifactLibraryStore {
       ...(prepared.parts ? { parts: prepared.parts } : {}),
       ...(prepared.figureIds?.length ? { figureIds: prepared.figureIds } : {}),
       ...(latest && prepared.changes ? { changes: prepared.changes } : {}),
+      ...(prepared.destination ? { destination: prepared.destination } : {}),
       source: ref,
     };
     if (latest && artifact.kind === "figure") await this.dropFigureFile(latest);
@@ -361,6 +367,7 @@ export class ArtifactLibraryStore {
     parts?: number;
     figureIds?: string[];
     changes?: PostPartChanges;
+    destination?: DraftDestination;
   } | null> {
     if (capture.kind === "figure") return this.prepareFigure(capture);
     let content: ArtifactVersionContent;
@@ -398,7 +405,11 @@ export class ArtifactLibraryStore {
     // The hash covers what the user sees; a post's figure list changes with every new figure ID.
     const shaInput =
       content.kind === "post"
-        ? JSON.stringify(content.attachments ? [content.parts, attachmentPaths(content)] : content.parts)
+        ? JSON.stringify(
+            content.attachments || content.destination
+              ? [content.parts, attachmentPaths(content), content.destination?.url ?? null]
+              : content.parts,
+          )
         : JSON.stringify(content);
     const sha = sha256(shaInput);
     const json = JSON.stringify(content);
@@ -417,6 +428,7 @@ export class ArtifactLibraryStore {
             parts: content.parts.length,
             figureIds: content.figureIds,
             ...(previous?.kind === "post" ? { changes: comparePosts(previous, content) } : {}),
+            ...(content.destination ? { destination: content.destination } : {}),
           }
         : {}),
     };
@@ -497,7 +509,9 @@ export class ArtifactLibraryStore {
       if (!artifact || !latest) continue;
       const repeated = entry.n === latest.n && this.newestShowingLatest().get(artifact.id) !== key;
       const superseded = entry.n !== latest.n || repeated;
-      const changes = superseded ? undefined : artifact.versions.find((version) => version.n === entry.n)?.changes;
+      const shown = artifact.versions.find((version) => version.n === entry.n);
+      const changes = superseded ? undefined : shown?.changes;
+      const destination = shown?.destination;
       markers.push({
         label: entry.label,
         marker: {
@@ -508,6 +522,7 @@ export class ArtifactLibraryStore {
           versionCount: artifact.versions.length,
           ...(repeated ? { repeated: true } : {}),
           ...(changes ? { changes } : {}),
+          ...(destination ? { destination } : {}),
         },
         superseded,
       });
@@ -800,11 +815,13 @@ function postContent(
   const before = previous?.parts.map((text, index) => ({ text, attachments: previous.attachments?.[index] ?? [] }));
   const parts = revisePostParts(before, blocks);
   const attachments = parts.map((part) => part.attachments);
+  const destination = capture.destination ?? previous?.destination;
   return {
     kind: "post",
     parts: parts.map((part) => part.text),
     figureIds,
     ...(attachments.some((list) => list.length) ? { attachments } : {}),
+    ...(destination ? { destination } : {}),
   };
 }
 

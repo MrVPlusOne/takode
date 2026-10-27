@@ -503,6 +503,38 @@ describe("versions and projection", () => {
     expect(textOf(library.projectMessage("s1", session.messageHistory[2]))).toContain(ARTIFACT_PLACEHOLDER_LANGUAGE);
   });
 
+  it("keeps a post's destination with its versions until a revision names another", async () => {
+    // A `to:` link says where the post is to be sent; revisions that don't repeat it keep it.
+    const block = (header: string, body: string) => `\`\`\`draft\ntitle: Note for Dan\n${header}---\n${body}\n\`\`\``;
+    const session: LibrarySessionLike = {
+      id: "s1",
+      messageHistory: [
+        assistant(block("to: https://x.slack.com/archives/C1/p17\n", "First."), NOW, "q-1"),
+        assistant(block("", "Second."), NOW + 1, "q-1"),
+        assistant(block("to: [#other](https://x.slack.com/archives/C2)\n", "Second."), NOW + 2, "q-1"),
+      ],
+    };
+    const { store, library } = await setup([session]);
+    library.sessionSaved("s1");
+    await library.idle();
+    const [artifact] = store.list().artifacts;
+    const destinations = await Promise.all(
+      [1, 2, 3].map(async (n) => {
+        const content = await store.versionContent(artifact.id, n);
+        return content?.kind === "post" ? content.destination : null;
+      }),
+    );
+    expect(destinations).toEqual([
+      { url: "https://x.slack.com/archives/C1/p17" },
+      { url: "https://x.slack.com/archives/C1/p17" },
+      { url: "https://x.slack.com/archives/C2", label: "#other" },
+    ]);
+    // The message showing the newest version carries it, so its card can link it.
+    expect((library.projectMessage("s1", session.messageHistory[2]) as { artifacts?: unknown }).artifacts).toEqual([
+      expect.objectContaining({ version: 3, destination: { url: "https://x.slack.com/archives/C2", label: "#other" } }),
+    ]);
+  });
+
   it("renames, stars, filters, and merges separately saved revisions", async () => {
     const session = {
       id: "s1",

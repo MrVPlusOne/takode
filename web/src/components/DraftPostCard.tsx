@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ArtifactMessageMarker, ArtifactVersionContent, PostAttachment } from "../../shared/artifact-library.js";
-import { draftPartLabel, type DraftBlock, type PostPartChanges } from "../../shared/draft-posts.js";
+import {
+  destinationLabel,
+  draftPartLabel,
+  type DraftBlock,
+  type DraftDestination,
+  type PostPartChanges,
+} from "../../shared/draft-posts.js";
 import { artifactApi } from "../api/artifacts.js";
 import { messageCopyForSlack } from "../utils/slack-copy.js";
 import { CopyImageButton } from "./CopyImageButton.js";
@@ -27,6 +33,7 @@ export interface AttachmentRendering {
 
 export function DraftPostCard({
   title,
+  destination,
   parts,
   removed = [],
   headerLink,
@@ -35,6 +42,8 @@ export function DraftPostCard({
   expandable = true,
 }: {
   title?: string;
+  /** Where the post is to be sent, shown as a link in the header. */
+  destination?: DraftDestination;
   parts: PostPartView[];
   /** Parts of the version before that this one dropped, each opening to its old text. */
   removed?: Array<{ label: string; open: () => ReactNode }>;
@@ -57,7 +66,7 @@ export function DraftPostCard({
       >
         {/* Controls, not content: kept out of selections and copies. */}
         <div
-          className="flex select-none items-center gap-2 border-b border-cc-border bg-cc-hover/40 px-3 py-1.5"
+          className="flex select-none flex-wrap items-center gap-x-2 border-b border-cc-border bg-cc-hover/40 px-3 py-1.5"
           data-copy-exclude=""
         >
           <PencilIcon />
@@ -66,6 +75,7 @@ export function DraftPostCard({
           ) : (
             <span className="text-[11px] font-medium uppercase tracking-wide text-cc-muted">Draft</span>
           )}
+          {destination && <DestinationLink destination={destination} />}
           <span className="ml-auto" />
           {headerLink}
           {expandable && <FullScreenButton onClick={() => setFullScreen(true)} />}
@@ -95,6 +105,7 @@ export function DraftPostCard({
           <div className="mx-auto max-w-3xl">
             <DraftPostCard
               title={title}
+              destination={destination}
               parts={parts}
               removed={removed}
               headerLink={headerLink}
@@ -215,6 +226,27 @@ function CopyForSlack({
     >
       {copied ? "Copied" : label}
     </button>
+  );
+}
+
+/** Opens the place the post is to be sent (a Slack thread, a pull request) in a new tab or the app. */
+function DestinationLink({ destination }: { destination: DraftDestination }) {
+  const label = destinationLabel(destination);
+  return (
+    <a
+      href={destination.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`Post in ${label}: ${destination.url}`}
+      // On a phone it takes its own line under the title; on wider screens it follows the title.
+      className="order-last -mx-1 inline-flex w-[calc(100%+0.5rem)] min-w-0 items-center gap-0.5 rounded-md px-1 text-[12px] text-cc-primary hover:bg-cc-hover pointer-coarse:min-h-8 sm:order-none sm:mx-0 sm:w-auto sm:max-w-[55%] sm:shrink"
+      data-testid="draft-post-destination"
+    >
+      <span className="truncate">Post in {label}</span>
+      <span aria-hidden="true" className="shrink-0">
+        ↗
+      </span>
+    </a>
   );
 }
 

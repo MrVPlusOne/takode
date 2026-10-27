@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   comparePostParts,
+  destinationLabel,
   draftAttachmentPaths,
   groupDraftPostsInMarkdown,
   parseDraftBlock,
+  parseDestination,
   parseGroupedDraftPost,
   revisePostParts,
 } from "./draft-posts.js";
@@ -48,6 +50,33 @@ describe("draft blocks", () => {
     expect(comparePostParts(["A", "B", "C"], ["A", "C"])).toEqual({ parts: ["same", "same"], removed: [1] });
     expect(comparePostParts(["A", "C"], ["A", "B", "C"])).toEqual({ parts: ["same", "new", "same"], removed: [] });
     expect(comparePostParts(["A", "B"], ["B", "A"]).parts.filter((change) => change === "same")).toHaveLength(1);
+  });
+});
+
+describe("destinations", () => {
+  it("reads a to: link, named or bare, and only takes web links", () => {
+    expect(
+      parseDraftBlock("title: Note\nto: [#ws-bc-coding thread](<https://x.slack.com/archives/C1/p17>)\n---\nHi"),
+    ).toEqual({
+      title: "Note",
+      destination: { url: "https://x.slack.com/archives/C1/p17", label: "#ws-bc-coding thread" },
+      body: "Hi",
+      attachments: [],
+    });
+    expect(parseDestination("https://github.com/org/repo/pull/12 (review thread)")).toEqual({
+      url: "https://github.com/org/repo/pull/12",
+      label: "review thread",
+    });
+    expect(parseDestination("javascript:alert(1)")).toBeNull();
+    expect(parseDestination("#ws-bc-coding")).toBeNull();
+  });
+
+  it("names a destination from its link when the draft gives no name", () => {
+    expect(destinationLabel({ url: "https://x.slack.com/archives/C1/p1793138032493319" })).toBe("Slack thread");
+    expect(destinationLabel({ url: "https://x.slack.com/archives/C1" })).toBe("Slack channel");
+    expect(destinationLabel({ url: "https://github.com/org/takode/pull/42" })).toBe("PR #42 in takode");
+    expect(destinationLabel({ url: "https://www.example.com/a" })).toBe("example.com");
+    expect(destinationLabel({ url: "https://x.slack.com/archives/C1", label: "#ws-bc-coding" })).toBe("#ws-bc-coding");
   });
 });
 

@@ -6,7 +6,7 @@ import {
   type ArtifactMessageMarker,
   type ArtifactVersionContent,
 } from "../../shared/artifact-library.js";
-import type { GroupedDraftPost, PostPartChanges } from "../../shared/draft-posts.js";
+import { postDestination, type GroupedDraftPost, type PostPartChanges } from "../../shared/draft-posts.js";
 import { artifactApi } from "../api/artifacts.js";
 import { openLibraryArtifact } from "../utils/library-nav.js";
 import {
@@ -150,6 +150,7 @@ export function ArtifactVersionContentView({
         <div>
           <DraftPostCard
             title={title}
+            destination={content.destination}
             parts={postPartsOf(content, changes).filter((_, index) => !onlyParts || onlyParts.includes(index))}
             removed={
               onlyParts || !removedFrom
@@ -304,6 +305,9 @@ export function FeedDraftPost({
   return (
     <DraftPostCard
       title={post.title}
+      destination={
+        postDestination(post.blocks) ?? (saved?.kind === "post" ? saved.destination : undefined) ?? marker?.destination
+      }
       parts={feedPostParts(post.blocks, marker, saved)}
       removed={removed}
       headerLink={marker ? <ArtifactCardLink marker={marker} /> : undefined}

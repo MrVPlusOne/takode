@@ -1,6 +1,12 @@
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
-import { groupDraftPosts, parseDraftBlock, scanFences } from "../shared/draft-posts.js";
+import {
+  groupDraftPosts,
+  parseDraftBlock,
+  postDestination,
+  scanFences,
+  type DraftDestination,
+} from "../shared/draft-posts.js";
 import { findLocalImageReferences, type LocalImageReference } from "../shared/local-image-references.js";
 
 /**
@@ -30,6 +36,8 @@ export type MessageCapture =
       parts: string[];
       /** Per block: the part it replaces (`part: N`), when it names one. */
       partNumbers: Array<number | null>;
+      /** Where the post is to be sent (the first block's `to:`). */
+      destination?: DraftDestination;
       /** Per block: the files attached to it (`attach:` lines). */
       attachments: string[][];
       spans: TextSpan[];
@@ -230,6 +238,7 @@ export function extractFromTextBlocks(blocks: Array<string | null>): MessageCapt
       parts: blocks.map((block) => block.body),
       partNumbers: blocks.map((block) => block.part ?? null),
       attachments: blocks.map((block) => block.attachments),
+      ...(postDestination(blocks) ? { destination: postDestination(blocks) } : {}),
       spans: blocks.map((block) => spanOf(block.fence)),
       // Figures shown in an answer go with its first post.
       figureLabels: index === 0 ? figureLabels : [],

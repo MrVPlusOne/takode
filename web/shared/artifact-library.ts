@@ -1,4 +1,4 @@
-import type { PostPartChanges } from "./draft-posts.js";
+import type { DraftDestination, PostPartChanges } from "./draft-posts.js";
 /**
  * The artifact library: things agents made for the user (drafts and posts, reports, figures,
  * visuals, guided reviews), saved by the server as they appear in conversations, with revisions of
@@ -57,6 +57,8 @@ export interface ArtifactVersionSummary {
   figureIds?: string[];
   /** For a post version after the first: how its parts changed from the version before. */
   changes?: PostPartChanges;
+  /** For a post version: where it is to be sent. */
+  destination?: DraftDestination;
   /** The message it first appeared in; later appearances of identical content add no version. */
   source: ArtifactMessageRef;
 }
@@ -100,6 +102,8 @@ export type ArtifactVersionContent =
       figureIds: string[];
       /** Per part: the files attached to it (`attach:` lines), when any part has some. */
       attachments?: PostAttachment[][];
+      /** Where the post is to be sent (`to:`), kept from the version before unless a revision names another. */
+      destination?: DraftDestination;
     }
   | {
       kind: "report" | "review";
@@ -169,6 +173,8 @@ export interface ArtifactMessageMarker {
   versionCount: number;
   /** On a current post version: how its parts changed from the version before (new, edited, removed). */
   changes?: PostPartChanges;
+  /** On a post version: where it is to be sent. */
+  destination?: DraftDestination;
   /** On a collapsed version: a later message shows this same version again. */
   repeated?: boolean;
 }
