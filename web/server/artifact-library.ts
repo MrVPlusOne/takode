@@ -321,8 +321,9 @@ export class ArtifactLibrary {
     for (const capture of extractFromTextBlocks(texts)) {
       const entry = superseded.get(capture.label);
       if (!entry || !("spans" in capture)) continue;
-      // A post's message the newest version still has stays; only the replaced ones collapse.
-      const latestParts = capture.kind === "post" ? entry.latestParts : undefined;
+      // A post's message the newest version still has stays; only the replaced ones collapse. A
+      // copy of the newest version that a later message repeats collapses whole.
+      const latestParts = capture.kind === "post" && !entry.marker.repeated ? entry.latestParts : undefined;
       const replacedParts = capture.spans
         .map((_, part) => part)
         .filter((part) => !latestParts || !latestParts.includes(capture.kind === "post" ? capture.parts[part] : ""));

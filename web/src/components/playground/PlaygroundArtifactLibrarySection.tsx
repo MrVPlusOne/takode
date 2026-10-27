@@ -24,7 +24,7 @@ const OLDER_VERSION_MESSAGE: ChatMessage = {
   content: `Here's the update, split into three messages. Attach the eval figure to the second and the training figure to the third.\n\n${formatArtifactPlaceholder(POST)}`,
 };
 
-/** The newest version: its drafts, a title header (not shown or copied) and the "Saved in Library" line. */
+/** The newest version: its drafts, a title header (not shown or copied) and its Library link in the card header. */
 const NEWEST_VERSION_MESSAGE: ChatMessage = {
   id: "playground-artifact-newest",
   role: "assistant",
@@ -48,6 +48,14 @@ const NEWEST_VERSION_MESSAGE: ChatMessage = {
     "```",
   ].join("\n"),
   metadata: { artifacts: [{ ...POST, version: 3 }] },
+};
+
+/** An earlier copy of the newest version, which a later message sent again unchanged. */
+const REPEATED_VERSION_MESSAGE: ChatMessage = {
+  id: "playground-artifact-repeated",
+  role: "assistant",
+  timestamp: 0,
+  content: `Here's the DM reworked:\n\n${formatArtifactPlaceholder({ ...POST, version: 3, versionCount: 3, repeated: true })}`,
 };
 
 /** A message mentioning artifacts with Takode artifact links (hover shows a card; click opens the Library). */
@@ -109,11 +117,16 @@ export function PlaygroundArtifactLibrarySection() {
   return (
     <Section
       title="Artifact Library in the Feed"
-      description="Drafts, reports, figures, visuals, tables and guided reviews are saved in the Library with versions. Messages can link to them with artifact: links, and the Library's gallery shows them as cards. A version a newer one replaced collapses to one line whose content was not sent (Show loads it from the backend); the newest gets a Saved in Library line. A draft's title: header names it and is neither shown nor copied."
+      description="Drafts, reports, figures, visuals, tables and guided reviews are saved in the Library with versions. Messages can link to them with artifact: links, and the Library's gallery shows them as cards. A version a newer one replaced, or an earlier copy of a version sent again, collapses to one line whose content was not sent (Show loads it from the backend); the newest carries its Library link in the card header. A draft's title: header names it and is neither shown nor copied."
     >
       <Card label="Older version, collapsed">
         <div className="max-w-[640px]" data-testid="playground-artifact-older">
           <MessageBubble message={OLDER_VERSION_MESSAGE} sessionId="playground-session" />
+        </div>
+      </Card>
+      <Card label="Earlier copy of a version sent again, collapsed">
+        <div className="max-w-[640px]" data-testid="playground-artifact-repeated">
+          <MessageBubble message={REPEATED_VERSION_MESSAGE} sessionId="playground-session" />
         </div>
       </Card>
       <Card label="Artifact links (hover for a card; click opens the Library)">
@@ -128,7 +141,7 @@ export function PlaygroundArtifactLibrarySection() {
           ))}
         </div>
       </Card>
-      <Card label="Newest version with its Library line">
+      <Card label="Newest version, Library link in the card header">
         <div className="max-w-[640px]" data-testid="playground-artifact-newest">
           <MessageBubble message={NEWEST_VERSION_MESSAGE} sessionId="playground-session" />
         </div>

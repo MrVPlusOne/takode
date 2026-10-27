@@ -105,6 +105,8 @@ export class ArtifactLibraryStore {
   private index: LibraryIndex | null = null;
   private writeChain: Promise<void> = Promise.resolve();
   private dirty = false;
+  /** Derived from the index (see `newestShowingLatest`); dropped on every change. */
+  private newestShowing: Map<string, string> | null = null;
   private cursorsChanged = false;
   private lastWriteAt = 0;
 
@@ -139,7 +141,7 @@ export class ArtifactLibraryStore {
         backfilledKinds: [...KINDS_ADDED_LATER],
         skippedTextReread: true,
       };
-      this.dirty = true;
+      this.markChanged();
       await this.flush();
     }
   }
@@ -153,7 +155,7 @@ export class ArtifactLibraryStore {
   markKindsBackfilled(kinds: readonly ArtifactKind[]): void {
     const index = this.state();
     index.backfilledKinds = [...new Set([...(index.backfilledKinds ?? []), ...kinds])];
-    this.dirty = true;
+    this.markChanged();
   }
 
   needsSkippedTextReread(): boolean {
@@ -162,7 +164,7 @@ export class ArtifactLibraryStore {
 
   markSkippedTextReread(): void {
     this.state().skippedTextReread = true;
-    this.dirty = true;
+    this.markChanged();
   }
 
   /** Writes a copy of the index as it is now beside it, before a one-time repair; returns its path. */
@@ -182,7 +184,7 @@ export class ArtifactLibraryStore {
       try {
         const content = JSON.parse(await readFile(join(this.root, "text", stored), "utf-8")) as ArtifactVersionContent;
         artifact.excerpt = excerptOf(content);
-        this.dirty = true;
+        this.markChanged();
       } catch (error) {
         console.error(`[artifact-library] Could not read ${stored} for its excerpt:`, error);
       }
@@ -252,7 +254,7 @@ export class ArtifactLibraryStore {
     if (entries.length === 0) return;
     index.messages[messageKey] = [...(existing ?? []), ...entries];
     result.captured += entries.length;
-    this.dirty = true;
+    this.markChanged();
   }
 
   private async captureOne(
@@ -291,6 +293,8 @@ export class ArtifactLibraryStore {
     }
     const latest = artifact.versions.at(-1);
     if (latest && latest.sha === prepared.sha) {
+      // Sent again unchanged: the messages showing it until now collapse.
+      for (const sessionId of this.sessionsShowingArtifact(artifact.id)) result.affectedSessions.add(sessionId);
       return { label: capture.label, artifactId: artifact.id, n: latest.n };
     }
     const version: StoredVersion = {
@@ -320,7 +324,7 @@ export class ArtifactLibraryStore {
     if (latest) {
       for (const sessionId of this.sessionsShowingArtifact(artifact.id)) result.affectedSessions.add(sessionId);
     }
-    this.dirty = true;
+    this.markChanged();
     result.newVersions?.push({ artifactId: artifact.id, n: version.n, threadKey: ref.threadKey });
     return { label: capture.label, artifactId: artifact.id, n: version.n };
   }
@@ -472,13 +476,15 @@ export class ArtifactLibraryStore {
     superseded: boolean;
     latestParts?: readonly string[];
   }> {
-    const entries = this.index?.messages[messageIndexKey(sessionId, messageId)];
+    const key = messageIndexKey(sessionId, messageId);
+    const entries = this.index?.messages[key];
     if (!entries) return [];
     const markers = [];
     for (const entry of entries) {
       const artifact = this.index!.artifacts[entry.artifactId];
       const latest = artifact?.versions.at(-1);
       if (!artifact || !latest) continue;
+      const repeated = entry.n === latest.n && this.newestShowingLatest().get(artifact.id) !== key;
       markers.push({
         label: entry.label,
         marker: {
@@ -487,8 +493,9 @@ export class ArtifactLibraryStore {
           title: artifact.title,
           version: entry.n,
           versionCount: artifact.versions.length,
+          ...(repeated ? { repeated: true } : {}),
         },
-        superseded: entry.n !== latest.n,
+        superseded: entry.n !== latest.n || repeated,
         ...(artifact.latestParts ? { latestParts: artifact.latestParts } : {}),
       });
     }
@@ -616,7 +623,7 @@ export class ArtifactLibraryStore {
     if (!artifact) return null;
     if (artifact.starred !== starred) {
       artifact.starred = starred;
-      this.dirty = true;
+      this.markChanged();
     }
     return this.get(id);
   }
@@ -627,7 +634,7 @@ export class ArtifactLibraryStore {
     if (!artifact || !trimmed) return null;
     artifact.title = trimmed.slice(0, 200);
     artifact.titleSource = "user";
-    this.dirty = true;
+    this.markChanged();
     return this.get(id);
   }
 
@@ -672,7 +679,7 @@ export class ArtifactLibraryStore {
       if (from.latestParts) into.latestParts = from.latestParts;
     }
     delete index.artifacts[fromId];
-    this.dirty = true;
+    this.markChanged();
     return { artifact: this.get(intoId)!, affectedSessions };
   }
 
@@ -694,6 +701,29 @@ export class ArtifactLibraryStore {
       })
       .catch((error) => console.error("[artifact-library] Failed to write the index:", error));
     return this.writeChain;
+  }
+
+  private markChanged(): void {
+    this.dirty = true;
+    this.newestShowing = null;
+  }
+
+  /**
+   * Per artifact, the message that most recently showed its newest version. An agent sometimes
+   * sends a version again unchanged (a repeated answer); the earlier copies then collapse like a
+   * replaced version. Messages are recorded in the order they were read, which is their order.
+   */
+  private newestShowingLatest(): Map<string, string> {
+    if (this.newestShowing) return this.newestShowing;
+    const index = this.state();
+    const newest = new Map<string, string>();
+    for (const [key, entries] of Object.entries(index.messages)) {
+      for (const entry of entries) {
+        if (entry.n === index.artifacts[entry.artifactId]?.versions.at(-1)?.n) newest.set(entry.artifactId, key);
+      }
+    }
+    this.newestShowing = newest;
+    return newest;
   }
 
   private state(): LibraryIndex {

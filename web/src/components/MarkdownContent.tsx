@@ -80,7 +80,7 @@ import {
   parseArtifactPlaceholder,
   parseDraftHeader,
 } from "../../shared/artifact-library.js";
-import { CollapsedArtifact } from "./ArtifactInline.js";
+import { ArtifactCardLink, CollapsedArtifact, useDraftArtifactMarker } from "./ArtifactInline.js";
 
 interface MarkdownAstNode {
   type: string;
@@ -1070,7 +1070,7 @@ export const MarkdownContent = memo(function MarkdownContent({
               // optional title header names it in the Library and is neither shown nor copied.
               const draft = parseDraftHeader(String(children).replace(/\n$/, ""));
               return (
-                <MarkdownDraftCard label={draft.title}>
+                <LibraryDraftCard title={draft.title}>
                   <MarkdownContent
                     text={draft.body}
                     size={size}
@@ -1083,7 +1083,7 @@ export const MarkdownContent = memo(function MarkdownContent({
                     fileLinkMode={fileLinkMode}
                     questLinkSurface={questLinkSurface}
                   />
-                </MarkdownDraftCard>
+                </LibraryDraftCard>
               );
             }
 
@@ -1445,5 +1445,15 @@ function FileMarkdownLink({
         <Lightbox src={previewUrl} alt={`Preview of ${target.path}`} onClose={() => setPreviewUrl(null)} />
       )}
     </>
+  );
+}
+
+/** A draft card with its Library link in the header, when its message saved it as a post. */
+function LibraryDraftCard({ title, children }: { title: string | undefined; children: ReactNode }) {
+  const marker = useDraftArtifactMarker(title);
+  return (
+    <MarkdownDraftCard label={title} actions={marker ? <ArtifactCardLink marker={marker} /> : undefined}>
+      {children}
+    </MarkdownDraftCard>
   );
 }

@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { ArtifactCardLink } from "./ArtifactInline.js";
 import type { ChatMessage } from "../types.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { AnnotationSourceMarkers } from "./AnnotationAttachments.js";
@@ -54,6 +55,7 @@ function MarkdownReportBody({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const source = message.metadata!.markdownReport!;
+  const reportMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "report");
   return (
     <>
       {!readOnly && <ReadAloudPlayer messageId={message.id} />}
@@ -70,6 +72,7 @@ function MarkdownReportBody({
                 <div className="break-all">{source.sha256}</div>
               </details>
             </div>
+            {!readOnly && reportMarker && <ArtifactCardLink marker={reportMarker} />}
             {!readOnly && <ReportReadAloudButton message={message} sessionId={source.sessionId} />}
             <CodeCopyButton text={message.content} label="Copy Markdown" />
           </div>

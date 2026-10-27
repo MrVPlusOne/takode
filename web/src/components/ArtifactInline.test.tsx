@@ -6,14 +6,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../api.js", () => ({ api: {} }));
 
 import { MarkdownContent } from "./MarkdownContent.js";
-import { ArtifactSavedLine } from "./ArtifactInline.js";
+import { ArtifactMarkersContext } from "./ArtifactInline.js";
 import { formatArtifactPlaceholder, type ArtifactMessageMarker } from "../../shared/artifact-library.js";
 
 /**
  * How library artifacts show inside conversations: an older version arrives from the server as a
  * placeholder fence and renders as one collapsed line that loads its content only when shown; a
- * draft's `title:` header names it without being shown; the "Saved in Library" line appears for
- * posts and for other kinds once they have several versions.
+ * draft's `title:` header names it without being shown; a saved draft carries its Library link in
+ * its own header (the line under each saved artifact is gone).
  */
 
 const POST: ArtifactMessageMarker = {
@@ -45,7 +45,7 @@ describe("artifacts in the feed", () => {
     render(<MarkdownContent text={`Here it was:\n\n${formatArtifactPlaceholder(POST)}`} />);
 
     expect(screen.getByText("T7 thread update")).toBeInTheDocument();
-    expect(screen.getByText(/version 2 of 3, replaced by a newer version/)).toBeInTheDocument();
+    expect(screen.getByText(/version 2 of 3, revised later/)).toBeInTheDocument();
     // Nothing is fetched until the user asks for it.
     expect(fetchMock).not.toHaveBeenCalled();
 
@@ -62,39 +62,24 @@ describe("artifacts in the feed", () => {
     expect(screen.queryByText("---")).not.toBeInTheDocument();
   });
 
-  it("shows the Saved in Library line for posts, and for other kinds only with several versions", () => {
-    const { rerender } = render(
-      <ArtifactSavedLine
-        markers={[
-          { ...POST, version: 3 },
-          {
-            id: "f1",
-            kind: "figure",
-            title: "evals",
-            version: 1,
-            versionCount: 1,
-          },
-        ]}
-      />,
+  it("puts a saved draft's Library link in its card header, and says when a copy was sent again", () => {
+    render(
+      <ArtifactMarkersContext.Provider value={[{ ...POST, version: 3 }]}>
+        <MarkdownContent text={"```draft\ntitle: T7 thread update\n---\nQuick T7 update\n```"} />
+      </ArtifactMarkersContext.Provider>,
     );
-    expect(screen.getByTestId("artifact-saved-line")).toHaveTextContent(
-      "Saved in Library as T7 thread update, version 3 of 3",
-    );
-    expect(screen.queryByText("evals")).not.toBeInTheDocument();
+    const link = screen.getByTestId("artifact-card-link");
+    expect(link).toHaveTextContent("v3");
+    expect(link).toHaveAccessibleName("Version 3 of 3 in Library");
+    expect(link.closest("[data-markdown-draft]")).not.toBeNull();
 
-    rerender(
-      <ArtifactSavedLine
-        markers={[
-          {
-            id: "f1",
-            kind: "figure",
-            title: "evals",
-            version: 1,
-            versionCount: 1,
-          },
-        ]}
-      />,
+    // A view without markers (read-only) shows the draft without a link.
+    render(<MarkdownContent text={"```draft\ntitle: Other\n---\nText\n```"} />);
+    expect(screen.getAllByTestId("artifact-card-link")).toHaveLength(1);
+
+    render(
+      <MarkdownContent text={formatArtifactPlaceholder({ ...POST, version: 3, versionCount: 3, repeated: true })} />,
     );
-    expect(screen.queryByTestId("artifact-saved-line")).not.toBeInTheDocument();
+    expect(screen.getByText(/version 3, sent again later/)).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { GuidedReviewCard } from "./GuidedReviewCard.js";
 import { Lightbox } from "./Lightbox.js";
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import {
   ARTIFACT_KIND_LABELS,
   type ArtifactMessageMarker,
@@ -36,8 +36,10 @@ export function CollapsedArtifact({
       <div className="flex min-h-9 items-center gap-2 px-3 py-1.5 text-[13px] text-cc-muted">
         <LibraryIcon className="h-3.5 w-3.5 shrink-0" />
         <span className="min-w-0 flex-1">
-          <span className="text-cc-fg">{marker.title}</span> · version {marker.version} of {marker.versionCount},
-          replaced by a newer version
+          <span className="text-cc-fg">{marker.title}</span> ·{" "}
+          {marker.repeated
+            ? `version ${marker.version}, sent again later`
+            : `version ${marker.version} of ${marker.versionCount}, revised later`}
         </span>
         <button
           type="button"
@@ -177,33 +179,40 @@ export function FigureImage({
   );
 }
 
+/** The Library entries a message saved, for the cards that show them (drafts, reports). */
+export const ArtifactMarkersContext = createContext<readonly ArtifactMessageMarker[] | undefined>(undefined);
+
 /**
- * The quiet line under an answer or report that saved an artifact. Posts always get it, since a
- * post is what people come back for; other kinds only once they have more than one version, so
- * answers with figures don't all grow a line.
+ * The marker of the post a draft card belongs to: by its title, or the message's only post when the
+ * draft has none. Read-only views provide no markers, so their cards show no link.
  */
-export function ArtifactSavedLine({ markers }: { markers: readonly ArtifactMessageMarker[] | undefined }) {
-  const shown = (markers ?? []).filter((marker) => marker.kind === "post" || marker.versionCount > 1);
-  if (shown.length === 0) return null;
+export function useDraftArtifactMarker(title: string | undefined): ArtifactMessageMarker | undefined {
+  const posts = (useContext(ArtifactMarkersContext) ?? []).filter((marker) => marker.kind === "post");
+  const named = title
+    ? posts.find((marker) => marker.title.trim().toLowerCase() === title.trim().toLowerCase())
+    : undefined;
+  return named ?? (posts.length === 1 ? posts[0] : undefined);
+}
+
+/**
+ * The small Library link inside a card header: the version and its versions when there are
+ * several, the Library entry otherwise. It replaces the line that sat under each saved artifact.
+ */
+export function ArtifactCardLink({ marker }: { marker: ArtifactMessageMarker }) {
+  const several = marker.versionCount > 1;
+  const label = several ? `Version ${marker.version} of ${marker.versionCount} in Library` : "Open in Library";
   return (
-    <div className="mt-1 flex flex-col gap-0.5" data-copy-exclude="" data-testid="artifact-saved-line">
-      {shown.map((marker) => (
-        <div key={marker.id} className="flex items-center gap-2 text-[12px] text-cc-muted">
-          <LibraryIcon className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 truncate">
-            Saved in Library as <span className="text-cc-fg">{marker.title}</span>
-            {marker.versionCount > 1 ? `, version ${marker.version} of ${marker.versionCount}` : ""}
-          </span>
-          <button
-            type="button"
-            onClick={() => openLibraryArtifact(marker.id, marker.version)}
-            className="ml-auto shrink-0 text-cc-primary hover:underline pointer-coarse:min-h-8"
-          >
-            {marker.versionCount > 1 ? "Versions ›" : "Open ›"}
-          </button>
-        </div>
-      ))}
-    </div>
+    <button
+      type="button"
+      onClick={() => openLibraryArtifact(marker.id, marker.version)}
+      aria-label={label}
+      title={label}
+      className="inline-flex min-h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg pointer-coarse:min-h-8"
+      data-testid="artifact-card-link"
+    >
+      <LibraryIcon className="h-3.5 w-3.5" />
+      {several && <span>v{marker.version}</span>}
+    </button>
   );
 }
 

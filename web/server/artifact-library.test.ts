@@ -423,6 +423,42 @@ describe("versions and projection", () => {
     expect(first.store.needsSkippedTextReread()).toBe(false);
   });
 
+  it("collapses an earlier copy of the newest version when a later message sends it again", async () => {
+    // Oct 27: a leader sent the revised draft twice (once more after a false reminder). Both
+    // copies were the newest version, so both stayed open and the earlier one read as an older
+    // version that failed to collapse. Only the newest message showing a version stays open.
+    const titled = (body: string, at: number) =>
+      assistant(`\`\`\`draft\ntitle: Latest evals for Dan\n---\n${body}\n\`\`\``, at, "q-1");
+    const session: LibrarySessionLike = {
+      id: "s1",
+      messageHistory: [titled("First.", NOW), titled("Revised.", NOW + 1), titled("Revised.", NOW + 2)],
+    };
+    const { store, library, refreshed } = await setup([session]);
+    library.sessionSaved("s1");
+    await library.idle();
+    expect(store.get(store.list().artifacts[0].id)!.versions).toHaveLength(2);
+
+    const [first, revised, again] = session.messageHistory.map((message) =>
+      textOf(library.projectMessage("s1", message)),
+    );
+    expect(first).toContain(ARTIFACT_PLACEHOLDER_LANGUAGE);
+    expect(revised).toContain(ARTIFACT_PLACEHOLDER_LANGUAGE);
+    expect(revised).toContain('"repeated":true');
+    expect(revised).not.toContain("Revised.");
+    expect(again).toContain("Revised.");
+    expect((library.projectMessage("s1", session.messageHistory[2]) as { artifacts?: unknown }).artifacts).toEqual([
+      expect.objectContaining({ version: 2, versionCount: 2 }),
+    ]);
+
+    // A copy sent later refreshes the conversations that showed the earlier one.
+    refreshed.length = 0;
+    session.messageHistory.push(titled("Revised.", NOW + 3));
+    library.sessionSaved("s1");
+    await library.idle();
+    expect(refreshed).toContain("s1");
+    expect(textOf(library.projectMessage("s1", session.messageHistory[2]))).toContain(ARTIFACT_PLACEHOLDER_LANGUAGE);
+  });
+
   it("renames, stars, filters, and merges separately saved revisions", async () => {
     const session = {
       id: "s1",

@@ -6,7 +6,16 @@ import { messageCopyForSlack } from "../utils/slack-copy.js";
  * button that copies exactly the draft for Slack: formatting kept, nothing around it. `children` is the
  * draft rendered as Markdown; `label` (the draft's title, or which part of a post it is) replaces "Draft".
  */
-export function MarkdownDraftCard({ children, label }: { children: ReactNode; label?: string }) {
+export function MarkdownDraftCard({
+  children,
+  label,
+  actions,
+}: {
+  children: ReactNode;
+  label?: string;
+  /** Shown before the copy button, such as the draft's Library link. */
+  actions?: ReactNode;
+}) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
 
@@ -42,10 +51,12 @@ export function MarkdownDraftCard({ children, label }: { children: ReactNode; la
         ) : (
           <span className="text-[11px] font-medium uppercase tracking-wide text-cc-muted">Draft</span>
         )}
+        <span className="ml-auto" />
+        {actions}
         <button
           type="button"
           onClick={copy}
-          className="ml-auto inline-flex min-h-7 items-center gap-1.5 rounded-lg bg-cc-primary px-2.5 text-[12px] font-medium text-white hover:bg-cc-primary-hover pointer-coarse:min-h-9 pointer-coarse:px-3"
+          className="inline-flex min-h-7 items-center gap-1.5 rounded-lg bg-cc-primary px-2.5 text-[12px] font-medium text-white hover:bg-cc-primary-hover pointer-coarse:min-h-9 pointer-coarse:px-3"
           data-testid="markdown-draft-copy"
         >
           {copied ? "Copied" : "Copy for Slack"}

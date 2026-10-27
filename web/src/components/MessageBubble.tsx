@@ -86,7 +86,7 @@ import { reconcileLocalImagePreviewUrls } from "../local-image-previews.js";
 import { useFeedDisplayNotifications } from "./FeedNotificationContext.js";
 import { TimerMessage } from "./TimerMessage.js";
 import { MarkdownReport } from "./MarkdownReport.js";
-import { ArtifactSavedLine } from "./ArtifactInline.js";
+import { ArtifactMarkersContext } from "./ArtifactInline.js";
 import { getRejectedRouteReason, RejectedRouteMessageHeader } from "./RejectedRouteMessageHeader.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
@@ -157,7 +157,6 @@ export const MessageBubble = memo(function MessageBubble({
     return (
       <>
         <MarkdownReport message={message} feedSessionId={sessionId} readOnly={interactionMode === "read-only"} />
-        {interactionMode !== "read-only" && <ArtifactSavedLine markers={message.metadata?.artifacts} />}
       </>
     );
   }
@@ -1269,56 +1268,58 @@ function AssistantMessage({
           ))}
         <div ref={contentRef} className="relative flex-1 min-w-0">
           <ImagePathLinkContext.Provider value={imagePathLinks.links}>
-            {!readOnly && (
-              <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
-            )}
-            <MessageThreadHeader
-              threadKey={threadKey}
-              onSelectThread={onSelectThread}
-              message={{ sessionId, id: message.id }}
-            />
-            {!readOnly && <ReadAloudPlayer messageId={message.id} />}
-            {rejectedRouteHeader && (
-              <div className={collapseRejectedText ? undefined : "mb-3"}>{rejectedRouteHeader}</div>
-            )}
-            {!collapseRejectedText && (
-              <>
-                {!readOnly && hasTextContent && (
-                  <AssistantMessageMenu
-                    message={message}
-                    contentRef={contentRef}
-                    sessionId={sessionId}
-                    currentThreadKey={currentThreadKey}
-                    showSideChatActions={showSideChatActions}
-                  />
-                )}
-                <div {...trailingProps(-1)}>
-                  {readOnly ? (
-                    <MarkdownContent
-                      text={projection.fallbackText}
+            <ArtifactMarkersContext.Provider value={readOnly ? undefined : message.metadata?.artifacts}>
+              {!readOnly && (
+                <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
+              )}
+              <MessageThreadHeader
+                threadKey={threadKey}
+                onSelectThread={onSelectThread}
+                message={{ sessionId, id: message.id }}
+              />
+              {!readOnly && <ReadAloudPlayer messageId={message.id} />}
+              {rejectedRouteHeader && (
+                <div className={collapseRejectedText ? undefined : "mb-3"}>{rejectedRouteHeader}</div>
+              )}
+              {!collapseRejectedText && (
+                <>
+                  {!readOnly && hasTextContent && (
+                    <AssistantMessageMenu
+                      message={message}
+                      contentRef={contentRef}
                       sessionId={sessionId}
-                      searchHighlight={searchHighlight}
-                      fileLinkMode="text-only"
-                      questLinkSurface={questLinkSurface}
-                    />
-                  ) : (
-                    <AssistantQuestQuizContent
-                      text={projection.fallbackText}
-                      sessionId={sessionId}
-                      searchHighlight={searchHighlight}
-                      enableChatSelectionMenu
-                      questLinkSurface={questLinkSurface}
+                      currentThreadKey={currentThreadKey}
+                      showSideChatActions={showSideChatActions}
                     />
                   )}
-                  {trailingTime(-1)}
-                </div>
-              </>
-            )}
-            <ImagePreviewGroup
-              ref={imagePathLinks.groupRef}
-              images={assistantImagePreviewItems}
-              testId="assistant-image-preview-group"
-            />
+                  <div {...trailingProps(-1)}>
+                    {readOnly ? (
+                      <MarkdownContent
+                        text={projection.fallbackText}
+                        sessionId={sessionId}
+                        searchHighlight={searchHighlight}
+                        fileLinkMode="text-only"
+                        questLinkSurface={questLinkSurface}
+                      />
+                    ) : (
+                      <AssistantQuestQuizContent
+                        text={projection.fallbackText}
+                        sessionId={sessionId}
+                        searchHighlight={searchHighlight}
+                        enableChatSelectionMenu
+                        questLinkSurface={questLinkSurface}
+                      />
+                    )}
+                    {trailingTime(-1)}
+                  </div>
+                </>
+              )}
+              <ImagePreviewGroup
+                ref={imagePathLinks.groupRef}
+                images={assistantImagePreviewItems}
+                testId="assistant-image-preview-group"
+              />
+            </ArtifactMarkersContext.Provider>
           </ImagePathLinkContext.Provider>
           {!readOnly && resolvedNotification && (
             <NotificationMarker
@@ -1351,56 +1352,126 @@ function AssistantMessage({
         ))}
       <div ref={contentRef} className="relative flex-1 min-w-0 space-y-3">
         <ImagePathLinkContext.Provider value={imagePathLinks.links}>
-          {!readOnly && (
-            <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
-          )}
-          <MessageThreadHeader
-            threadKey={threadKey}
-            onSelectThread={onSelectThread}
-            message={{ sessionId, id: message.id }}
-          />
-          {!readOnly && <ReadAloudPlayer messageId={message.id} />}
-          {rejectedRouteHeader}
-          {projection.shouldRenderContentFallback && !collapseRejectedText && (
-            <div className="flow-root">
-              {!readOnly && hasTextContent && (
-                <AssistantMessageMenu
-                  message={message}
-                  contentRef={contentRef}
-                  sessionId={sessionId}
-                  currentThreadKey={currentThreadKey}
-                  showSideChatActions={showSideChatActions}
-                />
-              )}
-              {readOnly ? (
-                <MarkdownContent
-                  text={projection.fallbackText}
-                  sessionId={sessionId}
-                  searchHighlight={searchHighlight}
-                  fileLinkMode="text-only"
-                  questLinkSurface={questLinkSurface}
-                />
-              ) : (
-                <AssistantQuestQuizContent
-                  text={projection.fallbackText}
-                  sessionId={sessionId}
-                  searchHighlight={searchHighlight}
-                  enableChatSelectionMenu
-                  questLinkSurface={questLinkSurface}
-                />
-              )}
-            </div>
-          )}
-          {renderedGroups.map((group, i) => {
-            if (group.kind === "content") {
-              if (collapseRejectedText) return null;
-              const renderedBlock = (
-                <ContentBlockRenderer
+          <ArtifactMarkersContext.Provider value={readOnly ? undefined : message.metadata?.artifacts}>
+            {!readOnly && (
+              <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
+            )}
+            <MessageThreadHeader
+              threadKey={threadKey}
+              onSelectThread={onSelectThread}
+              message={{ sessionId, id: message.id }}
+            />
+            {!readOnly && <ReadAloudPlayer messageId={message.id} />}
+            {rejectedRouteHeader}
+            {projection.shouldRenderContentFallback && !collapseRejectedText && (
+              <div className="flow-root">
+                {!readOnly && hasTextContent && (
+                  <AssistantMessageMenu
+                    message={message}
+                    contentRef={contentRef}
+                    sessionId={sessionId}
+                    currentThreadKey={currentThreadKey}
+                    showSideChatActions={showSideChatActions}
+                  />
+                )}
+                {readOnly ? (
+                  <MarkdownContent
+                    text={projection.fallbackText}
+                    sessionId={sessionId}
+                    searchHighlight={searchHighlight}
+                    fileLinkMode="text-only"
+                    questLinkSurface={questLinkSurface}
+                  />
+                ) : (
+                  <AssistantQuestQuizContent
+                    text={projection.fallbackText}
+                    sessionId={sessionId}
+                    searchHighlight={searchHighlight}
+                    enableChatSelectionMenu
+                    questLinkSurface={questLinkSurface}
+                  />
+                )}
+              </div>
+            )}
+            {renderedGroups.map((group, i) => {
+              if (group.kind === "content") {
+                if (collapseRejectedText) return null;
+                const renderedBlock = (
+                  <ContentBlockRenderer
+                    key={i}
+                    block={group.block}
+                    sessionId={sessionId}
+                    parentMessageId={message.id}
+                    searchHighlight={searchHighlight}
+                    suppressNotificationMarker={suppressToolNotificationMarker}
+                    currentThreadKey={currentThreadKey}
+                    onSelectThread={onSelectThread}
+                    readOnly={readOnly}
+                    toolResultOverrides={toolResultOverrides}
+                    toolResultScope={toolResultScope}
+                    questLinkSurface={questLinkSurface}
+                  />
+                );
+                const textBlock =
+                  trailingTextIndex === i ? (
+                    <div {...trailingProps(i)}>
+                      {renderedBlock}
+                      {trailingTime(i)}
+                    </div>
+                  ) : (
+                    renderedBlock
+                  );
+                if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
+                  return (
+                    <div key={i} className="flow-root">
+                      {!readOnly && (
+                        <AssistantMessageMenu
+                          message={message}
+                          contentRef={contentRef}
+                          sessionId={sessionId}
+                          currentThreadKey={currentThreadKey}
+                          showSideChatActions={showSideChatActions}
+                        />
+                      )}
+                      {textBlock}
+                    </div>
+                  );
+                }
+                return trailingTextIndex === i ? <div key={i}>{textBlock}</div> : renderedBlock;
+              }
+              if (group.kind === "tool_activity") {
+                return (
+                  <CompactToolActivity
+                    key={i}
+                    items={group.items}
+                    sessionId={sessionId}
+                    containedMessageIds={[message.id]}
+                    // Text later in the message makes the group inactive; trailing passive tools are
+                    // split out into feed-level groups, so an in-message group is usually followed by text.
+                    active={i === renderedGroups.length - 1}
+                    renderDetails={(item) => (
+                      <InlineToolBlock
+                        item={item}
+                        sessionId={sessionId}
+                        parentMessageId={message.id}
+                        suppressNotificationMarker={suppressToolNotificationMarker}
+                        currentThreadKey={currentThreadKey}
+                        onSelectThread={onSelectThread}
+                        readOnly={readOnly}
+                        toolResultOverrides={toolResultOverrides}
+                        toolResultScope={toolResultScope}
+                        questLinkSurface={questLinkSurface}
+                      />
+                    )}
+                  />
+                );
+              }
+              return (
+                <DetailedToolGroup
                   key={i}
-                  block={group.block}
+                  group={group}
                   sessionId={sessionId}
                   parentMessageId={message.id}
-                  searchHighlight={searchHighlight}
                   suppressNotificationMarker={suppressToolNotificationMarker}
                   currentThreadKey={currentThreadKey}
                   onSelectThread={onSelectThread}
@@ -1410,82 +1481,13 @@ function AssistantMessage({
                   questLinkSurface={questLinkSurface}
                 />
               );
-              const textBlock =
-                trailingTextIndex === i ? (
-                  <div {...trailingProps(i)}>
-                    {renderedBlock}
-                    {trailingTime(i)}
-                  </div>
-                ) : (
-                  renderedBlock
-                );
-              if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
-                return (
-                  <div key={i} className="flow-root">
-                    {!readOnly && (
-                      <AssistantMessageMenu
-                        message={message}
-                        contentRef={contentRef}
-                        sessionId={sessionId}
-                        currentThreadKey={currentThreadKey}
-                        showSideChatActions={showSideChatActions}
-                      />
-                    )}
-                    {textBlock}
-                  </div>
-                );
-              }
-              return trailingTextIndex === i ? <div key={i}>{textBlock}</div> : renderedBlock;
-            }
-            if (group.kind === "tool_activity") {
-              return (
-                <CompactToolActivity
-                  key={i}
-                  items={group.items}
-                  sessionId={sessionId}
-                  containedMessageIds={[message.id]}
-                  // Text later in the message makes the group inactive; trailing passive tools are
-                  // split out into feed-level groups, so an in-message group is usually followed by text.
-                  active={i === renderedGroups.length - 1}
-                  renderDetails={(item) => (
-                    <InlineToolBlock
-                      item={item}
-                      sessionId={sessionId}
-                      parentMessageId={message.id}
-                      suppressNotificationMarker={suppressToolNotificationMarker}
-                      currentThreadKey={currentThreadKey}
-                      onSelectThread={onSelectThread}
-                      readOnly={readOnly}
-                      toolResultOverrides={toolResultOverrides}
-                      toolResultScope={toolResultScope}
-                      questLinkSurface={questLinkSurface}
-                    />
-                  )}
-                />
-              );
-            }
-            return (
-              <DetailedToolGroup
-                key={i}
-                group={group}
-                sessionId={sessionId}
-                parentMessageId={message.id}
-                suppressNotificationMarker={suppressToolNotificationMarker}
-                currentThreadKey={currentThreadKey}
-                onSelectThread={onSelectThread}
-                readOnly={readOnly}
-                toolResultOverrides={toolResultOverrides}
-                toolResultScope={toolResultScope}
-                questLinkSurface={questLinkSurface}
-              />
-            );
-          })}
-          <ImagePreviewGroup
-            ref={imagePathLinks.groupRef}
-            images={assistantImagePreviewItems}
-            testId="assistant-image-preview-group"
-          />
-          {!readOnly && <ArtifactSavedLine markers={message.metadata?.artifacts} />}
+            })}
+            <ImagePreviewGroup
+              ref={imagePathLinks.groupRef}
+              images={assistantImagePreviewItems}
+              testId="assistant-image-preview-group"
+            />
+          </ArtifactMarkersContext.Provider>
         </ImagePathLinkContext.Provider>
         {!readOnly && resolvedNotification && (
           <NotificationMarker

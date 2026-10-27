@@ -157,6 +157,8 @@ export interface ArtifactMessageMarker {
    * are still current and stay shown in the conversation.
    */
   parts?: number[];
+  /** On a collapsed version: a later message shows this same version again. */
+  repeated?: boolean;
 }
 
 /** Fence language of the placeholder that stands in for a superseded version's content. */
