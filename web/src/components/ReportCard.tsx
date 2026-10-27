@@ -61,8 +61,13 @@ export function ReportCard({
         // An expanded report can run many screens, so its collapse control stays
         // pinned to the top of the feed while any part of the report is in view.
         // Sticky offsets start inside the feed's vertical padding (py-4 sm:py-6),
-        // so the negative top reaches the feed's visible top edge.
-        <div className="sticky -top-4 sm:-top-6 z-10 -mx-3 -mt-2.5 mb-1 flex justify-end rounded-t-lg border-b border-cc-border bg-cc-card px-3 py-0.5">
+        // so the negative top reaches the feed's visible top edge; in a topic
+        // conversation it pins under the quest strip (`--feed-pinned-top`). The
+        // feed's top controls move below it while it is pinned (`useFeedPinnedTop`).
+        <div
+          data-feed-pinned-bar=""
+          className="sticky top-[calc(var(--feed-pinned-top,0px)-1rem)] sm:top-[calc(var(--feed-pinned-top,0px)-1.5rem)] z-10 -mx-3 -mt-2.5 mb-1 flex justify-end rounded-t-lg border-b border-cc-border bg-cc-card px-3 py-0.5"
+        >
           <ReportToggle expanded onClick={collapse} />
         </div>
       )}

@@ -98,6 +98,7 @@ import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-record
 import { LatestContentPill, MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
 import { resolveThreadResponses } from "./thread-response-presentation.js";
 import { useTopicResponsePresentations } from "./topic-feed.js";
+import { useFeedPinnedTop } from "./feed-pinned-top.js";
 import { AnswerReferencesContext, useAllThreadsAnswerReferences } from "./answer-references.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
@@ -1775,9 +1776,11 @@ export function MessageFeed({
 
   useFeedLoadTiming(sessionId, normalizedThreadKey, showConversationLoading || showSelectedWindowLoading);
 
+  const pinnedTop = useFeedPinnedTop(containerRef, contentRootRef, viewportLayoutSignature);
   const feedTopControls = (
     <MessageFeedTopControls
       sessionId={sessionId}
+      belowPinnedStrip={pinnedTop.belowPinnedStrip}
       currentThreadKey={threadKey}
       onSelectThread={onSelectThread}
       terminals={visibleCodexTerminalRailEntries}
@@ -1834,6 +1837,7 @@ export function MessageFeed({
         data-testid="message-feed-overlay"
         data-chat-feed-width-source="true"
         className="relative flex-1 min-h-0 overflow-hidden"
+        style={pinnedTop.style}
       >
         <div
           ref={containerRef}

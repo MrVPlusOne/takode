@@ -245,6 +245,19 @@ describe("MessageFeedTopControls", () => {
       expect(row.nextElementSibling).toBe(pillSlot);
     });
 
+    it("starts below a topic conversation's pinned quest strip", () => {
+      // The strip covered the Next chip; the controls start below it (its height is the overlay's
+      // --feed-pinned-top). Elsewhere they keep their usual offset, below a pinned report bar only.
+      installSession(false);
+      const { rerender } = render(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} />);
+      expect(screen.getByTestId("message-feed-top-overlay").className).toContain(
+        "top-[calc(var(--feed-pinned-bar,0px)+0.5rem)]",
+      );
+      rerender(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} belowPinnedStrip />);
+      const overlay = screen.getByTestId("message-feed-top-overlay");
+      expect(overlay.className).toContain("top-[calc(var(--feed-pinned-top)+var(--feed-pinned-bar,0px)+1rem)]");
+    });
+
     it("shows the pill alone at the top when there are no controls", () => {
       installSession(false);
       render(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} />);

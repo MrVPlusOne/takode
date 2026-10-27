@@ -27,6 +27,7 @@ export function MessageFeedTopControls({
   onDismissSubagent,
   showCodexSubagents = true,
   dayPill,
+  belowPinnedStrip = false,
 }: {
   sessionId: string;
   currentThreadKey?: string;
@@ -40,6 +41,13 @@ export function MessageFeedTopControls({
   showCodexSubagents?: boolean;
   /** The feed's day pill (`MessageFeedDayPill`), which renders nothing when it has no day to show. */
   dayPill?: ReactNode;
+  /**
+   * In a topic conversation: start below the quest strip pinned at the feed's top (its height is
+   * the overlay's `--feed-pinned-top`), also below the first strip where it sits at the top of the
+   * feed before it pins, one feed padding lower. In any feed the controls also start below a
+   * pinned report collapse bar (`--feed-pinned-bar`); see `useFeedPinnedTop`.
+   */
+  belowPinnedStrip?: boolean;
 }) {
   const hasCodexSubagentData = useStore(
     (state) => (state.sessions.get(sessionId)?.codex_native_subagents?.children.length ?? 0) > 0,
@@ -81,7 +89,14 @@ export function MessageFeedTopControls({
   );
 
   return (
-    <div className="pointer-events-none absolute inset-x-2 top-2 z-20 flex min-w-0 flex-col gap-1.5 sm:inset-x-3 sm:top-3">
+    <div
+      className={`pointer-events-none absolute inset-x-2 z-20 flex min-w-0 flex-col gap-1.5 sm:inset-x-3 ${
+        belowPinnedStrip
+          ? "top-[calc(var(--feed-pinned-top)+var(--feed-pinned-bar,0px)+1rem)] sm:top-[calc(var(--feed-pinned-top)+var(--feed-pinned-bar,0px)+1.5rem)]"
+          : "top-[calc(var(--feed-pinned-bar,0px)+0.5rem)] sm:top-[calc(var(--feed-pinned-bar,0px)+0.75rem)]"
+      }`}
+      data-testid="message-feed-top-overlay"
+    >
       {row}
       {dayPill && (
         <div className={`flex justify-center ${pillOnOwnLine ? "" : "absolute inset-0 items-center"}`}>{dayPill}</div>
