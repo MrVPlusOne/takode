@@ -1130,6 +1130,9 @@ export function finalizeRoutedLeaderResponseMessage(
     authoredThreadKey: selectedThreadKey,
     ownerGroups,
   };
+  // An answer to a message sent from a topic conversation shows there too, wherever it is routed.
+  const sentFromView = resolution.referenced.find((entry) => entry.message.sentFromView)?.message.sentFromView;
+  if (sentFromView) message.sentFromView = sentFromView;
   if (!isCurrentValidRoutedLeaderResponseMessage(session, message)) {
     delete message.threadAnswer;
     restoreAnswerRoute(message, routeSnapshot);

@@ -149,7 +149,9 @@ vi.mock("./SearchBar.js", () => ({ SearchBar: () => null }));
 vi.mock("./TaskOutlineBar.js", () => ({ TaskOutlineBar: () => null }));
 vi.mock("./TodoStatusLine.js", () => ({ TodoStatusLine: () => null }));
 vi.mock("./Composer.js", () => ({
-  Composer: ({ threadKey }: { threadKey?: string }) => <div data-testid="composer" data-thread-key={threadKey} />,
+  Composer: ({ threadKey, viewKey, topicName }: { threadKey?: string; viewKey?: string; topicName?: string }) => (
+    <div data-testid="composer" data-thread-key={threadKey} data-view-key={viewKey} data-topic-name={topicName} />
+  ),
 }));
 vi.mock("./PermissionBanner.js", () => ({
   PermissionBanner: () => null,
@@ -284,7 +286,14 @@ describe("ChatView passive leader-session returns", () => {
     const topicKey = topicViewKey("t1");
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicKey));
     expect(readDisplayedLeaderThreadKey(LEADER_SESSION_ID)).toBe(topicKey);
+    // Its messages go to the topic: a Main request that remembers the topic view, not the tab's quest.
+    const composer = screen.getByTestId("composer");
+    expect(composer).toHaveAttribute("data-thread-key", "main");
+    expect(composer).toHaveAttribute("data-view-key", topicKey);
+    expect(composer).toHaveAttribute("data-topic-name", "Library");
     act(() => closeTopicConversation(LEADER_SESSION_ID));
+    // Zoomed back into the quest tab, it posts to the quest again.
+    await waitFor(() => expect(screen.getByTestId("composer")).toHaveAttribute("data-thread-key", QUEST_ID));
   });
 
   it("reuses one thread entry across a plan overlay but refreshes a true Main to quest to Main return", async () => {

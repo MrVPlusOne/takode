@@ -8,6 +8,7 @@ import { topicIdOfViewKey, topicViewKey } from "../shared/topic-thread-key.js";
 export interface TopicViewSource {
   questsOf(topicId: string): readonly string[];
   topicOfQuest(questId: string): string | null;
+  nameOf?(topicId: string): string | null;
 }
 
 let source: TopicViewSource | null = null;
@@ -21,6 +22,23 @@ export function topicViewMembers(viewKey: string): string[] | null {
   const topicId = topicIdOfViewKey(viewKey);
   if (!topicId || !source) return null;
   return source.questsOf(topicId).map((questId) => questId.toLowerCase());
+}
+
+/**
+ * How a message the user sent from a topic conversation is introduced to the leader: the topic's
+ * name and its quests (newest first, at most `limit`), so it can file the message under the right
+ * quest or start one in that topic. Null when the view is not a known topic.
+ */
+export function topicOfViewForLeader(
+  viewKey: string | undefined,
+  limit = 12,
+): { name: string; questIds: string[]; more: number } | null {
+  const topicId = viewKey ? topicIdOfViewKey(viewKey) : null;
+  if (!topicId || !source) return null;
+  const name = source.nameOf?.(topicId);
+  if (!name) return null;
+  const quests = [...source.questsOf(topicId)].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)));
+  return { name, questIds: quests.slice(0, limit), more: Math.max(0, quests.length - limit) };
 }
 
 /** The topic conversation views showing any of these quests. */

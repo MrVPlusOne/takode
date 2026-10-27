@@ -1007,7 +1007,8 @@ function buildThreadConversationItems(
 
 /**
  * A message the user sent from a view stays in that view, wherever the leader files it later: it
- * appears at once where it was written. Main already shows what was written there.
+ * appears at once where it was written, and so do the leader's answers to it. Main already shows
+ * what was written there.
  */
 function withSentFromViewItems(
   items: FeedItem[],
@@ -1020,7 +1021,8 @@ function withSentFromViewItems(
   const added: FeedItem[] = [];
   messages.forEach((message, index) => {
     if (included.has(index) || (includeMessage && !includeMessage(message, index))) return;
-    if (message.type !== "user_message" || message.sentFromView !== viewKey) return;
+    // The user's message, and answers to it (stamped when they settle).
+    if ((message as { sentFromView?: unknown }).sentFromView !== viewKey) return;
     added.push({ order: index, entry: { message, history_index: index } });
   });
   return added.length ? dedupeFeedItems([...items, ...added]) : items;

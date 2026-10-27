@@ -138,6 +138,25 @@ function legacyResponse(
   return message;
 }
 
+describe("answers to messages sent from a topic conversation", () => {
+  it("show in that topic conversation, and the request stays a Main request covered as usual", () => {
+    // A message sent from a topic conversation goes to the topic: it is a Main request that
+    // remembers the view it came from. The answer to it shows there too, wherever it is routed.
+    const target = session();
+    const sent = { ...human("u1", 10), sentFromView: "topic:relay" } as BrowserIncomingMessage;
+    target.messageHistory.push(sent);
+    const answer = appendAnswer(target, "a1", ["u1"], "Filed it under q-5.", 1);
+    expect(answer.sentFromView).toBe("topic:relay");
+    const state = buildLeaderThreadResponseState(target, "main");
+    expect(state.projection.pendingMessages).toEqual([]);
+    expect(state.projection.currentAnswers.map((item) => item.currentMessageId)).toEqual(["a1"]);
+
+    // An answer to an ordinary Main request is not stamped.
+    target.messageHistory.push(human("u2", 20));
+    expect(appendAnswer(target, "a2", ["u2"], "Done.", 3).sentFromView).toBeUndefined();
+  });
+});
+
 describe("explicit routed leader answers", () => {
   it("gives timer firings no answer authority, and drops stored timer answers", () => {
     // Timer firings carry no answer ID: a scheduled report is an answer that names

@@ -1,4 +1,5 @@
 import { formatThreadMarker } from "../../shared/thread-routing.js";
+import { topicOfViewForLeader } from "../topic-views.js";
 import { LIBRARY_MESSAGE_SOURCE } from "../../shared/library-topics.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 import type { BrowserUserMessage, IngestedUserMessage } from "./adapter-browser-routing-message-types.js";
@@ -24,6 +25,7 @@ export function buildAdapterUserMessageSourcePrefix(
   content?: string,
   sourceThreadKey?: string,
   leaderUserMessageId?: string,
+  sentFromView?: string,
 ): string {
   const date = new Date(ts);
   const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -51,7 +53,7 @@ export function buildAdapterUserMessageSourcePrefix(
       return `[${role} ${label} ${timeWithDate}] ${threadTag}`;
     }
     const idTag = leaderUserMessageId ? ` id:${leaderUserMessageId}` : "";
-    return `[User ${timeWithDate}${idTag}] ${threadTag}`;
+    return `[User ${timeWithDate}${idTag}] ${threadTag}${topicTag(sentFromView)}`;
   }
   // Requests Takode sends a Scribe come from the Library, not from its leader.
   if (agentSource?.sessionId === LIBRARY_MESSAGE_SOURCE.sessionId) return `[Library ${timeWithDate}] `;
@@ -81,5 +83,18 @@ export function buildUserMessageDeliveryPrefix(
     contentPreview,
     ingested.historyEntry.threadKey,
     ingested.historyEntry.leaderUserMessageId,
+    ingested.historyEntry.sentFromView,
   );
+}
+
+/**
+ * For a message sent from a topic conversation: `[topic: "<name>"; quests: q-12, q-9, …] `. The user
+ * wrote to the topic, not to a quest; the leader files it under the right quest (or a new one in
+ * that topic) as it does with Main requests.
+ */
+function topicTag(sentFromView: string | undefined): string {
+  const topic = topicOfViewForLeader(sentFromView);
+  if (!topic) return "";
+  const quests = [...topic.questIds, ...(topic.more ? [`${topic.more} more`] : [])].join(", ");
+  return `[topic: "${topic.name}"${quests ? `; quests: ${quests}` : ""}] `;
 }

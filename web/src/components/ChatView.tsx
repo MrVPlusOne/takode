@@ -724,7 +724,10 @@ export function ChatView({
       sessionNum,
     ],
   );
-  const composerThreadKey = isLeaderSession ? composeThreadKeyForSelection(selectedThreadKey) : MAIN_THREAD_KEY;
+  // A topic conversation holds many quests, so its messages go to the topic itself: to the leader
+  // they are Main requests that know their topic (`viewKey`), and it files them under a quest.
+  const composerThreadKey =
+    isLeaderSession && !topicFeedOn ? composeThreadKeyForSelection(selectedThreadKey) : MAIN_THREAD_KEY;
   const composerQuestId = isLeaderSession && isQuestThreadKey(composerThreadKey) ? composerThreadKey : undefined;
   const reviewAttentionRecords = useMemo(
     () =>
@@ -1377,6 +1380,7 @@ export function ChatView({
           threadKey={composerThreadKey}
           questId={composerQuestId}
           viewKey={isLeaderSession ? feedThreadKey : undefined}
+          topicName={topicFeedOn ? topicConversation.name : undefined}
           transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
           transcriptionThreadTitle={composerThreadTitle}
         />

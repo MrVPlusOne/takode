@@ -48,6 +48,21 @@ describe("topic conversations", () => {
     expect(windowIds(history, topicViewKey("t1"), ["q-3", "q-12", "q-99"])).toEqual(["u1", "u3", "u4", "u5"]);
   });
 
+  it("shows the leader's answer to a message sent from it, wherever the answer is routed", () => {
+    // Messages sent from a topic conversation go to the topic as Main requests; the answer is
+    // stamped with the view at settlement and shows in the topic conversation too.
+    const key = topicViewKey("t1");
+    const answer = {
+      type: "assistant",
+      message: { id: "a1", type: "message", role: "assistant", model: "m", content: [], stop_reason: null },
+      timestamp: 3,
+      threadKey: "main",
+      sentFromView: key,
+    } as unknown as BrowserIncomingMessage;
+    const history = [user("u1", "q-3"), user("u2", undefined, key), answer];
+    expect(windowIds(history, key, ["q-3"])).toEqual(["u1", "u2", 2]);
+  });
+
   it("keeps a message sent from it there, wherever the leader files it", () => {
     // A message typed in the topic view belongs to that view from the moment it is sent, before
     // the leader files it in a thread (Main here) and after it files it in a quest elsewhere.

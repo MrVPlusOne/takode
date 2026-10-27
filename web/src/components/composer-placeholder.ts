@@ -12,6 +12,7 @@ export function buildComposerPlaceholder({
   isCodex,
   isLeaderSession,
   threadKey,
+  topicName,
   usesTouchKeyboard,
   isNarrowLayout,
   pendingAskUserPerm,
@@ -20,6 +21,8 @@ export function buildComposerPlaceholder({
   isCodex: boolean;
   isLeaderSession: boolean;
   threadKey: string;
+  /** A topic conversation's topic: its messages go there, so the placeholder names it on every screen. */
+  topicName?: string;
   usesTouchKeyboard: boolean;
   isNarrowLayout: boolean;
   pendingAskUserPerm: unknown;
@@ -32,7 +35,12 @@ export function buildComposerPlaceholder({
   const normalizedThreadKey = normalizeThreadKey(threadKey);
   const shouldShowThreadDestination =
     isLeaderSession && isQuestThreadKey(normalizedThreadKey) && !usesTouchKeyboard && !isNarrowLayout;
-  const leadIn = shouldShowThreadDestination ? `Posting to ${normalizedThreadKey} ...` : "Type a message...";
+  const leadIn =
+    isLeaderSession && topicName
+      ? `Posting to ${topicName} ...`
+      : shouldShowThreadDestination
+        ? `Posting to ${normalizedThreadKey} ...`
+        : "Type a message...";
 
   return `${leadIn} ${hintSuffix}`;
 }
