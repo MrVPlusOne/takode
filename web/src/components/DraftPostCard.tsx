@@ -4,6 +4,7 @@ import { draftPartLabel, type DraftBlock, type PostPartChanges } from "../../sha
 import { artifactApi } from "../api/artifacts.js";
 import { messageCopyForSlack } from "../utils/slack-copy.js";
 import { CopyImageButton } from "./CopyImageButton.js";
+import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
 
 /**
  * A post drafted for the user to send: one card for the message and its replies (a Slack thread),
@@ -31,6 +32,7 @@ export function DraftPostCard({
   headerLink,
   renderMarkdown,
   attachments,
+  expandable = true,
 }: {
   title?: string;
   parts: PostPartView[];
@@ -40,49 +42,70 @@ export function DraftPostCard({
   headerLink?: ReactNode;
   renderMarkdown: (text: string) => ReactNode;
   attachments: AttachmentRendering;
+  /** Offers the full-screen view (not inside it). */
+  expandable?: boolean;
 }) {
   const single = parts.length === 1 && removed.length === 0;
   const partsRef = useRef<HTMLDivElement>(null);
+  const [fullScreen, setFullScreen] = useState(false);
   return (
-    <div
-      className="my-2 overflow-hidden rounded-xl border border-cc-border bg-cc-card"
-      data-markdown-draft=""
-      data-testid="draft-post-card"
-    >
-      {/* Controls, not content: kept out of selections and copies. */}
+    <>
       <div
-        className="flex select-none items-center gap-2 border-b border-cc-border bg-cc-hover/40 px-3 py-1.5"
-        data-copy-exclude=""
+        className="my-2 overflow-hidden rounded-xl border border-cc-border bg-cc-card"
+        data-markdown-draft=""
+        data-testid="draft-post-card"
       >
-        <PencilIcon />
-        {title ? (
-          <span className="min-w-0 truncate text-[12px] text-cc-muted">{title}</span>
-        ) : (
-          <span className="text-[11px] font-medium uppercase tracking-wide text-cc-muted">Draft</span>
-        )}
-        <span className="ml-auto" />
-        {headerLink}
-        {single ? (
-          <CopyForSlack target={partsRef} primary />
-        ) : (
-          <CopyForSlack target={partsRef} label="Copy all" testId="draft-post-copy-all" />
-        )}
-      </div>
-      <div ref={partsRef}>
-        {parts.map((part, index) => (
-          <DraftPostPart
-            key={index}
-            part={part}
-            single={single}
-            renderMarkdown={renderMarkdown}
-            attachments={attachments}
-          />
+        {/* Controls, not content: kept out of selections and copies. */}
+        <div
+          className="flex select-none items-center gap-2 border-b border-cc-border bg-cc-hover/40 px-3 py-1.5"
+          data-copy-exclude=""
+        >
+          <PencilIcon />
+          {title ? (
+            <span className="min-w-0 truncate text-[12px] text-cc-muted">{title}</span>
+          ) : (
+            <span className="text-[11px] font-medium uppercase tracking-wide text-cc-muted">Draft</span>
+          )}
+          <span className="ml-auto" />
+          {headerLink}
+          {expandable && <FullScreenButton onClick={() => setFullScreen(true)} />}
+          {single ? (
+            <CopyForSlack target={partsRef} primary />
+          ) : (
+            <CopyForSlack target={partsRef} label="Copy all" testId="draft-post-copy-all" />
+          )}
+        </div>
+        <div ref={partsRef}>
+          {parts.map((part, index) => (
+            <DraftPostPart
+              key={index}
+              part={part}
+              single={single}
+              renderMarkdown={renderMarkdown}
+              attachments={attachments}
+            />
+          ))}
+        </div>
+        {removed.map((entry, index) => (
+          <RemovedPart key={index} label={entry.label} open={entry.open} />
         ))}
       </div>
-      {removed.map((entry, index) => (
-        <RemovedPart key={index} label={entry.label} open={entry.open} />
-      ))}
-    </div>
+      {fullScreen && (
+        <FullScreenPanel title={title ?? "Draft"} onClose={() => setFullScreen(false)}>
+          <div className="mx-auto max-w-3xl">
+            <DraftPostCard
+              title={title}
+              parts={parts}
+              removed={removed}
+              headerLink={headerLink}
+              renderMarkdown={renderMarkdown}
+              attachments={attachments}
+              expandable={false}
+            />
+          </div>
+        </FullScreenPanel>
+      )}
+    </>
   );
 }
 

@@ -13,8 +13,8 @@
  *   slows Takode down. From then on this device shows it as a still picture (drawn by the
  *   server) with a Run button.
  */
+import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   buildVisualDocument,
   parseVisualBlock,
@@ -219,9 +219,7 @@ export function VisualBlock({ source }: { source: string }) {
         {block.title ? <span className="min-w-0 truncate font-medium">{block.title}</span> : null}
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
           {runnable ? <VisualButton onClick={run} label="Run" title="Run this visual's scripts" /> : null}
-          {!problem && !tooLarge ? (
-            <VisualButton onClick={() => setEnlarged(true)} label="Enlarge" title="Show the visual full screen" />
-          ) : null}
+          {!problem && !tooLarge ? <FullScreenButton onClick={() => setEnlarged(true)} /> : null}
           <VisualButton
             onClick={() => setShowSource((value) => !value)}
             label={showSource ? "Hide source" : "Source"}
@@ -598,32 +596,12 @@ function VisualEnlarged({
   const frameId = useMemo(() => `v${++frameCounter}`, []);
   const doc = useMemo(() => html.replace(/("id":")v\d+(")/, `$1${frameId}$2`), [html, frameId]);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col bg-cc-bg" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="flex items-center gap-2 border-b border-cc-border px-4 py-2">
-        <span className="min-w-0 truncate text-[14px] font-medium text-cc-fg">{title}</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="ml-auto rounded-md px-2.5 py-1 text-[13px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-        >
-          Close
-        </button>
+  return (
+    <FullScreenPanel title={title} onClose={onClose}>
+      <div className="relative mx-auto max-w-[1600px]" style={{ height }}>
+        <VisualFrame doc={doc} frameId={frameId} title={title} guardHash={guardHash} onSize={setHeight} fill />
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4">
-        <div className="relative mx-auto max-w-[1600px]" style={{ height }}>
-          <VisualFrame doc={doc} frameId={frameId} title={title} guardHash={guardHash} onSize={setHeight} fill />
-        </div>
-      </div>
-    </div>,
-    document.body,
+    </FullScreenPanel>
   );
 }
 

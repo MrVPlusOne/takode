@@ -1,5 +1,6 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { ArtifactCardLink } from "./ArtifactInline.js";
+import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
 import type { ChatMessage } from "../types.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { AnnotationSourceMarkers } from "./AnnotationAttachments.js";
@@ -53,9 +54,16 @@ function MarkdownReportBody({
   feedSessionId?: string;
   readOnly: boolean;
 }) {
-  const contentRef = useRef<HTMLDivElement>(null);
+  const [fullScreen, setFullScreen] = useState(false);
   const source = message.metadata!.markdownReport!;
   const reportMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "report");
+  const actions = (
+    <>
+      {!readOnly && reportMarker && <ArtifactCardLink marker={reportMarker} />}
+      {!readOnly && <ReportReadAloudButton message={message} sessionId={source.sessionId} />}
+      <CodeCopyButton text={message.content} label="Copy Markdown" />
+    </>
+  );
   return (
     <>
       {!readOnly && <ReadAloudPlayer messageId={message.id} />}
@@ -73,26 +81,69 @@ function MarkdownReportBody({
               </details>
             </div>
             {!readOnly && reportMarker && <ArtifactCardLink marker={reportMarker} />}
+            <FullScreenButton onClick={() => setFullScreen(true)} />
             {!readOnly && <ReportReadAloudButton message={message} sessionId={source.sessionId} />}
             <CodeCopyButton text={message.content} label="Copy Markdown" />
           </div>
-          <div ref={contentRef} className="relative min-w-0 mr-5">
-            <MarkdownContent
-              text={message.content}
-              sessionId={source.responsibleWorkerId ?? source.sessionId}
-              enableChatSelectionMenu={!readOnly}
-              fileLinkMode={readOnly ? "text-only" : "interactive"}
-              fileBasePath={source.sourcePath}
-              questLinkSurface="chat-feed"
-            />
-            {!readOnly && (
-              <AnnotationSourceMarkers sessionId={source.sessionId} messageId={message.id} contentRef={contentRef} />
-            )}
-          </div>
+          <ReportContent message={message} readOnly={readOnly} className="mr-5" />
         </article>
       </ReportCard>
+      {fullScreen && (
+        <FullScreenPanel
+          title={reportTitleOf(message.content, source.sourcePath)}
+          actions={actions}
+          selection={readOnly ? undefined : { sessionId: feedSessionId ?? source.sessionId, messageId: message.id }}
+          onClose={() => setFullScreen(false)}
+        >
+          <article
+            className="mx-auto min-w-0 max-w-4xl"
+            data-markdown-report-source={JSON.stringify(source)}
+            data-testid="markdown-report-full-screen"
+          >
+            <ReportContent message={message} readOnly={readOnly} />
+          </article>
+        </FullScreenPanel>
+      )}
     </>
   );
+}
+
+/**
+ * A report's text, as the feed shows it: file links resolve against the report's file, selected
+ * text can be commented on, and comments show where they point.
+ */
+function ReportContent({
+  message,
+  readOnly,
+  className = "",
+}: {
+  message: ChatMessage;
+  readOnly: boolean;
+  className?: string;
+}) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const source = message.metadata!.markdownReport!;
+  return (
+    <div ref={contentRef} className={`relative min-w-0 ${className}`}>
+      <MarkdownContent
+        text={message.content}
+        sessionId={source.responsibleWorkerId ?? source.sessionId}
+        enableChatSelectionMenu={!readOnly}
+        fileLinkMode={readOnly ? "text-only" : "interactive"}
+        fileBasePath={source.sourcePath}
+        questLinkSurface="chat-feed"
+      />
+      {!readOnly && (
+        <AnnotationSourceMarkers sessionId={source.sessionId} messageId={message.id} contentRef={contentRef} />
+      )}
+    </div>
+  );
+}
+
+/** A report's title for the full-screen view: its top-level heading, else its file's name. */
+function reportTitleOf(markdown: string, sourcePath: string): string {
+  const heading = /^#[ \t]+(.+?)[ \t#]*$/m.exec(markdown)?.[1];
+  return heading?.replace(/[*_`]/g, "") || sourcePath.split("/").pop() || "Report";
 }
 
 /** Reports have no message menu, so their header carries Read aloud (and Stop while reading). */
