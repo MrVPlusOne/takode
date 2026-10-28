@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { setTopicViewSource } from "../topic-views.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import {
   buildThreadRoutingReminderForCompletedTurn,
@@ -116,5 +117,39 @@ describe("leader answer marker routing", () => {
     // A plain answer carries no mark.
     const plain = normalizeLeaderAssistantRouting(true, [{ type: "text", text: "[thread:q-7:A:u2] Done." }], null);
     expect(plain.leaderAnswerUrgent).toBeUndefined();
+  });
+});
+
+describe("leader output to a topic thread no topic has", () => {
+  afterEach(() => setTopicViewSource(null));
+
+  function turn(threadKey: string) {
+    const answer = semanticRejectedAnswer();
+    delete answer.threadRoutingError;
+    return {
+      messageHistory: [
+        { type: "user_message", id: "u", content: "hi", timestamp: 1, threadKey: "topic:6fd2c4bb" },
+        { ...answer, threadKey, questId: undefined, threadRefs: [{ threadKey, source: "explicit" }] },
+      ] as BrowserIncomingMessage[],
+      userMessageIdsThisTurn: [0],
+      messageCountAtTurnStart: 0,
+    };
+  }
+
+  it("warns the leader, naming the unknown key and the closest topics", () => {
+    // A mistyped handle sends output to a thread no view shows (only All). Instructions over
+    // enforcement: the output is kept, and the leader is told where it went and what it may have meant.
+    setTopicViewSource({
+      topicOf: (handle) => (handle === "6fd2c4bb" ? { id: "6fd2c4bb-0000", name: "Relay testing" } : null),
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+      listTopics: () => [{ id: "6fd2c4bb-0000", name: "Relay testing" }],
+    });
+    const reminder = buildThreadRoutingReminderForCompletedTurn(turn("topic:6fd2c4bc"));
+    expect(reminder?.content).toContain("Unknown topic thread `topic:6fd2c4bc`");
+    expect(reminder?.content).toContain('`topic:6fd2c4bb` "Relay testing"');
+    expect(reminder?.route.threadKey).toBe("topic:6fd2c4bb");
+    expect(buildThreadRoutingReminderForCompletedTurn(turn("topic:6fd2c4bb"))).toBeNull();
   });
 });

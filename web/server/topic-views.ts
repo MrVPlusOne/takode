@@ -12,6 +12,8 @@ export interface TopicViewSource {
   /** The handles whose threads a topic's conversation shows: its own and those merged into it. */
   handlesOf(topicId: string): readonly string[];
   topicOfQuest(questId: string): string | null;
+  /** Every live topic, most recent activity first (to suggest one for an unknown handle). */
+  listTopics?(): ReadonlyArray<{ id: string; name: string }>;
 }
 
 let source: TopicViewSource | null = null;
@@ -83,4 +85,49 @@ export function viewKeysOfRoutes(routeKeys: Iterable<string>): string[] {
   }
   for (const key of topicViewKeysOfQuests([...keys].filter((key) => /^q-\d+$/.test(key)))) keys.add(key);
   return [...keys];
+}
+
+/**
+ * Whether a thread key names a topic thread no topic has (a mistyped handle): a message routed
+ * there shows in no view but All. False for other keys, and while topics are not loaded.
+ */
+export function isUnknownTopicKey(threadKey: string): boolean {
+  const handle = topicIdOfViewKey(threadKey);
+  return !!handle && !!source && !source.topicOf(handle);
+}
+
+/**
+ * The topics whose handles are closest to an unknown topic key's (fewest differing characters,
+ * then most recent activity), at most `limit`, for a warning that suggests the intended one.
+ */
+export function closestTopics(threadKey: string, limit = 3): Array<{ key: string; name: string }> {
+  const handle = topicIdOfViewKey(threadKey);
+  if (!handle || !source?.listTopics) return [];
+  return source
+    .listTopics()
+    .map((topic, order) => ({ key: topicViewKey(topic.id), name: topic.name, order }))
+    .map((topic) => ({ ...topic, distance: editDistance(handle, topic.key.slice("topic:".length)) }))
+    .sort((a, b) => a.distance - b.distance || a.order - b.order)
+    .slice(0, limit)
+    .map(({ key, name }) => ({ key, name }));
+}
+
+/** Levenshtein distance between two short strings. */
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[b.length]!;
+}
+
+/** The sentence naming the closest topics, for warnings and errors about an unknown topic key. */
+export function describeClosestTopics(threadKey: string): string {
+  const closest = closestTopics(threadKey);
+  if (closest.length === 0) return "No topics are known.";
+  return `Closest topics: ${closest.map((topic) => `\`${topic.key}\` "${topic.name}"`).join(", ")}.`;
 }

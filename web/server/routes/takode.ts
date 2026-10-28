@@ -1,3 +1,4 @@
+import { describeClosestTopics, isUnknownTopicKey } from "../topic-views.js";
 import { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
@@ -1081,6 +1082,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
     const questId = target.threadKey;
     const targetQuestId = target.questId;
+    if (isUnknownTopicKey(questId)) {
+      return c.json({ error: `No topic has the handle in ${questId}. ${describeClosestTopics(questId)}` }, 404);
+    }
 
     const indices = new Set<number>();
     if (Number.isInteger(body.message)) indices.add(body.message);

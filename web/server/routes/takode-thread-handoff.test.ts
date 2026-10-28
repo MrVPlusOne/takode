@@ -7,6 +7,7 @@ import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { leaderResponseProvenCurrentOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { extractThreadStatusMarkersFromText } from "../../shared/thread-status-marker.js";
 import { registerTakodeThreadHandoffRoute } from "./takode-thread-handoff.js";
+import { setTopicViewSource } from "../topic-views.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { _resetThreadAttachmentBroadcastsForTest } from "./takode-thread-attachment-broadcast.js";
 import type { RouteContext } from "./context.js";
@@ -88,6 +89,7 @@ function ready(session: ReturnType<typeof fixture>["session"], threadKey: string
 }
 
 afterEach(() => {
+  setTopicViewSource(null);
   _resetThreadAttachmentBroadcastsForTest();
   vi.useRealTimers();
 });
@@ -366,5 +368,39 @@ describe("Main-to-quest responsibility handoff", () => {
     expect(
       session.messageHistory.filter((entry) => entry.type === "user_message" && entry.id === "raw-u1"),
     ).toHaveLength(1);
+  });
+});
+
+describe("handoff to a topic thread no topic has", () => {
+  it("fails with the closest topics, changing nothing", async () => {
+    // A command can refuse: the leader gets the error at once and retries with the right handle.
+    setTopicViewSource({
+      topicOf: (handle) => (handle === "6fd2c4bb" ? { id: "6fd2c4bb-0000", name: "Relay testing" } : null),
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+      listTopics: () => [{ id: "6fd2c4bb-0000", name: "Relay testing" }],
+    });
+    const { session, handoff } = fixture();
+    const before = structuredClone(session.messageHistory);
+    const response = await handoff({ questId: "topic:6fd2c4bc", userMessageIds: ["u1"] });
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toBe(
+      'No topic has the handle in topic:6fd2c4bc. Closest topics: `topic:6fd2c4bb` "Relay testing".',
+    );
+    expect(session.messageHistory).toEqual(before);
+    // The real topic is accepted.
+    // The real topic is accepted: a Main request handed to a topic's thread, with no decision
+    // notifications (those go to quests only), now waits there. (Round 7's route rejected every
+    // handoff to a topic, through the notification check, even with no notifications.)
+    const accepted = await handoff({ questId: "topic:6fd2c4bb", userMessageIds: ["u1"] });
+    expect(await accepted.json()).toMatchObject({ ok: true, handedOffUserMessageIds: ["u1"] });
+    expect(
+      buildLeaderThreadResponseState(session, "topic:6fd2c4bb").projection.pendingMessages.map(
+        (row) => row.userMessageId,
+      ),
+    ).toEqual(["u1"]);
+    const withDecision = await handoff({ questId: "topic:6fd2c4bb", userMessageIds: ["u2"], notificationIds: ["n-1"] });
+    expect((await withDecision.json()).error).toBe("Decision notifications can be handed off to a quest only");
   });
 });

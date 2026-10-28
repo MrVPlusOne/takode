@@ -120,6 +120,7 @@ export async function startLibraryTopics(input: {
     questsOf: (topicId) => (service.store.loaded ? service.store.questsOf(topicId) : []),
     handlesOf: (topicId) => (service.store.loaded ? service.store.handlesOf(topicId) : []),
     topicOfQuest: (questId) => (service.store.loaded ? (service.store.topicOfQuest(questId)?.id ?? null) : null),
+    listTopics: () => (service.store.loaded ? service.store.list() : []),
   });
   addSessionSaveListener((sessionId) => service.sessionSaved(sessionId));
   return service;

@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
+import { describeClosestTopics, isUnknownTopicKey } from "../topic-views.js";
 import { handoffThreadRef, prepareLeaderThreadHandoff } from "../leader-thread-handoff.js";
 import { broadcastNotificationRefresh } from "../bridge/session-notification-controller.js";
 import { clearLeaderThreadStatusForActivity } from "../bridge/thread-routing-reminder.js";
@@ -32,6 +33,9 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
       return c.json({ error: "Give a quest ID (q-N) or a topic thread (topic:<handle>)" }, 400);
     }
     const questId = destination.threadKey;
+    if (isUnknownTopicKey(questId)) {
+      return c.json({ error: `No topic has the handle in ${questId}. ${describeClosestTopics(questId)}` }, 404);
+    }
     const userMessageIds = body.userMessageIds;
     const notificationIds = body.notificationIds ?? [];
     if (

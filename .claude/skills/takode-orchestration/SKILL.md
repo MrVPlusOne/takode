@@ -370,7 +370,7 @@ takode thread handoff q-941 --user u1 u2 --notification n-1
 - When it starts new work, file the quest in that topic (`quest create ... --topic "<name>"`), then hand the request off to it.
 - Otherwise answer it in the topic's thread: `[thread:topic:<handle>:A:uN]`, and `[thread:topic:<handle>:C]` for commentary there.
 
-A topic thread works like a quest thread everywhere a thread is named: answer coverage, pending requests, `{[(Thread Ready: topic:<handle> | …)]}`, unread, `# thread:topic:<handle>` shell comments and `takode thread attach`. A Main request about a topic can be handed off to the topic's thread the same way (`takode thread handoff topic:<handle> --user uN`). Main is for new work not yet in a topic and for requests that belong nowhere else.
+A topic thread works like a quest thread everywhere a thread is named: answer coverage, pending requests, `{[(Thread Ready: topic:<handle> | …)]}`, unread, `# thread:topic:<handle>` shell comments and `takode thread attach`. A Main request about a topic can be handed off to the topic's thread the same way (`takode thread handoff topic:<handle> --user uN`). A handle no topic has (a typo) is caught: output routed there shows only in All and a thread routing reminder names the closest topics, and `takode thread handoff`/`attach` refuse it with the same list. Main is for new work not yet in a topic and for requests that belong nowhere else.
 
 ### `takode thread attach <quest-id> --message <index> | --range <start-end>`
 

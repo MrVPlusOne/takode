@@ -1,4 +1,5 @@
 import { recordMonitoredThreadResult } from "../thread-monitoring.js";
+import { describeClosestTopics, isUnknownTopicKey } from "../topic-views.js";
 import type {
   BrowserIncomingMessage,
   ContentBlock,
@@ -8,6 +9,7 @@ import type {
 } from "../session-types.js";
 import {
   buildThreadRoutingReminderContent,
+  THREAD_ROUTING_REMINDER_HEADER,
   THREAD_ROUTING_REMINDER_SOURCE_ID,
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-routing-reminder.js";
@@ -659,12 +661,51 @@ function findThreadRoutingErrorForCurrentTurn(session: ThreadRoutingReminderSess
   return null;
 }
 
+/**
+ * A topic thread this turn's leader output was routed to (by a marker, a shell comment or a Thread
+ * status marker) that no topic has: most likely a mistyped handle. The output is kept where it was
+ * routed and shows in All; the leader is told, rather than the output refused.
+ */
+function findUnknownTopicKeyForCurrentTurn(session: ThreadRoutingReminderSessionLike): string | null {
+  const startIndex = firstCurrentTurnHistoryIndex(session);
+  for (let index = startIndex; index < session.messageHistory.length; index++) {
+    const entry = session.messageHistory[index];
+    if (entry?.type !== "assistant") continue;
+    const keys = [entry.threadKey, ...(entry.threadStatusMarkers ?? []).map((marker) => marker.threadKey)];
+    const unknown = keys.find((key): key is string => !!key && isUnknownTopicKey(key));
+    if (unknown) return unknown;
+  }
+  return null;
+}
+
+/** The warning for leader output routed to a topic thread no topic has. */
+export function buildUnknownTopicReminderContent(topicKey: string): string {
+  return [
+    THREAD_ROUTING_REMINDER_HEADER,
+    `Unknown topic thread \`${topicKey}\`: no topic has that handle, so your output there shows in no thread view (only in All).`,
+    describeClosestTopics(topicKey),
+    "Topic handles come from the `[thread:topic:<handle>]` tag on the user's messages in that topic. If you meant another thread, post again there (`[thread:topic:<handle>:C]`, `:A:uN`, Main or a quest); answers to requests still follow the requests they name.",
+  ].join("\n");
+}
+
 export function buildThreadRoutingReminderForCompletedTurn(
   session: ThreadRoutingReminderSessionLike,
 ): ThreadRoutingReminderInjection | null {
   if (wasTriggeredByThreadRoutingReminder(session)) return null;
   const error = findThreadRoutingErrorForCurrentTurn(session);
-  if (!error) return null;
+  if (!error) {
+    const unknownTopic = findUnknownTopicKeyForCurrentTurn(session);
+    return unknownTopic
+      ? {
+          content: buildUnknownTopicReminderContent(unknownTopic),
+          route: findTriggeringTurnRoute(session),
+          agentSource: {
+            sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,
+            sessionLabel: THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+          },
+        }
+      : null;
+  }
   return {
     content: buildThreadRoutingReminderContent({
       reason: error.reason,

@@ -29,7 +29,12 @@ export function prepareThreadHandoffNotifications(
   questId: string,
   notificationIds: readonly string[],
 ): ThreadHandoffNotificationsPreparation {
-  if (!/^q-\d+$/.test(questId)) return { ok: false, error: "questId must be a canonical q-N ID" };
+  // Decision notifications go to quests only; a handoff to a topic's thread moves requests alone.
+  if (!/^q-\d+$/.test(questId)) {
+    return notificationIds.length === 0
+      ? { ok: true, notifications: [], anchors: [], alreadyHandedOffNotificationIds: [] }
+      : { ok: false, error: "Decision notifications can be handed off to a quest only" };
+  }
   if (
     notificationIds.some((id) => !/^n-[1-9]\d*$/.test(id)) ||
     new Set(notificationIds).size !== notificationIds.length
