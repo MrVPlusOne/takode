@@ -56,6 +56,73 @@ export function topicQuestsOfTurns(turns: readonly Turn[], questIds: readonly st
   });
 }
 
+/** What a turn of a topic conversation shows above itself. */
+export type TopicTurnMark = "strip" | "label" | null;
+
+/**
+ * Where a topic conversation shows quest strips: only above turns with a final message (something
+ * the user reads: their own message, an answer, a report, a question), when the conversation moves
+ * to another quest there. A turn of commentary, tools or worker events alone gets no strip (Jiayi:
+ * strips piled up above collapsed "1 tool · 1 worker event" rows); when it belongs to another quest
+ * than the strip pinned above it, it gets a small label instead, so it is never read as that quest's.
+ * The pinned strip therefore always names the quest of the last final message the reader passed.
+ */
+export function topicTurnMarks(turns: readonly Turn[], turnQuests: ReadonlyArray<string | null>): TopicTurnMark[] {
+  let pinned: string | null = null;
+  return turns.map((turn, index) => {
+    const quest = turnQuests[index] ?? null;
+    if (!quest) return null;
+    if (turnHasFinalMessage(turn)) {
+      if (quest === pinned) return null;
+      pinned = quest;
+      return "strip";
+    }
+    return quest === pinned ? null : "label";
+  });
+}
+
+/** Whether a turn holds a message the user reads, rather than only the leader's working steps. */
+export function turnHasFinalMessage(turn: Turn): boolean {
+  return [turn.userEntry, ...turn.allEntries].some((entry) => entry?.kind === "message" && isFinalMessage(entry.msg));
+}
+
+function isFinalMessage(message: ChatMessage): boolean {
+  if (message.parentToolUseId) return false;
+  const metadata = message.metadata;
+  if (metadata?.markdownReport) return true;
+  if (message.role === "user") return metadata?.leaderResponseCoverageVersion === 1 && !message.agentSource;
+  if (message.role !== "assistant") return false;
+  return metadata?.leaderThreadRole === "answer" || !!metadata?.threadAnswer || !!message.notification;
+}
+
+/**
+ * Above a turn of working steps that belongs to another quest than the strip pinned above it: the
+ * quest, quietly, so the turn is not read as the pinned quest's. Not sticky, not a strip.
+ */
+export function TopicFeedQuestLabel({ questId }: { questId: string }) {
+  const topicFeed = useContext(TopicFeedContext);
+  const quest = useQuestRecord(topicFeed && questId === topicFeed.topicKey ? null : questId);
+  const ownThread = !!topicFeed && questId === topicFeed.topicKey;
+  return (
+    <div
+      className="flex min-w-0 items-baseline gap-1.5 pt-1 text-[11.5px] text-cc-muted"
+      data-testid="topic-feed-quest-label"
+      data-quest={ownThread ? "" : questId}
+    >
+      {ownThread ? (
+        <span className="truncate">In the topic</span>
+      ) : (
+        <>
+          <span className="shrink-0 font-mono-code">
+            <QuestInlineLink questId={questId} surface="chat-feed" />
+          </span>
+          <span className="min-w-0 truncate">{quest?.title ?? ""}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * In a topic conversation: which of the topic's quests a message belongs to, so the feed starts a
  * new turn (and shows the quest's strip) wherever the conversation moves to another quest, also

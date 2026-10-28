@@ -5,7 +5,7 @@ import type { ChatMessage } from "../types.js";
 import { filterMessagesForThread } from "../utils/thread-projection.js";
 import { topicViewKey } from "../../shared/topic-thread-key.js";
 import { rememberTopicViewMembers } from "../utils/thread-projection.js";
-import { topicQuestsOfTurns } from "./topic-feed.js";
+import { topicQuestsOfTurns, topicTurnMarks, turnHasFinalMessage } from "./topic-feed.js";
 import { getMessageThreadLinkKey } from "./MessageThreadHeader.js";
 
 /**
@@ -105,5 +105,49 @@ describe("topic feed", () => {
     rememberTopicViewMembers(key, ["q-3", "q-12"]);
     expect(getMessageThreadLinkKey(message("a", "q-3"), key)).toBeNull();
     expect(getMessageThreadLinkKey(message("b", "main"), key)).toBe("main");
+  });
+});
+
+describe("quest strips in a topic conversation", () => {
+  // Jiayi (Formal verification topic): strips repeated above runs that were only collapsed
+  // "1 tool · 1 worker event" or "2 messages" rows. Only turns with a final message get a strip;
+  // a working-steps turn of another quest gets a small label instead.
+  const answer = (id: string, threadKey: string): ChatMessage => ({
+    ...message(id, threadKey),
+    metadata: { ...message(id, threadKey).metadata, leaderThreadRole: "answer" },
+  });
+  const commentary = (id: string, threadKey: string): ChatMessage => ({
+    ...message(id, threadKey),
+    metadata: { ...message(id, threadKey).metadata, leaderThreadRole: "commentary" },
+  });
+  const report = (id: string, threadKey: string): ChatMessage => ({
+    ...message(id, threadKey),
+    metadata: { ...message(id, threadKey).metadata, markdownReport: {} as never },
+  });
+
+  it("puts strips only above final messages, and labels other quests' working steps", () => {
+    const turns = [
+      turn(answer("a", "q-2837")),
+      turn(commentary("b", "q-2892")), // "1 tool · 1 worker event": another quest's working steps
+      turn(commentary("c", "q-2837")), // back in the pinned quest: nothing
+      turn(report("d", "q-2892")),
+      turn(answer("e", "q-2892")),
+    ];
+    const quests = topicQuestsOfTurns(turns, ["q-2837", "q-2892"]);
+    expect(topicTurnMarks(turns, quests)).toEqual(["strip", "label", null, "strip", null]);
+  });
+
+  it("counts the user's own message as final, but not a herd event or a subagent's text", () => {
+    const human = {
+      ...message("u", "q-1"),
+      role: "user",
+      metadata: { ...message("u", "q-1").metadata, leaderResponseCoverageVersion: 1 },
+    } as ChatMessage;
+    expect(turnHasFinalMessage(turn(human))).toBe(true);
+    expect(turnHasFinalMessage(turn({ ...human, agentSource: { sessionId: "herd-events" } } as ChatMessage))).toBe(
+      false,
+    );
+    expect(turnHasFinalMessage(turn({ ...answer("s", "q-1"), parentToolUseId: "tool-1" }))).toBe(false);
+    expect(turnHasFinalMessage(turn(commentary("c", "q-1")))).toBe(false);
   });
 });

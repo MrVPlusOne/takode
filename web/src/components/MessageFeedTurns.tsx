@@ -42,7 +42,14 @@ import { AnswerReferencesContext, answerChromeFor, type AnswerReferenceData } fr
 import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
-import { TopicFeedContext, TopicFeedQuestStart, topicFeedParts, topicQuestsOfTurns } from "./topic-feed.js";
+import {
+  TopicFeedContext,
+  TopicFeedQuestLabel,
+  TopicFeedQuestStart,
+  topicFeedParts,
+  topicQuestsOfTurns,
+  topicTurnMarks,
+} from "./topic-feed.js";
 import { TopicFeedEntry } from "./library/TopicConversation.js";
 
 function entryHasModelActivity(entry: FeedEntry): boolean {
@@ -403,6 +410,7 @@ export const TurnEntries = memo(function TurnEntries({
     () => (topicFeed ? topicQuestsOfTurns(turns, topicFeedParts(topicFeed)) : null),
     [topicFeed, turns],
   );
+  const turnMarks = useMemo(() => (turnQuests ? topicTurnMarks(turns, turnQuests) : null), [turnQuests, turns]);
   const threadQuest = useQuestRecord(threadQuestId);
   const completedAt = threadQuest?.status === "done" ? threadQuest.completedAt : null;
   const completionSummaryHostTurnId = useMemo(
@@ -538,10 +546,11 @@ export const TurnEntries = memo(function TurnEntries({
             </>
           ) : null;
 
-        const questStarts = topicFeed && turnQuest && turnQuest !== (turnQuests?.[turnIndex - 1] ?? null);
+        const topicMark = turnQuest ? (turnMarks?.[turnIndex] ?? null) : null;
         return (
           <Fragment key={turn.id}>
-            {questStarts && <TopicFeedQuestStart questId={turnQuest} />}
+            {topicMark === "strip" && <TopicFeedQuestStart questId={turnQuest!} />}
+            {topicMark === "label" && <TopicFeedQuestLabel questId={turnQuest!} />}
             <div data-feed-section-id={sectionStartTurnIds.has(turn.id) ? turn.id : undefined}>
               <div
                 data-turn-id={turn.id}
