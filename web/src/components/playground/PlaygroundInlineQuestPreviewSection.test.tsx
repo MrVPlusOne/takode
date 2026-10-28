@@ -120,7 +120,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
   });
 
   // Walks every preview state in one test; it took about 12 s with two full runs at once.
-  it("drives idle, link-title, eye-hover, keyboard, error, and touch states through the real component", {
+  it("drives idle, link-title, link-hover, keyboard, error, and touch states through the real component", {
     timeout: 30_000,
   }, async () => {
     render(<PlaygroundInlineQuestPreviewSection />);
@@ -146,7 +146,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
 
     fireEvent.click(
       within(controls).getByRole("button", {
-        name: "Show dense-feed link-hover title preview",
+        name: "Show dense-feed icon-hover title preview",
       }),
     );
     const denseTitleLayer = await screen.findByTestId("quest-feed-title-preview");
@@ -186,13 +186,13 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(within(live).getByRole("status")).toHaveTextContent("optional title layer is omitted");
 
     const richControl = within(controls).getByRole("button", {
-      name: "Show fine-pointer icon-hover details",
+      name: "Show fine-pointer link-hover details",
     });
     richControl.focus();
     fireEvent.click(richControl);
     let dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog).toHaveAttribute("data-surface", "popover"));
-    expect(dialog).toHaveTextContent("Reveal rich quest context by hovering the thread icon");
+    expect(dialog).toHaveTextContent("Reveal rich quest context by hovering the link");
     expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Done");
     expect(within(dialog).getByTestId("quest-hover-tldr")).toHaveTextContent(
       "A deterministic Playground fixture for the accepted chat-feed inline quest preview contract.",
@@ -206,16 +206,17 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       "#/session/7?thread=q-9413",
     );
     live = within(section).getByTestId("playground-inline-quest-preview-live");
+    // The hover card belongs to the link, not to the icon's popup.
     expect(within(live).getByRole("button", { name: /^Open the q-9413 thread/ })).toHaveAttribute(
       "aria-expanded",
-      "true",
+      "false",
     );
     expect(richControl).toHaveFocus();
     expect(dialog).not.toHaveFocus();
 
     fireEvent.click(
       within(controls).getByRole("button", {
-        name: "Show icon-hover hydration error",
+        name: "Show link-hover hydration error",
       }),
     );
     dialog = await screen.findByRole("dialog");
@@ -286,17 +287,16 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     );
   });
 
-  it("opens rich details from fine-pointer entry on the icon-only eye", async () => {
+  it("opens rich details from fine-pointer hover on the text link", async () => {
     render(<PlaygroundInlineQuestPreviewSection />);
     const live = await screen.findByTestId("playground-inline-quest-preview-live");
-    const eye = within(live).getByRole("button", { name: /Preview q-9410 feedback #4/ });
+    const link = within(live).getByRole("link", { name: "q-9410 feedback #4" });
 
-    fireEvent.pointerEnter(eye, { pointerType: "mouse", clientX: 280, clientY: 210 });
+    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 150, clientY: 210 });
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog).toHaveAttribute("data-surface", "popover"));
     expect(dialog).toHaveTextContent("Keep exact chat links independently navigable");
-    expect(eye).toHaveAttribute("aria-expanded", "true");
     expect(dialog).not.toHaveFocus();
   });
 
@@ -312,7 +312,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
         ?.some((row) => row.questId === "q-9413"),
     ).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Show fine-pointer icon-hover details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show fine-pointer link-hover details" }));
     const dialog = await screen.findByRole("dialog");
     // The fixture re-seeds its numbered sessions after the refresh, so the button names the leader again.
     expect(await within(dialog).findByRole("link", { name: "Open Thread #7" })).toHaveAttribute(
@@ -382,7 +382,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       name: "Inline quest preview fixture state",
     });
     const richControl = within(controls).getByRole("button", {
-      name: "Show fine-pointer icon-hover details",
+      name: "Show fine-pointer link-hover details",
     });
 
     fireEvent.click(richControl);

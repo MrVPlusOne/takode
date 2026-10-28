@@ -68,21 +68,21 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
   },
   {
     id: "rich",
-    label: "Icon hover / rich",
-    buttonLabel: "Show fine-pointer icon-hover details",
+    label: "Link hover / rich",
+    buttonLabel: "Show fine-pointer link-hover details",
     questId: "q-9413",
-    title: "Reveal rich quest context by hovering the thread icon",
+    title: "Reveal rich quest context by hovering the link",
     description:
-      "Fine-pointer entry on the thread icon hydrates the local by-ID fixture, opens near the icon, and puts Open Worker and Open Thread at the top. Clicking the icon goes straight to the quest's thread.",
+      "Fine-pointer hover on the text link hydrates the local by-ID fixture, opens below the link, and puts Open Worker and Open Thread at the top. Clicking the icon after the link goes straight to the quest's thread.",
   },
   {
     id: "error",
-    label: "Icon hover / error",
-    buttonLabel: "Show icon-hover hydration error",
+    label: "Link hover / error",
+    buttonLabel: "Show link-hover hydration error",
     questId: "q-9414",
     title: "Retain exact navigation when icon details fail to hydrate",
     description:
-      "Icon hover drives a deterministic loader rejection so Retry, direct navigation, and Close remain inspectable.",
+      "Link hover drives a deterministic loader rejection so Retry, direct navigation, and Close remain inspectable.",
   },
   {
     id: "keyboard",
@@ -122,12 +122,12 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
   },
   {
     id: "dense",
-    label: "Dense feed / link hover",
-    buttonLabel: "Show dense-feed link-hover title preview",
+    label: "Dense feed / icon hover",
+    buttonLabel: "Show dense-feed icon-hover title preview",
     questId: "q-9417",
     title: "Slide compact link details around dense feed controls",
     description:
-      "Fine-pointer hover keeps the two-row compact preview visible by sliding it past nearby transition controls.",
+      "Fine-pointer hover on the thread icon keeps the two-row compact preview visible by sliding it past nearby transition controls.",
   },
 ] as const;
 
@@ -171,9 +171,9 @@ const PREVIEW_QUEST_BY_ID = new Map(
             verificationItems: [],
             verificationInboxUnread: false,
             debrief:
-              "Hovering the thread icon presents the established full quest preview without replacing native link behavior.",
+              "Hovering the link presents the established full quest preview without replacing native link behavior.",
             debriefTldr:
-              "The established full preview stays available from the thread icon while native links, exact feedback, and non-blocking geometry remain intact.",
+              "The established full preview stays available from the link while the thread icon, exact feedback, and non-blocking geometry remain intact.",
             journeyRuns: [
               {
                 runId: "playground-completed-run",
@@ -468,7 +468,7 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
         return;
       }
       if (state === "dense") {
-        dispatchFinePointerEnter(link);
+        dispatchFinePointerEnter(preview);
         return;
       }
       if (state === "coarse") {
@@ -484,7 +484,7 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
         dispatchKeyboardActivation(preview);
         return;
       }
-      dispatchFinePointerEnter(preview);
+      dispatchFinePointerEnter(link);
     });
     return () => {
       cancelled = true;
@@ -651,7 +651,7 @@ export function PlaygroundInlineQuestPreviewSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Inline Quest Preview"
-        description="Chat-feed-only quest links keep native navigation and a jump-to-thread icon in one cohesive fixed-gap unit: clicking the icon opens the quest's leader thread, hovering it previews. Select any state to drive the real compact and rich preview behavior deterministically."
+        description="Chat-feed-only quest links keep native navigation and a jump-to-thread icon in one cohesive fixed-gap unit: clicking the icon opens the quest's leader thread and hovering it shows the title, while hovering the link previews the quest. Select any state to drive the real compact and rich preview behavior deterministically."
       >
         <div className="grid gap-4 xl:grid-cols-2">
           <Card label="Deterministic state controls">

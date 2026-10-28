@@ -18,6 +18,8 @@ import {
   setUpQuestFeedLinkTest,
   tearDownQuestFeedLinkTest,
   resetGeometryFixture,
+  hoverQuestLinkForPreview,
+  questLinkIcon,
 } from "../test-fixtures/quest-feed-inline-link.js";
 import { QuestFeedInlineLink } from "./QuestFeedInlineLink.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
@@ -98,11 +100,12 @@ describe("QuestInlineLink chat-feed preview", () => {
     }
   });
 
-  it("keeps text-link hover title-only after 250 ms and closes it after the bounded leave grace", async () => {
+  it("keeps icon hover title-only after 250 ms and closes it after the bounded leave grace", async () => {
+    // The icon jumps to the quest's thread, so hovering it shows only the compact title card.
     renderFeedLink("q-43", { title: "Pass-through hover title" });
-    const link = screen.getByRole("link", { name: "q-43" });
+    const icon = questLinkIcon("q-43");
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    fireEvent.pointerEnter(icon, { pointerType: "mouse", clientX: 198, clientY: 110 });
     await act(async () => vi.advanceTimersByTime(249));
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
     await act(async () => vi.advanceTimersByTime(1));
@@ -111,7 +114,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(within(titlePreview).getByTestId("quest-feed-title-preview-status")).toHaveTextContent("Refined");
     expect(screen.queryByRole("dialog")).toBeNull();
 
-    fireEvent.pointerLeave(link, { pointerType: "mouse" });
+    fireEvent.pointerLeave(icon, { pointerType: "mouse" });
     await act(async () => vi.advanceTimersByTime(100));
     expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
     await act(async () => vi.advanceTimersByTime(50));
@@ -128,9 +131,9 @@ describe("QuestInlineLink chat-feed preview", () => {
     mockGetQuestValidated.mockReturnValueOnce(request.promise);
     renderFeedLink("q-430");
 
-    fireEvent.pointerEnter(screen.getByRole("link", { name: "q-430" }), {
+    fireEvent.pointerEnter(questLinkIcon("q-430"), {
       pointerType: "mouse",
-      clientX: 120,
+      clientX: 198,
       clientY: 110,
     });
     await act(async () => vi.advanceTimersByTime(250));
@@ -224,46 +227,77 @@ describe("QuestInlineLink chat-feed preview", () => {
   it("closes immediately when pointer travel enters another interactive control", async () => {
     renderFeedLink("q-76", { title: "Adjacent control title", nextControl: true });
     const link = screen.getByRole("link", { name: "q-76" });
+    const icon = questLinkIcon("q-76");
     const nextControl = screen.getByRole("button", { name: "Next control" });
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    fireEvent.pointerEnter(icon, { pointerType: "mouse", clientX: 198, clientY: 110 });
     await act(async () => vi.advanceTimersByTime(250));
     expect(screen.getByTestId("quest-feed-title-preview")).toBeVisible();
-
-    fireEvent.pointerLeave(link, { pointerType: "mouse", relatedTarget: nextControl });
-
+    fireEvent.pointerLeave(icon, { pointerType: "mouse", relatedTarget: nextControl });
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
+
+    await hoverQuestLinkForPreview("q-76");
+    expect(screen.getByRole("dialog", { name: "Adjacent control title" })).toBeInTheDocument();
+    fireEvent.pointerLeave(link, { pointerType: "mouse", relatedTarget: nextControl });
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("opens rich detail immediately from fine-pointer eye hover without title duplication or focus theft", async () => {
-    renderFeedLink("q-53", { title: "Immediate button title" });
+  it("opens rich detail from fine-pointer link hover after the dwell, without title duplication or focus theft", async () => {
+    renderFeedLink("q-53", { title: "Link hover detail" });
     const link = screen.getByRole("link", { name: "q-53" });
-    const preview = screen.getByRole("button", { name: /Preview q-53/ });
+    const icon = questLinkIcon("q-53");
     link.focus();
     fireEvent.focus(link);
     expect(screen.getByTestId("quest-feed-title-preview")).toBeVisible();
 
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
-    await act(async () => Promise.resolve());
+    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    await act(async () => vi.advanceTimersByTime(249));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => vi.advanceTimersByTime(1));
 
-    const dialog = screen.getByRole("dialog", { name: "Immediate button title" });
+    const dialog = screen.getByRole("dialog", { name: "Link hover detail" });
     expect(dialog).toHaveAttribute("data-open-mode", "hover");
     expect(dialog).toHaveAttribute("aria-modal", "false");
+    // Placed like the legacy quest hover card: just below the link, left-aligned with it.
+    expect(dialog).toHaveStyle({ left: "100px", top: "126px" });
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
     expect(document.activeElement).toBe(link);
-    expect(preview).toHaveAttribute("aria-expanded", "true");
+    // The icon's popup is the explicit preview; the link's hover card is not it.
+    expect(icon).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("quest-feed-link-hit-proxy")).toBeNull();
     expect(screen.queryByTestId("quest-feed-preview-hit-proxy")).toBeNull();
   });
 
-  it("keeps hover-owned rich detail through eye-to-card travel grace, then closes after leaving both", async () => {
-    renderFeedLink("q-79", { title: "Hover travel detail" });
-    const preview = screen.getByRole("button", { name: /Preview q-79/ });
+  it("cancels the link's hover dwell when the pointer leaves or presses the link", async () => {
+    // A click on the link opens the quest view; the hover card must not open over it afterwards.
+    const openQuestOverlay = vi.fn();
+    useStore.setState({ openQuestOverlay });
+    renderFeedLink("q-59", { title: "Cancelled dwell" });
+    const link = screen.getByRole("link", { name: "q-59" });
 
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
-    await act(async () => Promise.resolve());
+    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    await act(async () => vi.advanceTimersByTime(200));
+    fireEvent.pointerLeave(link, { pointerType: "mouse" });
+    await act(async () => vi.advanceTimersByTime(300));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    await act(async () => vi.advanceTimersByTime(200));
+    fireEvent.pointerDown(link, { pointerType: "mouse" });
+    fireEvent.click(link, { detail: 1 });
+    await act(async () => vi.advanceTimersByTime(300));
+    expect(openQuestOverlay).toHaveBeenCalledWith("q-59");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps hover-owned rich detail through link-to-card travel grace, then closes after leaving both", async () => {
+    renderFeedLink("q-79", { title: "Hover travel detail" });
+    const link = screen.getByRole("link", { name: "q-79" });
+
+    await hoverQuestLinkForPreview("q-79");
     const dialog = screen.getByRole("dialog", { name: "Hover travel detail" });
 
-    fireEvent.pointerLeave(preview, { pointerType: "mouse", relatedTarget: null });
+    fireEvent.pointerLeave(link, { pointerType: "mouse", relatedTarget: null });
     await act(async () => vi.advanceTimersByTime(100));
     expect(screen.getByRole("dialog", { name: "Hover travel detail" })).toBe(dialog);
 
@@ -276,69 +310,86 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.getByRole("dialog", { name: "Hover travel detail" })).toBe(dialog);
     await act(async () => vi.advanceTimersByTime(1));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(preview).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("swaps the link's full preview for the icon's title card when the pointer moves onto the icon", async () => {
+    renderFeedLink("q-83", { title: "Swapped hover" });
+    const link = screen.getByRole("link", { name: "q-83" });
+    const icon = questLinkIcon("q-83");
+
+    await hoverQuestLinkForPreview("q-83");
+    expect(screen.getByRole("dialog", { name: "Swapped hover" })).toBeInTheDocument();
+    fireEvent.pointerLeave(link, { pointerType: "mouse", relatedTarget: icon });
+    fireEvent.pointerEnter(icon, { pointerType: "mouse", clientX: 198, clientY: 110 });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => vi.advanceTimersByTime(250));
+    expect(screen.getByTestId("quest-feed-title-preview")).toHaveTextContent("Swapped hover");
+
+    fireEvent.pointerLeave(icon, { pointerType: "mouse", relatedTarget: link });
+    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    await act(async () => vi.advanceTimersByTime(250));
+    expect(screen.getByRole("dialog", { name: "Swapped hover" })).toHaveAttribute("data-open-mode", "hover");
+    expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
   });
 
   it("restores a surviving text-link focus title after hover-owned rich detail closes", async () => {
     renderFeedLink("q-86", { title: "Retained link focus" });
     const link = screen.getByRole("link", { name: "q-86" });
-    const preview = screen.getByRole("button", { name: /Preview q-86/ });
     link.focus();
     fireEvent.focus(link);
     expect(screen.getByTestId("quest-feed-title-preview")).toBeVisible();
 
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-86");
     expect(screen.getByRole("dialog", { name: "Retained link focus" })).toHaveAttribute("data-open-mode", "hover");
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
     expect(document.activeElement).toBe(link);
 
-    fireEvent.pointerLeave(preview, { pointerType: "mouse", relatedTarget: null });
+    fireEvent.pointerLeave(link, { pointerType: "mouse", relatedTarget: null });
     await act(async () => vi.advanceTimersByTime(150));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByTestId("quest-feed-title-preview")).toHaveTextContent("Retained link focus");
     expect(document.activeElement).toBe(link);
   });
 
-  it("dismisses hover-owned rich detail with Escape and does not reopen until the eye is exited", async () => {
+  it("dismisses hover-owned rich detail with Escape and does not reopen until the link is exited", async () => {
     renderFeedLink("q-85", { title: "Escape hover detail" });
-    const preview = screen.getByRole("button", { name: /Preview q-85/ });
+    const link = screen.getByRole("link", { name: "q-85" });
 
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-85");
     expect(screen.getByRole("dialog", { name: "Escape hover detail" })).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-85");
     expect(screen.queryByRole("dialog")).toBeNull();
 
-    fireEvent.pointerLeave(preview, { pointerType: "mouse" });
+    fireEvent.pointerLeave(link, { pointerType: "mouse" });
     await act(async () => vi.advanceTimersByTime(150));
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-85");
     expect(screen.getByRole("dialog", { name: "Escape hover detail" })).toBeInTheDocument();
   });
 
-  it("promotes an eye-hover preview to explicit ownership without restarting hydration or replacing the dialog", async () => {
+  it("promotes a link-hover preview to explicit ownership without restarting hydration or replacing the dialog", async () => {
+    // A quest with no thread: Enter on the icon opens the preview, here the one the link hover shows.
     const request = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
     const loaded = quest({ questId: "q-80", title: "Promoted hover detail", tldr: "Loaded once" });
     mockGetQuestValidated.mockReturnValueOnce(request.promise);
     renderFeedLink("q-80");
     const preview = screen.getByRole("button", { name: "Preview q-80" });
 
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
+    await hoverQuestLinkForPreview("q-80");
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("data-open-mode", "hover");
     expect(preview).toHaveAttribute("data-rich-open-mode", "hover");
     expect(mockGetQuestValidated).toHaveBeenCalledTimes(1);
 
-    fireEvent.pointerDown(preview, { pointerType: "mouse" });
-    fireEvent.click(preview, { detail: 1 });
+    preview.focus();
+    fireEvent.keyDown(preview, { key: "Enter" });
+    fireEvent.click(preview, { detail: 0 });
     expect(screen.getByRole("dialog")).toBe(dialog);
     expect(dialog).toHaveAttribute("data-open-mode", "explicit");
     expect(preview).toHaveAttribute("data-rich-open-mode", "explicit");
+    expect(preview).toHaveAttribute("aria-expanded", "true");
     expect(mockGetQuestValidated).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(dialog);
 
@@ -354,7 +405,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     mockGetQuestValidated.mockReturnValueOnce(request.promise);
     const link = screen.getByRole("link", { name: "q-54" });
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    fireEvent.pointerEnter(questLinkIcon("q-54"), { pointerType: "mouse", clientX: 198, clientY: 110 });
     await act(async () => vi.advanceTimersByTime(250));
     expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
     await act(async () => request.reject(new Error("not found")));
@@ -381,31 +432,31 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
   });
 
-  it("closes the hover title after the clicked link's quest view was closed with Escape", async () => {
+  it("closes the hover preview after the clicked link's quest view was closed with Escape", async () => {
     // The reported stuck card: clicking the link focuses it (Chrome focuses links on mouse-down), the
     // quest view opens without taking focus, and Escape closes it, so the link keeps that click focus.
-    // Hovering the link again then opened a title card that leaving never closed, because the click
-    // focus counted as keyboard focus holding the card open.
+    // Hovering the link again then opened a card that leaving never closed, because the click focus
+    // counted as keyboard focus holding the card open.
     renderFeedLink("q-46", { title: "Reopened after the quest view" });
     const link = screen.getByRole("link", { name: "q-46" });
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
-    await act(async () => vi.advanceTimersByTime(250));
-    expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
+    await hoverQuestLinkForPreview("q-46");
+    expect(screen.getByRole("dialog", { name: "Reopened after the quest view" })).toBeInTheDocument();
     fireEvent.pointerDown(link, { pointerType: "mouse" });
     act(() => link.focus());
     fireEvent.click(link, { detail: 1 });
     expect(useStore.getState().questOverlayId).toBe("q-46");
+    expect(screen.queryByRole("dialog")).toBeNull();
     act(() => useStore.getState().closeQuestOverlay());
     await act(async () => vi.runOnlyPendingTimers());
     fireEvent.pointerLeave(link, { pointerType: "mouse" });
     expect(document.activeElement).toBe(link);
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
-    await act(async () => vi.advanceTimersByTime(250));
-    expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
+    await hoverQuestLinkForPreview("q-46");
+    expect(screen.getByRole("dialog", { name: "Reopened after the quest view" })).toBeInTheDocument();
     fireEvent.pointerLeave(link, { pointerType: "mouse" });
     await act(async () => vi.advanceTimersByTime(150));
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
   });
 
@@ -461,64 +512,61 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(document.activeElement).toBe(dialog);
   });
 
-  it("restarts the full 250 ms source dwell after leaving during arming", async () => {
+  it("restarts the full 250 ms icon dwell after leaving during arming", async () => {
     renderFeedLink("q-72", { title: "Fresh dwell title" });
-    const link = screen.getByRole("link", { name: "q-72" });
+    const icon = questLinkIcon("q-72");
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    fireEvent.pointerEnter(icon, { pointerType: "mouse", clientX: 198, clientY: 110 });
     await act(async () => vi.advanceTimersByTime(249));
-    fireEvent.pointerLeave(link, { pointerType: "mouse" });
+    fireEvent.pointerLeave(icon, { pointerType: "mouse" });
     await act(async () => vi.advanceTimersByTime(50));
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 121, clientY: 110 });
+    fireEvent.pointerEnter(icon, { pointerType: "mouse", clientX: 199, clientY: 110 });
     await act(async () => vi.advanceTimersByTime(249));
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
     await act(async () => vi.advanceTimersByTime(1));
     expect(screen.getByTestId("quest-feed-title-preview")).toBeVisible();
   });
 
-  it("rescales wrapped-link placement from the latest fine-pointer fragment", async () => {
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
+  it("opens the hover preview under the wrapped link's line the pointer is on", async () => {
     setGeometryFixture({
       ...geometryFixture,
-      sourceRects: [domRect(20, 20, 70, 18), domRect(20, 70, 70, 18)],
-      previewRect: domRect(240, 300, 70, 28),
-      microRect: domRect(0, 0, 180, 54),
+      sourceRects: [domRect(300, 20, 400, 18), domRect(20, 42, 70, 18)],
+      previewRect: domRect(94, 39, 26, 26),
     });
-    renderFeedLink("q-77", { title: "Wrapped pointer title" });
+    renderFeedLink("q-77", { title: "Wrapped pointer detail" });
     const link = screen.getByRole("link", { name: "q-77" });
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 55, clientY: 29 });
+    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 400, clientY: 29 });
+    // The pointer settles on the second line before the dwell ends.
+    fireEvent.pointerMove(link, { pointerType: "mouse", clientX: 55, clientY: 51 });
     await act(async () => vi.advanceTimersByTime(250));
-    let title = screen.getByTestId("quest-feed-title-preview");
-    expect(title).toHaveAttribute("data-placement", "block-start");
-    expect(title).toHaveStyle({ left: "130px", top: "240px" });
+    expect(screen.getByRole("dialog", { name: "Wrapped pointer detail" })).toHaveStyle({ left: "20px", top: "66px" });
 
-    fireEvent.pointerMove(link, { pointerType: "mouse", clientX: 55, clientY: 79 });
-    title = screen.getByTestId("quest-feed-title-preview");
-    expect(title).toHaveAttribute("data-placement", "inline-start");
-    expect(title).toHaveStyle({ left: "54px", top: "274px" });
+    fireEvent.pointerLeave(link, { pointerType: "mouse" });
+    await act(async () => vi.advanceTimersByTime(150));
+    await hoverQuestLinkForPreview("q-77", { clientX: 400, clientY: 29 });
+    expect(screen.getByRole("dialog", { name: "Wrapped pointer detail" })).toHaveStyle({ left: "300px", top: "44px" });
   });
 
   it("suppresses Escape re-open until pointer and focus leave", async () => {
     renderFeedLink("q-45", { title: "Escape title" });
-    const link = screen.getByRole("link", { name: "q-45" });
+    const icon = questLinkIcon("q-45");
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    fireEvent.pointerEnter(icon, { pointerType: "mouse", clientX: 198, clientY: 110 });
     await act(async () => vi.advanceTimersByTime(250));
     expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 121, clientY: 110 });
+    fireEvent.pointerEnter(icon, { pointerType: "mouse", clientX: 199, clientY: 110 });
     await act(async () => vi.advanceTimersByTime(300));
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
 
-    fireEvent.pointerLeave(link, { pointerType: "mouse" });
+    fireEvent.pointerLeave(icon, { pointerType: "mouse" });
     await act(async () => vi.advanceTimersByTime(150));
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 122, clientY: 110 });
+    fireEvent.pointerEnter(icon, { pointerType: "mouse", clientX: 200, clientY: 110 });
     await act(async () => vi.advanceTimersByTime(250));
     expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
   });
@@ -549,7 +597,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.getByText("Second title")).toBeInTheDocument();
   });
 
-  it("lets a second eye hover replace hover-owned rich detail across feed links", async () => {
+  it("lets a second link hover replace hover-owned rich detail across feed links", async () => {
     const first = quest({ questId: "q-81", title: "First hover detail" });
     const second = quest({ questId: "q-82", title: "Second hover detail" });
     useStore.setState({
@@ -569,14 +617,10 @@ describe("QuestInlineLink chat-feed preview", () => {
         <QuestInlineLink questId="q-82" surface="chat-feed" />
       </div>,
     );
-    const [firstEye, secondEye] = screen.getAllByRole("button", { name: /Preview q-8/ });
-
-    fireEvent.pointerEnter(firstEye, { pointerType: "mouse", clientX: 198, clientY: 110 });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-81");
     expect(screen.getByRole("dialog", { name: "First hover detail" })).toBeInTheDocument();
 
-    fireEvent.pointerEnter(secondEye, { pointerType: "mouse", clientX: 198, clientY: 110 });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-82");
     expect(screen.queryByRole("dialog", { name: "First hover detail" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "Second hover detail" })).toHaveAttribute("data-open-mode", "hover");
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
@@ -674,9 +718,9 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(within(dialog).queryByRole("alert")).toBeNull();
   });
 
-  it("reuses the established full quest preview content inside the eye-owned dialog", async () => {
-    // Feedback #16 requires the eye surface to share the established hover-card
-    // sections rather than retaining the reduced summary-only duplicate.
+  it("reuses the established full quest preview content inside the link-hover dialog", async () => {
+    // The feed preview shares the established hover-card sections rather than a reduced
+    // summary-only duplicate.
     const completedAt = Date.now() - 10 * 60 * 1000;
     const completed = quest({
       questId: "q-480",
@@ -734,12 +778,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"complete"' });
     renderFeedLink("q-480");
 
-    fireEvent.pointerEnter(screen.getByRole("button", { name: /Preview q-480/ }), {
-      pointerType: "mouse",
-      clientX: 198,
-      clientY: 110,
-    });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-480");
 
     const dialog = screen.getByRole("dialog", { name: "Completed full preview" });
     expect(dialog).toHaveAttribute("data-open-mode", "hover");
@@ -839,18 +878,20 @@ describe("QuestInlineLink chat-feed preview", () => {
     const link = screen.getByRole("link", { name: "q-51" });
     const preview = screen.getByRole("button", { name: /Preview q-51/ });
 
-    fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
     await act(async () => vi.advanceTimersByTime(250));
     expect(screen.getByTestId("quest-feed-title-preview")).toBeVisible();
-    fireEvent.pointerLeave(link, { pointerType: "mouse" });
+    fireEvent.pointerLeave(preview, { pointerType: "mouse" });
     await act(async () => vi.advanceTimersByTime(150));
 
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-51");
     let dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("data-open-mode", "hover");
     expect(dialog).toHaveAttribute("aria-modal", "false");
     expect(dialog).not.toHaveAttribute("data-surface", "bottom-sheet");
+    fireEvent.pointerLeave(link, { pointerType: "mouse" });
+    await act(async () => vi.advanceTimersByTime(150));
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     fireEvent.pointerDown(preview, { pointerType: "touch" });
     await act(async () => vi.advanceTimersByTime(500));
@@ -1093,9 +1134,9 @@ describe("QuestInlineLink chat-feed preview", () => {
     });
     renderFeedLink("q-60", { title: "Rendered zoom title" });
 
-    fireEvent.pointerEnter(screen.getByRole("link", { name: "q-60" }), {
+    fireEvent.pointerEnter(questLinkIcon("q-60"), {
       pointerType: "mouse",
-      clientX: 280,
+      clientX: 370,
       clientY: 110,
     });
     await act(async () => vi.advanceTimersByTime(250));
@@ -1296,9 +1337,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     });
     renderFeedLink("q-680", { title: "Responsive legacy hover" });
 
-    const preview = screen.getByRole("button", { name: /Preview q-680/ });
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 345, clientY: 106 });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-680", { clientX: 280, clientY: 110 });
 
     const dialog = screen.getByRole("dialog", { name: "Responsive legacy hover" });
     expect(dialog).toHaveAttribute("data-open-mode", "hover");
@@ -1312,61 +1351,65 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(renderedTop + Number.parseFloat(dialog.style.maxHeight) * 2).toBeLessThanOrEqual(15 + 500 - 8);
   });
 
-  it("reuses legacy eye-relative hover placement even when the top-clamped card covers the eye", async () => {
+  it("keeps the link and the icon reachable where the top-clamped hover card covers them", async () => {
+    // The card is placed like the legacy quest hover card, which may cover its own link when the
+    // viewport is short. Pointer-only bridges above the card keep the covered link opening the quest
+    // and the covered icon showing its title card and jumping, instead of the card eating the click.
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
     setGeometryFixture({
       ...geometryFixture,
-      sourceRects: [domRect(100, 110, 600, 280)],
-      previewRect: domRect(710, 235, 26, 26),
+      sourceRects: [domRect(100, 235, 100, 20)],
+      previewRect: domRect(204, 232, 26, 26),
       richRect: domRect(0, 0, 560, 400),
     });
     renderFeedLink("q-84", { title: "Overlapping legacy hover detail" });
-    const preview = screen.getByRole("button", { name: /Preview q-84/ });
+    const link = screen.getByRole("link", { name: "q-84" });
+    const icon = questLinkIcon("q-84");
 
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 720, clientY: 245 });
-    await act(async () => Promise.resolve());
-
+    await hoverQuestLinkForPreview("q-84", { clientX: 150, clientY: 245 });
     const dialog = screen.getByRole("dialog", { name: "Overlapping legacy hover detail" });
     expect(dialog).toHaveAttribute("data-open-mode", "hover");
     expect(dialog).toHaveAttribute("data-surface", "popover");
-    expect(dialog).toHaveAttribute("aria-modal", "false");
-    expect(dialog).toHaveStyle({ left: "232px", top: "8px" });
-    const placedLeft = Number.parseFloat(dialog.style.left);
-    const placedTop = Number.parseFloat(dialog.style.top);
-    expect(placedLeft).toBeLessThan(geometryFixture.previewRect.right);
-    expect(placedLeft + geometryFixture.richRect.width).toBeGreaterThan(geometryFixture.previewRect.left);
-    expect(placedTop).toBeLessThan(geometryFixture.previewRect.bottom);
-    expect(placedTop + geometryFixture.richRect.height).toBeGreaterThan(geometryFixture.previewRect.top);
+    expect(dialog).toHaveStyle({ left: "100px", top: "8px" });
     expect(screen.queryByTestId("quest-feed-rich-backdrop")).toBeNull();
-    expect(preview).toHaveAttribute("aria-expanded", "true");
 
-    const hitProxy = screen.getByTestId("quest-feed-preview-hit-proxy");
-    expect(hitProxy).toHaveAttribute("aria-hidden", "true");
-    expect(hitProxy).not.toHaveAttribute("role");
-    expect(hitProxy).toHaveStyle({ left: "710px", top: "235px", width: "26px", height: "26px" });
+    const linkProxy = screen.getByTestId("quest-feed-link-hit-proxy");
+    const iconProxy = screen.getByTestId("quest-feed-preview-hit-proxy");
+    for (const proxy of [linkProxy, iconProxy]) {
+      expect(proxy).toHaveAttribute("aria-hidden", "true");
+      expect(proxy).not.toHaveAttribute("role");
+    }
+    expect(linkProxy).toHaveStyle({ left: "100px", top: "235px", width: "100px", height: "20px" });
+    expect(iconProxy).toHaveStyle({ left: "204px", top: "232px", width: "26px", height: "26px" });
 
-    fireEvent.pointerLeave(preview, { pointerType: "mouse", relatedTarget: hitProxy });
-    fireEvent.pointerEnter(hitProxy, { pointerType: "mouse", clientX: 720, clientY: 245 });
+    fireEvent.pointerLeave(link, { pointerType: "mouse", relatedTarget: linkProxy });
+    fireEvent.pointerEnter(linkProxy, { pointerType: "mouse", clientX: 150, clientY: 245 });
     await act(async () => vi.advanceTimersByTime(150));
-    expect(screen.getByRole("dialog", { name: "Overlapping legacy hover detail" })).toHaveAttribute(
-      "data-open-mode",
-      "hover",
-    );
+    expect(screen.getByRole("dialog", { name: "Overlapping legacy hover detail" })).toBe(dialog);
 
-    fireEvent.pointerDown(hitProxy, { pointerType: "mouse" });
-    expect(screen.getByTestId("quest-feed-preview-hit-proxy")).toBe(hitProxy);
-    expect(screen.getByRole("dialog", { name: "Overlapping legacy hover detail" })).toHaveAttribute(
-      "data-open-mode",
-      "hover",
-    );
-    fireEvent.pointerUp(hitProxy, { pointerType: "mouse" });
-    fireEvent.click(hitProxy, { detail: 1 });
+    // Moving onto the covered icon swaps the card for the icon's title card.
+    fireEvent.pointerLeave(linkProxy, { pointerType: "mouse", relatedTarget: iconProxy });
+    fireEvent.pointerEnter(iconProxy, { pointerType: "mouse", clientX: 214, clientY: 245 });
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByTestId("quest-feed-preview-hit-proxy")).toBeNull();
-    expect(screen.getByRole("dialog", { name: "Overlapping legacy hover detail" })).toHaveAttribute(
-      "data-open-mode",
-      "explicit",
-    );
+    await act(async () => vi.advanceTimersByTime(250));
+    expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
+    fireEvent.pointerLeave(icon, { pointerType: "mouse" });
+    await act(async () => vi.advanceTimersByTime(150));
+
+    // A click on the covered link opens the quest, as a click on the link does.
+    await hoverQuestLinkForPreview("q-84", { clientX: 150, clientY: 245 });
+    const proxy = screen.getByTestId("quest-feed-link-hit-proxy");
+    fireEvent.pointerDown(proxy, { pointerType: "mouse" });
+    expect(screen.getByTestId("quest-feed-link-hit-proxy")).toBe(proxy);
+    fireEvent.pointerUp(proxy, { pointerType: "mouse" });
+    const openQuestOverlay = vi.fn();
+    useStore.setState({ openQuestOverlay });
+    fireEvent.click(proxy, { detail: 1 });
+    expect(openQuestOverlay).toHaveBeenCalledWith("q-84");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByTestId("quest-feed-link-hit-proxy")).toBeNull();
   });
 
   it("restores focused-link title intent after leaving an overlapping hover card", async () => {
@@ -1374,24 +1417,22 @@ describe("QuestInlineLink chat-feed preview", () => {
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
     setGeometryFixture({
       ...geometryFixture,
-      sourceRects: [domRect(100, 110, 600, 280)],
-      previewRect: domRect(710, 235, 26, 26),
+      sourceRects: [domRect(100, 235, 100, 20)],
+      previewRect: domRect(204, 232, 26, 26),
       richRect: domRect(0, 0, 560, 400),
     });
     renderFeedLink("q-88", { title: "Focused overlap recovery" });
     const link = screen.getByRole("link", { name: "q-88" });
-    const preview = screen.getByRole("button", { name: /Preview q-88/ });
     link.focus();
     fireEvent.focus(link);
     expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
 
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 720, clientY: 245 });
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-88", { clientX: 150, clientY: 245 });
     const dialog = screen.getByRole("dialog", { name: "Focused overlap recovery" });
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
     expect(document.activeElement).toBe(link);
 
-    fireEvent.pointerLeave(preview, { pointerType: "mouse", relatedTarget: dialog });
+    fireEvent.pointerLeave(link, { pointerType: "mouse", relatedTarget: dialog });
     fireEvent.pointerEnter(dialog, { pointerType: "mouse" });
     await act(async () => vi.advanceTimersByTime(150));
     expect(screen.getByRole("dialog", { name: "Focused overlap recovery" })).toBe(dialog);
@@ -1478,7 +1519,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     renderFeedLink("q-63");
     const preview = screen.getByRole("button", { name: "Preview q-63: New canonical title" });
 
-    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 210, clientY: 110 });
+    await hoverQuestLinkForPreview("q-63");
     expect(screen.getByRole("dialog", { name: "New canonical title" })).toHaveAttribute("data-open-mode", "hover");
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
     fireEvent.click(preview, { detail: 0 });

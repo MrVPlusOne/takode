@@ -182,7 +182,7 @@ describe("producer-shaped chat feed quest preview", () => {
     observer.disconnect();
   });
 
-  it("slides fine-pointer text hover around dense transition controls without replacing the native link", async () => {
+  it("slides the fine-pointer icon-hover title around dense transition controls without replacing the native link", async () => {
     vi.useFakeTimers();
     const cached = quest("q-67", "Dense transition hover title");
     useStore.setState({
@@ -221,7 +221,7 @@ describe("producer-shaped chat feed quest preview", () => {
     selection.addRange(range);
     const selectedText = selection.toString();
 
-    fireEvent.pointerEnter(anchor, { pointerType: "mouse", clientX: 620, clientY: 725 });
+    fireEvent.pointerEnter(eye, { pointerType: "mouse", clientX: 657, clientY: 727 });
     await act(async () => {
       vi.advanceTimersByTime(250);
       await Promise.resolve();
@@ -246,7 +246,8 @@ describe("producer-shaped chat feed quest preview", () => {
     vi.runOnlyPendingTimers();
   });
 
-  it("keeps producer-rendered eye hover usable around inert and hidden dense controls", async () => {
+  it("keeps producer-rendered link hover usable around inert and hidden dense controls", async () => {
+    vi.useFakeTimers();
     const cached = quest("q-65", "Dense producer detail");
     useStore.setState({
       questDetails: new Map([["q-65", cached]]),
@@ -277,13 +278,21 @@ describe("producer-shaped chat feed quest preview", () => {
     expect(eye).toHaveTextContent("");
     expect(eye.querySelector("svg[aria-hidden='true']")).toBeInTheDocument();
 
-    fireEvent.pointerEnter(eye, { pointerType: "mouse", clientX: 205, clientY: 110 });
-    await act(async () => Promise.resolve());
+    fireEvent.pointerEnter(screen.getByRole("link", { name: "q-65" }), {
+      pointerType: "mouse",
+      clientX: 140,
+      clientY: 110,
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await Promise.resolve();
+    });
 
     const dialog = screen.getByRole("dialog", { name: "Dense producer detail" });
     expect(dialog).toHaveAttribute("data-open-mode", "hover");
     expect(dialog).toHaveAttribute("data-surface", "popover");
     expect(document.activeElement).not.toBe(dialog);
+    vi.runOnlyPendingTimers();
   });
 
   it("preserves a visible focusable producer control as a rich-placement exclusion", async () => {

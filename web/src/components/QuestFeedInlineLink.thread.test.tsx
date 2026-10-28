@@ -9,7 +9,8 @@ import { api } from "../api.js";
 import { useStore } from "../store.js";
 import {
   quest,
-  hoverThreadIcon,
+  hoverQuestLinkForPreview,
+  questLinkIcon,
   renderFeedLink,
   setUpQuestFeedLinkTest,
   tearDownQuestFeedLinkTest,
@@ -74,8 +75,7 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     });
     renderFeedLink("q-490", { feedbackIndex: 0 });
 
-    hoverThreadIcon("q-490");
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-490");
 
     const dialog = screen.getByRole("dialog", { name: "Leader thread jump" });
     const primary = within(dialog).getByTestId("quest-feed-primary-action");
@@ -133,8 +133,7 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     });
     renderFeedLink("q-493");
 
-    hoverThreadIcon("q-493");
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-493");
 
     const dialog = screen.getByRole("dialog", {
       name: "Unloaded leader route",
@@ -181,8 +180,7 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     });
     renderFeedLink("q-491");
 
-    hoverThreadIcon("q-491");
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-491");
 
     const dialog = screen.getByRole("dialog", {
       name: "Herded worker leader fallback",
@@ -223,8 +221,7 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"dispatched"' });
     renderFeedLink("q-495");
 
-    hoverThreadIcon("q-495");
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-495");
 
     const dialog = screen.getByRole("dialog", { name: "Freshly dispatched quest" });
     expect(within(dialog).getByRole("link", { name: "Open Thread #7495" })).toHaveAttribute(
@@ -263,8 +260,7 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     });
     renderFeedLink("q-492");
 
-    hoverThreadIcon("q-492");
-    await act(async () => Promise.resolve());
+    await hoverQuestLinkForPreview("q-492");
 
     const dialog = screen.getByRole("dialog", { name: "Leader-only quest" });
     const worker = within(dialog).getByTestId("quest-open-worker");
@@ -335,22 +331,25 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     expect(onSessionNavigate).toHaveBeenCalledTimes(1);
   });
 
-  it("jumps from a hover preview and from a phone tap, where the icon is the way to the thread", async () => {
-    // Hovering the icon first opens the preview; clicking the icon then still jumps rather than
-    // pinning the preview. On a phone the tap goes to the thread too, while a tap on the link text
-    // keeps opening the preview sheet.
+  it("jumps from a hovered icon, where only the title card shows, and from a phone tap", async () => {
+    // The user's report: hovering the icon opened the full preview, which blocked the click on the
+    // icon. Hovering the icon now shows only the title card, which takes no clicks, so the click
+    // jumps. On a phone the tap goes to the thread too, while a tap on the link text keeps opening
+    // the preview sheet.
     const cached = quest({ questId: "q-497", title: "Touch jump target", leaderSessionId: "leader-497" });
     useStore.setState({ questDetails: new Map([["q-497", cached]]) });
     mockGetQuestValidated.mockResolvedValue({ status: "not-modified", etag: '"touch-jump"' });
     renderFeedLink("q-497");
 
-    hoverThreadIcon("q-497");
-    await act(async () => Promise.resolve());
-    expect(screen.getByRole("dialog", { name: "Touch jump target" })).toHaveAttribute("data-open-mode", "hover");
-    fireEvent.click(screen.getByRole("button", { name: /^Open the q-497 thread/ }));
+    fireEvent.pointerEnter(questLinkIcon("q-497"), { pointerType: "mouse", clientX: 198, clientY: 110 });
+    await act(async () => vi.advanceTimersByTime(250));
+    expect(screen.getByTestId("quest-feed-title-preview")).toHaveClass("pointer-events-none");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.pointerDown(questLinkIcon("q-497"), { pointerType: "mouse" });
+    fireEvent.click(screen.getByRole("button", { name: /^Open the q-497 thread/ }), { detail: 1 });
     // An unlisted leader has no number yet, so the route names it by ID.
     expect(window.location.hash).toBe("#/session/leader-497?thread=q-497");
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
 
     // Back outside the thread (inside it the icon would preview instead).
     act(() => {

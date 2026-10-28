@@ -54,7 +54,7 @@ import {
   type PreviewRect,
 } from "./quest-feed-preview-geometry.js";
 
-const MICRO_ARM_MS = 250;
+const HOVER_ARM_MS = 250;
 const MICRO_LEAVE_GRACE_MS = 150;
 const TITLE_LOGICAL_WIDTH_PX = 320;
 const RICH_LOGICAL_WIDTH_PX = 560;
@@ -95,10 +95,17 @@ function selectQuestThreadLeaderId(state: AppState, questId: string): string | n
 }
 
 type PreviewPhase = "idle" | "arming" | "micro" | "rich-loading" | "rich-ready" | "rich-error";
-type ControlKey = "link" | "preview" | "preview-proxy" | "rich";
+type ControlKey = "link" | "preview" | "link-proxy" | "rich";
 type RichOpenMode = "hover" | "explicit";
 type RichPlacement =
-  | ({ kind: "popover"; width: number; maxHeight: number; hoverActivationRect?: PreviewRect } & PreviewPlacement)
+  | ({
+      kind: "popover";
+      width: number;
+      maxHeight: number;
+      /** Where the hover card covers the hovered link fragment or the icon, which then stay reachable. */
+      linkBridgeRect?: PreviewRect;
+      iconBridgeRect?: PreviewRect;
+    } & PreviewPlacement)
   | {
       kind: "side-sheet";
       edge: "left" | "right" | "top" | "bottom";
@@ -162,6 +169,26 @@ function placementCoversRect(
     placement.top < target.bottom &&
     placement.top + layerSize.height > target.top
   );
+}
+
+/** The index of the rect (a wrapped link's line) nearest to the point, or 0 when there are none. */
+function nearestRectIndex(rects: readonly PreviewRect[], point: PreviewPoint): number {
+  let best = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const [index, rect] of rects.entries()) {
+    const dx = Math.max(rect.left - point.x, point.x - rect.right, 0);
+    const dy = Math.max(rect.top - point.y, point.y - rect.bottom, 0);
+    const distance = Math.hypot(dx, dy);
+    if (distance < bestDistance) {
+      best = index;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function hitProxyStyle(rect: PreviewRect) {
+  return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
 }
 
 function sameMicroPlacement(a: PreviewPlacement | null | undefined, b: PreviewPlacement | null | undefined): boolean {
@@ -305,7 +332,6 @@ export function QuestFeedInlineLink({
   const previewRef = useRef<HTMLButtonElement>(null);
   const microRef = useRef<HTMLDivElement>(null);
   const richRef = useRef<HTMLDivElement>(null);
-  const hoverActivationProxyRef = useRef<HTMLSpanElement>(null);
   const phaseRef = useRef<PreviewPhase>("idle");
   const [phase, setPhaseState] = useState<PreviewPhase>("idle");
   const [microPlacement, setMicroPlacement] = useState<PreviewPlacement | null | undefined>(undefined);
@@ -337,6 +363,10 @@ export function QuestFeedInlineLink({
   const focusTargetsRef = useRef(new Set<ControlKey>());
   const pointerFocusedRef = useRef(new Set<ControlKey>());
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const richArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The last fine-pointer position on the link, and the line of a wrapped link the hover card sits under.
+  const linkPointerRef = useRef<PreviewPoint | null>(null);
+  const hoverAnchorIndexRef = useRef(0);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusSuppressionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerFocusSuppressedRef = useRef(false);
@@ -353,6 +383,7 @@ export function QuestFeedInlineLink({
   const pointerGeometryFrameRef = useRef<number | null>(null);
   const closeAllRef = useRef<(returnFocus?: boolean, dismissalModality?: string) => void>(() => {});
   const initialHashRef = useRef(hash);
+  const hitProxySelector = `[data-quest-feed-preview-hit-proxy][data-preview-owner="${dialogId}"]`;
 
   const syncPreviewColor = useCallback(() => {
     const link = linkRef.current;
@@ -396,6 +427,7 @@ export function QuestFeedInlineLink({
       epochRef.current += 1;
       hydrationEpochRef.current = null;
       clearTimer(armTimerRef);
+      clearTimer(richArmTimerRef);
       clearTimer(leaveTimerRef);
       if (pointerGeometryFrameRef.current != null && pointerGeometryFrameRef.current >= 0) {
         cancelAnimationFrame(pointerGeometryFrameRef.current);
@@ -411,7 +443,7 @@ export function QuestFeedInlineLink({
       setRichPlacement(null);
       setRichError(null);
       setValidatedRichQuest(null);
-      hoverTargetsRef.current.delete("preview-proxy");
+      hoverTargetsRef.current.delete("link-proxy");
       setRichOpenMode(null);
       setPhase("idle");
       focusedRichEpochRef.current = null;
@@ -531,7 +563,7 @@ export function QuestFeedInlineLink({
         if (!mountedRef.current || epochRef.current !== epoch || suppressedUntilExitRef.current) return;
         if (hoverTargetsRef.current.size === 0) return;
         setPhase("micro");
-      }, MICRO_ARM_MS);
+      }, HOVER_ARM_MS);
     },
     [beginHydrationForEpoch, claimThisPreview, setPhase],
   );
@@ -565,15 +597,33 @@ export function QuestFeedInlineLink({
     [claimThisPreview, setPhase, setRichOpenMode, startRichHydration],
   );
 
+  // Hovering the link shows the full preview after the same dwell as the icon's title card, so a
+  // pointer passing over text does not flash cards. It opens under the line of the link the pointer is on.
+  const armHoverRichPreview = useCallback(
+    (pointerType: string) => {
+      clearTimer(richArmTimerRef);
+      if (suppressedUntilExitRef.current || phaseRef.current.startsWith("rich")) return;
+      richArmTimerRef.current = setTimeout(() => {
+        richArmTimerRef.current = null;
+        const link = linkRef.current;
+        if (!mountedRef.current || !link || !hoverTargetsRef.current.has("link")) return;
+        const pointer = linkPointerRef.current;
+        hoverAnchorIndexRef.current = pointer ? nearestRectIndex(collectNonEmptyClientRects(link), pointer) : 0;
+        beginHoverRichPreview(pointerType);
+      }, HOVER_ARM_MS);
+    },
+    [beginHoverRichPreview],
+  );
+
   const closeHoverRichAndRestoreLinkFocus = useCallback(
-    (deferWhileEyeHovered = false) => {
+    (deferWhileLinkHovered = false) => {
       const restoreLinkFocus =
         !suppressedUntilExitRef.current &&
         focusTargetsRef.current.has("link") &&
         document.activeElement === linkRef.current;
       closeAllRef.current(false);
       if (!restoreLinkFocus) return;
-      if (deferWhileEyeHovered && hoverTargetsRef.current.has("preview")) {
+      if (deferWhileLinkHovered && hoverTargetsRef.current.has("link")) {
         pendingFocusedLinkRestoreRef.current = true;
         return;
       }
@@ -622,6 +672,7 @@ export function QuestFeedInlineLink({
   const handlePointerMove = useCallback(
     (event: PointerEvent<HTMLElement>) => {
       if (!isFineHoverPointer(event.pointerType)) return;
+      if (event.currentTarget === linkRef.current) linkPointerRef.current = { x: event.clientX, y: event.clientY };
       if (phaseRef.current !== "arming" && phaseRef.current !== "micro") return;
       openingPointerRef.current = { x: event.clientX, y: event.clientY };
       if (phaseRef.current === "micro") schedulePointerGeometry();
@@ -634,11 +685,15 @@ export function QuestFeedInlineLink({
       hoverTargetsRef.current.add(control);
       clearTimer(leaveTimerRef);
       if (!isFineHoverPointer(event.pointerType)) return;
-      if (control === "preview" || control === "preview-proxy") {
-        beginHoverRichPreview(event.pointerType);
+      // The link shows the full preview; the icon, which jumps to the thread, only the title card,
+      // which takes no clicks.
+      if (control === "link") {
+        linkPointerRef.current = { x: event.clientX, y: event.clientY };
+        armHoverRichPreview(event.pointerType);
         return;
       }
-      if (control === "rich") return;
+      if (control !== "preview") return;
+      clearTimer(richArmTimerRef);
       if (phaseRef.current.startsWith("rich") && richOpenModeRef.current === "hover") {
         closeAllRef.current(false);
       }
@@ -647,13 +702,14 @@ export function QuestFeedInlineLink({
         y: event.clientY,
       });
     },
-    [beginHoverRichPreview, beginMicroIntent],
+    [armHoverRichPreview, beginMicroIntent],
   );
 
   const handlePointerLeave = useCallback(
     (control: ControlKey, event: PointerEvent<HTMLElement>) => {
       hoverTargetsRef.current.delete(control);
-      if (control === "preview" && pendingFocusedLinkRestoreRef.current) {
+      if (control === "link") clearTimer(richArmTimerRef);
+      if (control === "link" && pendingFocusedLinkRestoreRef.current) {
         pendingFocusedLinkRestoreRef.current = false;
         if (
           !suppressedUntilExitRef.current &&
@@ -670,7 +726,7 @@ export function QuestFeedInlineLink({
       const enteredOwnRichPreview =
         event.relatedTarget instanceof Node && richRef.current?.contains(event.relatedTarget);
       const enteredOwnActivationProxy =
-        event.relatedTarget instanceof Node && hoverActivationProxyRef.current?.contains(event.relatedTarget);
+        event.relatedTarget instanceof Element && event.relatedTarget.closest(hitProxySelector) != null;
       const enteredOtherInteractive =
         !enteredOwnRichPreview &&
         !enteredOwnActivationProxy &&
@@ -689,7 +745,7 @@ export function QuestFeedInlineLink({
         }
         return;
       }
-      if (control === "link" && phaseRef.current === "arming") {
+      if (control === "preview" && phaseRef.current === "arming") {
         closeAllRef.current(false);
       }
       if (
@@ -699,7 +755,7 @@ export function QuestFeedInlineLink({
         scheduleTransientClose();
       }
     },
-    [beginMicroIntent, closeHoverRichAndRestoreLinkFocus, scheduleTransientClose],
+    [beginMicroIntent, closeHoverRichAndRestoreLinkFocus, hitProxySelector, scheduleTransientClose],
   );
 
   const handleFocus = useCallback(
@@ -749,8 +805,9 @@ export function QuestFeedInlineLink({
   const handlePointerDown = useCallback((control: ControlKey, event: PointerEvent<HTMLElement>) => {
     const pointerType = event.pointerType || "mouse";
     lastActivationPointerTypeRef.current = pointerType;
-    if (control === "preview" || control === "preview-proxy") pendingPreviewPointerTypeRef.current = pointerType;
-    if (control === "preview-proxy") hoverActivationPointerDownRef.current = true;
+    clearTimer(richArmTimerRef);
+    if (control === "preview") pendingPreviewPointerTypeRef.current = pointerType;
+    if (control === "link-proxy") hoverActivationPointerDownRef.current = true;
     pointerFocusSuppressedRef.current = true;
     clearTimer(focusSuppressionTimerRef);
     if (pointerType === "touch") {
@@ -781,7 +838,7 @@ export function QuestFeedInlineLink({
       setMicroPlacement(undefined);
       setMicroHydrationFailed(false);
       setValidatedMicroQuest(null);
-      hoverTargetsRef.current.delete("preview-proxy");
+      hoverTargetsRef.current.delete("link-proxy");
       openingPointerRef.current = null;
       nextFocusableRef.current = previewRef.current ? findNextFocusableAfter(previewRef.current) : null;
       if (phaseRef.current.startsWith("rich")) {
@@ -805,8 +862,8 @@ export function QuestFeedInlineLink({
   );
 
   // The icon after the link goes to the quest's thread in its leader, like the preview's Open Thread;
-  // hovering it still previews. With no known thread, or inside that thread already, it opens the
-  // preview instead, whose Open quest goes on to the quest.
+  // hovering it shows only the title card. With no known thread, or inside that thread already, it
+  // opens the preview instead, whose Open quest goes on to the quest.
   const activateTrigger = useCallback(
     (event: MouseEvent<HTMLElement>) => {
       if (stopPropagation) event.stopPropagation();
@@ -825,6 +882,17 @@ export function QuestFeedInlineLink({
     [normalizedQuestId, onNavigate, onSessionNavigate, openExplicitRichPreview, stopPropagation],
   );
 
+  const openQuestView = useCallback(() => {
+    if (normalizedFeedbackIndex === undefined && !round) {
+      openQuestOverlayRouteAware(questId);
+    } else {
+      if (round) useStore.getState().openQuestOverlay(questId, undefined, undefined, round);
+      else useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
+      navigateTo(questHash);
+    }
+    onNavigate?.();
+  }, [normalizedFeedbackIndex, onNavigate, questHash, questId, round]);
+
   const handleLinkClick = useCallback(
     (event: MouseEvent<HTMLAnchorElement>) => {
       if (stopPropagation) event.stopPropagation();
@@ -834,21 +902,14 @@ export function QuestFeedInlineLink({
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
       // A touch tap previews the quest, keeping the conversation in view; the preview's Open quest is
-      // one more tap. A mouse or keyboard click opens the full view; hovering the icon previews.
+      // one more tap. A mouse or keyboard click opens the full view; hovering the link previews.
       if (pointerType === "touch" && event.detail !== 0) {
         openExplicitRichPreview("touch");
         return;
       }
-      if (normalizedFeedbackIndex === undefined && !round) {
-        openQuestOverlayRouteAware(questId);
-      } else {
-        if (round) useStore.getState().openQuestOverlay(questId, undefined, undefined, round);
-        else useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
-        navigateTo(questHash);
-      }
-      onNavigate?.();
+      openQuestView();
     },
-    [normalizedFeedbackIndex, onNavigate, openExplicitRichPreview, questHash, questId, round, stopPropagation],
+    [openExplicitRichPreview, openQuestView, stopPropagation],
   );
 
   const retryRichPreview = useCallback(() => {
@@ -890,25 +951,35 @@ export function QuestFeedInlineLink({
       richRef.current.style.maxHeight = `${hoverMaxHeight}px`;
       const richRect = richRef.current.getBoundingClientRect();
       if (richRect.width <= 0 || richRect.height <= 0) return;
+      const anchorRect = sourceRects[Math.min(hoverAnchorIndexRef.current, sourceRects.length - 1)]!;
       const placement = chooseLegacyQuestHoverPlacement({
-        anchorRect: triggerRect,
+        anchorRect,
         layerSize: { width: richRect.width, height: richRect.height },
         viewport,
       });
-      const hoverActivationRect =
-        placementCoversRect(placement, richRect, triggerRect) || hoverActivationPointerDownRef.current
-          ? triggerRect
+      const linkBridgeRect =
+        placementCoversRect(placement, richRect, anchorRect) || hoverActivationPointerDownRef.current
+          ? anchorRect
           : undefined;
-      if (!hoverActivationRect) hoverTargetsRef.current.delete("preview-proxy");
+      const iconRect = previewRects[0];
+      const iconBridgeRect = iconRect && placementCoversRect(placement, richRect, iconRect) ? iconRect : undefined;
+      if (!linkBridgeRect) hoverTargetsRef.current.delete("link-proxy");
       updateIfChanged(
         setRichPlacement,
-        { kind: "popover", ...placement, width: hoverWidth, maxHeight: hoverMaxHeight, hoverActivationRect },
+        {
+          kind: "popover",
+          ...placement,
+          width: hoverWidth,
+          maxHeight: hoverMaxHeight,
+          linkBridgeRect,
+          iconBridgeRect,
+        },
         samePlacement,
       );
       return;
     }
 
-    hoverTargetsRef.current.delete("preview-proxy");
+    hoverTargetsRef.current.delete("link-proxy");
     const ignoredPortal = phaseRef.current === "micro" ? microRef.current : richRef.current;
     const nearbyInteractiveRects = interactiveRectsNearSource(
       source,
@@ -1075,12 +1146,7 @@ export function QuestFeedInlineLink({
   }, [phase, richOpenMode, richPlacement]);
 
   useOutsidePress(
-    [
-      richRef,
-      previewRef,
-      hoverActivationProxyRef,
-      `[data-quest-feed-preview-hit-proxy][data-preview-owner="${dialogId}"]`,
-    ],
+    [richRef, previewRef, hitProxySelector],
     () => closeAllRef.current(false),
     phase.startsWith("rich") && !!richPlacement && richPlacement.kind !== "bottom-sheet",
   );
@@ -1121,6 +1187,7 @@ export function QuestFeedInlineLink({
     return () => {
       mountedRef.current = false;
       clearTimer(armTimerRef);
+      clearTimer(richArmTimerRef);
       clearTimer(leaveTimerRef);
       clearTimer(focusSuppressionTimerRef);
       if (pointerGeometryFrameRef.current != null && pointerGeometryFrameRef.current >= 0) {
@@ -1186,7 +1253,7 @@ export function QuestFeedInlineLink({
           className="cc-feed-quest-preview-trigger"
           aria-label={triggerAccessibleLabel}
           aria-haspopup={jumpsToThread ? undefined : "dialog"}
-          aria-expanded={richOpen}
+          aria-expanded={richOpen && richOpenMode === "explicit"}
           aria-controls={dialogId}
           data-rich-open-mode={richOpenMode ?? undefined}
           data-testid="quest-feed-preview-button"
@@ -1232,37 +1299,52 @@ export function QuestFeedInlineLink({
       </span>
       {richOpenMode === "hover" &&
         richPlacement?.kind === "popover" &&
-        richPlacement.hoverActivationRect &&
+        (richPlacement.linkBridgeRect || richPlacement.iconBridgeRect) &&
         createPortal(
-          // The real icon stays the only accessible control. This pointer-only body portal
-          // bridges the app root's transform stacking context when the hover card covers it.
-          // biome-ignore lint/a11y/noStaticElementInteractions: pointer-only bridge for the accessible icon control
-          <span
-            ref={hoverActivationProxyRef}
-            aria-hidden="true"
-            data-testid="quest-feed-preview-hit-proxy"
-            data-quest-feed-preview-hit-proxy="true"
-            data-preview-owner={dialogId}
-            className="fixed z-[83] cursor-pointer"
-            style={{
-              left: richPlacement.hoverActivationRect.left,
-              top: richPlacement.hoverActivationRect.top,
-              width: richPlacement.hoverActivationRect.width,
-              height: richPlacement.hoverActivationRect.height,
-            }}
-            onPointerEnter={(event) => handlePointerEnter("preview-proxy", event)}
-            onPointerLeave={(event) => handlePointerLeave("preview-proxy", event)}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              handlePointerDown("preview-proxy", event);
-            }}
-            onPointerCancel={() => {
-              pendingPreviewPointerTypeRef.current = null;
-              hoverActivationPointerDownRef.current = false;
-              schedulePointerGeometry();
-            }}
-            onClick={activateTrigger}
-          />,
+          // The real link and icon stay the only accessible controls. These pointer-only body portals
+          // bridge the app root's transform stacking context where the hover card covers them, so they
+          // keep their own hover and click.
+          <>
+            {richPlacement.linkBridgeRect && (
+              // biome-ignore lint/a11y/noStaticElementInteractions: pointer-only bridge for the accessible link
+              <span
+                aria-hidden="true"
+                data-testid="quest-feed-link-hit-proxy"
+                data-quest-feed-preview-hit-proxy="true"
+                data-preview-owner={dialogId}
+                className="fixed z-[83] cursor-pointer"
+                style={hitProxyStyle(richPlacement.linkBridgeRect)}
+                onPointerEnter={(event) => handlePointerEnter("link-proxy", event)}
+                onPointerLeave={(event) => handlePointerLeave("link-proxy", event)}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  handlePointerDown("link-proxy", event);
+                }}
+                onPointerCancel={() => {
+                  hoverActivationPointerDownRef.current = false;
+                  schedulePointerGeometry();
+                }}
+                onClick={(event) => {
+                  if (stopPropagation) event.stopPropagation();
+                  closeAllRef.current(false);
+                  openQuestView();
+                }}
+              />
+            )}
+            {richPlacement.iconBridgeRect && (
+              // biome-ignore lint/a11y/noStaticElementInteractions: pointer-only bridge for the accessible icon
+              <span
+                aria-hidden="true"
+                data-testid="quest-feed-preview-hit-proxy"
+                data-quest-feed-preview-hit-proxy="true"
+                data-preview-owner={dialogId}
+                className="fixed z-[83] cursor-pointer"
+                style={hitProxyStyle(richPlacement.iconBridgeRect)}
+                onPointerEnter={(event) => handlePointerEnter("preview", event)}
+                onClick={activateTrigger}
+              />
+            )}
+          </>,
           document.body,
         )}
       {microVisible &&

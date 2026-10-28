@@ -1,7 +1,7 @@
 // Shared setup for the chat-feed quest link tests. Test files using it must mock "../api.js"
 // (getQuestValidated) themselves, since vi.mock only applies in the file that calls it.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { vi } from "vitest";
 import { api } from "../api.js";
 import { QuestInlineLink } from "../components/QuestInlineLink.js";
@@ -135,10 +135,19 @@ export function setMatchMedia({ coarse = false }: { coarse?: boolean } = {}) {
   });
 }
 
-/** A quest with a known thread labels its icon as the jump; hovering it previews, as the preview tests need. */
-export function hoverThreadIcon(questId: string) {
-  const icon = screen.getByRole("button", { name: new RegExp(`^Open the ${questId} thread`) });
-  fireEvent.pointerEnter(icon, { pointerType: "mouse", clientX: 198, clientY: 110 });
+/** The icon after a feed quest link: it jumps to the quest's thread, and hovering it shows the title card. */
+export function questLinkIcon(questId: string): HTMLButtonElement {
+  const icon = document.querySelector<HTMLButtonElement>(
+    `[data-testid="quest-feed-preview-button"][data-quest-id="${questId.toLowerCase()}"]`,
+  );
+  if (!icon) throw new Error(`No quest link icon for ${questId}`);
+  return icon;
+}
+
+/** Hovers a feed quest link's text for the full preview's 250 ms dwell. */
+export async function hoverQuestLinkForPreview(questId: string, point = { clientX: 120, clientY: 110 }) {
+  fireEvent.pointerEnter(questLinkIcon(questId).previousElementSibling!, { pointerType: "mouse", ...point });
+  await act(async () => vi.advanceTimersByTime(250));
 }
 
 export function renderFeedLink(
@@ -163,10 +172,14 @@ export function renderFeedLink(
   );
 }
 
+// Tests replace this action with a spy; reset() keeps actions, so each test starts from the real one.
+const realOpenQuestOverlay = useStore.getState().openQuestOverlay;
+
 /** Before each test: fake timers, a reset store, a desktop window with mocked layout, synchronous frames. */
 export function setUpQuestFeedLinkTest() {
   vi.useFakeTimers();
   useStore.getState().reset();
+  useStore.setState({ openQuestOverlay: realOpenQuestOverlay });
   useStore.setState({ zoomLevel: 1 });
   vi.mocked(api.getQuestValidated).mockReset();
   setMatchMedia();
