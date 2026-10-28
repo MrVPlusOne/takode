@@ -148,7 +148,8 @@ export function buildNextAttentionQueue(input: {
       ...(input.topicOf ? { topic: input.topicOf(candidate.sessionId, candidate.threadKey) } : {}),
     });
   }
-  // Unread answers are grouped by topic: the topic with the newest answer first.
+  // Unread answers are grouped by topic: the topic with the newest answer first, and inside it in
+  // reading order (see queuePlace).
   const newestByTopic = new Map<string, number>();
   for (const item of items) {
     if (item.kind !== "unread") continue;
@@ -166,7 +167,11 @@ function queuePlace(item: NextAttentionItem, newestByTopic?: ReadonlyMap<string,
   const rank = ATTENTION_SECTIONS.indexOf(attentionSection(item));
   if (item.kind !== "unread" || isUrgentAttentionItem(item) || !newestByTopic) return [rank, -item.timestamp];
   const group = topicGroupKey(item);
-  return [rank, -(newestByTopic.get(group) ?? item.timestamp), group, -item.timestamp];
+  // Inside a topic Next goes in reading order, as opening a place does (firstUnreadResult): answers
+  // and reports oldest first, then finished quests. Newest first would open a later result, or a
+  // finished quest whose anchor is the leader's commentary, above an answer still waiting.
+  const finished = item.notification?.unreadReason === "quest-complete" ? 1 : 0;
+  return [rank, -(newestByTopic.get(group) ?? item.timestamp), group, finished, item.timestamp];
 }
 
 /** Unread items group by topic; outside a topic, by session and thread. */

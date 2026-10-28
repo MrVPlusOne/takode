@@ -1600,13 +1600,7 @@ export function MessageFeed({
     pendingTargetWindowRequestRef.current = null;
 
     const targetState = turnStatesRef.current.find((s) => s.turnId === targetTurn.id);
-    const jump = planMessageFeedJump(
-      containerRef.current,
-      targetState,
-      scrollToMessageId,
-      scrollLanding,
-      targetTurn.id,
-    );
+    const jump = planMessageFeedJump(containerRef.current, targetState, scrollToMessageId, scrollLanding, targetTurn);
     if (!jump.keepCollapsed) useStore.getState().focusTurn(sessionId, targetState?.overrideKey ?? targetTurn.id);
     const sectionChanged = ensureSectionForTurnVisible(targetTurn.id);
 

@@ -81,7 +81,8 @@ describe("sections and topics", () => {
   it("puts reminders that came due right after questions, and groups unread answers by topic", () => {
     // A "Remind me later" that came due returns as a Notify Me result marked as a reminder: it
     // is shown and visited before unread answers. Unread answers are grouped by their quest's
-    // topic, the topic with the newest answer first, and newest first inside a topic.
+    // topic, the topic with the newest answer first, and in reading order (oldest first) inside a
+    // topic, so Next opens the first result the user hasn't read.
     const reminder = notifyMe("a", "q-5", 10);
     reminder.pending = { ...reminder.pending!, reminder: true };
     const answer = (id: string, threadKey: string, timestamp: number) => ({
@@ -106,8 +107,8 @@ describe("sections and topics", () => {
       ["needs-input", "needs-input:a:ask"],
       ["reminder", "notify-me:a:q-5:r-q-5"],
       ["unread", "unread:a:u2"],
-      ["unread", "unread:a:u3"],
       ["unread", "unread:a:u1"],
+      ["unread", "unread:a:u3"],
       ["unread", "unread:a:u4"],
       ["notify-me", "notify-me:a:q-8:r-q-8"],
     ]);
@@ -120,6 +121,45 @@ describe("sections and topics", () => {
       cursor = attentionCursorFor(next.item);
     }
     expect(visited).toEqual(queue.map((item) => item.key));
+  });
+
+  it("visits a topic's answers and reports before its finished quests, even when the quest finished later", () => {
+    // The reported case: a quest finished and the leader answered seconds later. A finished quest's
+    // unread names the leader's last message before completion, often commentary ("Final Memory is
+    // done..."), so Next must open the answer first, then the finished quest, as opening the place
+    // does. A newer answer in another quest of the topic still comes after the older one.
+    const result = (id: string, threadKey: string, timestamp: number, unreadReason: "answer" | "quest-complete") => ({
+      sessionId: "a",
+      threadKey,
+      label: threadKey,
+      timestamp,
+      notification: {
+        id,
+        category: "review",
+        timestamp,
+        messageId: `m-${id}`,
+        unreadReason,
+        done: false,
+      } as SessionNotification,
+    });
+    const queue = buildNextAttentionQueue({
+      needsInput: [],
+      notifyMe: [],
+      unread: [
+        result("finished", "q-1", 200, "quest-complete"),
+        result("answer", "q-1", 207, "answer"),
+        result("later", "q-2", 300, "answer"),
+        result("earlier", "q-2", 100, "answer"),
+      ],
+      topicOf: () => ({ id: "t-quest-views", name: "Quest views" }),
+    });
+
+    expect(queue.map((item) => item.key)).toEqual([
+      "unread:a:earlier",
+      "unread:a:answer",
+      "unread:a:later",
+      "unread:a:finished",
+    ]);
   });
 });
 
@@ -161,8 +201,8 @@ describe("urgent answers", () => {
       ["urgent", "unread:a:u2"],
       ["urgent", "unread:a:u3"],
       ["reminder", "notify-me:a:q-5:r-q-5"],
-      ["unread", "unread:a:u5"],
       ["unread", "unread:a:u1"],
+      ["unread", "unread:a:u5"],
     ]);
     // The question, two urgent answers, the reminder and the topic.
     expect(countAttentionPlaces(queue)).toBe(5);

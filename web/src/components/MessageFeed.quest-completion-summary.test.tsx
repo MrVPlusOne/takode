@@ -334,6 +334,26 @@ describe("MessageFeed quest completion summary", () => {
     expect(screen.getByText("Final Memory is done.").closest(".message-scroll-highlight")).not.toBeNull();
   });
 
+  it("lands on the answer after the named message when the quest shows no card", () => {
+    // The reported case (a finished quest opened in its topic conversation, which draws no Quest
+    // complete card): its result named the "Final Memory is done" commentary and Next landed there,
+    // with the leader's answer below it. The jump now lands on that answer.
+    const history = wrapUpHistory("Final Memory is done.");
+    const followUp = assistant("follow-up-answer", "The hover swap has landed.", history.length);
+    followUp.leaderThreadRole = "answer";
+    history.push(followUp);
+    installHistory(history, { ...doneQuest(), status: "in_progress" } as QuestmasterTask);
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    act(() => {
+      useStore.getState().requestScrollToMessage(SESSION_ID, "wrap-up");
+      useStore.getState().setScrollToMessageLanding(SESSION_ID, "wrap-up", "quest-completion");
+    });
+
+    expect(screen.queryByTestId("quest-completion-summary")).toBeNull();
+    expect(screen.getByText("The hover swap has landed.").closest(".message-scroll-highlight")).not.toBeNull();
+    expect(screen.getByText("Final Memory is done.").closest(".message-scroll-highlight")).toBeNull();
+  });
+
   it("loads a missing quest record once and then shows the card", async () => {
     // The thread's opening description card and this card share one deduped request
     // for an uncached record; a current cached record needs no request at all.

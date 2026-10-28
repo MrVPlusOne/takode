@@ -5,6 +5,7 @@ import { annotationPassageRects, resolveAnnotationRange } from "./annotation-pas
 import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
 import { takeZoomPlacement } from "./topic-zoom.js";
 import type { TurnCollapseState } from "../hooks/use-collapse-policy.js";
+import type { Turn } from "../hooks/use-feed-model.js";
 import type { MessageJumpLanding } from "../store-types.js";
 import { getQuestCompletionFeedBlockId } from "./message-feed-utils.js";
 
@@ -13,14 +14,9 @@ function escapeSelectorValue(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-/** Where a jump to `messageId` lands: what `landing` names when it is shown, else the message. */
-function findMessageFeedScrollTarget(
-  container: HTMLDivElement,
-  messageId: string,
-  landing?: MessageJumpLanding,
-): HTMLElement | null {
+/** The element of `messageId` in the feed. */
+function findMessageFeedScrollTarget(container: HTMLDivElement, messageId: string): HTMLElement | null {
   return (
-    (landing ? findLandingTarget(container, landing) : null) ??
     container.querySelector<HTMLElement>(`[data-message-id="${escapeSelectorValue(messageId)}"]`) ??
     container.querySelector<HTMLElement>(`[data-feed-block-id="tool-group:${escapeSelectorValue(messageId)}"]`)
   );
@@ -124,40 +120,62 @@ export function scrollMessageFeedTargetIntoView({
 }
 
 /**
- * How a jump to `messageId` in turn `turnId` lands. `keepCollapsed`: the turn may stay as it is,
+ * How a jump to `messageId` in `turn` lands. `keepCollapsed`: the turn may stay as it is,
  * because the view already shows where the jump lands; other jumps open the turn. `find` gives
  * the element to scroll to once rendered: what `landingRequest` names when it is for this
  * message and shown, else the message, else the end of a collapsed turn that hides it.
+ *
+ * A finished quest's result names the leader's last message before the quest completed, often
+ * commentary ("Final Memory is done..."). Where its Quest complete card isn't drawn (a topic
+ * conversation, or a window that doesn't reach the completion), the jump lands on the answer or
+ * report the leader posted after that message in the same turn, when there is one.
  */
 export function planMessageFeedJump(
   container: HTMLDivElement | null,
   state: Pick<TurnCollapseState, "readyCollapsed" | "isActivityExpanded" | "readyAnchorMessageId"> | undefined,
   messageId: string,
   landingRequest: { messageId: string; landing: MessageJumpLanding } | undefined,
-  turnId: string,
+  turn: Pick<Turn, "id" | "allEntries">,
 ): { keepCollapsed: boolean; find: (container: HTMLDivElement) => HTMLElement | null } {
   const landing = landingRequest?.messageId === messageId ? landingRequest.landing : undefined;
-  const keepCollapsed = keepsCollapseForTarget(container, state, messageId, landing);
+  const cardShown = !!landing && !!container && findLandingTarget(container, landing) !== null;
+  const resultId = landing === "quest-completion" && !cardShown ? resultAfter(turn, messageId) : undefined;
+  const targetId = resultId ?? messageId;
+  const keepCollapsed = cardShown || keepsCollapseForTarget(container, state, targetId);
   return {
     keepCollapsed,
     find: (root) =>
-      findMessageFeedScrollTarget(root, messageId, landing) ??
-      (keepCollapsed ? findCollapsedTurnScrollTarget(root, turnId) : null),
+      (landing ? findLandingTarget(root, landing) : null) ??
+      findMessageFeedScrollTarget(root, targetId) ??
+      (resultId ? findMessageFeedScrollTarget(root, messageId) : null) ??
+      (keepCollapsed ? findCollapsedTurnScrollTarget(root, turn.id) : null),
   };
 }
 
+/** The first answer or report after `messageId` in the turn. */
+function resultAfter(turn: Pick<Turn, "allEntries">, messageId: string): string | undefined {
+  const start = turn.allEntries.findIndex((entry) => entry.kind === "message" && entry.msg.id === messageId);
+  if (start < 0) return undefined;
+  for (const entry of turn.allEntries.slice(start + 1)) {
+    if (entry.kind !== "message") continue;
+    const metadata = entry.msg.metadata;
+    if (metadata?.leaderThreadRole === "answer" || metadata?.threadAnswer || metadata?.markdownReport) {
+      return entry.msg.id;
+    }
+  }
+  return undefined;
+}
+
 /**
- * Whether a jump may leave its turn as it is: a landing already on screen, or, in a
- * Ready-collapsed turn, the Ready message itself (opening the thread's result) or a message
- * the collapsed view already shows. Other targets expand the turn.
+ * Whether a jump may leave its turn as it is: in a Ready-collapsed turn, the Ready message
+ * itself (opening the thread's result) or a message the collapsed view already shows. Other
+ * targets expand the turn.
  */
 function keepsCollapseForTarget(
   container: HTMLDivElement | null,
   state: Pick<TurnCollapseState, "readyCollapsed" | "isActivityExpanded" | "readyAnchorMessageId"> | undefined,
   messageId: string,
-  landing: MessageJumpLanding | undefined,
 ): boolean {
-  if (landing && container && findLandingTarget(container, landing)) return true;
   if (!state?.readyCollapsed || state.isActivityExpanded) return false;
   if (state.readyAnchorMessageId === messageId) return true;
   return !!container && findMessageFeedScrollTarget(container, messageId) !== null;
