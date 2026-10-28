@@ -23,6 +23,8 @@ export interface PostPartView {
   label: string;
   change?: "edited" | "new";
   attachments: PostAttachment[];
+  /** The part's index in the saved version, when known: what Copy marks as copied. */
+  versionPart?: number;
 }
 
 /** How a card shows an attachment, and the image source Copy image puts on the clipboard (null: no copy). */
@@ -40,6 +42,8 @@ export function DraftPostCard({
   renderMarkdown,
   attachments,
   expandable = true,
+  copied = [],
+  onCopied,
 }: {
   title?: string;
   /** Where the post is to be sent, shown as a link in the header. */
@@ -53,10 +57,18 @@ export function DraftPostCard({
   attachments: AttachmentRendering;
   /** Offers the full-screen view (not inside it). */
   expandable?: boolean;
+  /** Parts of the saved version the user copied before (0-based), whose Copy buttons are dimmed. */
+  copied?: readonly number[];
+  /** Records the saved version's parts the user just copied. */
+  onCopied?: (parts: number[]) => void;
 }) {
   const single = parts.length === 1 && removed.length === 0;
   const partsRef = useRef<HTMLDivElement>(null);
   const [fullScreen, setFullScreen] = useState(false);
+  const isCopied = (part: PostPartView) => part.versionPart !== undefined && copied.includes(part.versionPart);
+  const known = parts.flatMap((part) => (part.versionPart === undefined ? [] : [part.versionPart]));
+  const allCopied = parts.length > 0 && parts.every(isCopied);
+  const recordAll = onCopied && known.length > 0 ? () => onCopied(known) : undefined;
   return (
     <>
       <div
@@ -80,9 +92,15 @@ export function DraftPostCard({
           {headerLink}
           {expandable && <FullScreenButton onClick={() => setFullScreen(true)} />}
           {single ? (
-            <CopyForSlack target={partsRef} primary />
+            <CopyForSlack target={partsRef} primary copiedBefore={allCopied} onCopied={recordAll} />
           ) : (
-            <CopyForSlack target={partsRef} label="Copy all" testId="draft-post-copy-all" />
+            <CopyForSlack
+              target={partsRef}
+              label="Copy all"
+              testId="draft-post-copy-all"
+              copiedBefore={allCopied}
+              onCopied={recordAll}
+            />
           )}
         </div>
         <div ref={partsRef}>
@@ -93,6 +111,8 @@ export function DraftPostCard({
               single={single}
               renderMarkdown={renderMarkdown}
               attachments={attachments}
+              copiedBefore={isCopied(part)}
+              onCopied={onCopied && part.versionPart !== undefined ? () => onCopied([part.versionPart!]) : undefined}
             />
           ))}
         </div>
@@ -112,6 +132,8 @@ export function DraftPostCard({
               renderMarkdown={renderMarkdown}
               attachments={attachments}
               expandable={false}
+              copied={copied}
+              onCopied={onCopied}
             />
           </div>
         </FullScreenPanel>
@@ -125,11 +147,15 @@ function DraftPostPart({
   single,
   renderMarkdown,
   attachments,
+  copiedBefore,
+  onCopied,
 }: {
   part: PostPartView;
   single: boolean;
   renderMarkdown: (text: string) => ReactNode;
   attachments: AttachmentRendering;
+  copiedBefore: boolean;
+  onCopied?: () => void;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   return (
@@ -148,7 +174,7 @@ function DraftPostPart({
             </span>
           )}
           <span className="ml-auto" />
-          <CopyForSlack target={bodyRef} primary />
+          <CopyForSlack target={bodyRef} primary copiedBefore={copiedBefore} onCopied={onCopied} />
         </div>
       )}
       <div ref={bodyRef} className={single ? "px-3 py-2.5" : "px-3 pb-2.5 pt-1"}>
@@ -197,11 +223,17 @@ function CopyForSlack({
   primary = false,
   label = "Copy for Slack",
   testId = "markdown-draft-copy",
+  copiedBefore = false,
+  onCopied,
 }: {
   target: React.RefObject<HTMLDivElement | null>;
   primary?: boolean;
   label?: string;
   testId?: string;
+  /** Dims the button: the user copied this before (it still copies). */
+  copiedBefore?: boolean;
+  /** Records the copy on the server, which dims the button everywhere once it answers. */
+  onCopied?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -214,14 +246,17 @@ function CopyForSlack({
           .then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
+            onCopied?.();
           })
           .catch(console.error);
       }}
-      className={
+      title={copiedBefore ? "Copied before" : undefined}
+      className={`${
         primary
           ? "inline-flex min-h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg bg-cc-primary px-2.5 text-[12px] font-medium text-white hover:bg-cc-primary-hover pointer-coarse:min-h-9 pointer-coarse:px-3"
           : "inline-flex min-h-7 shrink-0 items-center whitespace-nowrap rounded-md px-2 text-[12px] text-cc-primary hover:bg-cc-hover pointer-coarse:min-h-9"
-      }
+      } ${copiedBefore ? "opacity-45 hover:opacity-100" : ""}`}
+      data-copied-before={copiedBefore ? "" : undefined}
       data-testid={testId}
     >
       {copied ? "Copied" : label}
@@ -268,6 +303,7 @@ export function postPartsOf(
     label: draftPartLabel(index),
     ...(changeOf(changes, index) ? { change: changeOf(changes, index) } : {}),
     attachments: content.attachments?.[index] ?? [],
+    versionPart: index,
   }));
 }
 
@@ -332,5 +368,6 @@ export function feedPostParts(
     label: draftPartLabel(index),
     ...(changeOf(marks, index) ? { change: changeOf(marks, index) } : {}),
     attachments: block.attachments.map((path) => ({ path })),
+    versionPart: index,
   }));
 }

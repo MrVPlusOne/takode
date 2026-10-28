@@ -59,6 +59,11 @@ export interface ArtifactVersionSummary {
   changes?: PostPartChanges;
   /** For a post version: where it is to be sent. */
   destination?: DraftDestination;
+  /**
+   * For a post version: the parts (0-based) the user copied, kept on the server so every device
+   * shows them as copied. A new version starts with the parts it kept unchanged from a copied one.
+   */
+  copied?: number[];
   /** The message it first appeared in; later appearances of identical content add no version. */
   source: ArtifactMessageRef;
 }
@@ -175,6 +180,8 @@ export interface ArtifactMessageMarker {
   changes?: PostPartChanges;
   /** On a post version: where it is to be sent. */
   destination?: DraftDestination;
+  /** On a post version: the parts (0-based) the user copied. */
+  copied?: number[];
   /** On a collapsed version: a later message shows this same version again. */
   repeated?: boolean;
 }

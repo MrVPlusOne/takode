@@ -161,6 +161,25 @@ export function createArtifactRoutes(
     return c.json(lib.store.get(id));
   });
 
+  /**
+   * The user copied parts (0-based) of a post version: recorded so every device shows them as
+   * copied, and conversations showing the post are refreshed.
+   */
+  api.post("/artifacts/:id/versions/:n/copied", async (c) => {
+    const lib = library();
+    const id = resolve(lib, c.req.param("id"));
+    const n = Number(c.req.param("n"));
+    if (!lib || !id || !Number.isInteger(n)) return c.json({ error: "Version not found" }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    if (!Array.isArray(body.parts) || !body.parts.every((part: unknown) => Number.isInteger(part))) {
+      return c.json({ error: "parts must be a list of part numbers" }, 400);
+    }
+    if (!lib.store.markCopied(id, n, body.parts)) return c.json({ error: "Version not found" }, 404);
+    await lib.store.flush();
+    for (const sessionId of lib.store.sessionsShowingArtifact(id)) lib.refreshConversation(sessionId);
+    return c.json(lib.store.get(id));
+  });
+
   api.post("/artifacts/:id/merge", async (c) => {
     const lib = library();
     const body = await c.req.json().catch(() => ({}));

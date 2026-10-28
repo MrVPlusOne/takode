@@ -87,6 +87,8 @@ export function ArtifactVersionLoader({
   changes,
   onlyParts,
   renderMarkdown,
+  copied,
+  onCopied,
 }: {
   id: string;
   version: number;
@@ -97,6 +99,9 @@ export function ArtifactVersionLoader({
   /** For a post, show only these messages (0-based), such as a part a later version removed. */
   onlyParts?: readonly number[];
   renderMarkdown: RenderMarkdown;
+  /** For a post: the parts the user copied, and how to record a copy. */
+  copied?: readonly number[];
+  onCopied?: (parts: number[]) => void;
 }) {
   const [state, setState] = useState<{
     content?: ArtifactVersionContent;
@@ -123,6 +128,8 @@ export function ArtifactVersionLoader({
       onlyParts={onlyParts}
       renderMarkdown={renderMarkdown}
       removedFrom={{ id, version }}
+      copied={copied}
+      onCopied={onCopied}
     />
   );
 }
@@ -135,6 +142,8 @@ export function ArtifactVersionContentView({
   onlyParts,
   removedFrom,
   renderMarkdown,
+  copied,
+  onCopied,
 }: {
   content: ArtifactVersionContent;
   title?: string;
@@ -143,6 +152,8 @@ export function ArtifactVersionContentView({
   /** The version shown, whose predecessor holds the parts it removed. */
   removedFrom?: { id: string; version: number };
   renderMarkdown: RenderMarkdown;
+  copied?: readonly number[];
+  onCopied?: (parts: number[]) => void;
 }) {
   switch (content.kind) {
     case "post":
@@ -170,6 +181,8 @@ export function ArtifactVersionContentView({
             }
             renderMarkdown={(text) => renderMarkdown(text)}
             attachments={LIBRARY_ATTACHMENTS}
+            copied={copied}
+            onCopied={onCopied}
           />
           {!onlyParts && content.figureIds.length > 0 && (
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -313,6 +326,13 @@ export function FeedDraftPost({
       headerLink={marker ? <ArtifactCardLink marker={marker} /> : undefined}
       renderMarkdown={renderMarkdown}
       attachments={attachments}
+      copied={marker?.copied}
+      // The server keeps what was copied and refreshes the markers, dimming the buttons everywhere.
+      onCopied={
+        marker
+          ? (parts) => void artifactApi.markCopied(marker.id, marker.version, parts).catch(console.error)
+          : undefined
+      }
     />
   );
 }

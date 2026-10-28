@@ -4,6 +4,10 @@ import "@testing-library/jest-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api.js", () => ({ api: {} }));
+vi.mock("../utils/copy-utils.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/copy-utils.js")>()),
+  copyRichText: vi.fn(async () => {}),
+}));
 
 import { MarkdownContent } from "./MarkdownContent.js";
 import { ArtifactMarkersContext } from "./ArtifactInline.js";
@@ -176,5 +180,42 @@ describe("artifacts in the feed", () => {
       </ArtifactMarkersContext.Provider>,
     );
     expect(screen.getAllByTestId("draft-post-destination")[1]).toHaveTextContent("Post in Slack channel");
+  });
+
+  it("dims the Copy buttons of parts copied before, and records a copy on the server", async () => {
+    // The server keeps what was copied (on every device); copying a part posts its index there,
+    // and the button dims once the refreshed markers say so, still copying when clicked.
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const text = "```draft\ntitle: T7 status\n---\nMessage\n```\n\n```draft\nReply\n```";
+    const view = (copied?: number[]) => (
+      <ArtifactMarkersContext.Provider value={[{ ...POST, title: "T7 status", ...(copied ? { copied } : {}) }]}>
+        <MarkdownContent text={text} />
+      </ArtifactMarkersContext.Provider>
+    );
+    const { rerender } = render(view());
+    const copies = () => screen.getAllByTestId("markdown-draft-copy");
+    expect(copies().filter((button) => button.hasAttribute("data-copied-before"))).toHaveLength(0);
+
+    fireEvent.click(copies()[1]!);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/artifacts/artifact-1/versions/2/copied",
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ parts: [1] }) }),
+      ),
+    );
+
+    rerender(view([1]));
+    expect(copies().map((button) => button.hasAttribute("data-copied-before"))).toEqual([false, true]);
+    expect(screen.getByTestId("draft-post-copy-all")).not.toHaveAttribute("data-copied-before");
+    fireEvent.click(screen.getByTestId("draft-post-copy-all"));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        "/api/artifacts/artifact-1/versions/2/copied",
+        expect.objectContaining({ body: JSON.stringify({ parts: [0, 1] }) }),
+      ),
+    );
+    rerender(view([0, 1]));
+    expect(screen.getByTestId("draft-post-copy-all")).toHaveAttribute("data-copied-before");
   });
 });

@@ -58,7 +58,10 @@ const REPEATED_VERSION_MESSAGE: ChatMessage = {
   content: `Here's the DM reworked:\n\n${formatArtifactPlaceholder({ ...POST, version: 3, versionCount: 3, repeated: true })}`,
 };
 
-/** A post with two replies and where to post it, revised: reply 1 edited (with its figure attached), a reply dropped. */
+/**
+ * A post with two replies and where to post it, revised: reply 1 edited (with its figure attached), a
+ * reply dropped. The parts it kept unchanged were copied before, so their Copy buttons are dimmed.
+ */
 const THREAD_POST_MESSAGE: ChatMessage = {
   id: "playground-artifact-thread-post",
   role: "assistant",
@@ -92,6 +95,7 @@ const THREAD_POST_MESSAGE: ChatMessage = {
         version: 2,
         versionCount: 2,
         changes: { parts: ["same", "edited", "same"], removed: [3] },
+        copied: [0, 2],
       },
     ],
   },
@@ -180,7 +184,7 @@ export function PlaygroundArtifactLibrarySection() {
           <MessageBubble message={OLDER_VERSION_MESSAGE} sessionId="playground-session" />
         </div>
       </Card>
-      <Card label="Post with replies: one card, where to post it, marks, attachment, removed reply">
+      <Card label="Post with replies: one card, where to post it, marks, attachment, removed reply, copied parts dimmed">
         <div className="max-w-[640px]" data-testid="playground-artifact-thread-post">
           <MessageBubble message={THREAD_POST_MESSAGE} sessionId="playground-session" />
         </div>

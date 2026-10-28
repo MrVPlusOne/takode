@@ -201,6 +201,28 @@ describe("artifact routes", () => {
     expect((await app.request(`/artifacts/${release.id}`)).status).toBe(404);
   });
 
+  it("records copied parts of a post version and refreshes the conversations that show it", async () => {
+    // The feed and the Library dim a part's Copy button once this says it was copied.
+    const { app, store, refreshed } = await setup();
+    const t7 = store.list({ query: "T7" }).artifacts[0];
+    const copied = await app.request(`/artifacts/${t7.id}/versions/1/copied`, {
+      method: "POST",
+      body: JSON.stringify({ parts: [0] }),
+    });
+    expect((await copied.json()).versions[0]).toMatchObject({ n: 1, copied: [0] });
+    expect(refreshed).toEqual(["msi-leader"]);
+    const bad = await app.request(`/artifacts/${t7.id}/versions/1/copied`, {
+      method: "POST",
+      body: JSON.stringify({ parts: "all" }),
+    });
+    expect(bad.status).toBe(400);
+    const missing = await app.request(`/artifacts/${t7.id}/versions/5/copied`, {
+      method: "POST",
+      body: JSON.stringify({ parts: [0] }),
+    });
+    expect(missing.status).toBe(404);
+  });
+
   it("scopes a leader's Library to it and its workers, and serves thumbnails for good under a versioned URL", async () => {
     const { app } = await setup();
     const own = await (await app.request("/artifacts?leader=msi-leader&space=all")).json();

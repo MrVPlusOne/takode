@@ -277,6 +277,7 @@ export class ArtifactLibraryStore {
       capture,
       figureIdsByLabel,
       artifact && previous ? await this.versionContent(artifact.id, previous.n) : null,
+      previous?.copied,
     );
     if (!prepared) return null;
     if (!artifact) {
@@ -317,6 +318,7 @@ export class ArtifactLibraryStore {
       ...(prepared.figureIds?.length ? { figureIds: prepared.figureIds } : {}),
       ...(latest && prepared.changes ? { changes: prepared.changes } : {}),
       ...(prepared.destination ? { destination: prepared.destination } : {}),
+      ...(prepared.copied?.length ? { copied: prepared.copied } : {}),
       source: ref,
     };
     if (latest && artifact.kind === "figure") await this.dropFigureFile(latest);
@@ -356,6 +358,8 @@ export class ArtifactLibraryStore {
     figureIdsByLabel: Map<string, string>,
     /** The artifact's newest version so far, which a post revision builds on and is compared with. */
     previous: ArtifactVersionContent | null,
+    /** The parts of that version the user copied. */
+    previousCopied?: readonly number[],
   ): Promise<{
     sha: string;
     bytes: number;
@@ -368,6 +372,7 @@ export class ArtifactLibraryStore {
     figureIds?: string[];
     changes?: PostPartChanges;
     destination?: DraftDestination;
+    copied?: number[];
   } | null> {
     if (capture.kind === "figure") return this.prepareFigure(capture);
     let content: ArtifactVersionContent;
@@ -429,6 +434,9 @@ export class ArtifactLibraryStore {
             figureIds: content.figureIds,
             ...(previous?.kind === "post" ? { changes: comparePosts(previous, content) } : {}),
             ...(content.destination ? { destination: content.destination } : {}),
+            ...(previous?.kind === "post" && previousCopied?.length
+              ? { copied: copiedCarriedOver(previous, previousCopied, content) }
+              : {}),
           }
         : {}),
     };
@@ -512,6 +520,7 @@ export class ArtifactLibraryStore {
       const shown = artifact.versions.find((version) => version.n === entry.n);
       const changes = superseded ? undefined : shown?.changes;
       const destination = shown?.destination;
+      const copied = shown?.copied;
       markers.push({
         label: entry.label,
         marker: {
@@ -523,6 +532,7 @@ export class ArtifactLibraryStore {
           ...(repeated ? { repeated: true } : {}),
           ...(changes ? { changes } : {}),
           ...(destination ? { destination } : {}),
+          ...(copied?.length ? { copied } : {}),
         },
         superseded,
       });
@@ -644,6 +654,25 @@ export class ArtifactLibraryStore {
       path: join(this.root, "files", latest.stored),
       ext: extname(latest.stored),
     };
+  }
+
+  /**
+   * Records that the user copied parts (0-based) of a post version; returns false when there is no
+   * such version. Parts already recorded stay, so copying a part again changes nothing.
+   */
+  markCopied(id: string, n: number, parts: readonly number[]): boolean {
+    const artifact = this.state().artifacts[id];
+    const version = artifact?.kind === "post" ? artifact.versions.find((candidate) => candidate.n === n) : undefined;
+    if (!version) return false;
+    const count = version.parts ?? 1;
+    const copied = new Set(version.copied ?? []);
+    const before = copied.size;
+    for (const part of parts) if (Number.isInteger(part) && part >= 0 && part < count) copied.add(part);
+    if (copied.size !== before) {
+      version.copied = [...copied].sort((a, b) => a - b);
+      this.markChanged();
+    }
+    return true;
   }
 
   setStarred(id: string, starred: boolean): ArtifactDetail | null {
@@ -823,6 +852,22 @@ function postContent(
     ...(attachments.some((list) => list.length) ? { attachments } : {}),
     ...(destination ? { destination } : {}),
   };
+}
+
+/**
+ * The parts of a new post version the user already has: those identical (text and attachments) to a
+ * part they copied of the version before. A revised or new part starts uncopied.
+ */
+function copiedCarriedOver(
+  previous: Extract<ArtifactVersionContent, { kind: "post" }>,
+  previousCopied: readonly number[],
+  next: Extract<ArtifactVersionContent, { kind: "post" }>,
+): number[] {
+  const keys = (content: Extract<ArtifactVersionContent, { kind: "post" }>) =>
+    content.parts.map((text, index) => JSON.stringify([text, attachmentPaths(content)[index]]));
+  const before = keys(previous);
+  const copied = new Set(previousCopied.map((index) => before[index]));
+  return keys(next).flatMap((key, index) => (copied.has(key) ? [index] : []));
 }
 
 function attachmentPaths(content: Extract<ArtifactVersionContent, { kind: "post" }>): string[][] {

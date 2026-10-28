@@ -163,6 +163,10 @@ export function ArtifactViewer({ id, onBack, onChanged }: { id: string; onBack: 
             version={version.n}
             title={detail.title}
             changes={version.changes}
+            copied={version.copied}
+            onCopied={(parts) =>
+              void artifactApi.markCopied(detail.id, version.n, parts).then(update).catch(console.error)
+            }
             renderMarkdown={(markdown, options) => (
               <MarkdownContent text={markdown} sessionId={source.sessionId} fileBasePath={options?.fileBasePath} />
             )}

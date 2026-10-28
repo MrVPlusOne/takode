@@ -535,6 +535,31 @@ describe("versions and projection", () => {
     ]);
   });
 
+  it("remembers which parts of a post were copied, and a revision keeps that only for unchanged parts", async () => {
+    // Copy for Slack records the copied parts on the version, so every device dims those buttons. A
+    // new version starts with the parts it kept unchanged from a copied part; edited parts are new.
+    const block = (header: string, body: string) => `\`\`\`draft\ntitle: Note for Dan\n${header}---\n${body}\n\`\`\``;
+    const session: LibrarySessionLike = {
+      id: "s1",
+      messageHistory: [assistant(`${block("", "Message.")}\n\n\`\`\`draft\nReply.\n\`\`\``, NOW, "q-1")],
+    };
+    const { store, library } = await setup([session]);
+    library.sessionSaved("s1");
+    await library.idle();
+    const [artifact] = store.list().artifacts;
+    expect(store.markCopied(artifact.id, 1, [1, 0, 0, 7])).toBe(true);
+    expect(store.markCopied(artifact.id, 9, [0])).toBe(false);
+    expect(store.get(artifact.id)?.versions[0]?.copied).toEqual([0, 1]);
+    expect((library.projectMessage("s1", session.messageHistory[0]) as { artifacts?: unknown }).artifacts).toEqual([
+      expect.objectContaining({ version: 1, copied: [0, 1] }),
+    ]);
+
+    session.messageHistory.push(assistant(block("part: 2\n", "Reply, reworded."), NOW + 1, "q-1"));
+    library.sessionSaved("s1");
+    await library.idle();
+    expect(store.get(artifact.id)?.versions.map((version) => version.copied)).toEqual([[0, 1], [0]]);
+  });
+
   it("renames, stars, filters, and merges separately saved revisions", async () => {
     const session = {
       id: "s1",

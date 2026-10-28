@@ -56,6 +56,13 @@ export const artifactApi = {
   versionContent: (id: string, n: number) =>
     request<ArtifactVersionContent>(`/artifacts/${encodeURIComponent(id)}/versions/${n}`),
 
+  /** Records that the user copied parts (0-based) of a post version. */
+  markCopied: (id: string, n: number, parts: number[]) =>
+    request<ArtifactDetail>(`/artifacts/${encodeURIComponent(id)}/versions/${n}/copied`, {
+      method: "POST",
+      body: { parts },
+    }),
+
   setStarred: (id: string, starred: boolean) =>
     request<ArtifactDetail>(`/artifacts/${encodeURIComponent(id)}`, {
       method: "PATCH",
