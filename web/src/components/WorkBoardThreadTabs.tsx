@@ -18,10 +18,14 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
-import { ThreadTabGroupBar, topicFirstTabOrder, type ThreadTabGroupBarProps } from "./ThreadTabGroups.js";
+import {
+  countUnreadResults,
+  ThreadTabGroupBar,
+  topicFirstTabOrder,
+  type ThreadTabGroupBarProps,
+} from "./ThreadTabGroups.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { useLeaderTopics } from "../utils/leader-topics.js";
-import { readsWhenSeen } from "../hooks/use-unread-messages-seen.js";
 import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 
@@ -234,14 +238,19 @@ export function ThreadTabRail({
       : null;
   });
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
-  const unreadIn = (questIds: readonly string[]) => {
-    const members = new Set(questIds.map(normalizeThreadKey));
+  // Unread results in these threads, as the attention list counts them: every open review
+  // notification, finished quests included, so the Topics list marks what its bell counts.
+  const unreadIn = (threadKeys: readonly string[]) => {
+    const members = new Set(threadKeys.map(normalizeThreadKey));
     return (notifications ?? []).filter(
-      (notification) => readsWhenSeen(notification) && members.has(resolveNotificationOwnerThreadKey(notification)),
+      (notification) =>
+        notification.category === "review" &&
+        !notification.done &&
+        members.has(resolveNotificationOwnerThreadKey(notification)),
     );
   };
   const openTopic = (topic: TopicSummary) => {
-    // A topic with unread answers opens at the first one, where its "New" line is.
+    // A topic with unread results opens at the first one: answers first, where the "New" line is.
     const firstUnread = firstUnreadResult(unreadIn([topicViewKey(topic.id), ...topic.questIds]), () => true);
     if (firstUnread) {
       navigateToNotification(sessionId, firstUnread, useStore.getState().sdkSessions, { topicView: true });
@@ -298,15 +307,7 @@ export function ThreadTabRail({
                 topics: topicList,
                 currentTopicId,
                 onOpen: openTopic,
-                // Answers to one request of the user's count as one new thing.
-                unreadCountOf: (questIds) =>
-                  new Set(
-                    unreadIn(questIds).map((notification) =>
-                      notification.answerTo?.length
-                        ? `request:${[...notification.answerTo].sort().join(",")}`
-                        : notification.id,
-                    ),
-                  ).size,
+                unreadOf: (threadKeys) => countUnreadResults(unreadIn(threadKeys)),
                 topicOfQuest: topicOfQuest ?? {},
               }
             : undefined

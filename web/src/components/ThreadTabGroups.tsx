@@ -30,6 +30,8 @@ import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
 import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
+import { useTopicQuestions } from "./library/topic-questions.js";
+import type { SessionNotification } from "../types.js";
 import { createPortal } from "react-dom";
 import { WorkBoardDotsIcon, WorkBoardIcon } from "./leader-workboard-controls.js";
 import type { BoardPhaseDot } from "./leader-board-summary.js";
@@ -157,10 +159,10 @@ export interface ThreadTabGroupBarProps extends RowContext {
     /** The topic of each quest tab, by quest ID; a quest with none is listed as not in a topic yet. */
     topicOfQuest: Readonly<Record<string, string>>;
     /**
-     * How many unread answers and reports these threads have (a topic's own thread and its quests),
-     * when the leader's notifications are known.
+     * The unread results in these threads (a topic's own thread and its quests), counted as the
+     * attention list counts them, when the leader's notifications are known.
      */
-    unreadCountOf?: (threadKeys: readonly string[]) => number;
+    unreadOf?: (threadKeys: readonly string[]) => UnreadResultCount;
   };
   /** Shown in the row right after the tabs, outside the tab list (the desktop Next chip). */
   trailing?: ReactNode;
@@ -304,7 +306,7 @@ export function ThreadTabGroupBar({
           <TopicIcon className="h-3.5 w-3.5 shrink-0" />
           {/* With two or three tabs in the bar, phones have room to name it too. */}
           <span className={topicFirst ? "" : "hidden md:inline"}>Topics</span>
-          {topicFirst && <AttentionBell tab={attentionOf(questTabs)} />}
+          {topicFirst && <TopicsBell topicsGroup={topicsGroup} questTabs={questTabs} />}
         </>
       ),
     });
@@ -407,7 +409,7 @@ export function ThreadTabGroupBar({
               {spinningTab === "topics" && <ActiveOutputSpinner />}
               <TopicIcon className="h-3.5 w-3.5 shrink-0" />
               Topics
-              <AttentionBell tab={attentionOf(questTabs)} />
+              <TopicsBell topicsGroup={topicsGroup} questTabs={questTabs} />
               <ListChevron />
             </TopBarButton>
           )}
@@ -1036,12 +1038,89 @@ function attentionOf(tabs: readonly PrimaryThreadChip[]): PrimaryThreadChip {
   };
 }
 
+/** A place's unread results: new answers and reports, and finished quests. */
+export interface UnreadResultCount {
+  /** New answers and reports; answers to one request of the user's count as one. */
+  answers: number;
+  /** Finished quests whose completion is unread. */
+  finished: number;
+}
+
+/**
+ * Counts unread result notifications the way the attention list does ("2 new answers, 1 finished"):
+ * a finished quest's completion separately, answers to one request once.
+ */
+export function countUnreadResults(
+  notifications: ReadonlyArray<Pick<SessionNotification, "id" | "answerTo" | "unreadReason">>,
+): UnreadResultCount {
+  const finished = notifications.filter((notification) => notification.unreadReason === "quest-complete");
+  const answers = new Set(
+    notifications
+      .filter((notification) => notification.unreadReason !== "quest-complete")
+      .map((notification) =>
+        notification.answerTo?.length ? `request:${[...notification.answerTo].sort().join(",")}` : notification.id,
+      ),
+  );
+  return { answers: answers.size, finished: finished.length };
+}
+
+/** A topic's unread results: from the notifications when known, until then from its tabs' marks. */
+function topicUnread(
+  topic: TopicSummary,
+  own: readonly PrimaryThreadChip[],
+  unreadOf: ((threadKeys: readonly string[]) => UnreadResultCount) | undefined,
+): UnreadResultCount {
+  return unreadOf
+    ? unreadOf([topicViewKey(topic.id), ...topic.questIds])
+    : { answers: own.filter((tab) => tab.blueNudge).length, finished: 0 };
+}
+
+function topicTabs(topic: TopicSummary, tabs: readonly PrimaryThreadChip[]): PrimaryThreadChip[] {
+  const members = new Set(topic.questIds.map(normalizeThreadKey));
+  return tabs.filter((tab) => members.has(normalizeThreadKey(tab.questId ?? tab.threadKey)));
+}
+
+/** Quest tabs under no topic, which the Topics list shows below its topics. */
+function tabsInNoTopic(
+  tabs: readonly PrimaryThreadChip[],
+  topicOfQuest: Readonly<Record<string, string>>,
+): PrimaryThreadChip[] {
+  return tabs.filter((tab) => !tab.questId || !topicOfQuest[tab.questId]);
+}
+
+/**
+ * The Topics tab's bell, from exactly what its list marks: a topic row's questions (amber) or
+ * unread results (blue), or the bell of a quest under no topic. Opening the list therefore always
+ * shows what the bell is about, and the bell goes quiet with the last mark.
+ */
+function TopicsBell({
+  topicsGroup,
+  questTabs,
+}: {
+  topicsGroup: NonNullable<ThreadTabGroupBarProps["topicsGroup"]>;
+  questTabs: readonly PrimaryThreadChip[];
+}) {
+  const { questionsOf } = useTopicQuestions();
+  const unsorted = tabsInNoTopic(questTabs, topicsGroup.topicOfQuest);
+  const needsInput =
+    topicsGroup.topics.some((topic) => questionsOf(topic.questIds).length > 0) ||
+    unsorted.some((tab) => tab.needsInput);
+  const blueNudge =
+    topicsGroup.topics.some((topic) => {
+      const { answers, finished } = topicUnread(topic, topicTabs(topic, questTabs), topicsGroup.unreadOf);
+      return answers + finished > 0;
+    }) || unsorted.some((tab) => tab.blueNudge);
+  return <AttentionBell tab={{ ...attentionOf([]), needsInput, blueNudge }} />;
+}
+
 /** What a topic's open quest tabs say about it, for its row in the topic-first bar's list. */
 export interface TopicTabStatus {
   /** Unfinished quests with tabs, newest change first. */
   inProgress: PrimaryThreadChip[];
-  /** Quest tabs with an unread answer or result. */
+  /** New answers and reports (answers to one request count once). */
   unread: number;
+  /** Finished quests whose completion is unread. */
+  finished: number;
   /** The leader is writing in one of its quests now. */
   active: boolean;
   /** Notify Me is on for one of its quests. */
@@ -1053,12 +1132,14 @@ function topicStatus(
   tabs: readonly PrimaryThreadChip[],
   activeOutputThreadKey: string | null,
   monitors: ThreadMonitoringProjectionValue["threads"] | undefined,
+  unreadOf: ((threadKeys: readonly string[]) => UnreadResultCount) | undefined,
 ): TopicTabStatus {
-  const members = new Set(topic.questIds.map(normalizeThreadKey));
-  const own = tabs.filter((tab) => members.has(normalizeThreadKey(tab.questId ?? tab.threadKey)));
+  const own = topicTabs(topic, tabs);
+  const { answers, finished } = topicUnread(topic, own, unreadOf);
   return {
     inProgress: workingOnTabs(own.filter((tab) => !tab.completed)),
-    unread: own.filter((tab) => tab.blueNudge).length,
+    unread: answers,
+    finished,
     // Writing in one of its quests, or in the topic's own thread.
     active:
       own.some((tab) => isActiveOutput(tab, activeOutputThreadKey)) ||
@@ -1116,10 +1197,8 @@ function TopicsGroupList({
   const [query, setQuery] = useState("");
   const topics = searchTopics(topicsGroup.topics, query);
   const unsorted = topicFirst
-    ? questTabs.filter(
-        (tab) =>
-          (!tab.questId || !topicsGroup.topicOfQuest[tab.questId]) &&
-          matchesSearch(`${tab.title} ${tab.questId ?? ""}`, query),
+    ? tabsInNoTopic(questTabs, topicsGroup.topicOfQuest).filter((tab) =>
+        matchesSearch(`${tab.title} ${tab.questId ?? ""}`, query),
       )
     : [];
   return (
@@ -1135,12 +1214,14 @@ function TopicsGroupList({
         onLeave={onLeave}
         statusOf={
           topicFirst
-            ? (topic) => ({
-                ...topicStatus(topic, questTabs, rowContext.activeOutputThreadKey, rowContext.monitors),
-                ...(topicsGroup.unreadCountOf
-                  ? { unread: topicsGroup.unreadCountOf([topicViewKey(topic.id), ...topic.questIds]) }
-                  : {}),
-              })
+            ? (topic) =>
+                topicStatus(
+                  topic,
+                  questTabs,
+                  rowContext.activeOutputThreadKey,
+                  rowContext.monitors,
+                  topicsGroup.unreadOf,
+                )
             : undefined
         }
       />

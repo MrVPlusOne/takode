@@ -11,6 +11,7 @@ import { useStore } from "../store.js";
 import type { SdkSessionInfo } from "../types.js";
 import {
   ThreadTabGroupBar,
+  countUnreadResults,
   groupThreadTabs,
   threadKeyToSelectAfterClosing,
   topicFirstTabOrder,
@@ -490,6 +491,69 @@ describe("ThreadTabGroupBar", () => {
     expect(main.dataset.selected).toBe("true");
     fireEvent.click(main);
     expect(onSelect).toHaveBeenCalledWith("main");
+  });
+});
+
+describe("Topics bell and its list", () => {
+  // Jiayi saw a blue bell on Topics with no topic marked in its list (Oct 28): the bell read the
+  // tabs' unread marks, which include finished quests, while topic rows counted only answers and
+  // reports. The bell now comes from exactly what the list marks.
+  const topic = (id: string, name: string, questIds: string[]) =>
+    ({ id, name, activityAt: 1, questIds, latestUpdate: `${name} moved.` }) as never;
+  const topics = [topic("t1", "Relay", ["q-10"]), topic("t2", "Briefing", ["q-13"])];
+  const topicOfQuest = { "q-10": "t1", "q-13": "t2" };
+  const tabs = [tab("q-10"), tab("q-13", { completed: true }), tab("q-20", { completed: true })];
+  function renderTopics(unread: Record<string, { answers: number; finished: number }>, tabOverrides = tabs) {
+    renderBar({
+      tabs: tabOverrides,
+      currentThreadKey: "main",
+      topicsGroup: {
+        topics,
+        currentTopicId: null,
+        onOpen: vi.fn(),
+        topicOfQuest,
+        unreadOf: (threadKeys) => unread[threadKeys.find((key) => unread[key]) ?? ""] ?? { answers: 0, finished: 0 },
+      },
+    });
+  }
+  const bellKind = () =>
+    within(screen.getByTestId("thread-tab-group-topics")).queryByTestId("thread-tab-bell")?.dataset.kind ?? null;
+
+  it("counts unread results as the attention list does: finished quests apart, one request once", () => {
+    expect(
+      countUnreadResults([
+        { id: "n-1", answerTo: ["u1"], unreadReason: "answer" },
+        { id: "n-2", answerTo: ["u1"], unreadReason: "report" },
+        { id: "n-3", unreadReason: "answer" },
+        { id: "n-4", unreadReason: "quest-complete" },
+      ]),
+    ).toEqual({ answers: 2, finished: 1 });
+  });
+
+  it("rings for a finished quest and marks its topic in the list", () => {
+    renderTopics({ "q-13": { answers: 0, finished: 1 } });
+    expect(bellKind()).toBe("review");
+    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
+    const briefing = screen.getAllByTestId("topic-tab-row").find((row) => row.dataset.topic === "t2")!;
+    expect(within(briefing).getByTestId("topic-tab-unread").textContent).toBe("1 finished");
+  });
+
+  it("stays quiet when no topic in the list is marked, even if a tab still has a stale mark", () => {
+    renderTopics({}, [tab("q-10", { blueNudge: true }), ...tabs.slice(1)]);
+    expect(bellKind()).toBeNull();
+  });
+
+  it("rings for answers in a topic's own thread, which no quest tab carries", () => {
+    renderTopics({ "topic:t1": { answers: 2, finished: 0 } });
+    expect(bellKind()).toBe("review");
+  });
+
+  it("rings for a quest under no topic, whose row in the list has the bell", () => {
+    renderTopics({}, [...tabs.slice(0, 2), tab("q-20", { completed: true, blueNudge: true })]);
+    expect(bellKind()).toBe("review");
+    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
+    const unsorted = screen.getByTestId("topic-tab-unsorted");
+    expect(within(unsorted).getByTestId("thread-tab-bell").dataset.kind).toBe("review");
   });
 });
 

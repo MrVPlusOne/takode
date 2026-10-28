@@ -43,6 +43,7 @@ interface MockStoreState {
   activeTurnRoutes: Map<string, import("../types.js").ActiveTurnRoute | null>;
   syncedProjectionValues: Map<string, unknown>;
   syncedProjectionKeys: Set<string>;
+  sessionNotifications: Map<string, import("../types.js").SessionNotification[]>;
 }
 
 let mockState: MockStoreState;
@@ -69,6 +70,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     activeTurnRoutes: new Map(),
     syncedProjectionValues: new Map(),
     syncedProjectionKeys: new Set(),
+    sessionNotifications: new Map(),
     ...overrides,
   };
 }

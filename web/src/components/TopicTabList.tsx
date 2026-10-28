@@ -134,11 +134,12 @@ function TopicTabRow({
 
 /**
  * What a topic's quests are doing, in one quiet line under its update: work in progress (with the
- * phase colors, a spinner while the leader writes there), unread answers, and Notify Me.
+ * phase colors, a spinner while the leader writes there), unread results worded as the attention
+ * list words them ("2 new, 1 finished"), and Notify Me.
  */
 function TopicStatusLine({ status }: { status: TopicTabStatus }) {
-  const { inProgress, unread, active, watching } = status;
-  if (!inProgress.length && !unread && !active && !watching) return null;
+  const { inProgress, unread, finished, active, watching } = status;
+  if (!inProgress.length && !unread && !finished && !active && !watching) return null;
   return (
     <span className="mt-1 flex items-center gap-2.5 text-[12px] text-cc-muted" data-testid="topic-tab-status">
       {(inProgress.length > 0 || active) && (
@@ -154,10 +155,10 @@ function TopicStatusLine({ status }: { status: TopicTabStatus }) {
           {inProgress.length > 0 ? `${inProgress.length} in progress` : "working"}
         </span>
       )}
-      {unread > 0 && (
-        <span className="inline-flex items-center gap-1 text-cc-info">
+      {(unread > 0 || finished > 0) && (
+        <span className="inline-flex items-center gap-1 text-cc-info" data-testid="topic-tab-unread">
           <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cc-info" />
-          {unread} new
+          {[unread ? `${unread} new` : null, finished ? `${finished} finished` : null].filter(Boolean).join(", ")}
         </span>
       )}
       {watching && <NotifyMeIcon pending={false} className="h-3.5 w-3.5" />}
