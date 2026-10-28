@@ -52,7 +52,6 @@ import {
 import { buildSidebarVisibleSessions } from "../utils/sidebar-visible-sessions.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { buildReviewerByParent } from "../utils/reviewer-by-parent.js";
-import { isTouchDevice } from "../utils/mobile.js";
 import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 import { requestAutoSessionGitStatusRefreshes } from "../utils/session-git-status-auto-refresh.js";
 import type { SidebarSessionItem } from "../utils/sidebar-session-item.js";
@@ -336,13 +335,6 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
     // Navigate to session hash — App.tsx hash effect handles setCurrentSession + connectSession
     navigateToSession(sessionId);
-    if (isDesktopLayout || !isTouchDevice()) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          useStore.getState().focusComposer();
-        });
-      });
-    }
     if (!isDesktopLayout) {
       useStore.getState().setSidebarOpen(false);
     }

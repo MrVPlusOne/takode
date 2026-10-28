@@ -346,7 +346,9 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     expect(scrollTargetSessionIds).toContain("s2");
   });
 
-  it("clicking a session navigates to the session hash", () => {
+  it("clicking a session navigates to the session hash without focusing its composer", async () => {
+    // Switching sessions leaves the composer collapsed so it doesn't cover the feed;
+    // typing anywhere opens it when the user wants to write.
     const session = makeSession("s1");
     const sdk = makeSdkSession("s1");
     mockState = createMockState({
@@ -359,11 +361,14 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     fireEvent.click(screen.getByText("claude-sonnet-4-5-20250929").closest("button")!);
 
     expect(window.location.hash).toBe("#/session/s1");
+    // The old focus request ran two animation frames after the click; wait them out.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(mockState.focusComposer).not.toHaveBeenCalled();
   });
 
   it("keeps narrow touch session navigation view-only", () => {
-    // iPhone-style navigation should close the sidebar without emitting the
-    // delayed global focus request that opens the destination virtual keyboard.
+    // iPhone-style navigation should close the sidebar without a focus request,
+    // which would open the destination's virtual keyboard.
     // Restore the desktop viewport afterwards so later tests do not run as a phone.
     const originalInnerWidth = window.innerWidth;
     const originalMatchMedia = window.matchMedia;
