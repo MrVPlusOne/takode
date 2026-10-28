@@ -7,6 +7,8 @@ import { useState } from "react";
 import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../../utils/quest-phase-theme.js";
 import type { TopicSummary } from "../../../shared/library-topics.js";
+import type { SessionAttentionPreview } from "../../hooks/useSessionAttention.js";
+import { NotificationChip } from "../NotificationChip.js";
 import { ThreadTabGroupBar } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
@@ -109,7 +111,25 @@ function playgroundTopic(
   };
 }
 
-function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"; topics?: boolean }) {
+/** Two unread results for the desktop chip after the tabs. */
+const TAB_ROW_ATTENTION: SessionAttentionPreview = {
+  notifyMe: [],
+  unread: [
+    { sessionId: "playground-tab-row", threadKey: "q-9482", label: "q-9482", timestamp: NOW - 2 * MINUTE },
+    { sessionId: "playground-tab-row", threadKey: "q-9479", label: "q-9479", timestamp: NOW - 9 * MINUTE },
+  ],
+};
+
+function PhoneFrame({
+  placement,
+  topics = false,
+  desktopChip = false,
+}: {
+  placement: "top" | "bottom";
+  topics?: boolean;
+  /** A desktop-width bar with the session's Next chip right after the tabs. */
+  desktopChip?: boolean;
+}) {
   const [current, setCurrent] = useState("q-9482");
   // The topic whose conversation is on screen: the Topics group stays selected while it is.
   const [topicOpen, setTopicOpen] = useState<string | null>(null);
@@ -123,7 +143,7 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
   };
   return (
     <div
-      className="w-[430px] max-w-full rounded-lg border border-cc-border bg-cc-card px-3"
+      className={`${desktopChip ? "w-[900px]" : "w-[430px]"} max-w-full rounded-lg border border-cc-border bg-cc-card px-3`}
       data-testid="playground-thread-tab-groups"
     >
       <ThreadTabGroupBar
@@ -146,6 +166,17 @@ function PhoneFrame({ placement, topics = false }: { placement: "top" | "bottom"
         }}
         onSelect={select}
         onClose={close}
+        trailing={
+          desktopChip && (
+            <NotificationChip
+              sessionId="playground-tab-row"
+              currentThreadKey="main"
+              attentionPreview={TAB_ROW_ATTENTION}
+              placement="top"
+              docked
+            />
+          )
+        }
         topicsGroup={
           topics
             ? {
@@ -166,7 +197,7 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size. Without topics: Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name. With topics on, the bar is topic-first: Main, Working on (the unfinished quests) and Topics, where each topic says what its quests are doing (in progress, new answers, Notify me) and quests under no topic are listed below. The quest strip names the current quest, so the bar only marks the group that holds it. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
+        description="Leader thread tabs on every screen size. Without topics: Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name. With topics on, the bar is topic-first: Main, Working on (the unfinished quests) and Topics, where each topic says what its quests are doing (in progress, new answers, Notify me) and quests under no topic are listed below. The quest strip names the current quest, so the bar only marks the group that holds it. On desktop the session's Next chip sits right after the tabs, where it never covers the feed's text. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group)">
@@ -174,6 +205,9 @@ export function PlaygroundThreadTabGroupsSection() {
           </Card>
           <Card label="Topics on (open Topics, pick one)">
             <PhoneFrame placement="top" topics />
+          </Card>
+          <Card label="Desktop: the Next chip right after the tabs">
+            <PhoneFrame placement="top" topics desktopChip />
           </Card>
           <Card label="At the bottom (lists open upward)">
             <div className="pt-72">

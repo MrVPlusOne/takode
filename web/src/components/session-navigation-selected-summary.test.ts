@@ -10,7 +10,7 @@ import {
 import { resolveChatSessionNavigationSummary } from "./ChatView.js";
 import { participantNavigationMatchesSessionNum, resolveQuestBannerParticipantIdentity } from "./QuestThreadBanner.js";
 import { resolveParticipantSessionStatusDotProps } from "./session-participant-status.js";
-import { resolveWorkBoardIsOrchestrator } from "./WorkBoardBar.js";
+import { resolveWorkBoardIsOrchestrator } from "../utils/leader-thread-tabs-resolver.js";
 
 function source(
   value = createSessionNavigationProjectionValue(),

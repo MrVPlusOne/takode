@@ -10,6 +10,7 @@ import {
 import type { AppState } from "../store-types.js";
 import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { resolveSessionNavigation, type SessionNavigationResolverSource } from "./session-navigation-resolver.js";
 
 export interface LeaderThreadTabsProjectionSource {
   syncedProjectionValues?: Map<string, unknown>;
@@ -80,4 +81,15 @@ export function selectLeaderActivePhaseSummary(
 ): LeaderActivePhaseSummarySegment[] {
   const resolution = resolveLeaderThreadTabsProjection(source, sessionId);
   return resolution.projectionState === "accepted" ? resolution.value.activePhaseSummary : EMPTY_ACTIVE_PHASE_SUMMARY;
+}
+
+/** Whether a session shows the leader's work board and thread tab row. */
+export function resolveWorkBoardIsOrchestrator(
+  source: LeaderThreadTabsProjectionSource & SessionNavigationResolverSource,
+  sessionId: string,
+): boolean {
+  return (
+    resolveLeaderThreadTabsProjection(source, sessionId).projectionState === "accepted" ||
+    resolveSessionNavigation(source, sessionId)?.viewModel.isOrchestrator === true
+  );
 }

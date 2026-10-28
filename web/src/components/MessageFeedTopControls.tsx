@@ -9,7 +9,8 @@ import { NotificationChip } from "./NotificationChip.js";
  * Controls floating at the top of the feed, in one row so they never overlap: live terminals and
  * subagents on the left, then the Codex subagent control and, on desktop, the session's attention
  * chip at the right. Desktop keeps the chip up here near the top bar's attention controls to cut
- * mouse travel; phones keep it at the bottom right (FeedStatusPill), within thumb reach.
+ * mouse travel, except in a leader's chat, where it sits right after the thread tabs so it never
+ * covers text; phones keep it at the bottom right (FeedStatusPill), within thumb reach.
  *
  * The feed's day pill sits centered at the top too. The live rail can span the whole row, and on
  * a phone the Codex subagent control leaves little room beside the pill, so then the pill takes
@@ -26,6 +27,7 @@ export function MessageFeedTopControls({
   onSelectSubagent,
   onDismissSubagent,
   showCodexSubagents = true,
+  showAttentionChip: attentionChipAllowed = true,
   dayPill,
   belowPinnedStrip = false,
 }: {
@@ -39,6 +41,8 @@ export function MessageFeedTopControls({
   onSelectSubagent: (taskToolUseId: string, turnId: string) => void;
   onDismissSubagent: (taskToolUseId: string, freshnessToken: string) => void;
   showCodexSubagents?: boolean;
+  /** False when a leader's tab row shows the attention chip instead. */
+  showAttentionChip?: boolean;
   /** The feed's day pill (`MessageFeedDayPill`), which renders nothing when it has no day to show. */
   dayPill?: ReactNode;
   /**
@@ -54,7 +58,7 @@ export function MessageFeedTopControls({
   );
   const hasCodexSubagents = showCodexSubagents && hasCodexSubagentData;
   const hasLiveActivity = terminals.length > 0 || subagents.length > 0;
-  const showAttentionChip = useDesktopShellLayout();
+  const showAttentionChip = useDesktopShellLayout() && attentionChipAllowed;
 
   const hasRow = hasCodexSubagents || hasLiveActivity || showAttentionChip;
   if (!hasRow && !dayPill) return null;

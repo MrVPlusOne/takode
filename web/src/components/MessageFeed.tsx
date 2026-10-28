@@ -146,6 +146,7 @@ export function MessageFeed({
   additionalAttentionRecords = EMPTY_ATTENTION_RECORDS,
   showCodexSubagentControl = true,
   markSharedResultsRead = false,
+  attentionChipInTabRow = false,
 }: {
   sessionId: string;
   threadKey?: string;
@@ -159,6 +160,8 @@ export function MessageFeed({
   showCodexSubagentControl?: boolean;
   /** Mark other threads' Ready results read when this quest tab shows their message. */
   markSharedResultsRead?: boolean;
+  /** The leader's tab row shows the session's Next chip (desktop), so the feed shows none. */
+  attentionChipInTabRow?: boolean;
 }) {
   const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
@@ -1792,6 +1795,7 @@ export function MessageFeed({
         setDismissedSubagentChips((prev) => new Map(prev).set(taskToolUseId, freshnessToken));
       }}
       showCodexSubagents={showCodexSubagentControl}
+      showAttentionChip={!attentionChipInTabRow}
       dayPill={
         <MessageFeedDayPill
           containerRef={containerRef}

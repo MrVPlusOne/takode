@@ -19,6 +19,7 @@ import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { ThreadTabGroupBar, topicFirstTabOrder } from "./ThreadTabGroups.js";
+import { NotificationChip } from "./NotificationChip.js";
 import { useLeaderTopics } from "../utils/leader-topics.js";
 import { readsWhenSeen } from "../hooks/use-unread-messages-seen.js";
 import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
@@ -145,6 +146,7 @@ export function ThreadTabRail({
   onCloseThreadTab,
   threadStatuses,
   tabOrderRef,
+  attentionChipThreadKey,
 }: {
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
@@ -155,6 +157,11 @@ export function ThreadTabRail({
   threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
   /** Filled with the topic-first bar's tab order (null for the status groups), for picking the tab after a close. */
   tabOrderRef?: MutableRefObject<readonly string[] | null>;
+  /**
+   * Set on desktop: the session's Next attention chip sits right after the tabs, where it never
+   * covers the feed's text (the feed then shows none). The value is the thread the feed shows.
+   */
+  attentionChipThreadKey?: string;
 }) {
   const openThread = (threadKey: string) => {
     const target = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
@@ -264,6 +271,17 @@ export function ThreadTabRail({
         key={sessionId}
         main={mainState}
         tabs={displayedTabs}
+        trailing={
+          attentionChipThreadKey !== undefined && (
+            <NotificationChip
+              sessionId={sessionId}
+              currentThreadKey={attentionChipThreadKey}
+              onSelectThread={onSelectThread}
+              placement="top"
+              docked
+            />
+          )
+        }
         currentThreadKey={currentThreadKey}
         activeOutputThreadKey={runningRoute?.threadKey ?? null}
         monitors={monitors}

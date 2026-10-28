@@ -124,6 +124,28 @@ describe("MessageFeedTopControls", () => {
     expect(chip).toHaveTextContent("1/1·Next");
   });
 
+  it("leaves the chip out on desktop when a leader's tab row shows it", () => {
+    // In a leader's chat the chip sits right after the thread tabs instead, where it never covers
+    // the narrow feed's text; the feed must not show a second one.
+    installSession(true);
+    installNeedsInput();
+    setViewportWidth(1280);
+    render(
+      <MessageFeedTopControls
+        sessionId="session-1"
+        terminals={[]}
+        subagents={[]}
+        selectedToolUseId={null}
+        onSelect={vi.fn()}
+        onSelectSubagent={vi.fn()}
+        onDismissSubagent={vi.fn()}
+        showAttentionChip={false}
+      />,
+    );
+    expect(screen.queryByTestId("session-attention-chip")).toBeNull();
+    expect(screen.getByTestId("codex-subagent-feed-control-row")).toBeInTheDocument();
+  });
+
   it("shares one collision-free absolute rail between live activity and the session chip", () => {
     installSession(true);
     const onSelect = vi.fn();

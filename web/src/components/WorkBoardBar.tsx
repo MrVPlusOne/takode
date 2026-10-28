@@ -25,12 +25,8 @@ import type { LeaderWorkboardView } from "../store-types.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import {
   resolveLeaderThreadTabsProjection,
-  type LeaderThreadTabsProjectionSource,
+  resolveWorkBoardIsOrchestrator,
 } from "../utils/leader-thread-tabs-resolver.js";
-import {
-  resolveSessionNavigation,
-  type SessionNavigationResolverSource,
-} from "../utils/session-navigation-resolver.js";
 import { buildLeaderThreadMigrationKeys } from "../utils/leader-thread-tabs-navigation.js";
 import { isLoadedQuestDone, questThreadOwnershipLabel } from "./QuestThreadOwnership.js";
 import type {
@@ -438,16 +434,6 @@ function ProjectionToggle({
   );
 }
 
-export function resolveWorkBoardIsOrchestrator(
-  source: LeaderThreadTabsProjectionSource & SessionNavigationResolverSource,
-  sessionId: string,
-): boolean {
-  return (
-    resolveLeaderThreadTabsProjection(source, sessionId).projectionState === "accepted" ||
-    resolveSessionNavigation(source, sessionId)?.viewModel.isOrchestrator === true
-  );
-}
-
 function WorkBoardBarComponent({
   sessionId,
   currentThreadKey = MAIN_THREAD_KEY,
@@ -457,6 +443,7 @@ function WorkBoardBarComponent({
   threadRows = [],
   closeTabRef,
   hideThreadStrip = false,
+  attentionChipThreadKey,
 }: {
   sessionId: string;
   currentThreadKey?: string;
@@ -466,6 +453,8 @@ function WorkBoardBarComponent({
   threadRows?: WorkBoardThreadNavigationRow[];
   /** Filled with this bar's close handler, for closing a tab from outside the bar. */
   closeTabRef?: MutableRefObject<((threadKey: string) => void) | null>;
+  /** Desktop: show the Next attention chip after the tabs, for this thread (see ThreadTabRail). */
+  attentionChipThreadKey?: string;
   /** Hides Main's strip under the tabs (the phone topic panel covers the thread). */
   hideThreadStrip?: boolean;
 }) {
@@ -586,6 +575,7 @@ function WorkBoardBarComponent({
         onCloseThreadTab={onCloseThreadTab ? handleCloseThreadTab : undefined}
         threadStatuses={threadStatuses}
         tabOrderRef={tabOrderRef}
+        attentionChipThreadKey={attentionChipThreadKey}
       />
 
       {showMainBanner && !hideThreadStrip && (

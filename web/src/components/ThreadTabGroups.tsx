@@ -159,13 +159,22 @@ export interface ThreadTabGroupBarProps extends RowContext {
      */
     unreadCountOf?: (threadKeys: readonly string[]) => number;
   };
+  /** Shown in the row right after the tabs, outside the tab list (the desktop Next chip). */
+  trailing?: ReactNode;
 }
 
 /**
  * The phone tab bar: Main, one item per non-empty group, and search. The quest strip
  * below already names the current quest, so the bar only marks which group holds it.
  */
-export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, ...rows }: ThreadTabGroupBarProps) {
+export function ThreadTabGroupBar({
+  main,
+  tabs,
+  placement = "top",
+  topicsGroup,
+  trailing,
+  ...rows
+}: ThreadTabGroupBarProps) {
   const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | "topics" | "working-on" | null>(null);
   // The input of the latest press on the bar: a click on an open group differs by mouse and finger.
   const lastPressRef = useRef<string>("mouse");
@@ -307,55 +316,58 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
         lastPressRef.current = "keyboard";
       }}
     >
-      <div
-        className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"}`}
-        role="tablist"
-      >
-        {item("main", {
-          label: "Main Thread",
-          selected: onMain,
-          activeOutput: spinningTab === "main",
-          testId: "thread-tab-group-main",
-          onClick: () => select(MAIN_THREAD_KEY),
-          children: (
-            <>
-              <span>Main</span>
-              <AttentionBell tab={mainTab} />
-            </>
-          ),
-        })}
-        {topicFirst && workingOn.length > 0 && workingOnItem()}
-        {topicsGroup && (topicsGroup.topics.length > 0 || topicFirst) && topicsItem()}
-        {!topicFirst &&
-          THREAD_TAB_GROUP_ORDER.map((id) =>
-            groups[id].length > 0
-              ? item(id, {
-                  label: `${GROUP_LABEL[id]}: ${groups[id].length}`,
-                  selected: currentGroup === id,
-                  open: openGroup === id,
-                  group: id,
-                  count: groups[id].length,
-                  activeOutput: spinningTab === id,
-                  testId: "thread-tab-group-chip",
-                  // A group of one opens its tab on a tap; its list (with the tab's latest
-                  // result and menu) stays a long-press or right-click away. A larger group
-                  // opens its list and leaves the tab on screen alone: stepping through items
-                  // that need attention is the feed's Next chip's job. Clicking the group again
-                  // with a mouse opens the list's first tab, saving the trip down to it; a second
-                  // tap of a finger closes the list, undoing the first tap.
-                  onClick: () => {
-                    if (groups[id].length === 1 || (openGroup === id && !isTouchPress(lastPressRef.current))) {
-                      select(groups[id][0]!.threadKey);
-                      return;
-                    }
-                    setOpenGroup((open) => (open === id ? null : id));
-                  },
-                  onOpenList: () => setOpenGroup(id),
-                  single: groups[id].length === 1,
-                  children: <GroupContent id={id} tabs={groups[id]} />,
-                })
-              : null,
-          )}
+      <div className={trailing ? "flex items-center gap-2" : "contents"}>
+        <div
+          className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"} ${trailing ? "self-end" : ""}`}
+          role="tablist"
+        >
+          {item("main", {
+            label: "Main Thread",
+            selected: onMain,
+            activeOutput: spinningTab === "main",
+            testId: "thread-tab-group-main",
+            onClick: () => select(MAIN_THREAD_KEY),
+            children: (
+              <>
+                <span>Main</span>
+                <AttentionBell tab={mainTab} />
+              </>
+            ),
+          })}
+          {topicFirst && workingOn.length > 0 && workingOnItem()}
+          {topicsGroup && (topicsGroup.topics.length > 0 || topicFirst) && topicsItem()}
+          {!topicFirst &&
+            THREAD_TAB_GROUP_ORDER.map((id) =>
+              groups[id].length > 0
+                ? item(id, {
+                    label: `${GROUP_LABEL[id]}: ${groups[id].length}`,
+                    selected: currentGroup === id,
+                    open: openGroup === id,
+                    group: id,
+                    count: groups[id].length,
+                    activeOutput: spinningTab === id,
+                    testId: "thread-tab-group-chip",
+                    // A group of one opens its tab on a tap; its list (with the tab's latest
+                    // result and menu) stays a long-press or right-click away. A larger group
+                    // opens its list and leaves the tab on screen alone: stepping through items
+                    // that need attention is the feed's Next chip's job. Clicking the group again
+                    // with a mouse opens the list's first tab, saving the trip down to it; a second
+                    // tap of a finger closes the list, undoing the first tap.
+                    onClick: () => {
+                      if (groups[id].length === 1 || (openGroup === id && !isTouchPress(lastPressRef.current))) {
+                        select(groups[id][0]!.threadKey);
+                        return;
+                      }
+                      setOpenGroup((open) => (open === id ? null : id));
+                    },
+                    onOpenList: () => setOpenGroup(id),
+                    single: groups[id].length === 1,
+                    children: <GroupContent id={id} tabs={groups[id]} />,
+                  })
+                : null,
+            )}
+        </div>
+        {trailing}
       </div>
       {openGroup && (
         <>

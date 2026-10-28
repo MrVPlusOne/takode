@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
 
@@ -162,6 +162,7 @@ vi.mock("./MessageFeed.js", () => ({
     latestIndicatorMode,
     onSelectThread,
     additionalAttentionRecords = [],
+    attentionChipInTabRow = false,
   }: {
     sessionId: string;
     threadKey?: string;
@@ -169,9 +170,11 @@ vi.mock("./MessageFeed.js", () => ({
     latestIndicatorMode?: string;
     onSelectThread?: (threadKey: string) => void;
     additionalAttentionRecords?: Array<import("../types.js").SessionAttentionRecord>;
+    attentionChipInTabRow?: boolean;
   }) => (
     <div
       data-testid="message-feed"
+      data-attention-chip-in-tab-row={String(attentionChipInTabRow)}
       data-thread-key={threadKey}
       data-project-thread-routes={String(projectThreadRoutes)}
       data-latest-indicator-mode={latestIndicatorMode}
@@ -234,6 +237,7 @@ vi.mock("./WorkBoardBar.js", () => ({
     onSelectThread,
     openThreadKeys = [],
     onCloseThreadTab,
+    attentionChipThreadKey,
   }: {
     sessionId: string;
     currentThreadKey?: string;
@@ -241,6 +245,7 @@ vi.mock("./WorkBoardBar.js", () => ({
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
     onCloseThreadTab?: (threadKey: string, nextThreadKey?: string) => void;
+    attentionChipThreadKey?: string;
   }) => {
     const projection = currentLeaderTabsProjection(sessionId);
     const projectedRows =
@@ -257,6 +262,7 @@ vi.mock("./WorkBoardBar.js", () => ({
       <div
         data-testid="work-board-bar"
         data-current-thread-key={currentThreadKey}
+        data-attention-chip-thread-key={attentionChipThreadKey ?? ""}
         data-attention-count={projectedAttentionCount}
         data-open-thread-keys={openThreadKeys.join(",")}
       >
@@ -506,6 +512,26 @@ describe("ChatView chat surface and leader routing", () => {
     expect(scope.queryByTestId("task-outline-bar")).not.toBeInTheDocument();
     expect(scope.getByTestId("work-board-bar")).toBeInTheDocument();
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "main");
+  });
+
+  it("moves a leader's desktop Next chip from the feed to the tab row, and only a leader's", () => {
+    // The topic panel narrows a leader's chat, where the feed's floating chip covered text, so
+    // the tab row shows it instead. Both sides get the same answer, so exactly one chip shows.
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+    });
+    const leader = within(render(<ChatView sessionId="s1" />).container);
+    expect(leader.getByTestId("work-board-bar")).toHaveAttribute("data-attention-chip-thread-key", "main");
+    expect(leader.getByTestId("message-feed")).toHaveAttribute("data-attention-chip-in-tab-row", "true");
+    cleanup();
+
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: false }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: false }],
+    });
+    const worker = within(render(<ChatView sessionId="s1" />).container);
+    expect(worker.getByTestId("message-feed")).toHaveAttribute("data-attention-chip-in-tab-row", "false");
   });
 
   it("keeps the task history header row for non-leader sessions with task history", () => {

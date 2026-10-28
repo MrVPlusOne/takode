@@ -99,6 +99,7 @@ export { resolveChatSessionNavigationSummary } from "../utils/chat-session-navig
 import {
   projectedLeaderOpenThreadTabs,
   resolveLeaderThreadTabsProjection,
+  resolveWorkBoardIsOrchestrator,
 } from "../utils/leader-thread-tabs-resolver.js";
 import { mergeProjectedLeaderThreadRows } from "../utils/leader-thread-tabs-navigation.js";
 import { useLeaderOpenThreadTabStateSync } from "../hooks/use-leader-open-thread-tab-state-sync.js";
@@ -558,6 +559,9 @@ export function ChatView({
   );
   const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
   const desktopShell = useDesktopShellLayout();
+  // On desktop a leader's Next chip sits right after the thread tabs instead of over the feed.
+  const hasThreadTabRow = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
+  const attentionChipInTabRow = desktopShell && !preview && hasThreadTabRow;
   // On a phone the open topic panel starts right under the tabs: the thread's strips step aside.
   const phoneTopicsOpen = useTopicSheetOpen(sessionId) && !desktopShell && !preview;
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
@@ -1203,6 +1207,7 @@ export function ChatView({
           threadRows={isLeaderSession ? workBoardThreadRows : undefined}
           closeTabRef={workBoardCloseTabRef}
           hideThreadStrip={phoneTopicsOpen}
+          attentionChipThreadKey={attentionChipInTabRow ? feedThreadKey : undefined}
         />
       )}
 
@@ -1277,6 +1282,7 @@ export function ChatView({
                         onSelectThread={isLeaderSession ? handleSelectThread : undefined}
                         showCodexSubagentControl={!preview}
                         markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                        attentionChipInTabRow={attentionChipInTabRow}
                       />
                     </TopicFeedContext.Provider>
                   </StartedQuestsProvider>
