@@ -12,6 +12,334 @@ The rest of the release is about spending less effort keeping up with your agent
 
 Under the hood, Claude sessions now run only through the Claude Agent SDK, with Claude's native Auto permission mode, a reasoning effort picker and the model list Claude Code itself reports. Teams that share a branch can turn on a landing queue that tests waiting changes together and lands them, so workers are free as soon as they submit. Switching sessions over a slow connection is much faster thanks to compressed traffic and a reused connection. The dated entries below list every notable change.
 
+## 2026-10-28
+
+### Added
+
+- **Folding the desktop sessions panel** -- A lock button beside "Search everything" unlocks the desktop sessions panel. Unlocked, it folds up to its top row in the top bar's line, so the conversation gets the full width, and drops down over the chat when the mouse rests on that row. A tap toggles it on a touch screen.
+- **Exporting reports** -- A report card's More menu holds Open in Library, Copy Markdown and Export as Markdown, PDF, image or web page; PDFs and images are drawn by the server from a clean light page of the report. Drafts and visuals keep their Library link, source and exports in the same menu.
+- **Copied drafts** -- Copy for Slack dims the button of each part already copied, on every device and after reloads, and a new version keeps that mark only for parts that did not change.
+
+### Changed
+
+- **Leader tabs in the top bar on desktop** -- A desktop leader with topics on has no separate tab row: Main, All and Topics sit in the top bar after the session name, and the Next chip and a Working on menu (which now also opens the work board) sit before the attention bell. The model and access line moves to the session name's tooltip.
+- **One-line quest strip** -- A leader's quest strip shows the topic, quest and title, the Notify Me icon, the phase pill and the close button on one line. Worker, reviewer and commits move into the phase pill's card, where a quest's recorded commits and its worker's uncommitted changes are separate chips that open their part of the diff. Notify Me also sits beside Open Thread in the quest preview and quest view, and the quest view counts memory commits apart.
+
+### Fixed
+
+- **Opening unread results** -- Next and the attention lists open a topic's first unread answer, and a Notify Me result opens at the answer it reports, never at the commentary around it. The Topics tab's bell lights only for what its list marks.
+- **Quest strips in topic conversations** -- A topic conversation shows a quest's strip only above a turn with a final message (your message, an answer, a report or a question); a run of working steps from another quest gets a small quest label instead.
+- **Top-bar navigation after switching leaders** -- Desktop leaders' top-bar controls no longer show twice after switching to another leader and back.
+
+## 2026-10-27
+
+### Added
+
+- **Posts with replies** -- A drafted Slack post and its thread replies show as one card, each part with its own Copy for Slack plus Copy all. A part can attach files, shown under it with Copy image. A revision can repeat only the parts it changes, and the card marks parts that are new or edited and lists removed ones.
+- **Where a draft goes** -- A draft can name the Slack channel, thread or pull request it is for; the card shows a "Post in ..." link that opens it, kept across revisions.
+- **Reading full screen** -- Report, post and visual cards open full screen over the whole window, with the same controls, and comments made there highlight in the feed too.
+- **Type anywhere to write** -- On desktop, typing or pasting with nothing else focused opens the composer with that text, and Enter opens it empty; Escape collapses it and keeps the draft. A switch in Settings → Keyboard turns it off. Switching sessions no longer opens the composer by itself.
+- **Urgent answers** -- A leader can mark an answer urgent. It gets its own section in the attention list right after the questions, turns the attention pill red, always sounds and sends an "Urgent result" phone alert while unread, with its own phone alert switch.
+- **Searching topics** -- A search box in the Topics list and the topic panel filters a leader's topics by name and latest update.
+
+### Changed
+
+- **Message times with their day** -- Message times say how old they are ("Yesterday 2:13 PM", "Mon 2:13 PM", "Oct 19, 2:13 PM") and roll over at midnight. While you scroll an older stretch, a small pill names its day and how long ago it was, then fades.
+- **Shorter composer** -- The collapsed composer is about a quarter shorter.
+- **Topics have their own thread** -- Messages written in a topic conversation go to the topic's own thread, where the leader answers them or moves them to a quest, as with quest threads. Answers, unread, reminders and reports work there too, and the topic's messages seen elsewhere are labelled with its name.
+- **Quest link previews** -- Hovering a quest link's text opens the full quest preview; hovering the thread icon shows only the title, so clicking the icon always jumps to the thread.
+- **Desktop feed controls** -- The feed's navigation buttons fade after scrolling stops, and a desktop leader's Next chip sits right after the thread tabs instead of over the text.
+
+### Fixed
+
+- **Repeated draft versions** -- When a leader sends the newest version of a draft again, earlier copies collapse like older versions. The Library link moves into the draft's own card header.
+- **Tab spinners** -- Only one tab spins for a leader's writing, and none for writing already on screen.
+- **Quest strips mid-turn** -- A topic conversation starts a quest's strip wherever the conversation moves to that quest, also inside a turn.
+- **Controls under pinned strips** -- The feed's top controls and a report's collapse bar sit below a pinned quest strip instead of behind it, without an empty band above the strip.
+- **Image viewer in background chats** -- A chat kept loaded in the background no longer leaves its full-screen image viewer over the next chat, and its thumbnails still open.
+- **Mistyped topic names** -- A leader that writes to a topic that does not exist is told so, with the closest topics, and handing a Main request to a topic's thread works.
+
+## 2026-10-26
+
+### Added
+
+- **Sending comments with an answer** -- When you have unsent comments, needs-input question cards offer "Include my N comments", which sends them with the answer.
+
+### Changed
+
+- **Topic-first tabs** -- A leader with topics on has three tabs: Main, Working on (its unfinished quests) and Topics, which holds every quest tab, with each topic's row showing work in progress, new answers and Notify Me. Leaders with topics off keep the status groups.
+- **Unread per message** -- Answers and reports count as read once they have been on screen for a second in any view, with a "New" line above the first unread one. Counts show places rather than messages: each question, each watched result and each topic (or quest or Main) with new answers counts once.
+- **One attention order** -- The attention list is one order that Next walks: questions, reminders that came due, unread answers grouped by topic, then watched results. Any question or unread answer can be reminded later (30 minutes, 2 hours or tomorrow at 9 AM).
+- **Topic pages as dashboards** -- Topic pages track the topic's current state, every section folds and remembers it, and each page ends with the topic's latest artifacts and all its quests. Quest views name the quest's topic in place of its tags and open the topic's conversation where the quest was last discussed.
+- **Scribes in the sidebar** -- A leader's Scribe sits last in its herd with its own icon, and the herd summary names it instead of counting it as a worker.
+- **Faster large leaders** -- Long leader sessions no longer stall the server when they are opened, saved or searched, and quest writes no longer serialize the whole quest store. A jump to a message shows it and its surroundings first, before the rest of the window.
+
+### Fixed
+
+- **Library captures** -- Drafts, tables and reports in a Claude message whose text arrived after its thinking are saved to the Library, and history skipped that way is read again once.
+- **Messages queued during a turn** -- A message sent while Claude runs a turn and answered in the next turn no longer counts as unanswered in between, so leaders are not reminded to answer it twice.
+- **Scribe status** -- A Scribe that finishes its work after stopping early no longer stays marked as stopped.
+
+## 2026-10-25
+
+### Added
+
+- **Topics tab group** -- Leaders with topics on get a Topics group right after Main, listing every topic by recent activity with its latest update and what waits on you; choosing one reads it as one conversation. A topic's name above a quest's strip, a "Part of" line at the start of its conversation, and the topic page's "Read all N quests" open that conversation, and a quest tab can zoom out to its topic and back without losing your place.
+- **Now on topic pages** -- A topic's Now is a list of entries in fixed groups (waiting on you, waiting on someone, in progress, next, to try), which Scribes add and remove and which show at once. Each leader's own entries come first, and an entry can be marked done with Undo. Waiting on you lists the topic's open questions.
+- **Requests for a topic page** -- Lasting requests for one topic's page, or for how topics are grouped, are saved as instructions the Scribe keeps following.
+- **Quest rounds** -- A quest reopened for each step of sequential work reads as a series of rounds, each with its own title, brief, requests and outcome. Quest details show the open round first and earlier rounds one line each, and round links open one round.
+- **Recording controls** -- While recording, the composer's button row shows a cancel button, the running time and the input level. On touch screens, undo and redo buttons cover typing, pastes, transcripts and drafts synced from another device.
+- **Copy image** -- Both image viewers have a Copy image button that puts the image itself on the clipboard, so it pastes into Slack and other apps as an image.
+
+### Changed
+
+- **Search everything replaces Find** -- The tab bar's Find is gone. Search everything's Messages lists every message newest first when there is no query, and each quest in Quests mode has a Tab button that opens its tab in its leader.
+- **Topic pages** -- Pages pick sections by what a topic is about around Now and History; Main's topic list shows what moved, newest activity first, with each topic's latest update. Scribes get updates within seconds after a quiet spell and in 30-second batches during a burst, back off after failed turns, and start on their leader's machine.
+- **Phone mic with AirPods** -- On an iPhone with AirPods connected, voice input records with the phone's own mic so it starts at once, and the recording bar shows "Preparing mic..." until audio flows. "Mic with a headset" in Settings keeps the headset mic instead.
+- **Session rows** -- Swiping the phone sessions panel left closes it, rows no longer archive on a swipe, and double-clicking a row no longer renames it; both stay in the row's menu.
+- **Images in Markdown** -- Every image embedded in Markdown opens full size in the image viewer, and plots on topic pages refresh when their file is rewritten.
+
+### Fixed
+
+- **Crash after an update** -- A page that crashes after a server update reloads into the new version by itself.
+- **Topic conversations** -- A topic conversation catches up on what arrived while the phone was away, opens without stalling the server on large topics, and the topic panel keeps one width across leaders.
+
+## 2026-10-24
+
+### Added
+
+- **Topic conversations** -- A quest tab whose topic holds other quests can open the whole topic as one conversation, the quests' threads stitched in time order, each quest's strip pinned while its part is read. Live work and local images show there too.
+
+### Changed
+
+- **Topic pages lead with what is going on** -- A topic page opens with what the topic covers and a Now section (waiting on you, in progress, next and limits), built from what its quests left open, then its history. The panel lists open quests and the newest artifacts, and topics can be turned on per leader with `takode topic on`. On phones the topic panel slides in from the right and closes with a swipe.
+- **Notes in the Journey timeline** -- Quest notes recorded outside any phase sit in the Quest Detail Journey timeline where their time falls, as one-line rows that expand.
+- **Quest quizzes when they help** -- Quests get a quiz only when you asked for one, when the quest answered a request for an explanation or research, or, rarely, when something is especially important to know.
+
+### Fixed
+
+- **Quest link hover cards** -- A quest link's hover card closes after the link was clicked, including after switching windows.
+- **Guided reviews in the Library** -- A guided review opened from the Library shows the review card with Start the review, as in chat.
+
+## 2026-10-23
+
+### Added
+
+- **Library** -- Takode saves what agents make for you (drafts and posts, reports, guided reviews, visuals, tables and figures) in a Library, with revisions grouped as versions; older versions collapse to one line in the conversation. The gallery shows one kind at a time with search, filters and stars, and opens an artifact large with Copy for Slack and a link to its message. Agents can link artifacts in messages, with a hover card.
+- **Topics and Scribes** -- Leaders can turn on topics (off by default). Each quest is filed under a topic in your words, and a Scribe, a quiet background worker in each leader's herd, keeps a page per topic up to date from the leader's activity. Topic pages live in a panel beside the conversation that follows the quest tab on screen. Renaming a topic you named is only ever a suggestion.
+- **Visuals in answers** -- Agents can draw diagrams, timelines, comparisons, charts and other visuals in any answer, report or guided review, in Takode's look and both themes. Each runs sandboxed, so a broken visual cannot hang Takode: one that hangs or slows the page is stopped and shown as a still picture with Run. Scrolling past visuals shows no blanks or redraws.
+- **File viewer** -- Every file link opens inside Takode, read on the machine that holds the file: folders with image thumbnails, code with line numbers and the linked lines marked, logs at their end. Open in VS Code (and Cursor) is a button there, using Remote-SSH for machines set up in Settings → Hosts.
+- **Comments on code in guided reviews** -- Select lines of a stop's code to comment on them; comments go to the agent with the file, lines and quoted code.
+- **`takode read --raw` and `--quote`** -- Print a message's exact text, or a Markdown quote of it with its sender, time and link, so leaders can carry your exact words into quests.
+
+### Changed
+
+- **System theme** -- The theme setting offers Light, Dark and System, which follows the device and switches live. The VS Code theme is retired; a browser that used it starts on Dark.
+- **Jump to a quest's thread** -- The icon after a quest link opens the quest's thread tab, on phones too; hovering it still previews the quest.
+- **Two Next shortcuts** -- Next Item in This Session and Next Item Across Sessions are separate shortcuts, and stepping no longer shows a banner saying where it went.
+- **Image viewer** -- The image viewer shows the file's size and download progress, dims the previous image while the next loads, and opens large screenshots at once instead of waiting for a compressed copy.
+- **To-do sheet** -- The to-do sheet has the list's check circle beside the title, with fireworks on completion and Undo on a second tap.
+
+### Fixed
+
+- **All Threads history** -- All Threads keeps loading older history on busy leaders, where it could stop after one page.
+- **To-do editing on phones** -- The keyboard no longer closes while editing a to-do, and completing a to-do in its sheet no longer moves the title.
+- **Commands in crowded folders** -- Takode commands start just as fast from folders with hundreds of thousands of entries, and Settings → Hosts names any remaining folder that slows a machine down.
+
+## 2026-10-22
+
+### Added
+
+- **Guided review walkthrough** -- A guided review walks through one stop at a time: an overview with counts of decisions, careful looks, checks and summaries, then each stop with its explanation and code side by side on wide screens, then a wrap-up with your answers and an optional message about the whole review. It uses the whole window on desktop, and Back, Next, the arrow keys or a swipe move between steps. Leaders can share a worker's review into their own thread, and treat answers as feedback rather than orders to implement.
+- **Alert sound sets** -- Each device picks its alert sounds in Settings → Notifications: Classic, Singing Bowl, Lounge Piano or your own uploaded sounds, so people sharing a room can tell whose alert rang.
+- **Animal portraits** -- A new Animals set of leader portraits is the default, offered once to existing users, with a larger desktop picker whose groups collapse. Leader portraits are a quarter larger in the desktop sidebar.
+- **Instant return to recent chats** -- The last few chats you viewed stay loaded in the background, so going back to one is instant and exact. Expanded reports and long messages are kept on the server, so they stay expanded in every browser.
+
+### Changed
+
+- **Message search order** -- Message search ranks the exact phrase first, then whole words, then partial words, newest first within each, and finds the text of comments sent on answers.
+- **Worker preview in every active phase** -- A quest tab shows its worker preview whenever the quest is in an active phase.
+- **Transcription keywords** -- Workspace terms of one or two characters, and terms already in your custom vocabulary, are left out of transcription keywords.
+- **Quest handoff rows** -- "Work continued" handoff labels are gone from the feed, since the "Continued in" row under your message shows where a request went; a new row sweeps a sheen across itself once so it is noticed.
+- **Leaders acknowledge first** -- A leader that needs tool work before replying starts with a short line saying what it is about to do.
+
+### Fixed
+
+- **Dialogs and text selection** -- Selecting text in a dialog and letting go over its backdrop no longer closes the dialog.
+- **Keyboard shortcut settings** -- Off turns a preset shortcut off, Next Item Needing Attention keeps its custom keys, and recording a shortcut another action uses, or one the browser keeps, says why it was refused.
+- **Finished quest results** -- Opening a finished quest's unread result lands on its Quest complete card, or on the unread answer next to it.
+- **Links inside guided reviews** -- Session and message links inside a guided review close the review and open their target.
+
+## 2026-10-21
+
+### Added
+
+- **Guided reviews** -- Agents can publish a guided review of a set of commits with `takode review`, covering every changed line: the stops that need your decision or a careful look come with their code and an answer field, followed by what the agent checked and summarized, and the full diff is a tap away. Answers sync across devices and go back to the agent as one message.
+- **Copy for Slack** -- Assistant messages and selections have Copy → For Slack, which keeps the formatting Slack supports and turns tables into aligned code blocks. Each table has its own Copy menu (for Slack and spreadsheets, as a code block or as Markdown).
+- **Draft cards** -- Agents hand over message drafts as cards that show the draft as it will look, with a Copy for Slack button that copies exactly the draft.
+- **MCP sign-in** -- The MCP panel can sign in to servers that need it, including ones provided by Codex plugins, also from a phone by pasting the address the sign-in ended on. Claude sessions show live MCP status with tools and can sign in, reconnect and turn servers on or off.
+- **Remind me later for threads** -- The Notify button in a quest's strip, and a new one for Main, can bring the thread back later (1, 6 or 24 hours, a custom amount or a day and time); a due reminder alerts like a Notify Me result.
+
+### Changed
+
+- **Alerts open at the message** -- Phone alerts open at the exact question or result, and opening an unread thread lands on its first unread result.
+- **Skill change notices** -- A small change to a skill a session loaded arrives as a diff against the version that session saw.
+- **Find** -- Find's Messages list pages back to the session's first message, and a second click on an open tab group opens its first tab.
+- **Worker preview** -- A quest tab's worker preview also shows helper sessions and what the worker waits for.
+- **Portraits** -- Tapping a leader's portrait in the sidebar opens the session; the portrait picker is in Session Info.
+- **Transcription keywords** -- Automatic transcription keywords leave out everyday spoken words and repeats.
+
+### Fixed
+
+- **Phone selection menu** -- The selection menu opens clear of iOS's own edit menu, and tapping Copy shows its formats.
+- **HTML links in the Home Screen app** -- In the iPhone Home Screen app, links to Takode-hosted pages open in an in-app sheet instead of replacing the app.
+- **Voice level meter** -- The level meter keeps working when Safari pauses its audio during a recording.
+- **Notify Me on side quests** -- Turning on Notify Me for a side quest no longer surfaces its old result.
+
+## 2026-10-20
+
+### Added
+
+- **Side quests** -- Quests whose answer comes back where they were asked are marked as side quests with a small icon in the tab lists and quest header. Writing in a side quest's tab, answering a question there, or a leader answer or report there makes it a full quest.
+- **Transcription knows your workspace** -- Voice transcription also gets recent terms, quest titles and activity from the whole session space, so names used elsewhere are heard correctly.
+- **OpenAI test key** -- Settings → Voice has a separate OpenAI key for agents' tests and validation servers, keeping their spend off the main key.
+
+### Changed
+
+- **Faster Read aloud** -- Read aloud starts in seconds, replays recorded audio for a message read before, reads published reports, and mentions links and commits naturally. Copy items in the message menu sit in one Copy submenu.
+- **Long code blocks** -- Long code blocks show in a scrollable window with their line count and an expand button.
+- **Markdown as typed** -- Headings in your messages stay as typed, while dividers, tables and images render as in replies.
+- **Images at full quality** -- The image viewer shows screenshots at full quality, compressed as high-quality WebP to cut traffic, and every image copy Takode makes (uploads, thumbnails, agent copies) uses WebP.
+- **Codex sessions follow your Codex setup** -- Codex sessions get your Codex settings, plugins, hooks, developer instructions and provider key, rebuilt at every launch.
+- **Faster `takode activity`** -- `takode activity` reads only the recent part of each history and reads archived sessions from records saved at archive time.
+
+### Fixed
+
+- **Dictation never lost** -- A dictation that finishes after you switched sessions, reloaded or the phone suspended is kept for its draft and applied once by the next browser that shows it.
+- **Sending while scrolled up** -- Sending a message while reading older content keeps your place.
+- **Codex internet toggle and Revert** -- The internet access toggle controls Codex's web search, and Revert works with current Codex.
+- **To-do send keys** -- Adding and editing to-dos follows the send-key setting, and the quick-add box has an Add button.
+
+## 2026-10-19
+
+### Added
+
+- **Read aloud** -- Assistant messages can be read aloud, rewritten for listening first, with a player for seeking, speed and voice.
+- **Back, Forward and Recently viewed** -- The desktop sidebar header has Back and Forward buttons and a list of recently viewed sessions and tabs.
+- **Quiet worker turns** -- A worker can mark a turn quiet when it holds nothing its leader needs; the leader is not woken for it and sees it folded into the next real event.
+- **Waiting on a helper** -- A quest in Work can wait on a helper session, such as one that runs a step on another machine, without tripping the stall alert.
+- **Small celebrations** -- Completing a to-do sets off a small burst of fireworks, a freshly finished quest's card twinkles and a landed change pops a check, and tabs glide visibly into their new group. Nothing plays with reduced motion.
+
+### Changed
+
+- **Calmer quote previews** -- With a mouse, each line quoted above an answer has a small "open" link that previews just that message; tapping on touch screens opens them in full as before.
+- **To-do sheet on desktop** -- On desktop the to-do sheet opens as a wide dialog with the text on the left and every control on the right.
+- **Lighter reconnects** -- A phone returning to Takode downloads only what changed while it was away.
+- **Report cards** -- Every Markdown report shows as a clipped card, also in expanded turns.
+
+### Fixed
+
+- **Following the conversation** -- Only reaching the real bottom resumes following new messages, so a worker preview's updates never pull you down while reading.
+- **Comment editor on iPhone** -- The comment editor stays above the iPhone keyboard.
+- **AirPods recordings** -- Recordings on an iPhone with AirPods are no longer near-silent.
+- **Message corner times** -- The message options button takes clicks under the corner time, and on phones a short answer's time gets its own line.
+
+## 2026-10-18
+
+### Added
+
+- **Message times** -- Every message in the feed shows its time in its lower-right corner, hidden when the next one on that side follows within 3 minutes.
+- **Pending messages in place** -- Messages waiting to be delivered show as faded bubbles where they will land.
+- **What an answer answers** -- Each leader answer quotes the message it answers, which opens in full on hover or tap, in Main and All Threads too. The Quest complete card sits at the moment the quest completed.
+- **Self-improvement skill** -- Every session gets a skill for turning a correction or repeated mistake into a proposed fix to instructions, skills or code.
+
+### Changed
+
+- **Questmaster list** -- Questmaster is one list that adapts to the screen: sortable columns on desktop and two-line rows on phones, with a status bar of counts.
+- **To-dos page** -- The to-dos page is lighter: a one-row header, quiet rows that open the shared to-do sheet, swipe to complete or for more actions on touch screens, quick due dates, and categories that collapse.
+- **Search everything** -- The sidebar's search field spans the header as "Search everything" and shares its sheet with the leader's Find.
+- **Quests started from a message** -- Under your message, every quest filed from it shows as "Continued in" or "Side quest" with its title, which opens its thread.
+- **Codex leaders compact** -- New Codex leaders use Codex's built-in compaction instead of recycling; recycling stays available in Settings.
+- **Fewer invented precautions** -- Agents keep gates, waits and extra checks they come up with out of what they ask you to approve, treat a standing grant as covering later actions of that kind, and ask you right away when work waits on something only you can do.
+- **Host updates without long interruptions** -- Hosts updating to the coordinator's build get ready first, including commits the coordinator never pushed, and stop their sessions only once ready.
+- **Raising lease pools** -- A lease pool's capacity can be raised while its slots are held.
+
+### Fixed
+
+- **Sent messages** -- Every `takode send`, including leader-to-leader sends, shows as a sent message.
+- **Codex prompt on Copilot** -- Codex sessions on providers without a model cache get Codex's own built-in prompt.
+- **Needs-input cards** -- A needs-input card shows wherever its explanation is shown.
+- **Voice rerun mode** -- A voice rerun's chosen mode is remembered for the next voice input.
+
+## 2026-10-17
+
+### Added
+
+- **Transcription instructions** -- Settings → Voice takes custom instructions for the transcription cleanup, such as an output style or a language to always translate into, and the cleaned text is used as returned.
+
+### Changed
+
+- **Alert sounds from every session** -- New questions and newly unread tabs sound from any session, unless that tab is already on screen in a focused window.
+- **Side quests stay quiet** -- A quest filed from a request that stays in its thread no longer makes its own tab unread when it completes; the leader answers where you asked, and your message shows the quest's progress.
+- **Messages between leaders** -- `takode send` to a leader names the receiving thread, so messages between leaders land in the right tab.
+- **Codex models** -- Codex model pickers list the models your account offers, in Codex's order, and a chosen model or Default survives relaunch.
+- **Smaller updates** -- Notification, attention and session-group lists are sent as changes rather than whole lists.
+
+### Fixed
+
+- **Read markers** -- Leader read markers no longer show as question-like chips in the feed, and unread rows and previews name the actual result in plain text.
+- **Reconnecting in the background** -- A phone app woken briefly by an alert no longer downloads the whole session state just before sleeping again.
+- **Expanded report cards** -- An expanded report has a collapse control pinned on screen, and comments on a report show its file name.
+- **Back and forward to Main** -- Browser back and forward reach Main again.
+- **Handoffs and quest strips** -- "Continued in" shows as soon as a request moves to its quest, and the quest strip's close button stays at the top right.
+- **Codex leaders on hosts** -- Codex leaders on remote hosts reach the Takode API through their host.
+- **Delivery from existing checkouts** -- Sessions started on an existing checkout can record quest deliveries.
+
+## 2026-10-16
+
+### Added
+
+- **New results** -- A leader can post a result nobody asked for, and it makes its thread unread like an answer; publishing a report does too. `takode activity` lists both.
+- **Cleaner phone alerts** -- Tapping a Takode alert clears outdated ones, and the app icon's badge counts the questions waiting.
+- **To-do status on links** -- To-do links show each to-do's live status: Todo, Doing, Done, overdue, archived or gone.
+- **Quest links to their source** -- A quest's thread links back to the message it was filed from.
+- **Find lists messages** -- A leader's Find lists Messages and Tabs, both newest first.
+- **Skill change notices** -- After a restart onto new code, a session is told which of the skills it loaded have changed.
+
+### Changed
+
+- **Commit diffs on phones** -- The commit diff view has finger-sized controls on phones and wraps code lines behind a remembered Wrap toggle.
+- **Next chip on desktop** -- The session's Next chip sits at the feed's top right on desktop.
+- **Lighter saves and traffic** -- Large sessions save without stalling the server, and unchanged session lists and completed boards are no longer sent again.
+
+### Fixed
+
+- **New instructions after a restart** -- Relaunched Claude sessions, and processes kept running across a restart, get Takode's current instructions.
+- **Stale board rows** -- A row left on a paused or archived leader's board no longer blocks the quest for the leader running it, and leaders can clear it.
+- **Feed stability** -- Answer thumbnails no longer reload when you send a message, answered questions keep their context in collapsed turns, and worker questions fold into worker-event groups.
+- **Other leaders' messages** -- Messages from other leaders start their own turn in Main and All Threads too.
+- **Copying Takode links** -- Copying text turns links back to Takode into plain text instead of localhost URLs.
+
+## 2026-10-15
+
+### Added
+
+- **To-do due dates** -- Personal to-dos can have a due date and time. Overdue to-dos show in red with a count on the To-dos button and send one phone alert, with its own switch in phone alert settings.
+- **Acting from a to-do link** -- A to-do link's preview can change its status, edit it and set its due date.
+- **Naming a new session** -- The New Session dialog has an optional Name field.
+
+### Changed
+
+- **Unread from results** -- A leader thread becomes unread for a new answer or a finished quest, not for every status update, and messages from other leaders start their own turn.
+- **Direct to-do adds** -- Agents add to-dos directly and say where each came from; to-do proposals are retired. Changes that could lose track of something still need your approval in the session or a written standing approval, and previews show who added a to-do and what authorized the last change.
+- **Waiting chip** -- Timers, jobs, landing runs and queues share one waiting chip with an icon per kind.
+- **Small touches** -- The `[transcribed]` tag sits on its own last line, saving a comment with the send key returns to the composer, and session cards show the backend icon first.
+
+### Fixed
+
+- **Alerts open the right tab** -- A phone alert opens the exact leader tab it came from, also after the app was asleep.
+- **Timer chip on desktop** -- The timer chip and other floating controls stay visible above the expanded desktop composer, and `takode timer list` shows the time left.
+
 ## 2026-10-14
 
 ### Added
@@ -22,10 +350,15 @@ Under the hood, Claude sessions now run only through the Claude Agent SDK, with 
 
 - **Pages and viewers float over the app** -- The side-by-side mode is retired. Pages, quest details, files and diffs opened from the chat always slide in from the right over the whole app, sized to their content. The app behind stays inert while one is open, Escape closes the top one, and opening a session from quest details or a file closes them.
 - **Quest view actions** -- Add Feedback is a filled button on the right, the action row keeps Edit and Delete on the left and the status and Finish Quest on the right, and Delete confirms in place. The manual Assign and Rework buttons are gone. On phones, Open Worker and Open Thread sit in a pinned footer within thumb reach, in the quest view and in the quest preview sheet.
+- **Instant session revisits** -- Going back to a recently viewed session shows it at once from what the browser holds, without downloading unchanged data again.
+- **Real worktree folders in Settings** -- Settings → Hosts shows each machine's actual default worktree folder, from the home directory the machine reports.
 
 ### Fixed
 
 - **Status-bar blur on iPhone** -- iOS no longer leaves its blurred status-bar band over the Home Screen app's top bar after a full-screen preview closes.
+- **Pages scrolling the app** -- Scrolling past the end of a page that floats over the app no longer scrolls the whole app.
+- **Answered questions in Main** -- Answered questions that belong to a quest thread no longer repeat in Main.
+- **Recreating a vanished worktree** -- A worktree recorded through a symlinked folder, such as macOS's `/var`, is recreated on its session's own branch.
 
 ## 2026-10-13
 
