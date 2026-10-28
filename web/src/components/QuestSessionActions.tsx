@@ -5,6 +5,7 @@ import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
+import { NotifyMeControl } from "./NotifyMe.js";
 
 const BUTTON_CLASS =
   "inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-md border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50";
@@ -71,6 +72,14 @@ export function QuestSessionActions({
         testId="quest-open-thread"
         onNavigate={onNavigate}
       />
+      {/* Notify Me watches the thread Open Thread opens, so it sits beside it. */}
+      {leaderSessionId && (
+        <NotifyMeControl
+          sessionId={leaderSessionId}
+          threadKey={questId}
+          className={`${buttonClass} border-cc-border bg-cc-hover/30`}
+        />
+      )}
     </div>
   );
 }

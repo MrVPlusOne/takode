@@ -96,47 +96,61 @@ describe("mobile quest banner disclosure", () => {
     setMonitoring(false);
   });
 
-  it("starts expanded and retains a deliberate collapse across authoritative phase and result updates", () => {
+  // A quest thread's strip keeps one line on phones: Worker, Reviewer and commits are in the phase
+  // pill's card (a tap away), so there is no disclosure for them; Notify Me is an icon in the strip.
+  it("keeps Worker, Reviewer and commits in the pill's card with no disclosure, and Notify as an icon", () => {
+    setMonitoring(true);
+    render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" monitorSessionId="leader" diffSessionId="leader" />);
+    expect(screen.queryByRole("button", { name: /quest information/ })).not.toBeInTheDocument();
+    const banner = screen.getByTestId("quest-thread-banner");
+    expect(within(banner).queryByRole("link", { name: "Worker #10" })).not.toBeInTheDocument();
+    // The Notify icon has no word but still acknowledges a waiting result.
+    const acknowledge = within(banner).getByRole("button", { name: "Acknowledge" });
+    expect(acknowledge).not.toHaveTextContent("Acknowledge");
+    fireEvent.click(acknowledge);
+    expect(updateThreadMonitoring).toHaveBeenCalledWith("leader", "q-9001", "acknowledge", "1");
+
+    fingerTap(screen.getByTestId("quest-thread-journey-hover-target"));
+    const card = within(screen.getByTestId("quest-thread-journey-hover-card"));
+    expect(card.getByRole("link", { name: "Worker #10" })).toHaveAttribute("href", "#/session/10");
+    expect(card.getByRole("link", { name: "Reviewer #20" })).toHaveAttribute("href", "#/session/20");
+    expect(card.getByTestId("quest-thread-diff-chip-commits")).toHaveTextContent("1 commit");
+  });
+
+  it("starts expanded and retains a deliberate collapse of the open questions across phase and result updates", () => {
+    // Open questions to the user still sit in the strip, behind the phone disclosure.
+    const withQuestions = (checkpoint = false) => {
+      const row = bannerRow(checkpoint);
+      return { ...row, boardRow: { ...row.boardRow!, openQuestions: ["n-1"] } };
+    };
     const { rerender } = render(
-      <QuestThreadBanner row={bannerRow()} threadKey="q-9001" monitorSessionId="leader" diffSessionId="leader" />,
+      <QuestThreadBanner row={withQuestions()} threadKey="q-9001" monitorSessionId="leader" diffSessionId="leader" />,
     );
     const details = screen.getByTestId("quest-thread-details");
     const toggle = screen.getByRole("button", { name: "Collapse quest information" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(toggle).toHaveAttribute("aria-controls", details.id);
-    expect(details).not.toHaveClass("hidden");
-    expect(screen.getByTestId("quest-journey-compact-summary")).toHaveTextContent("Work2/5");
+    expect(within(details).getByTestId("quest-thread-open-questions-pill")).toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(details).toHaveClass("hidden");
     rerender(
-      <QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" monitorSessionId="leader" diffSessionId="leader" />,
+      <QuestThreadBanner
+        row={withQuestions(true)}
+        threadKey="q-9001"
+        monitorSessionId="leader"
+        diffSessionId="leader"
+      />,
     );
     act(() => setMonitoring(true));
     expect(screen.getByTestId("quest-journey-compact-summary")).toHaveTextContent("User Checkpoint3/5");
     expect(screen.getByRole("button", { name: "Expand quest information" })).toHaveAttribute("aria-expanded", "false");
     expect(details).toHaveClass("hidden");
-    expect(updateThreadMonitoring).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Expand quest information" }));
-    expect(details).not.toHaveClass("hidden");
-    expect(within(details).getByRole("link", { name: "Worker #10" })).toHaveAttribute("href", "#/session/10");
-    expect(within(details).getByTestId("quest-thread-diff-chip")).toHaveTextContent("1 commit");
-    fireEvent.click(within(details).getByRole("button", { name: "Acknowledge" }));
-    expect(updateThreadMonitoring).toHaveBeenCalledWith("leader", "q-9001", "acknowledge", "1");
-  });
-
-  it("starts a different quest expanded and retains reviewer access in the desktop presentation", () => {
-    const { rerender } = render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" diffSessionId="leader" />);
-    // CSS removes only the mobile reviewer link. Its exact desktop destination
-    // and server-owned identity remain intact; real widths are covered in browser validation.
-    const reviewer = screen.getByRole("link", { name: "Reviewer #20" });
-    expect(reviewer).toHaveAttribute("href", "#/session/20");
-    expect(reviewer.parentElement).toHaveClass("hidden", "sm:contents");
-    fireEvent.click(screen.getByRole("button", { name: "Collapse quest information" }));
+    // A different quest starts expanded again.
     rerender(
       <QuestThreadBanner
-        row={{ ...bannerRow(), questId: "q-9002", threadKey: "q-9002" }}
+        row={{ ...withQuestions(), questId: "q-9002", threadKey: "q-9002" }}
         threadKey="q-9002"
         diffSessionId="leader"
       />,

@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store.js";
-import { DiffChip, DiffChipButton, SessionChangesChip, SessionDiffBanner } from "./DiffChip.js";
+import { DiffChip, DiffChipButton, QuestDiffChips, SessionChangesChip, SessionDiffBanner } from "./DiffChip.js";
 import type { SessionDiffSummary } from "../utils/session-diff-summary.js";
 
 const NO_CHANGES: SessionDiffSummary = { linesAdded: 0, linesRemoved: 0, changedFiles: 0 };
@@ -87,6 +87,63 @@ describe("DiffChip wired to the store", () => {
     expect(chip).toHaveTextContent("1 commit·+12-3");
     fireEvent.click(chip);
     expect(mockOpenDiffView).toHaveBeenCalledWith("worker", "main");
+  });
+
+  // In a quest's pill card the commit count and the worker's uncommitted line stats are two chips,
+  // so the stats never read as the commits' own (Jiayi saw "1 commit · +144 -38" while the commit was
+  // +534 -63). Each opens its own section of the diff view.
+  it("splits a quest's commits from its worker's uncommitted changes, each opening its section", () => {
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        sessionNum: 5,
+        state: "connected",
+        cwd: "/wt/worker",
+        createdAt: 1,
+        isWorktree: true,
+        totalLinesAdded: 144,
+        totalLinesRemoved: 38,
+        claimedQuestId: "q-7",
+        claimedQuestStatus: "in_progress",
+      },
+    ]);
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-7",
+      title: "Example",
+      version: 1,
+      updatedAt: 1,
+      commitShas: ["abc1234"],
+    });
+
+    render(<QuestDiffChips sessionId="worker" threadKey="main" testId="chips" />);
+
+    const commits = screen.getByTestId("chips-commits");
+    const changes = screen.getByTestId("chips-changes");
+    expect(commits).toHaveTextContent(/^1 commit$/);
+    // A worker's own quest calls them its "Changes"; a leader's view of the quest says "Worker changes".
+    expect(changes).toHaveTextContent("Changes+144-38");
+    fireEvent.click(commits);
+    expect(mockOpenDiffView).toHaveBeenLastCalledWith("worker", "main", "commits");
+    fireEvent.click(changes);
+    expect(mockOpenDiffView).toHaveBeenLastCalledWith("worker", "main", "changes");
+  });
+
+  it("shows only the commit count while the worker has nothing uncommitted", () => {
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        sessionNum: 5,
+        state: "connected",
+        cwd: "/wt/worker",
+        createdAt: 1,
+        isWorktree: true,
+        claimedQuestId: "q-7",
+        claimedQuestStatus: "in_progress",
+      },
+    ]);
+    render(<QuestDiffChips sessionId="worker" threadKey="main" testId="chips" />);
+    expect(screen.getByTestId("chips-commits")).toHaveTextContent(/^No commits$/);
+    expect(screen.queryByTestId("chips-changes")).not.toBeInTheDocument();
   });
 
   it("hides the leader's Main chip while its checkout is clean and shows it once it has changes", () => {

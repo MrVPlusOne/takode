@@ -200,8 +200,11 @@ describe("quest tabs led by another leader", () => {
     const chip = screen.getByTestId("quest-thread-ownership-chip");
     expect(chip).toHaveTextContent("Led by#2851");
     expect(chip).toHaveAccessibleName("Led by leader #2851");
-    // The quest's current worker stays visible; it belongs to the other leader's run.
-    expect(screen.getByTestId("quest-thread-participant")).toHaveTextContent("#2914");
+    // The quest's current worker stays one hover away, in the phase pill's card; it belongs to the
+    // other leader's run.
+    fireEvent.mouseEnter(screen.getByTestId("quest-thread-journey-hover-target"));
+    const card = within(screen.getByTestId("quest-thread-journey-hover-card"));
+    expect(card.getByTestId("quest-thread-participant")).toHaveTextContent("#2914");
   });
 
   it("notes an unfinished quest that no board holds, and nothing for own or finished quests", () => {

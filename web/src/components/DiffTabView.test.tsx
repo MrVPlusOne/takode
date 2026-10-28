@@ -67,6 +67,17 @@ describe("DiffTabView", () => {
     expect(screen.queryByTestId("quest-code-commit-diff-panel")).not.toBeInTheDocument();
   });
 
+  it("opens the section the chip that opened it names", () => {
+    // The quest strip's card has a "Worker changes" chip; it opens on those changes even when
+    // the quest has commits, which otherwise come first.
+    mockCommitCounts.set("q-42", 2);
+    setWorkerLines(5);
+    useStore.setState({ diffViewSource: { sessionId: "leader", threadKey: "q-42", section: "changes" } });
+    render(<DiffTabView target={questTarget("worker")} onBack={() => {}} />);
+    expect(screen.getByTestId("diff-tab-changes")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("diff-panel")).toHaveAttribute("data-session-id", "worker");
+  });
+
   it("opens the worker's changes when the quest has no commits yet", () => {
     setWorkerLines(5);
     render(<DiffTabView target={questTarget("worker")} onBack={() => {}} />);

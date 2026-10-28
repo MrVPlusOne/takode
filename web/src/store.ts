@@ -1474,7 +1474,8 @@ export const useStore = create<AppState>((set, get) => ({
 
   setActiveTab: (tab) => set(tab === "chat" ? { activeTab: tab, diffViewSource: null } : { activeTab: tab }),
 
-  openDiffView: (sessionId, threadKey) => set({ activeTab: "diff", diffViewSource: { sessionId, threadKey } }),
+  openDiffView: (sessionId, threadKey, section) =>
+    set({ activeTab: "diff", diffViewSource: { sessionId, threadKey, ...(section ? { section } : {}) } }),
 
   setDiffPanelSelectedFile: (sessionId, filePath) =>
     set((s) => {

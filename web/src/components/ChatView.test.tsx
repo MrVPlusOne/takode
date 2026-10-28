@@ -1389,14 +1389,15 @@ describe("ChatView chat surface and leader routing", () => {
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Thread navigation rework");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("implement");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveAttribute("data-journey-mode", "active");
-    expect(scope.getByTestId("quest-thread-participant-strip")).toHaveClass("inline-flex");
-    expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
-    expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("data-testid", "quest-thread-participant");
-    expect(scope.getByLabelText("Reviewer #1306")).toHaveAttribute("href", "#session-1306");
     expect(scope.queryByTestId("quest-thread-banner-return-main")).not.toBeInTheDocument();
+    // The strip stays one line: Worker and Reviewer are one hover away, in the phase pill's card.
+    expect(scope.queryByLabelText("Worker #1321 Clear Mesa")).not.toBeInTheDocument();
 
     fireEvent.mouseEnter(scope.getByTestId("quest-thread-journey-hover-target"));
-    expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).toBeInTheDocument();
+    const card = within(document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!);
+    expect(card.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
+    expect(card.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("data-testid", "quest-thread-participant");
+    expect(card.getByLabelText("Reviewer #1306")).toHaveAttribute("href", "#session-1306");
   });
 
   it("shows queued Work Board wait reasons in the quest-thread banner", () => {
@@ -1608,12 +1609,13 @@ describe("ChatView chat surface and leader routing", () => {
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("5 phases");
     expect(scope.getByTestId("quest-journey-compact-position")).toHaveClass("max-sm:hidden");
     expect(scope.getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("1 note");
-    expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
-    expect(scope.getByLabelText("Reviewer #1323")).toBeInTheDocument();
-
     fireEvent.click(scope.getByTestId("quest-thread-journey-hover-target"));
-    expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).toBeInTheDocument();
+    const card = document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!;
+    expect(card).toBeInTheDocument();
     expect(document.body.querySelector('[data-testid="quest-journey-preview-card"]')).toHaveTextContent("1 note");
+    // Worker and Reviewer sit under the Journey in the same card.
+    expect(within(card).getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
+    expect(within(card).getByLabelText("Reviewer #1323")).toBeInTheDocument();
   });
 
   it("renders a current quest banner for worker sessions with leader and reviewer chips", () => {

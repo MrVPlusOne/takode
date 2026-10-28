@@ -158,7 +158,7 @@ describe("QuestThreadBanner commit affordance", () => {
     expect(within(workerChip).getByText("Worker")).toHaveClass("max-[319px]:hidden");
     expect(within(workerChip).getByTestId("session-role-icon-worker")).toBeInTheDocument();
     expect(within(banner).queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
-    expect(within(banner).getByTestId("quest-thread-diff-chip")).toHaveTextContent("2 commits");
+    expect(within(banner).getByTestId("quest-thread-diff-chip-commits")).toHaveTextContent("2 commits");
 
     act(() => {
       applyBoardUpdated(
@@ -193,7 +193,7 @@ describe("QuestThreadBanner commit affordance", () => {
     act(() => applyBoardUpdated(boardUpdatedMessage(null)));
     expect(within(banner).queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
     expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
-    expect(within(banner).getByTestId("quest-thread-diff-chip")).toHaveTextContent("2 commits");
+    expect(within(banner).getByTestId("quest-thread-diff-chip-commits")).toHaveTextContent("2 commits");
     expect(banner).not.toHaveTextContent("Clear Mesa");
     expect(banner).not.toHaveTextContent("Replacement Reviewer");
   });
@@ -210,12 +210,12 @@ describe("QuestThreadBanner commit affordance", () => {
     setQuestCommitShas(["abc1234", "def5678"]);
     render(<StoreQuestThreadBanner />);
 
-    const commitButton = screen.getByTestId("quest-thread-diff-chip");
+    const commitButton = screen.getByTestId("quest-thread-diff-chip-commits");
     expect(commitButton).toHaveTextContent("2 commits");
     expect(commitButton).toHaveAccessibleName("Show q-968 commits and changes: 2 commits");
 
     fireEvent.click(commitButton);
-    expect(mockOpenDiffView).toHaveBeenCalledWith(LEADER_ID, QUEST_ID);
+    expect(mockOpenDiffView).toHaveBeenCalledWith(LEADER_ID, QUEST_ID, "commits");
   });
 
   it("keeps Worker, complete commits and pending monitoring directly accessible during a user checkpoint", () => {
@@ -267,17 +267,21 @@ describe("QuestThreadBanner commit affordance", () => {
     };
     render(<QuestThreadBanner row={row} threadKey={QUEST_ID} monitorSessionId={LEADER_ID} diffSessionId={LEADER_ID} />);
     const banner = screen.getByTestId("quest-thread-banner");
-    const worker = within(banner).getByRole("link", { name: "Worker #1321 Clear Mesa" });
-    const commits = within(banner).getByRole("button", { name: "Show q-968 commits and changes: 2 commits" });
-    expect(worker).toHaveAttribute("href", "#session-1321");
-    expect(worker.compareDocumentPosition(commits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // A pending result replaces the tracking toggle without removing the other direct header actions.
+    // A pending result replaces the tracking toggle; Notify stays in the strip as an icon.
     expect(within(banner).queryByRole("button", { name: "Notify Me" })).not.toBeInTheDocument();
     expect(within(banner).getByRole("button", { name: "Acknowledge" })).toBeEnabled();
+    // Worker and commits are one hover away, in the phase pill's card.
+    expect(within(banner).queryByRole("link", { name: "Worker #1321 Clear Mesa" })).not.toBeInTheDocument();
+    fireEvent.mouseEnter(within(banner).getByTestId("quest-thread-journey-hover-target"));
+    const card = within(screen.getByTestId("quest-thread-journey-hover-card"));
+    const worker = card.getByRole("link", { name: "Worker #1321 Clear Mesa" });
+    const commits = card.getByRole("button", { name: "Show q-968 commits and changes: 2 commits" });
+    expect(worker).toHaveAttribute("href", "#session-1321");
+    expect(worker.compareDocumentPosition(commits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(banner).queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
     expect(row.boardRow!.waitForInput).toEqual(["n-430"]);
     fireEvent.click(commits);
-    expect(mockOpenDiffView).toHaveBeenCalledWith(LEADER_ID, QUEST_ID);
+    expect(mockOpenDiffView).toHaveBeenCalledWith(LEADER_ID, QUEST_ID, "commits");
   });
 
   it("preserves the zero-commit affordance when no reviewer is assigned", () => {
@@ -287,7 +291,7 @@ describe("QuestThreadBanner commit affordance", () => {
 
     expect(screen.queryByLabelText(/^Reviewer #/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
-    expect(screen.getByTestId("quest-thread-diff-chip")).toHaveAccessibleName(
+    expect(screen.getByTestId("quest-thread-diff-chip-commits")).toHaveAccessibleName(
       "Show q-968 commits and changes: no commits",
     );
   });
@@ -297,11 +301,11 @@ describe("QuestThreadBanner commit affordance", () => {
     setQuestCommitShas([]);
     render(<StoreQuestThreadBanner />);
 
-    expect(screen.getByTestId("quest-thread-diff-chip")).toHaveTextContent("No commits");
+    expect(screen.getByTestId("quest-thread-diff-chip-commits")).toHaveTextContent("No commits");
 
     act(() => setQuestCommitShas(["abc1234", "def5678"], 4));
 
-    expect(screen.getByTestId("quest-thread-diff-chip")).toHaveTextContent("2 commits");
+    expect(screen.getByTestId("quest-thread-diff-chip-commits")).toHaveTextContent("2 commits");
   });
 
   it("suppresses stale queued wait metadata when the quest row is already done", () => {

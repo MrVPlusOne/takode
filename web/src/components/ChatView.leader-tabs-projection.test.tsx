@@ -960,9 +960,12 @@ describe("ChatView leader thread tabs projection", () => {
     // The restored pill must still use the current server phase and position instead of the historical completed run.
     expect(journey).toHaveTextContent("Work2/3");
     expect(journey).not.toHaveTextContent("Completed");
-    expect(within(banner).getByLabelText("Worker #2580")).toBeTruthy();
-    expect(within(banner).queryByLabelText("Worker #2569")).toBeNull();
-    expect(within(banner).queryByLabelText("Reviewer #2570")).toBeNull();
+    // The worker and reviewer are in the phase pill's card.
+    fireEvent.mouseEnter(within(banner).getByTestId("quest-thread-journey-hover-target"));
+    const card = within(document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!);
+    expect(card.getByLabelText("Worker #2580")).toBeTruthy();
+    expect(card.queryByLabelText("Worker #2569")).toBeNull();
+    expect(card.queryByLabelText("Reviewer #2570")).toBeNull();
     expect(window.location.hash).toBe("#/session/leader?thread=q-1974");
     expect(
       (mockSendToSession.mock.calls as unknown as Array<[string, { type?: string }]>).filter(

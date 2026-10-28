@@ -2,6 +2,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { diffTargetSessionId, resolveDiffTarget, type DiffTargetResolution } from "../utils/diff-target.js";
 import {
+  EMPTY_SESSION_DIFF_SUMMARY,
   formatDiffLineCount,
   hasSessionDiff,
   resolveSessionDiffSummary,
@@ -65,7 +66,10 @@ export function DiffChipButton({
   onOpen,
   title,
   testId = "diff-chip",
+  changesName,
 }: {
+  /** Names the line stats (such as "Worker changes") where they sit apart from the commit count. */
+  changesName?: string;
   /** null when the target has no commits to show (a session's own diff). */
   commitCount: number | null;
   changes: SessionDiffSummary;
@@ -91,11 +95,7 @@ export function DiffChipButton({
     >
       <DiffChipIcon className={`h-3.5 w-3.5 ${empty ? "" : "text-cc-muted"}`} />
       {showCommits && (
-        // A narrow one-line quest strip shows the empty diff as its icon alone (the label still says it).
-        <span
-          className={`tabular-nums ${commitCount ? "" : "@max-[52rem]/quest-strip:hidden"}`}
-          data-testid={`${testId}-commits`}
-        >
+        <span className="tabular-nums" data-testid={`${testId}-commits`}>
           {commitCount ? commitCountLabel(commitCount) : "No commits"}
         </span>
       )}
@@ -106,6 +106,7 @@ export function DiffChipButton({
       )}
       {hasChanges && (
         <span className="inline-flex items-center gap-1 font-mono-code tabular-nums" data-testid={`${testId}-changes`}>
+          {changesName && <span className="font-sans text-cc-muted">{changesName}</span>}
           {hasLines ? (
             <>
               <span className="text-green-500">+{formatDiffLineCount(changes.linesAdded)}</span>
@@ -117,6 +118,56 @@ export function DiffChipButton({
         </span>
       )}
     </button>
+  );
+}
+
+/**
+ * A quest's diff as two chips, so each count belongs to what it describes: its recorded commits
+ * ("3 commits") and, while there are any, its worker's uncommitted changes ("Worker changes +144 -38").
+ * Each opens its own section of the diff view. Used where a quest's details are listed, like the
+ * phase pill's card in a quest strip.
+ */
+export function QuestDiffChips({
+  sessionId,
+  threadKey,
+  fallbackCommitShas,
+  testId = "quest-diff-chips",
+}: {
+  sessionId: string | null | undefined;
+  threadKey: string;
+  fallbackCommitShas?: readonly string[];
+  testId?: string;
+}) {
+  const { target, commitCount, changes } = useDiffChipState(sessionId, threadKey, fallbackCommitShas);
+  const openDiffView = useStore((state) => state.openDiffView);
+  if (!sessionId || !target) return null;
+  const open = (section: "commits" | "changes") => {
+    useStore.getState().closeCodexSubagentInspector();
+    openDiffView(sessionId, threadKey, section);
+  };
+  const changesName = target.kind === "quest" && target.changesOwner === "self" ? "Changes" : "Worker changes";
+  return (
+    <>
+      {commitCount !== null && (
+        <DiffChipButton
+          commitCount={commitCount}
+          changes={EMPTY_SESSION_DIFF_SUMMARY}
+          title={target.title}
+          testId={`${testId}-commits`}
+          onOpen={() => open("commits")}
+        />
+      )}
+      {hasSessionDiff(changes) && (
+        <DiffChipButton
+          commitCount={null}
+          changes={changes}
+          changesName={changesName}
+          title={`${target.title}: ${changesName.toLowerCase()} not committed yet`}
+          testId={`${testId}-changes`}
+          onOpen={() => open("changes")}
+        />
+      )}
+    </>
   );
 }
 

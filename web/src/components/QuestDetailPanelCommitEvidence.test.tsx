@@ -350,9 +350,10 @@ describe("QuestDetailPanel commit evidence", () => {
 
     render(<QuestDetailPanel />);
 
-    const commitsToggle = screen.getByRole("button", { name: "Expand commits, 2 commits" });
+    // Code commits count as everywhere else (the quest strip's card says "1 commit"); memory commits are named apart.
+    const commitsToggle = screen.getByRole("button", { name: "Expand commits, 1 commit · 1 memory" });
     expect(screen.queryByText("Commit evidence")).toBeNull();
-    expect(commitsToggle).toHaveTextContent("2 commits");
+    expect(commitsToggle).toHaveTextContent("1 commit · 1 memory");
     expect(screen.queryByText("Record memory handoff")).toBeNull();
     expect(screen.queryByText("Port quest detail UI")).toBeNull();
     expect(screen.queryByLabelText(`Open memory commit ${memorySha.slice(0, 7)}`)).toBeNull();

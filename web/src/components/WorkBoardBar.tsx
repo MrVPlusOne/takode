@@ -466,12 +466,11 @@ function WorkBoardBarComponent({
   hideThreadStrip?: boolean;
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
-  // Desktop leaders with topics on draw their tabs in the top bar. Kept conversations stay mounted
-  // while hidden, so only the conversation on screen fills it.
+  // Desktop leaders with topics on draw their tabs in the top bar, each conversation in its own box
+  // there, which the top bar shows only while that conversation is on screen.
   const navInTopBar = useLeaderNavInTopBar(sessionId);
-  const onScreen = useStore((state) => navInTopBar && state.currentSessionId === sessionId);
-  const topBarNav = useTopBarSlot("nav");
-  const topBarHelpers = useTopBarSlot("helpers");
+  const topBarNav = useTopBarSlot("nav", sessionId);
+  const topBarHelpers = useTopBarSlot("helpers", sessionId);
   // The Working on button's board dots, only in the top bar, and by what they show: a board
   // update that changes no dot must not re-render the bar.
   const boardDotsKey = useStore((state) =>
@@ -617,7 +616,7 @@ function WorkBoardBarComponent({
   );
   return (
     <div className="shrink-0 flex flex-col min-h-0">
-      {!navInTopBar ? rail : onScreen && topBarNav ? createPortal(rail, topBarNav) : null}
+      {!navInTopBar ? rail : topBarNav ? createPortal(rail, topBarNav) : null}
 
       {showMainBanner && !hideThreadStrip && (
         <div

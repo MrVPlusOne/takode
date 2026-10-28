@@ -407,7 +407,9 @@ it("opens the quest diff from the banner chip and returns to the chat", async ()
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(screen.queryByRole("button", { name: /Show diffs|recorded commits/ })).not.toBeInTheDocument();
-  const chip = screen.getByTestId("quest-thread-diff-chip");
+  // The commits chip is in the phase pill's card, one hover away.
+  fireEvent.mouseEnter(screen.getByTestId("quest-thread-journey-hover-target"));
+  const chip = screen.getByTestId("quest-thread-diff-chip-commits");
   expect(chip).toHaveTextContent("2 commits");
 
   fireEvent.click(chip);
@@ -415,7 +417,7 @@ it("opens the quest diff from the banner chip and returns to the chat", async ()
   await waitFor(() =>
     expect(screen.getByTestId("quest-code-commit-diff-panel")).toHaveAttribute("data-quest-id", "q-42"),
   );
-  expect(useStore.getState().diffViewSource).toEqual({ sessionId: SESSION_ID, threadKey: "q-42" });
+  expect(useStore.getState().diffViewSource).toEqual({ sessionId: SESSION_ID, threadKey: "q-42", section: "commits" });
   // The active board names the worker, so its changes are the second section.
   expect(screen.getByTestId("diff-tab-changes")).toHaveTextContent("Worker changes");
 

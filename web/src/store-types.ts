@@ -261,7 +261,8 @@ export interface AppState {
   setQuestmasterCompactSort: (sort: import("./api.js").QuestmasterCompactSort) => void;
   activeTab: "chat" | "diff";
   /** The session and thread whose diff chip opened the diff view, resolved live by resolveDiffTarget. */
-  diffViewSource: { sessionId: string; threadKey: string } | null;
+  /** The chip that opened the diff view, and the quest diff section it asked for. */
+  diffViewSource: { sessionId: string; threadKey: string; section?: "commits" | "changes" } | null;
   diffPanelSelectedFile: Map<string, string>;
   vscodeSelectionContext: VsCodeSelectionState | null;
   dismissedVsCodeSelectionKey: string | null;
@@ -490,7 +491,7 @@ export interface AppState {
   keepTurnAutoExpanded: (sessionId: string, turnId: string) => void;
   clearAutoExpandedTurns: (sessionId: string) => void;
   setActiveTab: (tab: "chat" | "diff") => void;
-  openDiffView: (sessionId: string, threadKey: string) => void;
+  openDiffView: (sessionId: string, threadKey: string, section?: "commits" | "changes") => void;
   setDiffPanelSelectedFile: (sessionId: string, filePath: string | null) => void;
   terminalOpen: boolean;
   terminalCwd: string | null;

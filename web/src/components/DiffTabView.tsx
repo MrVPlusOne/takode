@@ -47,8 +47,10 @@ function QuestDiffView({
   const { commitShas } = useQuestCodeCommitShas(target.questId);
   const changes = useStore(useShallow((state) => resolveSessionDiffSummary(state, target.workerSessionId)));
   const workerNote = useStore((state) => workerAvailabilityNote(state, target.workerSessionId));
-  const [chosenSection, setChosenSection] = useState<QuestDiffSection | null>(null);
-  useEffect(() => setChosenSection(null), [target.workerSessionId]);
+  // A chip that names one part of the diff (commits or the worker's changes) opens on that part.
+  const requestedSection = useStore((state) => state.diffViewSource?.section ?? null);
+  const [chosenSection, setChosenSection] = useState<QuestDiffSection | null>(requestedSection);
+  useEffect(() => setChosenSection(requestedSection), [target.workerSessionId, requestedSection]);
   const workerSessionId = target.workerSessionId;
   // Until the user picks one, open whichever section has something to show, commits first.
   const section: QuestDiffSection = !workerSessionId

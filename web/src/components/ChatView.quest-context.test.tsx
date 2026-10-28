@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, within } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
 
@@ -358,7 +358,10 @@ describe("ChatView session quest context", () => {
 
     const banner = await scope.findByTestId("quest-thread-banner");
     expect(banner).toHaveTextContent("q-1452");
-    expect(scope.getByLabelText("Worker #1952 Fresh Worker")).toBeInTheDocument();
-    expect(scope.queryByLabelText("Worker #1950 Previous Worker")).not.toBeInTheDocument();
+    // The worker is in the phase pill's card.
+    fireEvent.mouseEnter(scope.getByTestId("quest-thread-journey-hover-target"));
+    const card = within(document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!);
+    expect(card.getByLabelText("Worker #1952 Fresh Worker")).toBeInTheDocument();
+    expect(card.queryByLabelText("Worker #1950 Previous Worker")).not.toBeInTheDocument();
   });
 });

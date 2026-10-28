@@ -32,7 +32,7 @@ import {
   QUEST_PARTICIPANT_SESSION_CLASS,
 } from "./quest-participant-chip-style.js";
 import { SessionRoleLabel } from "./SessionRoleLabel.js";
-import { DiffChip } from "./DiffChip.js";
+import { DiffChip, QuestDiffChips } from "./DiffChip.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
@@ -54,7 +54,17 @@ function journeyStatusForThread(row: QuestThreadBannerRow): string | undefined {
   return isDoneThreadRow(row) ? "done" : row.boardStatus;
 }
 
-function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow; children: ReactNode }) {
+function QuestJourneyHoverTarget({
+  row,
+  details,
+  children,
+}: {
+  row: QuestThreadBannerRow;
+  /** The quest's Worker, commits and Notify, shown under its Journey in the card. */
+  details?: ReactNode;
+  children: ReactNode;
+}) {
+  const hasCard = !!row.journey?.phaseIds?.length || !!details;
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -92,7 +102,7 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
   }, [hoverRect]);
 
   function showPreviewForTarget(target: HTMLElement) {
-    if (!row.journey?.phaseIds?.length) return;
+    if (!hasCard) return;
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     setHoverRect(target.getBoundingClientRect());
   }
@@ -131,17 +141,17 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
         onMouseLeave={scheduleHidePreview}
         onClick={handleClick}
         onKeyDown={handlePreviewKeyDown}
-        role={row.journey?.phaseIds?.length ? "button" : undefined}
-        tabIndex={row.journey?.phaseIds?.length ? 0 : undefined}
-        aria-label={row.journey?.phaseIds?.length ? "Show Quest Journey preview" : undefined}
-        aria-haspopup={row.journey?.phaseIds?.length ? "dialog" : undefined}
+        role={hasCard ? "button" : undefined}
+        tabIndex={hasCard ? 0 : undefined}
+        aria-label={hasCard ? "Show Quest Journey preview" : undefined}
+        aria-haspopup={hasCard ? "dialog" : undefined}
         aria-expanded={hoverRect ? "true" : "false"}
         data-testid="quest-thread-journey-hover-target"
-        data-touch-preview={row.journey?.phaseIds?.length ? "true" : "false"}
+        data-touch-preview={hasCard ? "true" : "false"}
       >
         {children}
       </div>
-      {row.journey &&
+      {hasCard &&
         hoverRect &&
         createPortal(
           <div
@@ -161,16 +171,33 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
             data-testid="quest-thread-journey-hover-card"
           >
             <div className="rounded-lg border border-cc-border bg-cc-card p-2.5 shadow-xl">
-              <QuestJourneyPreviewCard
-                journey={row.journey}
-                status={journeyStatusForThread(row)}
-                durationSummary={row.journeyDurationSummary}
-                quest={{
-                  questId: row.questId ?? row.threadKey,
-                  title: row.title,
-                }}
-                onQuestClick={() => useStore.getState().openQuestOverlay(row.questId ?? row.threadKey)}
-              />
+              {row.journey ? (
+                <QuestJourneyPreviewCard
+                  journey={row.journey}
+                  status={journeyStatusForThread(row)}
+                  durationSummary={row.journeyDurationSummary}
+                  quest={{
+                    questId: row.questId ?? row.threadKey,
+                    title: row.title,
+                  }}
+                  onQuestClick={() => useStore.getState().openQuestOverlay(row.questId ?? row.threadKey)}
+                />
+              ) : (
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <span className="shrink-0 font-mono-code text-[11px] text-cc-info">
+                    {row.questId ?? row.threadKey}
+                  </span>
+                  {row.title && <span className="min-w-0 truncate text-xs font-medium text-cc-fg">{row.title}</span>}
+                </div>
+              )}
+              {details && (
+                <div
+                  className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 border-t border-cc-border/50 pt-2"
+                  data-testid="quest-thread-pill-details"
+                >
+                  {details}
+                </div>
+              )}
             </div>
           </div>,
           document.body,
@@ -493,6 +520,40 @@ export function QuestThreadBanner({
   const ownership =
     isSessionBanner || (row?.ownership === "off-board" && isDoneThreadRow(row)) ? undefined : row?.ownership;
   const ledElsewhere = ownership === "other-leader";
+  // A quest thread's strip keeps one line: its Worker and commits are in the phase pill's card,
+  // one hover or tap away, and Notify Me is an icon. A worker's own quest banner keeps its chips.
+  // A status pill shows (and can hold the details card) once the quest's status or wait is known.
+  const hasPill = !!(row?.status || queuedWaitCondition);
+  const pillDetails = isSessionBanner ? undefined : (
+    <>
+      {hasParticipantContext && (
+        <>
+          <QuestBannerParticipantChip
+            role="Worker"
+            variant="thread"
+            participant={boardWorkerParticipantForRow(row)}
+            fallbackSessionId={row?.boardRow?.worker}
+            fallbackSessionNum={row?.boardRow?.workerNum}
+            showDisplayName={false}
+          />
+          <QuestBannerParticipantChip
+            role="Reviewer"
+            participant={row?.rowStatus?.reviewer}
+            showDisplayName={false}
+            variant="thread"
+          />
+        </>
+      )}
+      {showCommitAffordance && (
+        <QuestDiffChips
+          sessionId={diffSessionId}
+          threadKey={threadKey}
+          fallbackCommitShas={row?.commitShas}
+          testId="quest-thread-diff-chip"
+        />
+      )}
+    </>
+  );
   const hasMeta =
     !!waitCondition ||
     openQuestionCount > 0 ||
@@ -502,7 +563,7 @@ export function QuestThreadBanner({
     hasParticipantContext ||
     showCommitAffordance;
   const hasMobileDetails =
-    showCommitAffordance ||
+    (showCommitAffordance && isSessionBanner) ||
     !!queuedWaitCondition ||
     openQuestionCount > 0 ||
     (isSessionBanner && (!!inputWaitCondition || !!(row?.leaderSessionId && row.leaderSessionId !== currentSessionId)));
@@ -589,16 +650,20 @@ export function QuestThreadBanner({
                     questId={questId}
                   />
                 )}
-                {row?.journey ? (
-                  <QuestJourneyHoverTarget row={row}>
-                    <QuestJourneyTimeline
-                      journey={row.journey}
-                      status={journeyStatusForThread(row)}
-                      variant="compact"
-                      showNotes={false}
-                      compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
-                      className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ledElsewhere ? "opacity-60" : ""}`}
-                    />
+                {row && (row.journey || (pillDetails && hasPill)) ? (
+                  <QuestJourneyHoverTarget row={row} details={pillDetails}>
+                    {row?.journey ? (
+                      <QuestJourneyTimeline
+                        journey={row.journey}
+                        status={journeyStatusForThread(row)}
+                        variant="compact"
+                        showNotes={false}
+                        compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
+                        className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ledElsewhere ? "opacity-60" : ""}`}
+                      />
+                    ) : (
+                      <QuestStatusFallbackPill status={queuedWaitCondition ? "Queued" : row?.status} />
+                    )}
                   </QuestJourneyHoverTarget>
                 ) : (
                   <QuestStatusFallbackPill status={queuedWaitCondition ? "Queued" : row?.status} />
@@ -619,62 +684,41 @@ export function QuestThreadBanner({
                   ))}
                 {isSessionBanner && inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
                 {openQuestionCount > 0 && <QuestBannerOpenQuestionsPill count={openQuestionCount} />}
-                {hasParticipantContext && (
+                {hasParticipantContext && isSessionBanner && (
                   <div
                     className="inline-flex min-w-0 items-center gap-1.5"
                     data-testid="quest-thread-participant-strip"
                   >
-                    {isSessionBanner ? (
-                      <>
-                        <QuestBannerParticipantChip
-                          role="Leader"
-                          variant="thread"
-                          showDisplayName={false}
-                          sessionId={row?.leaderSessionId}
-                          fallbackSessionNum={row?.leaderSessionNum ?? undefined}
-                          currentSessionId={currentSessionId}
-                          threadKey={row?.questId}
-                        />
-                        <span className="hidden sm:contents">
-                          <QuestBannerParticipantChip
-                            role="Reviewer"
-                            participant={row?.rowStatus?.reviewer}
-                            currentSessionId={currentSessionId}
-                          />
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <QuestBannerParticipantChip
-                          role="Worker"
-                          variant="thread"
-                          participant={boardWorkerParticipantForRow(row)}
-                          fallbackSessionId={row?.boardRow?.worker}
-                          fallbackSessionNum={row?.boardRow?.workerNum}
-                          showDisplayName={false}
-                        />
-                        <span className="hidden sm:contents">
-                          <QuestBannerParticipantChip
-                            role="Reviewer"
-                            participant={row?.rowStatus?.reviewer}
-                            showDisplayName={false}
-                            variant="thread"
-                          />
-                        </span>
-                      </>
-                    )}
+                    <QuestBannerParticipantChip
+                      role="Leader"
+                      variant="thread"
+                      showDisplayName={false}
+                      sessionId={row?.leaderSessionId}
+                      fallbackSessionNum={row?.leaderSessionNum ?? undefined}
+                      currentSessionId={currentSessionId}
+                      threadKey={row?.questId}
+                    />
+                    <span className="hidden sm:contents">
+                      <QuestBannerParticipantChip
+                        role="Reviewer"
+                        participant={row?.rowStatus?.reviewer}
+                        currentSessionId={currentSessionId}
+                      />
+                    </span>
                   </div>
                 )}
-                {showCommitAffordance && (
+                {showCommitAffordance && isSessionBanner && (
                   <DiffChip
                     sessionId={diffSessionId}
-                    threadKey={isSessionBanner ? MAIN_THREAD_KEY : threadKey}
+                    threadKey={MAIN_THREAD_KEY}
                     fallbackCommitShas={row?.commitShas}
                     testId="quest-thread-diff-chip"
                   />
                 )}
+                {/* With no pill to hover yet (the quest's record hasn't arrived), its details stay in the strip. */}
+                {!(row && (row.journey || hasPill)) && pillDetails}
                 {monitorSessionId && !isSessionBanner && (
-                  <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} />
+                  <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} iconOnly />
                 )}
               </div>
             </div>

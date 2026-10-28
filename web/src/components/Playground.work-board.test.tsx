@@ -198,20 +198,21 @@ describe("Playground", { timeout: 60_000 }, () => {
     const banner = screen.getAllByTestId("quest-thread-banner")[0];
     expect(banner).toHaveClass("py-1");
     expect(within(banner).getByTestId("quest-thread-meta-strip")).toHaveClass("flex-[1_1_auto]");
-    expect(within(banner).getByTestId("quest-thread-participant-strip")).toHaveClass("inline-flex");
+    // A quest thread's strip is one line: Worker and commits are in the phase pill's card.
+    expect(within(banner).queryByTestId("quest-thread-participant-strip")).toBeNull();
     expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Work");
     expect(within(banner).getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("note");
-    expect(within(banner).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();
-    expect(within(banner).queryByLabelText("Reviewer #1306 Review Lead")).toBeNull();
-    expect(within(banner).getByTestId("quest-thread-diff-chip")).toHaveTextContent("2 commits");
+    expect(within(banner).queryByLabelText("Worker #1321 Clear Mesa")).toBeNull();
     const mobileParticipantPreview = screen.getByTestId("playground-mobile-participant-labels");
     const mobileParticipantBanners = within(mobileParticipantPreview).getAllByTestId("quest-thread-banner");
-    expect(within(mobileParticipantBanners[0]).getByText("Worker")).toHaveClass("max-[319px]:hidden");
-    expect(within(mobileParticipantBanners[0]).getByTestId("session-role-icon-worker")).toBeInTheDocument();
+    fireEvent.click(within(mobileParticipantBanners[0]).getByTestId("quest-thread-journey-hover-target"));
+    const mobileCard = screen.getAllByTestId("quest-thread-journey-hover-card").at(-1)!;
+    expect(within(mobileCard).getByText("Worker")).toHaveClass("max-[319px]:hidden");
+    expect(within(mobileCard).getByTestId("session-role-icon-worker")).toBeInTheDocument();
     expect(within(mobileParticipantBanners[1]).getByText("Leader")).toHaveClass("max-[319px]:hidden");
     expect(within(mobileParticipantBanners[1]).getByTestId("session-role-icon-leader")).toBeInTheDocument();
     // Styling matches across roles, while the links retain their distinct identities and navigation destinations.
-    const workerLink = within(mobileParticipantBanners[0]).getByRole("link", { name: /^Worker #/ });
+    const workerLink = within(mobileCard).getByRole("link", { name: /^Worker #/ });
     const leaderLink = within(mobileParticipantBanners[1]).getByRole("link", { name: /^Leader #/ });
     expect(leaderLink.className).toBe(workerLink.className);
     expect(leaderLink).not.toHaveClass("rounded-full", "border");
@@ -224,7 +225,6 @@ describe("Playground", { timeout: 60_000 }, () => {
       "User Checkpoint3/5",
     );
     expect(within(checkpointBanner).queryByTestId("quest-thread-wait-pill")).toBeNull();
-    expect(within(checkpointBanner).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();
     expect(within(queuedBanner).getByTestId("quest-thread-queued-status-chip")).toHaveTextContent(
       "Queued, waiting for #1801, q-1367, free worker",
     );
@@ -237,8 +237,11 @@ describe("Playground", { timeout: 60_000 }, () => {
     expect(within(staleQueuedDoneBanner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Done");
 
     fireEvent.click(within(banner).getByTestId("quest-thread-journey-hover-target"));
-    const hoverCard = screen.getByTestId("quest-thread-journey-hover-card");
+    const hoverCard = screen.getAllByTestId("quest-thread-journey-hover-card").at(-1)!;
     expect(hoverCard).toBeTruthy();
+    expect(within(hoverCard).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();
+    expect(within(hoverCard).queryByLabelText("Reviewer #1306 Review Lead")).toBeNull();
+    expect(within(hoverCard).getByTestId("quest-thread-diff-chip-commits")).toHaveTextContent("2 commits");
     const preview = within(hoverCard).getByTestId("quest-journey-preview-card");
     expect(preview).toHaveTextContent("3 phases · Total 4m");
     expect(

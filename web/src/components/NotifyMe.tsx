@@ -64,7 +64,13 @@ export function NotifyMeControlView({
   buttonRef,
   onOpen,
   onAcknowledge,
+  className,
+  iconOnly = false,
 }: {
+  /** Only the icon, its meaning in the tooltip. */
+  iconOnly?: boolean;
+  /** Replaces the chip look, such as for a bordered button among the quest views' session buttons. */
+  className?: string;
   enabled: boolean;
   pending: boolean;
   /** When a "Remind me later" brings the thread back, if one is set. */
@@ -96,7 +102,7 @@ export function NotifyMeControlView({
                 ? "Notify Me is on"
                 : "Notify Me: now or later"
         }
-        className={`inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px] transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${highlighted ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
+        className={`${className ?? "inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px]"} transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${highlighted ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
       >
         {reminderAt !== undefined && !pending ? (
           <>
@@ -106,8 +112,7 @@ export function NotifyMeControlView({
         ) : (
           <>
             <NotifyMeIcon pending={pending} monitored={enabled} />
-            {/* A narrow one-line quest strip keeps the icon; Acknowledge always keeps its word. */}
-            {pending ? "Acknowledge" : <span className="@max-[52rem]/quest-strip:hidden">Notify</span>}
+            {!iconOnly && (pending ? "Acknowledge" : "Notify")}
           </>
         )}
       </button>
@@ -121,7 +126,18 @@ export function NotifyMeControlView({
 }
 
 /** The Notify button for a quest tab or Main, wired to the server's monitoring and reminder state. */
-export function NotifyMeControl({ sessionId, threadKey }: { sessionId: string; threadKey: string }) {
+export function NotifyMeControl({
+  sessionId,
+  threadKey,
+  iconOnly = false,
+  className,
+}: {
+  sessionId: string;
+  threadKey: string;
+  /** Only the icon, its state in the color and tooltip (the quest strip, short of room). */
+  iconOnly?: boolean;
+  className?: string;
+}) {
   const projection = useStore((state) => getSyncedProjectionValue(state, THREAD_MONITORING_PROJECTION, sessionId));
   const reminder = useThreadReminder(sessionId, threadKey);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -156,6 +172,8 @@ export function NotifyMeControl({ sessionId, threadKey }: { sessionId: string; t
         buttonRef={buttonRef}
         onOpen={() => setOpen((value) => !value)}
         onAcknowledge={() => void act("acknowledge")}
+        className={className}
+        iconOnly={iconOnly}
       />
       {open && (
         <NotifyMeMenu

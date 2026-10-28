@@ -5,10 +5,10 @@
  * waiting quests, canonical titles, and lists that stay open across closes.
  */
 import { rememberTopicList } from "../utils/leader-topics.js";
-import { topBarHelpersRef, topBarNavRef } from "../utils/top-bar-slots.js";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { showTopBarSession, topBarHelpersRef, topBarNavRef } from "../utils/top-bar-slots.js";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import type { ComponentProps } from "react";
+import { Activity, type ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
 import type { QuestTitlePreview, QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
@@ -230,37 +230,65 @@ describe("WorkBoardBar tab groups", () => {
   });
 
   it("draws a desktop leader's tabs in the top bar with topics on, only for the conversation on screen", () => {
-    // Its own leader ID: the topics cache is module state that outlives a test.
+    // Recently viewed conversations stay mounted, hidden in a React Activity, as in KeptConversationViews.
+    // Switching leader A -> B -> A once left A's hidden copy in the top bar beside the one on screen,
+    // so the top bar showed two Main | All switches. Their own leader IDs: the topics cache is module
+    // state that outlives a test.
     const width = window.innerWidth;
     window.innerWidth = 1280;
-    const leader = "topbar-leader";
+    const [leaderA, leaderB] = ["topbar-leader-a", "topbar-leader-b"];
     resetStore({
-      sdkSessions: [{ sessionId: leader, isOrchestrator: true }],
-      sessionBoards: new Map([[leader, [{ questId: "q-3", title: "Quest 3", status: "WORKING", updatedAt: 3 }]]]),
+      sdkSessions: [
+        { sessionId: leaderA, isOrchestrator: true },
+        { sessionId: leaderB, isOrchestrator: true },
+      ],
+      sessionBoards: new Map([[leaderA, [{ questId: "q-3", title: "Quest 3", status: "WORKING", updatedAt: 3 }]]]),
     });
-    rememberTopicList(leader, [{ id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never]);
+    for (const leader of [leaderA, leaderB]) {
+      rememberTopicList(leader, [{ id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never]);
+    }
     const nav = document.createElement("div");
     const helpers = document.createElement("div");
     document.body.append(nav, helpers);
     topBarNavRef(nav);
     topBarHelpersRef(helpers);
-    try {
-      // A kept conversation, mounted but not on screen, leaves the top bar alone.
-      (mockState as MockStoreState & { currentSessionId?: string }).currentSessionId = "another-session";
-      const view = render(
-        <WorkBoardBar sessionId={leader} currentThreadKey="q-5" openThreadKeys={OPEN_KEYS} threadRows={THREAD_ROWS} />,
-      );
-      expect(screen.queryByTestId("thread-tab-group-bar")).toBeNull();
-
+    const visible = (place: HTMLElement, testId: string) =>
+      within(place)
+        .queryAllByTestId(testId)
+        .filter((element) => !element.closest('[style*="display: none"]'));
+    const kept = (shown: string, keptIds: string[]) => (
+      <>
+        {keptIds.map((leader) => (
+          <Activity key={leader} mode={leader === shown ? "visible" : "hidden"}>
+            <WorkBoardBar sessionId={leader} currentThreadKey="main" openThreadKeys={[]} threadRows={[]} />
+          </Activity>
+        ))}
+      </>
+    );
+    const show = (leader: string) => {
       (mockState as MockStoreState & { currentSessionId?: string }).currentSessionId = leader;
-      view.rerender(
-        <WorkBoardBar sessionId={leader} currentThreadKey="q-5" openThreadKeys={OPEN_KEYS} threadRows={THREAD_ROWS} />,
-      );
-      expect(within(nav).getByTestId("thread-tab-group-main")).toBeInTheDocument();
+      act(() => showTopBarSession(leader));
+    };
+    try {
+      show(leaderA);
+      const view = render(kept(leaderA, [leaderA]));
+      expect(visible(nav, "thread-tab-group-main")).toHaveLength(1);
       // Working on carries the Board button's icon, one dot per quest at work on the board.
       expect(within(helpers).getAllByTestId("workboard-dot")).toHaveLength(1);
       // No tab row of its own under the top bar.
       expect(view.container.querySelector('[data-testid="thread-tab-group-bar"]')).toBeNull();
+
+      show(leaderB);
+      view.rerender(kept(leaderB, [leaderA, leaderB]));
+      expect(visible(nav, "thread-tab-group-main")).toHaveLength(1);
+      expect(visible(helpers, "workboard-dot")).toHaveLength(0);
+
+      show(leaderA);
+      view.rerender(kept(leaderA, [leaderA, leaderB]));
+      expect(visible(nav, "thread-tab-group-main")).toHaveLength(1);
+      expect(visible(nav, "thread-tab-group-topics")).toHaveLength(1);
+      expect(visible(helpers, "thread-tab-group-working-on")).toHaveLength(1);
+      expect(visible(helpers, "workboard-dot")).toHaveLength(1);
       view.unmount();
     } finally {
       window.innerWidth = width;

@@ -32,6 +32,17 @@ export function commitCountLabel(count: number): string {
   return `${count} ${count === 1 ? "commit" : "commits"}`;
 }
 
+/**
+ * "3 commits · 4 memory": code commits counted as every other commit count is (the diff chip in a
+ * quest's pill card), with the memory repository's commits named apart.
+ */
+export function questCommitsLabel(entries: readonly Pick<QuestCommitEntry, "kind">[]): string {
+  const memory = entries.filter((entry) => entry.kind === "memory").length;
+  const code = entries.length - memory;
+  if (!code) return `${memory} memory ${memory === 1 ? "commit" : "commits"}`;
+  return memory ? `${commitCountLabel(code)} · ${memory} memory` : commitCountLabel(code);
+}
+
 export function sortedCommitEntries(
   entries: QuestCommitEntry[],
   lookupByKey: Record<string, QuestCommitLookup>,
@@ -52,7 +63,7 @@ export function QuestCommitEvidenceList({ entries, lookupByKey, onOpenCommit }: 
   const [isExpanded, setIsExpanded] = useState(false);
   const listId = useId();
   if (entries.length === 0) return null;
-  const countLabel = commitCountLabel(entries.length);
+  const countLabel = questCommitsLabel(entries);
   return (
     <>
       <QuestDisclosureChip

@@ -1,6 +1,15 @@
 import { usePendingAction } from "../hooks/usePendingAction.js";
-import { topBarHelpersRef, topBarNavRef, useLeaderNavInTopBar } from "../utils/top-bar-slots.js";
-import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { showTopBarSession, topBarHelpersRef, topBarNavRef, useLeaderNavInTopBar } from "../utils/top-bar-slots.js";
+import {
+  useState,
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -113,7 +122,10 @@ export function TopBar({
   const isQuestmasterPage = secondaryPageFromHash(hash) === "questmaster";
   // The phone shell moves Needs input, Notify Me, Search and Quests into the sessions panel.
   const compact = !useDesktopShellLayout();
-  const leaderNavInTopBar = useLeaderNavInTopBar(useStore((s) => s.currentSessionId));
+  const shownSessionId = useStore((s) => s.currentSessionId);
+  const leaderNavInTopBar = useLeaderNavInTopBar(shownSessionId);
+  // Only the conversation on screen shows its parts of the top bar (see showTopBarSession).
+  useLayoutEffect(() => showTopBarSession(shownSessionId), [shownSessionId, leaderNavInTopBar]);
   const {
     currentSessionId,
     sidebarOpen,
