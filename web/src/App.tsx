@@ -60,6 +60,7 @@ import { navigateTo } from "./utils/navigation.js";
 import type { QuestLinkTarget } from "./utils/quest-link-target.js";
 import { getHashLocationSnapshot, useHashLocation } from "./utils/hash-location.js";
 import { Sidebar } from "./components/Sidebar.js";
+import { SidebarFoldStrip, useElementHeight, useSidebarDropDown } from "./components/SidebarFold.js";
 import { useDrawerSwipeClose } from "./hooks/useDrawerSwipeClose.js";
 import { ChatView } from "./components/ChatView.js";
 import { CodexSubagentInspector } from "./components/CodexSubagentInspector.js";
@@ -380,6 +381,7 @@ export default function App() {
     searchPreviewSessionId,
     shortcutSettings,
     sidebarOpen,
+    sidebarLocked,
     taskPanelOpen,
     activeTab,
     newSessionModalState,
@@ -398,6 +400,7 @@ export default function App() {
       searchPreviewSessionId: s.searchPreviewSessionId,
       shortcutSettings: s.shortcutSettings,
       sidebarOpen: s.sidebarOpen,
+      sidebarLocked: s.sidebarLocked,
       taskPanelOpen: s.taskPanelOpen,
       activeTab: s.activeTab,
       newSessionModalState: s.newSessionModalState,
@@ -535,6 +538,18 @@ export default function App() {
   const isMobileSidebarHidden = shouldKeepMobileSidebarMounted && !sidebarOpen;
   const closeMobileSidebar = useCallback(() => useStore.getState().setSidebarOpen(false), []);
   const sidebarSwipe = useDrawerSwipeClose(closeMobileSidebar, sidebarOpen && !isDesktopShell);
+  // Unlocked, the desktop panel folds to its top row in the top bar's row and drops down below it on hover.
+  const sidebarFolded = isDesktopShell && sidebarOpen && !sidebarLocked;
+  const sidebarDropDown = useSidebarDropDown(sidebarFolded);
+  const sidebarFoldStripHeight = useElementHeight(sidebarDropDown.stripRef, sidebarFolded);
+  const sidebarDropDownPanelRef = sidebarDropDown.panelRef;
+  const setSidebarShell = useCallback(
+    (element: HTMLDivElement | null) => {
+      sidebarShellRef.current = element;
+      sidebarDropDownPanelRef.current = element;
+    },
+    [sidebarDropDownPanelRef],
+  );
 
   useEffect(() => {
     const shell = sidebarShellRef.current;
@@ -1088,15 +1103,22 @@ export default function App() {
       {/* Sidebar — overlay on mobile, inline on desktop */}
       {shouldRenderSidebar && (
         <div
-          ref={sidebarShellRef}
+          ref={setSidebarShell}
           aria-hidden={isMobileSidebarHidden ? "true" : undefined}
           inert={secondaryAreaOpen}
           data-testid="app-sidebar-shell"
           data-mobile-sidebar-state={shouldKeepMobileSidebarMounted ? (sidebarOpen ? "open" : "hidden") : undefined}
+          data-sidebar-fold={sidebarFolded ? (sidebarDropDown.open ? "dropped" : "folded") : undefined}
           {...(isDesktopShell ? {} : sidebarSwipe.handlers)}
+          {...(sidebarFolded ? sidebarDropDown.hoverHandlers : {})}
           style={
             isDesktopShell
-              ? { ...sidebarSplit.style, touchAction: "pan-y", overscrollBehaviorX: "none" }
+              ? {
+                  ...sidebarSplit.style,
+                  touchAction: "pan-y",
+                  overscrollBehaviorX: "none",
+                  ...(sidebarFolded && { top: sidebarFoldStripHeight }),
+                }
               : {
                   touchAction: "pan-y",
                   overscrollBehaviorX: "none",
@@ -1106,7 +1128,14 @@ export default function App() {
                   }),
                 }
           }
-          className={`
+          className={
+            sidebarFolded
+              ? `absolute bottom-0 left-0 z-40 w-[var(--split-w)] overflow-hidden shadow-[8px_0_24px_rgba(0,0,0,0.18)] transition-[clip-path,visibility] duration-150 ease-out ${
+                  sidebarDropDown.open
+                    ? "[clip-path:inset(0_-32px_0_0)]"
+                    : "invisible [clip-path:inset(0_-32px_100%_0)]"
+                }`
+              : `
             ${
               isDesktopShell
                 ? "relative z-auto w-[var(--split-w)] translate-x-0"
@@ -1115,12 +1144,13 @@ export default function App() {
                   }`
             }
             h-full shrink-0 overflow-hidden transition-transform duration-200 ease-out
-          `}
+          `
+          }
         >
-          <Sidebar onOpenUniversalSearch={openUniversalSearch} />
+          <Sidebar onOpenUniversalSearch={openUniversalSearch} titleRow={!sidebarFolded} />
         </div>
       )}
-      {shouldRenderSidebar && isDesktopShell && !secondaryAreaOpen && (
+      {shouldRenderSidebar && isDesktopShell && !sidebarFolded && !secondaryAreaOpen && (
         <SplitHandle label="Resize the sessions panel" {...sidebarSplit.handleProps} />
       )}
 
@@ -1133,12 +1163,17 @@ export default function App() {
         {/* Keeps iOS from leaving a stale blur over the top bar; see .top-edge-anchor.
             Placed before the top bar so its badges still paint above the strip. */}
         {!isDesktopShell && <div aria-hidden="true" data-testid="top-edge-anchor" className="top-edge-anchor" />}
-        <TopBar
-          fullPageLabel={secondaryAreaAvailable ? undefined : fullPageRouteLabel}
-          universalSearchOpen={universalSearchOpen}
-          onOpenUniversalSearch={openUniversalSearch}
-          onCloseUniversalSearch={closeUniversalSearch}
-        />
+        <div className="flex shrink-0">
+          {sidebarFolded && <SidebarFoldStrip dropDown={sidebarDropDown} style={sidebarSplit.style} />}
+          <div className="min-w-0 flex-1">
+            <TopBar
+              fullPageLabel={secondaryAreaAvailable ? undefined : fullPageRouteLabel}
+              universalSearchOpen={universalSearchOpen}
+              onOpenUniversalSearch={openUniversalSearch}
+              onCloseUniversalSearch={closeUniversalSearch}
+            />
+          </div>
+        </div>
         <UserContentNotice />
         <AnimalPortraitsOffer />
         <div className="flex-1 overflow-hidden relative">

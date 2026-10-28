@@ -35,7 +35,8 @@ import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
 import { SidebarGlobalSearch } from "./SidebarGlobalSearch.js";
-import { NavigationButtons } from "./NavigationButtons.js";
+import { SidebarTitleRow } from "./SidebarTitleRow.js";
+import { SidebarLockToggle } from "./SidebarFold.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { RecentNewSessionMenuButton, RecentSessionList, RecentSpacesStatus } from "./RecentSessionList.js";
@@ -77,7 +78,17 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
   x: 0,
 });
 
-export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () => void } = {}) {
+/**
+ * The sessions panel. `titleRow` is off while the desktop panel is unlocked and dropped down
+ * below its folded top row, which then shows the logo and navigation instead.
+ */
+export function Sidebar({
+  onOpenUniversalSearch,
+  titleRow = true,
+}: {
+  onOpenUniversalSearch?: () => void;
+  titleRow?: boolean;
+} = {}) {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -86,9 +97,6 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
   const [hoveredSession, setHoveredSession] = useState<{ sessionId: string; rect: DOMRect } | null>(null);
   const [hash, setHash] = useState(() => (typeof window !== "undefined" ? window.location.hash : ""));
   const editInputRef = useRef<HTMLInputElement>(null);
-  const [editingServerName, setEditingServerName] = useState(false);
-  const [serverNameDraft, setServerNameDraft] = useState("");
-  const serverNameInputRef = useRef<HTMLInputElement>(null);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const currentSessionId = useStore((s) => s.currentSessionId);
   const setCurrentSession = useStore((s) => s.setCurrentSession);
@@ -282,24 +290,6 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
     document.title = formatDocumentTitle(base, needsInputCount);
     showAppBadge(needsInputCount);
   }, [serverName, sessionNotifications, sdkSessions]);
-
-  useEffect(() => {
-    if (editingServerName && serverNameInputRef.current) {
-      serverNameInputRef.current.focus();
-      serverNameInputRef.current.select();
-    }
-  }, [editingServerName]);
-
-  function confirmServerNameEdit() {
-    const trimmed = serverNameDraft.trim();
-    setServerName(trimmed);
-    api.updateSettings({ serverName: trimmed }).catch(() => {});
-    setEditingServerName(false);
-  }
-
-  function cancelServerNameEdit() {
-    setEditingServerName(false);
-  }
 
   useEffect(() => {
     const onHashChange = () => setHash(window.location.hash);
@@ -564,7 +554,6 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
       .map((sessionId) => archivedById.get(sessionId))
       .filter((session): session is SidebarSessionItem => !!session);
   }, [archivedSessionPage.ids, archivedSessions]);
-  const logoSrc = "/app-logo.png";
   const [showCronSessions, setShowCronSessions] = useState(true);
   const treeGroupIds = useMemo(() => treeViewGroups.map((g) => g.id), [treeViewGroups]);
   const treePointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
@@ -736,58 +725,18 @@ export function Sidebar({ onOpenUniversalSearch }: { onOpenUniversalSearch?: () 
 
   return (
     <aside className="w-full sm:w-[var(--split-w,260px)] h-full flex flex-col bg-cc-sidebar border-r border-cc-border">
-      <div className="p-4 pb-3 border-b border-cc-border/60">
-        <div className="flex items-center gap-2 mb-4">
-          <img src={logoSrc} alt="" className="h-12 w-12 shrink-0 rounded-xl object-contain" />
-          {editingServerName ? (
-            <input
-              ref={serverNameInputRef}
-              value={serverNameDraft}
-              onChange={(e) => setServerNameDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") confirmServerNameEdit();
-                if (e.key === "Escape") cancelServerNameEdit();
-              }}
-              onBlur={confirmServerNameEdit}
-              className="text-sm font-semibold text-cc-fg tracking-tight bg-cc-input-bg border border-cc-border rounded px-1.5 py-0.5 outline-none focus:border-cc-primary/60 min-w-0 w-[140px]"
-              placeholder="Takode"
-              maxLength={30}
-            />
-          ) : (
-            <span
-              onClick={() => {
-                setServerNameDraft(serverName || "");
-                setEditingServerName(true);
-              }}
-              className="min-w-0 truncate text-sm font-semibold text-cc-fg tracking-tight cursor-pointer hover:text-cc-primary transition-colors"
-              title="Click to rename this server instance"
-            >
-              {serverName || "Takode"}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => useStore.getState().setSidebarOpen(false)}
-            className="sm:hidden ml-auto inline-flex items-center justify-center w-9 h-9 rounded-full border border-cc-border/70 bg-cc-hover/50 text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-            aria-label="Dismiss sidebar"
-            title="Dismiss sidebar"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-4 h-4">
-              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-            </svg>
-          </button>
-          {import.meta.env.DEV && (
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 leading-none">
-              Dev
-            </span>
-          )}
-          {isDesktopLayout && (
-            <div className="ml-auto">
-              <NavigationButtons />
-            </div>
-          )}
+      <div className={`px-4 pb-3 border-b border-cc-border/60 ${titleRow ? "pt-4" : "pt-3"}`}>
+        {titleRow && (
+          <div className="mb-4">
+            <SidebarTitleRow />
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <SidebarGlobalSearch onOpenUniversalSearch={onOpenUniversalSearch} closePanelOnOpen={!isDesktopLayout} />
+          </div>
+          {isDesktopLayout && <SidebarLockToggle />}
         </div>
-        <SidebarGlobalSearch onOpenUniversalSearch={onOpenUniversalSearch} closePanelOnOpen={!isDesktopLayout} />
       </div>
 
       <div

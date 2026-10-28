@@ -264,6 +264,7 @@ export const useStore = create<AppState>((set, get) => ({
   sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
   shortcutSettings: getInitialShortcutSettings(),
   sidebarOpen: typeof window !== "undefined" ? isDesktopShellLayout(getInitialZoomLevel()) : true,
+  sidebarLocked: typeof window !== "undefined" ? localStorage.getItem("cc-sidebar-locked") !== "false" : true,
   sessionInfoOpenSessionId: null,
   codexSubagentInspector: null,
   reorderMode: false,
@@ -470,6 +471,10 @@ export const useStore = create<AppState>((set, get) => ({
       return { shortcutSettings };
     }),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
+  setSidebarLocked: (v) => {
+    localStorage.setItem("cc-sidebar-locked", String(v));
+    set({ sidebarLocked: v });
+  },
   setSessionInfoOpenSessionId: (sessionId) =>
     set((s) => (s.sessionInfoOpenSessionId === sessionId ? s : { sessionInfoOpenSessionId: sessionId })),
   openCodexSubagentInspector: (sessionId, options) =>

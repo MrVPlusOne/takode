@@ -13,6 +13,8 @@ import { attentionPlaceIndex, buildAttentionBacklog, buildNextAttentionQueue } f
 import { AttentionListPill, GlobalAttentionPanel } from "../GlobalAttentionMenu.js";
 import { MessageBubble } from "../MessageBubble.js";
 import { NavigationButtons, NavigationHistoryPanel } from "../NavigationButtons.js";
+import { SidebarLockToggle } from "../SidebarFold.js";
+import { SidebarTitleRow } from "../SidebarTitleRow.js";
 import { SidebarGlobalSearch } from "../SidebarGlobalSearch.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
@@ -284,9 +286,17 @@ export function PlaygroundNextAttentionSection() {
               />
             </div>
           </Card>
-          <Card label="Sessions panel global search (desktop and phone)">
-            <div className="w-[228px]">
-              <SidebarGlobalSearch closePanelOnOpen={false} />
+          <Card label="Sessions panel global search (desktop and phone), with the desktop lock that folds the panel">
+            <div className="flex w-[228px] items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <SidebarGlobalSearch closePanelOnOpen={false} />
+              </div>
+              <SidebarLockToggle />
+            </div>
+          </Card>
+          <Card label="Unlocked desktop sessions panel: folded to its top row, which sits in the top bar's row (the rest drops down on hover)">
+            <div className="flex h-12 w-[260px] items-center border border-cc-border bg-cc-sidebar px-4">
+              <SidebarTitleRow compact />
             </div>
           </Card>
         </div>

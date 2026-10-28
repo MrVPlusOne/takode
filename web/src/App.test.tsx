@@ -68,6 +68,7 @@ interface MockStoreState {
   messages: Map<string, Array<{ id: string; historyIndex?: number }>>;
   feedScrollPosition: Map<string, unknown>;
   sidebarOpen: boolean;
+  sidebarLocked: boolean;
   taskPanelOpen: boolean;
   activeTab: "chat" | "diff";
   codexSubagentInspector: { sessionId: string } | null;
@@ -139,6 +140,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     ]),
     feedScrollPosition: new Map(),
     sidebarOpen: false,
+    sidebarLocked: true,
     taskPanelOpen: false,
     activeTab: "chat",
     codexSubagentInspector: null,
@@ -246,7 +248,13 @@ vi.mock("./session-list-hydration.js", () => ({
 }));
 
 vi.mock("./components/Sidebar.js", () => ({
-  Sidebar: () => <div data-testid="sidebar" />,
+  Sidebar: ({ titleRow = true }: { titleRow?: boolean }) => (
+    <div data-testid="sidebar" data-title-row={titleRow ? "true" : "false"} />
+  ),
+}));
+
+vi.mock("./components/SidebarTitleRow.js", () => ({
+  SidebarTitleRow: () => <div data-testid="sidebar-title-row" />,
 }));
 
 vi.mock("./components/TaskPanel.js", () => ({
@@ -780,6 +788,40 @@ describe("App hidden panels", () => {
     expect(shell).toHaveClass("-translate-x-full", "pointer-events-none");
     await waitFor(() => expect((shell as HTMLElement & { inert: boolean }).inert).toBe(true));
     expect(screen.queryByTestId("task-panel")).toBeNull();
+  });
+
+  it("folds the unlocked desktop panel to its top row beside the top bar and drops it down on hover", async () => {
+    // Unlocked, the desktop sessions panel keeps only its top row (in the top bar's row) and the
+    // rest of the panel, without its own title row, drops down over the conversation on hover.
+    setViewportWidth(1440);
+    resetStore({ sidebarOpen: true, sidebarLocked: false, taskPanelOpen: false });
+
+    render(<App />);
+
+    const strip = screen.getByTestId("sidebar-fold-strip");
+    const shell = screen.getByTestId("app-sidebar-shell");
+    expect(
+      strip.compareDocumentPosition(screen.getByTestId("top-bar")) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId("sidebar")).toHaveAttribute("data-title-row", "false");
+    expect(shell).toHaveAttribute("data-sidebar-fold", "folded");
+    expect(shell).toHaveClass("absolute", "invisible");
+    expect(screen.queryByRole("separator", { name: "Resize the sessions panel" })).toBeNull();
+
+    fireEvent.pointerEnter(strip, { pointerType: "mouse" });
+    await waitFor(() => expect(shell).toHaveAttribute("data-sidebar-fold", "dropped"));
+    expect(shell).not.toHaveClass("invisible");
+  });
+
+  it("keeps the locked desktop panel beside the conversation", () => {
+    setViewportWidth(1440);
+    resetStore({ sidebarOpen: true, sidebarLocked: true, taskPanelOpen: false });
+
+    render(<App />);
+
+    expect(screen.queryByTestId("sidebar-fold-strip")).toBeNull();
+    expect(screen.getByTestId("sidebar")).toHaveAttribute("data-title-row", "true");
+    expect(screen.getByTestId("app-sidebar-shell")).not.toHaveAttribute("data-sidebar-fold");
   });
 
   it("mounts the sidebar and task panel only when opened", () => {

@@ -223,6 +223,8 @@ export interface AppState {
   sendKeyScheme: import("../shared/send-key-scheme.js").SendKeyScheme;
   shortcutSettings: import("./shortcuts.js").ShortcutSettings;
   sidebarOpen: boolean;
+  /** Desktop: whether the sessions panel stays open beside the chat; unlocked, it folds to its top row and drops down on hover. A local preference. */
+  sidebarLocked: boolean;
   sessionInfoOpenSessionId: string | null;
   codexSubagentInspector: { sessionId: string; scopeTurnId?: string; selectedChildId?: string } | null;
   reorderMode: boolean;
@@ -291,6 +293,7 @@ export interface AppState {
   ) => void;
   resetShortcutOverrides: () => void;
   setSidebarOpen: (v: boolean) => void;
+  setSidebarLocked: (v: boolean) => void;
   setSessionInfoOpenSessionId: (sessionId: string | null) => void;
   openCodexSubagentInspector: (sessionId: string, options?: { scopeTurnId?: string; selectedChildId?: string }) => void;
   selectCodexSubagentInspectorChild: (childId: string | null) => void;

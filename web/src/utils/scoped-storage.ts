@@ -31,6 +31,7 @@ const GLOBAL_KEYS = new Set([
   "cc-settings-collapsed",
   "cc-settings-scroll",
   "cc-session-sort-mode",
+  "cc-sidebar-locked",
   "cc-read-aloud-preferences",
 ]);
 
