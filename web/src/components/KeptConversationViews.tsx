@@ -1,4 +1,15 @@
-import { Activity, type ReactNode } from "react";
+import { Activity, createContext, useContext, type ReactNode } from "react";
+
+const ConversationShownContext = createContext(true);
+
+/**
+ * Whether the conversation this component belongs to is on screen; true outside kept views.
+ * A hidden Activity hides its own DOM but not what its components portal elsewhere, such as a
+ * full-screen viewer on document.body, so those must check this to leave with their conversation.
+ */
+export function useConversationShown(): boolean {
+  return useContext(ConversationShownContext);
+}
 
 /**
  * Recently viewed conversations, kept mounted. Only `visibleSessionId` is shown; the others
@@ -14,9 +25,12 @@ export function KeptConversationViews({
   conversations: ReadonlyArray<{ sessionId: string; view: ReactNode }>;
   visibleSessionId: string | null;
 }) {
-  return conversations.map(({ sessionId, view }) => (
-    <Activity key={sessionId} mode={sessionId === visibleSessionId ? "visible" : "hidden"}>
-      {view}
-    </Activity>
-  ));
+  return conversations.map(({ sessionId, view }) => {
+    const shown = sessionId === visibleSessionId;
+    return (
+      <Activity key={sessionId} mode={shown ? "visible" : "hidden"}>
+        <ConversationShownContext.Provider value={shown}>{view}</ConversationShownContext.Provider>
+      </Activity>
+    );
+  });
 }

@@ -8,6 +8,7 @@ import { ZoomableImage } from "./ZoomableImage.js";
 import { canWriteClipboardImage, writeClipboardText } from "../utils/copy-utils.js";
 import { CopyImageButton } from "./CopyImageButton.js";
 import { formatImageDownload, useImageDownload } from "../hooks/use-image-download.js";
+import { useConversationShown } from "./KeptConversationViews.js";
 import {
   forgetThumbnailLoaded,
   rememberThumbnailLoaded,
@@ -415,6 +416,7 @@ function ImagePreviewModal({
   const canNavigate = images.length > 1;
   const download = useImageDownload(image?.fullUrl ?? "");
   const sizeLabel = formatImageDownload(download);
+  const conversationShown = useConversationShown();
 
   const selectOffset = useCallback(
     (offset: number) => {
@@ -455,7 +457,8 @@ function ImagePreviewModal({
     };
   }, [onClose, selectOffset]);
 
-  if (!image) return null;
+  // Full-screen, the viewer sits on document.body, outside its conversation's hidden Activity.
+  if (!image || !conversationShown) return null;
 
   return createPortal(
     <div

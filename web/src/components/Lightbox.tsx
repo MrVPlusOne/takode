@@ -5,6 +5,7 @@ import { CopyImageButton } from "./CopyImageButton.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, useSecondaryViewTarget } from "../utils/secondary-view.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
 import { formatImageDownload, useImageDownload } from "../hooks/use-image-download.js";
+import { useConversationShown } from "./KeptConversationViews.js";
 
 interface LightboxProps {
   /** The full-size image URL (e.g., data URI or http URL) */
@@ -27,6 +28,7 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
   const docked = dockTarget !== null;
   const download = useImageDownload(src);
   const sizeLabel = formatImageDownload(download);
+  const conversationShown = useConversationShown();
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -53,6 +55,9 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
       document.body.style.overflow = prev;
     };
   }, [docked]);
+
+  // Full-screen, the viewer sits on document.body, outside its conversation's hidden Activity.
+  if (!conversationShown) return null;
 
   return createPortal(
     <div
