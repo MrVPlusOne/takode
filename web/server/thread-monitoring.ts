@@ -1,4 +1,5 @@
 import type { ThreadMonitoringState, MonitoredThreadResult } from "../shared/thread-monitoring.js";
+import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 
@@ -115,6 +116,46 @@ export function recordReminderResult(
   return true;
 }
 
+/**
+ * Where a pending result opens: the thread's latest answer or report at or before its message,
+ * back to the thread's previous Ready result. A Ready result's message is the one holding the
+ * marker, and leaders often put that in a closing commentary line ("The result is reported
+ * above...") after the answer the user waits for. When nothing was answered since the previous
+ * result, or the message is gone from history, the result opens at its own message. A reminder
+ * set from an answer opens at that answer.
+ */
+export function monitoredResultMessageId(
+  session: Pick<ThreadMonitoringSession, "messageHistory">,
+  threadKey: string,
+  result: Pick<MonitoredThreadResult, "messageId">,
+): string {
+  const history = session.messageHistory;
+  // Results are recent, so search from the end.
+  const start = history.findLastIndex((entry) => historyMessageId(entry) === result.messageId);
+  for (let index = start; index >= 0; index--) {
+    const entry = history[index]!;
+    if (index < start && isReadyFor(entry, threadKey)) break;
+    const isResult =
+      entry.type === "markdown_report" ||
+      (entry.type === "assistant" && (!!entry.threadAnswer || entry.leaderThreadRole === "answer"));
+    if (isResult && leaderMessageThreadKey(entry) === threadKey) return historyMessageId(entry)!;
+  }
+  return result.messageId;
+}
+
+function historyMessageId(entry: BrowserIncomingMessage): string | undefined {
+  if (entry.type === "assistant") return entry.message.id;
+  if (entry.type === "markdown_report") return entry.id;
+  return undefined;
+}
+
+function isReadyFor(entry: BrowserIncomingMessage, threadKey: string): boolean {
+  return (
+    entry.type === "assistant" &&
+    !!entry.threadStatusMarkers?.some((marker) => marker.kind === "ready" && marker.threadKey === threadKey)
+  );
+}
+
 function pendingResult(record: LeaderThreadStatus, revision: number): MonitoredThreadResult {
   return {
     id: String(revision),
@@ -125,9 +166,5 @@ function pendingResult(record: LeaderThreadStatus, revision: number): MonitoredT
 }
 
 function latestAcceptedReadyIndex(session: ThreadMonitoringSession, threadKey: string): number {
-  return session.messageHistory.findLastIndex(
-    (entry) =>
-      entry.type === "assistant" &&
-      entry.threadStatusMarkers?.some((marker) => marker.kind === "ready" && marker.threadKey === threadKey),
-  );
+  return session.messageHistory.findLastIndex((entry) => isReadyFor(entry, threadKey));
 }

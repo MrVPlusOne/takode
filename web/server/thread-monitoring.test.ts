@@ -5,6 +5,7 @@ import { updateLeaderThreadStatusesForAssistantOutput } from "./bridge/thread-ro
 import { clearAttentionAndMarkRead } from "./bridge/session-notification-controller.js";
 import {
   acknowledgeMonitoredThreadResult,
+  monitoredResultMessageId,
   recordMonitoredThreadResult,
   recordReminderResult,
   setThreadMonitoring,
@@ -177,5 +178,94 @@ describe("reminders in Notify Me", () => {
     expect(acknowledgeMonitoredThreadResult(session, "main", "1")).toBe(true);
     expect(acknowledgeMonitoredThreadResult(session, "q-42", "2")).toBe(true);
     expect(Object.keys(session.state.threadMonitoring!.threads)).toEqual(["q-42"]);
+  });
+});
+
+describe("where a Notify Me result opens", () => {
+  // A leader often puts the Ready marker in a closing commentary line ("The result is reported
+  // above...") after its answer. The result must open at that answer, the final message the user
+  // waits for, not at the commentary holding the marker. The stored result keeps the Ready message;
+  // monitoredResultMessageId resolves where it opens, so results recorded before this still do.
+  function answer(session: ReturnType<typeof fixture>, id: string, threadKey = "q-42") {
+    session.messageHistory.push({
+      type: "assistant",
+      timestamp: session.messageHistory.length + 1,
+      parent_tool_use_id: null,
+      threadKey,
+      questId: threadKey,
+      leaderThreadRole: "answer",
+      message: {
+        id,
+        type: "message",
+        role: "assistant",
+        model: "test",
+        content: [{ type: "text", text: "The relaunch fixed it." }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    } as Assistant);
+  }
+  function report(session: ReturnType<typeof fixture>, id: string) {
+    session.messageHistory.push({
+      type: "markdown_report",
+      id,
+      content: "# Assessment",
+      timestamp: session.messageHistory.length + 1,
+      threadKey: "q-42",
+      questId: "q-42",
+    } as BrowserIncomingMessage);
+  }
+  const opensAt = (session: ReturnType<typeof fixture>) =>
+    monitoredResultMessageId(session, "q-42", session.state.threadMonitoring!.threads["q-42"].pending!);
+  const acknowledge = (session: ReturnType<typeof fixture>) =>
+    acknowledgeMonitoredThreadResult(session, "q-42", session.state.threadMonitoring!.threads["q-42"].pending!.id);
+
+  it("opens a result at the answer before its Ready commentary, and at a later report over it", () => {
+    const session = fixture();
+    setThreadMonitoring(session, "q-42", true);
+    answer(session, "answer-1");
+    publish(session, "ready-commentary-1");
+    expect(session.state.threadMonitoring!.threads["q-42"].pending!.messageId).toBe("ready-commentary-1");
+    expect(opensAt(session)).toBe("answer-1");
+
+    acknowledge(session);
+    answer(session, "answer-2");
+    report(session, "report-2");
+    publish(session, "ready-commentary-2");
+    expect(opensAt(session)).toBe("report-2");
+  });
+
+  it("opens at the Ready message when nothing was answered in the thread since the previous result", () => {
+    // A status-only Ready ("worker dispatched") must not reopen an answer an earlier result already
+    // pointed at, nor an answer written in another thread.
+    const session = fixture();
+    setThreadMonitoring(session, "q-42", true);
+    answer(session, "old-answer");
+    publish(session, "ready-1");
+    acknowledge(session);
+    answer(session, "other-thread-answer", "q-7");
+    publish(session, "ready-2");
+    expect(opensAt(session)).toBe("ready-2");
+  });
+
+  it("opens a captured result and a due reminder at the answer, and a reminder set from a message there", () => {
+    const captured = fixture();
+    answer(captured, "answer-1");
+    publish(captured, "ready-commentary");
+    setThreadMonitoring(captured, "q-42", true);
+    expect(opensAt(captured)).toBe("answer-1");
+
+    const reminded = fixture();
+    answer(reminded, "answer-1");
+    publish(reminded, "ready-commentary");
+    recordReminderResult(reminded, "q-42", "Reminder", 50);
+    expect(opensAt(reminded)).toBe("answer-1");
+
+    const fromMessage = fixture();
+    answer(fromMessage, "answer-1");
+    answer(fromMessage, "answer-2");
+    publish(fromMessage, "ready-commentary");
+    recordReminderResult(fromMessage, "q-42", "Reminder", 50, "answer-1");
+    expect(opensAt(fromMessage)).toBe("answer-1");
   });
 });

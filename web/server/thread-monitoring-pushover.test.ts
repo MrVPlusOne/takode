@@ -226,7 +226,9 @@ describe("Notify Me result to Pushover", () => {
     expect(body.get("title")).toBe("Notify Me result");
     expect(body.get("message")).toBe("Test server — Research\nq-42\nResult <ready> & complete");
     expect(body.get("html")).toBe("0");
-    expect(body.get("url")).toBe("https://example.test/#/session/synthetic-leader?thread=q-42");
+    // Tapping opens the result where the in-app list does (monitoredResultMessageId): its answer or
+    // report, here the Ready message itself because the thread has no answer.
+    expect(body.get("url")).toBe("https://example.test/#/session/synthetic-leader/msg/assistant-1?thread=q-42");
     await vi.advanceTimersByTimeAsync(120_000);
     expect(fetch).toHaveBeenCalledTimes(1);
   });

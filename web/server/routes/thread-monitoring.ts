@@ -1,6 +1,10 @@
 import type { Hono } from "hono";
 import type { ThreadMonitoringEntry, ThreadMonitoringPage } from "../../shared/thread-monitoring.js";
-import { acknowledgeMonitoredThreadResult, setThreadMonitoring } from "../thread-monitoring.js";
+import {
+  acknowledgeMonitoredThreadResult,
+  monitoredResultMessageId,
+  setThreadMonitoring,
+} from "../thread-monitoring.js";
 import { getQuest } from "../quest-store.js";
 import { findSupportingQuestSource, indexLeaderRequests } from "../supporting-quest.js";
 import type { RouteContext } from "./context.js";
@@ -38,7 +42,15 @@ export function registerThreadMonitoringRoutes(api: Hono, ctx: RouteContext): vo
         left.sessionId.localeCompare(right.sessionId) ||
         left.threadKey.localeCompare(right.threadKey),
     );
-    const page = entries.slice(offset, offset + 50);
+    const page = entries.slice(offset, offset + 50).map((entry) => {
+      const session = entry.pending && ctx.wsBridge.getSession(entry.sessionId);
+      if (!session || !entry.pending) return entry;
+      // A result opens at the answer or report it is about, not at the Ready commentary.
+      return {
+        ...entry,
+        pending: { ...entry.pending, messageId: monitoredResultMessageId(session, entry.threadKey, entry.pending) },
+      };
+    });
     await Promise.all(
       page.map(async (entry) => {
         if (entry.threadKey === "main") return;

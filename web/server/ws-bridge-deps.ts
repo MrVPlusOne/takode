@@ -1,6 +1,7 @@
 import { announceAttentionAlert } from "./bridge/session-notification-controller.js";
 import { hostIsOnline } from "./remote-host/session-machine.js";
 import { serverWorkAdmission } from "./server-work-admission.js";
+import { monitoredResultMessageId } from "./thread-monitoring.js";
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import {
@@ -628,6 +629,7 @@ function notifyMonitoredThreadResult(host: any, session: Session, threadKey: str
     monitoredResult: {
       threadKey,
       resultId: result.id,
+      messageId: monitoredResultMessageId(session, threadKey, result),
       isPending: () =>
         host.sessions.get(session.id) === session &&
         !readLauncherSession(host, session.id)?.archived &&

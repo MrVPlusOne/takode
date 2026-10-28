@@ -125,6 +125,34 @@ describe("monitoring commands and global list", () => {
     expect(await (await app.request("/thread-monitoring")).json()).toMatchObject({ total: 75 });
   });
 
+  it("lists a result at the answer before its Ready commentary, keeping the stored result", async () => {
+    // The leader answered, then wrote "The relaunch result is reported above..." with the Ready
+    // marker. Opening the result from the list must land on the answer.
+    const { app, session } = fixture();
+    const assistant = (id: string, extra: Record<string, unknown>) => ({
+      type: "assistant",
+      timestamp: 1,
+      parent_tool_use_id: null,
+      threadKey: "q-42",
+      questId: "q-42",
+      message: { id, type: "message", role: "assistant", model: "test", content: [], stop_reason: "end_turn" },
+      ...extra,
+    });
+    (session.messageHistory as unknown[]).push(
+      assistant("answer", { leaderThreadRole: "answer" }),
+      assistant("ready-commentary", {
+        leaderThreadRole: "commentary",
+        threadStatusMarkers: [{ kind: "ready", threadKey: "q-42" }],
+      }),
+    );
+    const pending = { id: "3", messageId: "ready-commentary", timestamp: 1, summary: "relaunch verified" };
+    session.state.threadMonitoring.threads["q-42"] = { trackedAt: 0, afterHistoryIndex: 1, pending };
+
+    const page = (await (await app.request("/thread-monitoring")).json()) as ThreadMonitoringPage;
+    expect(page.entries[0]?.pending).toMatchObject({ id: "3", messageId: "answer" });
+    expect(session.state.threadMonitoring.threads["q-42"].pending?.messageId).toBe("ready-commentary");
+  });
+
   it("does not clear a newer result from a stale acknowledgement and can stop a closed watch", async () => {
     const { act, session } = fixture();
     await act("q-42", "track");

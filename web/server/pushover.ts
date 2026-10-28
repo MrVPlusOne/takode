@@ -67,8 +67,11 @@ export interface PushoverScheduleOptions {
   threadKey?: string;
   /** Message the alert is about (a question's anchor, a result); tapping the alert scrolls to it. */
   messageId?: string;
-  /** Exact monitored result ownership, rechecked after the delay independently of session reads. */
-  monitoredResult?: { threadKey: string; resultId: string; isPending: () => boolean };
+  /**
+   * Exact monitored result ownership, rechecked after the delay independently of session reads.
+   * `messageId` is where the result opens (its answer or report); tapping the alert scrolls there.
+   */
+  monitoredResult?: { threadKey: string; resultId: string; messageId?: string; isPending: () => boolean };
   /** Rechecked after the delay instead of the session read time: the alert fires only while this holds. */
   isStillOpen?: () => boolean;
 }
@@ -530,7 +533,10 @@ export class PushoverNotifier {
    * tab the app last showed, not the thread the alert came from.
    */
   private getDeepLinkTarget(pending: PendingNotification): AlertLinkTarget {
-    if (pending.monitoredResult) return { threadKey: pending.monitoredResult.threadKey };
+    if (pending.monitoredResult) {
+      const { threadKey, messageId } = pending.monitoredResult;
+      return { threadKey, ...(messageId ? { messageId } : {}) };
+    }
     for (const notificationId of pending.notificationIds) {
       const target = pending.notificationTargets[notificationId];
       if (target?.threadKey || target?.messageId) return target;
