@@ -100,7 +100,7 @@ describe("timer creation destinations", () => {
     const response = await createTimer(app, { threadKey: 42 });
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "Timer thread must be main or q-N" });
+    expect(await response.json()).toEqual({ error: "Timer thread must be main, q-N or topic:<handle>" });
     expect(savedFiles.size).toBe(0);
   });
 

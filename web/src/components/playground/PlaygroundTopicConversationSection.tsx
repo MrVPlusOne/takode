@@ -8,7 +8,7 @@ import {
   TopicEntryLine,
   TopicFeedEntry,
 } from "../library/TopicConversation.js";
-import { TopicFeedQuestStart } from "../topic-feed.js";
+import { TopicFeedContext, TopicFeedQuestStart } from "../topic-feed.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const QUESTS = [
@@ -17,8 +17,9 @@ const QUESTS = [
 ];
 
 /**
- * A topic conversation: the topic header in place of the quest strip, and each quest's strip in
- * the feed where its part starts, sticking to the top while that part is read.
+ * A topic conversation: the topic header in place of the quest strip, and a strip in the feed
+ * where each part starts (the topic's own thread, and each quest), sticking to the top while that
+ * part is read.
  */
 export function PlaygroundTopicConversationSection() {
   useEffect(() => {
@@ -75,18 +76,28 @@ export function PlaygroundTopicConversationSection() {
               leaderId="playground-leader"
               topic={{ topicId: "t", name: "Guided review and diffs", questIds: QUESTS.map((quest) => quest.questId) }}
             />
-            <div className="h-72 overflow-y-auto px-3">
-              {QUESTS.map((quest) => (
-                <div key={quest.questId} className="contents">
-                  <TopicFeedQuestStart questId={quest.questId} />
-                  {Array.from({ length: 6 }, (_, index) => (
-                    <p key={index} className="py-2 text-sm text-cc-fg">
-                      A message about {quest.title.toLowerCase()} ({index + 1}).
-                    </p>
-                  ))}
-                </div>
-              ))}
-            </div>
+            {/* The topic's own thread (what was written in the conversation itself) has a strip too. */}
+            <TopicFeedContext.Provider
+              value={{
+                questIds: QUESTS.map((quest) => quest.questId),
+                topicKey: "topic:aaaaaaaa",
+                topicName: "Guided review and diffs",
+                openQuest: () => {},
+              }}
+            >
+              <div className="h-72 overflow-y-auto px-3">
+                {[{ questId: "topic:aaaaaaaa", title: "The topic as a whole" }, ...QUESTS].map((quest) => (
+                  <div key={quest.questId} className="contents">
+                    <TopicFeedQuestStart questId={quest.questId} />
+                    {Array.from({ length: 6 }, (_, index) => (
+                      <p key={index} className="py-2 text-sm text-cc-fg">
+                        A message about {quest.title.toLowerCase()} ({index + 1}).
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </TopicFeedContext.Provider>
           </div>
         </Card>
       </Section>

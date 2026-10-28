@@ -56,7 +56,7 @@ export function registerTakodeNotificationResponseRoute(
     const bodyQuestId = typeof body.questId === "string" ? body.questId : null;
     const bodyThreadRoute = bodyThreadKey || bodyQuestId ? normalizeThreadRoute(bodyThreadKey, bodyQuestId) : null;
     if ((bodyThreadKey || bodyQuestId) && !bodyThreadRoute) {
-      return c.json({ error: "threadKey must be main or q-N" }, 400);
+      return c.json({ error: "threadKey must be main, q-N or topic:<handle>" }, 400);
     }
 
     const notificationThreadRoute = normalizeThreadRoute(notification.threadKey, notification.questId);

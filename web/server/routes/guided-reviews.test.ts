@@ -173,7 +173,7 @@ describe("guided review publication", () => {
     const { history, publish } = await harness();
     expect((await publish(validBody, false)).status).toBe(403);
     expect((await (await publish({ ...validBody, threadKey: "q-x" })).json()).error).toBe(
-      "Choose main or an exact quest thread.",
+      "Choose main, an exact quest thread or a topic thread.",
     );
     expect((await (await publish({ ...validBody, range: { ...validBody.range, head: "HEAD" } })).json()).error).toBe(
       "The range needs full base and head commit SHAs.",

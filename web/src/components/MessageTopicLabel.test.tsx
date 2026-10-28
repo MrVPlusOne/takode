@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../api.js", () => ({ api: {} }));
 
 import { topicApi } from "../api/topics.js";
-import { resetLeaderTopicsForTest } from "../utils/leader-topics.js";
+import { rememberTopicList, resetLeaderTopicsForTest } from "../utils/leader-topics.js";
+import { MessageThreadHeader } from "./MessageThreadHeader.js";
 import { MessageTopicLabel } from "./MessageTopicLabel.js";
 
 /**
@@ -81,5 +82,20 @@ describe("MessageTopicLabel", () => {
       />,
     );
     expect(screen.queryByTestId("message-topic-label")).toBeNull();
+  });
+});
+
+describe("a message written in a topic's own thread", () => {
+  it("is named by its topic in its thread header, and opens the topic conversation at it", async () => {
+    // Seen in All, a message (or answer) of a topic thread names the topic instead of the raw
+    // `thread:topic:<handle>` key. Its first version re-rendered forever (a new object per store read).
+    rememberTopicList("l1", [{ id: "aaaaaaaa-1111", name: "Relay", questIds: ["q-7", "q-9"], activityAt: 1 } as never]);
+    render(<MessageThreadHeader threadKey="topic:aaaaaaaa" message={{ sessionId: "l1", id: "m-2" }} />);
+    const label = await screen.findByTestId("message-topic-label");
+    expect(label.textContent).toContain("Relay");
+    fireEvent.click(label.querySelector("button")!);
+    // It opens in the tab of the topic's newest quest, zoomed out to the topic.
+    await waitFor(() => expect(window.location.hash).toContain("q-9"));
+    expect(window.location.hash).toContain("topic=1");
   });
 });

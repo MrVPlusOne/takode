@@ -85,7 +85,7 @@ export class TimerManager {
     if (!title) throw new Error("Timer title is required");
     const threadTarget = typeof input.threadKey === "string" ? normalizeThreadTarget(input.threadKey) : null;
     if (input.threadKey !== undefined && !threadTarget) {
-      throw new Error("Timer thread must be main or q-N");
+      throw new Error("Timer thread must be main, q-N or topic:<handle>");
     }
 
     const schedule = resolveTimerSchedule(input);

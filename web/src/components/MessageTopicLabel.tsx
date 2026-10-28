@@ -1,8 +1,8 @@
 import { useContext, useEffect } from "react";
 import { leaderMessageThreadKey, leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
-import { topicIdOfViewKey } from "../../shared/topic-thread-key.js";
+import { isKeyOfTopic, isTopicViewKey } from "../../shared/topic-thread-key.js";
 import type { ChatMessage } from "../types.js";
-import { loadLeaderTopics, useKnownQuestTopic } from "../utils/leader-topics.js";
+import { loadLeaderTopics, useKnownQuestTopic, useKnownTopicOfKey } from "../utils/leader-topics.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { TopicIcon } from "./library/library-icons.js";
@@ -11,9 +11,10 @@ import { StartedQuestsContext } from "./QuestForkLinks.js";
 /**
  * At the top left of a user's message shown in a view it doesn't belong to: the topic it belongs
  * to. A message belongs to the quest it was moved into (handed off, or a quest filed from it that
- * continues it), else to the thread it was written in; it is shown elsewhere when written in Main
- * and moved, or attached to another quest's thread. The label is left out where the message is at
- * home: its own quest, a topic conversation holding that quest, or another quest of the same
+ * continues it), else to the thread it was written in. It is shown elsewhere when written in Main
+ * and moved, or attached to another quest's thread. (A message written in a topic's own thread is
+ * named by its thread header instead, `TopicThreadLabel`.) The label is left out where the message
+ * is at home: its own quest, a topic conversation holding that quest, or another quest of the same
  * topic. Tapping it opens that topic's conversation at this message; before the quest is filed
  * under a topic, the label names the quest and opens it.
  */
@@ -26,21 +27,55 @@ export function MessageTopicLabel({
   sessionId?: string;
   currentThreadKey?: string;
 }) {
-  const questId = useHomeQuest(message, currentThreadKey);
-  if (!sessionId || !questId || !currentThreadKey) return null;
-  return <TopicLabel sessionId={sessionId} messageId={message.id} questId={questId} view={currentThreadKey} />;
+  const home = useHome(message, currentThreadKey);
+  // A message written in a topic's thread is named by its thread header (`MessageThreadHeader`).
+  if (!sessionId || !home || !currentThreadKey || isTopicViewKey(home)) return null;
+  return <TopicLabel sessionId={sessionId} messageId={message.id} questId={home} view={currentThreadKey} />;
 }
 
-/** The quest a message belongs to, unless the view on screen is that quest. */
-function useHomeQuest(message: Pick<ChatMessage, "id" | "metadata">, currentThreadKey?: string): string | null {
+/** The quest or topic thread a message belongs to, unless the view on screen is that thread. */
+function useHome(message: Pick<ChatMessage, "id" | "metadata">, currentThreadKey?: string): string | null {
   const started = useContext(StartedQuestsContext)?.get(message.id);
   const metadata = message.metadata ?? {};
-  const home = leaderResponseOwnerThreadKey(metadata) ?? leaderMessageThreadKey(metadata);
-  const questId = home.startsWith("q-") ? home : (started?.find((quest) => !quest.sideQuest)?.questId ?? null);
-  if (!questId) return null;
-  const quest = normalizeThreadKey(questId);
+  const owner = normalizeThreadKey(leaderResponseOwnerThreadKey(metadata) ?? leaderMessageThreadKey(metadata));
+  const home =
+    owner.startsWith("q-") || isTopicViewKey(owner)
+      ? owner
+      : (started?.find((quest) => !quest.sideQuest)?.questId ?? null);
+  if (!home) return null;
+  const thread = normalizeThreadKey(home);
   const view = normalizeThreadKey(currentThreadKey ?? "");
-  return view === quest ? null : quest;
+  return view === thread ? null : thread;
+}
+
+/** A message written in a topic's own thread, seen elsewhere (in All, or another view). */
+export function TopicThreadLabel({
+  sessionId,
+  messageId,
+  topicKey,
+  view,
+}: {
+  sessionId: string;
+  messageId: string;
+  topicKey: string;
+  view: string;
+}) {
+  const topic = useKnownTopicOfKey(sessionId, topicKey);
+  const viewQuest = view.startsWith("q-") ? view : "";
+  const viewTopic = useKnownQuestTopic(sessionId, viewQuest);
+  // In a quest of this topic, the message is in its topic already.
+  if (topic && viewTopic && isKeyOfTopic(topicKey, viewTopic.id)) return null;
+  // The topic conversation opens in the tab of one of its quests, the newest.
+  const quest = topic ? [...topic.questIds].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)))[0] : undefined;
+  return (
+    <TopicLabelButton
+      name={topic?.name ?? "Topic"}
+      title={topic ? `Written in the topic ${topic.name}: open it at this message` : "Written in a topic"}
+      onClick={() => {
+        if (quest) navigateToSessionMessageId(sessionId, messageId, { threadKey: quest, topicView: true });
+      }}
+    />
+  );
 }
 
 function TopicLabel({
@@ -68,8 +103,7 @@ function TopicLabel({
     );
   }, [sessionId, unknown]);
   // The topic on screen, or another quest of it: the message is in its topic already.
-  const viewTopicId = topicIdOfViewKey(view) ?? viewTopic?.id;
-  if (topic && viewTopicId && topic.id.toLowerCase() === viewTopicId.toLowerCase()) return null;
+  if (topic && (isKeyOfTopic(view, topic.id) || viewTopic?.id.toLowerCase() === topic.id.toLowerCase())) return null;
   return (
     <TopicLabelButton
       name={topic ? topic.name : questId}

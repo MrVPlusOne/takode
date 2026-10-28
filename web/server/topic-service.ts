@@ -1,3 +1,4 @@
+import { topicIdOfViewKey } from "../shared/topic-thread-key.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
 import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
@@ -172,7 +173,10 @@ export class TopicService {
 
   // ─── Events ───────────────────────────────────────────────────────────────
 
-  /** Reads new messages of a leader with topics on: the user's messages in a quest tab are events. */
+  /**
+   * Reads new messages of a leader with topics on: the user's messages in a quest tab or a topic's
+   * own thread (its conversation) are events of that topic.
+   */
   sessionSaved(sessionId: string): void {
     if (!this.store.loaded || !this.store.isLeaderEnabled(sessionId)) return;
     const session = this.deps.getSession(sessionId);
@@ -184,8 +188,12 @@ export class TopicService {
       const message = history[index];
       if (!message || !isRootAgentHistoryMessage(message) || !isActualHumanUserMessage(message)) continue;
       const threadKey = leaderMessageThreadKey(message as Parameters<typeof leaderMessageThreadKey>[0]);
-      if (!threadKey.startsWith("q-")) continue;
-      const topic = this.store.topicOfQuest(threadKey);
+      const handle = topicIdOfViewKey(threadKey);
+      const topic = threadKey.startsWith("q-")
+        ? this.store.topicOfQuest(threadKey)
+        : handle
+          ? this.store.resolveHandle(handle)
+          : undefined;
       if (!topic) continue;
       // A comment-only message has its words in its comments.
       const text = formatAnnotatedMessage(
@@ -196,7 +204,7 @@ export class TopicService {
         at: typeof message.timestamp === "number" ? message.timestamp : this.now(),
         kind: "message",
         leaderId: sessionId,
-        questId: threadKey,
+        ...(handle ? {} : { questId: threadKey }),
         sessionId,
         messageIndex: index,
         text: excerpt(text),
@@ -278,16 +286,21 @@ export class TopicService {
     }
   }
 
-  /** A new artifact version saved in a quest's tab is an event for that quest's topic. */
+  /** A new artifact version saved in a quest's tab or a topic's thread is an event for that topic. */
   artifactSaved(input: { sessionId: string; threadKey: string; title: string; kind: string; version: number }): void {
-    if (!this.store.loaded || !input.threadKey.startsWith("q-")) return;
-    const topic = this.store.topicOfQuest(input.threadKey);
+    if (!this.store.loaded) return;
+    const handle = topicIdOfViewKey(input.threadKey);
+    const topic = input.threadKey.startsWith("q-")
+      ? this.store.topicOfQuest(input.threadKey)
+      : handle
+        ? this.store.resolveHandle(handle)
+        : undefined;
     const leaderId = this.deps.leaderOf(input.sessionId);
     if (!topic || !leaderId || !this.store.isLeaderEnabled(leaderId)) return;
     this.event(topic.id, leaderId, {
       at: this.now(),
       kind: "artifact",
-      questId: input.threadKey,
+      ...(handle ? {} : { questId: input.threadKey }),
       sessionId: input.sessionId,
       text: `${input.kind} "${input.title}"${input.version > 1 ? ` v${input.version}` : ""}`,
     });

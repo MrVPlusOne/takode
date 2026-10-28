@@ -1,3 +1,4 @@
+import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import type { Context, Hono } from "hono";
 import {
   getUserVisibleSessionNotifications,
@@ -144,8 +145,8 @@ export function registerTakodeNotificationInboxRoutes(
     if (!session) return c.json({ error: "Leader session not found" }, 404);
     const body = await c.req.json().catch(() => ({}));
     const { threadKey, durationMs, messageId } = body as Record<string, unknown>;
-    if (typeof threadKey !== "string" || !/^(main|q-\d+)$/i.test(threadKey)) {
-      return c.json({ error: "threadKey must be main or a quest ID" }, 400);
+    if (typeof threadKey !== "string" || !normalizeThreadTarget(threadKey)) {
+      return c.json({ error: "threadKey must be main, a quest ID or a topic thread" }, 400);
     }
     if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 60_000) {
       return c.json({ error: "durationMs must be at least one minute" }, 400);
@@ -154,7 +155,7 @@ export function registerTakodeNotificationInboxRoutes(
     const reminder = setThreadReminder(
       session,
       {
-        threadKey,
+        threadKey: normalizeThreadTarget(threadKey)!.threadKey,
         remindAt: Date.now() + durationMs,
         ...(typeof messageId === "string" && messageId ? { messageId } : {}),
       },

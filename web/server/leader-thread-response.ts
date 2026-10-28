@@ -1,3 +1,4 @@
+import { normalizeTopicKey } from "../shared/topic-thread-key.js";
 import { createHash } from "node:crypto";
 import {
   leaderResponseAssociatedThreadKeys,
@@ -180,9 +181,18 @@ function hasThreadControlDirectives(markdown: string): boolean {
   return false;
 }
 
+/** Main, a quest's thread or a topic's own thread: the threads a leader answers in. */
+function isLeaderThreadKey(threadKey: string): boolean {
+  return threadKey === "main" || isQuestKey(threadKey) || normalizeTopicKey(threadKey) !== null;
+}
+
+function isQuestKey(threadKey: string): boolean {
+  return /^q-\d+$/.test(threadKey);
+}
+
 function normalizeThreadKey(value: string): string {
   const threadKey = normalizeSelectedFeedThreadKey(value);
-  if (threadKey !== "main" && !/^q-\d+$/.test(threadKey)) throw new Error("threadKey must be main or q-N.");
+  if (!isLeaderThreadKey(threadKey)) throw new Error("threadKey must be main, q-N or topic:<handle>.");
   return threadKey;
 }
 
@@ -497,9 +507,7 @@ function validAnswerMetadata(value: unknown): value is LeaderThreadAnswerMetadat
     Array.isArray(candidate.answerUserMessageIds) &&
     candidate.answerUserMessageIds.every(isCanonicalLeaderUserMessageId) &&
     new Set(candidate.answerUserMessageIds).size === candidate.answerUserMessageIds.length &&
-    (candidate.authoredThreadKey === undefined ||
-      candidate.authoredThreadKey === "main" ||
-      /^q-\d+$/.test(candidate.authoredThreadKey)) &&
+    (candidate.authoredThreadKey === undefined || isLeaderThreadKey(candidate.authoredThreadKey)) &&
     leaderResponseAnswerOwnerThreadKeys(candidate as LeaderThreadAnswerMetadata, "main") !== null &&
     Number.isInteger(candidate.observedHistoryLength) &&
     (candidate.observedHistoryLength ?? -1) >= 0
@@ -569,6 +577,9 @@ function threadRefRouteKey(ref: ThreadRef): string | null {
   const threadKey = ref.threadKey.trim().toLowerCase();
   const questId = ref.questId?.trim().toLowerCase();
   if (threadKey === "main") return questId ? null : "main";
+  // A topic's own thread names no quest.
+  const topicKey = normalizeTopicKey(threadKey);
+  if (topicKey) return questId ? null : topicKey;
   if (!/^q-\d+$/.test(threadKey)) return null;
   return questId === threadKey ? threadKey : null;
 }
@@ -609,15 +620,16 @@ function canonicalizeAnswerRoute(
 ): void {
   const timestamp = typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? message.timestamp : 0;
   message.threadKey = anchorThreadKey;
-  if (anchorThreadKey === "main") delete message.questId;
-  else message.questId = anchorThreadKey;
+  if (isQuestKey(anchorThreadKey)) message.questId = anchorThreadKey;
+  else delete message.questId;
+  const quest = (threadKey: string) => (isQuestKey(threadKey) ? { questId: threadKey } : {});
   const refs: ThreadRef[] = [];
   if (anchorThreadKey !== "main") {
-    refs.push({ threadKey: anchorThreadKey, questId: anchorThreadKey, source: "explicit", attachedAt: timestamp });
+    refs.push({ threadKey: anchorThreadKey, ...quest(anchorThreadKey), source: "explicit", attachedAt: timestamp });
   }
   for (const threadKey of visibleThreadKeys) {
     if (threadKey === "main" || threadKey === anchorThreadKey) continue;
-    refs.push({ threadKey, questId: threadKey, source: "backfill", attachedAt: timestamp });
+    refs.push({ threadKey, ...quest(threadKey), source: "backfill", attachedAt: timestamp });
   }
   if (refs.length === 0) delete message.threadRefs;
   else message.threadRefs = refs;
@@ -628,7 +640,7 @@ const ANSWER_ROUTE_EXPECTED =
 
 function selectedThreadKeyForDiagnostic(message: Extract<BrowserIncomingMessage, { type: "assistant" }>): string {
   const value = message.threadKey?.trim().toLowerCase();
-  return value === "main" || (value !== undefined && /^q-\d+$/.test(value)) ? value : "main";
+  return value !== undefined && isLeaderThreadKey(value) ? (normalizeTopicKey(value) ?? value) : "main";
 }
 
 function validDiagnosticAnswerIds(value: unknown): value is string[] {
@@ -766,7 +778,7 @@ function projectCurrentAnswers(
       {
         version: LEADER_THREAD_RESPONSE_VERSION,
         threadKey: candidate.threadKey,
-        ...(candidate.threadKey === "main" ? {} : { questId: candidate.threadKey }),
+        ...(isQuestKey(candidate.threadKey) ? { questId: candidate.threadKey } : {}),
         answerUserMessageIds: [...candidate.answerUserMessageIds],
         referencedUserMessageIds: [...candidate.referencedUserMessageIds],
         coveredAnswerUserMessageIds: coveredAnswerUserMessageIds as string[],
@@ -1131,9 +1143,6 @@ export function finalizeRoutedLeaderResponseMessage(
     ownerGroups,
     ...(message.leaderAnswerUrgent ? { urgent: true as const } : {}),
   };
-  // An answer to a message sent from a topic conversation shows there too, wherever it is routed.
-  const sentFromView = resolution.referenced.find((entry) => entry.message.sentFromView)?.message.sentFromView;
-  if (sentFromView) message.sentFromView = sentFromView;
   if (!isCurrentValidRoutedLeaderResponseMessage(session, message)) {
     delete message.threadAnswer;
     restoreAnswerRoute(message, routeSnapshot);

@@ -1,4 +1,5 @@
 import { isCanonicalLeaderUserMessageId } from "./leader-user-message-id.js";
+import { isTopicViewKey, normalizeTopicKey } from "./topic-thread-key.js";
 
 export interface LeaderResponseThreadRouteFields {
   threadKey?: string;
@@ -11,9 +12,11 @@ export interface LeaderResponseThreadRouteFields {
   }>;
 }
 
+/** Main, a quest's thread or a topic's own thread (`topic:<handle>`), canonical; else null. */
 function validThreadKey(value: string | undefined): string | null {
   const key = value?.trim().toLowerCase();
-  return key === "main" || (key !== undefined && /^q-\d+$/.test(key)) ? key : null;
+  if (key === "main" || (key !== undefined && /^q-\d+$/.test(key))) return key;
+  return key === undefined ? null : normalizeTopicKey(key);
 }
 
 function routeThreadKey(threadKey: string | undefined, questId: string | undefined): string | null {
@@ -118,10 +121,11 @@ export function leaderResponseExactAnswerThreadKey(fields: LeaderResponseThreadR
     return leaderResponseOwnerThreadKey(fields) === "main" ? "main" : null;
   }
 
-  if (
-    validThreadKey(fields.questId) !== threadKey ||
-    !authoritativeRefs.some((ref) => routeThreadKey(ref.threadKey, ref.questId) === threadKey)
-  ) {
+  // A quest thread's route names its quest; a topic thread's names none.
+  const questMatches = isTopicViewKey(threadKey)
+    ? !fields.questId?.trim()
+    : validThreadKey(fields.questId) === threadKey;
+  if (!questMatches || !authoritativeRefs.some((ref) => routeThreadKey(ref.threadKey, ref.questId) === threadKey)) {
     return null;
   }
   return leaderResponseOwnerThreadKey(fields) === threadKey ? threadKey : null;
@@ -192,7 +196,7 @@ export function leaderResponseAssociatedThreadKeys(fields: LeaderResponseThreadR
     // request to a quest. Main visibility needs original-route or owner proof;
     // accepting a persisted/corrupt Main backfill would incorrectly leak a
     // quest-owned request back into Main.
-    if (threadKey && /^q-\d+$/.test(threadKey)) keys.add(threadKey);
+    if (threadKey && threadKey !== "main") keys.add(threadKey);
   }
 
   return [...keys];

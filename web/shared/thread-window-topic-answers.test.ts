@@ -90,7 +90,7 @@ describe("topic conversation answers", () => {
       human("raw-u2", "u2", 3, "q-2"),
       answer("a2", 4, "q-2", ["u2"]),
     ];
-    const topicKey = topicViewKey("t1");
+    const topicKey = topicViewKey("aaaaaaaa-0000-0000-0000-000000000000");
     const sync = buildThreadWindowSync({
       messageHistory: messages,
       threadKey: topicKey,
@@ -136,7 +136,7 @@ describe("topic conversation answers", () => {
     const asked: string[] = [];
     const sync = buildThreadWindowSync({
       messageHistory: messages,
-      threadKey: topicViewKey("t1"),
+      threadKey: topicViewKey("aaaaaaaa-0000-0000-0000-000000000000"),
       topicMembers: ["q-1", "q-2"],
       fromItem: -1,
       // Only the newest turn (q-2's) is in the window.

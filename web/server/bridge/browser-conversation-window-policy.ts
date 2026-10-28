@@ -2,7 +2,7 @@ import { viewKeysOfRoutes } from "../topic-views.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { messageThreadKeys } from "../../shared/message-threads.js";
 import { MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from "../../shared/thread-window.js";
-import { isQuestThreadKey } from "../../shared/thread-routing.js";
+import { isQuestThreadKey, isTopicThreadKey } from "../../shared/thread-routing.js";
 import type {
   ActiveTurnRoute,
   BrowserIncomingMessage,
@@ -49,7 +49,7 @@ export function hasConnectedCurrentBuildBrowserViewingThread(
   sourceThreadKey: string,
 ): boolean {
   const normalizedSource = normalizeSelectedFeedThreadKey(sourceThreadKey);
-  if (normalizedSource !== MAIN_THREAD_KEY && !isQuestThreadKey(normalizedSource)) return false;
+  if (!isConversationThreadKey(normalizedSource)) return false;
   for (const socket of sockets) {
     if (socket.readyState !== undefined && socket.readyState !== 1) continue;
     const data = socket.data as BrowserConversationWindowSocketData | undefined;
@@ -217,7 +217,7 @@ export function normalizeInitialThreadWindowRequest(
 ): InitialThreadWindowRequest | null {
   if (!request || !leaderSession) return null;
   const threadKey = normalizeSelectedFeedThreadKey(request.thread_key);
-  if (threadKey !== MAIN_THREAD_KEY && !isQuestThreadKey(threadKey)) return null;
+  if (!isConversationThreadKey(threadKey)) return null;
   if (
     !Number.isFinite(request.from_item) ||
     !Number.isFinite(request.item_count) ||
@@ -320,7 +320,7 @@ export function recordBoundedConversationViewUpdate(
   if (!socketData.conversationView) return;
   if (!validPositiveWindow(update.from, update.count, update.section_count, update.visible_count)) return;
   const threadKey = normalizeSelectedFeedThreadKey(update.thread_key ?? MAIN_THREAD_KEY);
-  if (update.view === "thread" && threadKey !== MAIN_THREAD_KEY && !isQuestThreadKey(threadKey)) return;
+  if (update.view === "thread" && !isConversationThreadKey(threadKey)) return;
   if (update.view === "history") {
     setBoundedHistoryView(socketData, {
       fromTurn: update.from,
@@ -380,8 +380,8 @@ export function shouldDeliverBrowserEventToSocket(
 type ViewStampedMessage = BrowserIncomingMessage & { viewKeys?: string[] };
 
 /**
- * The views a conversation message belongs to: Main or the quest threads it is routed to, the
- * topic conversations showing those quests, and the topic conversation it was sent from. The
+ * The views a conversation message belongs to: Main or the quest and topic threads it is routed
+ * to, and the topic conversations showing those quests. The
  * server's one answer to "does this message belong in this view": live delivery uses it, and the
  * browser gets it with each live message (`viewKeys`), so neither side has rules of its own for
  * topic conversations.
@@ -389,8 +389,7 @@ type ViewStampedMessage = BrowserIncomingMessage & { viewKeys?: string[] };
 export function messageViewKeys(session: ConversationWindowSessionLike, message: BrowserIncomingMessage): string[] {
   const stamped = (message as ViewStampedMessage).viewKeys;
   if (stamped) return stamped;
-  const sentFrom = (message as { sentFromView?: unknown }).sentFromView;
-  return viewKeysOfRoutes(conversationRouteKeys(session, message), typeof sentFrom === "string" ? sentFrom : undefined);
+  return viewKeysOfRoutes(conversationRouteKeys(session, message));
 }
 
 /** A conversation message as sent to browsers: with the views it belongs to. */
@@ -504,4 +503,9 @@ function recentToolPreviewRouteKeys(
     routes.add(normalizeSelectedFeedThreadKey(route?.threadKey ?? MAIN_THREAD_KEY));
   }
   return routes;
+}
+
+/** Main, a quest's thread or a topic's: the threads a browser views as a bounded conversation. */
+function isConversationThreadKey(threadKey: string): boolean {
+  return threadKey === MAIN_THREAD_KEY || isQuestThreadKey(threadKey) || isTopicThreadKey(threadKey);
 }

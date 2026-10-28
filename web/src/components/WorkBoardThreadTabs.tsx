@@ -232,7 +232,7 @@ export function ThreadTabRail({
   };
   const openTopic = (topic: TopicSummary) => {
     // A topic with unread answers opens at the first one, where its "New" line is.
-    const firstUnread = firstUnreadResult(unreadIn(topic.questIds), () => true);
+    const firstUnread = firstUnreadResult(unreadIn([topicViewKey(topic.id), ...topic.questIds]), () => true);
     if (firstUnread) {
       navigateToNotification(sessionId, firstUnread, useStore.getState().sdkSessions, { topicView: true });
       return;

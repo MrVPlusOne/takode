@@ -1,3 +1,4 @@
+import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createHash } from "node:crypto";
@@ -107,9 +108,9 @@ export function publishSessionReport(
 }
 
 function readThread(value: unknown): string {
-  if (typeof value !== "string" || !/^(main|q-[1-9]\d*)$/.test(value))
-    throw new Error("Choose main or an exact quest thread.");
-  return value;
+  const target = typeof value === "string" ? normalizeThreadTarget(value) : null;
+  if (!target) throw new Error("Choose main, an exact quest thread or a topic thread.");
+  return target.threadKey;
 }
 
 function eligibleWorker(ctx: RouteContext, publisherId: string, workerId: string): boolean {

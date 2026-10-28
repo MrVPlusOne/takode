@@ -201,6 +201,7 @@ describe("Main-to-quest request handoff preparation", () => {
       ok: true,
       requests: [],
       alreadyHandedOffUserMessageIds: ["u1"],
+      sourceThreadKey: "main",
     });
     expect(restored).toEqual(before);
     expect(buildLeaderThreadResponseState(restored, "q-42").projection.ready).toBe(true);
@@ -312,6 +313,49 @@ describe("Main-to-quest request handoff preparation", () => {
       }).rejectedReadyRoutes,
     ).toMatchObject([{ threadKey: "main" }]);
     expect(notification).toEqual(before);
+  });
+});
+
+describe("handoffs with topic threads", () => {
+  const TOPIC = "topic:aaaaaaaa";
+  function topicRequest(userMessageId: string): UserMessage {
+    return {
+      ...human(userMessageId),
+      threadKey: TOPIC,
+      threadRefs: [{ threadKey: TOPIC, source: "explicit", attachedAt: 1 }],
+    };
+  }
+
+  it("hands a topic thread's pending request off to a quest, which then owns it", () => {
+    // Written in a topic conversation, a request is the topic thread's until the leader hands it off.
+    const target = session(topicRequest("u1"), human("u2"));
+    const prepared = prepareLeaderThreadHandoff(target, "q-42", ["u1"]);
+    expect(prepared).toMatchObject({ ok: true, sourceThreadKey: TOPIC, requests: [{ userMessageId: "u1" }] });
+    expect(
+      buildLeaderThreadResponseState(target, TOPIC).projection.pendingMessages.map((p) => p.userMessageId),
+    ).toEqual(["u1"]);
+    moveRequests(target, ["u1"]);
+    expect(buildLeaderThreadResponseState(target, TOPIC).projection.pendingMessages).toEqual([]);
+    expect(
+      buildLeaderThreadResponseState(target, "q-42").projection.pendingMessages.map((p) => p.userMessageId),
+    ).toEqual(["u1"]);
+    // Requests of different threads go one thread at a time.
+    expect(prepareLeaderThreadHandoff(session(topicRequest("u3"), human("u4")), "q-42", ["u3", "u4"])).toMatchObject({
+      ok: false,
+      error: "Hand off requests of one thread at a time",
+    });
+  });
+
+  it("hands a Main request off to a topic thread, but not a topic's request to another topic", () => {
+    const target = session(human("u1"), topicRequest("u2"));
+    expect(prepareLeaderThreadHandoff(target, TOPIC, ["u1"])).toMatchObject({ ok: true, sourceThreadKey: "main" });
+    expect(handoffThreadRef(TOPIC, 5, "leader")).toEqual({
+      threadKey: TOPIC,
+      source: "explicit",
+      attachedAt: 5,
+      attachedBy: "leader",
+    });
+    expect(prepareLeaderThreadHandoff(target, "topic:bbbbbbbb", ["u2"])).toMatchObject({ ok: false });
   });
 });
 

@@ -1,3 +1,4 @@
+import { topicHandle } from "../shared/topic-thread-key.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -821,6 +822,23 @@ export class TopicStore {
     return byName.length === 1 ? byName[0] : undefined;
   }
 
+  /**
+   * The live topic a thread handle names (`topic-thread-key.ts`): the topic whose ID starts with it,
+   * or the topic it was merged into.
+   */
+  resolveHandle(handle: string): StoredTopic | undefined {
+    const key = topicHandle(handle);
+    const id = Object.keys(this.s().topics).find((candidate) => topicHandle(candidate) === key);
+    return id ? this.live(id) : undefined;
+  }
+
+  /** The handles whose threads a live topic's conversation shows: its own and those merged into it. */
+  handlesOf(topicId: string): string[] {
+    return Object.values(this.s().topics)
+      .filter((topic) => this.live(topic.id)?.id === topicId)
+      .map((topic) => topicHandle(topic.id));
+  }
+
   /** Topics, most recent activity first (page rewrites don't count as activity). */
   list(space?: string): TopicSummary[] {
     return this.liveTopics(space)
@@ -935,8 +953,12 @@ export class TopicStore {
 
   private createTopic(space: string, name: string, by: TopicNameSource): StoredTopic {
     const now = this.now();
+    // A topic's thread is named by the first 8 hex digits of its ID, so they must be unique.
+    const taken = new Set(Object.keys(this.s().topics).map(topicHandle));
+    let id = randomUUID();
+    while (taken.has(topicHandle(id))) id = randomUUID();
     const topic: StoredTopic = {
-      id: randomUUID(),
+      id,
       space,
       name,
       nameSource: by,

@@ -73,6 +73,33 @@ describe("leader timer firing ingestion", () => {
   });
 });
 
+describe("messages written in a topic conversation", () => {
+  it("are stored in the topic's own thread and reach the leader tagged with it", async () => {
+    // Jiayi's message from a topic conversation was a Main request noting its view, and the topic
+    // view dropped it once answered. The composer now sends it to the topic's thread, exactly as
+    // here (`sendComposerDraft` with the conversation's key), and it is a request of that thread.
+    const target = session();
+    const runtime = deps();
+    const sent = {
+      type: "user_message" as const,
+      content: "What should we check first?",
+      threadKey: "topic:aaaaaaaa",
+      inputSource: "composer" as const,
+    };
+    const ingested = await ingestUserMessage(target, sent, runtime);
+    expect(ingested.historyEntry).toMatchObject({
+      threadKey: "topic:aaaaaaaa",
+      threadRefs: [{ threadKey: "topic:aaaaaaaa", source: "explicit" }],
+      leaderResponseCoverageVersion: 1,
+    });
+    expect(ingested.historyEntry).not.toHaveProperty("questId");
+    expect(ingested.historyEntry).not.toHaveProperty("sentFromView");
+    expect(buildUserMessageDeliveryPrefix(target, ingested, sent, sent.content, runtime)).toMatch(
+      /^\[User [^\]]+ id:u\d+\] \[thread:topic:aaaaaaaa\] $/,
+    );
+  });
+});
+
 describe("leader recipient source tags", () => {
   it("tags a message from another leader as Leader and other agent sessions as Agent", () => {
     // Leaders can message each other with takode send; the recipient must be

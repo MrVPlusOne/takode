@@ -482,7 +482,6 @@ function commitPendingCodexInput(
     ...(pending.threadKey ? { threadKey: pending.threadKey } : {}),
     ...(pending.questId ? { questId: pending.questId } : {}),
     ...(pending.threadRefs ? { threadRefs: pending.threadRefs } : {}),
-    ...(pending.sentFromView ? { sentFromView: pending.sentFromView } : {}),
     ...(pending.takodeHerdBatch?.eventKeys?.length ? { takodeHerdEventKeys: pending.takodeHerdBatch.eventKeys } : {}),
     ...(takodeHerdEvents?.length ? { takodeHerdEvents } : {}),
     ...(pending.recentAskBoundaryBefore ? { recentAskBoundaryBefore: pending.recentAskBoundaryBefore } : {}),

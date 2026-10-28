@@ -12,14 +12,15 @@ import {
   normalizeThreadTarget,
 } from "../../shared/thread-routing.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
-import { isTopicViewKey } from "../../shared/topic-thread-key.js";
+import { isTopicViewKey, normalizeTopicKey } from "../../shared/topic-thread-key.js";
 import { leaderResponseOriginalThreadKey } from "../../shared/leader-thread-response-routing.js";
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
 
 export function normalizeThreadKey(threadKey: string): string {
-  return threadKey.trim().toLowerCase();
+  const normalized = threadKey.trim().toLowerCase();
+  return normalizeTopicKey(normalized) ?? normalized;
 }
 
 export function isMainThreadKey(threadKey: string): boolean {
@@ -507,7 +508,7 @@ export function filterMessagesForThread(messages: ChatMessage[], threadKey: stri
 
 /** The status line a message carries for a thread this view shows, if any. */
 function statusOnlyForView(message: ChatMessage, view: string): ChatMessage | null {
-  const threads = isTopicViewKey(view) ? (topicViewMembers.get(view) ?? []) : [view];
+  const threads = isTopicViewKey(view) ? [view, ...(topicViewMembers.get(view) ?? [])] : [view];
   for (const thread of threads) {
     const statusOnly = projectThreadStatusOnlyMessage(message, thread);
     if (statusOnly) return statusOnly;
@@ -538,8 +539,6 @@ export function filterPendingUserUploadsForThread(
   const target = normalizeThreadKey(threadKey);
   if (isAllThreadsKey(target)) return uploads;
   return uploads.filter((upload) => {
-    // Shown in the view it was sent from, whatever thread it goes to.
-    if (upload.viewKey) return normalizeThreadKey(upload.viewKey) === target;
     const destination = pendingThreadKey(upload.threadKey, upload.questId);
     return destination === null || destination === target;
   });

@@ -388,8 +388,6 @@ export interface PendingUserUpload {
   vscodeSelection?: VsCodeSelectionMetadata;
   threadKey?: string;
   questId?: string;
-  /** The view it was sent from (a topic conversation, a quest tab), where it shows until delivered. */
-  viewKey?: string;
   prepared?: {
     deliveryContent: string;
     imageRefs: ImageRef[];

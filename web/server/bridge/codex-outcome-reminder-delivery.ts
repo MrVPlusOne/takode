@@ -1,4 +1,4 @@
-import { formatThreadMarker } from "../../shared/thread-routing.js";
+import { formatThreadMarker, THREAD_KEY_PATTERN } from "../../shared/thread-routing.js";
 import { determineCodexTurnSourceKind } from "../codex-result-error-auto-pause.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { CodexOutboundTurn, PendingCodexInput } from "../session-types.js";
@@ -43,7 +43,7 @@ export function refreshPendingCodexThreadOutcomeReminders(
         continue;
       }
       const prefix = deliveryContent.slice(0, -input.content.length);
-      const markerPattern = /\[thread:(?:main|q-\d+)\]\s*$/iu;
+      const markerPattern = new RegExp(String.raw`\[thread:(?:${THREAD_KEY_PATTERN})\]\s*$`, "iu");
       if (!markerPattern.test(prefix)) {
         removedInputIds.push(input.id);
         changed = true;

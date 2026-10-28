@@ -11,7 +11,7 @@ import {
 import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
 import { closeTopicConversation, openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
 import { landZoom, prepareZoom } from "./topic-zoom.js";
-import { topicViewKey } from "../../shared/topic-thread-key.js";
+import { isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useShallow } from "zustand/react/shallow";
@@ -686,6 +686,8 @@ export function ChatView({
       topicFeedOn
         ? {
             questIds: topicConversation.questIds,
+            topicKey: topicViewKey(topicConversation.topicId),
+            topicName: topicConversation.name,
             openQuest: (questId: string, part?: HTMLElement | null) => openTopicQuestRef.current(questId, part),
           }
         : null,
@@ -724,10 +726,13 @@ export function ChatView({
       sessionNum,
     ],
   );
-  // A topic conversation holds many quests, so its messages go to the topic itself: to the leader
-  // they are Main requests that know their topic (`viewKey`), and it files them under a quest.
-  const composerThreadKey =
-    isLeaderSession && !topicFeedOn ? composeThreadKeyForSelection(selectedThreadKey) : MAIN_THREAD_KEY;
+  // A topic conversation holds many quests, so its messages go to the topic's own thread; the
+  // leader answers there or hands them off to one of its quests.
+  const composerThreadKey = !isLeaderSession
+    ? MAIN_THREAD_KEY
+    : topicFeedOn
+      ? feedThreadKey
+      : composeThreadKeyForSelection(selectedThreadKey);
   const composerQuestId = isLeaderSession && isQuestThreadKey(composerThreadKey) ? composerThreadKey : undefined;
   const reviewAttentionRecords = useMemo(
     () =>
@@ -842,6 +847,8 @@ export function ChatView({
   const lastProcessedRouteThreadKeyRef = useRef<string | null>(null);
   const handleSelectThread = useCallback(
     (threadKey: string) => {
+      // A topic's own thread is not a tab: its conversation opens in one of its quests' tabs.
+      if (isTopicViewKey(threadKey)) return navigateToSessionThread(sessionId, threadKey);
       const nextThreadKey = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
       const currentThreadKey = normalizeThreadKey(selectedThreadKey);
       if (nextThreadKey !== currentThreadKey) {
@@ -1379,7 +1386,6 @@ export function ChatView({
           sessionId={sessionId}
           threadKey={composerThreadKey}
           questId={composerQuestId}
-          viewKey={isLeaderSession ? feedThreadKey : undefined}
           topicName={topicFeedOn ? topicConversation.name : undefined}
           transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
           transcriptionThreadTitle={composerThreadTitle}

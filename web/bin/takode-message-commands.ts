@@ -1,3 +1,4 @@
+import { normalizeThreadTarget } from "../shared/thread-routing.ts";
 import {
   encodeLogQuery,
   parseLogLevels,
@@ -100,10 +101,10 @@ function userSourceLabel(msg: TakodeMessageSourceLike): string {
 
 function parseThreadFilterFlag(value: string | boolean | undefined): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "string" || !value.trim()) err("--thread requires a thread key: main or q-N.");
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "main" || /^q-\d+$/.test(normalized)) return normalized;
-  err(`Invalid --thread "${formatInlineText(value)}". Must be main or q-N.`);
+  if (typeof value !== "string" || !value.trim()) err("--thread requires a thread key: main, q-N or topic:<handle>.");
+  const target = normalizeThreadTarget(value);
+  if (target) return target.threadKey;
+  err(`Invalid --thread "${formatInlineText(value)}". Must be main, q-N or topic:<handle>.`);
 }
 
 function appendThreadQueryParam(params: URLSearchParams, threadKey: string | undefined): void {

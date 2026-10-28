@@ -2,14 +2,15 @@ import type { BrowserIncomingMessage } from "../server/session-types.js";
 import { leaderResponseOriginalThreadKey } from "./leader-thread-response-routing.js";
 import {
   inferThreadTargetFromTextContent,
+  normalizeThreadTarget,
   parseCommandThreadComment,
   parseThreadTextPrefix,
 } from "./thread-routing.js";
 
 /**
  * Which threads a message of a leader's history belongs to: the one rule that thread windows, live
- * delivery and leader projections share. A message is in every quest thread it is routed or
- * attached to, and in Main unless it is routed elsewhere.
+ * delivery and leader projections share. A message is in every quest or topic thread it is routed
+ * or attached to, and in Main unless it is routed elsewhere.
  *
  * Reading a message's threads can parse its text (a `[thread:q-N]` prefix, a thread comment in its
  * first command, a herd event's target), and those readers each go through the whole history, so
@@ -136,6 +137,9 @@ function computeRouteKeys(
   };
   add(message.threadKey);
   add(message.questId);
+  // Written in a topic conversation before topics had threads (a Main message noting the topic it
+  // was sent from, and answers to it): it counts as attached to that topic's thread afterwards.
+  if (includeBackfill) add((message as { sentFromView?: string }).sentFromView);
   for (const ref of message.threadRefs ?? []) {
     if (!includeBackfill && ref.source === "backfill") continue;
     add(ref.threadKey);
@@ -203,5 +207,5 @@ function isMarker(message: BrowserIncomingMessage): boolean {
 }
 
 function normalizeKey(threadKey: string): string {
-  return threadKey.trim().toLowerCase() || MAIN;
+  return normalizeThreadTarget(threadKey)?.threadKey ?? (threadKey.trim().toLowerCase() || MAIN);
 }

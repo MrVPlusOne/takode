@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { HerdSessionsResponse } from "../shared/herd-types.ts";
 import { TAKODE_PEEK_CONTENT_LIMIT, formatQuotedContent } from "../shared/takode-constants.ts";
-import { isValidQuestId } from "../shared/quest-journey.ts";
+import { normalizeThreadTarget } from "../shared/thread-routing.ts";
 import { formatNotificationMarkdownLink } from "../shared/notification-link.ts";
 import { CLAUDE_REASONING_EFFORTS, CODEX_REASONING_EFFORTS } from "../shared/session-defaults.ts";
 import {
@@ -35,7 +35,7 @@ import { handleThreadHandoff, THREAD_HANDOFF_HELP } from "./takode-thread-handof
 import { awaitDelivery, printDelivery, type MessageDelivery } from "./takode-send.js";
 import { resolveLeaderSpawnSessionSpace, validateLeaderSpawnFlags } from "./takode-spawn-leader.js";
 
-const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [more-indices...] [--json]
+const THREAD_HELP = `Usage: takode thread attach <quest-id|topic:<handle>> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id> --message 174 175 --json
        takode thread attach <quest-id> --range 174-182
        takode thread attach <quest-id> --turn 3
@@ -186,9 +186,13 @@ export async function handleThread(base: string, args: string[]): Promise<void> 
   }
   if (sub !== "attach") err(THREAD_HELP.trim());
 
-  const questId = args[1]?.trim().toLowerCase();
-  if (!questId) err(THREAD_HELP.trim());
-  if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
+  const raw = args[1]?.trim().toLowerCase();
+  if (!raw) err(THREAD_HELP.trim());
+  const target = normalizeThreadTarget(raw);
+  if (!target || target.threadKey === "main") {
+    err(`Invalid thread "${raw}": give a quest ID (q-42) or a topic thread (topic:8df94bcb)`);
+  }
+  const questId = target.threadKey;
 
   const optionArgs = args.slice(2);
   const flags = parseFlags(optionArgs);

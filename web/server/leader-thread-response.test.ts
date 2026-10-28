@@ -138,22 +138,29 @@ function legacyResponse(
   return message;
 }
 
-describe("answers to messages sent from a topic conversation", () => {
-  it("show in that topic conversation, and the request stays a Main request covered as usual", () => {
-    // A message sent from a topic conversation goes to the topic: it is a Main request that
-    // remembers the view it came from. The answer to it shows there too, wherever it is routed.
+describe("requests in a topic's own thread", () => {
+  it("are pending in the topic's thread, not Main, until an answer there covers them", () => {
+    // Topics are threads: a message written in a topic conversation is a request of the topic's
+    // thread, answered there with [thread:topic:<handle>:A:uN] like a quest thread's.
+    const topic = "topic:8df94bcb";
+    const topicRoute = {
+      threadKey: topic,
+      threadRefs: [{ threadKey: topic, source: "explicit" as const, attachedAt: 10 }],
+    };
     const target = session();
-    const sent = { ...human("u1", 10), sentFromView: "topic:relay" } as BrowserIncomingMessage;
-    target.messageHistory.push(sent);
-    const answer = appendAnswer(target, "a1", ["u1"], "Filed it under q-5.", 1);
-    expect(answer.sentFromView).toBe("topic:relay");
-    const state = buildLeaderThreadResponseState(target, "main");
-    expect(state.projection.pendingMessages).toEqual([]);
-    expect(state.projection.currentAnswers.map((item) => item.currentMessageId)).toEqual(["a1"]);
+    target.messageHistory.push({ ...human("u1", 10), ...topicRoute } as BrowserIncomingMessage);
+    expect(
+      buildLeaderThreadResponseState(target, topic).projection.pendingMessages.map((p) => p.userMessageId),
+    ).toEqual(["u1"]);
+    expect(buildLeaderThreadResponseState(target, "main").projection.pendingMessages).toEqual([]);
 
-    // An answer to an ordinary Main request is not stamped.
-    target.messageHistory.push(human("u2", 20));
-    expect(appendAnswer(target, "a2", ["u2"], "Done.", 3).sentFromView).toBeUndefined();
+    const answer = { ...routedAssistant("a1", "Here is the scope.", ["u1"], 1), ...topicRoute };
+    target.messageHistory.push(answer);
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: true, answerId: "a1" });
+    const state = buildLeaderThreadResponseState(target, topic).projection;
+    expect(state.pendingMessages).toEqual([]);
+    expect(state.currentAnswers.map((item) => item.currentMessageId)).toEqual(["a1"]);
+    expect(answer.threadAnswer?.authoredThreadKey).toBe(topic);
   });
 });
 

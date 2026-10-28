@@ -141,9 +141,8 @@ function readPositiveIntegerEnv(name: string, fallback: number): number {
 
 /**
  * The views a queued input belongs to, so each view shows it as it will show the message: its
- * destination thread (or, without one, the threads it references) and their topics, and the view
- * it was sent from. An input with no known destination (a herd event) has none: it shows in every
- * view.
+ * destination thread (or, without one, the threads it references) and their topics. An input with
+ * no known destination (a herd event) has none: it shows in every view.
  */
 function pendingInputViewKeys(input: PendingCodexInput): string[] | undefined {
   const target = (thread?: string, quest?: string) =>
@@ -152,5 +151,5 @@ function pendingInputViewKeys(input: PendingCodexInput): string[] | undefined {
   const destinations = direct
     ? [direct]
     : (input.threadRefs ?? []).flatMap((ref) => target(ref.threadKey, ref.questId) ?? []);
-  return destinations.length > 0 ? viewKeysOfRoutes(destinations, input.sentFromView) : undefined;
+  return destinations.length > 0 ? viewKeysOfRoutes(destinations) : undefined;
 }

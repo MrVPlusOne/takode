@@ -124,13 +124,14 @@ function describeEvent(event: TopicEvent, sessionNum: (sessionId: string) => num
   const text = event.text ?? "";
   switch (event.kind) {
     case "message":
-      return quest ? `${time} · the user wrote in ${quest}${link}: "${text}"` : `${time} · ${text}`;
+      if (!quest) return `${time} · the user wrote in the topic's conversation${link}: "${text}"`;
+      return `${time} · the user wrote in ${quest}${link}: "${text}"`;
     case "quest_filed":
       return `${time} · ${quest} was put under this topic${text ? `: ${text}` : ""}`;
     case "quest_done":
       return `${time} · ${quest} finished: ${text}`;
     case "artifact":
-      return `${time} · ${text} was saved in ${quest}`;
+      return `${time} · ${text} was saved in ${quest || "the topic's conversation"}`;
     case "undone":
       return `${time} · ${text}`;
     case "check":

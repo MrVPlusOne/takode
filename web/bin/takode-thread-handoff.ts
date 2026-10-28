@@ -1,10 +1,11 @@
 import { isCanonicalLeaderUserMessageId } from "../shared/leader-user-message-id.ts";
-import { isValidQuestId } from "../shared/quest-journey.ts";
+import { normalizeThreadTarget } from "../shared/thread-routing.ts";
 import { apiPost, err, getCallerSessionId } from "./takode-core.js";
 
-export const THREAD_HANDOFF_HELP = `Usage: takode thread handoff <quest-id> --user <uN> [more-ids...] [--notification <n-N> ...] [--json]
+export const THREAD_HANDOFF_HELP = `Usage: takode thread handoff <quest-id|topic:<handle>> --user <uN> [more-ids...] [--notification <n-N> ...] [--json]
 
-Transfer selected pending Main requests and their exact existing decision notifications to an active quest.
+Transfer selected pending requests to an active quest: from Main (with their exact existing decision
+notifications) or from a topic's thread. Main requests can also go to a topic's thread.
 --user is required. IDs accept lists, comma-separated values, and repeated flags.
 User IDs must use uN; notification IDs must use n-N, with positive integers and no leading zeros.
 Same-destination retries make no changes. Original source history is preserved.
@@ -63,9 +64,13 @@ function parseHandoffArgs(args: string[]): {
   notificationIds?: string[];
   json: boolean;
 } {
-  const questId = args[0]?.trim().toLowerCase();
-  if (!questId) err(THREAD_HANDOFF_HELP.trim());
-  if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
+  const raw = args[0]?.trim().toLowerCase();
+  if (!raw) err(THREAD_HANDOFF_HELP.trim());
+  const target = normalizeThreadTarget(raw);
+  if (!target || target.threadKey === "main") {
+    err(`Invalid destination "${raw}": give a quest ID (q-42) or a topic thread (topic:8df94bcb)`);
+  }
+  const questId = target.threadKey;
 
   const userMessageIds = new Set<string>();
   const notificationIds = new Set<string>();

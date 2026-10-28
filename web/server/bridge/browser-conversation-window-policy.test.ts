@@ -98,16 +98,22 @@ describe("bounded browser conversation delivery", () => {
     ).toBe(true);
   });
 
+  const TOPIC_ID = "aaaaaaaa-1111-2222-3333-444444444444";
+  const topicSource = () =>
+    setTopicViewSource({
+      topicOf: (handle) => (handle === "aaaaaaaa" ? { id: TOPIC_ID, name: "Relay" } : null),
+      questsOf: (topicId) => (topicId === TOPIC_ID ? ["q-3", "q-12"] : []),
+      handlesOf: (topicId) => (topicId === TOPIC_ID ? ["aaaaaaaa"] : []),
+      topicOfQuest: (questId) => (["q-3", "q-12"].includes(questId) ? TOPIC_ID : null),
+    });
+
   it("delivers a topic conversation the live work of its quests, unrouted turn activity included", () => {
     // A topic view used to match live events only by its own key, so it showed nothing of a
     // running turn until the turn ended and the window was refreshed. Now every live message is
     // stamped with the views it belongs to, by the same rule that decides delivery.
-    setTopicViewSource({
-      questsOf: (topicId) => (topicId === "t1" ? ["q-3", "q-12"] : []),
-      topicOfQuest: (questId) => (["q-3", "q-12"].includes(questId) ? "t1" : null),
-    });
+    topicSource();
     try {
-      const socketData = threadSocket(topicViewKey("t1"));
+      const socketData = threadSocket(topicViewKey(TOPIC_ID));
       const session = { messageHistory: [], activeTurnRoute: { threadKey: "q-12", questId: "q-12" } };
       const routed = {
         type: "assistant",
@@ -125,31 +131,46 @@ describe("bounded browser conversation delivery", () => {
       expect(shouldDeliverBrowserEventToSocket(session, routed, socketData)).toBe(true);
       expect(shouldDeliverBrowserEventToSocket(session, unrouted, socketData)).toBe(true);
       expect(shouldDeliverBrowserEventToSocket(session, other, socketData)).toBe(false);
-      expect(messageViewKeys(session, routed)).toEqual(["q-3", "topic:t1"]);
+      expect(messageViewKeys(session, routed)).toEqual(["q-3", "topic:aaaaaaaa"]);
       expect(messageViewKeys(session, other)).toEqual(["q-99"]);
     } finally {
       setTopicViewSource(null);
     }
   });
 
-  it("keeps a message sent from a topic view in that view, wherever it is filed", () => {
-    // Jiayi's message typed in a topic view didn't show there for 20+ seconds: it waited for the
-    // leader to file it. It belongs to the view it was sent from from the start.
-    const socketData = threadSocket(topicViewKey("t9"));
-    const session = { messageHistory: [] };
-    const sent = {
-      type: "user_message",
-      content: "hi",
-      timestamp: 1,
-      sentFromView: "topic:t9",
-    } as unknown as BrowserIncomingMessage;
-    expect(shouldDeliverBrowserEventToSocket(session, sent, socketData)).toBe(true);
-    expect(shouldDeliverBrowserEventToSocket(session, sent, threadSocket("main"))).toBe(true);
-    const stamped = withMessageViewKeys(session, sent) as unknown as { viewKeys: string[] };
-    expect(stamped.viewKeys).toEqual(["main", "topic:t9"]);
-    // Turn status events carry no views; only conversation messages are stamped.
-    const status = { type: "status_change", status: "idle" } as BrowserIncomingMessage;
-    expect(withMessageViewKeys(session, status)).toBe(status);
+  it("delivers a message in a topic's own thread to its conversation, not to Main", () => {
+    // Topics are threads: a message written in a topic conversation is stored in the topic's
+    // thread. Before, it was a Main message noting the view it came from, and the leader's answer
+    // was then dropped from the topic view; such older messages count as attached to the topic.
+    topicSource();
+    try {
+      const session = { messageHistory: [] };
+      const topicView = threadSocket(topicViewKey(TOPIC_ID));
+      const written = {
+        type: "user_message",
+        content: "hi",
+        timestamp: 1,
+        threadKey: "topic:aaaaaaaa",
+      } as unknown as BrowserIncomingMessage;
+      expect(shouldDeliverBrowserEventToSocket(session, written, topicView)).toBe(true);
+      expect(shouldDeliverBrowserEventToSocket(session, written, threadSocket("main"))).toBe(false);
+      expect((withMessageViewKeys(session, written) as unknown as { viewKeys: string[] }).viewKeys).toEqual([
+        "topic:aaaaaaaa",
+      ]);
+      const older = {
+        type: "user_message",
+        content: "hi",
+        timestamp: 1,
+        threadKey: "main",
+        sentFromView: `topic:${TOPIC_ID}`,
+      } as unknown as BrowserIncomingMessage;
+      expect(messageViewKeys(session, older)).toEqual(["main", "topic:aaaaaaaa"]);
+      // Turn status events carry no views; only conversation messages are stamped.
+      const status = { type: "status_change", status: "idle" } as BrowserIncomingMessage;
+      expect(withMessageViewKeys(session, status)).toBe(status);
+    } finally {
+      setTopicViewSource(null);
+    }
   });
 
   it("keeps pre-subscribe conversation events fail-closed until a selected view exists", () => {

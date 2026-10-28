@@ -1,3 +1,4 @@
+import { THREAD_KEY_PATTERN } from "../shared/thread-routing.js";
 import { randomUUID } from "node:crypto";
 import { normalizeCodexMessagePhase, type CodexMessagePhase } from "../shared/codex-message-phase.js";
 import type { BrowserIncomingMessage, CodexCompactionCause, CodexCompactionCauseSource } from "./session-types.js";
@@ -1474,7 +1475,7 @@ function extractRawExecCommand(input: unknown): string {
 function normalizeRawExecCommand(command: string): string {
   return command
     .trim()
-    .replace(/^#\s*thread:(?:main|q-\d+)\s*\n\s*/i, "")
+    .replace(new RegExp(String.raw`^#\s*thread:(?:${THREAD_KEY_PATTERN})\s*\n\s*`, "i"), "")
     .trim();
 }
 

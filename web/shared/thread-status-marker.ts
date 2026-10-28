@@ -1,4 +1,4 @@
-import { normalizeThreadTarget, type ThreadRouteTarget } from "./thread-routing.js";
+import { normalizeThreadTarget, THREAD_KEY_PATTERN, type ThreadRouteTarget } from "./thread-routing.js";
 
 export type ThreadStatusKind = "waiting" | "ready";
 
@@ -39,7 +39,9 @@ export function threadStatusMessageIdHash(value: string): string {
   return hashes.map((hash) => (hash >>> 0).toString(16).padStart(8, "0")).join("");
 }
 
-const THREAD_STATUS_MARKER_RE = /^\{\[\(Thread (Waiting|Ready): (main|q-\d+) \| ([^\r\n]{1,200})\)\]\}$/;
+const THREAD_STATUS_MARKER_RE = new RegExp(
+  String.raw`^\{\[\(Thread (Waiting|Ready): (${THREAD_KEY_PATTERN}) \| ([^\r\n]{1,200})\)\]\}$`,
+);
 const THREAD_STATUS_MARKER_LIKE_RE = /^\{\[\(Thread\b/;
 
 export function isThreadStatusMarkerLikeLine(line: string): boolean {

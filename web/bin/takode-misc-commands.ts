@@ -153,7 +153,7 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
           descriptionFile = value;
         } else if (args[i] === "--thread") {
           const target = args[++i] ? normalizeThreadTarget(args[i]) : null;
-          if (!target) err("--thread requires main or q-N");
+          if (!target) err("--thread requires main, q-N or topic:<handle>");
           body.threadKey = target.threadKey;
         }
       }

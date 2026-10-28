@@ -286,11 +286,11 @@ Show or manually control Codex Goal state for a Codex-backed session.
 Use --text-file - with a quoted heredoc to avoid a temporary file.
 `;
 
-const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [more-indices...] [--json]
-       takode thread attach <quest-id> --range <start-end> [--json]
-       takode thread attach <quest-id> --turn <turn> [--json]
+const THREAD_HELP = `Usage: takode thread attach <quest-id|topic:<handle>> --message <index> [more-indices...] [--json]
+       takode thread attach <quest-id|topic:<handle>> --range <start-end> [--json]
+       takode thread attach <quest-id|topic:<handle>> --turn <turn> [--json]
 
-Associate existing Main-thread history entries with a quest thread for context only.
+Associate existing history entries with a quest's or a topic's thread for context only.
 Original persisted messages are preserved; attach does not transfer unfinished responsibility.
 Turn numbers match the visible turn numbers from takode scan/peek.
 Message indices may be repeated after --message or comma-separated.

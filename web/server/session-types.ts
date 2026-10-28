@@ -649,8 +649,6 @@ export type BrowserOutgoingMessage =
       threadKey?: string;
       questId?: string;
       threadRefs?: ThreadRef[];
-      /** The view the user sent it from, such as a topic conversation, where it shows at once. */
-      viewKey?: string;
       /** Side Chat branch backed by a hidden child backend session. Persisted as slackThreadId for compatibility. */
       slackThreadId?: string;
       /** Present when the message was injected programmatically (e.g. via takode CLI or cron). */
@@ -1193,7 +1191,10 @@ export type BrowserIncomingMessageBase =
       threadKey?: string;
       questId?: string;
       threadRefs?: ThreadRef[];
-      /** A topic conversation the user sent it from: it stays in that view wherever it is filed. */
+      /**
+       * Legacy, read only: the topic conversation a Main message was sent from before topics had
+       * threads. It counts as an attachment to that topic's thread (`message-threads.ts`).
+       */
       sentFromView?: string;
       slackThreadId?: string;
       threadRoutingError?: ThreadRoutingError;

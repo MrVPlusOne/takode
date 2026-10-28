@@ -3,6 +3,8 @@ import type { ChatMessage } from "../types.js";
 import { leaderMessageThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
 import { isAllThreadsKey, normalizeThreadKey, threadViewShows } from "../utils/thread-projection.js";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
+import { TopicThreadLabel } from "./MessageTopicLabel.js";
 
 /**
  * Set by a row that renders a message's header line itself (answer rows), so
@@ -51,6 +53,10 @@ export function MessageThreadHeader({
   message?: { sessionId?: string; id: string };
 }) {
   if (!threadKey) return null;
+  // A topic's own thread is named by its topic, and opens its conversation at the message.
+  if (isTopicViewKey(threadKey) && message?.sessionId) {
+    return <TopicThreadLabel sessionId={message.sessionId} messageId={message.id} topicKey={threadKey} view="" />;
+  }
   return (
     <div className="mb-1.5 flex min-w-0" data-testid="message-thread-header">
       <button

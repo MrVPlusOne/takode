@@ -1,3 +1,4 @@
+import { THREAD_KEY_PATTERN } from "./thread-routing.js";
 import { isCanonicalLeaderUserMessageId } from "./leader-user-message-id.js";
 
 export const THREAD_ROUTING_REMINDER_SOURCE_ID = "system:thread-routing-reminder";
@@ -44,7 +45,7 @@ export interface ThreadRoutingReminderInput {
   answerRouteDiagnostic?: LeaderAnswerRouteDiagnostic;
 }
 
-const THREAD_KEY_RE = /^(?:main|q-\d+)$/;
+const THREAD_KEY_RE = new RegExp(String.raw`^(?:${THREAD_KEY_PATTERN})$`);
 const ANSWER_ROUTE_DIAGNOSTIC_REASONS = new Set<LeaderAnswerRouteDiagnosticReason>([
   "invalid_answer",
   "invalid_ids",

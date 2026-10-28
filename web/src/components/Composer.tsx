@@ -105,7 +105,6 @@ export function Composer({
   sessionId,
   threadKey = "main",
   questId,
-  viewKey,
   topicName,
   transcriptionThreadKey,
   transcriptionThreadTitle,
@@ -113,8 +112,6 @@ export function Composer({
   sessionId: string;
   threadKey?: string;
   questId?: string;
-  /** The view on screen (a topic conversation, a quest tab): the message shows there at once. */
-  viewKey?: string;
   /** In a topic conversation: the topic its messages go to, named in the placeholder. */
   topicName?: string;
   transcriptionThreadKey?: string;
@@ -1035,7 +1032,6 @@ export function Composer({
       {
         threadKey,
         questId,
-        viewKey,
         vscodeSelection: vscodeSelectionPayload ?? undefined,
       },
       isCodex,

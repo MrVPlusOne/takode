@@ -6,9 +6,12 @@ import { topicIdOfViewKey, topicViewKey } from "../shared/topic-thread-key.js";
  * views a message belongs to. Set at startup by the topic service; without it no topic views exist.
  */
 export interface TopicViewSource {
+  /** The live topic a thread handle names (following merges), or null. */
+  topicOf(handle: string): { id: string; name: string } | null;
   questsOf(topicId: string): readonly string[];
+  /** The handles whose threads a topic's conversation shows: its own and those merged into it. */
+  handlesOf(topicId: string): readonly string[];
   topicOfQuest(questId: string): string | null;
-  nameOf?(topicId: string): string | null;
 }
 
 let source: TopicViewSource | null = null;
@@ -17,28 +20,43 @@ export function setTopicViewSource(next: TopicViewSource | null): void {
   source = next;
 }
 
-/** The quests of a topic conversation's view key; null for other keys or an unknown topic. */
+/**
+ * The threads a topic conversation shows besides its own: its quests, and the threads of topics
+ * merged into it. Null for other keys or an unknown topic.
+ */
 export function topicViewMembers(viewKey: string): string[] | null {
-  const topicId = topicIdOfViewKey(viewKey);
-  if (!topicId || !source) return null;
-  return source.questsOf(topicId).map((questId) => questId.toLowerCase());
+  const handle = topicIdOfViewKey(viewKey);
+  const topic = handle && source ? source.topicOf(handle) : null;
+  if (!topic || !source) return null;
+  const own = topicViewKey(topic.id);
+  const merged = source
+    .handlesOf(topic.id)
+    .map((other) => topicViewKey(other))
+    .filter((key) => key !== own);
+  return [...merged, ...source.questsOf(topic.id).map((questId) => questId.toLowerCase())];
+}
+
+/** The conversation showing a topic thread: its topic's own, or that of the topic it was merged into. */
+export function liveTopicKey(threadKey: string): string | null {
+  const handle = topicIdOfViewKey(threadKey);
+  const topic = handle && source ? source.topicOf(handle) : null;
+  return topic ? topicViewKey(topic.id) : null;
 }
 
 /**
- * How a message the user sent from a topic conversation is introduced to the leader: the topic's
- * name and its quests (newest first, at most `limit`), so it can file the message under the right
- * quest or start one in that topic. Null when the view is not a known topic.
+ * How a topic thread is introduced to the leader with a message written there: the topic's name
+ * and its quests (newest first, at most `limit`), so it can answer in the topic's thread or hand
+ * the message off to one of its quests. Null when the key is not a known topic.
  */
 export function topicOfViewForLeader(
-  viewKey: string | undefined,
+  threadKey: string | undefined,
   limit = 12,
 ): { name: string; questIds: string[]; more: number } | null {
-  const topicId = viewKey ? topicIdOfViewKey(viewKey) : null;
-  if (!topicId || !source) return null;
-  const name = source.nameOf?.(topicId);
-  if (!name) return null;
-  const quests = [...source.questsOf(topicId)].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)));
-  return { name, questIds: quests.slice(0, limit), more: Math.max(0, quests.length - limit) };
+  const handle = threadKey ? topicIdOfViewKey(threadKey) : null;
+  const topic = handle && source ? source.topicOf(handle) : null;
+  if (!topic || !source) return null;
+  const quests = [...source.questsOf(topic.id)].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)));
+  return { name: topic.name, questIds: quests.slice(0, limit), more: Math.max(0, quests.length - limit) };
 }
 
 /** The topic conversation views showing any of these quests. */
@@ -53,12 +71,16 @@ export function topicViewKeysOfQuests(questIds: Iterable<string>): string[] {
 }
 
 /**
- * The views something routed to these threads belongs to: the threads themselves, the topic
- * conversations showing their quests, and the topic conversation it was sent from.
+ * The views something routed to these threads belongs to: the threads themselves (a topic's thread
+ * is its conversation, or that of the topic it was merged into) and the topic conversations
+ * showing their quests.
  */
-export function viewKeysOfRoutes(routeKeys: Iterable<string>, sentFromView?: string): string[] {
+export function viewKeysOfRoutes(routeKeys: Iterable<string>): string[] {
   const keys = new Set([...routeKeys].map((key) => key.trim().toLowerCase()).filter(Boolean));
+  for (const key of [...keys]) {
+    const live = liveTopicKey(key);
+    if (live) keys.add(live);
+  }
   for (const key of topicViewKeysOfQuests([...keys].filter((key) => /^q-\d+$/.test(key)))) keys.add(key);
-  if (sentFromView) keys.add(sentFromView.trim().toLowerCase());
   return [...keys];
 }

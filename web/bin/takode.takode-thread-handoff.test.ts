@@ -194,7 +194,7 @@ describe("takode thread handoff", () => {
     const result = await runTakode(["thread", "handoff", "--help"], port);
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("takode thread handoff <quest-id> --user <uN>");
+    expect(result.stdout).toContain("takode thread handoff <quest-id|topic:<handle>> --user <uN>");
     expect(result.stdout).toContain("attach does not transfer unfinished responsibility");
     expect(result.stdout).toContain("Same-destination retries make no changes");
     expect(calls).toEqual([]);

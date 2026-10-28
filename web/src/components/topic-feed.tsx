@@ -6,6 +6,7 @@ import { resolveThreadResponses, type ThreadResponsePresentation } from "./threa
 import type { Turn } from "../hooks/use-feed-model.js";
 import { topicMemberOfMessage } from "../utils/thread-projection.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
+import { TopicIcon } from "./library/library-icons.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 
 /**
@@ -15,8 +16,12 @@ import { useQuestRecord } from "./QuestSummaryCard.js";
  * being read is always named and several quests on screen each show their own strip.
  */
 export interface TopicFeed {
-  /** The topic's quests (their threads make the feed). */
+  /** The topic's quests (their threads make the feed, with the topic's own thread). */
   questIds: string[];
+  /** The topic's own thread (`topic:<handle>`): what was written in the conversation itself. */
+  topicKey: string;
+  /** The topic's name, for the strip of its own thread. */
+  topicName: string;
   /**
    * Zooms into a quest: its own tab, showing it alone (also when it is this tab's quest). `part` is
    * the strip tapped, whose messages on screen stay in place.
@@ -26,9 +31,15 @@ export interface TopicFeed {
 
 export const TopicFeedContext = createContext<TopicFeed | null>(null);
 
+/** The threads a topic conversation is made of, each with its own strip: the topic's own thread first. */
+export function topicFeedParts(topicFeed: Pick<TopicFeed, "topicKey" | "questIds">): string[] {
+  return [topicFeed.topicKey, ...topicFeed.questIds];
+}
+
 /**
- * The quest each turn belongs to: the first of the topic's quests its messages are routed to. A
- * turn routed to none of them (a tool result, a turn-closing result) continues the previous quest.
+ * The part each turn belongs to: the first of the conversation's threads (the topic's own, or a
+ * quest's) its messages are routed to. A turn routed to none of them (a tool result, a
+ * turn-closing result) continues the previous part.
  */
 export function topicQuestsOfTurns(turns: readonly Turn[], questIds: readonly string[]): Array<string | null> {
   let previous: string | null = null;
@@ -52,7 +63,7 @@ export function topicQuestsOfTurns(turns: readonly Turn[], questIds: readonly st
  */
 export function useTopicTurnPartOf(): ((message: ChatMessage) => string | null) | null {
   const topicFeed = useContext(TopicFeedContext);
-  const key = topicFeed?.questIds.join(",") ?? "";
+  const key = topicFeed ? topicFeedParts(topicFeed).join(",") : "";
   return useMemo(() => {
     if (!key) return null;
     const questIds = key.split(",");
@@ -65,6 +76,25 @@ export function useTopicTurnPartOf(): ((message: ChatMessage) => string | null) 
  * the feed, and tapping the rest of the strip zooms into the quest.
  */
 export function TopicFeedQuestStart({ questId }: { questId: string }) {
+  const topicFeed = useContext(TopicFeedContext);
+  if (topicFeed && questId === topicFeed.topicKey) return <TopicFeedOwnStart name={topicFeed.topicName} />;
+  return <QuestStart questId={questId} />;
+}
+
+/** The strip where the conversation moves to the topic's own thread: what was written in the topic itself. */
+function TopicFeedOwnStart({ name }: { name: string }) {
+  return (
+    <div className="sticky -top-4 z-30 sm:-top-6 bg-cc-bg pb-1 pt-2" data-testid="topic-feed-quest-start" data-quest="">
+      <div className="flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm sm:text-[13px]">
+        <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
+        <span className="min-w-0 truncate font-medium text-cc-fg">{name}</span>
+        <span className="shrink-0 text-cc-muted">· in the topic</span>
+      </div>
+    </div>
+  );
+}
+
+function QuestStart({ questId }: { questId: string }) {
   const topicFeed = useContext(TopicFeedContext);
   const quest = useQuestRecord(questId);
   const status = quest ? (quest.status === "done" ? "Done" : quest.status.replace("_", " ")) : "";

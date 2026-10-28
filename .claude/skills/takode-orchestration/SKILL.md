@@ -365,16 +365,16 @@ Original source messages remain visible in their original Main or quest thread a
 takode thread handoff q-941 --user u1 u2 --notification n-1
 ```
 
-**Messages sent from a topic conversation.** A user message whose source tag adds `[topic: "<name>"; quests: q-12, q-9, …]` was written in that Library topic's conversation, which shows many quests at once, so it went to the topic rather than to one quest. It is a Main request (`[thread:main]`) that already knows its topic; handle it like any Main request, using the topic to choose:
-- When it belongs to one of the listed quests (usually the one being discussed most recently), hand it off to that quest as above and continue there.
+**Topic threads.** A Library topic has its own thread next to Main and the quest threads, keyed `topic:<handle>` (the first 8 hex digits of the topic's ID, shown in the tag). Its conversation shows the topic's thread together with its quests' threads. A user message written there arrives as `[User … id:uN] [thread:topic:<handle>] [topic: "<name>"; quests: q-12, q-9, …]`. It is a request of the topic's thread, not of Main:
+- When it belongs to one of the listed quests (usually the one discussed most recently), hand it off: `takode thread handoff q-12 --user uN`, then continue in that quest's thread.
 - When it starts new work, file the quest in that topic (`quest create ... --topic "<name>"`), then hand the request off to it.
-- A quick reply can be answered straight from Main.
+- Otherwise answer it in the topic's thread: `[thread:topic:<handle>:A:uN]`, and `[thread:topic:<handle>:C]` for commentary there.
 
-Answers to it appear in the topic conversation wherever they are routed, and in the quest's tab once handed off. Answer coverage and Ready work as for any Main request.
+A topic thread works like a quest thread everywhere a thread is named: answer coverage, pending requests, `{[(Thread Ready: topic:<handle> | …)]}`, unread, `# thread:topic:<handle>` shell comments and `takode thread attach`. A Main request about a topic can be handed off to the topic's thread the same way (`takode thread handoff topic:<handle> --user uN`). Main is for new work not yet in a topic and for requests that belong nowhere else.
 
 ### `takode thread attach <quest-id> --message <index> | --range <start-end>`
 
-Associate existing Main-thread history with a quest thread while preserving the original persisted messages. Use this when a quest thread is created after useful context already appeared in Main. This command organizes prior context only; use [Main-to-quest handoff](#main-to-quest-handoff) to transfer unfinished responsibility. Answers automatically follow their referenced prompts and need no separate attachment.
+Associate existing history with a quest's (or a topic's, `topic:<handle>`) thread while preserving the original persisted messages. Use this when a quest thread is created after useful context already appeared in Main. This command organizes prior context only; use [Main-to-quest handoff](#main-to-quest-handoff) to transfer unfinished responsibility. Answers automatically follow their referenced prompts and need no separate attachment.
 
 ```bash
 takode thread attach q-941 --range 120-135

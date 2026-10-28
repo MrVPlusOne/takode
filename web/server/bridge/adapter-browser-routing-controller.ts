@@ -1,4 +1,3 @@
-import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { normalizeAdapterUserMessage, prepareAnnotatedUserMessage } from "./user-message-delivery.js";
 import { acknowledgeMonitoredThreadResult } from "../thread-monitoring.js";
@@ -741,7 +740,6 @@ export function ingestUserMessage(
       ...(explicitTarget ? { threadKey: explicitTarget.threadKey } : {}),
       ...(explicitTarget?.questId ? { questId: explicitTarget.questId } : {}),
       ...(explicitThreadRef ? { threadRefs: [explicitThreadRef] } : {}),
-      ...(msg.viewKey && isTopicViewKey(msg.viewKey) ? { sentFromView: msg.viewKey.trim().toLowerCase() } : {}),
       ...(msg.slackThreadId ? { slackThreadId: msg.slackThreadId } : {}),
       ...(msg.takodeHerdBatch?.eventKeys?.length ? { takodeHerdEventKeys: msg.takodeHerdBatch.eventKeys } : {}),
       ...(recentAskBoundaryBefore ? { recentAskBoundaryBefore } : {}),
@@ -1213,7 +1211,6 @@ export function routeAdapterBrowserMessage(
           ...(ingested.historyEntry.threadKey ? { threadKey: ingested.historyEntry.threadKey } : {}),
           ...(ingested.historyEntry.questId ? { questId: ingested.historyEntry.questId } : {}),
           ...(ingested.historyEntry.threadRefs ? { threadRefs: ingested.historyEntry.threadRefs } : {}),
-          ...(ingested.historyEntry.sentFromView ? { sentFromView: ingested.historyEntry.sentFromView } : {}),
           ...(ingested.historyEntry.slackThreadId ? { slackThreadId: ingested.historyEntry.slackThreadId } : {}),
           ...(ingested.historyEntry.recentAskBoundaryBefore
             ? { recentAskBoundaryBefore: ingested.historyEntry.recentAskBoundaryBefore }

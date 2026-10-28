@@ -42,7 +42,7 @@ import { AnswerReferencesContext, answerChromeFor, type AnswerReferenceData } fr
 import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
-import { TopicFeedContext, TopicFeedQuestStart, topicQuestsOfTurns } from "./topic-feed.js";
+import { TopicFeedContext, TopicFeedQuestStart, topicFeedParts, topicQuestsOfTurns } from "./topic-feed.js";
 import { TopicFeedEntry } from "./library/TopicConversation.js";
 
 function entryHasModelActivity(entry: FeedEntry): boolean {
@@ -400,7 +400,7 @@ export const TurnEntries = memo(function TurnEntries({
     leaderSession && isQuestThreadKey(currentThreadKey.toLowerCase()) ? currentThreadKey.toLowerCase() : null;
   const topicFeed = useContext(TopicFeedContext);
   const turnQuests = useMemo(
-    () => (topicFeed ? topicQuestsOfTurns(turns, topicFeed.questIds) : null),
+    () => (topicFeed ? topicQuestsOfTurns(turns, topicFeedParts(topicFeed)) : null),
     [topicFeed, turns],
   );
   const threadQuest = useQuestRecord(threadQuestId);

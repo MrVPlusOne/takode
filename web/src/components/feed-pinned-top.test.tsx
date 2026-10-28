@@ -44,7 +44,9 @@ function renderFeed(topic: boolean, report?: { cardTop: number; barTop: number }
   // jsdom does no layout: every element is 44px tall here (a strip's wrapper; the bar reads it too).
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(44);
   return render(
-    <TopicFeedContext.Provider value={topic ? { questIds: ["q-3"], openQuest: vi.fn() } : null}>
+    <TopicFeedContext.Provider
+      value={topic ? { questIds: ["q-3"], topicKey: "topic:aaaaaaaa", topicName: "Relay", openQuest: vi.fn() } : null}
+    >
       <Feed strip={topic} report={report} />
     </TopicFeedContext.Provider>,
   );

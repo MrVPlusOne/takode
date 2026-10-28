@@ -1,3 +1,4 @@
+import { normalizeTopicKey } from "./topic-thread-key.js";
 import type {
   BoardRow,
   BoardRowSessionStatus,
@@ -330,7 +331,8 @@ function messageFacts(message: LeaderProjectionMessageLike): MessageFacts {
 }
 
 export function normalizeThreadKey(threadKey: string): string {
-  return threadKey.trim().toLowerCase();
+  const normalized = threadKey.trim().toLowerCase();
+  return normalizeTopicKey(normalized) ?? normalized;
 }
 
 function messageThreadKeys(message: LeaderProjectionMessageLike): string[] {

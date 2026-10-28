@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { isValidQuestId } from "../../shared/quest-journey.js";
+import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { handoffThreadRef, prepareLeaderThreadHandoff } from "../leader-thread-handoff.js";
 import { broadcastNotificationRefresh } from "../bridge/session-notification-controller.js";
 import { clearLeaderThreadStatusForActivity } from "../bridge/thread-routing-reminder.js";
@@ -26,8 +26,12 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
 
     const body = await c.req.json().catch(() => null);
     if (!body || typeof body !== "object") return c.json({ error: "A handoff selection is required" }, 400);
-    const questId = typeof body.questId === "string" ? body.questId.trim().toLowerCase() : "";
-    if (!isValidQuestId(questId)) return c.json({ error: "questId must match q-N format" }, 400);
+    // The destination: an active quest, or a topic's own thread (`topic:<handle>`).
+    const destination = typeof body.questId === "string" ? normalizeThreadTarget(body.questId) : null;
+    if (!destination || destination.threadKey === "main") {
+      return c.json({ error: "Give a quest ID (q-N) or a topic thread (topic:<handle>)" }, 400);
+    }
+    const questId = destination.threadKey;
     const userMessageIds = body.userMessageIds;
     const notificationIds = body.notificationIds ?? [];
     if (
@@ -43,11 +47,12 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
 
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
-    const row = session.board.get(questId);
+    const row = destination.questId ? session.board.get(questId) : undefined;
     if (
-      !row?.worker ||
-      row.completedAt !== undefined ||
-      !["PLANNING", "WORKING", "USER_CHECKPOINTING", "MEMORY", "LANDING"].includes(row.status ?? "")
+      destination.questId &&
+      (!row?.worker ||
+        row.completedAt !== undefined ||
+        !["PLANNING", "WORKING", "USER_CHECKPOINTING", "MEMORY", "LANDING"].includes(row.status ?? ""))
     ) {
       return c.json({ error: "The destination must be an active quest on your work board" }, 409);
     }
@@ -94,7 +99,7 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
     if (!Number.isSafeInteger(timestamp)) {
       return c.json({ error: "Cannot establish a newer authoritative handoff timestamp" }, 409);
     }
-    const target = { threadKey: questId, questId };
+    const target = { threadKey: questId, ...(destination.questId ? { questId } : {}) };
     const ref: ThreadRef = handoffThreadRef(questId, timestamp, id);
     for (const request of requestPlan.requests) {
       request.message.threadRefs = [...(request.message.threadRefs ?? []), ref];
@@ -129,7 +134,7 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
       id: `thread-handoff-${timestamp}-${markerHistoryIndex}`,
       markerKey: `handoff:${selection.markerKey}`,
       timestamp,
-      sourceThreadKey: "main",
+      sourceThreadKey: requestPlan.sourceThreadKey,
       ...target,
       attachedAt: timestamp,
       attachedBy: id,
@@ -145,10 +150,10 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
       messageId: marker.id,
       timestamp,
     });
-    wsBridge.promoteLeaderThreadTabForAttachment(id, questId, timestamp);
+    if (destination.questId) wsBridge.promoteLeaderThreadTabForAttachment(id, questId, timestamp);
     scheduleThreadAttachmentUpdateBroadcast(wsBridge, id, {
       target,
-      source: { threadKey: "main" },
+      source: { threadKey: requestPlan.sourceThreadKey },
       markers: [marker],
       markerHistoryIndices: [markerHistoryIndex],
       changedMessages: changedIndices.map((historyIndex) => {

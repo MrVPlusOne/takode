@@ -113,9 +113,13 @@ export async function startLibraryTopics(input: {
   // Topic conversations ask the store which quests a topic holds, live, so a quest moving to
   // another topic moves between their views at once.
   setTopicViewSource({
+    topicOf: (handle) => {
+      const topic = service.store.loaded ? service.store.resolveHandle(handle) : undefined;
+      return topic ? { id: topic.id, name: topic.name } : null;
+    },
     questsOf: (topicId) => (service.store.loaded ? service.store.questsOf(topicId) : []),
+    handlesOf: (topicId) => (service.store.loaded ? service.store.handlesOf(topicId) : []),
     topicOfQuest: (questId) => (service.store.loaded ? (service.store.topicOfQuest(questId)?.id ?? null) : null),
-    nameOf: (topicId) => (service.store.loaded ? (service.store.resolve(topicId)?.name ?? null) : null),
   });
   addSessionSaveListener((sessionId) => service.sessionSaved(sessionId));
   return service;

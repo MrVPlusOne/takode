@@ -21,7 +21,7 @@ import {
   isSessionSentSourceId,
 } from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
-import { isQuestThreadKey } from "./thread-routing.js";
+import { isQuestThreadKey, isTopicThreadKey } from "./thread-routing.js";
 import {
   explicitNonMainRoute,
   hasExplicitNonMainRoute,
@@ -29,7 +29,7 @@ import {
   messageHasThreadRef,
   messageQuestThreads,
 } from "./message-threads.js";
-import { isTopicViewKey } from "./topic-thread-key.js";
+import { isTopicViewKey, normalizeTopicKey } from "./topic-thread-key.js";
 import { LEADER_THREAD_RESPONSE_VERSION } from "../server/leader-thread-response-types.js";
 
 export const MAIN_THREAD_KEY = "main";
@@ -78,7 +78,7 @@ type ToolResultPreviewEntry = ToolResultPreviewMessage["previews"][number];
 
 export function normalizeSelectedFeedThreadKey(threadKey: string): string {
   const normalized = threadKey.trim().toLowerCase();
-  return normalized || MAIN_THREAD_KEY;
+  return normalizeTopicKey(normalized) ?? (normalized || MAIN_THREAD_KEY);
 }
 
 export function getThreadWindowItemCount(visibleItemCount: number, sectionItemCount: number): number {
@@ -120,18 +120,14 @@ function buildThreadWindowSyncInScope(input: BuildThreadWindowInput): {
     1,
     Math.floor(input.itemCount || getThreadWindowItemCount(visibleItemCount, sectionItemCount)),
   );
-  const members = isTopicViewKey(threadKey) ? (input.topicMembers ?? []) : null;
+  // A topic conversation: the topic's own thread and its quests' threads.
+  const members = isTopicViewKey(threadKey) ? [threadKey, ...(input.topicMembers ?? [])] : null;
   const memberItems = members
     ? buildQuestThreadFeedItemsByThread(input.messageHistory, members, input.includeMessage)
     : undefined;
-  const items = withSentFromViewItems(
-    memberItems
-      ? buildTopicConversationItems(memberItems, input.messageHistory, input.includeMessage)
-      : buildThreadConversationItems(input.messageHistory, threadKey, input.includeMessage),
-    input.messageHistory,
-    threadKey,
-    input.includeMessage,
-  );
+  const items = memberItems
+    ? buildTopicConversationItems(memberItems, input.messageHistory, input.includeMessage)
+    : buildThreadConversationItems(input.messageHistory, threadKey, input.includeMessage);
   const ranges = buildVisibleConversationRanges(items);
   const totalItems = ranges.length;
   const requestedFromItem = Math.floor(input.fromItem);
@@ -446,14 +442,15 @@ function selectThreadResponseProjection(
 }
 
 interface TopicMembers {
-  /** Each member quest's own feed items. */
+  /** Each member thread's own feed items: the topic's own thread and each of its quests. */
   items: Map<string, FeedItem[]>;
   projection: (questId: string) => LeaderThreadResponseProjection | undefined;
 }
 
 /**
- * A topic conversation's window: each member quest's answers are bounded and proven as in that
- * quest's own tab, so its turns present answers the same way. The topic's projection carries
+ * A topic conversation's window: the answers of each member thread (the topic's own thread and
+ * each quest) are bounded and proven as in that thread's own view, so its turns present answers
+ * the same way. The topic's projection carries
  * the projections of the quests with turns in the window; a quest whose proof is incomplete
  * simply gets none. Quests with no turns in the window add nothing, not even their newest answer.
  */
@@ -1005,30 +1002,7 @@ function buildThreadConversationItems(
   return dedupeFeedItems(addTurnClosingResults(items, messages, includeMessage));
 }
 
-/**
- * A message the user sent from a view stays in that view, wherever the leader files it later: it
- * appears at once where it was written, and so do the leader's answers to it. Main already shows
- * what was written there.
- */
-function withSentFromViewItems(
-  items: FeedItem[],
-  messages: ReadonlyArray<BrowserIncomingMessage>,
-  viewKey: string,
-  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
-): FeedItem[] {
-  if (viewKey === MAIN_THREAD_KEY || viewKey === ALL_THREADS_KEY) return items;
-  const included = new Set(items.map((item) => item.order));
-  const added: FeedItem[] = [];
-  messages.forEach((message, index) => {
-    if (included.has(index) || (includeMessage && !includeMessage(message, index))) return;
-    // The user's message, and answers to it (stamped when they settle).
-    if ((message as { sentFromView?: unknown }).sentFromView !== viewKey) return;
-    added.push({ order: index, entry: { message, history_index: index } });
-  });
-  return added.length ? dedupeFeedItems([...items, ...added]) : items;
-}
-
-/** A topic conversation is its quests' threads merged in time order. */
+/** A topic conversation is its own thread and its quests' threads merged in time order. */
 function buildTopicConversationItems(
   memberItems: Map<string, FeedItem[]>,
   messages: ReadonlyArray<BrowserIncomingMessage>,
@@ -1075,7 +1049,7 @@ function buildMainFeedItems(
     );
     if (attachAuditItem) {
       items.push(attachAuditItem);
-    } else if (!isQuestThreadKey(hiddenRunRoute.threadKey)) {
+    } else if (!isSeparateThreadKey(hiddenRunRoute.threadKey)) {
       items.push(buildCrossThreadActivityItem(hiddenRun, hiddenRunRoute));
     }
     hiddenRun = [];
@@ -1143,7 +1117,7 @@ function mainVisibleToolResultPreview(
 ): BrowserIncomingMessage | null {
   const previews = message.previews.filter((preview) => {
     const route = toolUseRoutes.get(toolRelationKey(message, preview.tool_use_id));
-    return !route || !isQuestThreadKey(route.threadKey);
+    return !route || !isSeparateThreadKey(route.threadKey);
   });
   if (previews.length === 0) return null;
   if (previews.length === message.previews.length) return message;
@@ -1585,6 +1559,11 @@ function buildCrossThreadActivityItem(
       } as BrowserIncomingMessage,
     },
   };
+}
+
+/** A quest's or a topic's own thread: work Main leaves to that thread's own view. */
+function isSeparateThreadKey(threadKey: string): boolean {
+  return isQuestThreadKey(threadKey) || isTopicThreadKey(threadKey);
 }
 
 function buildMainThreadAttachAuditItem(

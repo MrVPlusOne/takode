@@ -1,3 +1,4 @@
+import { THREAD_KEY_PATTERN } from "../../shared/thread-routing.js";
 import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
 import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
 import type { ParsedThreadStatusMarker } from "../../shared/thread-status-marker.js";
@@ -27,7 +28,10 @@ type CanonicalRecoveredAssistant = {
   answerUserMessageIds: string;
 };
 
-const LEGACY_FINAL_THREAD_MARKER_RE = /^(\s*)\[thread:(main|q-\d+):F\](?=$|[ \t]|\r?\n)/i;
+const LEGACY_FINAL_THREAD_MARKER_RE = new RegExp(
+  String.raw`^(\s*)\[thread:(${THREAD_KEY_PATTERN}):F\](?=$|[ \t]|\r?\n)`,
+  "i",
+);
 
 export type CodexRecoveredAssistantRouteFields = Pick<
   AssistantHistoryEntry,

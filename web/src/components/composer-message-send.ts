@@ -4,12 +4,13 @@ import type { ComposerDraft } from "../types.js";
 import type { VsCodeSelectionContextPayload } from "../utils/vscode-context.js";
 import { formatReplyContentForAssistant } from "../utils/reply-context.js";
 import { nextPendingUploadId } from "./composer-image-utils.js";
+import { isQuestThreadKey } from "../../shared/thread-routing.js";
 
 /** Send a draft, retaining editable attachments when delivery has a local pending owner. */
 export function sendComposerDraft(
   sessionId: string,
   draft: ComposerDraft,
-  route: { threadKey: string; questId?: string; viewKey?: string; vscodeSelection?: VsCodeSelectionContextPayload },
+  route: { threadKey: string; questId?: string; vscodeSelection?: VsCodeSelectionContextPayload },
   isCodex: boolean,
 ): "sent" | "retained" | "failed" {
   const store = useStore.getState();
@@ -27,9 +28,7 @@ export function sendComposerDraft(
     ...(replyContext ? { replyContext } : {}),
     ...(route.vscodeSelection ? { vscodeSelection: route.vscodeSelection } : {}),
     threadKey: route.threadKey,
-    ...(route.threadKey !== "main" ? { questId: route.questId ?? route.threadKey } : {}),
-    // The view it was sent from shows it at once (the server keeps this for topic conversations).
-    ...(route.viewKey ? { viewKey: route.viewKey } : {}),
+    ...(isQuestThreadKey(route.threadKey) ? { questId: route.questId ?? route.threadKey } : {}),
   };
   const ownsPending = isCodex || draft.images.length > 0 || !!draft.annotations?.length;
   const pendingId = ownsPending ? nextPendingUploadId() : undefined;

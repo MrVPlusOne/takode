@@ -7,6 +7,7 @@
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { TopicIcon } from "./library/library-icons.js";
 import { TopicTabList } from "./TopicTabList.js";
+import { isKeyOfTopic, topicViewKey } from "../../shared/topic-thread-key.js";
 import { matchesSearch, NoTopicMatches, searchTopics, TopicSearchBox } from "./library/topic-search.js";
 import {
   useEffect,
@@ -152,8 +153,11 @@ export interface ThreadTabGroupBarProps extends RowContext {
     onOpen: (topic: TopicSummary) => void;
     /** The topic of each quest tab, by quest ID; a quest with none is listed as not in a topic yet. */
     topicOfQuest: Readonly<Record<string, string>>;
-    /** How many unread answers and reports a topic's quests have, when the leader's notifications are known. */
-    unreadCountOf?: (questIds: readonly string[]) => number;
+    /**
+     * How many unread answers and reports these threads have (a topic's own thread and its quests),
+     * when the leader's notifications are known.
+     */
+    unreadCountOf?: (threadKeys: readonly string[]) => number;
   };
 }
 
@@ -193,7 +197,9 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", topicsGroup, 
     !!writingKey &&
     (writingKey === currentKey ||
       currentKey === ALL_THREADS_KEY ||
-      (!!topicsGroup?.currentTopicId && topicsGroup.topicOfQuest[writingKey] === topicsGroup.currentTopicId));
+      (!!topicsGroup?.currentTopicId &&
+        (topicsGroup.topicOfQuest[writingKey] === topicsGroup.currentTopicId ||
+          isKeyOfTopic(writingKey, topicsGroup.currentTopicId))));
   const spinningTab: "main" | "working-on" | "topics" | ThreadTabGroupId | null =
     !writingKey || writingOnScreen
       ? null
@@ -836,7 +842,10 @@ function topicStatus(
   return {
     inProgress: workingOnTabs(own.filter((tab) => !tab.completed)),
     unread: own.filter((tab) => tab.blueNudge).length,
-    active: own.some((tab) => isActiveOutput(tab, activeOutputThreadKey)),
+    // Writing in one of its quests, or in the topic's own thread.
+    active:
+      own.some((tab) => isActiveOutput(tab, activeOutputThreadKey)) ||
+      (!!activeOutputThreadKey && isKeyOfTopic(activeOutputThreadKey, topic.id)),
     watching: topic.questIds.some((questId) => !!monitors?.[normalizeThreadKey(questId)]),
   };
 }
@@ -911,7 +920,9 @@ function TopicsGroupList({
           topicFirst
             ? (topic) => ({
                 ...topicStatus(topic, questTabs, rowContext.activeOutputThreadKey, rowContext.monitors),
-                ...(topicsGroup.unreadCountOf ? { unread: topicsGroup.unreadCountOf(topic.questIds) } : {}),
+                ...(topicsGroup.unreadCountOf
+                  ? { unread: topicsGroup.unreadCountOf([topicViewKey(topic.id), ...topic.questIds]) }
+                  : {}),
               })
             : undefined
         }

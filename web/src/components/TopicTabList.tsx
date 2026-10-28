@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { topicRowLine } from "./library/topic-search.js";
 import { topicApi } from "../api/topics.js";
+import { rememberTopicList } from "../utils/leader-topics.js";
 import type { GlobalNeedsInputEntry } from "../utils/global-needs-input.js";
 import { TopicIcon } from "./library/library-icons.js";
 import { TopicQuestionsBadge, useTopicQuestions } from "./library/topic-questions.js";
@@ -28,7 +29,11 @@ export function useTopicTabTopics(leaderId: string, enabled: boolean, refreshKey
     const load = () =>
       topicApi
         .list("", leaderId)
-        .then((response) => !cancelled && setTopics(byActivity(response.topics)))
+        .then((response) => {
+          if (cancelled) return;
+          rememberTopicList(leaderId, response.topics);
+          setTopics(byActivity(response.topics));
+        })
         .catch((error: Error) => console.warn("[library] Could not load the recent topics:", error.message));
     void load();
     const timer = setInterval(load, REFRESH_MS);

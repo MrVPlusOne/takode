@@ -1,3 +1,4 @@
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import {
   useCallback,
   useContext,
@@ -22,6 +23,7 @@ import type { ChatMessage } from "../types.js";
 import {
   getMessageThreadLinkKey,
   MessageThreadHeader,
+  getMessageThreadKey,
   MessageThreadHeaderOwnedContext,
 } from "./MessageThreadHeader.js";
 import { HidePawContext } from "./PawTrail.js";
@@ -635,6 +637,12 @@ export function AnsweredMessage({
         <MessageThreadHeader
           threadKey={getMessageThreadLinkKey(answer.message, currentThreadKey)}
           onSelectThread={onSelectThread}
+          // A topic thread's label names the topic, which needs the leader to look it up.
+          message={
+            sessionId && isTopicViewKey(getMessageThreadKey(answer.message) ?? "")
+              ? { sessionId, id: answer.message.id }
+              : undefined
+          }
         />
       )}
       {answer && <AnswerReference answer={answer} sessionId={sessionId} currentThreadKey={currentThreadKey} />}

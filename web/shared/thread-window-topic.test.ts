@@ -1,23 +1,31 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../server/session-types.js";
 import { buildThreadWindowSync } from "./thread-window.js";
-import { isTopicViewKey, topicIdOfViewKey, topicViewKey } from "./topic-thread-key.js";
+import { isTopicViewKey, normalizeTopicKey, topicIdOfViewKey, topicViewKey } from "./topic-thread-key.js";
 
 /**
- * A topic conversation stitches the threads of a topic's quests into one feed in time order. Its
- * view key names the topic, so it stays the same while quests join or leave; the server passes
- * the topic's quests in when it builds a window.
+ * A topic conversation stitches the topic's own thread (what was written in the conversation) and
+ * the threads of its quests into one feed in time order. Its key names the topic by a short handle,
+ * so it stays the same while quests join or leave; the server passes the topic's quests in when it
+ * builds a window.
  */
-function user(id: string, threadKey?: string, sentFromView?: string): BrowserIncomingMessage {
+const TOPIC = "8df94bcb-8daf-4026-8f72-20f861f7ae83";
+const KEY = topicViewKey(TOPIC);
+
+function user(id: string, threadKey?: string, extra: Record<string, unknown> = {}): BrowserIncomingMessage {
+  const quest = threadKey?.startsWith("q-") ? threadKey : undefined;
   return {
     type: "user_message",
     id,
     content: id,
     timestamp: Number(id.replace(/\D/g, "")) || 1,
-    ...(threadKey ? { threadKey, questId: threadKey } : {}),
-    ...(threadKey ? { threadRefs: [{ threadKey, questId: threadKey, source: "explicit" as const }] } : {}),
-    ...(sentFromView ? { sentFromView } : {}),
-  };
+    ...(threadKey ? { threadKey } : {}),
+    ...(quest ? { questId: quest } : {}),
+    ...(threadKey && threadKey !== "main"
+      ? { threadRefs: [{ threadKey, ...(quest ? { questId: quest } : {}), source: "explicit" as const }] }
+      : {}),
+    ...extra,
+  } as BrowserIncomingMessage;
 }
 
 function windowIds(history: BrowserIncomingMessage[], threadKey: string, topicMembers?: string[]): unknown[] {
@@ -33,44 +41,45 @@ function windowIds(history: BrowserIncomingMessage[], threadKey: string, topicMe
 }
 
 describe("topic conversations", () => {
-  it("is named by its topic, not its quests", () => {
-    const key = topicViewKey(" T1 ");
-    expect(key).toBe("topic:t1");
-    expect(topicIdOfViewKey(key)).toBe("t1");
+  it("is named by a short handle of its topic, not its quests", () => {
+    expect(KEY).toBe("topic:8df94bcb");
+    expect(topicIdOfViewKey(KEY)).toBe("8df94bcb");
+    // Keys that named the whole topic ID (before handles) name the same topic.
+    expect(normalizeTopicKey(`topic:${TOPIC}`)).toBe(KEY);
     expect(isTopicViewKey("q-3")).toBe(false);
     expect(isTopicViewKey("topic:")).toBe(false);
   });
 
-  it("merges its quests' threads in time order and leaves out other threads", () => {
-    const history = [user("u1", "q-3"), user("u2"), user("u3", "q-12"), user("u4", "q-99"), user("u5", "q-3")];
-    expect(windowIds(history, topicViewKey("t1"), ["q-3", "q-12"])).toEqual(["u1", "u3", "u5"]);
+  it("merges its own thread and its quests' threads in time order and leaves out other threads", () => {
+    const history = [user("u1", "q-3"), user("u2"), user("u3", "q-12"), user("u4", "q-99"), user("u5", KEY)];
+    expect(windowIds(history, KEY, ["q-3", "q-12"])).toEqual(["u1", "u3", "u5"]);
     // The same view after a quest joins the topic: nothing about the key changes.
-    expect(windowIds(history, topicViewKey("t1"), ["q-3", "q-12", "q-99"])).toEqual(["u1", "u3", "u4", "u5"]);
+    expect(windowIds(history, KEY, ["q-3", "q-12", "q-99"])).toEqual(["u1", "u3", "u4", "u5"]);
+    // A message written in the topic is not a Main message.
+    expect(windowIds(history, "main")).toEqual(["u2"]);
   });
 
-  it("shows the leader's answer to a message sent from it, wherever the answer is routed", () => {
-    // Messages sent from a topic conversation go to the topic as Main requests; the answer is
-    // stamped with the view at settlement and shows in the topic conversation too.
-    const key = topicViewKey("t1");
+  it("shows the leader's answer in the topic's thread", () => {
+    // Jiayi's message from the Daily briefing topic showed there, but the answer to it didn't: it was
+    // a Main answer, which a topic view leaves out. Now both are in the topic's own thread.
     const answer = {
       type: "assistant",
       message: { id: "a1", type: "message", role: "assistant", model: "m", content: [], stop_reason: null },
       timestamp: 3,
-      threadKey: "main",
-      sentFromView: key,
+      threadKey: KEY,
+      threadRefs: [{ threadKey: KEY, source: "explicit" }],
     } as unknown as BrowserIncomingMessage;
-    const history = [user("u1", "q-3"), user("u2", undefined, key), answer];
-    expect(windowIds(history, key, ["q-3"])).toEqual(["u1", "u2", 2]);
+    const history = [user("u1", "q-3"), user("u2", KEY), answer];
+    expect(windowIds(history, KEY, ["q-3"])).toEqual(["u1", "u2", 2]);
+    expect(windowIds(history, "main")).toEqual([]);
   });
 
-  it("keeps a message sent from it there, wherever the leader files it", () => {
-    // A message typed in the topic view belongs to that view from the moment it is sent, before
-    // the leader files it in a thread (Main here) and after it files it in a quest elsewhere.
-    const key = topicViewKey("t1");
-    const history = [user("u1", "q-3"), user("u2", undefined, key), user("u3", "q-99", key), user("u4", "q-99")];
-    expect(windowIds(history, key, ["q-3"])).toEqual(["u1", "u2", "u3"]);
-    // It still shows in the thread it was filed in, and other views are unaffected.
-    expect(windowIds(history, "q-99")).toEqual(["u3", "u4"]);
-    expect(windowIds(history, topicViewKey("t2"), ["q-3"])).toEqual(["u1"]);
+  it("keeps showing messages sent from it before topics had threads", () => {
+    // Those were Main messages noting the topic view they came from (`sentFromView`, and answers
+    // stamped with it); they count as attached to the topic's thread, so Main keeps them too.
+    const legacy = user("u2", "main", { sentFromView: `topic:${TOPIC}` });
+    const history = [user("u1", "q-3"), legacy, user("u3", "q-99")];
+    expect(windowIds(history, KEY, ["q-3"])).toEqual(["u1", "u2"]);
+    expect(windowIds(history, "main")).toEqual(["u2"]);
   });
 });

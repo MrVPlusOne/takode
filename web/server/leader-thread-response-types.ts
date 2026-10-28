@@ -24,7 +24,10 @@ export type LeaderRoutedAssistantMetadata = {
   leaderResponseObservedHistoryLength?: number;
   deferredThreadStatusMarkers?: ParsedThreadStatusMarker[];
   threadAnswer?: LeaderThreadAnswerMetadata;
-  /** Set on an answer to a message sent from a topic conversation: it shows in that view too. */
+  /**
+   * Legacy, read only: set on answers to messages sent from a topic conversation before topics had
+   * threads. It counts as an attachment to that topic's thread (`message-threads.ts`).
+   */
   sentFromView?: string;
   /** Read-only compatibility for persisted server-defined response batches. */
   threadResponse?: LegacyLeaderThreadResponseRevisionMetadata;

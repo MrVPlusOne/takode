@@ -15,7 +15,7 @@ export function normalizeNotifyThreadRoute(
   if (!rawThreadKey && !rawQuestId) return { ok: true };
 
   const threadTarget = rawThreadKey ? normalizeThreadTarget(rawThreadKey) : null;
-  if (rawThreadKey && !threadTarget) return { ok: false, error: "threadKey must be main or q-N" };
+  if (rawThreadKey && !threadTarget) return { ok: false, error: "threadKey must be main, q-N or topic:<handle>" };
 
   const questTarget = rawQuestId ? normalizeThreadTarget(rawQuestId) : null;
   if (rawQuestId && (!questTarget || questTarget.threadKey === "main")) {

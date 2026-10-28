@@ -1,4 +1,5 @@
 import { isCanonicalLeaderUserMessageId } from "./leader-user-message-id.js";
+import { normalizeTopicKey, TOPIC_THREAD_KEY_PATTERN } from "./topic-thread-key.js";
 
 export type ThreadRouteTarget = {
   threadKey: string;
@@ -24,16 +25,27 @@ export type ThreadRouteParseResult =
       body: string;
     };
 
+/**
+ * A thread key as written in markers and commands: Main, a quest, or a topic's own thread
+ * (`topic:<handle>`, see `topic-thread-key.ts`).
+ */
+export const THREAD_KEY_PATTERN = String.raw`main|q-\d+|${TOPIC_THREAD_KEY_PATTERN}`;
+
 // An answer marker may list the user-message IDs it answers, or none for a
 // result presented on the leader's own initiative ([thread:q-N:A]). `A!` marks
 // an urgent answer ([thread:q-N:A!:u1]).
-const TEXT_THREAD_MARKER_RE =
-  /^\[thread:(main|q-\d+)(?::(C)|:(A)(!)?(?::(u[1-9]\d*(?:,u[1-9]\d*)*))?)?\](?=$|[ \t]|\r?\n)/i;
-const TEXT_THREAD_MARKER_AT_LINE_START_RE =
-  /^\[thread:(main|q-\d+)(?::(C)|:(A)(!)?(?::(u[1-9]\d*(?:,u[1-9]\d*)*))?)?\]/i;
-const TEXT_THREAD_DESTINATION_PREFIX_RE = /^\[thread:(main|q-\d+):/i;
+const MARKER_SUFFIX = String.raw`(?::(C)|:(A)(!)?(?::(u[1-9]\d*(?:,u[1-9]\d*)*))?)?\]`;
+const TEXT_THREAD_MARKER_RE = new RegExp(
+  String.raw`^\[thread:(${THREAD_KEY_PATTERN})${MARKER_SUFFIX}(?=$|[ \t]|\r?\n)`,
+  "i",
+);
+const TEXT_THREAD_MARKER_AT_LINE_START_RE = new RegExp(
+  String.raw`^\[thread:(${THREAD_KEY_PATTERN})${MARKER_SUFFIX}`,
+  "i",
+);
+const TEXT_THREAD_DESTINATION_PREFIX_RE = new RegExp(String.raw`^\[thread:(${THREAD_KEY_PATTERN}):`, "i");
 const MARKDOWN_FENCE_RE = /^\s*(`{3,}|~{3,})/;
-const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
+const COMMAND_THREAD_COMMENT_RE = new RegExp(String.raw`^#\s*thread:(${THREAD_KEY_PATTERN})\s*$`);
 const QUEST_MENTION_RE = /\bq-\d+\b/gi;
 const LEADING_QUEST_TARGET_RE = /^(?:work on|advance|review|reopen)\b/i;
 
@@ -61,11 +73,17 @@ export function isQuestThreadKey(threadKey: string): boolean {
   return /^q-\d+$/.test(threadKey);
 }
 
+/** Whether a thread key is a topic's own thread. */
+export function isTopicThreadKey(threadKey: string): boolean {
+  return normalizeTopicKey(threadKey) !== null;
+}
+
 export function normalizeThreadTarget(raw: string): ThreadRouteTarget | null {
   const threadKey = raw.trim().toLowerCase();
   if (threadKey === "main") return { threadKey };
   if (isQuestThreadKey(threadKey)) return { threadKey, questId: threadKey };
-  return null;
+  const topicKey = normalizeTopicKey(threadKey);
+  return topicKey ? { threadKey: topicKey } : null;
 }
 
 export function inferThreadTargetFromTextContent(text: string): ThreadRouteTarget | null {

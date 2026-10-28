@@ -8,7 +8,7 @@ import { useStore } from "../store.js";
 import { buildNextAttentionQueue, collectUnreadAttention, type NextAttentionItem } from "../utils/next-attention.js";
 import { useAttentionNavigator, type AttentionNavigator } from "./useAttentionNavigator.js";
 import { useQuestTopicsOf } from "../utils/leader-topics.js";
-import { isQuestThreadKey } from "../../shared/thread-routing.js";
+import { isQuestThreadKey, isTopicThreadKey } from "../../shared/thread-routing.js";
 
 export { openAttentionItem, type NextAttentionLanding } from "./useAttentionNavigator.js";
 
@@ -46,7 +46,9 @@ export function useNextAttention(): AttentionNavigator & { queue: NextAttentionI
         notifyMe,
         unread,
         topicOf: (sessionId, threadKey) =>
-          threadKey && isQuestThreadKey(threadKey) ? (topicOfQuest(sessionId, threadKey) ?? null) : null,
+          threadKey && (isQuestThreadKey(threadKey) || isTopicThreadKey(threadKey))
+            ? (topicOfQuest(sessionId, threadKey) ?? null)
+            : null,
       }),
     [needsInput, notifyMe, unread, topicOfQuest],
   );

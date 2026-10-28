@@ -1,3 +1,4 @@
+import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { isAbsolute } from "node:path";
@@ -45,8 +46,8 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
       if (typeof body.sourcePath !== "string" || !isAbsolute(body.sourcePath)) {
         throw new Error("An exact absolute map path is required.");
       }
-      if (typeof body.threadKey !== "string" || !/^(main|q-[1-9]\d*)$/.test(body.threadKey)) {
-        throw new Error("Choose main or an exact quest thread.");
+      if (typeof body.threadKey !== "string" || !normalizeThreadTarget(body.threadKey)) {
+        throw new Error("Choose main, an exact quest thread or a topic thread.");
       }
       const range = readRange(body.range, ctx.launcher.getSession(auth.callerId)?.hostId);
       const files = parseGuidedReviewDiff(body.diff);
@@ -61,7 +62,7 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
       const receipt = publishSessionReport(ctx, auth.callerId, session, {
         content: formatGuidedReviewMarkdown(meta),
         sourcePath: body.sourcePath,
-        threadKey: body.threadKey,
+        threadKey: normalizeThreadTarget(body.threadKey)!.threadKey,
         responsibleWorkerId: body.responsibleWorkerId,
         guidedReview: meta,
       });
@@ -93,8 +94,8 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
     if (!session || auth.caller.archived) return c.json({ error: "Publishing session is unavailable." }, 409);
     try {
       const body = await c.req.json();
-      if (typeof body.threadKey !== "string" || !/^(main|q-[1-9]\d*)$/.test(body.threadKey)) {
-        throw new Error("Choose main or an exact quest thread.");
+      if (typeof body.threadKey !== "string" || !normalizeThreadTarget(body.threadKey)) {
+        throw new Error("Choose main, an exact quest thread or a topic thread.");
       }
       const fromId = typeof body.from === "string" ? ctx.resolveId(body.from) : null;
       const from = fromId ? ctx.launcher.getSession(fromId) : null;
@@ -111,7 +112,7 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
       const receipt = publishSessionReport(ctx, auth.callerId, session, {
         content: source.content,
         sourcePath: source.source.sourcePath,
-        threadKey: body.threadKey,
+        threadKey: normalizeThreadTarget(body.threadKey)!.threadKey,
         guidedReview: {
           ...source.guidedReview,
           reviewId,

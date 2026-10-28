@@ -1,6 +1,7 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { create } from "zustand";
-import type { QuestTopicMap, QuestTopicsResponse, TopicBrief } from "../../shared/library-topics.js";
+import type { QuestTopicMap, QuestTopicsResponse, TopicBrief, TopicSummary } from "../../shared/library-topics.js";
+import { isKeyOfTopic, isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { topicApi } from "../api/topics.js";
 
 /**
@@ -33,6 +34,23 @@ function remember(leaderId: string, questIds: readonly string[], response: Quest
       map,
       topics: { ...previous.topics, ...response.topics },
       asked: { ...previous.asked, ...Object.fromEntries(questIds.map((questId) => [questId, true as const])) },
+    };
+    if (JSON.stringify(next) === JSON.stringify(previous)) return state;
+    return { byLeader: { ...state.byLeader, [leaderId]: next } };
+  });
+}
+
+/** Records a leader's whole topic list (the Topics tab group loads it), so topic threads have names. */
+export function rememberTopicList(leaderId: string, topics: readonly TopicSummary[]): void {
+  useLeaderTopicsStore.setState((state) => {
+    const previous = state.byLeader[leaderId] ?? { enabled: false, map: {}, topics: {}, asked: {} };
+    const briefs = Object.fromEntries(
+      topics.map((topic) => [topic.id, { name: topic.name, questIds: topic.questIds, activityAt: topic.activityAt }]),
+    );
+    const next = {
+      ...previous,
+      enabled: previous.enabled || topics.length > 0,
+      topics: { ...previous.topics, ...briefs },
     };
     if (JSON.stringify(next) === JSON.stringify(previous)) return state;
     return { byLeader: { ...state.byLeader, [leaderId]: next } };
@@ -77,9 +95,20 @@ export function useKnownTopicBrief(leaderId: string, topicId: string | undefined
   return useLeaderTopicsStore((state) => (topicId ? state.byLeader[leaderId]?.topics[topicId] : undefined));
 }
 
+/** The topic a topic thread key names (`topic:<handle>`), as last known for a leader. */
+export function useKnownTopicOfKey(leaderId: string, topicKey: string): (TopicBrief & { id: string }) | undefined {
+  // Selects stable values (the ID string and the stored brief); a new object per read would re-render forever.
+  const id = useLeaderTopicsStore((state) =>
+    Object.keys(state.byLeader[leaderId]?.topics ?? {}).find((topicId) => isKeyOfTopic(topicKey, topicId)),
+  );
+  const brief = useLeaderTopicsStore((state) => (id ? state.byLeader[leaderId]?.topics[id] : undefined));
+  return useMemo(() => (id && brief ? { id, ...brief } : undefined), [id, brief]);
+}
+
 /**
  * Every leader's known quest topics, for lists spanning leaders (the attention list groups unread
- * answers by topic). Asks the server about the given quests the first time they appear.
+ * answers by topic). Asks the server about the given quests the first time they appear. A topic's
+ * own thread (`topic:<handle>`) is its topic, when the leader's topics are known.
  */
 export function useQuestTopicsOf(
   quests: ReadonlyArray<{ leaderId: string; questId: string }>,
@@ -105,11 +134,26 @@ export function useQuestTopicsOf(
   return useCallback(
     (leaderId: string, questId: string) => {
       const known = byLeader[leaderId];
+      if (isTopicViewKey(questId)) {
+        const id = Object.keys(known?.topics ?? {}).find((topicId) => isKeyOfTopic(questId, topicId));
+        return id ? { id, name: known!.topics[id]!.name } : null;
+      }
       if (!known?.asked[questId]) return undefined;
       return known.map[questId] ?? null;
     },
     [byLeader],
   );
+}
+
+/**
+ * The quest tab that shows a topic thread's conversation (a topic conversation opens in one of its
+ * quests' tabs, zoomed out): the topic's newest quest, as last known; null when unknown.
+ */
+export function topicHostQuest(leaderId: string, topicKey: string): string | null {
+  const topics = useLeaderTopicsStore.getState().byLeader[leaderId]?.topics ?? {};
+  const id = Object.keys(topics).find((topicId) => isKeyOfTopic(topicKey, topicId));
+  const quests = id ? [...topics[id]!.questIds] : [];
+  return quests.sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)))[0] ?? null;
 }
 
 /** For the Playground: the topics of some quests, as if the server had answered about them. */

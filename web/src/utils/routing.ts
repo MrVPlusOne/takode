@@ -1,5 +1,6 @@
 import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { useStore } from "../store.js";
+import { topicHostQuest } from "./leader-topics.js";
 import type { MessageJumpLanding } from "../store-types.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey, threadViewShows } from "./thread-projection.js";
@@ -480,6 +481,12 @@ export function navigateToSessionThread(
     topicView?: boolean;
   } = {},
 ): void {
+  // A topic's own thread shows in its topic conversation, which opens in one of its quests' tabs.
+  if (isTopicViewKey(threadKey)) {
+    const host = topicHostQuest(sessionId, threadKey);
+    threadKey = host ?? MAIN_THREAD_KEY;
+    options = { ...options, topicView: !!host };
+  }
   const currentRoute = parseHash(window.location.hash);
   const sameSession = currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId);
   let currentHash = sameSession ? window.location.hash : sessionHash(routeSessionId);
@@ -560,8 +567,15 @@ export function navigateToSessionMessageId(
     topicView?: boolean;
   } = {},
 ): void {
-  const { replace = false, routeSessionId = sessionId, threadKey, preserveMainThreadRoute = false, landing } = options;
-  const messageHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}${options.topicView ? `?${TOPIC_VIEW_QUERY_PARAM}=1` : ""}`;
+  const { replace = false, routeSessionId = sessionId, preserveMainThreadRoute = false, landing } = options;
+  let { threadKey, topicView } = options;
+  // A topic's own thread shows in its topic conversation, which opens in one of its quests' tabs.
+  if (threadKey && isTopicViewKey(threadKey)) {
+    const host = topicHostQuest(sessionId, threadKey);
+    threadKey = host ?? undefined;
+    topicView = !!host;
+  }
+  const messageHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}${topicView ? `?${TOPIC_VIEW_QUERY_PARAM}=1` : ""}`;
   const newHash = threadKey
     ? withThreadKeyInHashOptions(messageHash, threadKey, { preserveMain: preserveMainThreadRoute })
     : messageHash;

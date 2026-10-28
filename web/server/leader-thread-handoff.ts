@@ -1,3 +1,4 @@
+import { isTopicViewKey } from "../shared/topic-thread-key.js";
 import {
   leaderResponseAnswerOwnerThreadKeys,
   leaderResponseProvenCurrentOwnerThreadKey,
@@ -11,18 +12,28 @@ import {
 } from "./leader-user-message-id.js";
 
 /**
- * Select exact committed, pending Main requests without changing history or
- * answer coverage. Proven same-leader handoff retries are returned separately,
- * including after the destination has answered them.
+ * Select exact committed, pending requests of one thread (Main or a topic's own thread) for a
+ * handoff to a quest, or of Main for a handoff to a topic's thread, without changing history or
+ * answer coverage. Proven same-leader handoff retries are returned separately, including after the
+ * destination has answered them.
  */
 export function prepareLeaderThreadHandoff(
   session: LeaderThreadResponseSession,
-  questId: string,
+  destination: string,
   userMessageIds: readonly string[],
 ):
-  | { ok: true; requests: LeaderUserMessageIdentity[]; alreadyHandedOffUserMessageIds: string[] }
+  | {
+      ok: true;
+      requests: LeaderUserMessageIdentity[];
+      alreadyHandedOffUserMessageIds: string[];
+      /** The thread the requests are handed off from. */
+      sourceThreadKey: string;
+    }
   | { ok: false; error: string } {
-  if (!/^q-\d+$/.test(questId)) return { ok: false, error: "questId must match q-N format" };
+  const toQuest = /^q-\d+$/.test(destination);
+  if (!toQuest && !isTopicViewKey(destination)) {
+    return { ok: false, error: "The destination must be a quest (q-N) or a topic thread (topic:<handle>)" };
+  }
   if (userMessageIds.length === 0 || userMessageIds.some((id) => !isCanonicalLeaderUserMessageId(id))) {
     return { ok: false, error: "Provide exact user-message IDs such as u1" };
   }
@@ -33,32 +44,60 @@ export function prepareLeaderThreadHandoff(
   const identities = new Map(
     buildLeaderUserMessageIdentities(session.messageHistory).map((entry) => [entry.userMessageId, entry]),
   );
-  const pending = new Set(
-    buildLeaderThreadResponseState(session, "main").projection.pendingMessages.map((entry) => entry.userMessageId),
-  );
+  const pendingByThread = new Map<string, Set<string>>();
+  const pendingIn = (threadKey: string) => {
+    let pending = pendingByThread.get(threadKey);
+    if (!pending) {
+      pending = new Set(
+        buildLeaderThreadResponseState(session, threadKey).projection.pendingMessages.map(
+          (entry) => entry.userMessageId,
+        ),
+      );
+      pendingByThread.set(threadKey, pending);
+    }
+    return pending;
+  };
   const requests: LeaderUserMessageIdentity[] = [];
   const alreadyHandedOffUserMessageIds: string[] = [];
+  let sourceThreadKey: string | null = null;
   for (const userMessageId of userMessageIds) {
     const request = identities.get(userMessageId);
     if (!request) {
       return { ok: false, error: `${userMessageId} is not a committed direct user request` };
     }
     const owner = leaderResponseProvenCurrentOwnerThreadKey(request.message);
-    if (owner === questId && isSameLeaderHandoff(request, session.id, questId)) {
+    if (owner === destination && isSameLeaderHandoff(request, session.id, destination)) {
       alreadyHandedOffUserMessageIds.push(userMessageId);
       continue;
     }
-    if (owner !== "main" || !pending.has(userMessageId)) {
-      return { ok: false, error: `${userMessageId} must be an unanswered request currently owned by Main` };
+    // A quest takes requests from Main or a topic's thread; a topic's thread takes them from Main.
+    const fromAllowed = owner === "main" || (toQuest && !!owner && isTopicViewKey(owner));
+    if (!owner || !fromAllowed || !pendingIn(owner).has(userMessageId)) {
+      return {
+        ok: false,
+        error: toQuest
+          ? `${userMessageId} must be an unanswered request currently owned by Main or a topic thread`
+          : `${userMessageId} must be an unanswered request currently owned by Main`,
+      };
     }
+    if (sourceThreadKey && sourceThreadKey !== owner) {
+      return { ok: false, error: "Hand off requests of one thread at a time" };
+    }
+    sourceThreadKey = owner;
     requests.push(request);
   }
-  return { ok: true, requests, alreadyHandedOffUserMessageIds };
+  return { ok: true, requests, alreadyHandedOffUserMessageIds, sourceThreadKey: sourceThreadKey ?? "main" };
 }
 
 /** The ownership ref a handoff appends to each transferred request. */
-export function handoffThreadRef(questId: string, attachedAt: number, attachedBy: string): ThreadRef {
-  return { threadKey: questId, questId, source: "explicit", attachedAt, attachedBy };
+export function handoffThreadRef(threadKey: string, attachedAt: number, attachedBy: string): ThreadRef {
+  return {
+    threadKey,
+    ...(/^q-\d+$/.test(threadKey) ? { questId: threadKey } : {}),
+    source: "explicit",
+    attachedAt,
+    attachedBy,
+  };
 }
 
 /**
@@ -73,7 +112,7 @@ export function handoffThreadRef(questId: string, attachedAt: number, attachedBy
 export function restoreUnpersistedHandoffRefs(history: BrowserIncomingMessage[]): number {
   const markers = history.filter(
     (entry): entry is ThreadAttachmentMarker =>
-      entry.type === "thread_attachment_marker" && entry.markerKey.startsWith("handoff:") && !!entry.questId,
+      entry.type === "thread_attachment_marker" && entry.markerKey.startsWith("handoff:") && !!entry.threadKey,
   );
   if (markers.length === 0) return 0;
   const userMessageIds = new Map(
@@ -82,7 +121,7 @@ export function restoreUnpersistedHandoffRefs(history: BrowserIncomingMessage[])
   const sealedOwners = sealedAnswerOwners(history);
   let restored = 0;
   for (const marker of markers) {
-    const ref = handoffThreadRef(marker.questId!, marker.attachedAt, marker.attachedBy);
+    const ref = handoffThreadRef(marker.questId ?? marker.threadKey, marker.attachedAt, marker.attachedBy);
     marker.messageIndices.forEach((index, position) => {
       const request = history[index];
       // Notification anchors share the marker; only requests carry ownership.
@@ -116,14 +155,15 @@ function sealedAnswerOwners(history: readonly BrowserIncomingMessage[]): Map<str
   return owners;
 }
 
-function isSameLeaderHandoff(request: LeaderUserMessageIdentity, sessionId: string, questId: string): boolean {
+function isSameLeaderHandoff(request: LeaderUserMessageIdentity, sessionId: string, destination: string): boolean {
   const { threadKey, questId: originalQuestId, threadRefs } = request.message;
-  if (leaderResponseProvenCurrentOwnerThreadKey({ threadKey, questId: originalQuestId }) !== "main") return false;
+  const original = leaderResponseProvenCurrentOwnerThreadKey({ threadKey, questId: originalQuestId });
+  if (original !== "main" && !(original && isTopicViewKey(original))) return false;
   return (threadRefs ?? []).some(
     (ref) =>
       ref.source === "explicit" &&
-      ref.threadKey === questId &&
-      ref.questId === questId &&
+      ref.threadKey === destination &&
+      (!/^q-\d+$/.test(destination) || ref.questId === destination) &&
       ref.attachedBy === sessionId &&
       typeof ref.attachedAt === "number" &&
       Number.isFinite(ref.attachedAt),

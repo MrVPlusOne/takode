@@ -15,7 +15,9 @@ describe("TopicFeedQuestStart", () => {
     const openQuest = vi.fn();
     render(
       <QuestRecordFetchContext.Provider value={false}>
-        <TopicFeedContext.Provider value={{ questIds: ["q-3", "q-12"], openQuest }}>
+        <TopicFeedContext.Provider
+          value={{ questIds: ["q-3", "q-12"], topicKey: "topic:aaaaaaaa", topicName: "Relay", openQuest }}
+        >
           <TopicFeedQuestStart questId="q-12" />
         </TopicFeedContext.Provider>
       </QuestRecordFetchContext.Provider>,
@@ -27,5 +29,23 @@ describe("TopicFeedQuestStart", () => {
     const link = screen.getByRole("link", { name: "q-12" });
     expect(link.getAttribute("href")).toContain("q-12");
     expect(screen.getByTitle("Zoom into this quest").contains(link)).toBe(false);
+  });
+});
+
+describe("the topic's own thread", () => {
+  it("gets a strip naming the topic, which opens no quest", () => {
+    // Topics are threads: what was written in the conversation itself is its own part, with its own
+    // strip, so it never reads as part of the quest above it.
+    render(
+      <QuestRecordFetchContext.Provider value={false}>
+        <TopicFeedContext.Provider
+          value={{ questIds: ["q-3"], topicKey: "topic:aaaaaaaa", topicName: "Relay", openQuest: vi.fn() }}
+        >
+          <TopicFeedQuestStart questId="topic:aaaaaaaa" />
+        </TopicFeedContext.Provider>
+      </QuestRecordFetchContext.Provider>,
+    );
+    expect(screen.getByTestId("topic-feed-quest-start").textContent).toContain("Relay");
+    expect(screen.queryByTitle("Zoom into this quest")).toBeNull();
   });
 });
