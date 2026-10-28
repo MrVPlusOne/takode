@@ -451,7 +451,16 @@ export function QuestThreadBanner({
   diffSessionId,
   onCloseTab,
   sideQuestOf,
+  leading,
+  singleLine = false,
 }: {
+  /** Shown before the quest ID: the quest's topic, as the way to zoom out to it. */
+  leading?: ReactNode;
+  /**
+   * Desktop with the thread navigation in the top bar: keep the strip to one line. The title
+   * truncates first; in a narrow chat column the details drop words their icons already say.
+   */
+  singleLine?: boolean;
   row?: QuestThreadBannerRow;
   threadKey: string;
   /** Set when this quest is a side quest: the thread ("main" or a quest ID) where its answer is given. */
@@ -499,7 +508,7 @@ export function QuestThreadBanner({
     (isSessionBanner && (!!inputWaitCondition || !!(row?.leaderSessionId && row.leaderSessionId !== currentSessionId)));
   return (
     <div
-      className="shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3"
+      className={`shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3 ${singleLine ? "@container/quest-strip sm:flex sm:min-h-8 sm:flex-col sm:justify-center sm:py-0.5" : ""}`}
       data-testid="quest-thread-banner"
       data-variant={variant}
       data-layout="compact-inline"
@@ -511,7 +520,13 @@ export function QuestThreadBanner({
           className="contents sm:flex sm:min-w-0 sm:flex-1 sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-0.5"
           data-testid="quest-thread-wrapping-content"
         >
-          <div className="col-start-1 row-start-1 inline-flex min-w-0 max-w-full items-baseline gap-1.5 sm:flex-[1_1_16rem]">
+          <div
+            className={`col-start-1 row-start-1 inline-flex min-w-0 max-w-full gap-1.5 ${
+              // One line: the title gives way down to a few words before the details wrap.
+              singleLine ? "items-center sm:min-w-min sm:flex-[1_1_0%]" : "items-baseline sm:flex-[1_1_16rem]"
+            }`}
+          >
+            {leading}
             {isSessionBanner && (
               <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">
                 Quest
@@ -529,7 +544,10 @@ export function QuestThreadBanner({
               </span>
             )}
             {title && (
-              <span className="min-w-0 truncate text-xs font-medium text-cc-fg sm:text-[13px]" title={title}>
+              <span
+                className={`truncate text-xs font-medium text-cc-fg sm:text-[13px] ${singleLine ? "min-w-[6rem]" : "min-w-0"}`}
+                title={title}
+              >
                 {title}
               </span>
             )}

@@ -3,6 +3,8 @@
  * with its two modes (the user's messages, or open and closed tabs, both newest first),
  * at the top and at the bottom of the screen.
  */
+import { QuestThreadBanner } from "../QuestThreadBanner.js";
+import { TopicCrumb } from "../library/TopicConversation.js";
 import { useState } from "react";
 import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../../utils/quest-phase-theme.js";
@@ -192,12 +194,60 @@ function PhoneFrame({
   );
 }
 
+/**
+ * A desktop leader with topics on: Main | All and Topics after the session name, the Next chip and
+ * Working on (which holds the work board) before the bell, and the quest strip starting with its topic.
+ */
+function TopBarFrame() {
+  const [current, setCurrent] = useState("q-9482");
+  const [helpers, setHelpers] = useState<HTMLDivElement | null>(null);
+  const [boardOpen, setBoardOpen] = useState(false);
+  return (
+    <div className="w-[1000px] max-w-full overflow-visible rounded-lg border border-cc-border bg-cc-bg">
+      <div className="flex items-center gap-3 border-b border-cc-border bg-cc-card px-4 py-1.5 text-[11px]">
+        <span className="shrink-0 font-medium text-cc-fg">#2957 Daily Leader</span>
+        <div className="flex min-w-0 flex-1 items-center">
+          <ThreadTabGroupBar
+            main={MAIN}
+            tabs={TABS}
+            currentThreadKey={current}
+            activeOutputThreadKey={null}
+            onSelect={setCurrent}
+            trailing={
+              <NotificationChip
+                sessionId="playground-tab-row"
+                currentThreadKey="main"
+                attentionPreview={TAB_ROW_ATTENTION}
+                placement="top"
+                docked
+              />
+            }
+            topicsGroup={{ topics: TOPICS, currentTopicId: null, onOpen: () => {}, topicOfQuest: TOPIC_OF_QUEST }}
+            inTopBar={{
+              helpers,
+              board: { open: boardOpen, dots: [], onToggle: () => setBoardOpen((open) => !open) },
+            }}
+          />
+        </div>
+        <div ref={setHelpers} className="flex items-center" />
+      </div>
+      {boardOpen && <div className="border-b border-cc-border px-4 py-2 text-[12px] text-cc-muted">(work board)</div>}
+      <QuestThreadBanner
+        threadKey={current}
+        row={{ threadKey: current, questId: current, title: "Daily briefing: October 27" } as never}
+        singleLine
+        leading={<TopicCrumb name="Daily briefing" onOpen={() => {}} />}
+      />
+    </div>
+  );
+}
+
 export function PlaygroundThreadTabGroupsSection() {
   return (
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size. Without topics: Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name. With topics on, the bar is topic-first: Main, Working on (the unfinished quests) and Topics, where each topic says what its quests are doing (in progress, new answers, Notify me) and quests under no topic are listed below. The quest strip names the current quest, so the bar only marks the group that holds it. On desktop the session's Next chip sits right after the tabs, where it never covers the feed's text. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
+        description="Leader thread tabs on every screen size. Without topics: Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name. With topics on, the bar is topic-first: Main, Working on (the unfinished quests) and Topics, where each topic says what its quests are doing (in progress, new answers, Notify me) and quests under no topic are listed below. The quest strip names the current quest, so the bar only marks the group that holds it. On desktop the session's Next chip sits right after the tabs, where it never covers the feed's text; a desktop leader with topics on has no tab row: Main | All and Topics sit in the top bar after the session name, the Next chip and Working on (merged with the Board button, the full board behind a button in its menu) before the bell, and the quest strip starts with the quest's topic. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group)">
@@ -206,8 +256,11 @@ export function PlaygroundThreadTabGroupsSection() {
           <Card label="Topics on (open Topics, pick one)">
             <PhoneFrame placement="top" topics />
           </Card>
-          <Card label="Desktop: the Next chip right after the tabs">
-            <PhoneFrame placement="top" topics desktopChip />
+          <Card label="Desktop, topics off: the Next chip right after the tabs">
+            <PhoneFrame placement="top" desktopChip />
+          </Card>
+          <Card label="Desktop, topics on: the tabs in the top bar, the topic in the quest strip">
+            <TopBarFrame />
           </Card>
           <Card label="At the bottom (lists open upward)">
             <div className="pt-72">

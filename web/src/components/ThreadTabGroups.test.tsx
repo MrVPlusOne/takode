@@ -493,6 +493,95 @@ describe("ThreadTabGroupBar", () => {
   });
 });
 
+describe("ThreadTabGroupBar in the top bar", () => {
+  // Desktop leaders with topics on (Jiayi's pick, design C with her changes): the bar leaves its
+  // own tab row. Main | All and Topics sit after the session name; the Next chip and Working on,
+  // merged with the Board button, sit before the attention bell, and the full board is behind a
+  // button in the Working on menu.
+  const topic = (id: string, name: string, questIds: string[]) =>
+    ({ id, name, activityAt: 1, questIds, latestUpdate: `${name} moved.` }) as never;
+  afterEach(() => {
+    for (const helpers of document.querySelectorAll("[data-top-bar-helpers]")) helpers.remove();
+  });
+  function renderInTopBar(currentThreadKey = "q-10", boardOpen = false) {
+    const helpers = document.createElement("div");
+    helpers.dataset.topBarHelpers = "";
+    document.body.appendChild(helpers);
+    const onToggleBoard = vi.fn();
+    const view = renderBar({
+      currentThreadKey,
+      trailing: <span data-testid="next-chip">Next</span>,
+      topicsGroup: {
+        topics: [topic("t1", "Relay", ["q-10"])],
+        currentTopicId: null,
+        onOpen: vi.fn(),
+        topicOfQuest: { "q-10": "t1" },
+      },
+      inTopBar: { helpers, board: { open: boardOpen, dots: [], onToggle: onToggleBoard } },
+    });
+    return { ...view, helpers, onToggleBoard };
+  }
+
+  it("puts Main | All and Topics in place, and Next and Working on in the helpers", () => {
+    const { helpers, onSelect } = renderInTopBar();
+    const bar = screen.getByTestId("thread-tab-group-bar");
+    expect(within(bar).getByTestId("thread-tab-group-main")).toBeTruthy();
+    expect(within(bar).getByTestId("thread-tab-group-topics")).toBeTruthy();
+    expect(within(bar).queryByTestId("thread-tab-group-working-on")).toBeNull();
+    // No folder tabs: nothing in the bar claims to be the tab on screen.
+    expect(within(bar).queryAllByRole("tab")).toEqual([]);
+    expect(within(helpers).getByTestId("next-chip")).toBeTruthy();
+    const workingOn = within(helpers).getByTestId("thread-tab-group-working-on");
+    // The Board button's monitor icon, with the count of unfinished quests (q-10 and q-11).
+    expect(within(workingOn).getByTestId("workboard-dots-icon")).toBeTruthy();
+    expect(workingOn.textContent).toContain("Working on 2");
+
+    fireEvent.click(screen.getByTestId("thread-tab-group-all"));
+    expect(onSelect).toHaveBeenCalledWith("all");
+    fireEvent.click(screen.getByTestId("thread-tab-group-main"));
+    expect(onSelect).toHaveBeenCalledWith("main");
+  });
+
+  it("marks Main or All only while it is on screen", () => {
+    renderInTopBar("main");
+    expect(screen.getByTestId("thread-tab-group-main").dataset.selected).toBe("true");
+    expect(screen.getByTestId("thread-tab-group-all").dataset.selected).toBe("false");
+    cleanup();
+    renderInTopBar("q-10");
+    expect(screen.getByTestId("thread-tab-group-main").dataset.selected).toBe("false");
+  });
+
+  it("opens the work board from the Working on menu, and shows it pressed while the board is open", () => {
+    const { helpers, onToggleBoard, onSelect } = renderInTopBar();
+    fireEvent.click(within(helpers).getByTestId("thread-tab-group-working-on"));
+    const list = within(helpers).getByTestId("thread-tab-group-list");
+    expect(list.dataset.group).toBe("working-on");
+    fireEvent.click(within(list).getAllByTestId("thread-tab-list-row-select")[0]!);
+    expect(onSelect).toHaveBeenCalled();
+
+    fireEvent.click(within(helpers).getByTestId("thread-tab-group-working-on"));
+    const board = within(helpers).getByTestId("thread-top-bar-board-button");
+    expect(board.textContent).toContain("Full board");
+    fireEvent.click(board);
+    expect(onToggleBoard).toHaveBeenCalledTimes(1);
+    expect(within(helpers).queryByTestId("thread-tab-group-list")).toBeNull();
+
+    cleanup();
+    const reopened = renderInTopBar("q-10", true);
+    const button = within(reopened.helpers).getByTestId("thread-tab-group-working-on");
+    expect(button.className).toContain("border-cc-primary");
+    fireEvent.click(button);
+    expect(within(reopened.helpers).getByTestId("thread-top-bar-board-button").textContent).toContain("Close board");
+  });
+
+  it("opens the Topics list from the Topics button", () => {
+    renderInTopBar();
+    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
+    expect(screen.getByTestId("thread-tab-group-list").dataset.group).toBe("topics");
+    expect(screen.getAllByTestId("topic-tab-row")).toHaveLength(1);
+  });
+});
+
 describe("ThreadTabGroupBar at the bottom of the screen", () => {
   it("opens group lists upward", () => {
     renderBar({ placement: "bottom" });

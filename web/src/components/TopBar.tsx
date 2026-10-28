@@ -1,5 +1,6 @@
 import { usePendingAction } from "../hooks/usePendingAction.js";
-import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
+import { topBarHelpersRef, topBarNavRef, useLeaderNavInTopBar } from "../utils/top-bar-slots.js";
+import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -14,7 +15,11 @@ import { hasUnreadSessionAttention } from "../utils/session-attention-status.js"
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { activeBoardPhaseDots } from "./leader-board-summary.js";
-import { LeaderTopicsTopBarButton, LeaderWorkboardTopBarButton } from "./leader-workboard-controls.js";
+import {
+  LeaderTopicsTopBarButton,
+  LeaderWorkboardTopBarButton,
+  toggleLeaderWorkboard,
+} from "./leader-workboard-controls.js";
 import { setTopicSheetOpen, useTopicSheetOpen } from "../utils/topic-panel.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { SessionContextMenu, type SessionMenuTarget } from "./SessionContextMenu.js";
@@ -108,6 +113,7 @@ export function TopBar({
   const isQuestmasterPage = secondaryPageFromHash(hash) === "questmaster";
   // The phone shell moves Needs input, Notify Me, Search and Quests into the sessions panel.
   const compact = !useDesktopShellLayout();
+  const leaderNavInTopBar = useLeaderNavInTopBar(useStore((s) => s.currentSessionId));
   const {
     currentSessionId,
     sidebarOpen,
@@ -121,7 +127,6 @@ export function TopBar({
     isCurrentLeaderSession,
     currentLeaderBoard,
     currentLeaderWorkboardView,
-    setLeaderWorkboardView,
   } = useStore(
     useShallow((s) => ({
       currentSessionId: s.currentSessionId,
@@ -141,7 +146,6 @@ export function TopBar({
         ? (s.sessionBoards.get(s.currentSessionId) ?? EMPTY_LEADER_BOARD_ROWS)
         : EMPTY_LEADER_BOARD_ROWS,
       currentLeaderWorkboardView: s.currentSessionId ? (s.leaderWorkboardViews.get(s.currentSessionId) ?? null) : null,
-      setLeaderWorkboardView: s.setLeaderWorkboardView,
     })),
   );
   const {
@@ -277,16 +281,8 @@ export function TopBar({
   }, [closeCodexSubagentInspector]);
   // Opens the board under the tabs without leaving the current thread; the panel switches views itself.
   const toggleLeaderWorkboardInPlace = useCallback(() => {
-    if (!currentSessionId) return;
-    const state = useStore.getState();
-    if (state.leaderWorkboardViews.get(currentSessionId)) {
-      setLeaderWorkboardView(currentSessionId, null);
-      return;
-    }
-    const hasActive = (state.sessionBoards.get(currentSessionId)?.length ?? 0) > 0;
-    const hasCompleted = (state.sessionCompletedBoards.get(currentSessionId)?.length ?? 0) > 0;
-    setLeaderWorkboardView(currentSessionId, !hasActive && hasCompleted ? "completed" : "active");
-  }, [currentSessionId, setLeaderWorkboardView]);
+    if (currentSessionId) toggleLeaderWorkboard(currentSessionId);
+  }, [currentSessionId]);
 
   if (fullPageLabel) {
     return (
@@ -355,10 +351,13 @@ export function TopBar({
     .filter(Boolean)
     .join(" ");
 
+  // A desktop leader with topics on keeps its thread navigation here (see useLeaderNavInTopBar);
+  // its model and access then leave the bar for the title's tooltip and Session Info.
+  const navInTopBar = leaderNavInTopBar && isSessionView;
   return (
     <header
       className={`shrink-0 flex items-center justify-between bg-cc-card border-b border-cc-border ${
-        compact ? "gap-2 px-2 py-1.5" : "px-2 sm:px-4 py-2 sm:py-2.5"
+        compact ? "gap-2 px-2 py-1.5" : navInTopBar ? "gap-3 px-4 py-1.5" : "px-2 sm:px-4 py-2 sm:py-2.5"
       }`}
     >
       <div className={`flex items-center min-w-0 ${compact ? "flex-1 gap-2" : "gap-3"}`}>
@@ -496,13 +495,18 @@ export function TopBar({
                           draggable={false}
                         />
                       )}
-                      {sessionName && (
-                        <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
-                          {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
-                        </span>
-                      )}
+                      {sessionName &&
+                        (navInTopBar ? (
+                          <TopBarNameWithSettings sessionId={currentSessionId} name={sessionName}>
+                            {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
+                          </TopBarNameWithSettings>
+                        ) : (
+                          <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
+                            {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
+                          </span>
+                        ))}
                       <SessionHostBadge sessionId={currentSessionId} iconOnPhone />
-                      <TopBarSettingsSummary sessionId={currentSessionId} />
+                      {!navInTopBar && <TopBarSettingsSummary sessionId={currentSessionId} />}
                     </button>
                   </>
                 )}
@@ -521,9 +525,17 @@ export function TopBar({
         )}
       </div>
 
+      {navInTopBar && (
+        <div ref={topBarNavRef} className="flex min-w-0 flex-1 items-center" data-testid="topbar-thread-nav" />
+      )}
+
       {/* Right side */}
       <div className={`flex items-center shrink-0 text-[12px] text-cc-muted ${compact ? "gap-1.5" : "gap-2 sm:gap-3"}`}>
-        {currentSessionId && isSessionView && isCurrentLeaderSession && (
+        {/* The conversation's Next chip and Working on menu, which holds the work board. */}
+        {navInTopBar && (
+          <div ref={topBarHelpersRef} className="flex items-center" data-testid="topbar-thread-helpers" />
+        )}
+        {currentSessionId && isSessionView && isCurrentLeaderSession && !navInTopBar && (
           <LeaderWorkboardTopBarButton
             open={currentLeaderWorkboardView !== null}
             dots={currentLeaderPhaseDots}
@@ -608,6 +620,27 @@ function SearchToggleButton({ isOpen, onOpen, onClose }: { isOpen: boolean; onOp
         <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85-.017.016zm-5.442.156a5 5 0 110-10 5 5 0 010 10z" />
       </svg>
     </button>
+  );
+}
+
+/** The session name when its model and access are left out of the bar: its tooltip names them. */
+function TopBarNameWithSettings({
+  sessionId,
+  name,
+  children,
+}: {
+  sessionId: string;
+  name: string;
+  children: ReactNode;
+}) {
+  const settings = useSessionSettings(sessionId);
+  return (
+    <span
+      className="min-w-0 truncate text-[11px] font-medium text-cc-fg"
+      title={settings.summary ? `${name} · ${settings.summary}` : name}
+    >
+      {children}
+    </span>
   );
 }
 

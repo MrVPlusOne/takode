@@ -119,7 +119,10 @@ export function TopicSidePanel({
 
   const body = (
     <>
-      <div className="flex shrink-0 items-center gap-2 border-b border-cc-border px-3 py-2 text-[13px]">
+      {/* Docked beside a conversation, the header is as tall as the thread strip next to it, so their lines meet. */}
+      <div
+        className={`flex shrink-0 items-center gap-2 border-b border-cc-border px-3 text-[13px] ${collapses ? "h-8" : "py-2"}`}
+      >
         {shown ? (
           <button type="button" onClick={() => setChosen("")} className="text-cc-muted hover:text-cc-fg">
             ‹ All topics

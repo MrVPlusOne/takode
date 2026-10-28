@@ -18,7 +18,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
-import { ThreadTabGroupBar, topicFirstTabOrder } from "./ThreadTabGroups.js";
+import { ThreadTabGroupBar, topicFirstTabOrder, type ThreadTabGroupBarProps } from "./ThreadTabGroups.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { useLeaderTopics } from "../utils/leader-topics.js";
 import { readsWhenSeen } from "../hooks/use-unread-messages-seen.js";
@@ -147,7 +147,10 @@ export function ThreadTabRail({
   threadStatuses,
   tabOrderRef,
   attentionChipThreadKey,
+  inTopBar,
 }: {
+  /** Desktop leaders with topics on: drawn inside the top bar (see ThreadTabGroupBar). */
+  inTopBar?: ThreadTabGroupBarProps["inTopBar"];
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
   sessionId: string;
@@ -262,13 +265,14 @@ export function ThreadTabRail({
 
   return (
     <div
-      className="border-b border-cc-border bg-cc-card px-3 sm:px-4"
+      className={inTopBar ? "min-w-0" : "border-b border-cc-border bg-cc-card px-3 sm:px-4"}
       data-testid="thread-tab-rail"
       data-open-tab-count={tabs.length + 1}
     >
       <ThreadTabGroupBar
         // A new bar per leader, so motion that compares renders never compares two leaders' tabs.
         key={sessionId}
+        inTopBar={inTopBar}
         main={mainState}
         tabs={displayedTabs}
         trailing={

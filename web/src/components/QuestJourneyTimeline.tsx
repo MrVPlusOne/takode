@@ -250,7 +250,7 @@ export function QuestJourneyCompactSummary({
       <span className="shrink-0 font-medium text-cc-fg">{label}</span>
       {position && (
         <span
-          className={`shrink-0 text-[10px] text-cc-muted ${mode !== "active" && hidePhaseTotalOnNarrow ? "max-sm:hidden" : ""}`.trim()}
+          className={`shrink-0 text-[10px] text-cc-muted ${mode !== "active" && hidePhaseTotalOnNarrow ? "max-sm:hidden @max-[52rem]/quest-strip:hidden" : ""}`.trim()}
           data-testid="quest-journey-compact-position"
         >
           {position}

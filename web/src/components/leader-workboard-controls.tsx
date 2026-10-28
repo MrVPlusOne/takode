@@ -1,8 +1,24 @@
 import type { ReactNode } from "react";
+import { useStore } from "../store.js";
 import { TopicIcon } from "./library/library-icons.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { describeBoardPhaseDots, type BoardPhaseDot, type BoardSummarySegment } from "./leader-board-summary.js";
 import { getQuestPhaseAccentValue } from "../utils/quest-phase-theme.js";
+
+/**
+ * Opens a leader's work board under its tabs without leaving the current thread, or closes it.
+ * It opens on the active board, or on the completed one when nothing is active.
+ */
+export function toggleLeaderWorkboard(sessionId: string): void {
+  const state = useStore.getState();
+  if (state.leaderWorkboardViews.get(sessionId)) {
+    state.setLeaderWorkboardView(sessionId, null);
+    return;
+  }
+  const hasActive = (state.sessionBoards.get(sessionId)?.length ?? 0) > 0;
+  const hasCompleted = (state.sessionCompletedBoards.get(sessionId)?.length ?? 0) > 0;
+  state.setLeaderWorkboardView(sessionId, !hasActive && hasCompleted ? "completed" : "active");
+}
 
 /** Kanban board: a frame holding two card columns of different heights, the familiar board glyph, legible at phone size. */
 export function WorkBoardIcon({ className = "h-4 w-4" }: { className?: string }) {

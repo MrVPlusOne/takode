@@ -1,9 +1,11 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import { useLeaderNavInTopBar } from "../utils/top-bar-slots.js";
 import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
 import {
   TopicConversationHeader,
   TopicEntryContext,
+  TopicCrumb,
   TopicEntryLine,
   useTopicConversation,
   useTopicWindowFollowsQuests,
@@ -562,6 +564,8 @@ export function ChatView({
   // On desktop a leader's Next chip sits right after the thread tabs instead of over the feed.
   const hasThreadTabRow = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
   const attentionChipInTabRow = desktopShell && !preview && hasThreadTabRow;
+  // Desktop leaders with topics on: tabs in the top bar, the topic folded into the quest strip.
+  const navInTopBar = useLeaderNavInTopBar(sessionId) && !preview;
   // On a phone the open topic panel starts right under the tabs: the thread's strips step aside.
   const phoneTopicsOpen = useTopicSheetOpen(sessionId) && !desktopShell && !preview;
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
@@ -1220,12 +1224,12 @@ export function ChatView({
             <div ref={zoomColumnRef} className="flex min-w-0 flex-1 flex-col">
               {!preview && !phoneTopicsOpen && topicFeedOn && (
                 <div ref={questStripRef} className="contents">
-                  <TopicConversationHeader leaderId={sessionId} topic={topicConversation} />
+                  <TopicConversationHeader leaderId={sessionId} topic={topicConversation} besidePanel={navInTopBar} />
                 </div>
               )}
               {!preview && !phoneTopicsOpen && showQuestThreadBanner && !topicFeedOn && (
                 <div ref={questStripRef} className="contents">
-                  {topicConversation && (
+                  {topicConversation && !navInTopBar && (
                     <TopicEntryLine
                       name={topicConversation.name}
                       count={topicConversation.questIds.length}
@@ -1239,6 +1243,12 @@ export function ChatView({
                     monitorSessionId={sessionId}
                     diffSessionId={sessionId}
                     onCloseTab={closeSelectedThreadTab}
+                    singleLine={navInTopBar}
+                    leading={
+                      navInTopBar && topicConversation ? (
+                        <TopicCrumb name={topicConversation.name} onOpen={zoomOutToTopic} />
+                      ) : undefined
+                    }
                   />
                 </div>
               )}

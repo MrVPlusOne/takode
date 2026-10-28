@@ -91,7 +91,11 @@ export function DiffChipButton({
     >
       <DiffChipIcon className={`h-3.5 w-3.5 ${empty ? "" : "text-cc-muted"}`} />
       {showCommits && (
-        <span className="tabular-nums" data-testid={`${testId}-commits`}>
+        // A narrow one-line quest strip shows the empty diff as its icon alone (the label still says it).
+        <span
+          className={`tabular-nums ${commitCount ? "" : "@max-[52rem]/quest-strip:hidden"}`}
+          data-testid={`${testId}-commits`}
+        >
           {commitCount ? commitCountLabel(commitCount) : "No commits"}
         </span>
       )}

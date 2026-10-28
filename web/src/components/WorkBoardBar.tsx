@@ -5,6 +5,8 @@
  * board rows stay independently authoritative and load only while their panel
  * is open.
  */
+import { createPortal } from "react-dom";
+import { useLeaderNavInTopBar, useTopBarSlot } from "../utils/top-bar-slots.js";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
@@ -18,8 +20,13 @@ import { SessionChangesChip } from "./DiffChip.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
-import { activeBoardSummarySegments, boardSummary, type BoardSummarySegment } from "./leader-board-summary.js";
-import { LeaderWorkboardControlButton, WorkBoardIcon } from "./leader-workboard-controls.js";
+import {
+  activeBoardPhaseDots,
+  activeBoardSummarySegments,
+  boardSummary,
+  type BoardSummarySegment,
+} from "./leader-board-summary.js";
+import { LeaderWorkboardControlButton, toggleLeaderWorkboard, WorkBoardIcon } from "./leader-workboard-controls.js";
 import { MainStripSummary } from "./WorkBoardMainStrip.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
@@ -459,6 +466,25 @@ function WorkBoardBarComponent({
   hideThreadStrip?: boolean;
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
+  // Desktop leaders with topics on draw their tabs in the top bar. Kept conversations stay mounted
+  // while hidden, so only the conversation on screen fills it.
+  const navInTopBar = useLeaderNavInTopBar(sessionId);
+  const onScreen = useStore((state) => navInTopBar && state.currentSessionId === sessionId);
+  const topBarNav = useTopBarSlot("nav");
+  const topBarHelpers = useTopBarSlot("helpers");
+  // The Working on button's board dots, only in the top bar, and by what they show: a board
+  // update that changes no dot must not re-render the bar.
+  const boardDotsKey = useStore((state) =>
+    navInTopBar
+      ? activeBoardPhaseDots(state.sessionBoards.get(sessionId) ?? [])
+          .map((dot) => `${dot.questId}:${dot.phase.id}`)
+          .join(",")
+      : "",
+  );
+  const boardDots = useMemo(
+    () => (boardDotsKey ? activeBoardPhaseDots(useStore.getState().sessionBoards.get(sessionId) ?? []) : []),
+    [boardDotsKey, sessionId],
+  );
   const leaderTabsResolution = useStore(useShallow((state) => resolveLeaderThreadTabsProjection(state, sessionId)));
   const projection = leaderTabsResolution.projectionState === "accepted" ? leaderTabsResolution.value : null;
   const activeView = useStore((state) => state.leaderWorkboardViews?.get(sessionId) ?? null);
@@ -564,27 +590,43 @@ function WorkBoardBarComponent({
   };
   if (!isOrchestrator) return null;
 
+  const rail = (
+    <ThreadTabRail
+      inTopBar={
+        navInTopBar
+          ? {
+              helpers: topBarHelpers,
+              board: {
+                open: activeView !== null,
+                dots: boardDots,
+                onToggle: () => toggleLeaderWorkboard(sessionId),
+              },
+            }
+          : undefined
+      }
+      mainState={mainThreadState}
+      tabs={displayedThreadTabs}
+      sessionId={sessionId}
+      currentThreadKey={currentThreadKey}
+      onSelectThread={onSelectThread}
+      onCloseThreadTab={onCloseThreadTab ? handleCloseThreadTab : undefined}
+      threadStatuses={threadStatuses}
+      tabOrderRef={tabOrderRef}
+      attentionChipThreadKey={attentionChipThreadKey}
+    />
+  );
   return (
     <div className="shrink-0 flex flex-col min-h-0">
-      <ThreadTabRail
-        mainState={mainThreadState}
-        tabs={displayedThreadTabs}
-        sessionId={sessionId}
-        currentThreadKey={currentThreadKey}
-        onSelectThread={onSelectThread}
-        onCloseThreadTab={onCloseThreadTab ? handleCloseThreadTab : undefined}
-        threadStatuses={threadStatuses}
-        tabOrderRef={tabOrderRef}
-        attentionChipThreadKey={attentionChipThreadKey}
-      />
+      {!navInTopBar ? rail : onScreen && topBarNav ? createPortal(rail, topBarNav) : null}
 
       {showMainBanner && !hideThreadStrip && (
         <div
-          className="flex min-w-0 flex-nowrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
+          className={`flex min-w-0 flex-nowrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 sm:px-4 ${navInTopBar ? "min-h-8 py-0.5" : "py-1.5"}`}
           data-testid="workboard-main-banner"
           data-active-view={panelView ?? ""}
         >
-          <ProjectionToggle currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
+          {/* The top bar's Main | All switch replaces it there. */}
+          {!navInTopBar && <ProjectionToggle currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />}
           <WorkBoardIcon className="h-4 w-4 text-cc-info" />
           <MainStripSummary
             summary={projection?.activePhaseSummary ?? []}

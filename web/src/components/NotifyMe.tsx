@@ -106,7 +106,8 @@ export function NotifyMeControlView({
         ) : (
           <>
             <NotifyMeIcon pending={pending} monitored={enabled} />
-            {pending ? "Acknowledge" : "Notify"}
+            {/* A narrow one-line quest strip keeps the icon; Acknowledge always keeps its word. */}
+            {pending ? "Acknowledge" : <span className="@max-[52rem]/quest-strip:hidden">Notify</span>}
           </>
         )}
       </button>

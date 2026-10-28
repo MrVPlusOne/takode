@@ -81,6 +81,11 @@ export function useLeaderTopics(
   return known?.enabled ? known : null;
 }
 
+/** Whether a leader has Library topics on, as last known (false until its tab bar has asked). */
+export function useLeaderTopicsOn(leaderId: string): boolean {
+  return useLeaderTopicsStore((state) => !!leaderId && !!state.byLeader[leaderId]?.enabled);
+}
+
 /** The topic a quest is filed under, as last known; undefined when not known yet. */
 export function useKnownQuestTopic(leaderId: string, questId: string): QuestTopicMap[string] | null | undefined {
   return useLeaderTopicsStore((state) => {

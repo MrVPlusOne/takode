@@ -79,13 +79,19 @@ export function TopicEntryLine({ name, count, onOpen }: { name: string; count: n
 export function TopicConversationHeader({
   leaderId,
   topic,
+  besidePanel = false,
 }: {
   leaderId: string;
   topic: { topicId: string; name: string; questIds: string[] };
+  /**
+   * Desktop with the thread navigation in the top bar: the topic panel beside the conversation
+   * shows the quest count, and the header lines up with the panel's own header.
+   */
+  besidePanel?: boolean;
 }) {
   return (
     <div
-      className="flex shrink-0 min-w-0 items-center gap-1.5 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1.5 text-xs sm:px-3"
+      className={`flex shrink-0 min-w-0 items-center gap-1.5 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 text-xs sm:px-3 ${besidePanel ? "min-h-8 py-0.5" : "py-1.5"}`}
       data-testid="topic-conversation-header"
     >
       <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
@@ -97,8 +103,33 @@ export function TopicConversationHeader({
       >
         {topic.name}
       </button>
-      <span className="shrink-0 text-cc-muted">· {questCount(topic.questIds.length)}</span>
+      {!besidePanel && <span className="shrink-0 text-cc-muted">· {questCount(topic.questIds.length)}</span>}
     </div>
+  );
+}
+
+/**
+ * Desktop, with the thread navigation in the top bar: the quest's topic at the start of its strip,
+ * in place of the line above it. Tapping it zooms out to the whole topic at this quest's place.
+ * The topic panel beside the conversation shows the topic's quest count.
+ */
+export function TopicCrumb({ name, onOpen }: { name: string; onOpen: () => void }) {
+  return (
+    // Gives way before the quest title does, down to the start of the topic's name.
+    <span className="inline-flex min-w-[6.5rem] max-w-[16rem] shrink-[4] items-center gap-1">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[12px] text-cc-fg hover:bg-cc-hover"
+        aria-label={`Zoom out to the topic ${name}`}
+        title="Zoom out to the whole topic, at this quest's place"
+        data-testid="topic-crumb"
+      >
+        <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
+        <span className="min-w-0 truncate">{name}</span>
+      </button>
+      <ChevronRight className="h-3 w-3 shrink-0 text-cc-muted" />
+    </span>
   );
 }
 

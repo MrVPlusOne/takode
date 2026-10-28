@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { rememberTopicList } from "../utils/leader-topics.js";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { LeaderWorkboardView } from "../store-types.js";
@@ -1057,6 +1058,42 @@ describe("TopBar", () => {
     // The retired separate shortcuts must not come back next to the Board button.
     expect(screen.queryByTestId("topbar-workboard-shortcut")).not.toBeInTheDocument();
     expect(screen.queryByTestId("topbar-completed-shortcut")).not.toBeInTheDocument();
+  });
+
+  // Desktop leaders with Library topics on lose the tab row: the conversation fills two places in
+  // the top bar (its navigation after the name, Next and Working on before the bell), Working on
+  // replaces the Board button, and model and access move to the name's tooltip.
+  it("hands a desktop leader with topics on its navigation places, without Board or the settings line", () => {
+    window.innerWidth = 1280;
+    // Its own session ID: the topics cache is module state that outlives a test.
+    resetStore({
+      currentSessionId: "topics-leader",
+      sessions: new Map([["topics-leader", { cwd: "/repo", model: "claude-opus-5.5", permissionMode: "acceptEdits" }]]),
+      sdkSessions: [{ sessionId: "topics-leader", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
+    });
+    rememberTopicList("topics-leader", [{ id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never]);
+
+    render(<TopBar />);
+
+    expect(screen.getByTestId("topbar-thread-nav")).toBeInTheDocument();
+    expect(screen.getByTestId("topbar-thread-helpers")).toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-workboard-button")).toBeNull();
+    expect(screen.queryByTestId("session-settings-summary")).toBeNull();
+    expect(screen.getByTitle("Leader Session · opus-5.5 · Accept edits")).toBeInTheDocument();
+  });
+
+  it("keeps the tab-row layout for a leader on a phone even with topics on", () => {
+    window.innerWidth = 430;
+    resetStore({
+      currentSessionId: "topics-leader",
+      sdkSessions: [{ sessionId: "topics-leader", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
+    });
+    rememberTopicList("topics-leader", [{ id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never]);
+
+    render(<TopBar />);
+
+    expect(screen.queryByTestId("topbar-thread-nav")).toBeNull();
+    expect(screen.getByTestId("topbar-workboard-button")).toBeInTheDocument();
   });
 
   it("keeps the Board button for a leader whose board is empty", () => {

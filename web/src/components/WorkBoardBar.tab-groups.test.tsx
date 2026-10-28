@@ -4,6 +4,8 @@
  * groups: group counts and bells, the order inside groups, title colors for finished and
  * waiting quests, canonical titles, and lists that stay open across closes.
  */
+import { rememberTopicList } from "../utils/leader-topics.js";
+import { topBarHelpersRef, topBarNavRef } from "../utils/top-bar-slots.js";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
@@ -223,6 +225,48 @@ describe("WorkBoardBar tab groups", () => {
     fireEvent.click(within(row(rows, "q-4")).getByTestId("thread-tab-list-row-select"));
     expect(onSelectThread).toHaveBeenCalledWith("q-4");
     expect(screen.queryByTestId("thread-tab-group-list")).not.toBeInTheDocument();
+  });
+
+  it("draws a desktop leader's tabs in the top bar with topics on, only for the conversation on screen", () => {
+    // Its own leader ID: the topics cache is module state that outlives a test.
+    const width = window.innerWidth;
+    window.innerWidth = 1280;
+    const leader = "topbar-leader";
+    resetStore({
+      sdkSessions: [{ sessionId: leader, isOrchestrator: true }],
+      sessionBoards: new Map([[leader, [{ questId: "q-3", title: "Quest 3", status: "WORKING", updatedAt: 3 }]]]),
+    });
+    rememberTopicList(leader, [{ id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never]);
+    const nav = document.createElement("div");
+    const helpers = document.createElement("div");
+    document.body.append(nav, helpers);
+    topBarNavRef(nav);
+    topBarHelpersRef(helpers);
+    try {
+      // A kept conversation, mounted but not on screen, leaves the top bar alone.
+      (mockState as MockStoreState & { currentSessionId?: string }).currentSessionId = "another-session";
+      const view = render(
+        <WorkBoardBar sessionId={leader} currentThreadKey="q-5" openThreadKeys={OPEN_KEYS} threadRows={THREAD_ROWS} />,
+      );
+      expect(screen.queryByTestId("thread-tab-group-bar")).toBeNull();
+
+      (mockState as MockStoreState & { currentSessionId?: string }).currentSessionId = leader;
+      view.rerender(
+        <WorkBoardBar sessionId={leader} currentThreadKey="q-5" openThreadKeys={OPEN_KEYS} threadRows={THREAD_ROWS} />,
+      );
+      expect(within(nav).getByTestId("thread-tab-group-main")).toBeInTheDocument();
+      // Working on carries the Board button's icon, one dot per quest at work on the board.
+      expect(within(helpers).getAllByTestId("workboard-dot")).toHaveLength(1);
+      // No tab row of its own under the top bar.
+      expect(view.container.querySelector('[data-testid="thread-tab-group-bar"]')).toBeNull();
+      view.unmount();
+    } finally {
+      window.innerWidth = width;
+      topBarNavRef(null);
+      topBarHelpersRef(null);
+      nav.remove();
+      helpers.remove();
+    }
   });
 
   it("counts unread results without treating an opened list as reading them", () => {

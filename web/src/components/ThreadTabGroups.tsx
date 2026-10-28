@@ -30,6 +30,9 @@ import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
 import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
+import { createPortal } from "react-dom";
+import { WorkBoardDotsIcon, WorkBoardIcon } from "./leader-workboard-controls.js";
+import type { BoardPhaseDot } from "./leader-board-summary.js";
 
 export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";
 
@@ -161,6 +164,15 @@ export interface ThreadTabGroupBarProps extends RowContext {
   };
   /** Shown in the row right after the tabs, outside the tab list (the desktop Next chip). */
   trailing?: ReactNode;
+  /**
+   * Desktop leaders with topics on: the bar lives in the top bar instead of a tab row. Main | All
+   * and Topics sit where the bar is drawn; the Next chip (`trailing`) and the Working on menu, which
+   * holds the work board, go to `inTopBar.helpers`.
+   */
+  inTopBar?: {
+    helpers: HTMLElement | null;
+    board: { open: boolean; dots: readonly BoardPhaseDot[]; onToggle: () => void };
+  };
 }
 
 /**
@@ -173,6 +185,7 @@ export function ThreadTabGroupBar({
   placement = "top",
   topicsGroup,
   trailing,
+  inTopBar,
   ...rows
 }: ThreadTabGroupBarProps) {
   const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | "topics" | "working-on" | null>(null);
@@ -234,6 +247,16 @@ export function ThreadTabGroupBar({
     rows.onSelect(threadKey);
   };
   const rowContext = { ...rows, onSelect: select };
+  const topicsList = (group: NonNullable<ThreadTabGroupBarProps["topicsGroup"]>) => (
+    <TopicsGroupList
+      topicsGroup={group}
+      topicFirst={!!topicFirst}
+      currentTopicId={onTopic ? group.currentTopicId : null}
+      questTabs={questTabs}
+      rowContext={rowContext}
+      onLeave={() => setOpenGroup(null)}
+    />
+  );
   const [listLeft, setListLeft] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const listMaxHeight = useHeightAboveKeyboard(listRef, !!openGroup && placement === "top");
@@ -303,6 +326,118 @@ export function ThreadTabGroupBar({
         </>
       ),
     });
+  if (inTopBar) {
+    const workingOnList = (
+      <>
+        <ListHeading label="Working on" count={workingOn.length}>
+          <button
+            type="button"
+            onClick={() => {
+              setOpenGroup(null);
+              inTopBar.board.onToggle();
+            }}
+            className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-cc-border bg-cc-hover/40 px-2 text-[12px] normal-case tracking-normal text-cc-fg hover:bg-cc-hover"
+            data-testid="thread-top-bar-board-button"
+          >
+            <WorkBoardIcon className="h-3.5 w-3.5 text-cc-info" />
+            {inTopBar.board.open ? "Close board" : "Full board"}
+          </button>
+        </ListHeading>
+        {workingOn.length === 0 && <div className="px-4 py-3 text-[12px] text-cc-muted">Nothing in progress</div>}
+        {workingOn.map((tab) => (
+          <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
+        ))}
+      </>
+    );
+    const list = (side: "left" | "right", body: ReactNode) => (
+      <>
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setOpenGroup(null)}
+          data-testid="thread-tab-group-backdrop"
+        />
+        <div
+          className={`absolute top-full z-50 mt-2 max-h-[60dvh] overflow-y-auto rounded-xl border border-cc-border bg-cc-card py-1 shadow-xl ${side === "left" ? "left-0" : "right-0"}`}
+          style={{ width: WIDE_LIST_WIDTH_PX }}
+          role="menu"
+          data-testid="thread-tab-group-list"
+          data-group={openGroup ?? ""}
+        >
+          {body}
+        </div>
+      </>
+    );
+    const toggleList = (group: "topics" | "working-on") => setOpenGroup((open) => (open === group ? null : group));
+    const onAll = currentKey === ALL_THREADS_KEY;
+    return (
+      <>
+        <div ref={barRef} className="relative flex shrink-0 items-center gap-1.5" data-testid="thread-tab-group-bar">
+          <div
+            className="inline-flex h-7 shrink-0 items-center rounded-lg border border-cc-border bg-cc-hover/40 p-0.5"
+            role="group"
+            aria-label="Main thread"
+          >
+            <TopBarSegment
+              selected={onMain && !onAll}
+              onClick={() => select(MAIN_THREAD_KEY)}
+              label="Main Thread"
+              testId="thread-tab-group-main"
+            >
+              {spinningTab === "main" && <ActiveOutputSpinner />}
+              Main
+              <AttentionBell tab={mainTab} />
+            </TopBarSegment>
+            <TopBarSegment
+              selected={onAll}
+              onClick={() => select(ALL_THREADS_KEY)}
+              label="All threads"
+              testId="thread-tab-group-all"
+            >
+              All
+            </TopBarSegment>
+          </div>
+          {topicsGroup && (
+            <TopBarButton
+              label="Topics"
+              open={openGroup === "topics"}
+              onClick={() => toggleList("topics")}
+              testId="thread-tab-group-topics"
+              group="topics"
+            >
+              {spinningTab === "topics" && <ActiveOutputSpinner />}
+              <TopicIcon className="h-3.5 w-3.5 shrink-0" />
+              Topics
+              <AttentionBell tab={attentionOf(questTabs)} />
+              <ListChevron />
+            </TopBarButton>
+          )}
+          {openGroup === "topics" && topicsGroup && list("left", topicsList(topicsGroup))}
+        </div>
+        {inTopBar.helpers &&
+          createPortal(
+            <div className="relative flex items-center gap-2" data-testid="thread-top-bar-helpers">
+              {trailing}
+              <TopBarButton
+                label={`Working on: ${workingOn.length}`}
+                open={openGroup === "working-on"}
+                pressed={inTopBar.board.open}
+                onClick={() => toggleList("working-on")}
+                testId="thread-tab-group-working-on"
+                group="working-on"
+              >
+                {spinningTab === "working-on" && <ActiveOutputSpinner />}
+                <WorkBoardDotsIcon dots={inTopBar.board.dots} large={false} />
+                <span className="tabular-nums">Working on {workingOn.length}</span>
+                <AttentionBell tab={attentionOf(workingOn)} />
+                <ListChevron />
+              </TopBarButton>
+              {openGroup === "working-on" && list("right", workingOnList)}
+            </div>,
+            inTopBar.helpers,
+          )}
+      </>
+    );
+  }
   return (
     <div
       ref={barRef}
@@ -397,16 +532,7 @@ export function ThreadTabGroupBar({
                 ))}
               </>
             ) : openGroup === "topics" ? (
-              topicsGroup && (
-                <TopicsGroupList
-                  topicsGroup={topicsGroup}
-                  topicFirst={!!topicFirst}
-                  currentTopicId={onTopic ? topicsGroup.currentTopicId : null}
-                  questTabs={questTabs}
-                  rowContext={rowContext}
-                  onLeave={() => setOpenGroup(null)}
-                />
-              )
+              topicsGroup && topicsList(topicsGroup)
             ) : (
               <>
                 <GroupHeading
@@ -542,6 +668,85 @@ function BarItem({
       {activeOutput && <ActiveOutputSpinner />}
       {children}
     </button>
+  );
+}
+
+/** A top-bar button opening one of the bar's lists, shaped like the top bar's other buttons. */
+function TopBarButton({
+  label,
+  open,
+  pressed = false,
+  onClick,
+  testId,
+  group,
+  children,
+}: {
+  label: string;
+  open: boolean;
+  /** Shown pressed while what it opens is on screen (the work board for Working on). */
+  pressed?: boolean;
+  onClick: () => void;
+  testId: string;
+  group: "topics" | "working-on";
+  children: ReactNode;
+}) {
+  const tone =
+    open || pressed
+      ? "border-cc-primary/50 bg-cc-primary/12 text-cc-fg"
+      : "border-cc-border bg-cc-hover/40 text-cc-fg hover:bg-cc-hover";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      // Above the open list's backdrop, so a second click closes the list.
+      className={`relative ${open ? "z-50" : ""} inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 ${tone}`}
+      aria-label={label}
+      aria-expanded={open}
+      aria-haspopup="menu"
+      data-testid={testId}
+      data-group={group}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Main or All in the top bar's Main | All switch. */
+function TopBarSegment({
+  selected,
+  onClick,
+  label,
+  testId,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  label: string;
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-full items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 ${
+        selected ? "bg-cc-primary/12 text-cc-fg" : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+      }`}
+      aria-label={label}
+      aria-pressed={selected}
+      data-testid={testId}
+      data-selected={selected ? "true" : "false"}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ListChevron() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-3 w-3 shrink-0 text-cc-muted" fill="none" aria-hidden="true">
+      <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
   );
 }
 
