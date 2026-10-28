@@ -96,7 +96,14 @@ describe("PushoverNotifier", () => {
       makeOpts({
         getSettings: () =>
           makeSettings({
-            pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true, overdueTodos: true },
+            pushoverEventFilters: {
+              needsInput: true,
+              review: false,
+              notifyMe: true,
+              error: true,
+              urgent: true,
+              overdueTodos: true,
+            },
           }),
       }),
     );
@@ -106,15 +113,88 @@ describe("PushoverNotifier", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  // ── Urgent results ──────────────────────────────────────────────────
+
+  it("sends an urgent result at high priority while it is still unread, even after the session was read", async () => {
+    // Reading another thread advances the session read time; an urgent answer that is
+    // still unread must alert anyway, so the alert checks the answer itself instead.
+    let open = true;
+    notifier = new PushoverNotifier(makeOpts({ getLastReadAt: () => Date.now() }));
+    notifier.scheduleNotification("sess-1", "urgent-result", "Encore replied", undefined, {
+      notificationId: "n-4",
+      threadKey: "q-7",
+      messageId: "m-9",
+      isStillOpen: () => open,
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const body = lastFetchBody();
+    expect(body.get("title")).toBe("Urgent result");
+    expect(body.get("priority")).toBe("1");
+    expect(body.get("message")).toContain("Encore replied");
+    expect(body.get("url")).toContain("/msg/m-9?thread=q-7");
+
+    // Read before the delay ends: no alert.
+    open = false;
+    notifier.scheduleNotification("sess-2", "urgent-result", "Build broke", undefined, {
+      notificationId: "n-5",
+      isStillOpen: () => open,
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps each urgent result as its own alert and honors the Urgent results switch", async () => {
+    let urgent = true;
+    notifier = new PushoverNotifier(
+      makeOpts({
+        getSettings: () =>
+          makeSettings({
+            pushoverEventFilters: {
+              needsInput: true,
+              review: false,
+              notifyMe: true,
+              error: true,
+              urgent,
+              overdueTodos: true,
+            },
+          }),
+      }),
+    );
+    // Results are off, but urgent results have their own switch. A second urgent result
+    // in the same session does not push the first one's alert back.
+    notifier.scheduleNotification("sess-1", "urgent-result", "First", undefined, {
+      notificationId: "n-1",
+      isStillOpen: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    notifier.scheduleNotification("sess-1", "urgent-result", "Second", undefined, {
+      notificationId: "n-2",
+      isStillOpen: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(lastFetchBody().get("message")).toContain("First");
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    urgent = false;
+    notifier.scheduleNotification("sess-3", "urgent-result", "Third", undefined, {
+      notificationId: "n-3",
+      isStillOpen: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("re-checks filters before firing pending notifications", async () => {
-    let filters = { needsInput: true, review: true, notifyMe: true, error: true, overdueTodos: true };
+    let filters = { needsInput: true, review: true, notifyMe: true, error: true, urgent: true, overdueTodos: true };
     notifier = new PushoverNotifier(
       makeOpts({
         getSettings: () => makeSettings({ pushoverEventFilters: filters }),
       }),
     );
     notifier.scheduleNotification("sess-1", "completed");
-    filters = { needsInput: true, review: false, notifyMe: true, error: true, overdueTodos: true };
+    filters = { needsInput: true, review: false, notifyMe: true, error: true, urgent: true, overdueTodos: true };
 
     await vi.advanceTimersByTimeAsync(30_000);
     expect(fetch).not.toHaveBeenCalled();
@@ -131,7 +211,14 @@ describe("PushoverNotifier", () => {
       makeOpts({
         getSettings: () =>
           makeSettings({
-            pushoverEventFilters: { needsInput: true, review: true, notifyMe: false, error: true, overdueTodos: true },
+            pushoverEventFilters: {
+              needsInput: true,
+              review: true,
+              notifyMe: false,
+              error: true,
+              urgent: true,
+              overdueTodos: true,
+            },
           }),
       }),
     );

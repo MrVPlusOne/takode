@@ -13,6 +13,8 @@ export type ThreadRouteParseResult =
       target: ThreadRouteTarget;
       role?: LeaderThreadTextRole;
       answerUserMessageIds?: string[];
+      /** Set on an urgent answer (`A!`): the user should read it soon. */
+      urgent?: true;
       body: string;
     }
   | {
@@ -23,10 +25,12 @@ export type ThreadRouteParseResult =
     };
 
 // An answer marker may list the user-message IDs it answers, or none for a
-// result presented on the leader's own initiative ([thread:q-N:A]).
+// result presented on the leader's own initiative ([thread:q-N:A]). `A!` marks
+// an urgent answer ([thread:q-N:A!:u1]).
 const TEXT_THREAD_MARKER_RE =
-  /^\[thread:(main|q-\d+)(?::(C)|:(A)(?::(u[1-9]\d*(?:,u[1-9]\d*)*))?)?\](?=$|[ \t]|\r?\n)/i;
-const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)(?::(C)|:(A)(?::(u[1-9]\d*(?:,u[1-9]\d*)*))?)?\]/i;
+  /^\[thread:(main|q-\d+)(?::(C)|:(A)(!)?(?::(u[1-9]\d*(?:,u[1-9]\d*)*))?)?\](?=$|[ \t]|\r?\n)/i;
+const TEXT_THREAD_MARKER_AT_LINE_START_RE =
+  /^\[thread:(main|q-\d+)(?::(C)|:(A)(!)?(?::(u[1-9]\d*(?:,u[1-9]\d*)*))?)?\]/i;
 const TEXT_THREAD_DESTINATION_PREFIX_RE = /^\[thread:(main|q-\d+):/i;
 const MARKDOWN_FENCE_RE = /^\s*(`{3,}|~{3,})/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
@@ -82,6 +86,7 @@ export function formatThreadMarker(
   threadKey: string,
   role?: LeaderThreadTextRole,
   answerUserMessageIds: readonly string[] = [],
+  options: { urgent?: boolean } = {},
 ): string {
   if (role === "answer") {
     if (
@@ -90,9 +95,10 @@ export function formatThreadMarker(
     ) {
       throw new Error("Answer thread markers accept only unique canonical user-message IDs.");
     }
+    const answerRole = options.urgent ? "A!" : "A";
     return answerUserMessageIds.length === 0
-      ? `[thread:${threadKey}:A]`
-      : `[thread:${threadKey}:A:${answerUserMessageIds.join(",")}]`;
+      ? `[thread:${threadKey}:${answerRole}]`
+      : `[thread:${threadKey}:${answerRole}:${answerUserMessageIds.join(",")}]`;
   }
   const suffix = role === "commentary" ? ":C" : "";
   return `[thread:${threadKey}${suffix}]`;
@@ -128,8 +134,8 @@ export function parseThreadTextPrefix(text: string): ThreadRouteParseResult {
     return { ok: false, reason: "invalid_role", marker: conflictingMarker, body: text };
   }
   const role = normalizeThreadTextRole(match[2], match[3]);
-  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3], match[4]);
-  if (match[4] && !answerUserMessageIds) {
+  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3], match[5]);
+  if (match[5] && !answerUserMessageIds) {
     return { ok: false, reason: "invalid_role", marker: extractThreadMarkerLike(candidate), body: text };
   }
   return {
@@ -137,6 +143,7 @@ export function parseThreadTextPrefix(text: string): ThreadRouteParseResult {
     target,
     ...(role ? { role } : {}),
     ...(answerUserMessageIds ? { answerUserMessageIds } : {}),
+    ...(match[4] ? { urgent: true as const } : {}),
     body,
   };
 }
@@ -159,8 +166,8 @@ export function parseThreadTextLineStartMarker(text: string): ThreadRouteParseRe
     return { ok: false, reason: "invalid_role", marker: conflictingMarker, body: text };
   }
   const role = normalizeThreadTextRole(match[2], match[3]);
-  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3], match[4]);
-  if (match[4] && !answerUserMessageIds) {
+  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3], match[5]);
+  if (match[5] && !answerUserMessageIds) {
     return { ok: false, reason: "invalid_role", marker: extractThreadMarkerLike(text), body: text };
   }
   return {
@@ -168,6 +175,7 @@ export function parseThreadTextLineStartMarker(text: string): ThreadRouteParseRe
     target,
     ...(role ? { role } : {}),
     ...(answerUserMessageIds ? { answerUserMessageIds } : {}),
+    ...(match[4] ? { urgent: true as const } : {}),
     body,
   };
 }

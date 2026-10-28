@@ -118,6 +118,12 @@ type NotificationMuteDeps = PersistNotificationDeps & {
 
 type LeaderUnreadDeps = PersistNotificationDeps & {
   isHerdedWorkerSession?: (session: SessionLike) => boolean;
+  /** Phone alert for an urgent answer; it fires only while `isStillOpen` holds after the alert delay. */
+  scheduleUrgentResultAlert?: (
+    sessionId: string,
+    detail: string,
+    options: { notificationId: string; threadKey: string; messageId: string; isStillOpen: () => boolean },
+  ) => void;
   /** The message a quest was filed from, to recognize supporting quests. */
   resolveQuestStartedFrom?: (questId: string) => Promise<QuestStartedFrom | null>;
 };
@@ -577,6 +583,7 @@ type LeaderAnswerEntry = Extract<BrowserIncomingMessage, { type: "assistant" }>;
  * is what the user needs to read; a Thread Ready mark alone no longer does.
  * An answer shown in several threads is unread only in the thread it was written
  * in. A needs-input context answer is skipped: its prompt already asks for attention.
+ * An urgent answer (`A!`) always sounds and also sends a phone alert while it stays unread.
  */
 export function recordAnswerUnreadNotifications(
   session: SessionLike,
@@ -593,15 +600,29 @@ export function recordAnswerUnreadNotifications(
     const label = threadKey === "main" ? "Main" : threadKey;
     const timestamp = typeof answer.timestamp === "number" ? answer.timestamp : Date.now();
     const answerTo = answer.threadAnswer?.answerUserMessageIds ?? [];
-    addLeaderUnreadNotification(session, {
+    const urgent = answer.threadAnswer?.urgent === true;
+    const summary = `Answer in ${label}${preview ? ` | ${preview}` : ""}`;
+    const notification = addLeaderUnreadNotification(session, {
       reason: "answer",
       threadKey,
-      summary: `Answer in ${label}${preview ? ` | ${preview}` : ""}`,
+      summary,
       timestamp,
       messageId,
       ...(answerTo.length ? { answerTo } : {}),
+      urgent,
       deps,
     });
+    if (urgent) {
+      deps.scheduleUrgentResultAlert?.(session.id, preview || summary, {
+        notificationId: notification.id,
+        threadKey,
+        messageId,
+        isStillOpen: () =>
+          (session.notifications ?? []).some(
+            (candidate: SessionNotification) => candidate.id === notification.id && !candidate.done,
+          ),
+      });
+    }
     deps.promoteLeaderThreadTabForAttention?.(session.id, threadKey, timestamp, "review");
     changed = true;
   }
@@ -684,31 +705,34 @@ function addLeaderUnreadNotification(
     timestamp: number;
     messageId: string | null;
     answerTo?: string[];
+    urgent?: boolean;
     deps: LeaderUnreadDeps;
   },
-): void {
+): SessionNotification {
   session.notifications ??= [];
   const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
   session.notificationCounter = nextNotificationCounter;
   const threadRoute = normalizeThreadRoute(input.threadKey) ?? { threadKey: "main" };
-  if (!hasUnreadResult(session, threadRoute.threadKey)) {
+  // An urgent answer sounds even when its thread already has something unread.
+  if (input.urgent || !hasUnreadResult(session, threadRoute.threadKey)) {
     announceAttentionAlert(session, "result", threadRoute.threadKey, input.deps);
   }
-  session.notifications.push(
-    withThreadRoute(
-      {
-        id: `n-${nextNotificationCounter}`,
-        category: "review",
-        summary: input.summary,
-        timestamp: input.timestamp,
-        messageId: input.messageId,
-        unreadReason: input.reason,
-        ...(input.answerTo ? { answerTo: [...input.answerTo] } : {}),
-        done: false,
-      },
-      threadRoute,
-    ),
+  const notification: SessionNotification = withThreadRoute(
+    {
+      id: `n-${nextNotificationCounter}`,
+      category: "review" as const,
+      summary: input.summary,
+      timestamp: input.timestamp,
+      messageId: input.messageId,
+      unreadReason: input.reason,
+      ...(input.answerTo ? { answerTo: [...input.answerTo] } : {}),
+      ...(input.urgent ? { urgent: true as const } : {}),
+      done: false,
+    },
+    threadRoute,
   );
+  session.notifications.push(notification);
+  return notification;
 }
 
 function publishLeaderUnread(session: SessionLike, deps: LeaderUnreadDeps): void {

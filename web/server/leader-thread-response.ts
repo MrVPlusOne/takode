@@ -1129,6 +1129,7 @@ export function finalizeRoutedLeaderResponseMessage(
     observedHistoryLength: observedHistoryLength!,
     authoredThreadKey: selectedThreadKey,
     ownerGroups,
+    ...(message.leaderAnswerUrgent ? { urgent: true as const } : {}),
   };
   // An answer to a message sent from a topic conversation shows there too, wherever it is routed.
   const sentFromView = resolution.referenced.find((entry) => entry.message.sentFromView)?.message.sentFromView;

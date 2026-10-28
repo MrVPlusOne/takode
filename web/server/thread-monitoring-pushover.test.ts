@@ -28,7 +28,14 @@ function fixture(backend: "claude-sdk" | "codex" = "claude-sdk") {
     pushoverApiToken: "synthetic-token",
     pushoverUserKey: "synthetic-user",
     pushoverDelaySeconds: 30,
-    pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true, overdueTodos: true },
+    pushoverEventFilters: {
+      needsInput: true,
+      review: false,
+      notifyMe: true,
+      error: true,
+      urgent: true,
+      overdueTodos: true,
+    },
   };
   const notifier = new PushoverNotifier({
     getSettings: () => settings,
@@ -157,7 +164,14 @@ describe("Notify Me result to Pushover", () => {
     [false, false],
   ])("uses notifyMe=%s independently of review=%s", async (notifyMe, review) => {
     const { session, settings, publish } = fixture();
-    settings.pushoverEventFilters = { needsInput: false, review, notifyMe, error: false, overdueTodos: true };
+    settings.pushoverEventFilters = {
+      needsInput: false,
+      review,
+      notifyMe,
+      error: false,
+      urgent: true,
+      overdueTodos: true,
+    };
     setThreadMonitoring(session, "q-42", true);
     await publish();
     await vi.advanceTimersByTimeAsync(30_000);
@@ -169,7 +183,7 @@ describe("Notify Me result to Pushover", () => {
     const { session, settings, publish } = fixture();
     // Model old persisted configuration entering the scheduler without the new field.
     Object.assign(settings, {
-      pushoverEventFilters: { needsInput: false, review: false, error: false, overdueTodos: true },
+      pushoverEventFilters: { needsInput: false, review: false, error: false, urgent: true, overdueTodos: true },
     });
     setThreadMonitoring(session, "q-42", true);
     await publish();

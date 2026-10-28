@@ -712,6 +712,7 @@ export interface PushoverEventFilters {
   review: boolean;
   notifyMe: boolean;
   error: boolean;
+  urgent: boolean;
   overdueTodos: boolean;
 }
 

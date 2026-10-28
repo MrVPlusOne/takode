@@ -116,6 +116,7 @@ function routedFinal(
     text?: string;
     answerIds?: string[];
     threadKey?: string;
+    urgent?: boolean;
   } = {},
 ): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   const role = options.role ?? "answer";
@@ -145,6 +146,7 @@ function routedFinal(
       ? {
           leaderAnswerUserMessageIds: options.answerIds ?? ["u1"],
           leaderAnswerObservedHistoryLength: observedHistoryLength,
+          ...(options.urgent ? { leaderAnswerUrgent: true as const } : {}),
         }
       : {}),
     ...(options.ready
@@ -289,6 +291,56 @@ describe("result-message-controller", () => {
     });
     expect(deps.invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
     expect(deps.refreshSessionConversation).toHaveBeenCalledWith(session.id);
+  });
+
+  it("settles an urgent answer into an urgent unread with a phone alert that stops once it is read", () => {
+    // The leader's `A!` mark must survive settlement: the stored answer and its unread
+    // notification are urgent, the alert is scheduled, and the control field is cleared.
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1"));
+    const response = routedFinal("urgent-answer", 1, { urgent: true, text: "Encore replied: they accept." });
+    session.messageHistory.push(response);
+    session.userMessageIdsThisTurn = [0];
+    session.messageCountAtTurnStart = 1;
+    const scheduleUrgentResultAlert = vi.fn();
+    const deps = { ...makeDeps(), scheduleUrgentResultAlert };
+
+    handleResultMessage(session, makeResult({ uuid: "urgent-answer-result" }), deps);
+
+    expect(response.threadAnswer).toMatchObject({ answerUserMessageIds: ["u1"], urgent: true });
+    expect(response.leaderAnswerUrgent).toBeUndefined();
+    const unread = session.notifications!.find((notification) => notification.messageId === "urgent-answer");
+    expect(unread).toMatchObject({ category: "review", unreadReason: "answer", urgent: true, done: false });
+    expect(scheduleUrgentResultAlert).toHaveBeenCalledWith(
+      "s1",
+      "Encore replied: they accept.",
+      expect.objectContaining({ notificationId: unread!.id, threadKey: "main", messageId: "urgent-answer" }),
+    );
+    const { isStillOpen } = scheduleUrgentResultAlert.mock.calls[0]![2] as { isStillOpen: () => boolean };
+    expect(isStillOpen()).toBe(true);
+    unread!.done = true;
+    expect(isStillOpen()).toBe(false);
+  });
+
+  it("does not mark an ordinary answer urgent or send it a phone alert", () => {
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1"));
+    const response = routedFinal("plain-answer", 1);
+    session.messageHistory.push(response);
+    session.userMessageIdsThisTurn = [0];
+    session.messageCountAtTurnStart = 1;
+    const scheduleUrgentResultAlert = vi.fn();
+
+    handleResultMessage(session, makeResult({ uuid: "plain-answer-result" }), {
+      ...makeDeps(),
+      scheduleUrgentResultAlert,
+    });
+
+    expect(response.threadAnswer?.urgent).toBeUndefined();
+    expect(
+      session.notifications!.find((notification) => notification.messageId === "plain-answer")?.urgent,
+    ).toBeUndefined();
+    expect(scheduleUrgentResultAlert).not.toHaveBeenCalled();
   });
 
   it("canonicalizes a misrouted result row before broadcasting owner-only coverage", () => {

@@ -866,6 +866,11 @@ export function getClaudeMessageHandlers(host: any) {
       host.pushoverNotifier?.cancelPermission(sessionId, requestId),
     onMonitoredThreadResult: (targetSession: unknown, threadKey: string) =>
       notifyMonitoredThreadResult(host, targetSession as Session, threadKey),
+    scheduleUrgentResultAlert: (
+      sessionId: string,
+      detail: string,
+      options: { notificationId: string; threadKey: string; messageId: string; isStillOpen: () => boolean },
+    ) => host.pushoverNotifier?.scheduleNotification(sessionId, "urgent-result", detail, undefined, options),
     onResultAttentionAndNotifications: (
       targetSession: unknown,
       resultMsg: CLIResultMessage,

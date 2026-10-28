@@ -36,6 +36,7 @@ import {
   ATTENTION_KIND_TITLE,
   AttentionKindIcon,
   NextChevron,
+  attentionKindOf,
   attentionTone,
   formatRelativeTime,
 } from "./AttentionKind.js";
@@ -56,7 +57,7 @@ type NotificationCategory = SessionNotification["category"];
 const NOTIFICATION_POPOVER_MIN_OFFSET_PX = 56;
 const NOTIFICATION_POPOVER_ANCHOR_GAP_PX = 8;
 const NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX = 12;
-const OTHER_ATTENTION_KINDS = ["reminder", "unread", "notify-me"] as const;
+const OTHER_ATTENTION_KINDS = ["urgent", "reminder", "unread", "notify-me"] as const;
 
 /** Where the chip floats: the feed's lower right (phones) or its upper right (desktop, less mouse travel). */
 export type NotificationChipPlacement = "top" | "bottom";
@@ -1037,7 +1038,8 @@ export function NotificationChip({
 
   if (needsInput + waiting + total === 0 && mutedNeedsInput === 0) return null;
 
-  const tone = next ? attentionTone(next.item.kind) : null;
+  const nextKind = next ? attentionKindOf(next.item) : null;
+  const tone = nextKind ? attentionTone(nextKind) : null;
   return (
     <>
       <div ref={chipRef} data-testid="session-attention-chip" className="pointer-events-auto relative inline-flex">
@@ -1048,7 +1050,7 @@ export function NotificationChip({
           onClick={activate}
           aria-label={
             next
-              ? `Go to the next item that needs attention in this session: ${ATTENTION_KIND_TITLE[next.item.kind]}, ${place + 1} of ${total}. Right-click or long-press for the list or to close this tab.`
+              ? `Go to the next item that needs attention in this session: ${ATTENTION_KIND_TITLE[nextKind!]}, ${place + 1} of ${total}. Right-click or long-press for the list or to close this tab.`
               : inboxLabel
           }
           title={
@@ -1065,7 +1067,7 @@ export function NotificationChip({
           {next ? (
             <>
               <span className="relative inline-flex">
-                <AttentionKindIcon kind={next.item.kind} />
+                <AttentionKindIcon kind={nextKind!} />
               </span>
               <span className="relative tabular-nums text-cc-fg/95" data-testid="session-attention-position">
                 {place + 1}/{total}

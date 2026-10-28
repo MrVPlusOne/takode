@@ -74,6 +74,37 @@ describe("thread-routing", () => {
     }
   });
 
+  it("parses and formats urgent answers (A!) with and without user-message IDs", () => {
+    // `A!` marks an answer the user should read soon; it keeps every other answer rule.
+    expect(formatThreadMarker("main", "answer", ["u3"], { urgent: true })).toBe("[thread:main:A!:u3]");
+    expect(formatThreadMarker("q-941", "answer", [], { urgent: true })).toBe("[thread:q-941:A!]");
+    expect(parseThreadTextPrefix("[thread:main:A!:u3]\nThe reply arrived")).toEqual({
+      ok: true,
+      target: { threadKey: "main" },
+      role: "answer",
+      answerUserMessageIds: ["u3"],
+      urgent: true,
+      body: "The reply arrived",
+    });
+    expect(parseThreadTextLineStartMarker("[thread:q-941:A!] Build is broken")).toEqual({
+      ok: true,
+      target: { threadKey: "q-941", questId: "q-941" },
+      role: "answer",
+      answerUserMessageIds: [],
+      urgent: true,
+      body: "Build is broken",
+    });
+    // Only an answer can be urgent, and only with one mark.
+    for (const invalid of [
+      "[thread:q-941:C!] x",
+      "[thread:q-941:A!!] x",
+      "[thread:q-941:!A] x",
+      "[thread:q-941:A!:] x",
+    ]) {
+      expect(parseThreadTextPrefix(invalid)).toMatchObject({ ok: false, reason: "invalid_role" });
+    }
+  });
+
   it("fails closed when one segment composes conflicting role-bearing markers", () => {
     for (const [text, marker] of [
       ["[thread:q-941:A:u1] [thread:q-941:C] Conflicting", "[thread:q-941:C]"],

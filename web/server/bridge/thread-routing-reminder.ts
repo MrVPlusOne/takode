@@ -55,6 +55,7 @@ export interface LeaderAssistantRouteResult {
   threadRoutingError?: ThreadRoutingError;
   leaderThreadRole?: LeaderThreadTextRole;
   leaderAnswerUserMessageIds?: string[];
+  leaderAnswerUrgent?: true;
   questThreadReminders?: string[];
   threadStatusMarkers?: ParsedThreadStatusMarker[];
 }
@@ -95,12 +96,16 @@ export function leaderTurnObservedHistoryLength(session: ThreadRoutingReminderSe
 
 export function leaderAssistantControlMetadata(
   session: ThreadRoutingReminderSessionLike,
-  routed: Pick<LeaderAssistantRouteResult, "leaderThreadRole" | "leaderAnswerUserMessageIds" | "threadStatusMarkers">,
+  routed: Pick<
+    LeaderAssistantRouteResult,
+    "leaderThreadRole" | "leaderAnswerUserMessageIds" | "leaderAnswerUrgent" | "threadStatusMarkers"
+  >,
   hasStableMessageId: boolean,
 ): Pick<
   BrowserIncomingMessage,
   | "leaderThreadRole"
   | "leaderAnswerUserMessageIds"
+  | "leaderAnswerUrgent"
   | "leaderAnswerObservedHistoryLength"
   | "deferredThreadStatusMarkers"
 > {
@@ -111,6 +116,7 @@ export function leaderAssistantControlMetadata(
     ...(routed.leaderThreadRole === "answer" && routed.leaderAnswerUserMessageIds
       ? { leaderAnswerUserMessageIds: routed.leaderAnswerUserMessageIds }
       : {}),
+    ...(routed.leaderThreadRole === "answer" && routed.leaderAnswerUrgent ? { leaderAnswerUrgent: true as const } : {}),
     ...(observedHistoryLength !== undefined ? { leaderAnswerObservedHistoryLength: observedHistoryLength } : {}),
     ...(routed.threadStatusMarkers?.length ? { deferredThreadStatusMarkers: routed.threadStatusMarkers } : {}),
   };
@@ -195,7 +201,7 @@ function normalizedMidMessageRouteMarkerLine(line: string): string | null {
   const parsed = parseThreadTextLineStartMarker(line);
   if (!parsed.ok) return line;
   return (
-    formatThreadMarker(parsed.target.threadKey, parsed.role, parsed.answerUserMessageIds) +
+    formatThreadMarker(parsed.target.threadKey, parsed.role, parsed.answerUserMessageIds, { urgent: parsed.urgent }) +
     (parsed.body ? " " + parsed.body : "")
   );
 }
@@ -385,6 +391,7 @@ export function normalizeLeaderAssistantRouting(
       ...(refs ? { threadRefs: refs } : {}),
       ...(parsed.role ? { leaderThreadRole: parsed.role } : {}),
       ...(parsed.answerUserMessageIds ? { leaderAnswerUserMessageIds: parsed.answerUserMessageIds } : {}),
+      ...(parsed.urgent ? { leaderAnswerUrgent: true as const } : {}),
       ...(!parsed.role
         ? { threadRoutingError: threadRoutingErrorForMissingRole(formatThreadMarker(parsed.target.threadKey), content) }
         : {}),

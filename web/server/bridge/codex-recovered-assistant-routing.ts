@@ -31,7 +31,13 @@ const LEGACY_FINAL_THREAD_MARKER_RE = /^(\s*)\[thread:(main|q-\d+):F\](?=$|[ \t]
 
 export type CodexRecoveredAssistantRouteFields = Pick<
   AssistantHistoryEntry,
-  "threadKey" | "questId" | "threadRefs" | "threadRoutingError" | "leaderThreadRole" | "leaderAnswerUserMessageIds"
+  | "threadKey"
+  | "questId"
+  | "threadRefs"
+  | "threadRoutingError"
+  | "leaderThreadRole"
+  | "leaderAnswerUserMessageIds"
+  | "leaderAnswerUrgent"
 > & {
   content: ContentBlock[];
   threadStatusMarkers?: import("../../shared/thread-status-marker.js").ParsedThreadStatusMarker[];
@@ -300,6 +306,10 @@ function reconcileCompletedRecoveredAssistantControls(
       entry.leaderAnswerUserMessageIds = [...routed.leaderAnswerUserMessageIds];
       changed = true;
     }
+    if (routed.leaderAnswerUrgent && !entry.leaderAnswerUrgent) {
+      entry.leaderAnswerUrgent = true;
+      changed = true;
+    }
   }
   const incomingMarkers = (routed.threadStatusMarkers ?? []).filter(
     (marker) =>
@@ -506,6 +516,9 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
         ...(routed.leaderThreadRole === "answer" && routed.leaderAnswerUserMessageIds
           ? { leaderAnswerUserMessageIds: routed.leaderAnswerUserMessageIds }
           : {}),
+        ...(routed.leaderThreadRole === "answer" && routed.leaderAnswerUrgent
+          ? { leaderAnswerUrgent: true as const }
+          : {}),
         ...(routed.leaderThreadRole === "answer" && responseObservationHistoryLength !== undefined
           ? { leaderAnswerObservedHistoryLength: responseObservationHistoryLength }
           : {}),
@@ -588,6 +601,10 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
     }
     if (candidate.leaderAnswerUserMessageIds !== undefined) {
       delete candidate.leaderAnswerUserMessageIds;
+      candidateChanged = true;
+    }
+    if (candidate.leaderAnswerUrgent !== undefined) {
+      delete candidate.leaderAnswerUrgent;
       candidateChanged = true;
     }
     if (candidate.leaderResponseObservedHistoryLength !== undefined) {

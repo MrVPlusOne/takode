@@ -11,7 +11,13 @@ import {
 import { firstUnreadResult } from "../utils/notification-navigation.js";
 import type { AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
-import { ATTENTION_SECTION_TITLE, AttentionKindIcon, BellIcon, formatRelativeTime } from "./AttentionKind.js";
+import {
+  ATTENTION_SECTION_TITLE,
+  AttentionKindIcon,
+  BellIcon,
+  attentionKindOf,
+  formatRelativeTime,
+} from "./AttentionKind.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
@@ -22,6 +28,7 @@ const GO_TO_BUTTON_CLASS =
 
 const GROUP_ARIA_LABEL: Record<AttentionSection, string> = {
   "needs-input": "Questions for you",
+  urgent: "Urgent results",
   reminder: "Reminders that came due",
   "notify-me": "Notify Me results",
   unread: "Unread results",
@@ -66,7 +73,7 @@ function ItemIcon({ item }: { item: NextAttentionItem }) {
   if (item.kind === "needs-input" && item.entry.notification.muted)
     return <BellIcon className="h-3.5 w-3.5 shrink-0 text-cc-muted" />;
   if (item.kind === "notify-me" && !item.entry.pending) return <NotifyMeIcon className="h-3.5 w-3.5" />;
-  return <AttentionKindIcon kind={item.kind} />;
+  return <AttentionKindIcon kind={attentionKindOf(item)} />;
 }
 
 /**
@@ -137,7 +144,7 @@ export function AttentionItemRow({
         style={longPress.pressStyle}
         className={`flex items-start gap-2 px-3 py-2 ${LONG_PRESS_TARGET_CLASS} ${isNext ? "bg-cc-hover/30" : ""}`}
         data-testid="attention-item-row"
-        data-attention-kind={item.kind}
+        data-attention-kind={attentionKindOf(item)}
         data-attention-next={isNext ? "true" : undefined}
       >
         <span className="mt-0.5">

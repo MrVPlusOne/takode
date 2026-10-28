@@ -28,6 +28,7 @@ import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
 import { navigateToSession } from "../utils/routing.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
+import { UrgentAnswerLabel } from "./AttentionKind.js";
 import {
   getMessageThreadLinkKey,
   MessageThreadHeader,
@@ -1282,6 +1283,7 @@ function AssistantMessage({
                 onSelectThread={onSelectThread}
                 message={{ sessionId, id: message.id }}
               />
+              {message.metadata?.threadAnswer?.urgent && <UrgentAnswerLabel />}
               {!readOnly && <ReadAloudPlayer messageId={message.id} />}
               {rejectedRouteHeader && (
                 <div className={collapseRejectedText ? undefined : "mb-3"}>{rejectedRouteHeader}</div>
@@ -1366,6 +1368,7 @@ function AssistantMessage({
               onSelectThread={onSelectThread}
               message={{ sessionId, id: message.id }}
             />
+            {message.metadata?.threadAnswer?.urgent && <UrgentAnswerLabel />}
             {!readOnly && <ReadAloudPlayer messageId={message.id} />}
             {rejectedRouteHeader}
             {projection.shouldRenderContentFallback && !collapseRejectedText && (

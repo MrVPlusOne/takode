@@ -12,6 +12,7 @@ const DEFAULT_PUSHOVER_EVENT_FILTERS: PushoverEventFilters = {
   review: true,
   notifyMe: true,
   error: true,
+  urgent: true,
   overdueTodos: true,
 };
 
@@ -29,6 +30,11 @@ const EVENT_TYPE_OPTIONS: Array<{
     key: "review",
     label: "Ready for review",
     description: "Completed turns that need your eyes.",
+  },
+  {
+    key: "urgent",
+    label: "Urgent results",
+    description: "Answers a leader marks urgent.",
   },
   {
     key: "notifyMe",

@@ -8,9 +8,10 @@ import {
 } from "../../test-fixtures/leader-thread-tabs-projection.js";
 import type { ThreadMonitoringEntry } from "../../../shared/thread-monitoring.js";
 import { useAttentionNavigator } from "../../hooks/useAttentionNavigator.js";
-import type { SessionNotification } from "../../types.js";
+import type { ChatMessage, SessionNotification } from "../../types.js";
 import { attentionPlaceIndex, buildAttentionBacklog, buildNextAttentionQueue } from "../../utils/next-attention.js";
 import { AttentionListPill, GlobalAttentionPanel } from "../GlobalAttentionMenu.js";
+import { MessageBubble } from "../MessageBubble.js";
 import { NavigationButtons, NavigationHistoryPanel } from "../NavigationButtons.js";
 import { SidebarGlobalSearch } from "../SidebarGlobalSearch.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
@@ -70,7 +71,14 @@ const DUE_REMINDER: ThreadMonitoringEntry = {
 };
 
 /** One unread answer, report or finished quest of the leader, as the per-message list shows it. */
-function unreadMessage(id: string, threadKey: string, label: string, minutesAgo: number, summary: string) {
+function unreadMessage(
+  id: string,
+  threadKey: string,
+  label: string,
+  minutesAgo: number,
+  summary: string,
+  urgent = false,
+) {
   const timestamp = NOW - minutesAgo * 60_000;
   return {
     sessionId: "playground-attention-leader",
@@ -86,6 +94,7 @@ function unreadMessage(id: string, threadKey: string, label: string, minutesAgo:
       timestamp,
       messageId: `mock-${id}`,
       threadKey,
+      ...(urgent ? { urgent: true } : {}),
       done: false,
     } as SessionNotification,
   };
@@ -97,8 +106,9 @@ const TOPICS: Record<string, { id: string; name: string }> = {
 };
 
 /**
- * A realistic cross-session queue: questions, a reminder that came due, unread answers grouped
- * by topic (two in Restart Server, one in Main), and a watched quest's result.
+ * A realistic cross-session queue: questions, an answer the leader marked urgent, a reminder that
+ * came due, unread answers grouped by topic (two in Restart Server, one in Main), and a watched
+ * quest's result.
  */
 const QUEUE = buildNextAttentionQueue({
   needsInput: [
@@ -107,6 +117,14 @@ const QUEUE = buildNextAttentionQueue({
   ],
   notifyMe: [NOTIFY_ME, DUE_REMINDER],
   unread: [
+    unreadMessage(
+      "r-0",
+      "main",
+      "Main",
+      3,
+      "Answer in Main | Encore replied: they can start Monday if you confirm today.",
+      true,
+    ),
     unreadMessage("r-1", "main", "Main", 18, "Answer in Main | The phone fix landed; restart when convenient."),
     unreadMessage("r-2", "q-2416", QUEST_TITLES["q-2416"]!, 12, "Restart now updates the checkout first."),
     unreadMessage("r-3", "q-2415", QUEST_TITLES["q-2415"]!, 240, "A restart no longer waits on accepted work."),
@@ -135,6 +153,17 @@ const BACKLOG = buildAttentionBacklog({
     },
   ],
 });
+
+/** An answer its leader marked urgent, as the feed shows it. */
+const URGENT_ANSWER: ChatMessage = {
+  id: "playground-urgent-answer",
+  role: "assistant",
+  content: "Encore replied: they can start Monday if you confirm today. Their offer is attached in the thread.",
+  timestamp: NOW - 3 * 60_000,
+  metadata: {
+    threadAnswer: { version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 1, urgent: true },
+  },
+};
 
 const VIEWED_TABS = [
   { sessionId: "playground-attention-leader", threadKey: "q-2428", viewedAt: NOW - 10_000 },
@@ -212,16 +241,22 @@ export function PlaygroundNextAttentionSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Attention List, Phone Top Bar and Desktop Navigation"
-        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names the thread tab it belongs to (quest ID and tab title, or Main, then the session number and age) and otherwise its session; Notify Me rows lead with the result, unread rows with the unread result itself (the answer, report or finished quest), never a later Thread Ready summary. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, Mark as read, and Close tab for any closable quest tab, which the server closes and keeps open while its quest is active). Next in the list (and the Next Item Across Sessions shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked. No banner says where a step went: the session and tab it opens show that. The pill takes the color of the most urgent kind waiting; while a prompt is open it counts only the open prompts, otherwise everything in the list. Below the list, collapsed and skipped by Next, sit Muted questions and tracked Notify Me threads with no result yet; with only those, the pill is a quiet bell without a count. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip. On desktop the sidebar header carries Back and Forward, which walk browser history and fade when there is no step, and Recently viewed, which lists the sessions and leader tabs viewed in this browser, newest first."
+        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names the thread tab it belongs to (quest ID and tab title, or Main, then the session number and age) and otherwise its session; Notify Me rows lead with the result, unread rows with the unread result itself (the answer, report or finished quest), never a later Thread Ready summary. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, Mark as read, and Close tab for any closable quest tab, which the server closes and keeps open while its quest is active). Next in the list (and the Next Item Across Sessions shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked. No banner says where a step went: the session and tab it opens show that. Answers a leader marks urgent ([thread:q-N:A!]) get their own Urgent section right after the questions, one row each with a red exclamation mark, and turn the pill red when they lead the list. The pill takes the color of the most urgent kind waiting; while a prompt is open it counts only the open prompts, otherwise everything in the list. Below the list, collapsed and skipped by Next, sit Muted questions and tracked Notify Me threads with no result yet; with only those, the pill is a quiet bell without a count. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip. On desktop the sidebar header carries Back and Forward, which walk browser history and fade when there is no step, and Recently viewed, which lists the sessions and leader tabs viewed in this browser, newest first."
       >
         <div className="grid gap-4" data-testid="playground-next-attention">
-          <Card label="Attention list pill (desktop and phone; amber counts only open questions, blue counts everything waiting, quiet bell when only muted or tracked items remain)">
+          <Card label="Attention list pill (desktop and phone; amber counts only open questions, red leads with an urgent answer, blue counts everything waiting, quiet bell when only muted or tracked items remain)">
             <div className="flex items-center gap-3">
               <AttentionListPill count={1} topKind="needs-input" />
               <AttentionListPill count={2} topKind="unread" />
+              <AttentionListPill count={3} topKind="urgent" />
               <AttentionListPill count={2} topKind="needs-input" compact open />
               <AttentionListPill count={1} topKind="notify-me" compact />
               <AttentionListPill count={0} topKind={undefined} />
+            </div>
+          </Card>
+          <Card label="Urgent answer in the feed (a leader marked it with [thread:main:A!:u1])">
+            <div className="max-w-xl">
+              <MessageBubble message={URGENT_ANSWER} />
             </div>
           </Card>
           <Card label="Attention list with Next (click Next to walk it)">

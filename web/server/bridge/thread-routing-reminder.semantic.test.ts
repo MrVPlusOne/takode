@@ -4,6 +4,7 @@ import {
   buildThreadRoutingReminderForCompletedTurn,
   leaderAssistantControlMetadata,
   normalizeLeaderAssistantRouting,
+  splitLeaderAssistantContentAtThreadRouteBoundaries,
 } from "./thread-routing-reminder.js";
 
 function semanticRejectedAnswer(): Extract<BrowserIncomingMessage, { type: "assistant" }> {
@@ -86,5 +87,34 @@ describe("leader answer marker routing", () => {
       null,
     );
     expect(leaderAssistantControlMetadata(session, commentary, true)).toEqual({ leaderThreadRole: "commentary" });
+  });
+
+  it("carries an urgent answer mark to settlement, including after a mid-message route switch", () => {
+    // `A!` reaches turn settlement as leaderAnswerUrgent; the split that starts a
+    // second routed section re-formats its marker and must keep the mark.
+    const segments = splitLeaderAssistantContentAtThreadRouteBoundaries(
+      true,
+      [{ type: "text", text: "[thread:main:C] Checked mail.\n---\n[thread:q-7:A!:u2] Encore replied." }],
+      null,
+    );
+    expect(segments).toHaveLength(2);
+    const routed = normalizeLeaderAssistantRouting(true, segments[1]!, null);
+    expect(routed).toMatchObject({
+      threadKey: "q-7",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u2"],
+      leaderAnswerUrgent: true,
+      content: [{ type: "text", text: "Encore replied." }],
+    });
+    const session = { messageHistory: [] as BrowserIncomingMessage[], messageCountAtTurnStart: 0 };
+    expect(leaderAssistantControlMetadata(session, routed, true)).toEqual({
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u2"],
+      leaderAnswerUrgent: true,
+      leaderAnswerObservedHistoryLength: 0,
+    });
+    // A plain answer carries no mark.
+    const plain = normalizeLeaderAssistantRouting(true, [{ type: "text", text: "[thread:q-7:A:u2] Done." }], null);
+    expect(plain.leaderAnswerUrgent).toBeUndefined();
   });
 });

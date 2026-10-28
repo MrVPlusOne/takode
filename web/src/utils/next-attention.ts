@@ -14,9 +14,9 @@ import { MAIN_THREAD_KEY } from "./thread-projection.js";
  * attention navigators visit it (the global list and its Next, and each
  * session's feed chip).
  *
- * Sections come in a fixed priority: questions, reminders that came due, unread
- * answers (grouped by topic), then watched quests with a result. Newest first
- * within a section (and within a topic). A thread that already appears in an
+ * Sections come in a fixed priority: questions, answers a leader marked urgent,
+ * reminders that came due, unread answers (grouped by topic), then watched quests
+ * with a result. Newest first within a section (and within a topic). A thread that already appears in an
  * earlier section is not repeated as unread.
  */
 export type NextAttentionItem =
@@ -55,17 +55,34 @@ export interface UnreadAttentionCandidate {
 }
 
 /**
- * The sections of the attention list, in the order Next visits them: questions, reminders that
- * came due, unread answers, and results of watched quests.
+ * The sections of the attention list, in the order Next visits them: questions, urgent answers,
+ * reminders that came due, unread answers, and results of watched quests. Urgent answers come
+ * right after questions: a question holds up an agent and is quick to answer, while an urgent
+ * answer is time-sensitive reading that should come before everything else.
  */
-export type AttentionSection = "needs-input" | "reminder" | "unread" | "notify-me";
+export type AttentionSection = "needs-input" | "urgent" | "reminder" | "unread" | "notify-me";
 
-export const ATTENTION_SECTIONS: readonly AttentionSection[] = ["needs-input", "reminder", "unread", "notify-me"];
+export const ATTENTION_SECTIONS: readonly AttentionSection[] = [
+  "needs-input",
+  "urgent",
+  "reminder",
+  "unread",
+  "notify-me",
+];
 
-/** An item's section: a Notify Me result that a "Remind me later" brought back is a reminder. */
+/**
+ * An item's section: a Notify Me result that a "Remind me later" brought back is a reminder, and
+ * an unread answer the leader marked urgent is urgent.
+ */
 export function attentionSection(item: NextAttentionItem): AttentionSection {
   if (item.kind === "notify-me" && item.entry.pending?.reminder) return "reminder";
+  if (isUrgentAttentionItem(item)) return "urgent";
   return item.kind;
+}
+
+/** An unread answer its leader marked urgent (`A!`). */
+export function isUrgentAttentionItem(item: NextAttentionItem): boolean {
+  return item.kind === "unread" && item.notification?.urgent === true && item.remindAt === undefined;
 }
 
 /**
@@ -114,10 +131,12 @@ export function buildNextAttentionQueue(input: {
   }
   const covered = new Set(items.map((item) => coverageKey(item.sessionId, item.threadKey)));
   for (const candidate of input.unread) {
-    // A session-level candidate is covered by any earlier item in that session.
+    // A session-level candidate is covered by any earlier item in that session. An urgent
+    // answer is never covered: it must show even when its thread also has a question.
     const alreadyQueued =
-      covered.has(coverageKey(candidate.sessionId, candidate.threadKey)) ||
-      (candidate.threadKey === null && items.some((item) => item.sessionId === candidate.sessionId));
+      candidate.notification?.urgent !== true &&
+      (covered.has(coverageKey(candidate.sessionId, candidate.threadKey)) ||
+        (candidate.threadKey === null && items.some((item) => item.sessionId === candidate.sessionId)));
     if (alreadyQueued) continue;
     const key = candidate.notification
       ? `unread:${candidate.sessionId}:${candidate.notification.id}`
@@ -145,7 +164,7 @@ const placeOf = new WeakMap<NextAttentionItem, readonly (number | string)[]>();
 
 function queuePlace(item: NextAttentionItem, newestByTopic?: ReadonlyMap<string, number>): (number | string)[] {
   const rank = ATTENTION_SECTIONS.indexOf(attentionSection(item));
-  if (item.kind !== "unread" || !newestByTopic) return [rank, -item.timestamp];
+  if (item.kind !== "unread" || isUrgentAttentionItem(item) || !newestByTopic) return [rank, -item.timestamp];
   const group = topicGroupKey(item);
   return [rank, -(newestByTopic.get(group) ?? item.timestamp), group, -item.timestamp];
 }
@@ -219,12 +238,12 @@ export function collectThreadReminders(
 }
 
 /**
- * The place an item points to, for counting: every question, reminder and watched result is its
- * own place; unread answers count once per topic (or per quest or Main outside topics). Counts
- * show places, so a busy topic is one thing to look at, not ten.
+ * The place an item points to, for counting: every question, urgent answer, reminder and watched
+ * result is its own place; other unread answers count once per topic (or per quest or Main outside
+ * topics). Counts show places, so a busy topic is one thing to look at, not ten.
  */
 export function attentionPlaceKey(item: NextAttentionItem): string {
-  return item.kind === "unread" ? topicGroupKey(item) : item.key;
+  return item.kind === "unread" && !isUrgentAttentionItem(item) ? topicGroupKey(item) : item.key;
 }
 
 /** How many places the queue points to. */

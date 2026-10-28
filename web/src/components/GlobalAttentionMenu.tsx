@@ -15,7 +15,14 @@ import {
   type NextAttentionItem,
 } from "../utils/next-attention.js";
 import { AttentionItemRow, AttentionItemSections } from "./AttentionItemRows.js";
-import { AttentionKindIcon, BellIcon, NextChevron, attentionTone } from "./AttentionKind.js";
+import {
+  AttentionKindIcon,
+  BellIcon,
+  NextChevron,
+  attentionKindOf,
+  attentionTone,
+  type AttentionKind,
+} from "./AttentionKind.js";
 import { useNotifyMeSummary } from "./NotifyMe.js";
 import { ATTENTION_LIST_HASH, ATTENTION_OPEN_EVENT } from "../utils/routing.js";
 
@@ -85,7 +92,7 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
 
   // While a question is open the pill counts only questions, so amber with a
   // large number never hides that just one needs an answer. The list still has everything.
-  const topKind = queue[0]?.kind;
+  const topKind = queue[0] ? attentionKindOf(queue[0]) : undefined;
   // Otherwise it counts places (a topic with three new answers is one), not messages.
   const count =
     topKind === "needs-input"
@@ -140,7 +147,7 @@ export function AttentionListPill({
 }: {
   ref?: Ref<HTMLButtonElement>;
   count: number;
-  topKind: NextAttentionItem["kind"] | undefined;
+  topKind: AttentionKind | undefined;
   compact?: boolean;
   open?: boolean;
   onClick?: () => void;

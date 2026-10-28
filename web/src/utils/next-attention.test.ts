@@ -123,6 +123,52 @@ describe("sections and topics", () => {
   });
 });
 
+describe("urgent answers", () => {
+  it("puts urgent answers right after questions, each as its own place, even in a thread with a question", () => {
+    // An answer the leader marked urgent (A!) leaves the topic grouping: it is visited and
+    // counted on its own, right after the open questions and before reminders and other
+    // unread answers. A question in the same thread does not hide it, unlike plain unread.
+    const reminder = notifyMe("a", "q-5", 10);
+    reminder.pending = { ...reminder.pending!, reminder: true };
+    const answer = (id: string, threadKey: string, timestamp: number, urgent = false) => ({
+      sessionId: "a",
+      threadKey,
+      label: threadKey,
+      timestamp,
+      notification: {
+        id,
+        category: "review",
+        timestamp,
+        messageId: `m-${id}`,
+        done: false,
+        ...(urgent ? { urgent: true } : {}),
+      } as SessionNotification,
+    });
+    const queue = buildNextAttentionQueue({
+      needsInput: [needsInput("a", "ask", 1, "q-7")],
+      notifyMe: [reminder],
+      unread: [
+        answer("u1", "q-1", 100),
+        answer("u2", "q-1", 300, true),
+        answer("u3", "q-7", 50, true),
+        answer("u4", "q-7", 400),
+        answer("u5", "q-1", 200),
+      ],
+      topicOf: () => ({ id: "t", name: "T" }),
+    });
+    expect(queue.map((item) => [attentionSection(item), item.key])).toEqual([
+      ["needs-input", "needs-input:a:ask"],
+      ["urgent", "unread:a:u2"],
+      ["urgent", "unread:a:u3"],
+      ["reminder", "notify-me:a:q-5:r-q-5"],
+      ["unread", "unread:a:u5"],
+      ["unread", "unread:a:u1"],
+    ]);
+    // The question, two urgent answers, the reminder and the topic.
+    expect(countAttentionPlaces(queue)).toBe(5);
+  });
+});
+
 describe("counting places", () => {
   it("counts each question once and a topic's unread answers once, and says where Next is", () => {
     const answer = (id: string, threadKey: string, timestamp: number) => ({

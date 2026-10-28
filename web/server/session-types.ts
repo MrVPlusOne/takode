@@ -1876,6 +1876,8 @@ export interface SessionNotification {
    * new item in attention counts.
    */
   answerTo?: string[];
+  /** An answer the leader marked urgent: it sorts near the top of the attention list. */
+  urgent?: true;
   /** When the notification was last marked done (answered, read or dismissed); absent while open. */
   doneAt?: number;
   /** Muted unresolved needs-input prompts stay answerable but leave active attention counts. */

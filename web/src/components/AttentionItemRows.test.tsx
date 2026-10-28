@@ -54,6 +54,27 @@ describe("AttentionItemSections", () => {
     expect(within(rows[1]!).getByTestId("attention-place-summary").textContent).toContain("1 new answer");
   });
 
+  it("lists urgent answers in their own Urgent section, one row each, marked urgent", () => {
+    // An answer the leader marked urgent is not folded into its topic's row: it gets its own
+    // row in the Urgent section, named by its words, with the urgent mark.
+    const urgent = answer("u", "q-1", 300, "Answer in q-1 | Encore replied");
+    urgent.notification = { ...urgent.notification, urgent: true };
+    const queue = buildNextAttentionQueue({
+      needsInput: [],
+      notifyMe: [],
+      unread: [urgent, answer("a", "q-1", 200, "Answer in q-1 | Fixed")],
+      topicOf: () => ({ id: "t", name: "Relay" }),
+    });
+    render(<AttentionItemSections items={queue} kinds={["urgent", "unread"]} onOpen={vi.fn()} />);
+    const urgentSection = screen.getByRole("region", { name: "Urgent results" });
+    const urgentRow = within(urgentSection).getByTestId("attention-item-row");
+    expect(urgentRow.getAttribute("data-attention-kind")).toBe("urgent");
+    expect(urgentRow.textContent).toContain("Encore replied");
+    expect(
+      within(screen.getByRole("region", { name: "Unread results" })).getAllByTestId("attention-place-row"),
+    ).toHaveLength(1);
+  });
+
   it("names an unread message by its words", () => {
     expect(unreadMessageLabel("Answer in q-12 | The fix landed")).toBe("The fix landed");
     expect(unreadMessageLabel("Thread ready: q-12 | complete")).toBe("complete");

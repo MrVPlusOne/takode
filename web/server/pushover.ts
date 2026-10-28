@@ -9,14 +9,22 @@
 import type { PhoneAlertSubject } from "./phone-alert-status.js";
 import type { WebPushDelivery } from "./web-push.js";
 
-export type PushoverEventType = "permission" | "question" | "completed" | "error" | "monitored-result";
-export type PushoverNotificationCategory = "needs-input" | "review" | "notify-me" | "error";
+export type PushoverEventType =
+  | "permission"
+  | "question"
+  | "completed"
+  | "error"
+  | "monitored-result"
+  | "urgent-result";
+export type PushoverNotificationCategory = "needs-input" | "review" | "notify-me" | "error" | "urgent";
 
 export interface PushoverEventFilters {
   needsInput: boolean;
   review: boolean;
   notifyMe: boolean;
   error: boolean;
+  /** Answers a leader marked urgent. */
+  urgent: boolean;
   /** One alert when personal to-dos pass their due date (sent by `todo-overdue-alerts.ts`). */
   overdueTodos: boolean;
 }
@@ -26,6 +34,7 @@ export const DEFAULT_PUSHOVER_EVENT_FILTERS: Readonly<PushoverEventFilters> = {
   review: true,
   notifyMe: true,
   error: true,
+  urgent: true,
   overdueTodos: true,
 };
 
@@ -60,6 +69,8 @@ export interface PushoverScheduleOptions {
   messageId?: string;
   /** Exact monitored result ownership, rechecked after the delay independently of session reads. */
   monitoredResult?: { threadKey: string; resultId: string; isPending: () => boolean };
+  /** Rechecked after the delay instead of the session read time: the alert fires only while this holds. */
+  isStillOpen?: () => boolean;
 }
 
 /** The thread and message a tapped alert opens. */
@@ -89,6 +100,7 @@ interface PendingNotification {
   /** When true, bypass the lastReadAt suppression check (for explicit user notifications). */
   skipReadCheck?: boolean;
   monitoredResult?: PushoverScheduleOptions["monitoredResult"];
+  isStillOpen?: () => boolean;
 }
 
 interface SessionCooldown {
@@ -116,6 +128,7 @@ const EVENT_PRIORITY: Record<PushoverEventType, number> = {
   error: 1,
   completed: 0,
   "monitored-result": 0,
+  "urgent-result": 1,
 };
 
 const EVENT_TITLE: Record<PushoverEventType, string> = {
@@ -124,6 +137,7 @@ const EVENT_TITLE: Record<PushoverEventType, string> = {
   completed: "Ready for review",
   error: "Session error",
   "monitored-result": "Notify Me result",
+  "urgent-result": "Urgent result",
 };
 
 const EVENT_CATEGORY: Record<PushoverEventType, PushoverNotificationCategory> = {
@@ -132,6 +146,7 @@ const EVENT_CATEGORY: Record<PushoverEventType, PushoverNotificationCategory> = 
   completed: "review",
   error: "error",
   "monitored-result": "notify-me",
+  "urgent-result": "urgent",
 };
 
 export class PushoverNotifier {
@@ -161,6 +176,7 @@ export class PushoverNotifier {
       review: raw?.review ?? DEFAULT_PUSHOVER_EVENT_FILTERS.review,
       notifyMe: raw?.notifyMe ?? DEFAULT_PUSHOVER_EVENT_FILTERS.notifyMe,
       error: raw?.error ?? DEFAULT_PUSHOVER_EVENT_FILTERS.error,
+      urgent: raw?.urgent ?? DEFAULT_PUSHOVER_EVENT_FILTERS.urgent,
       overdueTodos: raw?.overdueTodos ?? DEFAULT_PUSHOVER_EVENT_FILTERS.overdueTodos,
     };
   }
@@ -171,6 +187,7 @@ export class PushoverNotifier {
     if (category === "needs-input") return filters.needsInput;
     if (category === "review") return filters.review;
     if (category === "notify-me") return filters.notifyMe;
+    if (category === "urgent") return filters.urgent;
     return filters.error;
   }
 
@@ -191,7 +208,13 @@ export class PushoverNotifier {
     if (eventType === "monitored-result" && !monitoredResult) return;
 
     const isBatchable = eventType === "permission" || eventType === "question";
-    const key = `${sessionId}:${eventType}${monitoredResult ? `:${monitoredResult.threadKey}` : ""}`;
+    // Each urgent result is its own alert, so a second one does not replace the first.
+    const keySuffix = monitoredResult
+      ? `:${monitoredResult.threadKey}`
+      : eventType === "urgent-result" && options?.notificationId
+        ? `:${options.notificationId}`
+        : "";
+    const key = `${sessionId}:${eventType}${keySuffix}`;
     const existing = this.pending.get(key);
 
     const notificationId = options?.notificationId;
@@ -238,6 +261,7 @@ export class PushoverNotifier {
       target: notificationId ? {} : alertLinkTarget(options),
       skipReadCheck: options?.skipReadCheck,
       monitoredResult,
+      isStillOpen: options?.isStillOpen,
     };
     this.pending.set(key, pending);
   }
@@ -342,6 +366,7 @@ export class PushoverNotifier {
     this.pending.delete(key);
     // Acknowledgement, accepted replies, replacement, and Stop tracking retire only this result.
     if (pending.monitoredResult && !pending.monitoredResult.isPending()) return;
+    if (pending.isStillOpen && !pending.isStillOpen()) return;
 
     const settings = this.opts.getSettings();
     if (!this.hasAnyChannel()) return;
@@ -354,7 +379,7 @@ export class PushoverNotifier {
 
     // Skip notification if the user has read the session since the event was created,
     // unless this is an explicit notification (e.g. takode notify) that should always fire.
-    if (!pending.skipReadCheck && !pending.monitoredResult) {
+    if (!pending.skipReadCheck && !pending.monitoredResult && !pending.isStillOpen) {
       const lastRead = this.opts.getLastReadAt(pending.sessionId);
       if (lastRead >= pending.createdAt) {
         console.log(

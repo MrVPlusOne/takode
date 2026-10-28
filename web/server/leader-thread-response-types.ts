@@ -17,6 +17,8 @@ export type LeaderAnswerTrackedUserMetadata = {
 export type LeaderRoutedAssistantMetadata = {
   leaderThreadRole?: LeaderStoredThreadRole;
   leaderAnswerUserMessageIds?: string[];
+  /** The answer marker was `A!`: settled into `threadAnswer.urgent`. */
+  leaderAnswerUrgent?: true;
   leaderAnswerObservedHistoryLength?: number;
   /** Read-only in-flight compatibility for turns created by the former `:F` model. */
   leaderResponseObservedHistoryLength?: number;
@@ -64,6 +66,8 @@ export interface LeaderThreadAnswerMetadata {
   authoredThreadKey?: string;
   /** Per-request owners at settlement; later reassignment must not silently transfer answer authority. */
   ownerGroups?: Array<{ threadKey: string; userMessageIds: string[] }>;
+  /** The leader marked it urgent (`A!`): its unread sorts near the top and it sends a phone alert. */
+  urgent?: true;
 }
 
 export interface LeaderThreadOutcomeReminderGuardTarget {

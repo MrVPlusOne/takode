@@ -334,6 +334,12 @@ function shouldDropReplayHistoryAfterRevert(session: {
 
 interface ResultMessageDeps {
   onMonitoredThreadResult?: (session: ResultMessageSessionLike, threadKey: string) => void;
+  /** Phone alert for an answer the leader marked urgent. */
+  scheduleUrgentResultAlert?: (
+    sessionId: string,
+    detail: string,
+    options: { notificationId: string; threadKey: string; messageId: string; isStillOpen: () => boolean },
+  ) => void;
   hasResultReplay: (session: ResultMessageSessionLike, resultUuid: string) => boolean;
   reconcileReplayState: (session: ResultMessageSessionLike) => { clearedResidualState: boolean };
   markTurnInterrupted: (session: ResultMessageSessionLike, source: "user" | "leader" | "system") => void;
@@ -888,6 +894,10 @@ function finalizeLeaderTurnResponseControls(
       delete entry.leaderAnswerUserMessageIds;
       entryChanged = true;
     }
+    if (entry.leaderAnswerUrgent !== undefined) {
+      delete entry.leaderAnswerUrgent;
+      entryChanged = true;
+    }
     if (entry.leaderResponseObservedHistoryLength !== undefined) {
       delete entry.leaderResponseObservedHistoryLength;
       entryChanged = true;
@@ -1274,6 +1284,7 @@ export function createClaudeMessageHandlers(
   };
   const resultMessageDeps: ResultMessageDeps = {
     onMonitoredThreadResult: deps.onMonitoredThreadResult,
+    scheduleUrgentResultAlert: deps.scheduleUrgentResultAlert,
     hasResultReplay: deps.hasResultReplay,
     reconcileReplayState: deps.reconcileReplayState,
     markTurnInterrupted: deps.markTurnInterrupted,
