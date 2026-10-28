@@ -1,10 +1,12 @@
-import { useRef, useState } from "react";
-import { ArtifactCardLink } from "./ArtifactInline.js";
+import { useCallback, useRef, useState, type RefObject } from "react";
+import { libraryMenuItem } from "./ArtifactInline.js";
+import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
 import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
 import type { ChatMessage } from "../types.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { AnnotationSourceMarkers } from "./AnnotationAttachments.js";
-import { CodeCopyButton } from "./CodeCopyButton.js";
+import { exportContent, type ExportFormat } from "../utils/artifact-export.js";
+import { writeClipboardText } from "../utils/copy-utils.js";
 import { ReportCard } from "./ReportCard.js";
 import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
 import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-player.js";
@@ -57,11 +59,25 @@ function MarkdownReportBody({
   const [fullScreen, setFullScreen] = useState(false);
   const source = message.metadata!.markdownReport!;
   const reportMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "report");
+  const title = reportTitleOf(message.content, source.sourcePath);
+  const cardContentRef = useRef<HTMLDivElement>(null);
+  const { exportItems, task } = useCardExport(
+    useCallback(
+      (format: ExportFormat) =>
+        exportContent(format, { markdown: message.content, content: cardContentRef.current, title }),
+      [message.content, title],
+    ),
+  );
+  // The card opens full screen; opening it in the Library, copying and exporting are in More.
+  const menuItems = [
+    ...(!readOnly && reportMarker ? [libraryMenuItem(reportMarker)] : []),
+    { label: "Copy Markdown", onClick: () => void writeClipboardText(message.content).catch(console.error) },
+    exportItems(["markdown", "pdf", "png", "html"]),
+  ];
   const actions = (
     <>
-      {!readOnly && reportMarker && <ArtifactCardLink marker={reportMarker} />}
       {!readOnly && <ReportReadAloudButton message={message} sessionId={source.sessionId} />}
-      <CodeCopyButton text={message.content} label="Copy Markdown" />
+      <CardMoreMenu items={menuItems} task={task} />
     </>
   );
   return (
@@ -69,7 +85,7 @@ function MarkdownReportBody({
       {!readOnly && <ReadAloudPlayer messageId={message.id} />}
       <ReportCard sessionId={feedSessionId} messageId={message.id}>
         <article className="relative min-w-0 space-y-3" data-markdown-report-source={JSON.stringify(source)}>
-          <div className="group/code flex items-start gap-2 text-xs text-cc-muted">
+          <div className="flex items-start gap-2 text-xs text-cc-muted">
             <div className="min-w-0 flex-1">
               <div className="font-medium text-cc-fg">Markdown report</div>
               <div className="break-all">{source.sourcePath}</div>
@@ -80,17 +96,15 @@ function MarkdownReportBody({
                 <div className="break-all">{source.sha256}</div>
               </details>
             </div>
-            {!readOnly && reportMarker && <ArtifactCardLink marker={reportMarker} />}
             <FullScreenButton onClick={() => setFullScreen(true)} />
-            {!readOnly && <ReportReadAloudButton message={message} sessionId={source.sessionId} />}
-            <CodeCopyButton text={message.content} label="Copy Markdown" />
+            {actions}
           </div>
-          <ReportContent message={message} readOnly={readOnly} className="mr-5" />
+          <ReportContent message={message} readOnly={readOnly} className="mr-5" contentRef={cardContentRef} />
         </article>
       </ReportCard>
       {fullScreen && (
         <FullScreenPanel
-          title={reportTitleOf(message.content, source.sourcePath)}
+          title={title}
           actions={actions}
           selection={readOnly ? undefined : { sessionId: feedSessionId ?? source.sessionId, messageId: message.id }}
           onClose={() => setFullScreen(false)}
@@ -116,12 +130,16 @@ function ReportContent({
   message,
   readOnly,
   className = "",
+  contentRef: givenRef,
 }: {
   message: ChatMessage;
   readOnly: boolean;
   className?: string;
+  /** Receives the element showing the report, for exports. */
+  contentRef?: RefObject<HTMLDivElement | null>;
 }) {
-  const contentRef = useRef<HTMLDivElement>(null);
+  const ownRef = useRef<HTMLDivElement>(null);
+  const contentRef = givenRef ?? ownRef;
   const source = message.metadata!.markdownReport!;
   return (
     <div ref={contentRef} className={`relative min-w-0 ${className}`}>

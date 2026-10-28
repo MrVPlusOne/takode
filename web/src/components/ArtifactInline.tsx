@@ -9,6 +9,7 @@ import {
 import { postDestination, type GroupedDraftPost, type PostPartChanges } from "../../shared/draft-posts.js";
 import { artifactApi } from "../api/artifacts.js";
 import { openLibraryArtifact } from "../utils/library-nav.js";
+import type { ContextMenuItem } from "./ContextMenu.js";
 import {
   DraftPostCard,
   feedPostParts,
@@ -251,25 +252,17 @@ export function useDraftArtifactMarker(title: string | undefined): ArtifactMessa
 }
 
 /**
- * The small Library link inside a card header: the version and its versions when there are
- * several, the Library entry otherwise. It replaces the line that sat under each saved artifact.
+ * The More menu item opening a card's artifact in the Library: at its version, named when there
+ * are several. Cards open full screen from their header; the Library is the less common place.
  */
-export function ArtifactCardLink({ marker }: { marker: ArtifactMessageMarker }) {
-  const several = marker.versionCount > 1;
-  const label = several ? `Version ${marker.version} of ${marker.versionCount} in Library` : "Open in Library";
-  return (
-    <button
-      type="button"
-      onClick={() => openLibraryArtifact(marker.id, marker.version)}
-      aria-label={label}
-      title={label}
-      className="inline-flex min-h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg pointer-coarse:min-h-8"
-      data-testid="artifact-card-link"
-    >
-      <LibraryIcon className="h-3.5 w-3.5" />
-      {several && <span>v{marker.version}</span>}
-    </button>
-  );
+export function libraryMenuItem(marker: ArtifactMessageMarker): ContextMenuItem {
+  return {
+    label:
+      marker.versionCount > 1
+        ? `Open version ${marker.version} of ${marker.versionCount} in Library`
+        : "Open in Library",
+    onClick: () => openLibraryArtifact(marker.id, marker.version),
+  };
 }
 
 /** Attachments of a saved version: the Library's copy of an image, else the file's name. */
@@ -323,7 +316,7 @@ export function FeedDraftPost({
       }
       parts={feedPostParts(post.blocks, marker, saved)}
       removed={removed}
-      headerLink={marker ? <ArtifactCardLink marker={marker} /> : undefined}
+      menuItems={marker ? [libraryMenuItem(marker)] : []}
       renderMarkdown={renderMarkdown}
       attachments={attachments}
       copied={marker?.copied}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ArtifactMessageMarker, ArtifactVersionContent, PostAttachment } from "../../shared/artifact-library.js";
 import {
   destinationLabel,
@@ -8,6 +8,9 @@ import {
   type PostPartChanges,
 } from "../../shared/draft-posts.js";
 import { artifactApi } from "../api/artifacts.js";
+import { exportContent } from "../utils/artifact-export.js";
+import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
+import type { ContextMenuItem } from "./ContextMenu.js";
 import { messageCopyForSlack } from "../utils/slack-copy.js";
 import { CopyImageButton } from "./CopyImageButton.js";
 import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
@@ -38,7 +41,7 @@ export function DraftPostCard({
   destination,
   parts,
   removed = [],
-  headerLink,
+  menuItems = [],
   renderMarkdown,
   attachments,
   expandable = true,
@@ -51,8 +54,8 @@ export function DraftPostCard({
   parts: PostPartView[];
   /** Parts of the version before that this one dropped, each opening to its old text. */
   removed?: Array<{ label: string; open: () => ReactNode }>;
-  /** The post's Library link (version), shown in the header. */
-  headerLink?: ReactNode;
+  /** Actions for the header's More menu before Export, such as opening the post in the Library. */
+  menuItems?: ContextMenuItem[];
   renderMarkdown: (text: string) => ReactNode;
   attachments: AttachmentRendering;
   /** Offers the full-screen view (not inside it). */
@@ -69,6 +72,18 @@ export function DraftPostCard({
   const known = parts.flatMap((part) => (part.versionPart === undefined ? [] : [part.versionPart]));
   const allCopied = parts.length > 0 && parts.every(isCopied);
   const recordAll = onCopied && known.length > 0 ? () => onCopied(known) : undefined;
+  const { start, task } = useCardExport(
+    useCallback(
+      () =>
+        exportContent("markdown", {
+          markdown: parts.map((part) => part.text).join("\n\n---\n\n"),
+          content: null,
+          title: title ?? "Draft",
+        }),
+      [parts, title],
+    ),
+  );
+  const moreItems = [...menuItems, { label: "Export as Markdown (.md)", onClick: () => start("markdown") }];
   return (
     <>
       <div
@@ -89,8 +104,8 @@ export function DraftPostCard({
           )}
           {destination && <DestinationLink destination={destination} />}
           <span className="ml-auto" />
-          {headerLink}
           {expandable && <FullScreenButton onClick={() => setFullScreen(true)} />}
+          <CardMoreMenu items={moreItems} task={task} />
           {single ? (
             <CopyForSlack target={partsRef} primary copiedBefore={allCopied} onCopied={recordAll} />
           ) : (
@@ -128,7 +143,7 @@ export function DraftPostCard({
               destination={destination}
               parts={parts}
               removed={removed}
-              headerLink={headerLink}
+              menuItems={menuItems}
               renderMarkdown={renderMarkdown}
               attachments={attachments}
               expandable={false}

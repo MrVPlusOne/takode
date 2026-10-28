@@ -48,6 +48,14 @@ export interface VisualRenderResult {
   detail?: string;
 }
 
+/** A standalone HTML document to print as a PDF or capture as one PNG, for exports. */
+export interface DocumentRenderRequest {
+  html: string;
+  format: "pdf" | "png";
+  /** Page width in CSS px (the PNG's width; a PDF lays out on its paper). */
+  width: number;
+}
+
 export interface VisualRendererOptions {
   /** Origin headless Chrome loads helper libraries from, normally this server. */
   assetBase: string;
@@ -63,6 +71,9 @@ const IDLE_SHUTDOWN_MS = 90_000;
 const DEFAULT_MEMORY_LIMIT_MB = 1024;
 const MEMORY_POLL_MS = 150;
 const CACHE_LIMIT = 300;
+const DOCUMENT_BUDGET_MS = 30_000;
+/** Tallest PNG side in device pixels: past it a long document is captured at a smaller scale. */
+const MAX_PNG_PIXELS = 16_000;
 
 export class VisualRenderer {
   private browser: Promise<ChromeConnection> | null = null;
@@ -104,6 +115,21 @@ export class VisualRenderer {
       }
       return result;
     });
+  }
+
+  /**
+   * An exported document as PDF or PNG bytes. Its own scripts never run (a Content Security
+   * Policy blocks them), so it shows only what it was written with. Shares the visuals' queue.
+   */
+  renderDocument(request: DocumentRenderRequest): Promise<Buffer> {
+    const run = this.queue.then(async () => {
+      const result = await withTimeout(this.renderDocumentNow(request), DOCUMENT_BUDGET_MS);
+      if (result !== TIMED_OUT) return result;
+      await this.restart();
+      throw new Error("Rendering did not finish.");
+    });
+    this.queue = run.catch(() => undefined);
+    return run;
   }
 
   async close(): Promise<void> {
@@ -160,6 +186,47 @@ export class VisualRenderer {
         // A page stuck in a script can keep Chrome from answering; start over next time.
         if (closed === false || page.hung) await this.restart();
       }
+    }
+  }
+
+  private async renderDocumentNow(request: DocumentRenderRequest): Promise<Buffer> {
+    const browser = await this.connection();
+    this.touch();
+    const page = await browser.openPage();
+    try {
+      await page.send("Emulation.setDeviceMetricsOverride", {
+        width: request.width,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await page.send("Page.enable");
+      const tree = (await page.send("Page.getFrameTree")) as { frameTree: { frame: { id: string } } };
+      await page.send("Page.setDocumentContent", {
+        frameId: tree.frameTree.frame.id,
+        html: withoutScripts(request.html),
+      });
+      // Images and fonts load after the document is written.
+      const started = Date.now();
+      while (Date.now() - started < 10_000) {
+        if (await page.evaluate(LOADED_SCRIPT)) break;
+        await sleep(100);
+      }
+      if (request.format === "pdf") {
+        const pdf = (await page.send("Page.printToPDF", { printBackground: true, preferCSSPageSize: true })) as {
+          data: string;
+        };
+        return Buffer.from(pdf.data, "base64");
+      }
+      const height = Math.max(1, Number(await page.evaluate("document.documentElement.scrollHeight")) || 1);
+      const shot = (await page.send("Page.captureScreenshot", {
+        format: "png",
+        captureBeyondViewport: true,
+        clip: { x: 0, y: 0, width: request.width, height, scale: Math.min(2, MAX_PNG_PIXELS / height) },
+      })) as { data: string };
+      return Buffer.from(shot.data, "base64");
+    } finally {
+      await withTimeout(page.close(), 2000).catch(() => undefined);
     }
   }
 
@@ -298,6 +365,15 @@ const MEASURE_SCRIPT = `(() => {
     errors: (window.__tkVisual.errors || []).slice(0, 8),
   };
 })()`;
+
+/** Whether a written document finished loading its images and fonts. */
+const LOADED_SCRIPT = `document.readyState === "complete" && [...document.images].every((image) => image.complete) && document.fonts.status === "loaded"`;
+
+/** The document with a policy that blocks every script in it; DevTools' own evaluation still works. */
+function withoutScripts(html: string): string {
+  const policy = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'">`;
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (head) => head + policy) : policy + html;
+}
 
 /** The settled visual without scripts, made by the frame script itself (the same still picture browsers keep). */
 const SNAPSHOT_SCRIPT = "window.__tkVisual.snapshot()";

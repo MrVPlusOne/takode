@@ -37,6 +37,8 @@ import {
 import { visualFrameSupervisor, type FrameHandle } from "../utils/visual-frame-supervisor.js";
 import { keepVisualStill, stripVisualScripts, visualStill } from "../utils/visual-still-cache.js";
 import { CodeBlock } from "./MarkdownCodeBlock.js";
+import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
+import { exportVisualImage } from "../utils/artifact-export.js";
 
 const MAX_INLINE_HEIGHT = 2400;
 /** How far ahead of the viewport a live frame loads, where frames run outside Takode's process. */
@@ -212,6 +214,13 @@ export function VisualBlock({ source }: { source: string }) {
   };
   // Run is offered where running shows something the still picture can't.
   const runnable = plan === "still" && interactive && !problem;
+  const { start: startExport, task: exportTask } = useCardExport(
+    useCallback(() => exportVisualImage(source, block.title ?? "Visual"), [source, block.title]),
+  );
+  const menuItems = [
+    { label: showSource ? "Hide source" : "Show source", onClick: () => setShowSource((value) => !value) },
+    ...(!tooLarge ? [{ label: "Export as image (.png)", onClick: () => startExport("png") }] : []),
+  ];
 
   return (
     <div ref={rootRef} className="my-2 min-w-0" data-visual-block="" data-visual-plan={plan ?? undefined}>
@@ -220,11 +229,7 @@ export function VisualBlock({ source }: { source: string }) {
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
           {runnable ? <VisualButton onClick={run} label="Run" title="Run this visual's scripts" /> : null}
           {!problem && !tooLarge ? <FullScreenButton onClick={() => setEnlarged(true)} /> : null}
-          <VisualButton
-            onClick={() => setShowSource((value) => !value)}
-            label={showSource ? "Hide source" : "Source"}
-            title="Show what the agent wrote"
-          />
+          <CardMoreMenu items={menuItems} task={exportTask} />
         </span>
       </div>
       {stopReason && !problem && !forced ? (

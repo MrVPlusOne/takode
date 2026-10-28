@@ -66,20 +66,24 @@ describe("artifacts in the feed", () => {
     expect(screen.queryByText("---")).not.toBeInTheDocument();
   });
 
-  it("puts a saved draft's Library link in its card header, and says when a copy was sent again", () => {
+  it("opens a saved draft in the Library from its More menu, and says when a copy was sent again", () => {
+    // The header opens the draft full screen; the Library (the less common place) is in More,
+    // naming the version when there are several.
     render(
       <ArtifactMarkersContext.Provider value={[{ ...POST, version: 3 }]}>
         <MarkdownContent text={"```draft\ntitle: T7 thread update\n---\nQuick T7 update\n```"} />
       </ArtifactMarkersContext.Provider>,
     );
-    const link = screen.getByTestId("artifact-card-link");
-    expect(link).toHaveTextContent("v3");
-    expect(link).toHaveAccessibleName("Version 3 of 3 in Library");
-    expect(link.closest("[data-markdown-draft]")).not.toBeNull();
+    expect(screen.getByTestId("card-more-menu").closest("[data-markdown-draft]")).not.toBeNull();
+    fireEvent.click(screen.getByTestId("card-more-menu"));
+    expect(screen.getByRole("button", { name: "Open version 3 of 3 in Library" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export as Markdown (.md)" })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("card-more-menu"));
 
-    // A view without markers (read-only) shows the draft without a link.
+    // A view without markers (read-only) has no Library item.
     render(<MarkdownContent text={"```draft\ntitle: Other\n---\nText\n```"} />);
-    expect(screen.getAllByTestId("artifact-card-link")).toHaveLength(1);
+    fireEvent.click(screen.getAllByTestId("card-more-menu")[1]!);
+    expect(screen.queryByRole("button", { name: /in Library/ })).not.toBeInTheDocument();
 
     render(
       <MarkdownContent text={formatArtifactPlaceholder({ ...POST, version: 3, versionCount: 3, repeated: true })} />,

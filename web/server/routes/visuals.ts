@@ -8,6 +8,7 @@
  *   scripts, for browsers that can't isolate a visual's scripts from the page.
  * - `POST /api/visuals/preview` renders it at phone and desktop width in both themes,
  *   with screenshots and checks, for `takode visual preview`.
+ * - `POST /api/visuals/image` renders it at desktop width and returns the PNG, for export.
  */
 import { Hono } from "hono";
 import { createRequire } from "node:module";
@@ -75,6 +76,23 @@ export function createVisualRoutes(options: { renderer: VisualRenderer }): Hono 
       (result.snapshotHtml !== undefined && result.snapshotHtml.length > VISUAL_MAX_SNAPSHOT_BYTES);
     const { snapshotHtml, ...rest } = withoutScreenshot(result);
     return c.json(tooBig ? { ...rest, tooLarge: true } : { ...rest, snapshotHtml });
+  });
+
+  app.post("/api/visuals/image", async (c) => {
+    const body = await readBody(c.req.raw);
+    if ("error" in body) return c.json({ error: body.error }, 400);
+    const result = await options.renderer.render({
+      source: body.source,
+      theme: body.theme,
+      width: VISUAL_PREVIEW_WIDTHS.desktop,
+      screenshot: true,
+    });
+    if (result.status !== "ok" || !result.screenshotPng) {
+      return c.json({ error: `The visual didn't render (${result.detail ?? result.status}).` }, 503);
+    }
+    return new Response(new Uint8Array(Buffer.from(result.screenshotPng, "base64")), {
+      headers: { "Content-Type": "image/png" },
+    });
   });
 
   app.post("/api/visuals/preview", async (c) => {

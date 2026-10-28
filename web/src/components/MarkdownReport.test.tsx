@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, cleanup } from "@testing-library/react";
+import { act, render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeMarkdownReportFixture } from "../../shared/test-fixtures/markdown-report.js";
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
@@ -166,5 +166,46 @@ describe("saved Markdown reports", () => {
     expect(screen.getByTestId("annotation-attachments").textContent).toContain("Comment 1");
     expect(screen.queryByLabelText("Report comment recipient")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
+  });
+
+  it("opens full screen from its header and keeps the Library, copying and export in More", async () => {
+    // The Library button and the full-screen button both opened the report, so the header keeps
+    // full screen and Read aloud; the Library, Copy Markdown and the exports moved to More. A PDF
+    // export sends the report as a standalone light page to the server and downloads the file.
+    const report = makeMarkdownReportFixture();
+    report.content = "# Daily engineering report\n\nThe cache expires after **one hour**.";
+    const [message] = normalizeHistoryMessageToChatMessages(report, 0);
+    message.metadata = {
+      ...message.metadata,
+      artifacts: [{ id: "artifact-r", kind: "report", title: "Daily engineering report", version: 2, versionCount: 2 }],
+    };
+    const fetchMock = vi.fn(async () => new Response(new Blob(["%PDF-"]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const createObjectURL = vi.fn(() => "blob:report");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    render(<MessageBubble message={message} sessionId={report.source.sessionId} />);
+
+    expect(screen.getByRole("button", { name: "Full screen" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /in Library/ })).toBeNull();
+    fireEvent.click(screen.getByTestId("card-more-menu"));
+    expect(screen.getByRole("button", { name: "Open version 2 of 2 in Library" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy Markdown" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    expect(
+      ["Markdown (.md)", "PDF (.pdf)", "Image (.png)", "Web page (.html)"].map(
+        (name) => !!screen.getByRole("button", { name }),
+      ),
+    ).toEqual([true, true, true, true]);
+    fireEvent.click(screen.getByRole("button", { name: "PDF (.pdf)" }));
+
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/exports/document");
+    const body = JSON.parse(String(init.body)) as { html: string; format: string };
+    expect(body.format).toBe("pdf");
+    expect(body.html).toContain("<title>Daily engineering report</title>");
+    expect(body.html).toContain("one hour");
+    // Controls stay out of the export.
+    expect(body.html).not.toContain("More options");
   });
 });

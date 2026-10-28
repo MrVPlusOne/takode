@@ -195,6 +195,7 @@ import { planSessionMemorySpaceBackfill } from "./session-memory-space.js";
 import { refreshCodexModelCatalogOnStartup } from "./codex-model-catalog.js";
 import { VisualRenderer } from "./visual-renderer.js";
 import { createVisualRoutes } from "./routes/visuals.js";
+import { createExportRoutes } from "./routes/exports.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
@@ -1357,6 +1358,7 @@ const visualRenderHost = ((host) =>
 );
 const visualRenderer = new VisualRenderer({ assetBase: `http://${visualRenderHost}:${port}` });
 app.route("/", createVisualRoutes({ renderer: visualRenderer }));
+app.route("/api", createExportRoutes({ renderer: visualRenderer }));
 setArtifactThumbnails(
   new ArtifactThumbnails(artifactLibrary.store, {
     renderVisual: async (source, theme, width) => {
