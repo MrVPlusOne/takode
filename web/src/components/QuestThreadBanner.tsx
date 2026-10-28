@@ -575,7 +575,7 @@ export function QuestThreadBanner({
       data-layout="compact-inline"
       data-mobile-collapsed={collapsed}
     >
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-1 gap-y-0.5 text-xs sm:flex sm:items-start sm:gap-x-2">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-x-1 gap-y-0.5 text-xs sm:flex sm:items-start sm:gap-x-2">
         {/* On wider screens everything but the close button wraps here, so the button keeps the top right corner. */}
         <div
           className="contents sm:flex sm:min-w-0 sm:flex-1 sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-0.5"
@@ -634,13 +634,25 @@ export function QuestThreadBanner({
               </svg>
             </button>
           )}
+          {monitorSessionId && !isSessionBanner && (
+            // Right before the phase pill on phones and desktop, as one icon: the strip stays one line.
+            <span className="col-start-3 row-start-1 inline-flex shrink-0" data-testid="quest-thread-notify">
+              <NotifyMeControl
+                sessionId={monitorSessionId}
+                threadKey={threadKey}
+                iconOnly
+                // A 32 px target on phones, as the close button, without growing the strip.
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md max-sm:-my-1 max-sm:h-8 max-sm:w-8"
+              />
+            </span>
+          )}
           {hasMeta && (
             <div
               className="contents min-w-0 flex-[1_1_auto] flex-wrap items-center gap-1.5 sm:inline-flex sm:flex-[0_1_auto] sm:justify-end"
               data-testid="quest-thread-meta-strip"
             >
               <div
-                className={`col-start-3 row-start-1 inline-flex min-w-0 items-center gap-1 justify-self-end ${queuedWaitCondition ? "sm:hidden" : "sm:contents"}`}
+                className={`col-start-4 row-start-1 inline-flex min-w-0 items-center gap-1 justify-self-end ${queuedWaitCondition ? "sm:hidden" : "sm:contents"}`}
               >
                 {ownership && (
                   <QuestThreadOwnershipChip
@@ -672,7 +684,7 @@ export function QuestThreadBanner({
               <div
                 id={detailsId}
                 data-testid="quest-thread-details"
-                className={`${collapsed ? "hidden" : "flex"} col-span-4 min-w-0 flex-wrap items-center gap-1.5 sm:contents`}
+                className={`${collapsed ? "hidden" : "flex"} col-span-5 min-w-0 flex-wrap items-center gap-1.5 sm:contents`}
               >
                 {queuedWaitCondition &&
                   (row?.journey ? (
@@ -717,9 +729,6 @@ export function QuestThreadBanner({
                 )}
                 {/* With no pill to hover yet (the quest's record hasn't arrived), its details stay in the strip. */}
                 {!(row && (row.journey || hasPill)) && pillDetails}
-                {monitorSessionId && !isSessionBanner && (
-                  <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} iconOnly />
-                )}
               </div>
             </div>
           )}
@@ -729,7 +738,7 @@ export function QuestThreadBanner({
           <button
             type="button"
             // 32 px to tap easily on a phone; the negative margin keeps the strip's height.
-            className="col-start-4 row-start-1 -my-1 -mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
+            className="col-start-5 row-start-1 -my-1 -mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
             aria-label={`Close the ${questId} tab`}
             title="Close tab"
             onClick={onCloseTab}

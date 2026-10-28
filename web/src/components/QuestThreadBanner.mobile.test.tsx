@@ -104,8 +104,19 @@ describe("mobile quest banner disclosure", () => {
     expect(screen.queryByRole("button", { name: /quest information/ })).not.toBeInTheDocument();
     const banner = screen.getByTestId("quest-thread-banner");
     expect(within(banner).queryByRole("link", { name: "Worker #10" })).not.toBeInTheDocument();
-    // The Notify icon has no word but still acknowledges a waiting result.
+    // The Notify icon has no word but still acknowledges a waiting result. It sits on the strip's own
+    // line right before the phase pill (Jiayi's pick, phones and desktop alike), not in the details
+    // row below, where it once dangled alone on a phone.
     const acknowledge = within(banner).getByRole("button", { name: "Acknowledge" });
+    expect(screen.getByTestId("quest-thread-details")).not.toContainElement(acknowledge);
+    const order = [
+      within(banner).getByText("q-9001"),
+      acknowledge,
+      screen.getByTestId("quest-thread-journey-hover-target"),
+    ];
+    for (let index = 1; index < order.length; index += 1) {
+      expect(order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
     expect(acknowledge).not.toHaveTextContent("Acknowledge");
     fireEvent.click(acknowledge);
     expect(updateThreadMonitoring).toHaveBeenCalledWith("leader", "q-9001", "acknowledge", "1");
