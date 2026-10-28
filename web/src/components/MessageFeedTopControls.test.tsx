@@ -277,7 +277,7 @@ describe("MessageFeedTopControls", () => {
       );
       rerender(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} belowPinnedStrip />);
       const overlay = screen.getByTestId("message-feed-top-overlay");
-      expect(overlay.className).toContain("top-[calc(var(--feed-pinned-top)+var(--feed-pinned-bar,0px)+1rem)]");
+      expect(overlay.className).toContain("top-[calc(var(--feed-pinned-top)+var(--feed-pinned-bar,0px)+1.5rem)]");
     });
 
     it("shows the pill alone at the top when there are no controls", () => {

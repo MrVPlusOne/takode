@@ -81,10 +81,19 @@ export function TopicFeedQuestStart({ questId }: { questId: string }) {
   return <QuestStart questId={questId} />;
 }
 
+/**
+ * The pinned strip's wrapper. Sticky offsets are measured inside the feed's top padding (py-4,
+ * sm:py-6), so they cancel it, and a pinned strip sits right under the topic header. The space
+ * above it is a margin, not padding: a stuck sticky box ignores its margin, so the strip keeps its
+ * distance from the message above while scrolling and no empty band shows above it once pinned.
+ * z-30 keeps it above bubbles, cards and their own sticky bars as they scroll by.
+ */
+const STRIP_WRAPPER = "sticky -top-4 z-30 sm:-top-6 mt-2 bg-cc-bg pb-1";
+
 /** The strip where the conversation moves to the topic's own thread: what was written in the topic itself. */
 function TopicFeedOwnStart({ name }: { name: string }) {
   return (
-    <div className="sticky -top-4 z-30 sm:-top-6 bg-cc-bg pb-1 pt-2" data-testid="topic-feed-quest-start" data-quest="">
+    <div className={STRIP_WRAPPER} data-testid="topic-feed-quest-start" data-quest="">
       <div className="flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm sm:text-[13px]">
         <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
         <span className="min-w-0 truncate font-medium text-cc-fg">{name}</span>
@@ -98,14 +107,8 @@ function QuestStart({ questId }: { questId: string }) {
   const topicFeed = useContext(TopicFeedContext);
   const quest = useQuestRecord(questId);
   const status = quest ? (quest.status === "done" ? "Done" : quest.status.replace("_", " ")) : "";
-  // Sticky offsets are measured inside the feed's top padding (py-4, sm:py-6), so they cancel it;
-  // z-30 keeps the pinned strip above bubbles, cards and their own sticky bars as they scroll by.
   return (
-    <div
-      className="sticky -top-4 z-30 sm:-top-6 bg-cc-bg pb-1 pt-2"
-      data-testid="topic-feed-quest-start"
-      data-quest={questId}
-    >
+    <div className={STRIP_WRAPPER} data-testid="topic-feed-quest-start" data-quest={questId}>
       {/* The quest ID is a real quest link (hover preview, jump icon); the rest of the strip zooms. */}
       <div className="flex w-full min-w-0 items-baseline gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 pl-3 text-xs shadow-sm backdrop-blur-sm sm:text-[13px]">
         <span className="shrink-0 py-1.5 font-mono-code font-medium">

@@ -49,3 +49,25 @@ describe("the topic's own thread", () => {
     expect(screen.queryByTitle("Zoom into this quest")).toBeNull();
   });
 });
+
+describe("the pinned strip's spacing", () => {
+  it("keeps its distance from the message above as a margin, so no empty band shows once pinned", () => {
+    // Jiayi saw an empty band between the topic header and the pinned quest strip: the space above
+    // the strip was padding inside the sticky box, which stays when it pins. A stuck sticky box
+    // ignores its margin. (jsdom does no layout, so this checks the classes that decide it.)
+    render(
+      <QuestRecordFetchContext.Provider value={false}>
+        <TopicFeedContext.Provider
+          value={{ questIds: ["q-3"], topicKey: "topic:aaaaaaaa", topicName: "Relay", openQuest: vi.fn() }}
+        >
+          <TopicFeedQuestStart questId="q-3" />
+          <TopicFeedQuestStart questId="topic:aaaaaaaa" />
+        </TopicFeedContext.Provider>
+      </QuestRecordFetchContext.Provider>,
+    );
+    for (const strip of screen.getAllByTestId("topic-feed-quest-start")) {
+      expect(strip.className).toContain("mt-2");
+      expect(strip.className).not.toMatch(/\bpt-/);
+    }
+  });
+});
