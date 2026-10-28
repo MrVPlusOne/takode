@@ -1,15 +1,23 @@
-import type { RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { type ScrollActivity, useIsScrolling } from "./message-feed-scroll-activity.js";
 import { UserMessageNavigator } from "./UserMessageNavigator.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
 
 const DESKTOP_NAV_STACK_BOTTOM_CLASS = "bottom-16";
+/** How close (px) the mouse must come to the faded desktop buttons to bring them back. */
+const DESKTOP_REVEAL_DISTANCE_PX = 48;
+// Hidden desktop buttons come back for keyboard focus and while the message selector is open.
+const DESKTOP_HIDDEN_CLASS =
+  "opacity-0 pointer-events-none has-[:focus-visible]:opacity-100 has-[:focus-visible]:pointer-events-auto has-[[role=dialog]]:opacity-100 has-[[role=dialog]]:pointer-events-auto";
 
 interface MessageFeedNavigationControlsProps {
   showScrollButton: boolean;
   navFabStackClassName: string;
-  /** On touch screens the buttons show only while the feed is scrolling. */
+  /**
+   * The buttons show only while the feed is scrolling, so they stop covering text once it rests.
+   * On desktop they also show while the mouse is near them.
+   */
   scrollActivity?: ScrollActivity;
   isTouch: boolean;
   mobileNavBottomOffsetPx: number;
@@ -56,11 +64,23 @@ export function MessageFeedNavigationControls({
 }: MessageFeedNavigationControlsProps) {
   const isScrolling = useIsScrolling(scrollActivity);
   const composerOverlayLift = useComposerOverlayLift();
+  const stackRef = useRef<HTMLDivElement>(null);
+  const pointerNear = usePointerNear(stackRef, !isTouch && !!scrollActivity && showScrollButton);
   if (!showScrollButton) return null;
-  const visibilityClassName =
-    isTouch && scrollActivity ? (isScrolling ? "opacity-60" : "opacity-0 pointer-events-none") : "";
+  const visibilityClassName = !scrollActivity
+    ? ""
+    : isTouch
+      ? isScrolling
+        ? "opacity-60"
+        : "opacity-0 pointer-events-none"
+      : pointerNear
+        ? ""
+        : isScrolling
+          ? "opacity-60"
+          : DESKTOP_HIDDEN_CLASS;
   return (
     <div
+      ref={stackRef}
       data-testid="message-feed-nav-fabs"
       className={`absolute ${DESKTOP_NAV_STACK_BOTTOM_CLASS} right-3 z-10 flex flex-col items-center transition-opacity duration-300 ${navFabStackClassName} ${visibilityClassName}`}
       style={isTouch ? { bottom: `${mobileNavBottomOffsetPx}px` } : composerOverlayLift}
@@ -101,6 +121,41 @@ export function MessageFeedNavigationControls({
       </button>
     </div>
   );
+}
+
+/**
+ * Whether the mouse is within reach of the element, watched over the element's parent (the feed's
+ * overlay), so a hidden kept conversation never listens. Re-renders only when the answer changes.
+ */
+function usePointerNear(ref: RefObject<HTMLElement | null>, enabled: boolean): boolean {
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const area = ref.current?.parentElement;
+    if (!enabled || !area) {
+      setNear(false);
+      return;
+    }
+    const onMove = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      const rect = ref.current?.getBoundingClientRect();
+      const reach = DESKTOP_REVEAL_DISTANCE_PX;
+      setNear(
+        !!rect &&
+          event.clientX >= rect.left - reach &&
+          event.clientX <= rect.right + reach &&
+          event.clientY >= rect.top - reach &&
+          event.clientY <= rect.bottom + reach,
+      );
+    };
+    const onLeave = () => setNear(false);
+    area.addEventListener("pointermove", onMove, { passive: true });
+    area.addEventListener("pointerleave", onLeave);
+    return () => {
+      area.removeEventListener("pointermove", onMove);
+      area.removeEventListener("pointerleave", onLeave);
+    };
+  }, [enabled, ref]);
+  return near;
 }
 
 /** "New content below" pill: jumps to the latest content, lifted above an expanded desktop composer. */
