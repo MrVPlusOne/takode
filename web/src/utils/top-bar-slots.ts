@@ -5,7 +5,7 @@ import { useLeaderTopicsOn } from "./leader-topics.js";
 
 /**
  * On desktop, a leader with Library topics on keeps its thread navigation in the top bar instead
- * of a tab row of its own: Main | All and Topics after the session name, and the Next chip and the
+ * of a tab row of its own: Main | All, Topics and the Next chip after the session name, and the
  * Working on menu (which holds the work board) before the attention bell. The conversation on
  * screen fills these two places of the top bar; phones keep the tab row.
  */

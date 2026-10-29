@@ -543,7 +543,7 @@ export function TopBar({
 
       {/* Right side */}
       <div className={`flex items-center shrink-0 text-[12px] text-cc-muted ${compact ? "gap-1.5" : "gap-2 sm:gap-3"}`}>
-        {/* The conversation's Next chip and Working on menu, which holds the work board. */}
+        {/* The conversation's Working on menu, which holds the work board. */}
         {navInTopBar && (
           <div ref={topBarHelpersRef} className="flex items-center" data-testid="topbar-thread-helpers" />
         )}

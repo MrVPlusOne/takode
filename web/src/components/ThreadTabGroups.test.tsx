@@ -494,10 +494,11 @@ describe("ThreadTabGroupBar", () => {
   });
 });
 
-describe("Topics bell and its list", () => {
-  // Jiayi saw a blue bell on Topics with no topic marked in its list (Oct 28): the bell read the
-  // tabs' unread marks, which include finished quests, while topic rows counted only answers and
-  // reports. The bell now comes from exactly what the list marks.
+describe("Topics and Working on, and the marks in their lists", () => {
+  // One open question used to ring up to four amber bells in the top bar (Oct 28, round 6). Jiayi
+  // chose to let the Next chip and the attention count carry questions and unread results: the
+  // Topics and Working on items show none, and their lists mark each topic and quest instead.
+  // The topic rows count unread results as the attention list does (round 5).
   const topic = (id: string, name: string, questIds: string[]) =>
     ({ id, name, activityAt: 1, questIds, latestUpdate: `${name} moved.` }) as never;
   const topics = [topic("t1", "Relay", ["q-10"]), topic("t2", "Briefing", ["q-13"])];
@@ -516,8 +517,7 @@ describe("Topics bell and its list", () => {
       },
     });
   }
-  const bellKind = () =>
-    within(screen.getByTestId("thread-tab-group-topics")).queryByTestId("thread-tab-bell")?.dataset.kind ?? null;
+  const bellOn = (testId: string) => within(screen.getByTestId(testId)).queryByTestId("thread-tab-bell");
 
   it("counts unread results as the attention list does: finished quests apart, one request once", () => {
     expect(
@@ -530,38 +530,39 @@ describe("Topics bell and its list", () => {
     ).toEqual({ answers: 2, finished: 1 });
   });
 
-  it("rings for a finished quest and marks its topic in the list", () => {
-    renderTopics({ "q-13": { answers: 0, finished: 1 } });
-    expect(bellKind()).toBe("review");
+  it("puts no bell on Topics; the topic's row says what is unread, including its own thread", () => {
+    renderTopics({ "q-13": { answers: 0, finished: 1 }, "topic:t1": { answers: 2, finished: 0 } });
+    expect(bellOn("thread-tab-group-topics")).toBeNull();
     fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
-    const briefing = screen.getAllByTestId("topic-tab-row").find((row) => row.dataset.topic === "t2")!;
-    expect(within(briefing).getByTestId("topic-tab-unread").textContent).toBe("1 finished");
+    const row = (id: string) => screen.getAllByTestId("topic-tab-row").find((element) => element.dataset.topic === id)!;
+    expect(within(row("t2")).getByTestId("topic-tab-unread").textContent).toBe("1 finished");
+    expect(within(row("t1")).getByTestId("topic-tab-unread").textContent).toBe("2 new");
   });
 
-  it("stays quiet when no topic in the list is marked, even if a tab still has a stale mark", () => {
-    renderTopics({}, [tab("q-10", { blueNudge: true }), ...tabs.slice(1)]);
-    expect(bellKind()).toBeNull();
-  });
-
-  it("rings for answers in a topic's own thread, which no quest tab carries", () => {
-    renderTopics({ "topic:t1": { answers: 2, finished: 0 } });
-    expect(bellKind()).toBe("review");
-  });
-
-  it("rings for a quest under no topic, whose row in the list has the bell", () => {
+  it("keeps the bell on a quest under no topic in the Topics list, not on Topics", () => {
     renderTopics({}, [...tabs.slice(0, 2), tab("q-20", { completed: true, blueNudge: true })]);
-    expect(bellKind()).toBe("review");
+    expect(bellOn("thread-tab-group-topics")).toBeNull();
     fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
     const unsorted = screen.getByTestId("topic-tab-unsorted");
     expect(within(unsorted).getByTestId("thread-tab-bell").dataset.kind).toBe("review");
+  });
+
+  it("puts no bell on Working on; the quest's row in its list has it", () => {
+    renderTopics({}, [tab("q-10", { needsInput: true }), ...tabs.slice(1)]);
+    expect(bellOn("thread-tab-group-working-on")).toBeNull();
+    fireEvent.click(screen.getByTestId("thread-tab-group-working-on"));
+    const row = within(screen.getByTestId("thread-tab-group-list"))
+      .getAllByTestId("thread-tab-list-row")
+      .find((element) => element.dataset.threadKey === "q-10")!;
+    expect(within(row).getByTestId("thread-tab-bell").dataset.kind).toBe("needs-input");
   });
 });
 
 describe("ThreadTabGroupBar in the top bar", () => {
   // Desktop leaders with topics on (Jiayi's pick, design C with her changes): the bar leaves its
-  // own tab row. Main | All and Topics sit after the session name; the Next chip and Working on,
-  // merged with the Board button, sit before the attention bell, and the full board is behind a
-  // button in the Working on menu.
+  // own tab row. Main | All, Topics and the Next chip sit after the session name; Working on, merged
+  // with the Board button, sits before the attention bell, and the full board is behind a button in
+  // the Working on menu.
   const topic = (id: string, name: string, questIds: string[]) =>
     ({ id, name, activityAt: 1, questIds, latestUpdate: `${name} moved.` }) as never;
   afterEach(() => {
@@ -586,7 +587,7 @@ describe("ThreadTabGroupBar in the top bar", () => {
     return { ...view, helpers, onToggleBoard };
   }
 
-  it("puts Main | All and Topics in place, and Next and Working on in the helpers", () => {
+  it("puts Main | All, Topics and then Next in place, and Working on in the helpers", () => {
     const { helpers, onSelect } = renderInTopBar();
     const bar = screen.getByTestId("thread-tab-group-bar");
     expect(within(bar).getByTestId("thread-tab-group-main")).toBeTruthy();
@@ -594,7 +595,13 @@ describe("ThreadTabGroupBar in the top bar", () => {
     expect(within(bar).queryByTestId("thread-tab-group-working-on")).toBeNull();
     // No folder tabs: nothing in the bar claims to be the tab on screen.
     expect(within(bar).queryAllByRole("tab")).toEqual([]);
-    expect(within(helpers).getByTestId("next-chip")).toBeTruthy();
+    // The Next chip sits right after Topics (Jiayi, round 6), not at the right end.
+    const next = within(bar).getByTestId("next-chip");
+    expect(
+      within(bar).getByTestId("thread-tab-group-topics").compareDocumentPosition(next) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(within(helpers).queryByTestId("next-chip")).toBeNull();
     const workingOn = within(helpers).getByTestId("thread-tab-group-working-on");
     // The Board button's monitor icon, with the count of unfinished quests (q-10 and q-11).
     expect(within(workingOn).getByTestId("workboard-dots-icon")).toBeTruthy();

@@ -30,7 +30,6 @@ import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
 import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
-import { useTopicQuestions } from "./library/topic-questions.js";
 import type { SessionNotification } from "../types.js";
 import { createPortal } from "react-dom";
 import { WorkBoardDotsIcon, WorkBoardIcon } from "./leader-workboard-controls.js";
@@ -167,9 +166,10 @@ export interface ThreadTabGroupBarProps extends RowContext {
   /** Shown in the row right after the tabs, outside the tab list (the desktop Next chip). */
   trailing?: ReactNode;
   /**
-   * Desktop leaders with topics on: the bar lives in the top bar instead of a tab row. Main | All
-   * and Topics sit where the bar is drawn; the Next chip (`trailing`) and the Working on menu, which
-   * holds the work board, go to `inTopBar.helpers`.
+   * Desktop leaders with topics on: the bar lives in the top bar instead of a tab row. Main | All,
+   * Topics and the Next chip (`trailing`) sit where the bar is drawn; the Working on menu, which holds
+   * the work board, goes to `inTopBar.helpers`. Topics and Working on carry no attention bell: the
+   * Next chip and the attention count carry questions and unread results, and their lists mark each one.
    */
   inTopBar?: {
     helpers: HTMLElement | null;
@@ -306,7 +306,6 @@ export function ThreadTabGroupBar({
           <TopicIcon className="h-3.5 w-3.5 shrink-0" />
           {/* With two or three tabs in the bar, phones have room to name it too. */}
           <span className={topicFirst ? "" : "hidden md:inline"}>Topics</span>
-          {topicFirst && <TopicsBell topicsGroup={topicsGroup} questTabs={questTabs} />}
         </>
       ),
     });
@@ -324,7 +323,6 @@ export function ThreadTabGroupBar({
         <>
           <PhaseDots tabs={workingOn} />
           <span>Working on {workingOn.length}</span>
-          <AttentionBell tab={attentionOf(workingOn)} />
         </>
       ),
     });
@@ -409,16 +407,16 @@ export function ThreadTabGroupBar({
               {spinningTab === "topics" && <ActiveOutputSpinner />}
               <TopicIcon className="h-3.5 w-3.5 shrink-0" />
               Topics
-              <TopicsBell topicsGroup={topicsGroup} questTabs={questTabs} />
               <ListChevron />
             </TopBarButton>
           )}
           {openGroup === "topics" && topicsGroup && list("left", topicsList(topicsGroup))}
+          {/* This conversation's Next chip, right after Topics: where to go next, beside where things are. */}
+          {trailing}
         </div>
         {inTopBar.helpers &&
           createPortal(
             <div className="relative flex items-center gap-2" data-testid="thread-top-bar-helpers">
-              {trailing}
               <TopBarButton
                 label={`Working on: ${workingOn.length}`}
                 open={openGroup === "working-on"}
@@ -430,7 +428,6 @@ export function ThreadTabGroupBar({
                 {spinningTab === "working-on" && <ActiveOutputSpinner />}
                 <WorkBoardDotsIcon dots={inTopBar.board.dots} large={false} />
                 <span className="tabular-nums">Working on {workingOn.length}</span>
-                <AttentionBell tab={attentionOf(workingOn)} />
                 <ListChevron />
               </TopBarButton>
               {openGroup === "working-on" && list("right", workingOnList)}
@@ -1025,19 +1022,6 @@ function workingOnTabs(tabs: readonly PrimaryThreadChip[]): PrimaryThreadChip[] 
     .sort((left, right) => lastActivityAt(right) - lastActivityAt(left));
 }
 
-/** The strongest attention among tabs, as one tab-shaped value for a bell. */
-function attentionOf(tabs: readonly PrimaryThreadChip[]): PrimaryThreadChip {
-  return {
-    threadKey: "",
-    title: "",
-    canClose: false,
-    updatedAt: 0,
-    needsInput: tabs.some((tab) => tab.needsInput),
-    blueNudge: tabs.some((tab) => tab.blueNudge),
-    mutedNeedsInput: false,
-  };
-}
-
 /** A place's unread results: new answers and reports, and finished quests. */
 export interface UnreadResultCount {
   /** New answers and reports; answers to one request of the user's count as one. */
@@ -1086,31 +1070,6 @@ function tabsInNoTopic(
   topicOfQuest: Readonly<Record<string, string>>,
 ): PrimaryThreadChip[] {
   return tabs.filter((tab) => !tab.questId || !topicOfQuest[tab.questId]);
-}
-
-/**
- * The Topics tab's bell, from exactly what its list marks: a topic row's questions (amber) or
- * unread results (blue), or the bell of a quest under no topic. Opening the list therefore always
- * shows what the bell is about, and the bell goes quiet with the last mark.
- */
-function TopicsBell({
-  topicsGroup,
-  questTabs,
-}: {
-  topicsGroup: NonNullable<ThreadTabGroupBarProps["topicsGroup"]>;
-  questTabs: readonly PrimaryThreadChip[];
-}) {
-  const { questionsOf } = useTopicQuestions();
-  const unsorted = tabsInNoTopic(questTabs, topicsGroup.topicOfQuest);
-  const needsInput =
-    topicsGroup.topics.some((topic) => questionsOf(topic.questIds).length > 0) ||
-    unsorted.some((tab) => tab.needsInput);
-  const blueNudge =
-    topicsGroup.topics.some((topic) => {
-      const { answers, finished } = topicUnread(topic, topicTabs(topic, questTabs), topicsGroup.unreadOf);
-      return answers + finished > 0;
-    }) || unsorted.some((tab) => tab.blueNudge);
-  return <AttentionBell tab={{ ...attentionOf([]), needsInput, blueNudge }} />;
 }
 
 /** What a topic's open quest tabs say about it, for its row in the topic-first bar's list. */

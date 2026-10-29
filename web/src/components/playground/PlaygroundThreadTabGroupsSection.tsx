@@ -195,7 +195,7 @@ function PhoneFrame({
 }
 
 /**
- * A desktop leader with topics on: Main | All and Topics after the session name, the Next chip and
+ * A desktop leader with topics on: Main | All, Topics and the Next chip after the session name,
  * Working on (which holds the work board) before the bell, and the quest strip starting with its topic.
  */
 function TopBarFrame() {
@@ -247,7 +247,7 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size. Without topics: Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name. With topics on, the bar is topic-first: Main, Working on (the unfinished quests) and Topics, where each topic says what its quests are doing (in progress, new answers, Notify me) and quests under no topic are listed below. The quest strip names the current quest, so the bar only marks the group that holds it. On desktop the session's Next chip sits right after the tabs, where it never covers the feed's text; a desktop leader with topics on has no tab row: Main | All and Topics sit in the top bar after the session name, the Next chip and Working on (merged with the Board button, the full board behind a button in its menu) before the bell, and the quest strip starts with the quest's topic. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
+        description="Leader thread tabs on every screen size. Without topics: Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name. With topics on, the bar is topic-first: Main, Working on (the unfinished quests) and Topics, where each topic says what its quests are doing (in progress, new answers, Notify me) and quests under no topic are listed below. The quest strip names the current quest, so the bar only marks the group that holds it. On desktop the session's Next chip sits right after the tabs, where it never covers the feed's text; a desktop leader with topics on has no tab row: Main | All, Topics and the Next chip sit in the top bar after the session name, Working on (merged with the Board button, the full board behind a button in its menu) before the bell, Topics and Working on carry no bell (Next and the attention count do; their lists mark each item), and the quest strip starts with the quest's topic. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen."
       >
         <div className="space-y-4">
           <Card label="At the top (tap a group)">
