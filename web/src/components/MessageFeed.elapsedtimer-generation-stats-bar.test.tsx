@@ -138,6 +138,7 @@ import {
 } from "./MessageFeed.js";
 import { FeedEntries, FeedFooter } from "./MessageFeedEntries.js";
 import { formatActiveReasoningStatusText } from "./MessageFeedStatus.js";
+import { rememberThreads } from "../utils/leader-topics.js";
 import { MessageBubble } from "./MessageBubble.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
@@ -717,6 +718,22 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getByText("Active in q-975")).toBeTruthy();
     expect(screen.queryByTestId("active-codex-reasoning-preview")).toBeNull();
     expect(screen.queryByText("Checking the Journey handoff state")).toBeNull();
+  });
+
+  it("names a user thread the leader is answering in, instead of its topic key", () => {
+    // "Active in topic:55badbba" said nothing about which of the user's threads was being answered.
+    const sid = "test-leader-active-in-user-thread";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 9000);
+    setStoreActiveTurnRoute(sid, { threadKey: "topic:55badbba" });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    rememberThreads(sid, [
+      { id: "55badbba-1111", key: "topic:55badbba", name: "Prod memory", leaderId: sid, createdAt: 1, activityAt: 1 },
+    ]);
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="main" />);
+
+    expect(screen.getByText("Active in Prod memory")).toBeTruthy();
   });
 
   it("does not project matching worker activity into an idle leader chip", () => {

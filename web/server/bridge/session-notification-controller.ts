@@ -38,6 +38,7 @@ import { removeResolvedQuestionFromBoardRow } from "./board-user-checkpoint.js";
 import { markdownToPlainText } from "../../shared/markdown-plain-text.js";
 import type { QuestStartedFrom } from "../quest-types.js";
 import { findSupportingQuestSource, indexLeaderRequests } from "../supporting-quest.js";
+import { topicThreadLabel } from "../topic-views.js";
 
 type SessionLike = any;
 
@@ -600,7 +601,8 @@ export function recordAnswerUnreadNotifications(
     if (isNeedsInputContextMessage(session, messageId)) continue;
     const threadKey = leaderMessageThreadKey(answer);
     const preview = answerPreview(answer);
-    const label = threadKey === "main" ? "Main" : threadKey;
+    // A topic conversation or user thread reads by its name, not its `topic:<handle>` key.
+    const label = threadKey === "main" ? "Main" : (topicThreadLabel(threadKey) ?? threadKey);
     const timestamp = typeof answer.timestamp === "number" ? answer.timestamp : Date.now();
     const answerTo = answer.threadAnswer?.answerUserMessageIds ?? [];
     const urgent = answer.threadAnswer?.urgent === true;
@@ -789,7 +791,8 @@ function surfaceCreatedNeedsInputThreadTab(
 ): void {
   const isLeader =
     session.state?.isOrchestrator === true || deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
-  if (!isLeader || !shouldPersistLeaderThreadTab(route.threadKey)) return;
+  // A topic conversation or user thread is found in the Topics or Threads menu, never as a tab.
+  if (!isLeader || !shouldPersistLeaderThreadTab(route.threadKey) || isTopicViewKey(route.threadKey)) return;
   const scheduledRow = scheduledBoardRowForThread(session, route.threadKey);
   const mutationPolicy =
     deps.getLeaderThreadTabMutationPolicy?.(session.id, route.threadKey) ??

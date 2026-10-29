@@ -34,6 +34,9 @@ export function useSessionAttention(
     useShallow((s) => ({
       session: s.sdkSessions.find((entry) => entry.sessionId === sessionId),
       sessionAttention: s.sessionAttention,
+      // Per-message unread answers, including those in topic conversations and user threads,
+      // which have no thread tab and would otherwise never reach the chip.
+      sessionNotifications: s.sessionNotifications,
       syncedProjectionValues: s.syncedProjectionValues,
       syncedProjectionKeys: s.syncedProjectionKeys,
     })),

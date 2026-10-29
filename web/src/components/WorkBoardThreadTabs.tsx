@@ -330,6 +330,13 @@ export function ThreadTabRail({
                 },
                 onOpen: openThread,
                 unread: (threadKey) => unreadIn([threadKey]).length,
+                questions: (threadKey) =>
+                  (notifications ?? []).filter(
+                    (notification) =>
+                      notification.category === "needs-input" &&
+                      !notification.done &&
+                      resolveNotificationOwnerThreadKey(notification) === normalizeThreadKey(threadKey),
+                  ).length,
               }
             : undefined
         }

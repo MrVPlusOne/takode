@@ -54,6 +54,25 @@ describe("AttentionItemSections", () => {
     expect(within(rows[1]!).getByTestId("attention-place-summary").textContent).toContain("1 new answer");
   });
 
+  it("names a user thread's place by the thread's name, not its key", () => {
+    // Threads the user started have keys like topic:55badbba; the row read "topic:55badbba
+    // topic:55badbba" until it took the thread's name.
+    const queue = buildNextAttentionQueue({
+      needsInput: [],
+      notifyMe: [],
+      unread: [answer("t", "topic:55badbba", 300, 'Answer in Thread "Prod memory" | About 2.2 GB')],
+      topicOf: () => null,
+    });
+    const threads = {
+      titleFor: (_sessionId: string, threadKey: string) => (threadKey === "topic:55badbba" ? "Prod memory" : undefined),
+      hasThreadTabs: () => true,
+    };
+    render(<AttentionItemSections items={queue} kinds={["unread"]} onOpen={vi.fn()} threads={threads} />);
+    const row = screen.getByTestId("attention-place-row");
+    expect(row.textContent).toMatch(/^Prod memory/);
+    expect(row.textContent).not.toContain("topic:");
+  });
+
   it("lists urgent answers in their own Urgent section, one row each, marked urgent", () => {
     // An answer the leader marked urgent is not folded into its topic's row: it gets its own
     // row in the Urgent section, named by its words, with the urgent mark.

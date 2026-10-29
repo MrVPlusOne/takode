@@ -9,6 +9,8 @@ export interface ThreadsMenu {
   onOpen: (threadKey: string) => void;
   /** How many unread answers a thread has. */
   unread: (threadKey: string) => number;
+  /** How many of the leader's questions to the user are open in a thread. */
+  questions?: (threadKey: string) => number;
   /** Whether the New thread page is on screen. */
   starting: boolean;
 }
@@ -18,10 +20,15 @@ const RECENT_SHOWN = 10;
 
 /**
  * Whether a thread is active: it isn't settled (reading its last answer settles it, and writing in
- * it again unsettles it), it has unread answers, or the leader is writing there.
+ * it again unsettles it), it has unread answers or an open question, or the leader is writing there.
  */
-export function isThreadActive(thread: ThreadSummary, unread: number, writingKey: string | null): boolean {
-  return !thread.settledAt || unread > 0 || thread.key === writingKey;
+export function isThreadActive(
+  thread: ThreadSummary,
+  unread: number,
+  writingKey: string | null,
+  questions = 0,
+): boolean {
+  return !thread.settledAt || unread > 0 || questions > 0 || thread.key === writingKey;
 }
 
 /**
@@ -37,10 +44,14 @@ export function ThreadsList({
   currentKey: string;
   writingKey: string | null;
 }) {
-  const active = menu.threads.filter((thread) => isThreadActive(thread, menu.unread(thread.key), writingKey));
+  const questionsIn = (threadKey: string) => menu.questions?.(threadKey) ?? 0;
+  const active = menu.threads.filter((thread) =>
+    isThreadActive(thread, menu.unread(thread.key), writingKey, questionsIn(thread.key)),
+  );
   const recent = menu.threads.filter((thread) => !active.includes(thread) && !thread.topic).slice(0, RECENT_SHOWN);
   const row = (thread: ThreadSummary, quiet: boolean) => {
     const unread = menu.unread(thread.key);
+    const questions = questionsIn(thread.key);
     const meta = [thread.topic ? `in ${thread.topic.name}` : null, timeAgo(thread.activityAt)]
       .filter(Boolean)
       .join(" · ");
@@ -66,6 +77,15 @@ export function ThreadsList({
           </span>
           <span className="mt-0.5 truncate text-[11.5px] text-cc-muted">{meta}</span>
         </span>
+        {questions > 0 && (
+          // The leader asked something here: amber, like a question anywhere else.
+          <span
+            className="shrink-0 rounded-full bg-[var(--color-cc-phase-accent-amber)]/15 px-1.5 text-[11px] tabular-nums text-[var(--color-cc-phase-accent-amber)]"
+            data-testid="threads-menu-row-questions"
+          >
+            {questions === 1 ? "question" : `${questions} questions`}
+          </span>
+        )}
         {unread > 0 && (
           <span className="shrink-0 rounded-full bg-cc-info/15 px-1.5 text-[11px] tabular-nums text-cc-info">
             {unread} new

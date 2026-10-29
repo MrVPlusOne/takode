@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../api.js", () => ({ api: {} }));
 
 import { topicApi } from "../api/topics.js";
-import { rememberTopicList, resetLeaderTopicsForTest } from "../utils/leader-topics.js";
+import { rememberThreads, rememberTopicList, resetLeaderTopicsForTest } from "../utils/leader-topics.js";
 import { MessageThreadHeader } from "./MessageThreadHeader.js";
 import { MessageTopicLabel } from "./MessageTopicLabel.js";
 
@@ -97,5 +97,18 @@ describe("a message written in a topic's own thread", () => {
     // It opens in the tab of the topic's newest quest, zoomed out to the topic.
     await waitFor(() => expect(window.location.hash).toContain("q-9"));
     expect(window.location.hash).toContain("topic=1");
+  });
+
+  it("is named by its thread when the user started it, and opens the thread at it", async () => {
+    // A thread the user started (New thread) shares the topic key form but is no topic; in All its
+    // messages read "Topic" with a dead link until they named the thread and opened it.
+    rememberThreads("l1", [
+      { id: "bbbbbbbb-2222", key: "topic:bbbbbbbb", name: "Prod memory", leaderId: "l1", createdAt: 1, activityAt: 1 },
+    ]);
+    render(<MessageThreadHeader threadKey="topic:bbbbbbbb" message={{ sessionId: "l1", id: "m-3" }} />);
+    const label = await screen.findByTestId("message-topic-label");
+    expect(label.textContent).toBe("Prod memory");
+    fireEvent.click(label.querySelector("button")!);
+    await waitFor(() => expect(window.location.hash).toBe("#/session/l1/msg/m-3?thread=topic%3Abbbbbbbb"));
   });
 });

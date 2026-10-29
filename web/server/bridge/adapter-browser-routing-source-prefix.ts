@@ -99,7 +99,11 @@ function topicTag(threadKey: string | undefined): string {
   if (topic.thread) {
     const from = topic.thread.startedFrom ? `; started from ${topic.thread.startedFrom}` : "";
     const under = topic.thread.topicName ? `; filed under topic "${topic.thread.topicName}"` : "";
-    return `[user thread: "${topic.name}"${from}${under}] `;
+    // Leaders often forgot to name a thread; the reminder stays until they do.
+    const unnamed = topic.thread.placeholderName
+      ? `; unnamed: name it after its subject with \`takode topic rename topic:${topic.thread.handle} "<name>"\``
+      : "";
+    return `[user thread: "${topic.name}"${unnamed}${from}${under}] `;
   }
   return `[topic: "${topic.name}"${quests ? `; quests: ${quests}` : ""}] `;
 }

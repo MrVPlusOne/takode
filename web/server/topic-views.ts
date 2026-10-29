@@ -7,8 +7,15 @@ import { topicHandle, topicIdOfViewKey, topicViewKey } from "../shared/topic-thr
  */
 export interface TopicViewSource {
   /** The live topic a thread handle names (following merges), or null. */
-  /** For a thread (New thread): where it started and the topic it is filed under, if any. */
-  topicOf(handle: string): { id: string; name: string; thread?: { startedFrom?: string; topicId?: string } } | null;
+  /**
+   * For a thread (New thread): where it started, the topic it is filed under, if any, and whether
+   * it still has the placeholder name it started with (the user's first words).
+   */
+  topicOf(handle: string): {
+    id: string;
+    name: string;
+    thread?: { startedFrom?: string; topicId?: string; placeholderName?: boolean };
+  } | null;
   /** The handles of threads filed under a topic: their threads show in its conversation. */
   threadsUnder?(topicId: string): readonly string[];
   questsOf(topicId: string): readonly string[];
@@ -61,7 +68,7 @@ export function topicOfViewForLeader(
   name: string;
   questIds: string[];
   more: number;
-  thread?: { startedFrom?: string; topicName?: string };
+  thread?: { handle: string; startedFrom?: string; topicName?: string; placeholderName?: boolean };
 } | null {
   const handle = threadKey ? topicIdOfViewKey(threadKey) : null;
   const topic = handle && source ? source.topicOf(handle) : null;
@@ -75,8 +82,10 @@ export function topicOfViewForLeader(
     ...(topic.thread
       ? {
           thread: {
+            handle: topicHandle(topic.id),
             ...(topic.thread.startedFrom ? { startedFrom: topic.thread.startedFrom } : {}),
             ...(under ? { topicName: under.name } : {}),
+            ...(topic.thread.placeholderName ? { placeholderName: true } : {}),
           },
         }
       : {}),

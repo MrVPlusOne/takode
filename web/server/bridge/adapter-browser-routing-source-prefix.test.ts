@@ -48,6 +48,23 @@ describe("user message source tag", () => {
     );
   });
 
+  it("asks the leader to name a thread that still has its placeholder name", () => {
+    // Leaders often answered without renaming, leaving the user's first words as the thread's name
+    // in the Threads menu; the tag reminds them, with the exact command, until they rename it.
+    setTopicViewSource({
+      topicOf: (handle) =>
+        handle === "55badbba"
+          ? { id: "55badbba-1111", name: "Quick question: how do…", thread: { placeholderName: true } }
+          : null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "topic:55badbba", "u1")).toMatch(
+      /\[user thread: "Quick question: how do…"; unnamed: name it after its subject with `takode topic rename topic:55badbba "<name>"`\] $/,
+    );
+  });
+
   it("adds nothing for messages written in a quest tab or Main", () => {
     expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "q-3", "u8")).toMatch(
       /\[User .* id:u8\] \[thread:q-3\] $/,

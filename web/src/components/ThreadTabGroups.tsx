@@ -8,7 +8,7 @@ import type { TopicSummary } from "../../shared/library-topics.js";
 import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
 import { ThreadsList, type ThreadsMenu } from "./ThreadsMenu.js";
 import { TopicTabList } from "./TopicTabList.js";
-import { isKeyOfTopic, topicViewKey } from "../../shared/topic-thread-key.js";
+import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
 import { matchesSearch, NoTopicMatches, searchTopics, TopicSearchBox } from "./library/topic-search.js";
 import {
   useEffect,
@@ -216,7 +216,11 @@ export function ThreadTabGroupBar({
   const onMain = currentKey === MAIN_THREAD_KEY || currentKey === ALL_THREADS_KEY;
   // With topics on, the bar is topic-first: Main, Working on and Topics, which holds every quest tab.
   const topicFirst = topicsGroup;
-  const questTabs = tabs.map((tab) => readOnScreen(tab, currentKey)).filter((tab) => !isMain(tab));
+  // Tabs made earlier for a question asked in a topic conversation or user thread stay out: those
+  // live in the Topics and Threads menus.
+  const questTabs = tabs
+    .map((tab) => readOnScreen(tab, currentKey))
+    .filter((tab) => !isMain(tab) && !isTopicViewKey(tab.threadKey));
   const workingOn = topicFirst ? workingOnTabs(questTabs) : [];
   const inWorkingOn = workingOn.some((tab) => normalizeThreadKey(tab.threadKey) === currentKey);
   // A thread (New thread) on screen, or the New thread page: the Threads tab is the selected one.
@@ -1053,7 +1057,11 @@ export function topicFirstTabOrder(
   currentThreadKey: string,
 ): string[] {
   const currentKey = normalizeThreadKey(currentThreadKey);
-  const questTabs = tabs.map((tab) => readOnScreen(tab, currentKey)).filter((tab) => !isMain(tab));
+  // Tabs made earlier for a question asked in a topic conversation or user thread stay out: those
+  // live in the Topics and Threads menus.
+  const questTabs = tabs
+    .map((tab) => readOnScreen(tab, currentKey))
+    .filter((tab) => !isMain(tab) && !isTopicViewKey(tab.threadKey));
   const working = workingOnTabs(questTabs);
   const listed = new Set(working.map((tab) => normalizeThreadKey(tab.threadKey)));
   const rest = [...questTabs]

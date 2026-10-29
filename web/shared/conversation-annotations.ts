@@ -1,4 +1,7 @@
-/** A saved user comment paired with the exact text selected from a conversation. */
+/**
+ * A saved user comment paired with the exact text selected from a conversation. The comment is
+ * empty for a passage taken along without one (Ask in new thread): the message asks about it.
+ */
 export interface ConversationAnnotation {
   id: string;
   selectedText: string;
@@ -39,10 +42,9 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
       typeof entry.selectedText !== "string" ||
       !entry.selectedText.trim() ||
       typeof entry.comment !== "string" ||
-      !entry.comment.trim() ||
       (entry.sourceMessageId !== undefined && typeof entry.sourceMessageId !== "string")
     )
-      throw new Error("Each annotation needs a unique ID, selected text, and a comment.");
+      throw new Error("Each annotation needs a unique ID, selected text, and a comment string.");
     ids.add(entry.id);
     const anchor = entry.sourceAnchor;
     const report = entry.reportSource;
@@ -112,7 +114,10 @@ export function formatAnnotatedMessage(content: string, annotations?: readonly C
         .split("\n")
         .map((line) => `> ${line}`)
         .join("\n");
-      return `${header}${quote}\n[comment ${index + 1}] ${annotation.comment}`;
+      // A passage taken along without a comment is just quoted; the message says what to do with it.
+      return annotation.comment.trim()
+        ? `${header}${quote}\n[comment ${index + 1}] ${annotation.comment}`
+        : `${header}${quote}`;
     })
     .join("\n\n");
   return content.trim() ? `${comments}\n\n---\n${content}` : comments;

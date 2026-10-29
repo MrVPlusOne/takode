@@ -11,6 +11,7 @@ import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { formatElapsed, formatTokens } from "./message-feed-utils.js";
 import { normalizeThreadKey, threadViewShows } from "../utils/thread-projection.js";
+import { useTopicKeyNamer } from "../utils/leader-topics.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
 
 const FLOATING_FEED_CHIP_CLASS =
@@ -44,6 +45,7 @@ export function ElapsedTimer({
   const streamRetry = useStore((s) => s.sessions?.get(sessionId)?.codex_stream_retry ?? null);
   const networkWait = useStore((s) => s.sessions?.get(sessionId)?.claude_network_wait ?? null);
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId));
+  const topicKeyName = useTopicKeyNamer();
   const bridgeIsOrchestrator = useStore((s) => s.sessions?.get(sessionId)?.isOrchestrator === true);
   const bridgeClaimedQuestId = useStore((s) => s.sessions?.get(sessionId)?.claimedQuestId ?? null);
   const sdkIsOrchestrator = useStore(
@@ -135,6 +137,9 @@ export function ElapsedTimer({
               isReviewerSession: sdkReviewerOf !== null,
               claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
               reviewedQuestId,
+              threadName: activeTurnRoute?.threadKey
+                ? topicKeyName(sessionId, activeTurnRoute.threadKey)?.name
+                : undefined,
             });
   const retryDetail = networkWait
     ? networkWait.autoResumePaused
@@ -658,12 +663,14 @@ function formatActiveTurnLabel(
     isReviewerSession: boolean;
     claimedQuestId?: string | null;
     reviewedQuestId?: string | null;
+    /** The name of the topic conversation or user thread the turn is in, when known. */
+    threadName?: string;
   },
 ): string {
   if (context.isLeaderSession) {
     if (!activeTurnRoute) return "Purring...";
     if (threadViewShows(currentThreadKey, activeTurnRoute.threadKey)) return "Active here";
-    return `Active in ${activeTurnRoute.questId ?? activeTurnRoute.threadKey}`;
+    return `Active in ${activeTurnRoute.questId ?? context.threadName ?? activeTurnRoute.threadKey}`;
   }
 
   if (context.isReviewerSession) {

@@ -917,6 +917,31 @@ describe("Threads menu", () => {
     expect(onSelect).toHaveBeenCalledWith("topic:aaaa0003");
   });
 
+  it("keeps a thread with an open question active and marks it, and keeps its question out of Working on", () => {
+    // A question asked in a thread (the leader wants the user to pick something) used to show as a
+    // Working on row named by the question and the raw thread key, while the thread's own row said
+    // nothing.
+    renderBar({
+      tabs: [tab("q-10"), { ...tab("topic:aaaa0003"), title: "Pick a name", needsInput: true }],
+      currentThreadKey: "main",
+      topicsGroup: { topics: [], currentTopicId: null, onOpen: vi.fn(), topicOfQuest: {} },
+      threadsMenu: {
+        threads,
+        starting: false,
+        onStart: vi.fn(),
+        onOpen: vi.fn(),
+        unread: () => 0,
+        questions: (threadKey) => (threadKey === "topic:aaaa0003" ? 1 : 0),
+      },
+    });
+    expect(screen.getByTestId("thread-tab-group-working-on").textContent).toContain("1");
+    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
+    const rows = screen.getAllByTestId("threads-menu-row");
+    const asked = rows.find((row) => row.dataset.threadKey === "topic:aaaa0003")!;
+    expect(screen.getByTestId("threads-menu").textContent).toContain("Active 2");
+    expect(asked.textContent).toContain("question");
+  });
+
   it("selects Threads while a thread is on screen, and New thread closes the list as it starts one", () => {
     const { onStart } = renderThreads("topic:aaaa0003");
     expect(screen.getByTestId("thread-tab-group-threads").dataset.selected).toBe("true");

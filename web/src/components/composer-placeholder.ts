@@ -41,7 +41,8 @@ export function buildComposerPlaceholder({
   if (isLeaderSession && newThread) return "Start a new thread...";
   const leadIn =
     isLeaderSession && topicName
-      ? `Posting to ${topicName} ...`
+      ? // A thread still named after its first words ends in "…" already.
+        `Posting to ${topicName.replace(/\s*…$/, "")} ...`
       : shouldShowThreadDestination
         ? `Posting to ${normalizedThreadKey} ...`
         : "Type a message...";

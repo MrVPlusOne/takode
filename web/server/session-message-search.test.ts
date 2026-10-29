@@ -220,6 +220,17 @@ describe("searchSessionMessages", () => {
         'Topic "Chat feed"',
         'Thread "Phone cannot reach Takode"',
       ]);
+      // Searching inside one of them names it the same way.
+      const inThread = searchSessionMessages({
+        sessionId: "leader-session",
+        sessionNum: 456,
+        isLeaderSession: true,
+        messageHistory: [],
+        query: "",
+        scope: "current_thread",
+        threadKey: "topic:0a1b2c3d",
+      });
+      expect(inThread.scope.label).toBe('Searching in #456 Thread "Phone cannot reach Takode"');
     } finally {
       setTopicViewSource(null);
     }

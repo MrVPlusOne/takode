@@ -11,6 +11,7 @@ import {
 import { firstUnreadResult } from "../utils/notification-navigation.js";
 import type { AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import {
   ATTENTION_SECTION_TITLE,
   AttentionKindIcon,
@@ -90,6 +91,8 @@ export function attentionThreadPlace(
   if (!key) return null;
   if (key === MAIN_THREAD_KEY) return threads?.hasThreadTabs(item.sessionId) ? { thread: "Main", title: "" } : null;
   if (item.kind === "notify-me" && !item.entry.pending) return { thread: key, title: "" };
+  // A topic conversation or user thread has no short ID worth showing: it reads by its name alone.
+  if (isTopicViewKey(key)) return { thread: threads?.titleFor(item.sessionId, key) ?? "Thread", title: "" };
   const fallback =
     item.kind === "notify-me" ? withoutQuestId(item.entry.title, key) : item.kind === "unread" ? item.label : "";
   return { thread: key, title: threads?.titleFor(item.sessionId, key) ?? fallback };

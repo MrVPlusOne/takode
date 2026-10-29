@@ -112,6 +112,51 @@ export function useLeaderThreads(leaderId: string, enabled: boolean, refreshKey 
   return useLeaderThreadsStore((state) => state.byLeader[leaderId] ?? EMPTY_THREADS);
 }
 
+const namesAsked = new Set<string>();
+
+/**
+ * Loads a leader's threads and topics once, for names shown outside its tab bar (the attention
+ * list, a message's thread label): only the tab bar loads them otherwise.
+ */
+export function loadLeaderNamesOnce(leaderId: string): void {
+  if (namesAsked.has(leaderId)) return;
+  namesAsked.add(leaderId);
+  const warn = (error: Error) => console.warn("[library] Could not load the threads and topics:", error.message);
+  if (!useLeaderThreadsStore.getState().byLeader[leaderId])
+    topicApi
+      .threads(leaderId)
+      .then((response) => rememberThreads(leaderId, response.threads))
+      .catch(warn);
+  topicApi
+    .list("", leaderId)
+    .then((response) => rememberTopicList(leaderId, response.topics))
+    .catch(warn);
+}
+
+/**
+ * Names a topic conversation or user thread key (`topic:<handle>`) of any leader: the thread's or
+ * the topic's name, as last known, and whether it is a thread; undefined for other keys and until known.
+ */
+export function useTopicKeyNamer(): (
+  leaderId: string,
+  threadKey: string,
+) => { name: string; thread: boolean } | undefined {
+  const threads = useLeaderThreadsStore((state) => state.byLeader);
+  const topics = useLeaderTopicsStore((state) => state.byLeader);
+  return useCallback(
+    (leaderId: string, threadKey: string) => {
+      if (!isTopicViewKey(threadKey)) return undefined;
+      const key = threadKey.toLowerCase();
+      const thread = threads[leaderId]?.find((candidate) => candidate.key === key);
+      if (thread) return { name: thread.name, thread: true };
+      const known = topics[leaderId]?.topics ?? {};
+      const id = Object.keys(known).find((topicId) => isKeyOfTopic(key, topicId));
+      return id ? { name: known[id]!.name, thread: false } : undefined;
+    },
+    [threads, topics],
+  );
+}
+
 /** The thread a thread key names, as last known for a leader; undefined for topics and unknown keys. */
 export function useKnownThreadOfKey(leaderId: string, threadKey: string): ThreadSummary | undefined {
   return useLeaderThreadsStore((state) =>
@@ -233,4 +278,5 @@ export function seedLeaderTopics(leaderId: string, map: QuestTopicMap): void {
 /** For tests: forget everything. */
 export function resetLeaderTopicsForTest(): void {
   useLeaderTopicsStore.setState({ byLeader: {} });
+  namesAsked.clear();
 }

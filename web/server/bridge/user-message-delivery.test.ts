@@ -43,7 +43,8 @@ describe("annotation message delivery", () => {
       prepareAnnotatedUserMessage("session", {
         type: "user_message",
         content: "",
-        annotations: [{ id: "a", selectedText: "quote", comment: "" }],
+        // A passage needs its selected text; an empty comment is valid (Ask in new thread).
+        annotations: [{ id: "a", selectedText: " ", comment: "" }],
       }),
     ).toThrow();
   });

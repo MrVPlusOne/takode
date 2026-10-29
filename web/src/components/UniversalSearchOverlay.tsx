@@ -32,6 +32,7 @@ import { navigateToSession, navigateToSessionThread } from "../utils/routing.js"
 import { useArchivedSessionMatches } from "./universal-search-archived-sessions.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { isAllThreadsKey } from "../utils/thread-projection.js";
+import { useTopicKeyNamer } from "../utils/leader-topics.js";
 import { compareSearchRanks, rankSearchFields, type SearchRank } from "../../shared/search-utils.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
@@ -241,13 +242,19 @@ function localMessageScopeLabel(
   sessionNum: number | null,
   scope: MessageSearchScopeKind,
   currentThreadKey?: string | null,
+  topicKeyName?: { name: string; thread: boolean },
 ): string {
   const sessionLabel = typeof sessionNum === "number" ? `#${sessionNum}` : "current session";
   if (scope === "session") {
     return typeof sessionNum === "number" ? `Searching in session ${sessionLabel}` : "Searching in current session";
   }
   if (scope === "leader_all_tabs") return `Searching in ${sessionLabel} across tabs`;
-  const threadLabel = currentThreadKey && currentThreadKey !== "main" ? `thread ${currentThreadKey}` : "Main";
+  // A topic conversation or user thread reads by its name, as the server's label does.
+  const threadLabel = topicKeyName
+    ? `${topicKeyName.thread ? "Thread" : "Topic"} "${topicKeyName.name}"`
+    : currentThreadKey && currentThreadKey !== "main"
+      ? `thread ${currentThreadKey}`
+      : "Main";
   return `Searching in ${sessionLabel} ${threadLabel}`;
 }
 
@@ -399,11 +406,22 @@ export function UniversalSearchOverlay({
     isLeaderSession,
     currentThreadKey,
   });
+  const topicKeyNamer = useTopicKeyNamer();
+  const currentTopicKeyName =
+    currentSessionId && currentThreadKey ? topicKeyNamer(currentSessionId, currentThreadKey) : undefined;
+  // Read by the search effect, which shouldn't search again when the name arrives.
+  const currentTopicKeyNameRef = useRef(currentTopicKeyName);
+  currentTopicKeyNameRef.current = currentTopicKeyName;
   const messageScopeLabel =
     remoteState.mode === "messages" && remoteState.scopeLabel
       ? remoteState.scopeLabel
       : currentSessionId
-        ? localMessageScopeLabel(currentSession?.sessionNum ?? null, effectiveMessageScope, currentThreadKey)
+        ? localMessageScopeLabel(
+            currentSession?.sessionNum ?? null,
+            effectiveMessageScope,
+            currentThreadKey,
+            currentTopicKeyName,
+          )
         : "Open a session to search messages";
   const recentMeta = remoteState.mode === "recent" ? remoteState.recentMeta : undefined;
   const archivedSessionMatches = useArchivedSessionMatches(
@@ -610,7 +628,12 @@ export function UniversalSearchOverlay({
 
     if (mode === "messages") {
       const nextScopeLabel = currentSessionId
-        ? localMessageScopeLabel(currentSession?.sessionNum ?? null, effectiveMessageScope, currentThreadKey)
+        ? localMessageScopeLabel(
+            currentSession?.sessionNum ?? null,
+            effectiveMessageScope,
+            currentThreadKey,
+            currentTopicKeyNameRef.current,
+          )
         : "Current session required";
       if (!currentSessionId) {
         setRemoteState({

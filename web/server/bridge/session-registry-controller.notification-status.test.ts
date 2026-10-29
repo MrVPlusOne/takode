@@ -16,6 +16,7 @@ import {
   updateLeaderGroupIdleState,
 } from "./session-registry-controller.js";
 import { replaceAttentionRecords } from "./attention-record-controller.js";
+import { setTopicViewSource } from "../topic-views.js";
 import { validateLeaderThreadOutcomes } from "./leader-thread-outcome-validator.js";
 import type { SessionAttentionRecord } from "../session-types.js";
 import { applyLeaderServerCandidateThreadTabEvent } from "../../shared/leader-open-thread-tabs.js";
@@ -414,6 +415,27 @@ describe("session notification status metadata", () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  it("opens no tab for a question asked in a topic conversation or user thread", () => {
+    // Those are found in the Topics and Threads menus; a tab made for one showed in Working on,
+    // which lists quests, named by the question and the raw topic key.
+    const session = makeSession({
+      state: {
+        backend_type: "claude",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1"],
+          closedThreadTombstones: [],
+          updatedAt: 1,
+        },
+      },
+    });
+    const deps = { ...makeDeps(), getLauncherSessionInfo: () => ({ isOrchestrator: true }) };
+    notifyUser(session, "needs-input", "Pick a name", deps, { threadRoute: { threadKey: "topic:40d22afe" } });
+    expect(session.state.leaderOpenThreadTabs.orderedOpenThreadKeys).toEqual(["q-1"]);
+    expect(session.notifications.at(-1)).toMatchObject({ category: "needs-input", threadKey: "topic:40d22afe" });
   });
 
   it("increments metadata and includes it in notification updates", () => {
@@ -1124,6 +1146,32 @@ describe("session notification status metadata", () => {
       "reopened",
       "superseded",
     ]);
+  });
+
+  it("names a user thread by its name in an answer's summary, not by its key", () => {
+    // The summary is the attention row and phone alert text; "Answer in topic:55badbba" told the
+    // user nothing about which thread had the answer.
+    setTopicViewSource({
+      topicOf: (handle) =>
+        handle === "55badbba" ? { id: "55badbba-1111", name: "Prod memory", thread: { startedFrom: "q-1" } } : null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    try {
+      const session = makeSession({ state: { isOrchestrator: true } });
+      recordAnswerUnreadNotifications(
+        session,
+        [leaderAnswer({ threadKey: "topic:55badbba", text: "About 2.2 GB." })],
+        makeDeps(),
+      );
+      expect(session.notifications[0]).toMatchObject({
+        summary: 'Answer in Thread "Prod memory" | About 2.2 GB.',
+        threadKey: "topic:55badbba",
+      });
+    } finally {
+      setTopicViewSource(null);
+    }
   });
 
   it("records a settled answer as review unread in the thread it was written in", () => {

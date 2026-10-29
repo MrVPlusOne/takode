@@ -232,7 +232,7 @@ function resolveMessageSearchScope(input: {
     label:
       threadKey === MAIN_THREAD_KEY
         ? `Searching in ${sessionLabel} Main`
-        : `Searching in ${sessionLabel} thread ${threadKey}`,
+        : `Searching in ${sessionLabel} ${topicThreadLabel(threadKey) ?? `thread ${threadKey}`}`,
   };
 }
 

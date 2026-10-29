@@ -25,6 +25,12 @@ describe("buildComposerPlaceholder", () => {
     ).toMatch(/^Posting to Daily briefing \.\.\./);
   });
 
+  it("doesn't double the ellipsis of a thread still named after its first words", () => {
+    expect(buildComposerPlaceholder({ ...base, topicName: "Quick question: how do…" })).toMatch(
+      /^Posting to Quick question: how do \.\.\. /,
+    );
+  });
+
   it("keeps naming the quest in a quest tab and nothing in Main", () => {
     expect(buildComposerPlaceholder({ ...base, threadKey: "q-12" })).toMatch(/^Posting to q-12 \.\.\./);
     expect(buildComposerPlaceholder(base)).toMatch(/^Type a message\.\.\./);

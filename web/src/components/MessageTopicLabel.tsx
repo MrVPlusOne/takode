@@ -2,10 +2,16 @@ import { useContext, useEffect } from "react";
 import { leaderMessageThreadKey, leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { isKeyOfTopic, isTopicViewKey } from "../../shared/topic-thread-key.js";
 import type { ChatMessage } from "../types.js";
-import { loadLeaderTopics, useKnownQuestTopic, useKnownTopicOfKey } from "../utils/leader-topics.js";
+import {
+  loadLeaderNamesOnce,
+  loadLeaderTopics,
+  useKnownQuestTopic,
+  useKnownThreadOfKey,
+  useKnownTopicOfKey,
+} from "../utils/leader-topics.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
-import { TopicIcon } from "./library/library-icons.js";
+import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
 import { StartedQuestsContext } from "./QuestForkLinks.js";
 
 /**
@@ -61,8 +67,23 @@ export function TopicThreadLabel({
   view: string;
 }) {
   const topic = useKnownTopicOfKey(sessionId, topicKey);
+  // A thread the user started shares the key form; it reads by its own name and opens itself.
+  const thread = useKnownThreadOfKey(sessionId, topicKey);
   const viewQuest = view.startsWith("q-") ? view : "";
   const viewTopic = useKnownQuestTopic(sessionId, viewQuest);
+  useEffect(() => {
+    if (!topic && !thread) loadLeaderNamesOnce(sessionId);
+  }, [sessionId, topic, thread]);
+  if (thread) {
+    return (
+      <TopicLabelButton
+        thread
+        name={thread.name}
+        title={`Written in the thread ${thread.name}: open it at this message`}
+        onClick={() => navigateToSessionMessageId(sessionId, messageId, { threadKey: thread.key })}
+      />
+    );
+  }
   // In a quest of this topic, the message is in its topic already.
   if (topic && viewTopic && isKeyOfTopic(topicKey, viewTopic.id)) return null;
   // The topic conversation opens in the tab of one of its quests, the newest.
@@ -113,8 +134,18 @@ function TopicLabel({
   );
 }
 
-/** The label itself: a small topic link at the top left of a message bubble. */
-export function TopicLabelButton({ name, title, onClick }: { name: string; title: string; onClick: () => void }) {
+/** The label itself: a small topic (or thread) link at the top left of a message bubble. */
+export function TopicLabelButton({
+  name,
+  title,
+  onClick,
+  thread = false,
+}: {
+  name: string;
+  title: string;
+  onClick: () => void;
+  thread?: boolean;
+}) {
   return (
     <div className="mb-1.5 flex min-w-0" data-testid="message-topic-label">
       <button
@@ -126,7 +157,7 @@ export function TopicLabelButton({ name, title, onClick }: { name: string; title
         className="inline-flex min-w-0 items-center gap-1 text-[11px] leading-none text-cc-primary hover:underline"
         title={title}
       >
-        <TopicIcon className="h-3 w-3 shrink-0" />
+        {thread ? <NewThreadIcon className="h-3 w-3 shrink-0" /> : <TopicIcon className="h-3 w-3 shrink-0" />}
         <span className="min-w-0 truncate">{name}</span>
       </button>
     </div>

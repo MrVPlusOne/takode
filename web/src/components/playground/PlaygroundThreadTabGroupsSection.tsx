@@ -117,12 +117,16 @@ function playgroundTopic(
 
 /**
  * A leader's threads (New thread) for the Threads menu: one the leader is answering, one with an
- * unread answer (both Active), one read and unfiled (Recent), and one read and filed under a topic,
- * which lives in that topic instead.
+ * unread answer and one with an open question (all Active), one read and unfiled (Recent), and one
+ * read and filed under a topic, which lives in that topic instead.
  */
 const THREADS: ThreadSummary[] = [
   playgroundThread("0a1b2c3d", "Phone can't reach Takode over Tailscale", 1),
   playgroundThread("1b2c3d4e", "Rocq vs Lean as a proof RL environment", 6),
+  playgroundThread("4e5f6a7b", "Name for the daily summary", 12, {
+    settledAt: NOW - 10 * MINUTE,
+    topic: { id: "topic-briefing", name: "Daily briefing" },
+  }),
   playgroundThread("2c3d4e5f", "Why the old draft came back", 50, { settledAt: NOW - 40 * MINUTE }),
   playgroundThread("3d4e5f6a", "Answer times on wrapped lines", 90, {
     settledAt: NOW - 80 * MINUTE,
@@ -130,6 +134,7 @@ const THREADS: ThreadSummary[] = [
   }),
 ];
 const THREAD_UNREAD: Record<string, number> = { "topic:1b2c3d4e": 1 };
+const THREAD_QUESTIONS: Record<string, number> = { "topic:4e5f6a7b": 1 };
 const WRITING_THREAD = "topic:0a1b2c3d";
 
 function playgroundThread(
@@ -157,6 +162,7 @@ function threadsMenu(onOpen: (threadKey: string) => void): ThreadsMenu {
     onStart: () => {},
     onOpen,
     unread: (threadKey) => THREAD_UNREAD[threadKey] ?? 0,
+    questions: (threadKey) => THREAD_QUESTIONS[threadKey] ?? 0,
   };
 }
 

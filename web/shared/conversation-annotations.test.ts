@@ -21,6 +21,16 @@ describe("conversation annotations", () => {
     expect(formatAnnotatedMessage("main message", [])).toBe("main message");
   });
 
+  it("accepts a passage taken along without a comment and quotes it alone", () => {
+    // Ask in new thread carries the selected passage with an empty comment; the message itself asks
+    // about it. Rejecting the empty comment left the thread's first message stuck at "Sending...".
+    const passage = { id: "passage", selectedText: "Only the chat on screen does.", comment: "" };
+    expect(readConversationAnnotations([passage])).toEqual([passage]);
+    expect(formatAnnotatedMessage("How is that enforced?", [passage, annotations[0]!])).toBe(
+      "> Only the chat on screen does.\n\n> quoted text 1\n[comment 2] user's first comment\n\n---\nHow is that enforced?",
+    );
+  });
+
   it("names a report's source file once per run of comments on it and keeps its IDs out of the text", () => {
     // Agents read this text in many places (takode read, activity); report/session IDs and the
     // digest are useless to them, so only the file they can open is named, without repeats.

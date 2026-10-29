@@ -125,6 +125,8 @@ export async function startLibraryTopics(input: {
               thread: {
                 ...(topic.thread.startedFrom ? { startedFrom: topic.thread.startedFrom } : {}),
                 ...(topic.thread.topicId ? { topicId: topic.thread.topicId } : {}),
+                // Renaming keeps the old name as an alias, so none means it has its first name still.
+                ...(topic.aliases.length ? {} : { placeholderName: true }),
               },
             }
           : {}),
