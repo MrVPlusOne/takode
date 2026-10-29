@@ -66,7 +66,11 @@ export function ItemCrumb({
     open(threadKey);
   };
   return (
-    <span className="relative inline-flex min-w-[6rem] items-center max-sm:static" data-testid="item-crumb">
+    // At least a few words of the title; on phones less, so a narrow band never pushes it under its neighbors.
+    <span
+      className="relative inline-flex min-w-[6rem] items-center max-sm:static max-sm:min-w-[3.5rem]"
+      data-testid="item-crumb"
+    >
       <button
         ref={triggerRef}
         type="button"

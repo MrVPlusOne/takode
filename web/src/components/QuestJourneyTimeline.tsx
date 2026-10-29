@@ -209,6 +209,8 @@ export interface QuestJourneyCompactSummaryOptions {
   completedLabel?: string;
   /** Hide the "N phases" total on narrow (phone) layouts so a neighboring title keeps its room. */
   hidePhaseTotalOnNarrow?: boolean;
+  /** On narrow (phone) layouts an active Journey shows only its phase dot and position ("2/4"). */
+  dotOnlyOnNarrow?: boolean;
 }
 
 export function QuestJourneyCompactSummary({
@@ -218,6 +220,7 @@ export function QuestJourneyCompactSummary({
   showNotes = true,
   completedLabel = "Completed",
   hidePhaseTotalOnNarrow = false,
+  dotOnlyOnNarrow = false,
 }: {
   journey: QuestJourneyPlanState;
   status?: string | null;
@@ -237,7 +240,8 @@ export function QuestJourneyCompactSummary({
 
   return (
     <div
-      className={`flex min-w-0 max-w-full items-center gap-2 ${className ?? ""}`.trim()}
+      className={`flex min-w-0 max-w-full items-center gap-2 ${dotOnlyOnNarrow ? "max-sm:gap-1" : ""} ${className ?? ""}`.trim()}
+      title={mode === "active" && dotOnlyOnNarrow ? `${label} ${position}` : undefined}
       data-testid="quest-journey-compact-summary"
       data-journey-mode={mode}
       data-presentation="compact"
@@ -247,7 +251,11 @@ export function QuestJourneyCompactSummary({
         style={currentItem ? getQuestPhaseCurrentDotStyle(currentItem.phase) : undefined}
         aria-hidden="true"
       />
-      <span className="shrink-0 font-medium text-cc-fg">{label}</span>
+      <span
+        className={`shrink-0 font-medium text-cc-fg ${mode === "active" && dotOnlyOnNarrow ? "max-sm:hidden" : ""}`.trim()}
+      >
+        {label}
+      </span>
       {position && (
         <span
           className={`shrink-0 text-[10px] text-cc-muted ${mode !== "active" && hidePhaseTotalOnNarrow ? "max-sm:hidden @max-[52rem]/quest-strip:hidden" : ""}`.trim()}

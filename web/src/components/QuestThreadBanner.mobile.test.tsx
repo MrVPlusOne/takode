@@ -219,3 +219,67 @@ describe("mobile quest banner disclosure", () => {
     expect(card()).toBeInTheDocument();
   });
 });
+
+// The breadcrumb band on a phone (Jiayi's pick A of three built options): the phase chip is only
+// the phase dot and position, and the quest number goes when the title would otherwise get too
+// little room. jsdom has no layout, so the title's room and full width are stubbed per test.
+describe("breadcrumb band on phones", () => {
+  const layout = { room: 0, full: 0 };
+  beforeEach(() => {
+    useStore.getState().reset();
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-9001",
+      title: "Find QA rollout run for the pretraining eval",
+      version: 1,
+      updatedAt: 1,
+    });
+    const widths = [
+      vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(function (this: Element) {
+        return this.classList.contains("truncate") ? layout.room : 0;
+      }),
+      vi.spyOn(Element.prototype, "scrollWidth", "get").mockImplementation(function (this: Element) {
+        return this.classList.contains("truncate") ? layout.full : 0;
+      }),
+      // The quest number with its gap takes 56 px.
+      vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(50),
+    ];
+    return () => {
+      for (const width of widths) width.mockRestore();
+    };
+  });
+  const numberBox = () => screen.getByText("q-9001").closest("span")!;
+
+  it("shows only the phase dot and position on phones, and names the phase on hover", () => {
+    layout.room = 300;
+    layout.full = 300;
+    render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" singleLine />);
+    const chip = screen.getByTestId("quest-journey-compact-summary");
+    expect(chip).toHaveAttribute("title", "User Checkpoint 3/5");
+    expect(within(chip).getByText("User Checkpoint")).toHaveClass("max-sm:hidden");
+    expect(within(chip).getByTestId("quest-journey-compact-position")).toHaveTextContent("3/5");
+    // A worker's own quest banner keeps the named chip.
+    render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" variant="session" />);
+    const named = screen.getAllByTestId("quest-journey-compact-summary")[1]!;
+    expect(within(named).getByText("User Checkpoint")).not.toHaveClass("max-sm:hidden");
+  });
+
+  it("keeps the quest number while the title fits or has room, and drops it when the title is cut short", () => {
+    // Fits whole: nothing to gain from hiding the number.
+    layout.room = 120;
+    layout.full = 120;
+    const fits = render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" singleLine />);
+    expect(numberBox()).not.toHaveClass("max-sm:hidden");
+    fits.unmount();
+    // Cut short but with a fair amount of room left (over 176 px).
+    layout.room = 200;
+    layout.full = 400;
+    const roomy = render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" singleLine />);
+    expect(numberBox()).not.toHaveClass("max-sm:hidden");
+    roomy.unmount();
+    // Cut short to a few words: the number goes, and stays gone while the title (now wider by the
+    // number's 56 px) would be short again with it.
+    layout.room = 150;
+    render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" singleLine />);
+    expect(numberBox()).toHaveClass("max-sm:hidden");
+  });
+});

@@ -26,7 +26,7 @@ export function PlaceCrumb({
   return (
     // On a phone the list spans the strip (the nearest positioned box), not just this part.
     <span
-      className="relative inline-flex min-w-[5.5rem] max-w-[18rem] shrink-[4] items-center max-sm:static"
+      className="relative inline-flex min-w-[5.5rem] max-w-[18rem] shrink-[4] items-center max-sm:static max-sm:min-w-[4rem]"
       data-testid="place-crumb"
     >
       <button

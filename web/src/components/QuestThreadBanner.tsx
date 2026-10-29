@@ -330,6 +330,54 @@ const QUEST_HEADER_JOURNEY_OPTIONS = {
   hidePhaseTotalOnNarrow: true,
 } as const;
 
+// On a phone's breadcrumb band the chip is only the phase dot and position ("2/4"); tapping it
+// opens the card that names the phase (Jiayi's pick of three built options).
+const BREADCRUMB_JOURNEY_OPTIONS = { ...QUEST_HEADER_JOURNEY_OPTIONS, dotOnlyOnNarrow: true } as const;
+
+/**
+ * On a phone's breadcrumb band, the quest number goes when the title would get less than this
+ * room (Jiayi: "hide quest number when space is not enough"); the quest's lists and card name it.
+ */
+const TITLE_ROOM_BEFORE_NUMBER_HIDES_PX = 176;
+
+/**
+ * Whether the quest number keeps its place before the title: false while the title, with the
+ * number shown, would be cut short to under TITLE_ROOM_BEFORE_NUMBER_HIDES_PX. The room is worked
+ * out for the number shown either way, so hiding it never flips the answer back.
+ */
+function useQuestNumberFits(
+  enabled: boolean,
+  numberRef: React.RefObject<HTMLElement | null>,
+  titleRef: React.RefObject<HTMLElement | null>,
+  title: string | undefined,
+): boolean {
+  const [fits, setFits] = useState(true);
+  const numberWidthRef = useRef(0);
+  useLayoutEffect(() => {
+    const titleBox = titleRef.current;
+    if (!enabled || !titleBox) {
+      setFits(true);
+      return;
+    }
+    const measure = () => {
+      const number = numberRef.current;
+      // 6 px: the gap the number takes with it.
+      if (number && number.offsetWidth > 0) numberWidthRef.current = number.offsetWidth + 6;
+      const text = titleBox.querySelector<HTMLElement>(".truncate") ?? titleBox;
+      setFits((shown) => {
+        const room = text.clientWidth - (shown ? 0 : numberWidthRef.current);
+        return !(room < text.scrollWidth && room < TITLE_ROOM_BEFORE_NUMBER_HIDES_PX);
+      });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    if (titleBox.parentElement) observer.observe(titleBox.parentElement);
+    return () => observer.disconnect();
+  }, [enabled, numberRef, titleRef, title]);
+  return fits;
+}
+
 function QuestStatusFallbackPill({ status }: { status?: string }) {
   if (!status) return null;
   const statusTheme = getQuestStatusTheme(status);
@@ -570,6 +618,9 @@ export function QuestThreadBanner({
     !!queuedWaitCondition ||
     openQuestionCount > 0 ||
     (isSessionBanner && (!!inputWaitCondition || !!(row?.leaderSessionId && row.leaderSessionId !== currentSessionId)));
+  const numberRef = useRef<HTMLSpanElement>(null);
+  const titleRef = useRef<HTMLSpanElement>(null);
+  const numberFits = useQuestNumberFits(singleLine, numberRef, titleRef, title);
   return (
     <div
       className={`relative shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3 ${singleLine ? "@container/quest-strip sm:flex sm:min-h-8 sm:flex-col sm:justify-center sm:py-0.5" : ""}`}
@@ -596,27 +647,35 @@ export function QuestThreadBanner({
                 Quest
               </span>
             )}
-            <QuestInlineLink
-              questId={questId}
-              className="cc-quest-link shrink-0 font-mono-code font-medium hover:underline"
+            {/* Boxes to measure on the breadcrumb band; elsewhere they add no layout of their own. */}
+            <span
+              ref={numberRef}
+              className={singleLine ? `inline-flex shrink-0 ${numberFits ? "" : "max-sm:hidden"}` : "contents"}
             >
-              {questId}
-            </QuestInlineLink>
+              <QuestInlineLink
+                questId={questId}
+                className="cc-quest-link shrink-0 font-mono-code font-medium hover:underline"
+              >
+                {questId}
+              </QuestInlineLink>
+            </span>
             {sideQuestOf && (
               <span className="inline-flex shrink-0 self-center text-cc-muted">
                 <SideQuestIcon sideQuestOf={sideQuestOf} />
               </span>
             )}
-            {renderTitle
-              ? renderTitle(title)
-              : title && (
-                  <span
-                    className={`truncate text-xs font-medium text-cc-fg sm:text-[13px] ${singleLine ? "min-w-[6rem]" : "min-w-0"}`}
-                    title={title}
-                  >
-                    {title}
-                  </span>
-                )}
+            <span ref={titleRef} className={singleLine ? "inline-flex min-w-0" : "contents"}>
+              {renderTitle
+                ? renderTitle(title)
+                : title && (
+                    <span
+                      className={`truncate text-xs font-medium text-cc-fg sm:text-[13px] ${singleLine ? "min-w-[6rem]" : "min-w-0"}`}
+                      title={title}
+                    >
+                      {title}
+                    </span>
+                  )}
+            </span>
           </div>
           {hasMobileDetails && (
             <button
@@ -675,7 +734,7 @@ export function QuestThreadBanner({
                         status={journeyStatusForThread(row)}
                         variant="compact"
                         showNotes={false}
-                        compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
+                        compactOptions={singleLine ? BREADCRUMB_JOURNEY_OPTIONS : QUEST_HEADER_JOURNEY_OPTIONS}
                         className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ledElsewhere ? "opacity-60" : ""}`}
                       />
                     ) : (
