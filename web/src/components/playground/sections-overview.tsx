@@ -10,6 +10,7 @@ import { ChatView } from "../ChatView.js";
 import { PlaygroundQuestBannerExamples } from "./PlaygroundQuestBannerExamples.js";
 import { MessageFeed } from "../MessageFeed.js";
 import { LeaderSessionReturnPlaygroundState } from "./LeaderSessionReturnPlaygroundState.js";
+import { PlaygroundUnreadAboveSection } from "./PlaygroundUnreadAboveSection.js";
 import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.js";
 import { PlaygroundLongCodeBlockSection } from "./PlaygroundLongCodeBlockSection.js";
 import { PlaygroundVisualBlocksSection } from "./PlaygroundVisualBlocksSection.js";
@@ -358,6 +359,8 @@ export function PlaygroundOverviewSections() {
       </Section>
 
       <LeaderSessionReturnPlaygroundState />
+
+      <PlaygroundUnreadAboveSection />
 
       <Section
         title="Leader Workboard Thread Navigation"

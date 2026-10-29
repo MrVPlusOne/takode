@@ -1,9 +1,10 @@
-import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useStore } from "../store.js";
 import type { FeedViewportPosition } from "../utils/thread-viewport.js";
-import { readLeaderViewportPosition } from "../utils/thread-viewport.js";
+import { readLeaderViewportPosition, restorableViewportPosition, type FeedEntry } from "../utils/thread-viewport.js";
 import { noteViewportDeliberateActivity } from "../utils/viewport-handoff-client.js";
 import { retireSessionMessageRoute } from "../utils/routing.js";
+import { isRecentFeedPlace, noteFeedPlaceShown } from "../utils/recent-feed-places.js";
 
 export interface PendingExactViewportRestore {
   restoreKey: string;
@@ -98,18 +99,34 @@ export function getSavedViewportRestoreKey(viewportKey: string, pos: FeedViewpor
   ].join(":");
 }
 
+/** The position this feed restores: the one it was left at, unless that place is older (`restorableViewportPosition`). */
 export function readSavedViewportPosition({
   sessionId,
   viewportKey,
   normalizedThreadKey,
   isLeaderSession,
+  entry,
 }: {
   sessionId: string;
   viewportKey: string;
   normalizedThreadKey: string;
   isLeaderSession: boolean;
+  entry: FeedEntry;
 }): FeedViewportPosition | null {
   const memoryPosition = useStore.getState().feedScrollPosition.get(viewportKey) ?? null;
-  if (!isLeaderSession) return memoryPosition;
-  return readLeaderViewportPosition(sessionId, normalizedThreadKey) ?? memoryPosition;
+  const position = isLeaderSession
+    ? (readLeaderViewportPosition(sessionId, normalizedThreadKey) ?? memoryPosition)
+    : memoryPosition;
+  return restorableViewportPosition(position, entry);
+}
+
+/**
+ * When and how this feed was opened, fixed while it stays open, and records it among the places
+ * shown once it is on screen (a hidden kept conversation runs no effects, so it records nothing).
+ */
+export function useFeedEntry(viewportKey: string): FeedEntry {
+  // Read before this feed records itself: the first recent place is the one being left.
+  const entry = useMemo(() => ({ at: Date.now(), recent: isRecentFeedPlace(viewportKey) }), [viewportKey]);
+  useEffect(() => noteFeedPlaceShown(viewportKey), [viewportKey]);
+  return entry;
 }

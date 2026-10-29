@@ -8,8 +8,10 @@ import {
   persistLeaderViewportPosition,
   readLeaderSelectedThreadKey,
   readLeaderViewportPosition,
+  KEEP_READING_POSITION_MS,
   registerViewportHandoffPublisher,
   requestThreadViewportSnapshot,
+  restorableViewportPosition,
   SAVE_THREAD_VIEWPORT_EVENT,
 } from "./thread-viewport.js";
 
@@ -188,5 +190,43 @@ describe("leader session viewport storage", () => {
 
     expect(readLeaderSelectedThreadKey("s1")).toBeNull();
     expect(localStorage.getItem("test-server:cc-leader-session-view:s1")).toBeNull();
+  });
+});
+
+describe("restorableViewportPosition", () => {
+  // Slack-like opening: a place goes back to where it was left if it is one of the last few places
+  // left, or was left recently; otherwise it opens at its latest messages (null).
+  const left = (savedAt?: number) => ({
+    scrollTop: 400,
+    scrollHeight: 2_000,
+    isAtBottom: false,
+    anchorMessageId: "m-1",
+    ...(savedAt === undefined ? {} : { savedAt }),
+  });
+  const now = 10_000_000;
+
+  it("keeps the position of a recent place however long ago it was left", () => {
+    const position = left(now - 5 * KEEP_READING_POSITION_MS);
+    expect(restorableViewportPosition(position, { at: now, recent: true })).toBe(position);
+  });
+
+  it("keeps a position left within the window even when the place is not among the last few", () => {
+    const position = left(now - KEEP_READING_POSITION_MS + 1);
+    expect(restorableViewportPosition(position, { at: now, recent: false })).toBe(position);
+  });
+
+  it("drops a position that is neither recent nor left within the window", () => {
+    expect(restorableViewportPosition(left(now - KEEP_READING_POSITION_MS - 1), { at: now, recent: false })).toBeNull();
+  });
+
+  it("keeps a position saved before positions carried a time", () => {
+    // Its next departure or server read stamps it; until then it restores as it always did.
+    const position = left();
+    expect(restorableViewportPosition(position, { at: now, recent: false })).toBe(position);
+  });
+
+  it("keeps the savedAt time through browser storage", () => {
+    persistLeaderViewportPosition("s1", "q-7", left(1_234));
+    expect(readLeaderViewportPosition("s1", "q-7")?.savedAt).toBe(1_234);
   });
 });

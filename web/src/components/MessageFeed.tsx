@@ -1,5 +1,5 @@
 import { useFeedLoadTiming } from "../hooks/use-feed-load-timing.js";
-import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, memo } from "react";
+import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, memo, type ReactNode } from "react";
 import { useStore } from "../store.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
@@ -52,7 +52,6 @@ import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import { routeLeavesFeed } from "../utils/routing.js";
 import { useMessageFeedPending } from "./use-message-feed-pending.js";
 import type { SessionAttentionRecord } from "../types.js";
-import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
 import { PawTrailAvatar, PawCounterContext, PawTrailProvider, HidePawContext } from "./PawTrail.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { sendToSession } from "../ws.js";
@@ -74,6 +73,7 @@ import {
   readSavedViewportPosition,
   useIdempotentState,
   useExactViewportRestore,
+  useFeedEntry,
   useViewportBoundaryNavigation,
   useUserViewportNavigationIntent,
 } from "./message-feed-viewport-state.js";
@@ -95,7 +95,11 @@ import { useMessageFeedManualScrollHandlers } from "./message-feed-manual-scroll
 import { useJumpTargetPin } from "./message-feed-jump-target-pin.js";
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
-import { LatestContentPill, MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
+import {
+  LatestContentPill,
+  MessageFeedNavigationControls,
+  SectionBoundaryControl,
+} from "./MessageFeedNavigationControls.js";
 import { resolveThreadResponses } from "./thread-response-presentation.js";
 import { useTopicResponsePresentations } from "./topic-feed.js";
 import { useFeedPinnedTop } from "./feed-pinned-top.js";
@@ -106,6 +110,7 @@ import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
 import { useTopicTurnPartOf } from "./topic-feed.js";
 import { useMessageFeedStatusContentBottomSync, useMessageFeedStatusLayout } from "./use-message-feed-status-layout.js";
 import { MessageFeedDayPill } from "./MessageFeedDayPill.js";
+import { cancelLatestLanding, useLatestLandingAboveStatus } from "./message-feed-latest-landing.js";
 import { MessageFeedEndSlack } from "./MessageFeedEndSlack.js";
 import { useMessageFeedViewportPersistence } from "./use-message-feed-viewport-persistence.js";
 import { noteViewportDeliberateActivity } from "../utils/viewport-handoff-client.js";
@@ -132,8 +137,6 @@ const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const SECTION_WINDOW_TRIGGER_PX = 96;
 /** Sub-pixel slack for "at the real bottom"; the trailing spacer puts the physical bottom well below it. */
 const FOLLOW_RESUME_TOLERANCE_PX = 2;
-const SECTION_BOUNDARY_CONTROL_CLASS =
-  "inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted";
 
 export function MessageFeed({
   sessionId,
@@ -147,6 +150,7 @@ export function MessageFeed({
   additionalAttentionRecords = EMPTY_ATTENTION_RECORDS,
   showCodexSubagentControl = true,
   markSharedResultsRead = false,
+  unreadAboveIndicator,
 }: {
   sessionId: string;
   threadKey?: string;
@@ -160,6 +164,8 @@ export function MessageFeed({
   showCodexSubagentControl?: boolean;
   /** Mark other threads' Ready results read when this quest tab shows their message. */
   markSharedResultsRead?: boolean;
+  /** Says how many unread messages wait above; it takes the day pill's place while shown. */
+  unreadAboveIndicator?: ReactNode;
 }) {
   const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
@@ -190,11 +196,13 @@ export function MessageFeed({
     workerPreviewTarget,
     threadStatusLayoutKey,
   } = useMessageFeedStatusLayout(sessionId, normalizedThreadKey);
+  const feedEntry = useFeedEntry(viewportKey);
   const savedScrollPos = readSavedViewportPosition({
     sessionId,
     viewportKey,
     normalizedThreadKey,
     isLeaderSession,
+    entry: feedEntry,
   });
   const savedViewportRestoreKey = getSavedViewportRestoreKey(viewportKey, savedScrollPos);
   const selectedFeedWindow = useStore((s) => s.threadWindows?.get(sessionId)?.get(normalizedThreadKey) ?? null);
@@ -305,9 +313,9 @@ export function MessageFeed({
     () =>
       getSavedViewportRestoreKey(
         viewportKey,
-        readSavedViewportPosition({ sessionId, viewportKey, normalizedThreadKey, isLeaderSession }),
+        readSavedViewportPosition({ sessionId, viewportKey, normalizedThreadKey, isLeaderSession, entry: feedEntry }),
       ),
-    [isLeaderSession, normalizedThreadKey, sessionId, viewportKey],
+    [feedEntry, isLeaderSession, normalizedThreadKey, sessionId, viewportKey],
   );
   const [exactRestoreRef, cancelExactRestore] = useExactViewportRestore(
     restoredViewportRef,
@@ -321,9 +329,11 @@ export function MessageFeed({
     programmaticScrollTargetRef,
     scopeKey: `${sessionId}:${normalizedThreadKey}`,
   });
+  const latestLandingRef = useRef(false);
   const cancelRestoreAndJumpPin = useCallback(() => {
     cancelExactRestore();
     releaseJumpTarget();
+    cancelLatestLanding(latestLandingRef);
   }, [cancelExactRestore, releaseJumpTarget]);
   const handleUserNavigationIntent = useUserViewportNavigationIntent(
     cancelRestoreAndJumpPin,
@@ -485,26 +495,11 @@ export function MessageFeed({
     [],
   );
 
-  const getRealContentBottom = useCallback(() => {
-    const container = containerRef.current;
-    const contentRoot = contentRootRef.current;
-    if (!container) return null;
-    const fallbackBottom = Math.max(0, Math.round(container.scrollHeight - feedEndScrollSlackRef.current));
-    if (!contentRoot) return fallbackBottom;
-    const blocks = contentRoot.querySelectorAll<HTMLElement>("[data-feed-block-id]");
-    if (blocks.length === 0) {
-      return fallbackBottom;
-    }
-    const scale = viewportAnchor.getFeedViewportScale(container);
-    let maxBottom = 0;
-    for (const block of blocks) {
-      maxBottom = Math.max(maxBottom, getFeedBlockBottom(container, block, scale));
-    }
-    if (maxBottom >= container.scrollHeight - 1) {
-      return fallbackBottom;
-    }
-    return Math.max(0, Math.min(fallbackBottom, Math.round(maxBottom)));
-  }, [getFeedBlockBottom]);
+  const getRealContentBottom = useCallback(
+    () =>
+      viewportAnchor.getRealContentBottom(containerRef.current, contentRootRef.current, feedEndScrollSlackRef.current),
+    [],
+  );
 
   const getLowestFeedBlockBottom = useCallback(
     (blockIds: Iterable<string>, fallbackToLatestBlock = false) => {
@@ -1228,6 +1223,25 @@ export function MessageFeed({
     triggerSectionLoadNearBoundary,
   });
 
+  const markLatestContentSeen = useCallback(() => {
+    lastSeenContentBottomRef.current = getRealContentBottom();
+    suppressLatestPillOnRestoreRef.current = true;
+  }, [getRealContentBottom]);
+  const requestLatestLanding = useLatestLandingAboveStatus({
+    landingRef: latestLandingRef,
+    containerRef,
+    contentReady:
+      messages.length > 0 && !hasNewerSections && (selectedFeedWindowEnabled ? !!activeThreadWindow : !historyLoading),
+    layoutKey: `${viewportLayoutSignature}:${threadStatusLayoutKey}`,
+    getRealContentBottom,
+    setScrollTop: setContainerScrollTop,
+    setAutoFollowEnabled,
+    isNearBottomRef: isNearBottom,
+    setShowScrollButton,
+    onLanded: markLatestContentSeen,
+    pin: pinJumpTarget,
+  });
+
   useLayoutEffect(() => {
     if (showConversationLoading) return;
     const pos = readSavedViewportPosition({
@@ -1235,6 +1249,7 @@ export function MessageFeed({
       viewportKey,
       normalizedThreadKey,
       isLeaderSession,
+      entry: feedEntry,
     });
     const restoreKey = getSavedViewportRestoreKey(viewportKey, pos);
     const restoredViewport = restoredViewportRef.current;
@@ -1296,12 +1311,15 @@ export function MessageFeed({
       }
     } else {
       scrollToBottom("auto");
+      // Opening at the latest (an older place, or one never shown) lands above any worker activity.
+      if (!pos) requestLatestLanding();
     }
     restoredViewportRef.current = { key: restoreKey, container: containerRef.current };
   }, [
     activeHistoryWindow,
     activeThreadWindow,
     cancelExactRestore,
+    feedEntry,
     getSectionWindowStartForTurnId,
     hasNewerSections,
     historyLoading,
@@ -1315,6 +1333,7 @@ export function MessageFeed({
     scrollToTurnId,
     restoreSavedScrollPosition,
     restoreSavedViewportAnchor,
+    requestLatestLanding,
     viewportAnchorWindow,
     savedViewportRestoreKey,
     scrollToBottom,
@@ -1792,11 +1811,13 @@ export function MessageFeed({
       }}
       showCodexSubagents={showCodexSubagentControl}
       dayPill={
-        <MessageFeedDayPill
-          containerRef={containerRef}
-          contentRootRef={contentRootRef}
-          layoutSignature={viewportLayoutSignature}
-        />
+        unreadAboveIndicator ?? (
+          <MessageFeedDayPill
+            containerRef={containerRef}
+            contentRootRef={contentRootRef}
+            layoutSignature={viewportLayoutSignature}
+          />
+        )
       }
     />
   );
@@ -1847,6 +1868,7 @@ export function MessageFeed({
           data-testid="message-feed-scroll-container"
           data-feed-session-id={sessionId}
           data-feed-thread-key={normalizedThreadKey}
+          data-feed-has-newer={hasNewerSections ? "true" : undefined}
           className="message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
           style={{ overscrollBehavior: "contain" }}
         >
@@ -1859,23 +1881,11 @@ export function MessageFeed({
                   data-feed-content-root="true"
                 >
                   {hasOlderSections && (
-                    <div className="flex justify-center pb-2" aria-live="polite">
-                      {isLoadingOlderSection ? (
-                        <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
-                          <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                          Loading older section...
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={explicitSectionLoad.older}
-                          className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
-                        >
-                          <YarnBallDot className="text-cc-muted/70" />
-                          Load older section
-                        </button>
-                      )}
-                    </div>
+                    <SectionBoundaryControl
+                      direction="older"
+                      loading={isLoadingOlderSection}
+                      onLoad={explicitSectionLoad.older}
+                    />
                   )}
                   <MessageTimeLabelContext.Provider value={messageTimeLabels}>
                     <AnswerReferencesContext.Provider value={allThreadsAnswers}>
@@ -1905,23 +1915,11 @@ export function MessageFeed({
                     </AnswerReferencesContext.Provider>
                   </MessageTimeLabelContext.Provider>
                   {hasNewerSections && (
-                    <div className="flex justify-center pt-1" aria-live="polite">
-                      {isLoadingNewerSection ? (
-                        <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
-                          <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                          Loading newer section...
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={explicitSectionLoad.newer}
-                          className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
-                        >
-                          <YarnBallDot className="text-cc-muted/70" />
-                          Load newer section
-                        </button>
-                      )}
-                    </div>
+                    <SectionBoundaryControl
+                      direction="newer"
+                      loading={isLoadingNewerSection}
+                      onLoad={explicitSectionLoad.newer}
+                    />
                   )}
                   <PendingMessages
                     sessionId={sessionId}

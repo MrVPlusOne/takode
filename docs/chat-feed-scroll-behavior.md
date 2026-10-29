@@ -103,6 +103,14 @@ After a restore, the latest indicator should only appear again when:
 
 ### 5. Session restore
 
+A conversation (a chat, a leader's tab or a topic conversation) goes back to
+where it was left only if it is one of the last three places left in this
+browser, or was left less than 30 minutes ago. An older one opens at its latest
+messages, as Slack does: see "Opening at the latest" below. Each saved position
+records when it was left; positions handed over by another browser carry the
+time they were left there. The rest of this section is about places that do go
+back to where they were left.
+
 Restore a saved stable message and its offset when possible. A turn-only saved
 position can restore by that turn; a missing message must not be substituted
 with its turn's beginning. An off-window target is looked up through the server,
@@ -111,8 +119,8 @@ and unrelated window updates do not establish that the lookup failed.
 If the target's authoritative delivery still cannot restore the anchor, go to
 latest. Coordinates alone cannot reliably identify a position in a bounded
 window, so an unanchored saved position in that mode also falls back to latest.
-The unwindowed feed retains its proportional-coordinate restoration. Valid
-older reading positions remain valid regardless of their age. Fresh explicit
+The unwindowed feed retains its proportional-coordinate restoration. A valid
+reading position of a recent place restores regardless of its age. Fresh explicit
 navigation takes precedence over restoration and cancels a pending restore.
 
 If the user left at the bottom, restore the real bottom. Latest navigation also
@@ -123,6 +131,23 @@ itself imply "new content below". The latest-indicator baseline resets to the
 restored content bottom for the new viewing pass.
 
 There is no special anchor-restore path tied to the latest user turn.
+
+#### Opening at the latest
+
+An older place, or one never shown, opens at its latest messages. When thread
+status rows sit under the last message (Thread Waiting or Ready, a waiting
+worker's live preview), the view lands just above them, with the last message at
+the bottom of the view, and holds that spot while the feed finishes rendering
+until the reader scrolls. That is a reading position, so new content does not
+pull the view down; without such rows the view is at the real bottom and follows
+new content.
+
+When unread answers or reports of the conversation sit above the view, a pill at
+the top of the feed says how many ("2 unread"); a tap jumps to the first one,
+where the red New line is. Each one leaves the count once it has been read by
+being on screen. Clicking a thread's tab follows the same rule even when it has
+unread results; Next, notifications and message links still land on their
+message.
 
 ### 6. Jumping to a message
 
@@ -143,7 +168,7 @@ position, open thread and expanded content, with no reload. A hidden session run
 none of its effects (it sits in a hidden React `Activity`), so it does no work
 and never counts as being viewed: it marks nothing read and sends no viewing
 signal. Only the session on screen does. Older sessions are rebuilt on return and
-restore their saved position as described above.
+open as described above: where they were left if recent, else at the latest.
 
 Whether a report or a long user message is expanded is the session's state,
 kept on the server: a reload or another browser shows it the same way.

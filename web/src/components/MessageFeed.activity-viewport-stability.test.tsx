@@ -1138,6 +1138,9 @@ describe("MessageFeed activity viewport stability", () => {
         expect(screen.getByTestId("waiting-worker-preview-turn-time").textContent).toContain("1m 13s"),
       );
       const scrollContainer = screen.getByTestId("message-feed-scroll-container");
+      // Opening at the latest lands above the worker preview and holds that spot until the reader
+      // scrolls; a wheel is the reader taking over before moving to the physical bottom.
+      fireEvent.wheel(scrollContainer, { deltaY: 40 });
       geometry.setPhysicalBottom();
       fireEvent.scroll(scrollContainer);
 

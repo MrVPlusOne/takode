@@ -112,6 +112,7 @@ export function scrollMessageFeedTargetIntoView({
     anchorTurnId: targetTurnId,
     anchorOffsetTop: settledTargetRect.top - containerRect.top,
     lastSeenContentBottom: lastSeenContentBottom ?? getRealContentBottom(),
+    savedAt: Date.now(),
   };
   setFeedScrollPosition(viewportKey, position);
   if (isLeaderSession) persistLeaderViewportPosition(sessionId, threadKey, position);

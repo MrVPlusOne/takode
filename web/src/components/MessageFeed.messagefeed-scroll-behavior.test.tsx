@@ -1156,6 +1156,9 @@ describe("MessageFeed - scroll behavior", () => {
         makeMessage({ id: "a1", role: "assistant", content: "Answer" }),
       ]);
       const { container, unmount } = render(<MessageFeed sessionId={sid} />);
+      // Recording the feed among recent places writes localStorage, for which jsdom queues a
+      // zero-delay storage event; flush it so only the scroll's own timer is counted.
+      vi.advanceTimersByTime(0);
       const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
       const before = vi.getTimerCount();
       fireEvent.scroll(scrollContainer);

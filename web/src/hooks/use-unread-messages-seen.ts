@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SessionNotification } from "../types.js";
+import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 
 /**
  * A leader's unread answers and reports are read once they have actually been on screen, as in
@@ -10,6 +11,9 @@ import type { SessionNotification } from "../types.js";
  *
  * Finished quests (their result is the Quest complete card, not the anchored message) and
  * results an agent sent still read when their thread is on screen (`readsWhenSeen`).
+ *
+ * It also reports the unread messages above the view, so a conversation opened at its latest
+ * messages can say how many wait above and jump to the first one.
  */
 
 /** How long a message must stay on screen to count as read. */
@@ -17,6 +21,13 @@ export const SEEN_DWELL_MS = 1_000;
 const POLL_MS = 400;
 /** A message counts as on screen when this much of it shows (or half of a short one). */
 const MIN_VISIBLE_PX = 160;
+
+/** Unread messages of the feed on screen that sit above the view, oldest first. */
+export interface UnreadAbove {
+  count: number;
+  /** The oldest of them: where a jump to the unread lands. */
+  first: SessionNotification;
+}
 
 /** Whether a notification is read by seeing its message rather than by opening its thread. */
 export function readsWhenSeen(notification: SessionNotification): boolean {
@@ -33,6 +44,7 @@ export function useUnreadMessagesSeen({
   feedKey,
   notifications,
   enabled,
+  inFeed,
   onSeen,
 }: {
   sessionId: string;
@@ -40,10 +52,16 @@ export function useUnreadMessagesSeen({
   feedKey: string;
   notifications: ReadonlyArray<SessionNotification> | undefined;
   enabled: boolean;
+  /**
+   * Whether a message of this thread (a quest, or Main) shows in the feed. Without it, nothing is
+   * counted above (a feed that cannot jump to it, such as one in the side column).
+   */
+  inFeed?: (ownerThreadKey: string) => boolean;
   onSeen: (notificationId: string) => void;
-}): void {
-  const latest = useRef({ notifications, onSeen });
-  latest.current = { notifications, onSeen };
+}): UnreadAbove | null {
+  const latest = useRef({ notifications, onSeen, inFeed });
+  latest.current = { notifications, onSeen, inFeed };
+  const [unreadAbove, setUnreadAbove] = useState<UnreadAbove | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -66,7 +84,10 @@ export function useUnreadMessagesSeen({
         newLine = messageElements(feed, new Set([newLineMessageId])).get(newLineMessageId) ?? null;
         newLine?.setAttribute("data-unread-start", "true");
       }
-      if (unread.length === 0) return;
+      if (unread.length === 0) {
+        setUnreadAbove(null);
+        return;
+      }
       const elements = messageElements(feed, new Set(unread.map((notification) => notification.messageId!)));
       if (!newLineMessageId && elements.size > 0) {
         // The oldest unread message this view shows: the reader starts there.
@@ -91,14 +112,43 @@ export function useUnreadMessagesSeen({
         reported.add(notification.id);
         latest.current.onSeen(notification.id);
       }
+      const unseen = unread.filter((notification) => !reported.has(notification.id));
+      const inFeed = latest.current.inFeed;
+      const above = inFeed ? findUnreadAbove(feed, view, elements, unseen, inFeed) : null;
+      setUnreadAbove((current) =>
+        current?.count === above?.count && current?.first.id === above?.first.id ? current : above,
+      );
     };
     poll();
     const timer = setInterval(poll, POLL_MS);
     return () => {
       clearInterval(timer);
       newLine?.removeAttribute("data-unread-start");
+      setUnreadAbove(null);
     };
   }, [enabled, feedKey, sessionId]);
+
+  return unreadAbove;
+}
+
+function findUnreadAbove(
+  feed: HTMLElement,
+  view: DOMRect,
+  elements: Map<string, HTMLElement>,
+  unread: SessionNotification[],
+  inFeed: (ownerThreadKey: string) => boolean,
+): UnreadAbove | null {
+  // A message not in the loaded window is older than it, unless a newer section is unloaded.
+  const newerUnloaded = feed.dataset.feedHasNewer === "true";
+  const above = unread
+    .filter((notification) => inFeed(resolveNotificationOwnerThreadKey(notification)))
+    .filter((notification) => {
+      const element = elements.get(notification.messageId!);
+      if (!element) return !newerUnloaded;
+      return !onScreen(element, view) && element.getBoundingClientRect().top < view.top;
+    })
+    .sort((a, b) => a.timestamp - b.timestamp);
+  return above.length > 0 ? { count: above.length, first: above[0]! } : null;
 }
 
 function visibleFeed(sessionId: string, feedKey: string): HTMLElement | null {

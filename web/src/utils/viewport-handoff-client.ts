@@ -21,6 +21,7 @@ import {
   persistLeaderViewportPosition,
   readLeaderViewportPosition,
   registerViewportHandoffPublisher,
+  type FeedViewportPosition,
 } from "./thread-viewport.js";
 
 export type ViewportHandoffEntryStatus = "idle" | "loading" | "ready" | "failed";
@@ -515,11 +516,17 @@ function hydrateEntryState(
     }
   }
 
-  const positions = new Map<string, ViewportHandoffPosition>();
+  // Each position keeps when it was left (on this browser's clock), so a place left long ago
+  // opens at its latest messages rather than at another device's old reading position.
+  const positions = new Map<string, FeedViewportPosition>();
+  const receivedAt = Date.now();
   const records = threadKey ? (response.record ? [response.record] : []) : Object.values(response.state.handoffs);
-  for (const record of records) positions.set(record.threadKey, record.position);
+  for (const record of records) {
+    const savedAt = receivedAt - Math.max(0, response.serverNow - record.updatedAt);
+    positions.set(record.threadKey, { ...record.position, savedAt });
+  }
   for (const { receipt, decision } of receiptDecisions) {
-    if (decision.position) positions.set(receipt.threadKey, receipt.position);
+    if (decision.position) positions.set(receipt.threadKey, { ...receipt.position, savedAt: receipt.initiatedAtLocal });
   }
 
   const store = useStore.getState();

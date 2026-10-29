@@ -70,6 +70,7 @@ describe("useUnreadMessagesSeen", () => {
         feedKey: "topic:t1",
         notifications: [answer("a1", 1), answer("a2", 2)],
         enabled: true,
+        inFeed: () => true,
         onSeen,
       }),
     );
@@ -97,6 +98,7 @@ describe("useUnreadMessagesSeen", () => {
           feedKey: "q-1",
           notifications: list,
           enabled: true,
+          inFeed: () => true,
           onSeen: vi.fn(),
         }),
       { initialProps: { list: notifications } },
@@ -121,6 +123,7 @@ describe("useUnreadMessagesSeen", () => {
         feedKey: "q-1",
         notifications: [answer("a1", 1)],
         enabled: true,
+        inFeed: () => true,
         onSeen,
       }),
     );
@@ -143,5 +146,69 @@ describe("useUnreadMessagesSeen", () => {
     expect(readsWhenSeen(answer("x", 1, { unreadReason: undefined }))).toBe(false);
     expect(readsWhenSeen(answer("n", 1, { messageId: null }))).toBe(false);
     expect(readsWhenSeen(answer("d", 1, { done: true }))).toBe(false);
+  });
+
+  it("counts the unread messages above the view, oldest first, and leaves out what is on screen", () => {
+    // A conversation opened at its latest says how many unread wait above: one scrolled past,
+    // one not loaded (older than the window), but not the one on screen nor another thread's.
+    mountFeed("q-1", [
+      { id: "m-above", top: -400 },
+      { id: "m-shown", top: 100 },
+    ]);
+    const { result } = renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        feedKey: "q-1",
+        notifications: [
+          answer("above", 3),
+          answer("unloaded", 2),
+          answer("shown", 4),
+          answer("elsewhere", 1, { threadKey: "q-2" }),
+        ],
+        enabled: true,
+        inFeed: (ownerThreadKey) => ownerThreadKey === "q-1",
+        onSeen: vi.fn(),
+      }),
+    );
+    expect(result.current?.count).toBe(2);
+    expect(result.current?.first.id).toBe("unloaded");
+  });
+
+  it("does not count unloaded messages while a newer section is unloaded too", () => {
+    // Reading an older window, a message outside it may be below rather than above.
+    const elements = mountFeed("q-1", [{ id: "m-shown", top: 100 }]);
+    elements["m-shown"]!.parentElement!.dataset.feedHasNewer = "true";
+    const { result } = renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        feedKey: "q-1",
+        notifications: [answer("unloaded", 2)],
+        enabled: true,
+        inFeed: () => true,
+        onSeen: vi.fn(),
+      }),
+    );
+    expect(result.current).toBeNull();
+  });
+
+  it("drops a message from the count once it has been read", () => {
+    const elements = mountFeed("q-1", [{ id: "m-a1", top: -400 }]);
+    const { result } = renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        feedKey: "q-1",
+        notifications: [answer("a1", 1)],
+        enabled: true,
+        inFeed: () => true,
+        onSeen: vi.fn(),
+      }),
+    );
+    expect(result.current?.count).toBe(1);
+    // Scrolled to it and seen for a second: it no longer waits above.
+    elements["m-a1"]!.getBoundingClientRect = () => rect(100, 100);
+    act(() => {
+      vi.advanceTimersByTime(SEEN_DWELL_MS + 500);
+    });
+    expect(result.current).toBeNull();
   });
 });

@@ -119,6 +119,23 @@ describe("viewport handoff client", () => {
     );
   });
 
+  // A place left long ago opens at its latest messages, so a server position must say when it
+  // was left, on this browser's clock: the record's commit time, offset by the server's clock.
+  it("stamps each hydrated server position with when it was left", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const mainRecord = { ...record("main", 2, "main-anchor"), updatedAt: 4_000 };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ state: state(2, "main", [mainRecord]), serverNow: 5_000 })),
+    );
+
+    await loadViewportHandoffSession("session-1", { entryId: "session-entry" });
+
+    // Committed 1 s before the server answered, so left 1 s before this browser received it.
+    expect(readLeaderViewportPosition("session-1", "main")?.savedAt).toBe(99_000);
+    expect(useStore.getState().feedScrollPosition.get(getFeedViewportKey("session-1", "main"))?.savedAt).toBe(99_000);
+  });
+
   // Thread switches inside a session must not wait a round trip for this read:
   // while the session socket is live, the state it pushed answers the entry.
   it("enters a thread from pushed state without a read, and reads again once the socket is gone", async () => {
@@ -612,9 +629,11 @@ describe("viewport handoff client", () => {
       await returnRead;
 
       expect(fetchMock).toHaveBeenCalledTimes(3);
-      expect(useStore.getState().feedScrollPosition.get(getFeedViewportKey("session-1", "main"))).toEqual(
-        departingPosition,
-      );
+      // The pending departure restores with the time it was left.
+      expect(useStore.getState().feedScrollPosition.get(getFeedViewportKey("session-1", "main"))).toEqual({
+        ...departingPosition,
+        savedAt: expect.any(Number),
+      });
 
       const acceptedRecord = { ...record("main", 2, "departing-anchor"), position: departingPosition };
       putResponse.resolve(
@@ -766,10 +785,12 @@ describe("viewport handoff client", () => {
     expect(fetchMock.mock.calls[1]?.[1]?.keepalive).toBe(true);
     expect(fetchMock.mock.calls[2]?.[1]?.method).toBeUndefined();
     expect(readLeaderSelectedThreadKey("session-1")).toBe("q-2035");
-    expect(readLeaderViewportPosition("session-1", "main")).toEqual(pendingPosition);
-    expect(useStore.getState().feedScrollPosition.get(getFeedViewportKey("session-1", "main"))).toEqual(
-      pendingPosition,
-    );
+    // The pending departure keeps the time it was left (its publish at 1_200).
+    expect(readLeaderViewportPosition("session-1", "main")).toEqual({ ...pendingPosition, savedAt: 1_200 });
+    expect(useStore.getState().feedScrollPosition.get(getFeedViewportKey("session-1", "main"))).toEqual({
+      ...pendingPosition,
+      savedAt: 1_200,
+    });
 
     const acceptedRecord: ViewportHandoffRecord = {
       ...record("main", 2, "same-browser-local-anchor"),
@@ -786,7 +807,7 @@ describe("viewport handoff client", () => {
       }),
     );
     await oldPut;
-    expect(readLeaderViewportPosition("session-1", "main")).toEqual(pendingPosition);
+    expect(readLeaderViewportPosition("session-1", "main")).toEqual({ ...pendingPosition, savedAt: 1_200 });
   });
 
   it("does not let a pending idle reload receipt override a newer backend handoff", async () => {

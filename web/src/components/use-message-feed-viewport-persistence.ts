@@ -67,6 +67,7 @@ export function useMessageFeedViewportPersistence({
       anchorTurnId: anchor?.turnId ?? null,
       anchorOffsetTop: anchor?.offsetTop,
       lastSeenContentBottom: lastSeenContentBottomRef.current ?? getRealContentBottom(),
+      savedAt: Date.now(),
     };
     useStore.getState().setFeedScrollPosition(viewportKey, position);
     if (isLeaderSession) persistLeaderViewportPosition(sessionId, normalizedThreadKey, position);

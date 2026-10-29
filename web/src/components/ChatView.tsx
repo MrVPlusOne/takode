@@ -49,7 +49,6 @@ import {
   threadRouteFromHash,
 } from "../utils/routing.js";
 import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
-import { firstUnreadResult, resultLanding } from "../utils/notification-navigation.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 import { ModelProvenanceMigrationBanner } from "./ModelProvenanceMigrationBanner.js";
@@ -70,6 +69,7 @@ import {
 import { ViewportHandoffThreadEntryGate } from "./ViewportHandoffEntryGate.js";
 import { useThreadReadOnScreen } from "../hooks/use-thread-read-on-screen.js";
 import { readsWhenSeen, useUnreadMessagesSeen } from "../hooks/use-unread-messages-seen.js";
+import { MessageFeedUnreadAbove } from "./MessageFeedUnreadAbove.js";
 import { createViewportHandoffEntryId, noteViewportSelectionActivity } from "../utils/viewport-handoff-client.js";
 import { resolveInitialLeaderThreadKey } from "../utils/initial-leader-thread.js";
 import { applyCanonicalQuestTitles, buildCanonicalQuestTitleIndex } from "../utils/quest-title-index.js";
@@ -665,13 +665,29 @@ export function ChatView({
   const topicFeedOn = !!topicConversation && (!!standaloneTopic || topicFeedFor === selectedThreadKey.toLowerCase());
   const feedThreadKey = topicFeedOn ? topicViewKey(topicConversation.topicId) : selectedThreadKey;
   useTopicWindowFollowsQuests(sessionId, topicFeedOn ? feedThreadKey : null, topicConversation?.questIds ?? []);
-  useUnreadMessagesSeen({
+  const feedQuestKeys = topicFeedOn ? topicConversation.questIds.map((questId) => normalizeThreadKey(questId)) : null;
+  const unreadAbove = useUnreadMessagesSeen({
     sessionId,
     feedKey: feedThreadKey,
     notifications: sessionNotifications,
     enabled: isLeaderSession && !preview,
+    inFeed: (ownerThreadKey) =>
+      normalizeThreadKey(feedThreadKey) === ALL_THREADS_KEY ||
+      (feedQuestKeys ? feedQuestKeys.includes(ownerThreadKey) : ownerThreadKey === normalizeThreadKey(feedThreadKey)),
     onSeen: (notificationId) => void api.markNotificationDone(sessionId, notificationId, true).catch(console.error),
   });
+  const unreadAboveIndicator = unreadAbove?.first.messageId ? (
+    <MessageFeedUnreadAbove
+      unread={unreadAbove}
+      onJump={() =>
+        navigateToSessionMessageId(sessionId, unreadAbove.first.messageId!, {
+          threadKey: selectedThreadKey,
+          preserveMainThreadRoute: true,
+          ...(topicFeedOn ? { topicView: true } : {}),
+        })
+      }
+    />
+  ) : null;
   // Zooming between the quest and its topic keeps the reader's place and plays the zoom, once the
   // new feed is on screen.
   const zoomColumnRef = useRef<HTMLDivElement | null>(null);
@@ -899,32 +915,11 @@ export function ChatView({
       setSelectedThreadKey(nextThreadKey);
       if (!preview) {
         locallySelectedRouteThreadKeyRef.current = nextThreadKey;
-        // A thread with unread results opens at the first one, not where it was left.
-        const unreadIds = new Set(
-          reviewNotificationIdsForSelectedThread(sessionNotifications, reviewAttentionRecords, nextThreadKey),
-        );
-        const firstUnread = firstUnreadResult(sessionNotifications, (notification) => unreadIds.has(notification.id));
-        if (firstUnread?.messageId) {
-          navigateToSessionMessageId(sessionId, firstUnread.messageId, {
-            threadKey: nextThreadKey,
-            preserveMainThreadRoute: true,
-            landing: resultLanding(firstUnread),
-          });
-        } else {
-          navigateToSessionThread(sessionId, nextThreadKey);
-        }
+        // Like any opening: where it was left if recent, else at the latest with the unread counted above.
+        navigateToSessionThread(sessionId, nextThreadKey);
       }
     },
-    [
-      cachedThreadWindows,
-      isLeaderSession,
-      openThreadTab,
-      preview,
-      reviewAttentionRecords,
-      selectedThreadKey,
-      sessionId,
-      sessionNotifications,
-    ],
+    [cachedThreadWindows, isLeaderSession, openThreadTab, preview, selectedThreadKey, sessionId],
   );
   // Zooming into a quest from its strip in the topic: the tab's own quest drops the topic view,
   // another quest opens its own tab (which shows it alone), each one history step.
@@ -1335,6 +1330,7 @@ export function ChatView({
                               onSelectThread={isLeaderSession ? handleSelectThread : undefined}
                               showCodexSubagentControl={!preview}
                               markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                              unreadAboveIndicator={unreadAboveIndicator}
                             />
                           </TopicFeedContext.Provider>
                         </StartedQuestsProvider>

@@ -168,9 +168,10 @@ describe("ChatView attention navigation", () => {
     view.unmount();
   });
 
-  it("opens a thread chosen in the view at its first unread result", async () => {
-    // Choosing a tab (or an in-feed thread link) with unread results lands on the oldest one,
-    // not where the thread was left; a thread with nothing unread opens as before.
+  it("opens a thread chosen in the view like any opening, even with unread results", async () => {
+    // Choosing a tab (or an in-feed thread link) no longer jumps to its oldest unread result: the
+    // thread opens where it was left if recent, else at its latest messages with the unread ones
+    // counted above (the feed decides). Next and notifications still land on the message.
     useStore.getState().setSessionNotifications("leader", [
       {
         id: "n-main",
@@ -195,8 +196,9 @@ describe("ChatView attention navigation", () => {
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1"));
 
     act(() => feedThreadSelection.select?.("main"));
-    expect(window.location.hash).toBe("#/session/leader/msg/m-first?thread=main");
-    expect(useStore.getState().scrollToMessageId.get("leader")).toBe("m-first");
+    // The selection is local, so Main needs no explicit thread in the address.
+    expect(window.location.hash).toBe("#/session/leader");
+    expect(useStore.getState().scrollToMessageId.get("leader")).toBeUndefined();
 
     act(() => feedThreadSelection.select?.("q-1"));
     expect(window.location.hash).toBe("#/session/leader?thread=q-1");

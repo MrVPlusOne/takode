@@ -30,6 +30,36 @@ export interface FeedViewportPosition {
   anchorTurnId?: string | null;
   anchorOffsetTop?: number;
   lastSeenContentBottom?: number | null;
+  /** When the position was left, on this browser's clock; absent on positions saved before it was kept. */
+  savedAt?: number;
+}
+
+/**
+ * How long any place keeps the reading position it was left at. A place left longer ago, and not
+ * one of the last few places left (`isRecentFeedPlace`), opens at its latest messages instead,
+ * with its unread ones counted above, as Slack does.
+ */
+export const KEEP_READING_POSITION_MS = 30 * 60_000;
+
+/** When and how a feed was opened, fixed for as long as it stays open. */
+export interface FeedEntry {
+  at: number;
+  /** One of the last few places left (`isRecentFeedPlace`). */
+  recent: boolean;
+}
+
+/**
+ * The saved position when the feed should go back to it, else null (open at the latest). Positions
+ * the feed saves while open are newer than its entry, so they always restore.
+ */
+export function restorableViewportPosition(
+  position: FeedViewportPosition | null | undefined,
+  entry: FeedEntry,
+): FeedViewportPosition | null {
+  if (!position) return null;
+  // A position without a time predates keeping it; the next departure or server read stamps one.
+  if (entry.recent || position.savedAt === undefined) return position;
+  return entry.at - position.savedAt <= KEEP_READING_POSITION_MS ? position : null;
 }
 
 type ViewportHandoffPublisher = (
@@ -269,6 +299,7 @@ function normalizeViewportPosition(value: unknown): FeedViewportPosition | null 
   if (scrollTop == null || scrollHeight == null) return null;
   const anchorOffsetTop = normalizeFiniteNumber(record.anchorOffsetTop);
   const lastSeenContentBottom = normalizeFiniteNumber(record.lastSeenContentBottom);
+  const savedAt = normalizeFiniteNumber(record.savedAt);
   return {
     scrollTop,
     scrollHeight,
@@ -277,6 +308,7 @@ function normalizeViewportPosition(value: unknown): FeedViewportPosition | null 
     anchorTurnId: typeof record.anchorTurnId === "string" ? record.anchorTurnId : null,
     ...(anchorOffsetTop != null ? { anchorOffsetTop } : {}),
     ...(lastSeenContentBottom != null ? { lastSeenContentBottom } : {}),
+    ...(savedAt != null ? { savedAt } : {}),
   };
 }
 

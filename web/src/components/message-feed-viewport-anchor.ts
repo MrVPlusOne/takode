@@ -41,6 +41,27 @@ export function getFeedElementScrollOffset(
   return element.offsetTop + element.offsetHeight || container.scrollHeight;
 }
 
+/**
+ * The bottom of the feed's real content, in scroll coordinates: the lowest feed block, which
+ * leaves out the trailing space kept below it (`endSlack`).
+ */
+export function getRealContentBottom(
+  container: HTMLDivElement | null,
+  contentRoot: HTMLElement | null,
+  endSlack: number,
+): number | null {
+  if (!container) return null;
+  const fallbackBottom = Math.max(0, Math.round(container.scrollHeight - endSlack));
+  const blocks = contentRoot?.querySelectorAll<HTMLElement>("[data-feed-block-id]") ?? [];
+  if (blocks.length === 0) return fallbackBottom;
+  const scale = getFeedViewportScale(container);
+  let maxBottom = 0;
+  for (const block of blocks)
+    maxBottom = Math.max(maxBottom, getFeedElementScrollOffset(container, block, "bottom", scale));
+  if (maxBottom >= container.scrollHeight - 1) return fallbackBottom;
+  return Math.max(0, Math.min(fallbackBottom, Math.round(maxBottom)));
+}
+
 function escapeSelectorValue(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');

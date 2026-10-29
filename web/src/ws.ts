@@ -13,9 +13,12 @@ import { resolveInitialLeaderThreadKey } from "./utils/initial-leader-thread.js"
 import { getCachedThreadWindowHash } from "./utils/history-window-cache.js";
 import { messageIdFromHash, parseHash, resolveSessionIdFromRoute, threadRouteFromHash } from "./utils/routing.js";
 import { ALL_THREADS_KEY } from "./utils/thread-projection.js";
+import { isRecentFeedPlace } from "./utils/recent-feed-places.js";
 import {
+  getFeedViewportKey,
   readDisplayedLeaderThreadKey,
   readLeaderViewportPosition,
+  restorableViewportPosition,
   requestThreadViewportSnapshot,
 } from "./utils/thread-viewport.js";
 import {
@@ -86,7 +89,10 @@ function getInitialLeaderThreadWindow(
   const sectionItemCount = existingWindow?.section_item_count ?? HISTORY_WINDOW_SECTION_TURN_COUNT;
   const visibleItemCount = existingWindow?.visible_item_count ?? HISTORY_WINDOW_VISIBLE_SECTION_COUNT;
   const itemCount = existingWindow?.item_count ?? getThreadWindowItemCount(visibleItemCount, sectionItemCount);
-  const savedViewport = readLeaderViewportPosition(sessionId, threadKey);
+  const savedViewport = restorableViewportPosition(readLeaderViewportPosition(sessionId, threadKey), {
+    at: Date.now(),
+    recent: isRecentFeedPlace(getFeedViewportKey(sessionId, threadKey)),
+  });
   const targetMessageId =
     store.scrollToMessageId.get(sessionId) ??
     store.pendingScrollToMessageId.get(sessionId) ??

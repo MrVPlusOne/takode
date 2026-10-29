@@ -130,6 +130,7 @@ import {
   readLeaderViewportPosition,
   requestThreadViewportSnapshot,
 } from "../utils/thread-viewport.js";
+import { noteFeedPlaceShown, resetRecentFeedPlacesForTest } from "../utils/recent-feed-places.js";
 import { MessageFeed } from "./MessageFeed.js";
 import {
   createSyntheticLargeLeaderFeedFixture,
@@ -290,6 +291,71 @@ describe("MessageFeed thread viewport restoration", () => {
       await waitFor(() => expect(scrollTopValue).toBe(420));
       expect(screen.queryByText("Main setup")).toBeNull();
       expect(screen.getByText("Quest update")).toBeTruthy();
+    } finally {
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+    }
+  });
+
+  it.each([
+    { label: "left recently", leftAgoMs: 60_000, recent: false, restores: true },
+    { label: "one of the last places left, however long ago", leftAgoMs: 86_400_000, recent: true, restores: true },
+    { label: "older (not a recent place, left long ago)", leftAgoMs: 86_400_000, recent: false, restores: false },
+  ])("opens a place $label where it was left: $restores", async ({ leftAgoMs, recent, restores }) => {
+    // Slack-like opening: an older place opens at its latest messages (the unread ones are
+    // counted above it by ChatView) instead of going back to where it was left.
+    resetRecentFeedPlacesForTest();
+    const sid = `test-older-place-${leftAgoMs}-${recent}`;
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-q941",
+        role: "assistant",
+        content: "Quest update",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    persistLeaderViewportPosition(sid, "q-941", {
+      scrollTop: 420,
+      scrollHeight: 1600,
+      isAtBottom: false,
+      savedAt: Date.now() - leftAgoMs,
+    });
+    noteFeedPlaceShown(getFeedViewportKey(sid, "q-941"));
+    if (!recent) for (const other of ["x", "y", "z"]) noteFeedPlaceShown(other);
+
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    let scrollTopValue = 0;
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 1600 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollTopValue : 0;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+
+    try {
+      render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+      if (restores) {
+        await waitFor(() => expect(scrollTopValue).toBe(420));
+      } else {
+        // Without layout in jsdom the latest messages sit at the top: the saved 420 is never applied.
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+        expect(scrollTopValue).toBe(0);
+      }
     } finally {
       if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
       else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;

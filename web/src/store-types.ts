@@ -430,6 +430,8 @@ export interface AppState {
       anchorTurnId?: string | null;
       anchorOffsetTop?: number;
       lastSeenContentBottom?: number | null;
+      /** When the position was left (local clock); see `FeedViewportPosition.savedAt`. */
+      savedAt?: number;
     }
   >;
   setFeedScrollPosition: (
@@ -442,6 +444,8 @@ export interface AppState {
       anchorTurnId?: string | null;
       anchorOffsetTop?: number;
       lastSeenContentBottom?: number | null;
+      /** When the position was left (local clock); see `FeedViewportPosition.savedAt`. */
+      savedAt?: number;
     },
   ) => void;
   annotationEditor: AnnotationEditorState | null;
