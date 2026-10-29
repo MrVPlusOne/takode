@@ -117,8 +117,8 @@ function playgroundTopic(
 
 /**
  * A leader's threads (New thread) for the Threads menu: one the leader is answering, one with an
- * unread answer and one with an open question (all Active), one read and unfiled (Recent), and one
- * read and filed under a topic, which lives in that topic instead.
+ * unread answer and one with an open question (all Active), then two read ones (Recent), one
+ * unfiled and one filed under a topic.
  */
 const THREADS: ThreadSummary[] = [
   playgroundThread("0a1b2c3d", "Phone can't reach Takode over Tailscale", 1),

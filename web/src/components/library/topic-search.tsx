@@ -44,7 +44,15 @@ export function matchesSearch(text: string, query: string): boolean {
  * and takes the row's remaining width while focused or holding a query. Escape clears a query and keeps the list open; with nothing
  * typed, Escape goes on to the list's host (the tab group closes its list).
  */
-export function TopicSearchBox({ query, onChange }: { query: string; onChange: (query: string) => void }) {
+export function TopicSearchBox({
+  query,
+  onChange,
+  label = "Search topics",
+}: {
+  query: string;
+  onChange: (query: string) => void;
+  label?: string;
+}) {
   const [focused, setFocused] = useState(false);
   const wide = focused || query.length > 0;
   return (
@@ -70,7 +78,7 @@ export function TopicSearchBox({ query, onChange }: { query: string; onChange: (
         type="text"
         inputMode="search"
         enterKeyHint="search"
-        aria-label="Search topics"
+        aria-label={label}
         placeholder="Search"
         autoComplete="off"
         spellCheck={false}

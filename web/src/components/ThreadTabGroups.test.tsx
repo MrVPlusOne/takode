@@ -868,8 +868,7 @@ describe("ThreadTabRail", () => {
 describe("Threads menu", () => {
   // Threads the user started live in their own menu next to Topics, not in Working on (which keeps
   // only quests in motion). Active holds threads with something for the user (not settled, an
-  // unread answer, or the leader writing); Recent holds read threads under no topic; a read thread
-  // filed under a topic lives in that topic.
+  // unread answer, or the leader writing); Recent holds every read thread, newest first.
   const thread = (handle: string, name: string, overrides: Partial<ThreadSummary> = {}): ThreadSummary => ({
     id: handle,
     key: `topic:${handle}`,
@@ -902,19 +901,60 @@ describe("Threads menu", () => {
     return { ...view, onStart };
   }
 
-  it("lists active threads, then read unfiled ones, leaving read filed threads to their topic", () => {
+  it("lists active threads, then every read thread, filed under a topic or not", () => {
+    // Jiayi: Recent should list all past threads, never cleared; a filed one says where it lives.
     const { onSelect } = renderThreads();
     // Working on still counts only the quest.
     expect(screen.getByTestId("thread-tab-group-working-on").textContent).toContain("1");
     fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
     const menu = screen.getByTestId("threads-menu");
     expect(menu.textContent).toContain("Active 2");
-    expect(menu.textContent).toContain("Recent 1");
+    expect(menu.textContent).toContain("Recent2");
     const rows = screen.getAllByTestId("threads-menu-row");
-    expect(rows.map((row) => row.dataset.threadKey)).toEqual(["topic:aaaa0001", "topic:aaaa0002", "topic:aaaa0003"]);
+    expect(rows.map((row) => row.dataset.threadKey)).toEqual([
+      "topic:aaaa0001",
+      "topic:aaaa0002",
+      "topic:aaaa0003",
+      "topic:aaaa0004",
+    ]);
     expect(rows[1]!.textContent).toContain("1 new");
-    fireEvent.click(rows[2]!);
+    expect(rows[3]!.textContent).toContain("in Relay");
+    // The search narrows Active as well as Recent; a topic's name finds the threads filed there.
+    fireEvent.change(screen.getByLabelText("Search threads"), { target: { value: "answered" } });
+    expect(screen.getAllByTestId("threads-menu-row").map((row) => row.dataset.threadKey)).toEqual(["topic:aaaa0002"]);
+    fireEvent.change(screen.getByLabelText("Search threads"), { target: { value: "relay" } });
+    expect(screen.getAllByTestId("threads-menu-row").map((row) => row.dataset.threadKey)).toEqual(["topic:aaaa0004"]);
+    fireEvent.change(screen.getByLabelText("Search threads"), { target: { value: "" } });
+    fireEvent.click(screen.getAllByTestId("threads-menu-row")[2]!);
     expect(onSelect).toHaveBeenCalledWith("topic:aaaa0003");
+  });
+
+  it("draws a long Recent list a page at a time, and searches all of it", () => {
+    // Read threads are never dropped, so hundreds can gather: rows come 20 at a time (the next
+    // page when the end scrolls into view, or on tap), and the search box finds older ones.
+    const many = Array.from({ length: 45 }, (_, index) =>
+      thread(`bbbb${String(index).padStart(4, "0")}`, `Old thread ${index}`, {
+        settledAt: 2,
+        activityAt: 100 - index,
+      }),
+    );
+    renderBar({
+      tabs: [tab("q-10")],
+      currentThreadKey: "main",
+      topicsGroup: { topics: [], currentTopicId: null, onOpen: vi.fn(), topicOfQuest: {} },
+      threadsMenu: { threads: many, starting: false, onStart: vi.fn(), onOpen: vi.fn(), unread: () => 0 },
+    });
+    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
+    expect(screen.getByTestId("threads-menu").textContent).toContain("Recent45");
+    expect(screen.getAllByTestId("threads-menu-row")).toHaveLength(20);
+    expect(screen.getByTestId("threads-menu-more").textContent).toBe("25 more");
+    fireEvent.click(screen.getByTestId("threads-menu-more"));
+    expect(screen.getAllByTestId("threads-menu-row")).toHaveLength(40);
+    fireEvent.change(screen.getByLabelText("Search threads"), { target: { value: "thread 44" } });
+    expect(screen.getAllByTestId("threads-menu-row").map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Old thread 44"),
+    ]);
+    expect(screen.queryByTestId("threads-menu-more")).toBeNull();
   });
 
   it("keeps a thread with an open question active and marks it, and keeps its question out of Working on", () => {

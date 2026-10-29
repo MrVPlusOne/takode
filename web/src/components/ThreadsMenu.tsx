@@ -1,6 +1,8 @@
+import { useEffect, useRef, useState } from "react";
 import type { ThreadSummary } from "../../shared/library-topics.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { NewThreadIcon } from "./library/library-icons.js";
+import { matchesSearch, TopicSearchBox } from "./library/topic-search.js";
 
 /** A leader's threads (New thread) for its Threads menu, and how to start or open one. */
 export interface ThreadsMenu {
@@ -15,8 +17,11 @@ export interface ThreadsMenu {
   starting: boolean;
 }
 
-/** Recent settled threads shown before search takes over. */
-const RECENT_SHOWN = 10;
+/**
+ * Read threads are never dropped from Recent, so a leader can gather hundreds: they are drawn a
+ * page at a time, the next page when the end of the list scrolls into view.
+ */
+const RECENT_PAGE = 20;
 
 /**
  * Whether a thread is active: it isn't settled (reading its last answer settles it, and writing in
@@ -32,8 +37,8 @@ export function isThreadActive(
 }
 
 /**
- * The Threads menu: start a new thread, then the active threads, then recent settled ones that
- * aren't filed under a topic. A settled thread under a topic lives in that topic.
+ * The Threads menu: start a new thread, then the active threads, then every thread read, newest
+ * first, filed under a topic or not, with a search box for the older ones.
  */
 export function ThreadsList({
   menu,
@@ -48,7 +53,15 @@ export function ThreadsList({
   const active = menu.threads.filter((thread) =>
     isThreadActive(thread, menu.unread(thread.key), writingKey, questionsIn(thread.key)),
   );
-  const recent = menu.threads.filter((thread) => !active.includes(thread) && !thread.topic).slice(0, RECENT_SHOWN);
+  const [query, setQuery] = useState("");
+  const [shown, setShown] = useState(RECENT_PAGE);
+  // The search narrows both lists, by a thread's name and the topic it is filed under.
+  const matches = (thread: ThreadSummary) => matchesSearch(`${thread.name} ${thread.topic?.name ?? ""}`, query);
+  const read = menu.threads.filter((thread) => !active.includes(thread));
+  const activeShown = active.filter(matches);
+  const matching = read.filter(matches);
+  const recent = matching.slice(0, shown);
+  const showMore = () => setShown((count) => count + RECENT_PAGE);
   const row = (thread: ThreadSummary, quiet: boolean) => {
     const unread = menu.unread(thread.key);
     const questions = questionsIn(thread.key);
@@ -110,15 +123,58 @@ export function ThreadsList({
         <NewThreadIcon className="h-4 w-4 shrink-0 text-cc-primary" />
         <span>New thread</span>
       </button>
-      {active.length > 0 && heading("Active", active.length)}
-      {active.map((thread) => row(thread, false))}
-      {recent.length > 0 && heading("Recent", recent.length)}
-      {recent.map((thread) => row(thread, true))}
-      {active.length === 0 && recent.length === 0 && (
-        <div className="px-4 py-3 text-[12px] text-cc-muted">
-          {menu.threads.length ? "Threads you've read are in their topics" : "No threads yet"}
+      {activeShown.length > 0 && heading("Active", activeShown.length)}
+      {activeShown.map((thread) => row(thread, false))}
+      {read.length > 0 && (
+        <div className="sticky top-0 z-10 flex items-center gap-2 bg-cc-card/95 px-4 pb-1 pt-2.5 backdrop-blur">
+          <span className="shrink-0 text-[11px] uppercase tracking-wide text-cc-muted">Recent</span>
+          <span className="shrink-0 text-[11px] tabular-nums text-cc-muted">{read.length}</span>
+          <TopicSearchBox
+            query={query}
+            label="Search threads"
+            onChange={(next) => {
+              setQuery(next);
+              setShown(RECENT_PAGE);
+            }}
+          />
         </div>
       )}
+      {recent.map((thread) => row(thread, true))}
+      {query.trim() && matching.length === 0 && activeShown.length === 0 && (
+        <div className="px-4 py-3 text-[12px] text-cc-muted" data-testid="threads-search-empty">
+          No threads match "{query.trim()}".
+        </div>
+      )}
+      {matching.length > recent.length && <ShowMoreRow left={matching.length - recent.length} onShow={showMore} />}
+      {menu.threads.length === 0 && <div className="px-4 py-3 text-[12px] text-cc-muted">No threads yet</div>}
     </div>
+  );
+}
+
+/** The end of a long Recent list: shows the next page when scrolled into view, or when tapped. */
+function ShowMoreRow({ left, onShow }: { left: number; onShow: () => void }) {
+  const ref = useRef<HTMLButtonElement | null>(null);
+  const showRef = useRef(onShow);
+  showRef.current = onShow;
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof IntersectionObserver === "undefined") return;
+    // The list scrolls inside its menu; the observer still sees the row clipped until it's in view.
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) showRef.current();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [left]);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onShow}
+      className="w-full px-4 py-2.5 text-left text-[12px] text-cc-muted hover:bg-cc-hover/40 hover:text-cc-fg"
+      data-testid="threads-menu-more"
+    >
+      {left} more
+    </button>
   );
 }
