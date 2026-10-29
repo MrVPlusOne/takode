@@ -1,3 +1,4 @@
+import { topicThreadLabel } from "./topic-views.js";
 import type { BrowserIncomingMessage, ContentBlock, StarredMessageRecord } from "./session-types.js";
 import { authoritativeMessageOwner } from "./authoritative-message-owner.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
@@ -375,7 +376,8 @@ function formatSessionNumber(sessionNum: number | null): string {
 }
 
 function formatThreadSourceLabel(threadKey: string): string {
-  return threadKey === MAIN_THREAD_KEY ? "Main" : `Thread ${threadKey}`;
+  if (threadKey === MAIN_THREAD_KEY) return "Main";
+  return topicThreadLabel(threadKey) ?? `Thread ${threadKey}`;
 }
 
 function textFromContentBlocks(blocks: ContentBlock[]): string {

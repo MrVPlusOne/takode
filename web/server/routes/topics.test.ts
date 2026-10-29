@@ -363,4 +363,31 @@ describe("topic routes", () => {
     const own = await (await app.request("/topics?leader=leader")).json();
     expect(own.topics.map((topic: { name: string }) => topic.name)).toEqual(["T7 run"]);
   });
+
+  // New thread: the user starts a thread on purpose, a lightweight conversation of the leader that
+  // is not a topic. It joins a topic when filed there, or by following the first quest started
+  // from it.
+  it("starts, lists and files a leader's threads, and lets a quest started from one pull it along", async () => {
+    const { app, store, send } = await setup();
+    const refused = await send("/topics/threads", "POST", { leader: "leader", name: "Quick question" });
+    expect(refused.status).toBe(404);
+
+    store.setLeaderEnabled("leader", true);
+    const { thread } = await (
+      await send("/topics/threads", "POST", { leader: "leader", name: "Quick question", startedFrom: "Q-2" })
+    ).json();
+    expect(thread).toMatchObject({ name: "Quick question", leaderId: "leader", startedFrom: "q-2" });
+    expect((await (await app.request("/topics?leader=leader")).json()).topics).toEqual([]);
+    expect((await (await app.request("/topics/threads?leader=leader")).json()).threads).toHaveLength(1);
+
+    // q-1 was started from a message in the thread: filing it pulls the thread into its topic.
+    const quest = (await import("../quest-store.js")) as unknown as { getQuest: (id: string) => Promise<unknown> };
+    const q1 = (await quest.getQuest("q-1")) as { relationships?: unknown };
+    q1.relationships = { startedFrom: { sessionId: "leader", messageId: "m", threadKey: thread.key, timestamp: 1 } };
+    await send("/topics/assign", "POST", { questId: "q-1", topic: "T7 run" });
+    const [filed] = (await (await app.request("/topics/threads?leader=leader")).json()).threads;
+    expect(filed.topic).toMatchObject({ name: "T7 run" });
+    const own = await (await app.request("/topics?leader=leader")).json();
+    expect(own.topics[0]).toMatchObject({ name: "T7 run", threads: [{ name: "Quick question" }] });
+  });
 });

@@ -13,6 +13,7 @@ export function buildComposerPlaceholder({
   isLeaderSession,
   threadKey,
   topicName,
+  newThread = false,
   usesTouchKeyboard,
   isNarrowLayout,
   pendingAskUserPerm,
@@ -23,6 +24,8 @@ export function buildComposerPlaceholder({
   threadKey: string;
   /** A topic conversation's topic: its messages go there, so the placeholder names it on every screen. */
   topicName?: string;
+  /** The first message of a new thread the user is starting. */
+  newThread?: boolean;
   usesTouchKeyboard: boolean;
   isNarrowLayout: boolean;
   pendingAskUserPerm: unknown;
@@ -35,6 +38,7 @@ export function buildComposerPlaceholder({
   const normalizedThreadKey = normalizeThreadKey(threadKey);
   const shouldShowThreadDestination =
     isLeaderSession && isQuestThreadKey(normalizedThreadKey) && !usesTouchKeyboard && !isNarrowLayout;
+  if (isLeaderSession && newThread) return "Start a new thread...";
   const leadIn =
     isLeaderSession && topicName
       ? `Posting to ${topicName} ...`

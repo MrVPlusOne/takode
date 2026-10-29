@@ -350,6 +350,18 @@ export class TopicService {
     this.schedule(leaderId, "leader");
   }
 
+  /**
+   * The user read the last unread answer in one of a leader's threads: it settles, and one under no
+   * topic goes to the leader's Scribe to be filed where it plainly belongs.
+   */
+  threadRead(leaderId: string, threadKey: string): void {
+    if (!this.store.thread(threadKey)) return;
+    const settled = this.store.settleThread(threadKey);
+    void this.store.flush();
+    this.deps.broadcastChanged();
+    if (settled && this.store.isLeaderEnabled(leaderId)) void this.deliver(leaderId);
+  }
+
   /** Something the leader's Scribe should hear about changed (instructions, a resume, a filing). */
   changed(leaderId: string): void {
     if (this.store.isLeaderEnabled(leaderId)) void this.deliver(leaderId);
@@ -495,12 +507,15 @@ export class TopicService {
     const unsorted = recent.filter(
       (quest) => quest.status !== "done" && !this.store.topicOfQuest(quest.questId) && !told.has(quest.questId),
     );
+    // Threads that settled under no topic: the Scribe files them where they belong, now.
+    const settledThreads = this.store.settledUnfiledThreads(leaderId);
     const rewritePages = this.store.pageFormat(leaderId) < PAGE_FORMAT;
     // Events alone wait until they are due, and the user's own page actions only ride along.
     // A rewrite request the Scribe stopped on (its leader was told) waits for the next real update.
     const urgent =
       forcedNames.length > 0 ||
       unsorted.length > 0 ||
+      settledThreads.length > 0 ||
       (rewritePages && !this.stalled.has(leaderId)) ||
       (sendInstructions && !!instructions);
     if (!urgent) {
@@ -512,6 +527,12 @@ export class TopicService {
       {
         topics,
         unsorted,
+        settledThreads: settledThreads.map((thread) => ({
+          key: thread.key,
+          name: thread.name,
+          ...(thread.startedFrom ? { startedFrom: thread.startedFrom } : {}),
+          ...(thread.firstMessage ? { firstMessage: thread.firstMessage } : {}),
+        })),
         rewritePages,
         ...(sendInstructions && instructions ? { instructions: instructions.text } : {}),
         forced: forcedNames,
@@ -527,6 +548,7 @@ export class TopicService {
       unsorted.map((quest) => quest.questId),
     );
     this.store.markInstructionsSent(leaderId);
+    this.store.markThreadsSortAsked(settledThreads.map((thread) => thread.id));
     this.stalled.delete(leaderId);
     this.dueAt.delete(leaderId);
     this.firstPendingAt.delete(leaderId);

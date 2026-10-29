@@ -108,12 +108,21 @@ export function Composer({
   topicName,
   transcriptionThreadKey,
   transcriptionThreadTitle,
+  newThread,
 }: {
   sessionId: string;
   threadKey?: string;
   questId?: string;
   /** In a topic conversation: the topic its messages go to, named in the placeholder. */
   topicName?: string;
+  /**
+   * A new thread the user is starting: sending starts it (`start` returns its thread key, or null
+   * when it could not be started) and sends the message there, then `started` opens it.
+   */
+  newThread?: {
+    start: (text: string) => Promise<string | null>;
+    started: (threadKey: string) => void;
+  };
   transcriptionThreadKey?: string;
   transcriptionThreadTitle?: string;
 }) {
@@ -1026,12 +1035,27 @@ export function Composer({
       }
     };
 
+    let target: { threadKey: string; questId?: string } = {
+      threadKey,
+      questId,
+    };
+    if (newThread) {
+      const started = await newThread.start(msg).catch((error: Error) => {
+        console.error("[composer] could not start the thread:", error);
+        return null;
+      });
+      if (!started) {
+        setSendNotice("The new thread could not be started, so nothing was sent. Your draft is kept.");
+        return;
+      }
+      target = { threadKey: started };
+    }
     const result = sendComposerDraft(
       sessionId,
       { text, images, annotations },
       {
-        threadKey,
-        questId,
+        threadKey: target.threadKey,
+        questId: target.questId,
         vscodeSelection: vscodeSelectionPayload ?? undefined,
       },
       isCodex,
@@ -1040,6 +1064,7 @@ export function Composer({
       setSendNotice("Not connected to the Takode server, so nothing was sent. Your draft is kept.");
       return;
     }
+    if (newThread) newThread.started(target.threadKey);
     setAlternateVoiceRerun(null);
     if (result === "sent") finalizeReplyNotification();
     clearComposerUi();
@@ -1519,6 +1544,7 @@ export function Composer({
     isLeaderSession: sessionView.isLeaderSession,
     threadKey,
     topicName,
+    newThread: !!newThread,
     usesTouchKeyboard,
     isNarrowLayout,
     pendingAskUserPerm,

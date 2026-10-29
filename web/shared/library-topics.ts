@@ -33,6 +33,38 @@ export interface TopicSummary {
   latestUpdate?: string;
   /** How many Now entries are open. */
   openNow: number;
+  /** Threads filed under this topic: they show in its conversation, each under its own name. */
+  threads?: TopicThreadRef[];
+}
+
+/** A thread filed under a topic: its thread key's handle and its name. */
+export interface TopicThreadRef {
+  handle: string;
+  name: string;
+}
+
+/**
+ * A thread the user started on purpose (New thread): a lightweight conversation with the leader,
+ * not a topic. It is listed in its leader's Threads menu, active until you read its last answer,
+ * can start quests and be filed under a topic (it follows its first quest's topic).
+ */
+export interface ThreadSummary {
+  id: string;
+  /** Its thread key: `topic:<handle>` (threads share the topic-thread plumbing). */
+  key: string;
+  name: string;
+  leaderId: string;
+  /** The quest or thread it was started from (`q-12`, `topic:<handle>`); none from Main. */
+  startedFrom?: string;
+  /** The topic it is filed under, once it is. */
+  topic?: { id: string; name: string };
+  createdAt: number;
+  activityAt: number;
+  /**
+   * When it settled: you read its last answer. A settled thread leaves the Threads menu's Active
+   * section; writing in it makes it active again.
+   */
+  settledAt?: number;
 }
 
 export interface TopicEvent {
@@ -161,6 +193,8 @@ export interface TopicBrief {
   questIds: string[];
   /** When something last happened in it (see `TopicSummary.activityAt`). */
   activityAt: number;
+  /** Threads filed under it (see `TopicSummary.threads`). */
+  threads?: TopicThreadRef[];
 }
 
 /** The quest-map answer: each named quest's topic, and those topics in brief. */

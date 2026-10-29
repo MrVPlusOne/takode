@@ -14,6 +14,7 @@ normal work needs nothing from the leader but filing quests with --topic.
   takode topic show <topic> [--json]                   A topic's page and quests (read it before
                                                        answering questions about the topic)
   takode topic set q-N "<topic>"                       File a quest under a topic (new name: new topic)
+  takode topic set topic:<thread> "<topic>"            File a user's thread under an existing topic
   takode topic move q-N "<topic>"                      File a quest under another topic
   takode topic rename <topic> "<name>" [--reason "<why>"]
   takode topic merge <from> <into> [--fold]
@@ -47,7 +48,15 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
     case "set":
     case "move": {
       const [questId, topic] = positionals;
-      if (!questId || !topic) err(`Usage: takode topic ${subcommand} q-N "<topic>"`);
+      if (!questId || !topic) err(`Usage: takode topic ${subcommand} q-N|topic:<thread> "<topic>"`);
+      // A thread (New thread) joins an existing topic; it is not a quest.
+      if (questId.toLowerCase().startsWith("topic:")) {
+        const result = (await apiPost(base, `/topics/threads/${encodeURIComponent(questId)}/file`, { topic })) as {
+          thread: { name: string; topic?: { name: string } };
+        };
+        console.log(`The thread "${result.thread.name}" is filed under "${result.thread.topic?.name ?? topic}".`);
+        return;
+      }
       const path = subcommand === "set" ? "/topics/assign" : "/topics/move";
       const result = (await apiPost(base, path, { questId, topic })) as { topic?: TopicSummary } & TopicSummary;
       const summary = result.topic ?? result;

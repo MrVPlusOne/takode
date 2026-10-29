@@ -189,6 +189,52 @@ describe("topic store", () => {
     });
   });
 
+  // Threads (New thread) are lightweight conversations, not topics: never listed or matched as
+  // topics. One joins a topic when the leader files it there, or follows the first quest started
+  // from it into that quest's topic; it never makes a topic by itself. Reading its last answer
+  // settles it; writing in it makes it active again.
+  it("keeps threads apart from topics, files them under existing topics and lets quests pull them along", async () => {
+    const store = await newStore();
+    const thread = store.startThread({ space: "MSI", name: "Why wasn't the old draft…", leaderId: "lead" });
+    expect(thread).toMatchObject({ name: "Why wasn't the old draft…", leaderId: "lead", activityAt: NOW });
+    expect(thread.key).toBe(`topic:${thread.id.replace(/-/g, "").slice(0, 8)}`);
+    expect(store.list("MSI")).toEqual([]);
+    // A quest filed under the thread's name makes a topic of its own, never the thread.
+    const named = store.assign({
+      questId: "q-1",
+      space: "MSI",
+      name: "Why wasn't the old draft…",
+      by: "agent",
+      byAgent: false,
+    });
+    expect(named.created).toBe(true);
+    expect(() => store.fileThread(thread.id, "No such topic", false)).toThrow(/new topics grow from quests/);
+
+    const t7 = store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false }).topic;
+    expect(store.fileThread(thread.key, "T7 run", false).topic).toEqual({ id: t7.id, name: "T7 run" });
+    expect(store.list("MSI").find((topic) => topic.id === t7.id)?.threads).toEqual([
+      { handle: thread.id.replace(/-/g, "").slice(0, 8), name: "Why wasn't the old draft…" },
+    ]);
+
+    const second = store.startThread({ space: "MSI", name: "Seeded QA mix", leaderId: "lead" });
+    expect(store.threadFollowsQuest(second.key, named.topic.id)?.topic?.id).toBe(named.topic.id);
+    // Once filed, a later quest's topic doesn't move it.
+    expect(store.threadFollowsQuest(second.key, t7.id)).toBeNull();
+
+    // Reading its last answer settles a thread; one under no topic is then the Scribe's to file.
+    const third = store.startThread({ space: "MSI", name: "Quick question", leaderId: "lead" });
+    expect(store.settleThread(third.key)?.id).toBe(third.id);
+    expect(store.settleThread(third.key)).toBeNull();
+    expect(store.settledUnfiledThreads("lead").map((thread) => thread.id)).toEqual([third.id]);
+    store.markThreadsSortAsked([third.id]);
+    expect(store.settledUnfiledThreads("lead")).toEqual([]);
+    expect(store.settleThread(second.key)).toBeNull();
+    // Writing in it again makes it active again, and brings it to the top of the list.
+    store.addEvent(third.id, { at: NOW + 5000, kind: "message", text: "one more thing" });
+    expect(store.threadsOf("lead")[0]).toMatchObject({ id: third.id, activityAt: NOW + 5000 });
+    expect(store.threadsOf("lead")[0]?.settledAt).toBeUndefined();
+  });
+
   it("counts events after the page and summarizes the page by its opening sentence", async () => {
     const store = await newStore();
     const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });

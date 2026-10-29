@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { resolveSessionMessageTarget, searchSessionMessages } from "./session-message-search.js";
 import { LEADER_KICKOFF_PREFIX } from "../shared/injected-event-message.js";
+import { setTopicViewSource } from "./topic-views.js";
 
 function user(
   id: string,
@@ -186,6 +187,42 @@ describe("searchSessionMessages", () => {
     expect(response.scope).toEqual({ kind: "leader_all_tabs", label: "Searching in #456 across tabs" });
     expect(response.results.map((result) => result.messageId)).toEqual(["quest", "main"]);
     expect(response.results.map((result) => result.sourceLabel)).toEqual(["Thread q-1277", "Main"]);
+  });
+
+  it("names threads the user started and topic conversations instead of showing their keys", () => {
+    // Topic thread keys (`topic:<handle>`) are internal: results read by the thread's or topic's name.
+    setTopicViewSource({
+      topicOf: (handle) =>
+        handle === "0a1b2c3d"
+          ? { id: "0a1b2c3d", name: "Phone cannot reach Takode", thread: {} }
+          : handle === "4e5f6a7b"
+            ? { id: "4e5f6a7b", name: "Chat feed" }
+            : null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    try {
+      const response = searchSessionMessages({
+        sessionId: "leader-session",
+        sessionNum: 456,
+        isLeaderSession: true,
+        messageHistory: [
+          user("thread", "phone question", 10, { threadKey: "topic:0a1b2c3d" }),
+          user("topic", "feed question", 20, { threadKey: "topic:4e5f6a7b" }),
+          user("unknown", "other question", 30, { threadKey: "topic:99999999" }),
+        ],
+        query: "",
+        scope: "leader_all_tabs",
+      });
+      expect(response.results.map((result) => result.sourceLabel)).toEqual([
+        "Thread topic:99999999",
+        'Topic "Chat feed"',
+        'Thread "Phone cannot reach Takode"',
+      ]);
+    } finally {
+      setTopicViewSource(null);
+    }
   });
 
   it("normalizes legacy current-thread All scope to canonical leader across-tabs results", () => {

@@ -6,6 +6,8 @@ import { copyRichText, writeClipboardText } from "../utils/copy-utils.js";
 import { htmlFragmentToMarkdown, htmlFragmentToRichText } from "../utils/html-to-markdown.js";
 import { selectionCopyForSlack } from "../utils/slack-copy.js";
 import type { TextSelectionState } from "../hooks/useTextSelection.js";
+import { useLeaderTopicsOn } from "../utils/leader-topics.js";
+import { openNewThreadPage } from "../utils/routing.js";
 
 interface SelectionContextMenuProps {
   selection: TextSelectionState;
@@ -85,9 +87,36 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
     onClose();
   }, [selection, onClose]);
 
+  // A leader with topics on can take the passage to a new thread instead of this one.
+  const canStartThread = useLeaderTopicsOn(sessionId);
+  const handleAskInNewThread = useCallback(() => {
+    if (!selection.plainText.trim()) return;
+    const store = useStore.getState();
+    const current = store.composerDrafts.get(sessionId);
+    store.setComposerDraft(sessionId, {
+      ...current,
+      text: current?.text ?? "",
+      images: current?.images ?? [],
+      annotations: [
+        ...(current?.annotations ?? []),
+        {
+          id: crypto.randomUUID(),
+          selectedText: selection.plainText,
+          comment: "",
+          ...captureAnnotationSource(selection.range),
+        },
+      ],
+    });
+    selection.clear();
+    onClose();
+    openNewThreadPage();
+    store.focusComposer();
+  }, [selection, sessionId, onClose]);
+
   const items = useMemo<ContextMenuItem[]>(
     () => [
       { label: "Comment", onClick: handleComment },
+      ...(canStartThread ? [{ label: "Ask in new thread", onClick: handleAskInNewThread }] : []),
       {
         label: "Copy",
         onClick: () => {},
@@ -99,7 +128,15 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
         ],
       },
     ],
-    [handleComment, handleCopyRichText, handleCopyForSlack, handleCopyMarkdown, handleCopyPlainText],
+    [
+      canStartThread,
+      handleAskInNewThread,
+      handleComment,
+      handleCopyRichText,
+      handleCopyForSlack,
+      handleCopyMarkdown,
+      handleCopyPlainText,
+    ],
   );
 
   if (!selection.isActive || !selection.position) return null;

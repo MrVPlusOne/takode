@@ -18,6 +18,9 @@ import {
   navigateToSessionThread,
   routeLeavesFeed,
   topicViewFromHash,
+  newThreadFromHash,
+  openNewThreadPage,
+  closeNewThreadPage,
   navigateHome,
   navigateToMostRecentSession,
   openQuestOverlayRouteAware,
@@ -446,6 +449,26 @@ describe("navigateToSessionThread", () => {
     navigateToSessionThread("s1", "q-1", true);
     expect(window.location.hash).toBe("#/session/s1?thread=q-1&topic=1");
     navigateToSessionThread("s1", "q-2");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-2");
+  });
+
+  // New threads: a topic thread with no quest tab to host its conversation opens on its own, and
+  // the New thread page sits over the thread it was opened from until a thread is chosen.
+  it("opens a topic thread with no quests on its own, and leaves the New thread page for any thread", () => {
+    window.location.hash = "#/session/s1?thread=main";
+    navigateToSessionThread("s1", "topic:55badbba");
+    expect(window.location.hash).toBe("#/session/s1?thread=topic%3A55badbba");
+    expect(threadRouteFromHash(window.location.hash).threadKey).toBe("topic:55badbba");
+
+    window.location.hash = "#/session/s1?thread=q-2";
+    openNewThreadPage();
+    expect(window.location.hash).toBe("#/session/s1?thread=q-2&newThread=1");
+    expect(newThreadFromHash(window.location.hash)).toBe(true);
+    navigateToSessionThread("s1", "topic:55badbba", true);
+    expect(window.location.hash).toBe("#/session/s1?thread=topic%3A55badbba");
+
+    window.location.hash = "#/session/s1?thread=q-2&newThread=1";
+    closeNewThreadPage();
     expect(window.location.hash).toBe("#/session/s1?thread=q-2");
   });
 

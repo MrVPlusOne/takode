@@ -228,6 +228,19 @@ describe("ChatView marking Ready results read", () => {
     expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "review-batch", true);
   });
 
+  it("leaves the thread under the New thread page unread until the user is back in it", () => {
+    // The New thread page hides the thread it was opened from; an answer arriving there is not seen
+    // (reading a thread's last answer settles it, so a premature read would settle it unseen).
+    installLeader([review("n-q1", { threadKey: "q-1", questId: "q-1" })]);
+    const view = renderLeader("#/session/leader?thread=q-1&newThread=1");
+    act(() => vi.advanceTimersByTime(10 * THREAD_READ_DWELL_MS));
+    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
+
+    view.navigate("#/session/leader?thread=q-1");
+    act(() => vi.advanceTimersByTime(THREAD_READ_DWELL_MS));
+    expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-q1", true);
+  });
+
   it("does not clear review notifications when aggregate All Threads is shown", () => {
     installLeader([review("n-q1", { threadKey: "q-1", questId: "q-1" })]);
     renderLeader("#/session/leader?thread=all");

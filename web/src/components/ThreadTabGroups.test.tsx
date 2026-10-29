@@ -9,6 +9,7 @@ const navigateToNotification = vi.hoisted(() => vi.fn());
 vi.mock("../utils/notification-navigation.js", () => ({ navigateToNotification }));
 import { useStore } from "../store.js";
 import type { SdkSessionInfo } from "../types.js";
+import type { ThreadSummary } from "../../shared/library-topics.js";
 import {
   ThreadTabGroupBar,
   countUnreadResults,
@@ -861,5 +862,68 @@ describe("ThreadTabRail", () => {
     const list = screen.getByTestId("thread-tab-group-list");
     expect(list.style.left).toBe("120px");
     expect(list.style.width).toBe("448px");
+  });
+});
+
+describe("Threads menu", () => {
+  // Threads the user started live in their own menu next to Topics, not in Working on (which keeps
+  // only quests in motion). Active holds threads with something for the user (not settled, an
+  // unread answer, or the leader writing); Recent holds read threads under no topic; a read thread
+  // filed under a topic lives in that topic.
+  const thread = (handle: string, name: string, overrides: Partial<ThreadSummary> = {}): ThreadSummary => ({
+    id: handle,
+    key: `topic:${handle}`,
+    name,
+    leaderId: "leader",
+    createdAt: 1,
+    activityAt: 1,
+    ...overrides,
+  });
+  const threads = [
+    thread("aaaa0001", "Not read yet"),
+    thread("aaaa0002", "Read, then answered again", { settledAt: 2 }),
+    thread("aaaa0003", "Read and unfiled", { settledAt: 2 }),
+    thread("aaaa0004", "Read and filed", { settledAt: 2, topic: { id: "t1", name: "Relay" } }),
+  ];
+  function renderThreads(currentThreadKey = "main") {
+    const onStart = vi.fn();
+    const view = renderBar({
+      tabs: [tab("q-10")],
+      currentThreadKey,
+      topicsGroup: { topics: [], currentTopicId: null, onOpen: vi.fn(), topicOfQuest: {} },
+      threadsMenu: {
+        threads,
+        starting: false,
+        onStart,
+        onOpen: vi.fn(),
+        unread: (threadKey) => (threadKey === "topic:aaaa0002" ? 1 : 0),
+      },
+    });
+    return { ...view, onStart };
+  }
+
+  it("lists active threads, then read unfiled ones, leaving read filed threads to their topic", () => {
+    const { onSelect } = renderThreads();
+    // Working on still counts only the quest.
+    expect(screen.getByTestId("thread-tab-group-working-on").textContent).toContain("1");
+    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
+    const menu = screen.getByTestId("threads-menu");
+    expect(menu.textContent).toContain("Active 2");
+    expect(menu.textContent).toContain("Recent 1");
+    const rows = screen.getAllByTestId("threads-menu-row");
+    expect(rows.map((row) => row.dataset.threadKey)).toEqual(["topic:aaaa0001", "topic:aaaa0002", "topic:aaaa0003"]);
+    expect(rows[1]!.textContent).toContain("1 new");
+    fireEvent.click(rows[2]!);
+    expect(onSelect).toHaveBeenCalledWith("topic:aaaa0003");
+  });
+
+  it("selects Threads while a thread is on screen, and New thread closes the list as it starts one", () => {
+    const { onStart } = renderThreads("topic:aaaa0003");
+    expect(screen.getByTestId("thread-tab-group-threads").dataset.selected).toBe("true");
+    expect(screen.getByTestId("thread-tab-group-main").dataset.selected).toBe("false");
+    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
+    fireEvent.click(screen.getByTestId("threads-menu-new"));
+    expect(onStart).toHaveBeenCalled();
+    expect(screen.queryByTestId("threads-menu")).toBeNull();
   });
 });

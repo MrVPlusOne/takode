@@ -3,7 +3,12 @@ import { Activity, type RefObject, useCallback, useEffect, useLayoutEffect, useR
 import type { QuestTopicMap, TopicListResponse } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 import { openLeaderLibrary } from "../../utils/library-nav.js";
-import { loadLeaderTopics, useKnownQuestTopic } from "../../utils/leader-topics.js";
+import {
+  loadLeaderTopics,
+  useKnownQuestTopic,
+  useKnownThreadOfKey,
+  useKnownTopicOfKey,
+} from "../../utils/leader-topics.js";
 import {
   nextKeptTopicPages,
   setTopicPanelOpen,
@@ -21,7 +26,7 @@ import { TopicActivityList } from "./TopicActivityList.js";
 import { NoTopicMatches, searchTopics, TopicSearchBox } from "./topic-search.js";
 import { TopicView } from "./TopicView.js";
 import { readTopicConversation, useTopicConversationTab } from "../../utils/topic-conversation.js";
-import { topicViewKey } from "../../../shared/topic-thread-key.js";
+import { isTopicViewKey, topicViewKey } from "../../../shared/topic-thread-key.js";
 import { prepareZoom } from "../topic-zoom.js";
 import { navigateToSession, navigateToSessionThread } from "../../utils/routing.js";
 import type { ScribeActivity } from "../../../shared/library-topics.js";
@@ -37,12 +42,17 @@ export function useQuestTopic(leaderId: string, threadKey: string): QuestTopicMa
   // Read from what the tab bar already loaded for every tab, so the topic shows with the quest
   // strip; asked again in the background in case the quest was filed meanwhile.
   const known = useKnownQuestTopic(leaderId, threadKey);
+  // A topic's own thread on screen is that topic; a user's thread shows the topic it is filed under.
+  const ownTopic = useKnownTopicOfKey(leaderId, isTopicViewKey(threadKey) ? threadKey : "");
+  const thread = useKnownThreadOfKey(leaderId, isTopicViewKey(threadKey) ? threadKey : "");
   useEffect(() => {
     if (!threadKey.startsWith("q-")) return;
     loadLeaderTopics(leaderId, [threadKey]).catch((error: Error) =>
       console.warn("[library] Could not look up the tab's topic:", error.message),
     );
   }, [leaderId, threadKey]);
+  if (thread) return thread.topic ? { id: thread.topic.id, name: thread.topic.name } : null;
+  if (ownTopic) return { id: ownTopic.id, name: ownTopic.name };
   return threadKey.startsWith("q-") ? (known ?? null) : null;
 }
 

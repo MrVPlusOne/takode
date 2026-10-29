@@ -91,7 +91,11 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       let topics = svc.store.list(scoped);
       if (leaderId) {
         const own = await leaderQuestIds(leaderId);
-        topics = topics.filter((topic) => topic.questIds.some((questId) => own.has(questId)));
+        // Also topics holding its threads.
+        const threadTopics = new Set(svc.store.threadsOf(leaderId).flatMap((thread) => thread.topic?.id ?? []));
+        topics = topics.filter(
+          (topic) => threadTopics.has(topic.id) || topic.questIds.some((questId) => own.has(questId)),
+        );
       }
       topics = withQuestActivity(topics, await listQuests());
       return {
@@ -153,7 +157,12 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const topics = Object.fromEntries(
         summaries.map((topic) => [
           topic.id,
-          { name: topic.name, questIds: topic.questIds, activityAt: topic.activityAt },
+          {
+            name: topic.name,
+            questIds: topic.questIds,
+            activityAt: topic.activityAt,
+            ...(topic.threads ? { threads: topic.threads } : {}),
+          },
         ]),
       );
       return { enabled: svc.store.isLeaderEnabled(leader), map, topics };
@@ -217,8 +226,57 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         byAgent: !!scribeLeader(svc, callerId),
         ...(questLeader ? { leaderId: questLeader } : {}),
       });
+      // A thread the quest was started from, under no topic yet, follows it there.
+      svc.store.threadFollowsQuest(startedFromThread(quest), result.topic.id);
       if (questLeader) svc.leaderActivity(questLeader);
       return result;
+    }),
+  );
+
+  /**
+   * The user starts a new thread in a leader with topics on: a lightweight conversation (not a
+   * topic) that takes the first message, named after its first words until the leader names it.
+   */
+  api.post("/topics/threads", (c) =>
+    run(c, async (svc) => {
+      const body = await c.req.json().catch(() => ({}));
+      const leaderId = typeof body.leader === "string" ? ctx.resolveId(body.leader) : null;
+      if (!leaderId || !svc.store.isLeaderEnabled(leaderId)) {
+        throw new TopicStoreError("New threads need a leader with topics on.", 404);
+      }
+      const space = ctx.launcher.getSession(leaderId)?.memorySessionSpaceSlug;
+      if (!space) throw new TopicStoreError("The leader has no session space.");
+      if (typeof body.name !== "string") throw new TopicStoreError("Name the thread.");
+      const startedFrom = typeof body.startedFrom === "string" ? body.startedFrom.trim().toLowerCase() : "";
+      return {
+        thread: svc.store.startThread({
+          space,
+          name: body.name,
+          leaderId,
+          ...(startedFrom ? { startedFrom } : {}),
+          ...(typeof body.firstMessage === "string" ? { firstMessage: body.firstMessage } : {}),
+        }),
+      };
+    }),
+  );
+
+  /** A leader's threads (New thread), newest activity first, for the Threads menu. */
+  api.get("/topics/threads", (c) =>
+    run(c, (svc) => {
+      const leaderId = leaderFor(svc, c);
+      if (!leaderId) throw new TopicStoreError("Name the leader.", 404);
+      return { threads: svc.store.threadsOf(leaderId) };
+    }),
+  );
+
+  /** Files a thread under an existing topic (the leader, its Scribe or the user). */
+  api.post("/topics/threads/:id/file", (c) =>
+    run(c, async (svc) => {
+      const body = await c.req.json().catch(() => ({}));
+      if (typeof body.topic !== "string") throw new TopicStoreError("Name the topic.");
+      const thread = svc.store.fileThread(c.req.param("id"), body.topic, !!scribeLeader(svc, caller(c)));
+      svc.leaderActivity(thread.leaderId);
+      return { thread };
     }),
   );
 
@@ -233,7 +291,9 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         typeof body.topic === "string"
           ? { topicId: svc.store.resolve(body.topic, space)?.id, name: body.topic }
           : { topicId: undefined, name: undefined };
-      return svc.store.move(quest.questId, target, space, !!scribeLeader(svc, callerId));
+      const moved = svc.store.move(quest.questId, target, space, !!scribeLeader(svc, callerId));
+      svc.store.threadFollowsQuest(startedFromThread(quest), moved.id);
+      return moved;
     }),
   );
 
@@ -610,4 +670,11 @@ function questForScribe(quest: QuestmasterTask) {
     ...(checks.length ? { checksLeft: checks } : {}),
     ...(recent && done.debriefTldr ? { wrapUp: done.debriefTldr.slice(0, 800) } : {}),
   };
+}
+
+/** The thread a quest was started from, when the message that started it was written in one. */
+function startedFromThread(quest: QuestmasterTask): string | undefined {
+  const key = (quest as { relationships?: { startedFrom?: { threadKey?: string } } }).relationships?.startedFrom
+    ?.threadKey;
+  return key?.startsWith("topic:") ? key : undefined;
 }

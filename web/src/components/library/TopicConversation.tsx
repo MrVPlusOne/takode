@@ -1,12 +1,20 @@
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext, useEffect, useMemo } from "react";
 import { useStore } from "../../store.js";
-import { useKnownTopicBrief } from "../../utils/leader-topics.js";
+import { useKnownTopicBrief, useKnownTopicOfKey } from "../../utils/leader-topics.js";
+import { isTopicViewKey, topicIdOfViewKey } from "../../../shared/topic-thread-key.js";
+import type { TopicThreadRef } from "../../../shared/library-topics.js";
 import { sendToSession } from "../../ws.js";
 import { openTopicInPanel } from "../../utils/topic-panel.js";
 import { TopicIcon } from "./library-icons.js";
 import { useQuestTopic } from "./TopicSidePanel.js";
 
-type TopicConversationInfo = { topicId: string; name: string; questIds: string[] };
+type TopicConversationInfo = {
+  topicId: string;
+  name: string;
+  questIds: string[];
+  /** Threads filed under the topic, shown in its conversation each under its own name. */
+  threads?: TopicThreadRef[];
+};
 
 /**
  * The topic of a leader's quest tab, with its quests, for reading the topic as one conversation
@@ -17,7 +25,33 @@ export function useTopicConversation(leaderId: string, threadKey: string): Topic
   // Comes with the tab's topic lookup, so no second request delays the line.
   const brief = useKnownTopicBrief(leaderId, topic?.id);
   if (!topic || !brief || brief.questIds.length === 0) return null;
-  return { topicId: topic.id, name: brief.name, questIds: brief.questIds };
+  return {
+    topicId: topic.id,
+    name: brief.name,
+    questIds: brief.questIds,
+    ...(brief.threads ? { threads: brief.threads } : {}),
+  };
+}
+
+/**
+ * A topic's conversation selected on its own (`topic:<handle>` as the leader's thread), when no
+ * quest tab of the topic is known to open it in. Threads the user started are not topics: see
+ * `ThreadHeader`.
+ */
+export function useStandaloneTopicConversation(leaderId: string, threadKey: string): TopicConversationInfo | null {
+  const isTopic = isTopicViewKey(threadKey);
+  const topic = useKnownTopicOfKey(leaderId, isTopic ? threadKey : "");
+  // One object per change, so the conversation built from it isn't rebuilt on every render.
+  return useMemo(() => {
+    if (!isTopic) return null;
+    if (!topic) return { topicId: topicIdOfViewKey(threadKey)!, name: "Topic", questIds: [] };
+    return {
+      topicId: topic.id,
+      name: topic.name,
+      questIds: topic.questIds,
+      ...(topic.threads ? { threads: topic.threads } : {}),
+    };
+  }, [isTopic, threadKey, topic]);
 }
 
 /**
@@ -82,7 +116,7 @@ export function TopicConversationHeader({
   besidePanel = false,
 }: {
   leaderId: string;
-  topic: { topicId: string; name: string; questIds: string[] };
+  topic: TopicConversationInfo;
   /**
    * Desktop with the thread navigation in the top bar: the topic panel beside the conversation
    * shows the quest count, and the header lines up with the panel's own header.
@@ -103,7 +137,9 @@ export function TopicConversationHeader({
       >
         {topic.name}
       </button>
-      {!besidePanel && <span className="shrink-0 text-cc-muted">· {questCount(topic.questIds.length)}</span>}
+      {!besidePanel && topic.questIds.length > 0 && (
+        <span className="shrink-0 text-cc-muted">· {questCount(topic.questIds.length)}</span>
+      )}
     </div>
   );
 }

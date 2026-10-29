@@ -165,6 +165,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
 import { _resetModelCache } from "./routes/system.js";
+import { setTopicService } from "./routes/topics.js";
+import type { TopicService } from "./topic-service.js";
 import { trafficStats } from "./traffic-stats.js";
 import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
 import * as serverLoggerModule from "./server-logger.js";
@@ -983,6 +985,45 @@ describe("Takode notification inbox and answers", () => {
     expect(await res.json()).toEqual({ ok: true, count: 3 });
     expect(bridge._sessions["orch-1"].notifications.every((notif: any) => notif.done)).toBe(true);
     expect(pushoverNotifier.cancelNotification).toHaveBeenCalledWith("orch-1", "n-3");
+  });
+
+  it("settles a user thread once its last unread answer is marked read", async () => {
+    // Reading a thread's last answer moves it out of the Threads menu's Active section; a thread
+    // with another unread answer stays active, and quest threads never settle this way.
+    const threadRead = vi.fn();
+    setTopicService({ threadRead } as unknown as TopicService);
+    try {
+      setupTakodeSessions();
+      const review = (id: string, threadKey: string) => ({
+        id,
+        category: "review",
+        summary: id,
+        timestamp: 1000,
+        messageId: null,
+        threadKey,
+        done: false,
+      });
+      bridge._sessions["orch-1"].notifications = [
+        review("n-1", "topic:0a1b2c3d"),
+        review("n-2", "topic:0a1b2c3d"),
+        review("n-3", "q-12"),
+      ];
+      const markDone = (id: string) =>
+        app.request(`/api/sessions/orch-1/notifications/${id}/done`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ done: true }),
+        });
+
+      await markDone("n-1");
+      expect(threadRead).not.toHaveBeenCalled();
+      await markDone("n-3");
+      expect(threadRead).not.toHaveBeenCalled();
+      await markDone("n-2");
+      expect(threadRead).toHaveBeenCalledWith("orch-1", "topic:0a1b2c3d");
+    } finally {
+      setTopicService(null);
+    }
   });
 
   it("includes active needs-input notifications in takode pending output", async () => {

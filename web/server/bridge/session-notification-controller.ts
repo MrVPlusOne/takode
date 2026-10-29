@@ -1,3 +1,4 @@
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import type {
   AttentionAlertMessage,
   BoardRow,
@@ -291,6 +292,8 @@ function isDiscoverableLeaderReviewNotification(
 ): boolean {
   if (notification.category !== "review" || notification.done || !openThreadKeys) return true;
   const route = normalizeThreadRoute(notification.threadKey, notification.questId);
+  // Topic threads and the user's threads are never tabs: their answers are always discoverable.
+  if (route?.threadKey && isTopicViewKey(route.threadKey)) return true;
   return openThreadKeys.has(route?.threadKey ?? "main");
 }
 

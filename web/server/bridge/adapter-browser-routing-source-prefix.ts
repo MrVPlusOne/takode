@@ -94,5 +94,12 @@ function topicTag(threadKey: string | undefined): string {
   const topic = topicOfViewForLeader(threadKey);
   if (!topic) return "";
   const quests = [...topic.questIds, ...(topic.more ? [`${topic.more} more`] : [])].join(", ");
+  // A thread the user started (New thread) is not a topic: the leader names it, may file it under
+  // a topic, and starts quests from it.
+  if (topic.thread) {
+    const from = topic.thread.startedFrom ? `; started from ${topic.thread.startedFrom}` : "";
+    const under = topic.thread.topicName ? `; filed under topic "${topic.thread.topicName}"` : "";
+    return `[user thread: "${topic.name}"${from}${under}] `;
+  }
   return `[topic: "${topic.name}"${quests ? `; quests: ${quests}` : ""}] `;
 }

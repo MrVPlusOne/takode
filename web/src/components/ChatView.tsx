@@ -7,11 +7,21 @@ import {
   TopicEntryContext,
   TopicCrumb,
   TopicEntryLine,
+  useStandaloneTopicConversation,
   useTopicConversation,
   useTopicWindowFollowsQuests,
 } from "./library/TopicConversation.js";
 import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
 import { closeTopicConversation, openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
+import {
+  NewThreadBody,
+  NewThreadHeader,
+  ThreadHeader,
+  useNewThreadOrigin,
+  useNewThreadStart,
+} from "./NewThreadPage.js";
+import { useHashLocation } from "../utils/hash-location.js";
+import { useKnownThreadOfKey } from "../utils/leader-topics.js";
 import { landZoom, prepareZoom } from "./topic-zoom.js";
 import { isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
@@ -43,7 +53,9 @@ import {
   historyEntryShowsMainThread,
   markHistoryEntryShowsMainThread,
   navigateToSessionMessageId,
+  closeNewThreadPage,
   navigateToSessionThread,
+  newThreadFromHash,
   parseHash,
   threadRouteFromHash,
 } from "../utils/routing.js";
@@ -374,7 +386,8 @@ function isAvailableLeaderThread(
   openThreadKeys: ReadonlyArray<string> = [],
 ): boolean {
   const normalized = normalizeThreadKey(threadKey);
-  if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY) return true;
+  // A topic thread on its own (a thread the user started, with no quest yet) is not a tab.
+  if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY || isTopicViewKey(normalized)) return true;
   return (
     rows.some((row) => row.threadKey === normalized) ||
     openThreadKeys.some((key) => normalizeThreadKey(key) === normalized)
@@ -648,15 +661,35 @@ export function ChatView({
     isQuestThreadKey(selectedThreadKey);
   // A quest tab can show its whole topic as one conversation.
   const topicFeedFor = useTopicConversationTab(sessionId);
-  const topicConversation = useTopicConversation(sessionId, showQuestThreadBanner && !preview ? selectedThreadKey : "");
-  const topicFeedOn = !!topicConversation && topicFeedFor === selectedThreadKey.toLowerCase();
+  const questTopicConversation = useTopicConversation(
+    sessionId,
+    showQuestThreadBanner && !preview ? selectedThreadKey : "",
+  );
+  // A thread the user started (New thread): its own conversation, not a topic's.
+  const selectedThread = useKnownThreadOfKey(
+    sessionId,
+    isLeaderSession && !preview && isTopicViewKey(selectedThreadKey) ? selectedThreadKey : "",
+  );
+  // A topic's conversation selected on its own, when no quest tab of it is known.
+  const standaloneTopic = useStandaloneTopicConversation(
+    sessionId,
+    isLeaderSession && !preview && !selectedThread ? selectedThreadKey : "",
+  );
+  const topicConversation = standaloneTopic ?? questTopicConversation;
+  const topicFeedOn = !!topicConversation && (!!standaloneTopic || topicFeedFor === selectedThreadKey.toLowerCase());
   const feedThreadKey = topicFeedOn ? topicViewKey(topicConversation.topicId) : selectedThreadKey;
   useTopicWindowFollowsQuests(sessionId, topicFeedOn ? feedThreadKey : null, topicConversation?.questIds ?? []);
+  // The New thread page, over the thread it was opened from (which it starts from, unless cleared).
+  const hashLocation = useHashLocation();
+  const newThreadOpen = isLeaderSession && !preview && newThreadFromHash(hashLocation);
+  const [newThreadOrigin, clearNewThreadOrigin] = useNewThreadOrigin(feedThreadKey);
+  const newThreadStart = useNewThreadStart(sessionId, newThreadOrigin);
   useUnreadMessagesSeen({
     sessionId,
     feedKey: feedThreadKey,
     notifications: sessionNotifications,
-    enabled: isLeaderSession && !preview,
+    // Not under the New thread page, which hides the feed.
+    enabled: isLeaderSession && !preview && !newThreadOpen,
     onSeen: (notificationId) => void api.markNotificationDone(sessionId, notificationId, true).catch(console.error),
   });
   // Zooming between the quest and its topic keeps the reader's place and plays the zoom, once the
@@ -696,6 +729,7 @@ export function ChatView({
             questIds: topicConversation.questIds,
             topicKey: topicViewKey(topicConversation.topicId),
             topicName: topicConversation.name,
+            ...(topicConversation.threads ? { threads: topicConversation.threads } : {}),
             openQuest: (questId: string, part?: HTMLElement | null) => openTopicQuestRef.current(questId, part),
           }
         : null,
@@ -772,10 +806,11 @@ export function ChatView({
     return mergeProjectedLeaderThreadRows(detailRows, leaderTabsProjection, canonicalQuestTitles) as LeaderThreadRow[];
   }, [canonicalQuestTitles, leaderTabsProjection, threadRows]);
   // A result is read only once its thread has really been on screen: not while a
-  // returning session briefly shows its saved tab, nor while the page is hidden.
+  // returning session briefly shows its saved tab, nor while the page or the New thread page
+  // hides it.
   const selectedThreadReadOnScreen = useThreadReadOnScreen(
     `${sessionId}:${normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY)}`,
-    !preview,
+    !preview && !newThreadOpen,
   );
   const reviewNotificationIdsToClear = useMemo(
     () =>
@@ -835,7 +870,7 @@ export function ChatView({
   const openThreadTab = useCallback(
     (threadKey: string, options: OpenThreadTabOptions = {}) => {
       const normalized = normalizeThreadKey(threadKey);
-      if (!shouldPersistLeaderThreadTab(normalized)) return;
+      if (!shouldPersistLeaderThreadTab(normalized) || isTopicViewKey(normalized)) return;
       const existingOpenThreadKeys = openThreadTabKeysRef.current;
       const nextOpenThreadTabKeys = placeLeaderOpenThreadTabKey(existingOpenThreadKeys, normalized, "first");
       if (existingOpenThreadKeys.includes(normalized)) {
@@ -1210,7 +1245,7 @@ export function ChatView({
           onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}
           threadRows={isLeaderSession ? workBoardThreadRows : undefined}
           closeTabRef={workBoardCloseTabRef}
-          hideThreadStrip={phoneTopicsOpen}
+          hideThreadStrip={phoneTopicsOpen || newThreadOpen}
           attentionChipThreadKey={attentionChipInTabRow ? feedThreadKey : undefined}
         />
       )}
@@ -1222,12 +1257,25 @@ export function ChatView({
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1">
             <div ref={zoomColumnRef} className="flex min-w-0 flex-1 flex-col">
-              {!preview && !phoneTopicsOpen && topicFeedOn && (
+              {newThreadOpen && (
+                <NewThreadHeader
+                  leaderId={sessionId}
+                  startedFrom={newThreadOrigin}
+                  onClearStartedFrom={clearNewThreadOrigin}
+                  onClose={closeNewThreadPage}
+                />
+              )}
+              {!preview && !newThreadOpen && !phoneTopicsOpen && selectedThread && (
+                <div ref={questStripRef} className="contents">
+                  <ThreadHeader leaderId={sessionId} thread={selectedThread} onOpenThread={handleSelectThread} />
+                </div>
+              )}
+              {!preview && !newThreadOpen && !phoneTopicsOpen && topicFeedOn && (
                 <div ref={questStripRef} className="contents">
                   <TopicConversationHeader leaderId={sessionId} topic={topicConversation} besidePanel={navInTopBar} />
                 </div>
               )}
-              {!preview && !phoneTopicsOpen && showQuestThreadBanner && !topicFeedOn && (
+              {!preview && !newThreadOpen && !phoneTopicsOpen && showQuestThreadBanner && !topicFeedOn && (
                 <div ref={questStripRef} className="contents">
                   {topicConversation && !navInTopBar && (
                     <TopicEntryLine
@@ -1266,38 +1314,42 @@ export function ChatView({
               )}
               {/* Where the phone topic panel starts: just under the thread strip. */}
               <div ref={phoneTopicTopRef} aria-hidden="true" />
-              <TopicEntryContext.Provider value={feedTopicEntry}>
-                <ViewportHandoffThreadEntryGate
-                  key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
-                  sessionId={preview ? null : sessionId}
-                  threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-                  entryId={viewportHandoffThreadEntryRef.current.entryId}
-                  fallback={
-                    <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
-                      Loading conversation...
-                    </div>
-                  }
-                >
-                  {/* Reload fork links when the user changes threads or a new quest thread appears. */}
-                  <StartedQuestsProvider
-                    sessionId={sessionId}
-                    enabled={isLeaderSession && !preview}
-                    refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
+              {newThreadOpen && <NewThreadBody leaderId={sessionId} startedFrom={newThreadOrigin} />}
+              {/* Hidden, not unmounted, under the New thread page, so going back keeps its place. */}
+              <div className={newThreadOpen ? "hidden" : "contents"}>
+                <TopicEntryContext.Provider value={feedTopicEntry}>
+                  <ViewportHandoffThreadEntryGate
+                    key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
+                    sessionId={preview ? null : sessionId}
+                    threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+                    entryId={viewportHandoffThreadEntryRef.current.entryId}
+                    fallback={
+                      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
+                        Loading conversation...
+                      </div>
+                    }
                   >
-                    <TopicFeedContext.Provider value={topicFeed}>
-                      <MessageFeed
-                        sessionId={sessionId}
-                        threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
-                        projectThreadRoutes={isLeaderSession}
-                        onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-                        showCodexSubagentControl={!preview}
-                        markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
-                        attentionChipInTabRow={attentionChipInTabRow}
-                      />
-                    </TopicFeedContext.Provider>
-                  </StartedQuestsProvider>
-                </ViewportHandoffThreadEntryGate>
-              </TopicEntryContext.Provider>
+                    {/* Reload fork links when the user changes threads or a new quest thread appears. */}
+                    <StartedQuestsProvider
+                      sessionId={sessionId}
+                      enabled={isLeaderSession && !preview}
+                      refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
+                    >
+                      <TopicFeedContext.Provider value={topicFeed}>
+                        <MessageFeed
+                          sessionId={sessionId}
+                          threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
+                          projectThreadRoutes={isLeaderSession}
+                          onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                          showCodexSubagentControl={!preview}
+                          markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                          attentionChipInTabRow={attentionChipInTabRow}
+                        />
+                      </TopicFeedContext.Provider>
+                    </StartedQuestsProvider>
+                  </ViewportHandoffThreadEntryGate>
+                </TopicEntryContext.Provider>
+              </div>
             </div>
             {!preview && selectedSideChat && (
               <SideChatPanel
@@ -1402,7 +1454,8 @@ export function ChatView({
           sessionId={sessionId}
           threadKey={composerThreadKey}
           questId={composerQuestId}
-          topicName={topicFeedOn ? topicConversation.name : undefined}
+          topicName={selectedThread ? selectedThread.name : topicFeedOn ? topicConversation.name : undefined}
+          newThread={newThreadOpen ? newThreadStart : undefined}
           transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
           transcriptionThreadTitle={composerThreadTitle}
         />

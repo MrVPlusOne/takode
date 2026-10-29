@@ -4,9 +4,11 @@
  * (close, Notify Me) behind a long-press or right-click on a listed tab.
  */
 import { openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
-import { topicViewKey } from "../../shared/topic-thread-key.js";
+import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
 import { prepareZoom } from "./topic-zoom.js";
 import { useTopicTabTopics } from "./TopicTabList.js";
+import { newThreadFromHash, openNewThreadPage } from "../utils/routing.js";
+import { useHashLocation } from "../utils/hash-location.js";
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { useLayoutEffect, useState, type MutableRefObject } from "react";
 import { useStore } from "../store.js";
@@ -25,7 +27,7 @@ import {
   type ThreadTabGroupBarProps,
 } from "./ThreadTabGroups.js";
 import { NotificationChip } from "./NotificationChip.js";
-import { useLeaderTopics } from "../utils/leader-topics.js";
+import { useLeaderThreads, useLeaderTopics } from "../utils/leader-topics.js";
 import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 
@@ -217,6 +219,7 @@ export function ThreadTabRail({
     }
     return items;
   };
+  const newThreadPageOpen = newThreadFromHash(useHashLocation());
   // Every tab's topic: the Done list groups by them, and a quest tab names its topic at once.
   const leaderTopics = useLeaderTopics(
     sessionId,
@@ -225,8 +228,23 @@ export function ThreadTabRail({
   // The Topics group: recent topics; one is selected while its conversation is on screen.
   const conversationTab = useTopicConversationTab(sessionId);
   const currentKey = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
+  // A topic's conversation on screen on its own (no quest tab of it known) is its topic too.
+  const standaloneTopicId = isTopicViewKey(currentKey)
+    ? (Object.keys(leaderTopics?.topics ?? {}).find((topicId) => isKeyOfTopic(currentKey, topicId)) ?? null)
+    : null;
   const currentTopicId =
-    conversationTab && conversationTab === currentKey ? (leaderTopics?.map[currentKey]?.id ?? null) : null;
+    standaloneTopicId ??
+    (conversationTab && conversationTab === currentKey ? (leaderTopics?.map[currentKey]?.id ?? null) : null);
+  const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
+  // The leader's threads (New thread), for the Threads menu. Asked again when an answer in a thread
+  // arrives or is read: the leader names a thread with its first answer, and reading the last one
+  // settles it.
+  const threadAnswers = (notifications ?? [])
+    .filter((notification) => notification.category === "review" && !notification.done)
+    .map((notification) => resolveNotificationOwnerThreadKey(notification))
+    .filter(isTopicViewKey)
+    .join(",");
+  const allThreads = useLeaderThreads(sessionId, !!leaderTopics, `${currentKey}|${threadAnswers}`);
   const topicList = useTopicTabTopics(sessionId, !!leaderTopics, currentTopicId ?? "");
   const topicOfQuest = leaderTopics
     ? Object.fromEntries(Object.entries(leaderTopics.map).map(([questId, topic]) => [questId, topic.id]))
@@ -237,7 +255,6 @@ export function ThreadTabRail({
       ? topicFirstTabOrder(displayedTabs, topicList, topicOfQuest, currentThreadKey)
       : null;
   });
-  const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
   // Unread results in these threads, as the attention list counts them: every open review
   // notification, finished quests included, so the Topics list marks what its bell counts.
   const unreadIn = (threadKeys: readonly string[]) => {
@@ -262,7 +279,8 @@ export function ThreadTabRail({
     const questId = topic.questIds.includes(currentKey)
       ? currentKey
       : (byNewest.find((id) => inTabs.has(id)) ?? byNewest[0]);
-    if (!questId) return;
+    // A thread the user started, before any quest joins it, opens on its own.
+    if (!questId) return openThread(topicViewKey(topic.id));
     // A zoom out to the topic, one history step: from the tab on screen, or after opening the tab.
     prepareZoom(sessionId, topicViewKey(topic.id), "out", { feedKey: questId });
     if (questId === currentKey) return openTopicConversation(sessionId, questId);
@@ -301,6 +319,20 @@ export function ThreadTabRail({
         threadStatuses={threadStatuses}
         onSelect={openThread}
         onClose={onCloseThreadTab}
+        threadsMenu={
+          leaderTopics
+            ? {
+                threads: allThreads,
+                starting: newThreadPageOpen,
+                onStart: () => {
+                  openNewThreadPage();
+                  useStore.getState().focusComposer();
+                },
+                onOpen: openThread,
+                unread: (threadKey) => unreadIn([threadKey]).length,
+              }
+            : undefined
+        }
         topicsGroup={
           leaderTopics
             ? {

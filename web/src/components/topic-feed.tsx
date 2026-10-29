@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { ChatMessage } from "../types.js";
 import type { LeaderThreadResponseProjection } from "../../server/leader-thread-response-types.js";
 import type { FeedSection } from "./message-feed-sections.js";
@@ -6,7 +6,9 @@ import { resolveThreadResponses, type ThreadResponsePresentation } from "./threa
 import type { Turn } from "../hooks/use-feed-model.js";
 import { topicMemberOfMessage } from "../utils/thread-projection.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
-import { TopicIcon } from "./library/library-icons.js";
+import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
+import type { TopicThreadRef } from "../../shared/library-topics.js";
+import { topicViewKey } from "../../shared/topic-thread-key.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 
 /**
@@ -22,6 +24,8 @@ export interface TopicFeed {
   topicKey: string;
   /** The topic's name, for the strip of its own thread. */
   topicName: string;
+  /** Threads filed under the topic: parts of the conversation, each under its own name. */
+  threads?: readonly TopicThreadRef[];
   /**
    * Zooms into a quest: its own tab, showing it alone (also when it is this tab's quest). `part` is
    * the strip tapped, whose messages on screen stay in place.
@@ -32,8 +36,12 @@ export interface TopicFeed {
 export const TopicFeedContext = createContext<TopicFeed | null>(null);
 
 /** The threads a topic conversation is made of, each with its own strip: the topic's own thread first. */
-export function topicFeedParts(topicFeed: Pick<TopicFeed, "topicKey" | "questIds">): string[] {
-  return [topicFeed.topicKey, ...topicFeed.questIds];
+export function topicFeedParts(topicFeed: Pick<TopicFeed, "topicKey" | "questIds" | "threads">): string[] {
+  return [
+    topicFeed.topicKey,
+    ...(topicFeed.threads ?? []).map((thread) => topicViewKey(thread.handle)),
+    ...topicFeed.questIds,
+  ];
 }
 
 /**
@@ -145,6 +153,18 @@ export function useTopicTurnPartOf(): ((message: ChatMessage) => string | null) 
 export function TopicFeedQuestStart({ questId }: { questId: string }) {
   const topicFeed = useContext(TopicFeedContext);
   if (topicFeed && questId === topicFeed.topicKey) return <TopicFeedOwnStart name={topicFeed.topicName} />;
+  // A thread filed under the topic: its own strip, under its name.
+  const thread = topicFeed?.threads?.find((filed) => topicViewKey(filed.handle) === questId);
+  if (thread) {
+    return (
+      <TopicFeedOwnStart
+        name={thread.name}
+        note="thread"
+        icon={<NewThreadIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />}
+        onOpen={() => topicFeed?.openQuest(questId)}
+      />
+    );
+  }
   return <QuestStart questId={questId} />;
 }
 
@@ -158,14 +178,36 @@ export function TopicFeedQuestStart({ questId }: { questId: string }) {
 const STRIP_WRAPPER = "sticky -top-4 z-30 sm:-top-6 mt-2 bg-cc-bg pb-1";
 
 /** The strip where the conversation moves to the topic's own thread: what was written in the topic itself. */
-function TopicFeedOwnStart({ name }: { name: string }) {
+function TopicFeedOwnStart({
+  name,
+  note = "in the topic",
+  icon,
+  onOpen,
+}: {
+  name: string;
+  note?: string;
+  icon?: ReactNode;
+  /** A thread filed under the topic opens on its own when its strip is tapped. */
+  onOpen?: () => void;
+}) {
+  const content = (
+    <>
+      {icon ?? <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />}
+      <span className="min-w-0 truncate font-medium text-cc-fg">{name}</span>
+      <span className="shrink-0 text-cc-muted">· {note}</span>
+    </>
+  );
+  const box =
+    "flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm sm:text-[13px]";
   return (
     <div className={STRIP_WRAPPER} data-testid="topic-feed-quest-start" data-quest="">
-      <div className="flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm sm:text-[13px]">
-        <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
-        <span className="min-w-0 truncate font-medium text-cc-fg">{name}</span>
-        <span className="shrink-0 text-cc-muted">· in the topic</span>
-      </div>
+      {onOpen ? (
+        <button type="button" onClick={onOpen} className={`${box} text-left hover:bg-cc-hover`}>
+          {content}
+        </button>
+      ) : (
+        <div className={box}>{content}</div>
+      )}
     </div>
   );
 }

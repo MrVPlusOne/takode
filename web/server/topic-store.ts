@@ -12,6 +12,8 @@ import {
   type TopicNameSource,
   type TopicRenameSuggestion,
   type TopicSummary,
+  type ThreadSummary,
+  type TopicThreadRef,
 } from "../shared/library-topics.js";
 
 /**
@@ -56,6 +58,25 @@ interface StoredTopic {
   instructions?: { text: string; updatedAt: number };
   /** Set when merged or folded into another topic; such a topic is hidden. */
   mergedInto?: string;
+  /**
+   * Set on a thread the user started (New thread), which is stored like a topic for its thread
+   * plumbing but is not one: never listed or paged as a topic, never matched by name.
+   */
+  thread?: StoredThread;
+}
+
+interface StoredThread {
+  leaderId: string;
+  startedFrom?: string;
+  /** The topic it is filed under. */
+  topicId?: string;
+  settledAt?: number;
+  /** When a message was last written in it (its own events are not kept). */
+  lastMessageAt?: number;
+  /** The user's first message, shortened: what the thread is about, for filing it. */
+  firstMessage?: string;
+  /** When its leader's Scribe was asked to file it, after it settled under no topic. */
+  sortAskedAt?: number;
 }
 
 interface StoredNowEntry {
@@ -426,6 +447,136 @@ export class TopicStore {
     return { topic: this.summary(topic), created, moved: !!previous };
   }
 
+  /**
+   * Starts a thread the user opened with New thread: a lightweight conversation of the leader's
+   * space, named after its first words until the leader names it. It is not a topic.
+   */
+  startThread(input: {
+    space: string;
+    name: string;
+    leaderId: string;
+    startedFrom?: string;
+    firstMessage?: string;
+  }): ThreadSummary {
+    const topic = this.createTopic(input.space, cleanName(input.name), "agent");
+    const firstMessage = input.firstMessage?.trim().slice(0, 400);
+    topic.thread = {
+      leaderId: input.leaderId,
+      ...(input.startedFrom ? { startedFrom: input.startedFrom } : {}),
+      ...(firstMessage ? { firstMessage } : {}),
+    };
+    this.dirty = true;
+    return this.threadSummary(topic);
+  }
+
+  /** The threads the user started in this leader, newest activity first. */
+  threadsOf(leaderId: string): ThreadSummary[] {
+    return Object.values(this.s().topics)
+      .filter((topic) => topic.thread?.leaderId === leaderId && !topic.mergedInto)
+      .map((topic) => this.threadSummary(topic))
+      .sort((a, b) => b.activityAt - a.activityAt);
+  }
+
+  /** A thread by ID or handle (also `topic:<handle>`); undefined for topics and unknown refs. */
+  thread(ref: string): StoredTopic | undefined {
+    const handle = topicHandle(ref.replace(/^topic:/i, ""));
+    const topic = Object.values(this.s().topics).find((candidate) => topicHandle(candidate.id) === handle);
+    return topic?.thread ? topic : undefined;
+  }
+
+  /**
+   * Files a thread under an existing topic of its space (a lone thread never makes a new topic;
+   * topics grow from work). Its later messages are that topic's news.
+   */
+  fileThread(threadId: string, topicRef: string, byAgent: boolean): ThreadSummary {
+    const thread = this.thread(threadId);
+    if (!thread?.thread) throw new TopicStoreError("Thread not found.", 404);
+    const topic = this.resolve(topicRef, thread.space);
+    if (!topic || topic.thread) {
+      throw new TopicStoreError(
+        `No topic "${topicRef}". A thread joins an existing topic; new topics grow from quests.`,
+        404,
+      );
+    }
+    if (thread.thread.topicId === topic.id) return this.threadSummary(thread);
+    thread.thread.topicId = topic.id;
+    this.addEvent(topic.id, {
+      at: this.now(),
+      kind: "message",
+      text: `The thread "${thread.name}" was filed here`,
+      leaderId: thread.thread.leaderId,
+      ...(byAgent ? { byScribe: true } : {}),
+    });
+    this.dirty = true;
+    return this.threadSummary(thread);
+  }
+
+  /** A quest was filed under a topic: a thread it was started from, under no topic yet, follows it. */
+  threadFollowsQuest(threadKey: string | undefined, topicId: string): ThreadSummary | null {
+    const thread = threadKey ? this.thread(threadKey) : undefined;
+    if (!thread?.thread || thread.thread.topicId) return null;
+    return this.fileThread(thread.id, topicId, false);
+  }
+
+  /**
+   * You read a thread's last answer: it settles (leaves Active). Returns the thread when this
+   * settled it and it is under no topic, so its leader's Scribe can file it; null otherwise.
+   */
+  settleThread(threadKey: string): ThreadSummary | null {
+    const thread = this.thread(threadKey);
+    if (!thread?.thread || thread.thread.settledAt) return null;
+    thread.thread.settledAt = this.now();
+    this.dirty = true;
+    return thread.thread.topicId ? null : this.threadSummary(thread);
+  }
+
+  /** Settled threads under no topic that the Scribe wasn't asked to file yet. */
+  settledUnfiledThreads(leaderId: string): Array<ThreadSummary & { firstMessage?: string }> {
+    return Object.values(this.s().topics)
+      .filter(
+        (topic) =>
+          topic.thread?.leaderId === leaderId &&
+          !topic.mergedInto &&
+          topic.thread.settledAt &&
+          !topic.thread.topicId &&
+          !topic.thread.sortAskedAt,
+      )
+      .map((topic) => ({
+        ...this.threadSummary(topic),
+        ...(topic.thread?.firstMessage ? { firstMessage: topic.thread.firstMessage } : {}),
+      }));
+  }
+
+  /** Records that the Scribe was asked to file these settled threads. */
+  markThreadsSortAsked(threadIds: readonly string[]): void {
+    for (const id of threadIds) {
+      const thread = this.s().topics[id]?.thread;
+      if (thread) thread.sortAskedAt = this.now();
+    }
+    if (threadIds.length) this.dirty = true;
+  }
+
+  /** The threads filed under a topic. */
+  threadsUnder(topicId: string): StoredTopic[] {
+    return Object.values(this.s().topics).filter((topic) => topic.thread?.topicId === topicId && !topic.mergedInto);
+  }
+
+  private threadSummary(topic: StoredTopic): ThreadSummary {
+    const thread = topic.thread!;
+    const under = thread.topicId ? this.live(thread.topicId) : undefined;
+    return {
+      id: topic.id,
+      key: `topic:${topicHandle(topic.id)}`,
+      name: topic.name,
+      leaderId: thread.leaderId,
+      ...(thread.startedFrom ? { startedFrom: thread.startedFrom } : {}),
+      ...(under ? { topic: { id: under.id, name: under.name } } : {}),
+      createdAt: topic.createdAt,
+      activityAt: thread.lastMessageAt ?? topic.createdAt,
+      ...(thread.settledAt ? { settledAt: thread.settledAt } : {}),
+    };
+  }
+
   /** Renames a topic; a name the user chose is never changed by an agent. */
   rename(topicId: string, name: string, by: TopicNameSource, byAgent: boolean): TopicSummary {
     const topic = this.require(topicId);
@@ -612,8 +763,20 @@ export class TopicStore {
   // ─── Events and pages ─────────────────────────────────────────────────────
 
   addEvent(topicId: string, event: TopicEvent): void {
-    const topic = this.live(topicId);
+    let topic = this.live(topicId);
     if (!topic) return;
+    if (topic.thread) {
+      // Writing in a settled thread makes it active again; a filed thread's news is its topic's.
+      if (event.kind === "message") {
+        topic.thread.lastMessageAt = event.at;
+        delete topic.thread.settledAt;
+        delete topic.thread.sortAskedAt;
+        this.dirty = true;
+      }
+      const under = topic.thread.topicId ? this.live(topic.thread.topicId) : undefined;
+      if (!under) return;
+      topic = under;
+    }
     const state = this.s();
     state.eventSeq = (state.eventSeq ?? 0) + 1;
     topic.events.push({ ...event, seq: state.eventSeq });
@@ -808,6 +971,8 @@ export class TopicStore {
 
   /** A live topic by ID, unique ID prefix, or name in the given space. */
   resolve(ref: string, space?: string): StoredTopic | undefined {
+    // A thread key names its topic too (`topic:<handle>`).
+    if (/^topic:[0-9a-f]/i.test(ref)) ref = ref.slice("topic:".length);
     const topics = this.s().topics;
     const direct = topics[ref];
     if (direct) return this.live(direct.id);
@@ -913,7 +1078,12 @@ export class TopicStore {
       ...activityOf(topic),
       ...(latestHistoryLine(topic.page) ? { latestUpdate: latestHistoryLine(topic.page) } : {}),
       openNow: this.prunedNow(topic).filter((entry) => entry.doneAt === undefined).length,
+      ...(this.threadRefs(topic.id).length ? { threads: this.threadRefs(topic.id) } : {}),
     };
+  }
+
+  private threadRefs(topicId: string): TopicThreadRef[] {
+    return this.threadsUnder(topicId).map((thread) => ({ handle: topicHandle(thread.id), name: thread.name }));
   }
 
   /** Whether the user undid a merge or fold of this topic: a Scribe should not redo it. */
@@ -980,8 +1150,11 @@ export class TopicStore {
     if (changes.length > MAX_CHANGES) changes.splice(0, changes.length - MAX_CHANGES);
   }
 
+  /** Live topics, threads left out (they are stored here but are not topics). */
   private liveTopics(space?: string): StoredTopic[] {
-    return Object.values(this.s().topics).filter((topic) => !topic.mergedInto && (!space || topic.space === space));
+    return Object.values(this.s().topics).filter(
+      (topic) => !topic.mergedInto && !topic.thread && (!space || topic.space === space),
+    );
   }
 
   private live(id: string): StoredTopic | undefined {

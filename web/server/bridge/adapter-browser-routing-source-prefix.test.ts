@@ -26,6 +26,28 @@ describe("user message source tag", () => {
     );
   });
 
+  it("names a thread the user started as theirs, with where it started and the topic it is filed under", () => {
+    setTopicViewSource({
+      topicOf: (handle) =>
+        handle === "55badbba"
+          ? { id: "55badbba-1111", name: "Quick question: how do…", thread: { startedFrom: "q-12" } }
+          : handle === "66cafe00"
+            ? { id: "66cafe00-2222", name: "Draft collapse bug", thread: { topicId: "77aa7700-3333" } }
+            : handle === "77aa7700"
+              ? { id: "77aa7700-3333", name: "Library and topics" }
+              : null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "topic:55badbba", "u1")).toMatch(
+      /\[thread:topic:55badbba\] \[user thread: "Quick question: how do…"; started from q-12\] $/,
+    );
+    expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "topic:66cafe00", "u2")).toMatch(
+      /\[thread:topic:66cafe00\] \[user thread: "Draft collapse bug"; filed under topic "Library and topics"\] $/,
+    );
+  });
+
   it("adds nothing for messages written in a quest tab or Main", () => {
     expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "q-3", "u8")).toMatch(
       /\[User .* id:u8\] \[thread:q-3\] $/,

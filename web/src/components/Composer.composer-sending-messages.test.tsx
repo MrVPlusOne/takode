@@ -656,6 +656,41 @@ describe("Composer sending messages", () => {
     );
   });
 
+  // New thread: the first message starts the thread, goes to it rather than the thread on screen,
+  // and then opens it; a thread that could not be started sends nothing and keeps the draft.
+  it("starts a new thread with its first message, sends it there and opens the thread", async () => {
+    const start = vi.fn().mockResolvedValue("topic:55badbba");
+    const started = vi.fn();
+    const { container } = render(
+      <Composer sessionId="s1" threadKey="q-941" questId="q-941" newThread={{ start, started }} />,
+    );
+    const textarea = container.querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "side question" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    await waitFor(() => expect(started).toHaveBeenCalledWith("topic:55badbba"));
+    expect(start).toHaveBeenCalledWith("side question");
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ type: "user_message", content: "side question", threadKey: "topic:55badbba" }),
+    );
+    expect(mockSendToSession.mock.calls.at(-1)?.[1]).not.toHaveProperty("questId", "q-941");
+  });
+
+  it("sends nothing and keeps the draft when a new thread cannot be started", async () => {
+    const start = vi.fn().mockResolvedValue(null);
+    const started = vi.fn();
+    const { container } = render(<Composer sessionId="s1" newThread={{ start, started }} />);
+    const textarea = container.querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "side question" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    await screen.findByText(/new thread could not be started/i);
+    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "user_message" }));
+    expect(started).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("side question");
+  });
+
   it("pressing Shift+Enter does NOT send the message", () => {
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")!;

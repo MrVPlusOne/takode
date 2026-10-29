@@ -32,6 +32,8 @@ const FEEDBACK_QUERY_PARAM = "feedback";
 const ROUND_QUERY_PARAM = "round";
 const SECONDARY_VIEW_QUERY_PARAM = "view";
 const TOPIC_VIEW_QUERY_PARAM = "topic";
+/** A leader's New thread page, over the thread it was opened from. */
+const NEW_THREAD_QUERY_PARAM = "newThread";
 
 function splitHash(hash: string): { path: string; params: URLSearchParams } {
   const normalized = hash ? (hash.startsWith("#") ? hash : `#${hash}`) : "#/";
@@ -50,7 +52,12 @@ function normalizeQuestId(raw: string | null): string | null {
 function normalizeRouteThreadKey(raw: string | null): string | null {
   if (!raw) return null;
   const normalized = normalizeThreadKey(raw);
-  if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY || QUEST_ID_PATTERN.test(normalized)) {
+  if (
+    normalized === MAIN_THREAD_KEY ||
+    normalized === ALL_THREADS_KEY ||
+    QUEST_ID_PATTERN.test(normalized) ||
+    isTopicViewKey(normalized)
+  ) {
     return normalized;
   }
   return null;
@@ -288,6 +295,32 @@ export function topicViewFromHash(hash: string): boolean {
   return splitHash(hash).params.get(TOPIC_VIEW_QUERY_PARAM) === "1";
 }
 
+/** Whether a leader's route shows the New thread page (over the thread it was opened from). */
+export function newThreadFromHash(hash: string): boolean {
+  return splitHash(hash).params.get(NEW_THREAD_QUERY_PARAM) === "1";
+}
+
+/**
+ * Opens a leader's New thread page over the thread on screen, a history step of its own, so back
+ * returns to that thread.
+ */
+export function openNewThreadPage(): void {
+  const { path, params } = splitHash(window.location.hash);
+  if (params.get(NEW_THREAD_QUERY_PARAM) === "1") return;
+  params.delete("msg");
+  params.set(NEW_THREAD_QUERY_PARAM, "1");
+  window.location.hash = joinHash(path, params).slice(1);
+}
+
+/** Leaves the New thread page for the thread it was opened from, replacing its history step. */
+export function closeNewThreadPage(): void {
+  const { path, params } = splitHash(window.location.hash);
+  if (!params.has(NEW_THREAD_QUERY_PARAM)) return;
+  params.delete(NEW_THREAD_QUERY_PARAM);
+  history.replaceState(null, "", joinHash(path, params));
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
 /** The route of a leader's quest tab zoomed out to the quest's whole topic. */
 export function sessionTopicViewHash(sessionId: string | number, threadKey: string): string {
   return withThreadKeyInHash(`${sessionHash(sessionId)}?${TOPIC_VIEW_QUERY_PARAM}=1`, threadKey);
@@ -481,15 +514,24 @@ export function navigateToSessionThread(
     topicView?: boolean;
   } = {},
 ): void {
-  // A topic's own thread shows in its topic conversation, which opens in one of its quests' tabs.
+  // A topic's own thread shows in its topic conversation, which opens in one of its quests' tabs;
+  // a topic with no quests yet (a thread the user started) opens on its own.
   if (isTopicViewKey(threadKey)) {
     const host = topicHostQuest(sessionId, threadKey);
-    threadKey = host ?? MAIN_THREAD_KEY;
-    options = { ...options, topicView: !!host };
+    if (host) {
+      threadKey = host;
+      options = { ...options, topicView: true };
+    }
   }
   const currentRoute = parseHash(window.location.hash);
   const sameSession = currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId);
   let currentHash = sameSession ? window.location.hash : sessionHash(routeSessionId);
+  // Going to a thread leaves the New thread page.
+  if (sameSession && newThreadFromHash(currentHash)) {
+    const { path, params } = splitHash(currentHash);
+    params.delete(NEW_THREAD_QUERY_PARAM);
+    currentHash = joinHash(path, params);
+  }
   // A message route names a message in the thread on screen; another thread must not inherit it,
   // or the new thread would try to scroll to that message.
   if (
@@ -572,8 +614,10 @@ export function navigateToSessionMessageId(
   // A topic's own thread shows in its topic conversation, which opens in one of its quests' tabs.
   if (threadKey && isTopicViewKey(threadKey)) {
     const host = topicHostQuest(sessionId, threadKey);
-    threadKey = host ?? undefined;
-    topicView = !!host;
+    if (host) {
+      threadKey = host;
+      topicView = true;
+    }
   }
   const messageHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}${topicView ? `?${TOPIC_VIEW_QUERY_PARAM}=1` : ""}`;
   const newHash = threadKey

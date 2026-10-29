@@ -1,3 +1,4 @@
+import { topicHandle } from "../shared/topic-thread-key.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CliLauncher } from "./cli-launcher.js";
@@ -115,10 +116,24 @@ export async function startLibraryTopics(input: {
   setTopicViewSource({
     topicOf: (handle) => {
       const topic = service.store.loaded ? service.store.resolveHandle(handle) : undefined;
-      return topic ? { id: topic.id, name: topic.name } : null;
+      if (!topic) return null;
+      return {
+        id: topic.id,
+        name: topic.name,
+        ...(topic.thread
+          ? {
+              thread: {
+                ...(topic.thread.startedFrom ? { startedFrom: topic.thread.startedFrom } : {}),
+                ...(topic.thread.topicId ? { topicId: topic.thread.topicId } : {}),
+              },
+            }
+          : {}),
+      };
     },
     questsOf: (topicId) => (service.store.loaded ? service.store.questsOf(topicId) : []),
     handlesOf: (topicId) => (service.store.loaded ? service.store.handlesOf(topicId) : []),
+    threadsUnder: (topicId) =>
+      service.store.loaded ? service.store.threadsUnder(topicId).map((thread) => topicHandle(thread.id)) : [],
     topicOfQuest: (questId) => (service.store.loaded ? (service.store.topicOfQuest(questId)?.id ?? null) : null),
     listTopics: () => (service.store.loaded ? service.store.list() : []),
   });

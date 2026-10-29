@@ -168,6 +168,11 @@ opens it for; Now follows it (or comes first); then sections the user asked for;
   (\`takode topic move q-N "<topic>"\`).
 - Renaming a topic the user named only suggests the name: the user accepts or dismisses it. Don't
   suggest a name the user dismissed or redo a change the user undid; Takode tells you when you try.
+- Threads: the user can start a thread on purpose (New thread). It is not a topic: don't page it.
+  When one settles (the user read its last answer) under no topic, Takode lists it: file it under the topic it plainly
+  belongs to (\`takode topic set topic:<handle> "<topic>"\`), or leave it; never make a topic for a
+  thread. Once filed, its news reaches that topic's page. Unsorted quests started from a thread take
+  their thread along when you file them, so file them where the work belongs.
 
 ## Lasting requirements
 

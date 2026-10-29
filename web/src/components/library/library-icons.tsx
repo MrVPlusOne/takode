@@ -71,3 +71,22 @@ export function SettingsIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+/** A speech bubble with a plus: start a new thread. */
+export function NewThreadIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M20 11.5a7.5 7.5 0 0 1-11.2 6.5L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z" />
+      <path d="M12.5 8.5v6M9.5 11.5h6" />
+    </svg>
+  );
+}

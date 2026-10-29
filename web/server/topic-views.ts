@@ -1,4 +1,4 @@
-import { topicIdOfViewKey, topicViewKey } from "../shared/topic-thread-key.js";
+import { topicHandle, topicIdOfViewKey, topicViewKey } from "../shared/topic-thread-key.js";
 
 /**
  * Which quests a topic conversation holds, and which topic conversation shows a quest: the
@@ -7,7 +7,10 @@ import { topicIdOfViewKey, topicViewKey } from "../shared/topic-thread-key.js";
  */
 export interface TopicViewSource {
   /** The live topic a thread handle names (following merges), or null. */
-  topicOf(handle: string): { id: string; name: string } | null;
+  /** For a thread (New thread): where it started and the topic it is filed under, if any. */
+  topicOf(handle: string): { id: string; name: string; thread?: { startedFrom?: string; topicId?: string } } | null;
+  /** The handles of threads filed under a topic: their threads show in its conversation. */
+  threadsUnder?(topicId: string): readonly string[];
   questsOf(topicId: string): readonly string[];
   /** The handles whose threads a topic's conversation shows: its own and those merged into it. */
   handlesOf(topicId: string): readonly string[];
@@ -35,7 +38,8 @@ export function topicViewMembers(viewKey: string): string[] | null {
     .handlesOf(topic.id)
     .map((other) => topicViewKey(other))
     .filter((key) => key !== own);
-  return [...merged, ...source.questsOf(topic.id).map((questId) => questId.toLowerCase())];
+  const threads = (source.threadsUnder?.(topic.id) ?? []).map((handle) => topicViewKey(handle));
+  return [...merged, ...threads, ...source.questsOf(topic.id).map((questId) => questId.toLowerCase())];
 }
 
 /** The conversation showing a topic thread: its topic's own, or that of the topic it was merged into. */
@@ -53,12 +57,41 @@ export function liveTopicKey(threadKey: string): string | null {
 export function topicOfViewForLeader(
   threadKey: string | undefined,
   limit = 12,
-): { name: string; questIds: string[]; more: number } | null {
+): {
+  name: string;
+  questIds: string[];
+  more: number;
+  thread?: { startedFrom?: string; topicName?: string };
+} | null {
   const handle = threadKey ? topicIdOfViewKey(threadKey) : null;
   const topic = handle && source ? source.topicOf(handle) : null;
   if (!topic || !source) return null;
   const quests = [...source.questsOf(topic.id)].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)));
-  return { name: topic.name, questIds: quests.slice(0, limit), more: Math.max(0, quests.length - limit) };
+  const under = topic.thread?.topicId ? source.topicOf(topicHandle(topic.thread.topicId)) : null;
+  return {
+    name: topic.name,
+    questIds: quests.slice(0, limit),
+    more: Math.max(0, quests.length - limit),
+    ...(topic.thread
+      ? {
+          thread: {
+            ...(topic.thread.startedFrom ? { startedFrom: topic.thread.startedFrom } : {}),
+            ...(under ? { topicName: under.name } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * How a topic thread key reads to the user (in search results): a thread the user started by its
+ * name, a topic conversation by its topic's name. Null for other keys and unknown topics.
+ */
+export function topicThreadLabel(threadKey: string): string | null {
+  const handle = topicIdOfViewKey(threadKey);
+  const topic = handle && source ? source.topicOf(handle) : null;
+  if (!topic) return null;
+  return topic.thread ? `Thread "${topic.name}"` : `Topic "${topic.name}"`;
 }
 
 /** The topic conversation views showing any of these quests. */
@@ -82,6 +115,10 @@ export function viewKeysOfRoutes(routeKeys: Iterable<string>): string[] {
   for (const key of [...keys]) {
     const live = liveTopicKey(key);
     if (live) keys.add(live);
+    // A thread filed under a topic shows in that topic's conversation too.
+    const handle = topicIdOfViewKey(key);
+    const filedUnder = handle && source ? source.topicOf(handle)?.thread?.topicId : undefined;
+    if (filedUnder) keys.add(topicViewKey(filedUnder));
   }
   for (const key of topicViewKeysOfQuests([...keys].filter((key) => /^q-\d+$/.test(key)))) keys.add(key);
   return [...keys];

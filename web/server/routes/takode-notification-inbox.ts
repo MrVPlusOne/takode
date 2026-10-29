@@ -1,3 +1,4 @@
+import { getTopicService } from "./topics.js";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import type { Context, Hono } from "hono";
 import {
@@ -183,6 +184,7 @@ export function registerTakodeNotificationInboxRoutes(
     });
     if (!ok) return c.json({ error: "Notification not found" }, 404);
     if (done) reportNeedsInputDismissals(ctx, session, before);
+    if (done) settleReadThreads(session, notifId);
     return c.json({ ok: true });
   });
 
@@ -198,6 +200,7 @@ export function registerTakodeNotificationInboxRoutes(
       ...(done ? { resolutionNotice: "pending" as const, resolutionNoticeSource: "manual" as const } : {}),
     });
     if (done) reportNeedsInputDismissals(ctx, session, before);
+    if (done) settleReadThreads(session);
     return c.json({ ok: true, count });
   });
 
@@ -215,4 +218,29 @@ export function registerTakodeNotificationInboxRoutes(
     );
     return c.json(notifications);
   });
+}
+
+/**
+ * Reading the last unread answer of a thread the user started settles it (it leaves the Threads
+ * menu's Active section; one under no topic goes to the Scribe to be filed). Checks the threads
+ * of the given notifications, or of all of them.
+ */
+function settleReadThreads(
+  session: { id: string; notifications?: Array<{ id: string; threadKey?: string; category?: string; done?: boolean }> },
+  notifId?: string,
+): void {
+  const notifications = session.notifications ?? [];
+  const keys = new Set(
+    notifications
+      .filter((notification) => !notifId || notification.id === notifId)
+      .map((notification) => notification.threadKey ?? "")
+      .filter((key) => key.startsWith("topic:")),
+  );
+  for (const threadKey of keys) {
+    const unreadLeft = notifications.some(
+      (notification) =>
+        notification.threadKey === threadKey && notification.category === "review" && !notification.done,
+    );
+    if (!unreadLeft) getTopicService()?.threadRead(session.id, threadKey);
+  }
 }

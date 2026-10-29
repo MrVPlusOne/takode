@@ -21,6 +21,8 @@ export interface UpdateContent {
   topics: TopicChanges[];
   /** The leader's quests created since the last message that have no topic yet. */
   unsorted: Array<{ questId: string; title: string }>;
+  /** Threads the user started that just settled under no topic: file each where it plainly belongs. */
+  settledThreads?: Array<{ key: string; name: string; startedFrom?: string; firstMessage?: string }>;
   /** The user's instructions for topics and pages, when they changed since this Scribe was last told. */
   instructions?: string;
   /** Topics the user asked to update now (Update now). */
@@ -46,7 +48,17 @@ export function updateMessage(
   sessionNum: (sessionId: string) => number | null,
 ): string | null {
   const { topics, unsorted, instructions, forced, rewritePages } = content;
-  if (!topics.length && !unsorted.length && !instructions && !forced.length && !rewritePages) return null;
+  const settledThreads = content.settledThreads ?? [];
+  if (
+    !topics.length &&
+    !unsorted.length &&
+    !settledThreads.length &&
+    !instructions &&
+    !forced.length &&
+    !rewritePages
+  ) {
+    return null;
+  }
   const lines = [`What changed for your leader ${label(leader)} since my last message:`];
   if (rewritePages) {
     lines.push(
@@ -61,6 +73,16 @@ export function updateMessage(
     for (const event of topic.events.slice(-MAX_EVENTS_PER_TOPIC)) lines.push(`- ${describeEvent(event, sessionNum)}`);
     const hidden = topic.events.length - MAX_EVENTS_PER_TOPIC;
     if (hidden > 0) lines.push(`- and ${hidden} earlier (\`takode scribe changes ${topic.id.slice(0, 8)}\`)`);
+  }
+  if (settledThreads.length) {
+    lines.push(
+      "",
+      'Threads the user started that settled (their last answer was read) under no topic: file each under the topic it plainly belongs to (`takode topic set <thread> "<topic>"`; `takode topic list` shows the topics), or leave it unfiled; never make a topic for a thread:',
+    );
+    for (const thread of settledThreads) {
+      lines.push(`- ${thread.key} "${thread.name}"${thread.startedFrom ? `, started from ${thread.startedFrom}` : ""}`);
+      if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
+    }
   }
   if (unsorted.length) {
     lines.push("", "New quests with no topic:");

@@ -1,4 +1,10 @@
-import type { QuestTopicsResponse, TopicDetail, TopicListResponse, TopicSummary } from "../../shared/library-topics.js";
+import type {
+  QuestTopicsResponse,
+  ThreadSummary,
+  TopicDetail,
+  TopicListResponse,
+  TopicSummary,
+} from "../../shared/library-topics.js";
 
 const BASE = "/api";
 
@@ -25,6 +31,15 @@ export const topicApi = {
       `/topics?space=${encodeURIComponent(space || "all")}${leader ? `&leader=${encodeURIComponent(leader)}` : ""}`,
     ),
   get: (id: string) => request<TopicDetail>(topicPath(id)),
+  /** Starts a new thread in a leader with topics on, named `name` until the leader names it. */
+  startThread: (leader: string, name: string, startedFrom?: string, firstMessage?: string) =>
+    request<{ thread: ThreadSummary }>("/topics/threads", {
+      method: "POST",
+      body: { leader, name, ...(startedFrom ? { startedFrom } : {}), ...(firstMessage ? { firstMessage } : {}) },
+    }),
+  /** A leader's threads, newest activity first. */
+  threads: (leader: string) =>
+    request<{ threads: ThreadSummary[] }>(`/topics/threads?leader=${encodeURIComponent(leader)}`),
   rename: (id: string, name: string) => request<TopicSummary>(topicPath(id), { method: "PATCH", body: { name } }),
   merge: (id: string, into: string) =>
     request<TopicSummary>(`${topicPath(id)}/merge`, { method: "POST", body: { into } }),

@@ -23,7 +23,13 @@ export function searchTopics(topics: readonly TopicSummary[], query: string): To
   if (words.length === 0) return [...topics];
   const byName = topics.filter((topic) => matchesWords(topic.name, words));
   const byLine = topics.filter(
-    (topic) => !byName.includes(topic) && matchesWords(`${topic.name} ${topicRowLine(topic) ?? ""}`, words),
+    (topic) =>
+      !byName.includes(topic) &&
+      // A topic is found by the names of threads filed under it too.
+      matchesWords(
+        `${topic.name} ${(topic.threads ?? []).map((thread) => thread.name).join(" ")} ${topicRowLine(topic) ?? ""}`,
+        words,
+      ),
   );
   return [...byName, ...byLine];
 }

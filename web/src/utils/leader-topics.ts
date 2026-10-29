@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { create } from "zustand";
-import type { QuestTopicMap, QuestTopicsResponse, TopicBrief, TopicSummary } from "../../shared/library-topics.js";
+import type {
+  QuestTopicMap,
+  QuestTopicsResponse,
+  ThreadSummary,
+  TopicBrief,
+  TopicSummary,
+} from "../../shared/library-topics.js";
 import { isKeyOfTopic, isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { topicApi } from "../api/topics.js";
 
@@ -45,7 +51,15 @@ export function rememberTopicList(leaderId: string, topics: readonly TopicSummar
   useLeaderTopicsStore.setState((state) => {
     const previous = state.byLeader[leaderId] ?? { enabled: false, map: {}, topics: {}, asked: {} };
     const briefs = Object.fromEntries(
-      topics.map((topic) => [topic.id, { name: topic.name, questIds: topic.questIds, activityAt: topic.activityAt }]),
+      topics.map((topic) => [
+        topic.id,
+        {
+          name: topic.name,
+          questIds: topic.questIds,
+          activityAt: topic.activityAt,
+          ...(topic.threads ? { threads: topic.threads } : {}),
+        },
+      ]),
     );
     const next = {
       ...previous,
@@ -57,9 +71,59 @@ export function rememberTopicList(leaderId: string, topics: readonly TopicSummar
   });
 }
 
+/**
+ * A leader's threads (New thread), as last loaded: lightweight conversations that are not topics.
+ * The tab bar loads them for its Threads menu; starting one adds it at once.
+ */
+const useLeaderThreadsStore = create<{ byLeader: Record<string, ThreadSummary[]> }>(() => ({ byLeader: {} }));
+
+/** Records a leader's threads: the whole list, or one thread that changed. */
+export function rememberThreads(leaderId: string, threads: readonly ThreadSummary[], whole = true): void {
+  useLeaderThreadsStore.setState((state) => {
+    const previous = state.byLeader[leaderId] ?? [];
+    const next = whole
+      ? [...threads]
+      : [...threads, ...previous.filter((known) => !threads.some((thread) => thread.id === known.id))];
+    next.sort((a, b) => b.activityAt - a.activityAt);
+    if (JSON.stringify(next) === JSON.stringify(previous)) return state;
+    return { byLeader: { ...state.byLeader, [leaderId]: next } };
+  });
+}
+
+const EMPTY_THREADS: ThreadSummary[] = [];
+
+/** A leader's threads, newest activity first; loads them (and every minute) while `enabled`. */
+export function useLeaderThreads(leaderId: string, enabled: boolean, refreshKey = ""): ThreadSummary[] {
+  useEffect(() => {
+    if (!enabled || !leaderId) return;
+    let cancelled = false;
+    const load = () =>
+      topicApi
+        .threads(leaderId)
+        .then((response) => !cancelled && rememberThreads(leaderId, response.threads))
+        .catch((error: Error) => console.warn("[library] Could not load the threads:", error.message));
+    void load();
+    const timer = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [leaderId, enabled, refreshKey]);
+  return useLeaderThreadsStore((state) => state.byLeader[leaderId] ?? EMPTY_THREADS);
+}
+
+/** The thread a thread key names, as last known for a leader; undefined for topics and unknown keys. */
+export function useKnownThreadOfKey(leaderId: string, threadKey: string): ThreadSummary | undefined {
+  return useLeaderThreadsStore((state) =>
+    threadKey ? state.byLeader[leaderId]?.find((thread) => thread.key === threadKey.toLowerCase()) : undefined,
+  );
+}
+
 /** Asks the server about some of a leader's quests and remembers the answer. */
 export function loadLeaderTopics(leaderId: string, questIds: readonly string[]): Promise<void> {
-  if (!questIds.length) return Promise.resolve();
+  // With no quests to ask about, still learn once whether topics are on: a leader can have
+  // threads it started before any quest.
+  if (!questIds.length && useLeaderTopicsStore.getState().byLeader[leaderId]) return Promise.resolve();
   return topicApi.questMap(leaderId, questIds).then((response) => remember(leaderId, questIds, response));
 }
 
