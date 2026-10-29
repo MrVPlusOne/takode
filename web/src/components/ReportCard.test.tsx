@@ -55,6 +55,21 @@ describe("ReportCard", () => {
     vi.unstubAllGlobals();
   });
 
+  it("names the report in its pinned bar while expanded", () => {
+    // Deep inside a long report, the pinned bar is the only part of the card in view, so it
+    // carries the report's title next to Show less.
+    stubScrollHeight(2000);
+    render(
+      <ReportCard title="Daily briefing: Thursday, Oct 29">
+        <p>Body</p>
+      </ReportCard>,
+    );
+    expect(screen.queryByText("Daily briefing: Thursday, Oct 29")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show full report" }));
+    const bar = screen.getByRole("button", { name: "Show less" }).parentElement!;
+    expect(bar).toHaveTextContent("Daily briefing: Thursday, Oct 29");
+  });
+
   it("shows a short report whole without a toggle", () => {
     stubScrollHeight(200);
     render(

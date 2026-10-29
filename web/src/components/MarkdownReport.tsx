@@ -59,7 +59,8 @@ function MarkdownReportBody({
   const [fullScreen, setFullScreen] = useState(false);
   const source = message.metadata!.markdownReport!;
   const reportMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "report");
-  const title = reportTitleOf(message.content, source.sourcePath);
+  // The Library's name for the report (the agent's or the user's), else its first heading or file name.
+  const title = reportMarker?.title || reportTitleOf(message.content, source.sourcePath);
   const cardContentRef = useRef<HTMLDivElement>(null);
   const { exportItems, task } = useCardExport(
     useCallback(
@@ -83,7 +84,7 @@ function MarkdownReportBody({
   return (
     <>
       {!readOnly && <ReadAloudPlayer messageId={message.id} />}
-      <ReportCard sessionId={feedSessionId} messageId={message.id}>
+      <ReportCard sessionId={feedSessionId} messageId={message.id} title={title}>
         <article className="relative min-w-0 space-y-3" data-markdown-report-source={JSON.stringify(source)}>
           <div className="flex items-start gap-2 text-xs text-cc-muted">
             <div className="min-w-0 flex-1">
@@ -158,7 +159,7 @@ function ReportContent({
   );
 }
 
-/** A report's title for the full-screen view: its top-level heading, else its file's name. */
+/** A report's title from its text: its top-level heading, else its file's name. */
 function reportTitleOf(markdown: string, sourcePath: string): string {
   const heading = /^#[ \t]+(.+?)[ \t#]*$/m.exec(markdown)?.[1];
   return heading?.replace(/[*_`]/g, "") || sourcePath.split("/").pop() || "Report";

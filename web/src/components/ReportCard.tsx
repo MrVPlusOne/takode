@@ -13,10 +13,13 @@ const CLIPPED_HEIGHT_PX = 320;
 export function ReportCard({
   sessionId,
   messageId,
+  title,
   children,
 }: {
   sessionId?: string;
   messageId?: string;
+  /** Shown in the pinned bar of an expanded report, so a reader deep inside it knows what it is. */
+  title?: string;
   children: ReactNode;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -66,8 +69,11 @@ export function ReportCard({
         // feed's top controls move below it while it is pinned (`useFeedPinnedTop`).
         <div
           data-feed-pinned-bar=""
-          className="sticky top-[calc(var(--feed-pinned-top,0px)-1rem)] sm:top-[calc(var(--feed-pinned-top,0px)-1.5rem)] z-10 -mx-3 -mt-2.5 mb-1 flex justify-end rounded-t-lg border-b border-cc-border bg-cc-card px-3 py-0.5"
+          className="sticky top-[calc(var(--feed-pinned-top,0px)-1rem)] sm:top-[calc(var(--feed-pinned-top,0px)-1.5rem)] z-10 -mx-3 -mt-2.5 mb-1 flex items-center gap-2 rounded-t-lg border-b border-cc-border bg-cc-card px-3 py-0.5"
         >
+          <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-cc-fg" title={title}>
+            {title}
+          </span>
           <ReportToggle expanded onClick={collapse} />
         </div>
       )}
@@ -89,7 +95,7 @@ function ReportToggle({ expanded, onClick }: { expanded: boolean; onClick: () =>
       type="button"
       aria-expanded={expanded}
       onClick={onClick}
-      className={`cursor-pointer rounded-md text-[11px] font-medium text-cc-primary hover:text-cc-primary-hover ${expanded ? "py-1 pl-2" : "mt-1 py-0.5"}`}
+      className={`shrink-0 cursor-pointer rounded-md text-[11px] font-medium text-cc-primary hover:text-cc-primary-hover ${expanded ? "py-1 pl-2" : "mt-1 py-0.5"}`}
     >
       {expanded ? "Show less" : "Show full report"}
     </button>

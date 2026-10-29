@@ -208,4 +208,23 @@ describe("saved Markdown reports", () => {
     // Controls stay out of the export.
     expect(body.html).not.toContain("More options");
   });
+
+  it("names a report by its Library title, else by its first heading", () => {
+    // The pinned bar of an expanded report and its full-screen view carry this title. The
+    // Library's name is the agent's or the user's choice, so it wins over the heading.
+    const report = makeMarkdownReportFixture();
+    const [message] = normalizeHistoryMessageToChatMessages(report, 0);
+    const view = render(<MessageBubble message={message} sessionId={report.source.sessionId} />);
+    fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
+    expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe("Daily engineering report");
+    view.unmount();
+
+    message.metadata = {
+      ...message.metadata,
+      artifacts: [{ id: "artifact-r", kind: "report", title: "Cache follow-ups", version: 1, versionCount: 1 }],
+    };
+    render(<MessageBubble message={message} sessionId={report.source.sessionId} />);
+    fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
+    expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe("Cache follow-ups");
+  });
 });
