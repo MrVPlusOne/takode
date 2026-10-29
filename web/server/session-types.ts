@@ -1211,6 +1211,21 @@ export type BrowserIncomingMessageBase =
       ThreadRoutingError
     >
   | { type: "codex_pending_inputs"; inputs: PendingCodexInput[] }
+  | {
+      /** A leader's threads changed (started, filed, settled, renamed, written in, removed). */
+      type: "leader_threads_changed";
+      leaderId: string;
+    }
+  | {
+      /**
+       * To the browser that sent it: the server could not accept a user message. The browser marks
+       * its pending copy failed (`client_msg_id`) or, with none, puts `content` back in the composer.
+       */
+      type: "user_message_rejected";
+      client_msg_id?: string;
+      content: string;
+      message: string;
+    }
   | { type: "codex_pending_input_cancelled"; input: PendingCodexInput }
   | {
       type: "codex_pending_input_failed";

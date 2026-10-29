@@ -112,6 +112,15 @@ export function useLeaderThreads(leaderId: string, enabled: boolean, refreshKey 
   return useLeaderThreadsStore((state) => state.byLeader[leaderId] ?? EMPTY_THREADS);
 }
 
+/** A leader's threads changed on the server: reloads them when this browser has them. */
+export function reloadLeaderThreads(leaderId: string): void {
+  if (!useLeaderThreadsStore.getState().byLeader[leaderId]) return;
+  topicApi
+    .threads(leaderId)
+    .then((response) => rememberThreads(leaderId, response.threads))
+    .catch((error: Error) => console.warn("[library] Could not reload the threads:", error.message));
+}
+
 const namesAsked = new Set<string>();
 
 /**

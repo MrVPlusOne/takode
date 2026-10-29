@@ -8,7 +8,10 @@ import type {
 
 const BASE = "/api";
 
-async function request<T>(path: string, options?: { method?: "GET" | "POST" | "PATCH"; body?: object }): Promise<T> {
+async function request<T>(
+  path: string,
+  options?: { method?: "GET" | "POST" | "PATCH" | "DELETE"; body?: object },
+): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     method: options?.method ?? "GET",
     headers: options?.body ? { "Content-Type": "application/json" } : undefined,
@@ -40,6 +43,9 @@ export const topicApi = {
   /** A leader's threads, newest activity first. */
   threads: (leader: string) =>
     request<{ threads: ThreadSummary[] }>(`/topics/threads?leader=${encodeURIComponent(leader)}`),
+  /** Removes a thread whose first message never arrived. */
+  removeThread: (id: string) =>
+    request<{ ok: true }>(`/topics/threads/${encodeURIComponent(id)}`, { method: "DELETE" }),
   rename: (id: string, name: string) => request<TopicSummary>(topicPath(id), { method: "PATCH", body: { name } }),
   merge: (id: string, into: string) =>
     request<TopicSummary>(`${topicPath(id)}/merge`, { method: "POST", body: { into } }),

@@ -1,0 +1,210 @@
+// @vitest-environment jsdom
+
+import type { SessionState } from "./types.js";
+
+// Mock the names utility before any imports
+vi.mock("./utils/names.js", () => ({
+  generateUniqueSessionName: vi.fn(() => "Test Session"),
+}));
+
+const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
+const listSessionsMock = vi.fn().mockResolvedValue([]);
+const playNotificationSoundMock = vi.hoisted(() => vi.fn());
+
+// Mock the API module so PostHog doesn't break in jsdom
+vi.mock("./api.js", () => ({
+  api: {
+    getDiffStats: getDiffStatsMock,
+    listSessions: listSessionsMock,
+  },
+}));
+
+vi.mock("./utils/notification-sound.js", () => ({
+  playNotificationSound: playNotificationSoundMock,
+}));
+
+let wsModule: typeof import("./ws.js");
+let useStore: typeof import("./store.js").useStore;
+
+// ---------------------------------------------------------------------------
+// MockWebSocket
+// ---------------------------------------------------------------------------
+let lastWs: InstanceType<typeof MockWebSocket>;
+
+class MockWebSocket {
+  static instances: MockWebSocket[] = [];
+  static OPEN = 1;
+  static CLOSED = 3;
+  static CONNECTING = 0;
+  static CLOSING = 2;
+  OPEN = 1;
+  CLOSED = 3;
+  CONNECTING = 0;
+  CLOSING = 2;
+  readyState = MockWebSocket.OPEN;
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  url: string;
+  send = vi.fn();
+  close = vi.fn();
+
+  constructor(url: string) {
+    this.url = url;
+    MockWebSocket.instances.push(this);
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    lastWs = this;
+  }
+}
+
+vi.stubGlobal("WebSocket", MockWebSocket);
+vi.stubGlobal("location", { protocol: "http:", host: "localhost:3456" });
+
+// ---------------------------------------------------------------------------
+// Fresh module state for each test
+// ---------------------------------------------------------------------------
+beforeEach(async () => {
+  vi.resetModules();
+  vi.useFakeTimers();
+  getDiffStatsMock.mockReset();
+  getDiffStatsMock.mockResolvedValue({ stats: {} });
+  listSessionsMock.mockReset();
+  listSessionsMock.mockResolvedValue([]);
+  playNotificationSoundMock.mockReset();
+  MockWebSocket.instances = [];
+
+  const storeModule = await import("./store.js");
+  useStore = storeModule.useStore;
+  useStore.getState().reset();
+  localStorage.clear();
+
+  wsModule = await import("./ws.js");
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function makeSession(id: string): SessionState {
+  return {
+    session_id: id,
+    model: "claude-opus-4-20250514",
+    cwd: "/home/user",
+    tools: ["Bash", "Read"],
+    permissionMode: "default",
+    claude_code_version: "2.1.0",
+    mcp_servers: [],
+    agents: [],
+    slash_commands: [],
+    skills: [],
+    total_cost_usd: 0,
+    num_turns: 0,
+    context_used_percent: 0,
+    is_compacting: false,
+    git_branch: "main",
+    is_worktree: false,
+    is_containerized: false,
+    repo_root: "/home/user",
+    git_ahead: 0,
+    git_behind: 0,
+    total_lines_added: 0,
+    total_lines_removed: 0,
+  };
+}
+
+function serializeIncomingTestMessage(data: Record<string, unknown>): string {
+  if (data.type !== "authoritative_history_fixture") return JSON.stringify(data);
+  const messages = Array.isArray(data.messages) ? data.messages : [];
+  return JSON.stringify({
+    type: "history_sync",
+    frozen_base_count: 0,
+    frozen_base_history_index: 0,
+    frozen_delta: messages,
+    hot_messages: [],
+    frozen_count: messages.length,
+    expected_frozen_hash: "test-frozen-hash",
+    expected_full_hash: "test-full-hash",
+  });
+}
+
+function fireMessage(data: Record<string, unknown>) {
+  lastWs.onmessage!({ data: serializeIncomingTestMessage(data) });
+}
+
+// ===========================================================================
+// A user message the server rejects: the sender is told, so its message never sits at
+// "Sending..." forever (Ask in new thread did, when its passage was rejected).
+// ===========================================================================
+describe("user_message_rejected", () => {
+  it("marks the pending copy failed, keeping it ready to retry", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().addPendingUserUpload("s1", {
+      id: "pending-7",
+      content: "How is that enforced?",
+      timestamp: Date.now(),
+      stage: "delivering",
+      images: [],
+      prepared: { deliveryContent: "How is that enforced?", imageRefs: [] },
+    });
+
+    fireMessage({
+      type: "user_message_rejected",
+      client_msg_id: "pending-7",
+      content: "How is that enforced?",
+      message: "The server couldn't accept this message",
+    });
+
+    expect(useStore.getState().pendingUserUploads.get("s1")).toEqual([
+      expect.objectContaining({
+        id: "pending-7",
+        stage: "failed",
+        error: "The server couldn't accept this message",
+        prepared: { deliveryContent: "How is that enforced?", imageRefs: [] },
+      }),
+    ]);
+  });
+
+  it("puts a message with no pending copy back in the composer and says so", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "user_message_rejected",
+      content: "Plain text the composer had cleared",
+      message: "The server couldn't accept this message",
+    });
+
+    expect(useStore.getState().composerDrafts.get("s1")?.text).toBe("Plain text the composer had cleared");
+    const last = useStore.getState().messages.get("s1")?.at(-1);
+    expect(last).toMatchObject({ role: "system", variant: "error" });
+    expect(last?.content).toContain("back in the composer");
+  });
+});
+
+// A Scribe filing a thread (or any thread change) reaches an open Threads menu at once: the server
+// says the leader's threads changed, and a browser that has them reloads them.
+describe("leader_threads_changed", () => {
+  it("reloads the leader's threads when this browser has them, and leaves other leaders alone", async () => {
+    const topics = await import("./utils/leader-topics.js");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ threads: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    topics.rememberThreads("leader-a", [
+      { id: "aaaa", key: "topic:aaaa", name: "Old name", leaderId: "leader-a", createdAt: 1, activityAt: 1 },
+    ]);
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({ type: "leader_threads_changed", leaderId: "leader-b" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireMessage({ type: "leader_threads_changed", leaderId: "leader-a" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/topics/threads?leader=leader-a", expect.anything());
+    vi.unstubAllGlobals();
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    vi.stubGlobal("location", { protocol: "http:", host: "localhost:3456" });
+  });
+});

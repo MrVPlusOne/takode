@@ -14,6 +14,9 @@ import { setScribeHooks } from "./scribe-registry.js";
 import { getSettings } from "./settings-manager.js";
 import { LIBRARY_MESSAGE_SOURCE } from "../shared/library-topics.js";
 
+/** How long a burst of thread changes is gathered into one notice to the browsers. */
+const THREAD_NOTICE_DELAY_MS = 300;
+
 /**
  * Starts the Library's topics: loads the store beside the artifact library, reads saved sessions
  * of leaders with topics on, and starts each such leader's Scribe (a worker in its herd) when it is
@@ -110,6 +113,19 @@ export async function startLibraryTopics(input: {
     },
   });
   launcher.scribeLeaderName = (leaderId) => input.sessionName(leaderId);
+  // Open Threads menus reload a leader's threads when they change (a Scribe filing one, a rename),
+  // instead of on their minute poll. Bursts (the leader's turn writing in a thread) send one notice.
+  const threadNotices = new Map<string, ReturnType<typeof setTimeout>>();
+  service.store.onThreadChange = (leaderId) => {
+    if (threadNotices.has(leaderId)) return;
+    threadNotices.set(
+      leaderId,
+      setTimeout(() => {
+        threadNotices.delete(leaderId);
+        wsBridge.broadcastGlobal({ type: "leader_threads_changed", leaderId });
+      }, THREAD_NOTICE_DELAY_MS),
+    );
+  };
   setTopicService(service);
   // Topic conversations ask the store which quests a topic holds, live, so a quest moving to
   // another topic moves between their views at once.

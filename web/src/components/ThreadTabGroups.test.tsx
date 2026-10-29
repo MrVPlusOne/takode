@@ -929,6 +929,33 @@ describe("Threads menu", () => {
     expect(onSelect).toHaveBeenCalledWith("topic:aaaa0003");
   });
 
+  it("marks a thread whose first message never arrived and offers to remove it", () => {
+    // A failed first send left a thread in Active forever with nothing in it and no way out.
+    // A thread just started (its first message still on the way) is not marked.
+    const onRemove = vi.fn();
+    renderBar({
+      tabs: [tab("q-10")],
+      currentThreadKey: "main",
+      topicsGroup: { topics: [], currentTopicId: null, onOpen: vi.fn(), topicOfQuest: {} },
+      threadsMenu: {
+        threads: [
+          thread("cccc0001", "Never sent", { empty: true, createdAt: Date.now() - 5 * 60_000 }),
+          thread("cccc0002", "Just started", { empty: true, createdAt: Date.now() }),
+        ],
+        starting: false,
+        onStart: vi.fn(),
+        onOpen: vi.fn(),
+        unread: () => 0,
+        onRemove,
+      },
+    });
+    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
+    expect(screen.getAllByTestId("threads-menu-row-unsent")).toHaveLength(1);
+    expect(screen.getAllByTestId("threads-menu-remove")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("threads-menu-remove"));
+    expect(onRemove).toHaveBeenCalledWith("topic:cccc0001");
+  });
+
   it("draws a long Recent list a page at a time, and searches all of it", () => {
     // Read threads are never dropped, so hundreds can gather: rows come 20 at a time (the next
     // page when the end scrolls into view, or on tap), and the search box finds older ones.

@@ -235,6 +235,30 @@ describe("topic store", () => {
     expect(store.threadsOf("lead")[0]?.settledAt).toBeUndefined();
   });
 
+  it("removes only a thread whose first message never arrived, and reports each thread change", async () => {
+    // A failed first send leaves a thread with nothing in it; the user can remove it. A thread
+    // anyone wrote in is a conversation and stays. Every change is reported so open Threads menus
+    // update at once instead of on their minute poll.
+    const store = await newStore();
+    const changes: string[] = [];
+    store.onThreadChange = (leaderId) => changes.push(leaderId);
+    const dead = store.startThread({ space: "MSI", name: "Never sent", leaderId: "lead" });
+    const live = store.startThread({ space: "MSI", name: "Answered", leaderId: "lead" });
+    store.addEvent(live.id, { at: NOW + 1000, kind: "message", text: "first message" });
+    expect(store.threadsOf("lead").map((thread) => [thread.name, thread.empty])).toEqual([
+      ["Answered", undefined],
+      ["Never sent", true],
+    ]);
+    expect(() => store.removeThread(live.key)).toThrow(/no messages/);
+    store.removeThread(dead.key);
+    expect(store.threadsOf("lead").map((thread) => thread.name)).toEqual(["Answered"]);
+    store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    store.fileThread(live.key, "T7 run", false);
+    store.settleThread(live.key);
+    // Started twice, written in, removed, filed, settled.
+    expect(changes).toEqual(["lead", "lead", "lead", "lead", "lead", "lead"]);
+  });
+
   it("counts events after the page and summarizes the page by its opening sentence", async () => {
     const store = await newStore();
     const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });

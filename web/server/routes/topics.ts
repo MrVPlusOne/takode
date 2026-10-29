@@ -269,6 +269,14 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
+  /** Removes a thread whose first message never arrived; the user's way out of a failed start. */
+  api.delete("/topics/threads/:id", (c) =>
+    run(c, async (svc) => {
+      svc.store.removeThread(c.req.param("id"));
+      return { ok: true };
+    }),
+  );
+
   /** Files a thread under an existing topic (the leader, its Scribe or the user). */
   api.post("/topics/threads/:id/file", (c) =>
     run(c, async (svc) => {

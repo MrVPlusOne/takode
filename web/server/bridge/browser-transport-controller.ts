@@ -527,6 +527,16 @@ export async function handleBrowserIngressMessage(
       durableOwnership.status === "ignored_no_owner" ? durableOwnership.unownedRecoveryLinks : undefined;
     if (msg.type === "user_message" && msg.imageRefs?.length) {
       deps.notifyImageSendFailure(session, err);
+    } else if (msg.type === "user_message" && ws) {
+      console.error(`[ws-bridge] Failed to route browser message for session ${sessionTag(session.id)}:`, err);
+      // Its sender shows the message as not delivered, with Retry and Edit, instead of "Sending..."
+      // forever, or gets its text back in the composer.
+      sendToBrowser(ws, {
+        type: "user_message_rejected",
+        ...(msg.client_msg_id ? { client_msg_id: msg.client_msg_id } : {}),
+        content: msg.content,
+        message: "The server couldn't accept this message",
+      });
     } else {
       console.error(`[ws-bridge] Failed to route browser message for session ${sessionTag(session.id)}:`, err);
       deps.broadcastError(session, "Failed to process message. Please retry.");

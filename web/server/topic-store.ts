@@ -172,6 +172,8 @@ export class TopicStore {
   private state: TopicState | null = null;
   private writeChain: Promise<void> = Promise.resolve();
   private dirty = false;
+  /** Told whenever one of a leader's threads changes, so an open Threads menu updates at once. */
+  onThreadChange?: (leaderId: string) => void;
 
   constructor(
     readonly root: string,
@@ -466,6 +468,7 @@ export class TopicStore {
       ...(firstMessage ? { firstMessage } : {}),
     };
     this.dirty = true;
+    this.onThreadChange?.(input.leaderId);
     return this.threadSummary(topic);
   }
 
@@ -508,7 +511,22 @@ export class TopicStore {
       ...(byAgent ? { byScribe: true } : {}),
     });
     this.dirty = true;
+    this.onThreadChange?.(thread.thread.leaderId);
     return this.threadSummary(thread);
+  }
+
+  /**
+   * Removes a thread whose first message never arrived (its send failed). A thread anyone wrote
+   * in is a conversation and stays.
+   */
+  removeThread(threadKey: string): void {
+    const thread = this.thread(threadKey);
+    if (!thread?.thread) throw new TopicStoreError("Thread not found.", 404);
+    if (thread.thread.lastMessageAt !== undefined)
+      throw new TopicStoreError("Only a thread with no messages can be removed.", 409);
+    delete this.s().topics[thread.id];
+    this.dirty = true;
+    this.onThreadChange?.(thread.thread.leaderId);
   }
 
   /** A quest was filed under a topic: a thread it was started from, under no topic yet, follows it. */
@@ -527,6 +545,7 @@ export class TopicStore {
     if (!thread?.thread || thread.thread.settledAt) return null;
     thread.thread.settledAt = this.now();
     this.dirty = true;
+    this.onThreadChange?.(thread.thread.leaderId);
     return thread.thread.topicId ? null : this.threadSummary(thread);
   }
 
@@ -574,6 +593,7 @@ export class TopicStore {
       createdAt: topic.createdAt,
       activityAt: thread.lastMessageAt ?? topic.createdAt,
       ...(thread.settledAt ? { settledAt: thread.settledAt } : {}),
+      ...(thread.lastMessageAt === undefined ? { empty: true } : {}),
     };
   }
 
@@ -599,6 +619,7 @@ export class TopicStore {
     topic.nameSource = by;
     topic.updatedAt = this.now();
     this.dirty = true;
+    if (topic.thread) this.onThreadChange?.(topic.thread.leaderId);
     return this.summary(topic);
   }
 
@@ -772,6 +793,7 @@ export class TopicStore {
         delete topic.thread.settledAt;
         delete topic.thread.sortAskedAt;
         this.dirty = true;
+        this.onThreadChange?.(topic.thread.leaderId);
       }
       const under = topic.thread.topicId ? this.live(topic.thread.topicId) : undefined;
       if (!under) return;

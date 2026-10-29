@@ -15,6 +15,16 @@ export interface ThreadsMenu {
   questions?: (threadKey: string) => number;
   /** Whether the New thread page is on screen. */
   starting: boolean;
+  /** Removes a thread whose first message never arrived. */
+  onRemove?: (threadKey: string) => void;
+}
+
+/** How long a new thread may wait for its first message before it counts as never sent. */
+const UNSENT_AFTER_MS = 30_000;
+
+/** A thread whose first message never arrived: its send failed, so it holds nothing. */
+export function isUnsent(thread: ThreadSummary, now = Date.now()): boolean {
+  return !!thread.empty && now - thread.createdAt > UNSENT_AFTER_MS;
 }
 
 /**
@@ -68,7 +78,8 @@ export function ThreadsList({
     const meta = [thread.topic ? `in ${thread.topic.name}` : null, timeAgo(thread.activityAt)]
       .filter(Boolean)
       .join(" · ");
-    return (
+    const notSent = isUnsent(thread);
+    const main = (
       <button
         key={thread.id}
         type="button"
@@ -88,7 +99,15 @@ export function ThreadsList({
             )}
             <span className="truncate">{thread.name}</span>
           </span>
-          <span className="mt-0.5 truncate text-[11.5px] text-cc-muted">{meta}</span>
+          <span className="mt-0.5 truncate text-[11.5px] text-cc-muted">
+            {notSent ? (
+              <span className="text-cc-error" data-testid="threads-menu-row-unsent">
+                Not sent{meta ? ` · ${meta}` : ""}
+              </span>
+            ) : (
+              meta
+            )}
+          </span>
         </span>
         {questions > 0 && (
           // The leader asked something here: amber, like a question anywhere else.
@@ -105,6 +124,22 @@ export function ThreadsList({
           </span>
         )}
       </button>
+    );
+    if (!notSent || !menu.onRemove) return main;
+    // Its first message never arrived, so nothing is lost by removing it.
+    return (
+      <div key={thread.id} className="flex items-center">
+        <div className="min-w-0 flex-1">{main}</div>
+        <button
+          type="button"
+          onClick={() => menu.onRemove?.(thread.key)}
+          className="mr-3 shrink-0 rounded px-2 py-1 text-[12px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+          title="Remove this thread: its first message was never sent"
+          data-testid="threads-menu-remove"
+        >
+          Remove
+        </button>
+      </div>
     );
   };
   const heading = (label: string, count: number) => (

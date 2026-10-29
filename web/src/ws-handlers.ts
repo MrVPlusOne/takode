@@ -65,6 +65,7 @@ import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
 import { recordLiveAnswerArrival } from "./utils/live-answer-arrivals.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
+import { reloadLeaderThreads } from "./utils/leader-topics.js";
 import { applyKeyedListDelta } from "../shared/keyed-list-delta.js";
 import { heldTreeGroupsHash } from "./utils/held-snapshot-parts.js";
 import { receiveSyncedList } from "./utils/synced-lists.js";
@@ -898,6 +899,39 @@ function handleParsedMessage(
       if (data.input.clientMsgId) {
         markPendingUserMessageFailed(sessionId, data.input.clientMsgId, data.message);
       }
+      break;
+    }
+
+    case "leader_threads_changed": {
+      reloadLeaderThreads(data.leaderId);
+      break;
+    }
+
+    case "user_message_rejected": {
+      const pending = data.client_msg_id
+        ? store.pendingUserUploads.get(sessionId)?.find((upload) => upload.id === data.client_msg_id)
+        : undefined;
+      if (pending) {
+        // Its bubble says it wasn't delivered, with Retry (kept prepared) and Edit.
+        store.updatePendingUserUpload(sessionId, pending.id, (upload) => ({
+          ...upload,
+          stage: "failed",
+          error: data.message,
+        }));
+        break;
+      }
+      // A message with no pending copy was cleared from the composer on send: put its text back.
+      const draft = store.composerDrafts.get(sessionId);
+      const text = draft?.text.trim() ? `${draft.text}\n\n${data.content}` : data.content;
+      store.setComposerDraft(sessionId, { ...draft, text, images: draft?.images ?? [] });
+      store.appendMessage(sessionId, {
+        id: nextId(),
+        role: "system",
+        content: `${data.message}. Your message is back in the composer.`,
+        timestamp: Date.now(),
+        variant: "error",
+        ephemeral: true,
+      });
       break;
     }
 

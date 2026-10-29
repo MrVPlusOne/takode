@@ -27,7 +27,8 @@ import {
   type ThreadTabGroupBarProps,
 } from "./ThreadTabGroups.js";
 import { NotificationChip } from "./NotificationChip.js";
-import { useLeaderThreads, useLeaderTopics } from "../utils/leader-topics.js";
+import { reloadLeaderThreads, rememberThreads, useLeaderThreads, useLeaderTopics } from "../utils/leader-topics.js";
+import { topicApi } from "../api/topics.js";
 import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 
@@ -329,6 +330,24 @@ export function ThreadTabRail({
                   useStore.getState().focusComposer();
                 },
                 onOpen: openThread,
+                onRemove: (threadKey) => {
+                  const thread = allThreads.find((candidate) => candidate.key === threadKey);
+                  if (!thread) return;
+                  topicApi
+                    .removeThread(thread.id)
+                    .then(() => {
+                      rememberThreads(
+                        sessionId,
+                        allThreads.filter((candidate) => candidate.id !== thread.id),
+                      );
+                      if (currentKey === threadKey) openThread(MAIN_THREAD_KEY);
+                    })
+                    .catch((error: Error) => {
+                      // It got a message meanwhile (it is a conversation now) or the server failed.
+                      console.warn("[library] Could not remove the thread:", error.message);
+                      reloadLeaderThreads(sessionId);
+                    });
+                },
                 unread: (threadKey) => unreadIn([threadKey]).length,
                 questions: (threadKey) =>
                   (notifications ?? []).filter(

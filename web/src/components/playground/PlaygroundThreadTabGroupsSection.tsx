@@ -117,8 +117,8 @@ function playgroundTopic(
 
 /**
  * A leader's threads (New thread) for the Threads menu: one the leader is answering, one with an
- * unread answer and one with an open question (all Active), then two read ones (Recent), one
- * unfiled and one filed under a topic.
+ * unread answer, one with an open question and one whose first message never arrived (all Active),
+ * then two read ones (Recent), one unfiled and one filed under a topic.
  */
 const THREADS: ThreadSummary[] = [
   playgroundThread("0a1b2c3d", "Phone can't reach Takode over Tailscale", 1),
@@ -127,6 +127,7 @@ const THREADS: ThreadSummary[] = [
     settledAt: NOW - 10 * MINUTE,
     topic: { id: "topic-briefing", name: "Daily briefing" },
   }),
+  playgroundThread("5f6a7b8c", "Quick question about the landing queue", 20, { empty: true }),
   playgroundThread("2c3d4e5f", "Why the old draft came back", 50, { settledAt: NOW - 40 * MINUTE }),
   playgroundThread("3d4e5f6a", "Answer times on wrapped lines", 90, {
     settledAt: NOW - 80 * MINUTE,
@@ -163,6 +164,7 @@ function threadsMenu(onOpen: (threadKey: string) => void): ThreadsMenu {
     onOpen,
     unread: (threadKey) => THREAD_UNREAD[threadKey] ?? 0,
     questions: (threadKey) => THREAD_QUESTIONS[threadKey] ?? 0,
+    onRemove: () => {},
   };
 }
 

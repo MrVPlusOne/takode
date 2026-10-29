@@ -65,6 +65,8 @@ export interface ThreadSummary {
    * section; writing in it makes it active again.
    */
   settledAt?: number;
+  /** No message has arrived in it yet; if its first send failed it stays so, and can be removed. */
+  empty?: true;
 }
 
 export interface TopicEvent {

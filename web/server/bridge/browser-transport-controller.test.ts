@@ -1631,6 +1631,35 @@ describe("programmatic user message injection", () => {
     errorSpy.mockRestore();
   });
 
+  it("tells the sending browser its user message was rejected, so it doesn't stay at Sending", async () => {
+    // The browser keeps a pending copy (client_msg_id) or has already cleared the composer; a bare
+    // error banner left the copy at "Sending..." forever, or lost the text.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = makeInjectDeps({
+      routeBrowserMessage: vi.fn(async () => {
+        throw new Error("Each annotation needs a unique ID");
+      }),
+    });
+    const ws = { data: {}, send: vi.fn() };
+
+    await handleBrowserIngressMessage(
+      makeSession({ backendType: "claude" }),
+      { type: "user_message", content: "How is that enforced?", client_msg_id: "pending-7" },
+      ws as never,
+      deps,
+    );
+
+    const sent = ws.send.mock.calls.map(([json]) => JSON.parse(json as string));
+    expect(sent).toContainEqual({
+      type: "user_message_rejected",
+      client_msg_id: "pending-7",
+      content: "How is that enforced?",
+      message: "The server couldn't accept this message",
+    });
+    expect(deps.broadcastError).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   it("preserves pending ownership when a route throws after admitting the released group", async () => {
     // A late route exception must not overwrite an already durable pending owner with a false failed receipt.
     const link = { summaryId: "summary-1", groupId: "accepted-before-error" };
