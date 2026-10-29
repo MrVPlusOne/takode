@@ -72,6 +72,8 @@ const DEFAULT_MEMORY_LIMIT_MB = 1024;
 const MEMORY_POLL_MS = 150;
 const CACHE_LIMIT = 300;
 const DOCUMENT_BUDGET_MS = 30_000;
+/** Longest a cold Chrome start may take before a render; it is not counted in the render's own budget. */
+const CHROME_START_BUDGET_MS = 30_000;
 /** Tallest PNG side in device pixels: past it a long document is captured at a smaller scale. */
 const MAX_PNG_PIXELS = 16_000;
 
@@ -90,22 +92,24 @@ export class VisualRenderer {
     if (cached) return Promise.resolve(cached);
     // A render must never hold the queue: past its budget it counts as a timeout and Chrome starts over.
     const limit = (this.options.settleBudgetMs ?? DEFAULT_SETTLE_BUDGET_MS) + 8000;
-    const run = this.queue.then(async () => {
+    const run = this.queue.then(async (): Promise<VisualRenderResult> => {
+      // Starting Chrome is not the visual's doing: a cold start on a busy machine must not use up
+      // its budget and leave a cached timeout for a visual that is fine. The start has its own limit.
+      const startFailure = await withTimeout(
+        this.connection().then(
+          () => null,
+          (error: Error) => `No headless Chrome: ${error.message}`,
+        ),
+        CHROME_START_BUDGET_MS,
+      );
+      if (startFailure !== null) {
+        const detail = startFailure === TIMED_OUT ? "Headless Chrome did not start in time." : startFailure;
+        return { ...emptyResult(request), detail };
+      }
       const result = await withTimeout(this.renderNow(request), limit);
       if (result !== TIMED_OUT) return result;
       await this.restart();
-      return {
-        status: "timeout" as const,
-        width: request.width,
-        theme: request.theme,
-        height: 0,
-        settleMs: limit,
-        elementCount: 0,
-        contentWidth: 0,
-        smallestTextPx: null,
-        errors: [],
-        detail: "Rendering did not finish.",
-      };
+      return { ...emptyResult(request), status: "timeout", settleMs: limit, detail: "Rendering did not finish." };
     });
     this.queue = run.catch(() => undefined);
     return run.then((result) => {
@@ -139,17 +143,7 @@ export class VisualRenderer {
   }
 
   private async renderNow(request: VisualRenderRequest): Promise<VisualRenderResult> {
-    const base: VisualRenderResult = {
-      status: "unavailable",
-      width: request.width,
-      theme: request.theme,
-      height: 0,
-      settleMs: 0,
-      elementCount: 0,
-      contentWidth: 0,
-      smallestTextPx: null,
-      errors: [],
-    };
+    const base = emptyResult(request);
     let browser: ChromeConnection;
     try {
       browser = await this.connection();
@@ -249,6 +243,21 @@ export class VisualRenderer {
     this.idleTimer = setTimeout(() => void this.close(), IDLE_SHUTDOWN_MS);
     this.idleTimer.unref?.();
   }
+}
+
+/** A result with nothing measured, reported as unavailable unless the caller says otherwise. */
+function emptyResult(request: VisualRenderRequest): VisualRenderResult {
+  return {
+    status: "unavailable",
+    width: request.width,
+    theme: request.theme,
+    height: 0,
+    settleMs: 0,
+    elementCount: 0,
+    contentWidth: 0,
+    smallestTextPx: null,
+    errors: [],
+  };
 }
 
 async function renderInPage(
