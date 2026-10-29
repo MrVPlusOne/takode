@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,6 +23,15 @@ describe("Codex leader compaction mode launch prep", () => {
     await mkdir(join(codexHome, sessionId), { recursive: true });
     const models = [{ slug: model, base_instructions: "Built-in prompt" }];
     await writeFile(join(codexHome, sessionId, "models_cache.json"), JSON.stringify({ models }), "utf-8");
+  }
+
+  // A stand-in Codex program, so host launch prep never depends on a codex
+  // installed on the machine running the tests (CI runners have none).
+  async function makeFakeCodexBinary(): Promise<string> {
+    const binary = join(await makeCodexHomeRoot(), "codex");
+    await writeFile(binary, "#!/bin/sh\nexit 0\n", "utf-8");
+    await chmod(binary, 0o755);
+    return binary;
   }
 
   it("keeps delegate MCP for compact-mode leaders while disabling recycle guard config", async () => {
@@ -77,6 +86,7 @@ describe("Codex leader compaction mode launch prep", () => {
         sessionId,
         { cwd: "/repo", isOrchestrator: true, codexLeaderCompactionMode: mode },
         {
+          codexBinary: await makeFakeCodexBinary(),
           codexHome,
           codexAgentsSkillsHome: await makeCodexHomeRoot(),
           codexHomePrepared: true,
