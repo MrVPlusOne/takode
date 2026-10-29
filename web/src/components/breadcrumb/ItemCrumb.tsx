@@ -7,7 +7,7 @@ import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { timeAgo } from "../../utils/quest-helpers.js";
 import { getQuestStatusTheme } from "../../utils/quest-status-theme.js";
 import { NewThreadIcon, TopicIcon } from "../library/library-icons.js";
-import { Chevron } from "./PlaceCrumb.js";
+import { CrumbChevron } from "./PlaceCrumb.js";
 import { isOpenInSideClick, openConversationInSide } from "../../utils/side-column.js";
 
 type TopicQuest = NonNullable<TopicDetail["quests"]>[number];
@@ -84,7 +84,7 @@ export function ItemCrumb({
         data-testid="item-crumb-button"
       >
         <span className="min-w-0 truncate">{label}</span>
-        <Chevron />
+        <CrumbChevron />
       </button>
       {open && (
         <div

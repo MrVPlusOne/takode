@@ -48,7 +48,7 @@ export function PlaceCrumb({
         )}
         <span className="min-w-0 truncate">{label}</span>
         {attention}
-        <Chevron />
+        <CrumbChevron />
       </button>
       {open && (
         <div
@@ -130,10 +130,22 @@ export function Chevron() {
   );
 }
 
-/** The ">" between the breadcrumb's parts. */
+/**
+ * The ▾ of a breadcrumb picker, drawn without the empty margin of an icon box so the names get the
+ * room (Jiayi: "too much space wasted by the point down arrows"). Its button stays as tall as before.
+ */
+export function CrumbChevron() {
+  return (
+    <svg viewBox="3.5 5.5 9 5.5" className="h-[5px] w-2 shrink-0 text-cc-muted" fill="none" aria-hidden="true">
+      <path d="M4.5 6.5 8 10l3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** The ">" between the breadcrumb's parts, drawn tight like CrumbChevron. */
 export function CrumbSeparator() {
   return (
-    <svg viewBox="0 0 16 16" className="h-3 w-3 shrink-0 text-cc-muted" fill="none" aria-hidden="true">
+    <svg viewBox="5 2.5 6.5 11" className="h-2.5 w-1.5 shrink-0 text-cc-muted/80" fill="none" aria-hidden="true">
       <path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );

@@ -338,7 +338,7 @@ const BREADCRUMB_JOURNEY_OPTIONS = { ...QUEST_HEADER_JOURNEY_OPTIONS, dotOnlyOnN
  * On a phone's breadcrumb band, the quest number goes when the title would get less than this
  * room (Jiayi: "hide quest number when space is not enough"); the quest's lists and card name it.
  */
-const TITLE_ROOM_BEFORE_NUMBER_HIDES_PX = 176;
+const TITLE_ROOM_BEFORE_NUMBER_HIDES_PX = 192;
 
 /**
  * Whether the quest number keeps its place before the title: false while the title, with the
@@ -363,7 +363,8 @@ function useQuestNumberFits(
       const number = numberRef.current;
       // 6 px: the gap the number takes with it.
       if (number && number.offsetWidth > 0) numberWidthRef.current = number.offsetWidth + 6;
-      const text = titleBox.querySelector<HTMLElement>(".truncate") ?? titleBox;
+      // The innermost truncating text: a picker's button holds its label, which is what gets cut.
+      const text = [...titleBox.querySelectorAll<HTMLElement>(".truncate")].at(-1) ?? titleBox;
       setFits((shown) => {
         const room = text.clientWidth - (shown ? 0 : numberWidthRef.current);
         return !(room < text.scrollWidth && room < TITLE_ROOM_BEFORE_NUMBER_HIDES_PX);

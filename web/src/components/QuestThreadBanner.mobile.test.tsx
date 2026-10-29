@@ -270,15 +270,15 @@ describe("breadcrumb band on phones", () => {
     const fits = render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" singleLine />);
     expect(numberBox()).not.toHaveClass("max-sm:hidden");
     fits.unmount();
-    // Cut short but with a fair amount of room left (over 176 px).
-    layout.room = 200;
+    // Cut short but with a fair amount of room left (over 192 px).
+    layout.room = 210;
     layout.full = 400;
     const roomy = render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" singleLine />);
     expect(numberBox()).not.toHaveClass("max-sm:hidden");
     roomy.unmount();
     // Cut short to a few words: the number goes, and stays gone while the title (now wider by the
     // number's 56 px) would be short again with it.
-    layout.room = 150;
+    layout.room = 180;
     render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" singleLine />);
     expect(numberBox()).toHaveClass("max-sm:hidden");
   });
