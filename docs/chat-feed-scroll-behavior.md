@@ -145,9 +145,9 @@ new content.
 When unread answers or reports of the conversation sit above the view, a pill at
 the top of the feed says how many ("2 unread"); a tap jumps to the first one,
 where the red New line is. Each one leaves the count once it has been read by
-being on screen. Clicking a thread's tab follows the same rule even when it has
-unread results; Next, notifications and message links still land on their
-message.
+being on screen. Clicking a thread's tab or opening a topic follows the same rule
+even when it has unread results; Next, notifications and message links still
+land on their message.
 
 ### 6. Jumping to a message
 

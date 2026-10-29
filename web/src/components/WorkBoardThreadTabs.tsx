@@ -22,7 +22,6 @@ import { countUnreadResults, ThreadTabGroupBar, topicFirstTabOrder } from "./Thr
 import { LeaderBreadcrumbNav, type LeaderBreadcrumbNavProps } from "./breadcrumb/LeaderBreadcrumbNav.js";
 import { useLeaderThreads, useLeaderTopics } from "../utils/leader-topics.js";
 import { isOpenInSideClick, openInSide, type OpenInSideEvent } from "../utils/side-column.js";
-import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 
 /** Find's Messages mode lists this many of the user's latest messages. */
@@ -262,12 +261,7 @@ export function ThreadTabRail({
       openInSide(sessionId, { kind: "topic", topicId: topic.id });
       return;
     }
-    // A topic with unread results opens at the first one: answers first, where the "New" line is.
-    const firstUnread = firstUnreadResult(unreadIn([topicViewKey(topic.id), ...topic.questIds]), () => true);
-    if (firstUnread) {
-      navigateToNotification(sessionId, firstUnread, useStore.getState().sdkSessions, { topicView: true });
-      return;
-    }
+    // Like any opening: where it was left if recent, else at the latest with the unread counted above.
     // The tab on screen when it is one of the topic's quests, else its newest quest with a tab.
     const inTabs = new Set(displayedTabs.map((tab) => tab.questId));
     const byNewest = [...topic.questIds].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)));

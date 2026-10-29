@@ -325,6 +325,56 @@ describe("WorkBoardBar tab groups", () => {
     }
   });
 
+  it("opens a topic with unread answers like any place, not at its first unread answer", async () => {
+    // Opening a topic follows the opening rule (where it was left if recent, else at the latest
+    // with the unread counted above); only Next and links land on a specific message.
+    const leader = "unread-topic-leader";
+    resetStore({
+      sdkSessions: [{ sessionId: leader, isOrchestrator: true }],
+      sessionNotifications: new Map([
+        [
+          leader,
+          [
+            {
+              id: "n-answer",
+              category: "review",
+              unreadReason: "answer",
+              messageId: "m-answer",
+              threadKey: "q-1",
+              timestamp: 10,
+              done: false,
+            },
+          ],
+        ],
+      ]),
+    });
+    const relay = { id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never;
+    rememberTopicList(leader, [relay]);
+    const list = vi.spyOn(topicApi, "list").mockResolvedValue({ topics: [relay] } as never);
+    const onSelectThread = vi.fn();
+    try {
+      render(
+        <WorkBoardBar
+          sessionId={leader}
+          currentThreadKey="main"
+          openThreadKeys={[]}
+          threadRows={[]}
+          onSelectThread={onSelectThread}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("place-crumb-button"));
+      const row = (await screen.findAllByTestId("topic-tab-row")).find(
+        (candidate) => candidate.dataset.topic === "t1",
+      )!;
+      fireEvent.click(within(row).getByRole("menuitem"));
+      expect(window.location.hash).not.toContain("/msg/");
+      expect(window.location.hash).toContain("topic=1");
+    } finally {
+      list.mockRestore();
+      localStorage.clear();
+    }
+  });
+
   it("counts unread results without treating an opened list as reading them", () => {
     const onSelectThread = vi.fn();
 
