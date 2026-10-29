@@ -1411,10 +1411,9 @@ describe("MessageFeed activity viewport stability", () => {
     }
   });
 
-  it("floats the session attention chip at the top right on desktop and the bottom right on phones", () => {
-    // Desktop: near the top bar's attention controls, to cut mouse travel.
-    // Phone: at the bottom right, within thumb reach. Only one chip ever shows,
-    // and on desktop the bottom-right stack leaves it out entirely.
+  it("floats the session attention chip at the bottom right on desktop and phones alike", () => {
+    // Jiayi moved desktop's chip from the feed's top right to the lower right, as on phones. Only
+    // one chip ever shows, and the top controls never hold it.
     const sid = "attention-chip-placement";
     setProducerWindow(sid, "main");
     setConnectedLeaderSession(sid);
@@ -1426,10 +1425,8 @@ describe("MessageFeed activity viewport stability", () => {
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
       expect(screen.getAllByRole("button", { name: chipName })).toHaveLength(1);
-      expect(
-        within(screen.getByTestId("message-feed-top-controls")).getByRole("button", { name: chipName }),
-      ).toBeTruthy();
-      expect(within(screen.getByTestId("feed-status-pill-right")).queryByRole("button", { name: chipName })).toBeNull();
+      expect(within(screen.getByTestId("feed-status-pill-right")).getByRole("button", { name: chipName })).toBeTruthy();
+      expect(screen.queryByTestId("message-feed-top-controls")).toBeNull();
 
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 430 });
       act(() => window.dispatchEvent(new Event("resize")));

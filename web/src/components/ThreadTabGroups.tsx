@@ -164,8 +164,6 @@ export interface ThreadTabGroupBarProps extends RowContext {
      */
     unreadOf?: (threadKeys: readonly string[]) => UnreadResultCount;
   };
-  /** Shown in the row right after the tabs, outside the tab list (the desktop Next chip). */
-  trailing?: ReactNode;
   /**
    * Topic-first leaders: the Threads menu (New thread, then active and recent threads), next to
    * Topics. Threads are not quests: Working on keeps only the quests in motion.
@@ -173,10 +171,9 @@ export interface ThreadTabGroupBarProps extends RowContext {
   threadsMenu?: ThreadsMenu;
   /**
    * Desktop leaders with topics on: the bar lives in the top bar instead of a tab row. Main | All,
-   * Topics, Threads and the Next chip (`trailing`) sit where the bar is drawn; the Working on menu,
-   * which holds the work board, goes to `inTopBar.helpers`. Topics, Threads and Working on carry no
-   * attention bell: the Next chip and the attention count carry questions and unread results, and
-   * their lists mark each one.
+   * Topics and Threads sit where the bar is drawn; the Working on menu, which holds the work board,
+   * goes to `inTopBar.helpers`. Topics, Threads and Working on carry no attention bell: the feed's
+   * Next chip and the attention count carry questions and unread results, and their lists mark each one.
    */
   inTopBar?: {
     helpers: HTMLElement | null;
@@ -193,7 +190,6 @@ export function ThreadTabGroupBar({
   tabs,
   placement = "top",
   topicsGroup,
-  trailing,
   inTopBar,
   threadsMenu,
   ...rows
@@ -459,8 +455,6 @@ export function ThreadTabGroupBar({
             </TopBarButton>
           )}
           {openGroup === "threads" && threadsList && list("left", threadsList)}
-          {/* This conversation's Next chip, right after Topics and Threads: where to go next, beside where things are. */}
-          {trailing}
         </div>
         {inTopBar.helpers &&
           createPortal(
@@ -498,9 +492,9 @@ export function ThreadTabGroupBar({
         lastPressRef.current = "keyboard";
       }}
     >
-      <div className={trailing ? "flex items-center gap-2" : "contents"}>
+      <div className="contents">
         <div
-          className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"} ${trailing ? "self-end" : ""}`}
+          className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"}`}
           role="tablist"
         >
           {item("main", {
@@ -561,7 +555,6 @@ export function ThreadTabGroupBar({
                 : null,
             )}
         </div>
-        {trailing}
       </div>
       {openGroup && (
         <>

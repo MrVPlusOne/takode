@@ -94,10 +94,9 @@ describe("MessageFeedTopControls", () => {
     useStore.setState({ sessions: new Map(), codexSubagentInspector: null, sessionNotifications: new Map() });
   });
 
-  it("puts the session attention chip at the right end of the row on desktop only", () => {
-    // Desktop moves the chip to the feed's top right to cut mouse travel to
-    // the top bar's attention controls; phones keep it at the bottom right
-    // (FeedStatusPill) within thumb reach, so this row leaves it out there.
+  it("never shows the session's Next chip, which sits at the feed's lower right on every screen", () => {
+    // Desktop used to show it here (and a leader's chat after its tabs); Jiayi moved it to the
+    // feed's lower right on desktop too, as on phones (FeedStatusPill).
     installSession(true);
     installNeedsInput();
     const props = {
@@ -111,37 +110,8 @@ describe("MessageFeedTopControls", () => {
     };
     const view = render(<MessageFeedTopControls {...props} />);
     expect(screen.queryByTestId("session-attention-chip")).toBeNull();
-
     setViewportWidth(1280);
     view.rerender(<MessageFeedTopControls {...props} />);
-    const controls = screen.getByTestId("message-feed-top-controls");
-    const chip = within(controls).getByTestId("session-attention-chip");
-    const rightGroup = chip.parentElement!;
-    expect(rightGroup).toHaveClass("ml-auto", "shrink-0");
-    // The Codex child control and the chip share the right group, chip last.
-    expect(rightGroup.lastElementChild).toBe(chip);
-    expect(within(rightGroup).getByTestId("codex-subagent-feed-control-row")).toBeInTheDocument();
-    expect(chip).toHaveTextContent("1/1·Next");
-  });
-
-  it("leaves the chip out on desktop when a leader's tab row shows it", () => {
-    // In a leader's chat the chip sits right after the thread tabs instead, where it never covers
-    // the narrow feed's text; the feed must not show a second one.
-    installSession(true);
-    installNeedsInput();
-    setViewportWidth(1280);
-    render(
-      <MessageFeedTopControls
-        sessionId="session-1"
-        terminals={[]}
-        subagents={[]}
-        selectedToolUseId={null}
-        onSelect={vi.fn()}
-        onSelectSubagent={vi.fn()}
-        onDismissSubagent={vi.fn()}
-        showAttentionChip={false}
-      />,
-    );
     expect(screen.queryByTestId("session-attention-chip")).toBeNull();
     expect(screen.getByTestId("codex-subagent-feed-control-row")).toBeInTheDocument();
   });
@@ -287,11 +257,10 @@ describe("MessageFeedTopControls", () => {
       expect(screen.getByTestId("day-pill").parentElement).not.toHaveClass("absolute");
     });
 
-    it("sits level with the desktop attention chip, on the row instead of its own line", () => {
-      // A wide desktop feed has room for the centered pill beside the right-hand chip.
+    it("sits level with the desktop Codex subagent control, on the row instead of its own line", () => {
+      // A wide desktop feed has room for the centered pill beside the right-hand control.
       setViewportWidth(1280);
-      installSession(false);
-      installNeedsInput();
+      installSession(true);
       render(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} />);
       expect(screen.getByTestId("day-pill").parentElement).toHaveClass("absolute", "inset-0", "items-center");
     });

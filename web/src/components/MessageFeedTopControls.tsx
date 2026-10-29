@@ -3,23 +3,18 @@ import { useStore } from "../store.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { CodexSubagentFeedControl } from "./CodexSubagentFeedControl.js";
 import { LiveActivityRail, type CodexTerminalEntry, type LiveSubagentEntry } from "./MessageFeedLiveActivity.js";
-import { NotificationChip } from "./NotificationChip.js";
 
 /**
  * Controls floating at the top of the feed, in one row so they never overlap: live terminals and
- * subagents on the left, then the Codex subagent control and, on desktop, the session's attention
- * chip at the right. Desktop keeps the chip up here near the top bar's attention controls to cut
- * mouse travel, except in a leader's chat, where it sits right after the thread tabs so it never
- * covers text; phones keep it at the bottom right (FeedStatusPill), within thumb reach.
+ * subagents on the left, then the Codex subagent control at the right. The session's Next chip is
+ * at the feed's lower right on every screen size (FeedStatusPill).
  *
  * The feed's day pill sits centered at the top too. The live rail can span the whole row, and on
  * a phone the Codex subagent control leaves little room beside the pill, so then the pill takes
- * its own line under the row; otherwise it sits centered on the row, level with the attention chip.
+ * its own line under the row; otherwise it sits centered on the row.
  */
 export function MessageFeedTopControls({
   sessionId,
-  currentThreadKey,
-  onSelectThread,
   terminals,
   subagents,
   selectedToolUseId,
@@ -27,13 +22,10 @@ export function MessageFeedTopControls({
   onSelectSubagent,
   onDismissSubagent,
   showCodexSubagents = true,
-  showAttentionChip: attentionChipAllowed = true,
   dayPill,
   belowPinnedStrip = false,
 }: {
   sessionId: string;
-  currentThreadKey?: string;
-  onSelectThread?: (threadKey: string) => void;
   terminals: CodexTerminalEntry[];
   subagents: LiveSubagentEntry[];
   selectedToolUseId: string | null;
@@ -41,8 +33,6 @@ export function MessageFeedTopControls({
   onSelectSubagent: (taskToolUseId: string, turnId: string) => void;
   onDismissSubagent: (taskToolUseId: string, freshnessToken: string) => void;
   showCodexSubagents?: boolean;
-  /** False when a leader's tab row shows the attention chip instead. */
-  showAttentionChip?: boolean;
   /** The feed's day pill (`MessageFeedDayPill`), which renders nothing when it has no day to show. */
   dayPill?: ReactNode;
   /**
@@ -58,11 +48,12 @@ export function MessageFeedTopControls({
   );
   const hasCodexSubagents = showCodexSubagents && hasCodexSubagentData;
   const hasLiveActivity = terminals.length > 0 || subagents.length > 0;
-  const showAttentionChip = useDesktopShellLayout() && attentionChipAllowed;
+  const desktop = useDesktopShellLayout();
 
-  const hasRow = hasCodexSubagents || hasLiveActivity || showAttentionChip;
+  const hasRow = hasCodexSubagents || hasLiveActivity;
   if (!hasRow && !dayPill) return null;
-  const pillOnOwnLine = !hasRow || hasLiveActivity || (hasCodexSubagents && !showAttentionChip);
+  // Desktop has room for the pill beside the Codex subagent control; a phone does not.
+  const pillOnOwnLine = !hasRow || hasLiveActivity || (hasCodexSubagents && !desktop);
 
   const row = hasRow && (
     <div className="flex min-w-0 items-start gap-2" data-testid="message-feed-top-controls">
@@ -76,17 +67,9 @@ export function MessageFeedTopControls({
           onDismissSubagent={onDismissSubagent}
         />
       )}
-      {(hasCodexSubagents || showAttentionChip) && (
+      {hasCodexSubagents && (
         <div className="ml-auto flex shrink-0 items-start gap-2">
-          {hasCodexSubagents && <CodexSubagentFeedControl sessionId={sessionId} />}
-          {showAttentionChip && (
-            <NotificationChip
-              sessionId={sessionId}
-              currentThreadKey={currentThreadKey}
-              onSelectThread={onSelectThread}
-              placement="top"
-            />
-          )}
+          <CodexSubagentFeedControl sessionId={sessionId} />
         </div>
       )}
     </div>

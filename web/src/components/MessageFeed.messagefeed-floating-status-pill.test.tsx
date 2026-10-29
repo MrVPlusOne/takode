@@ -1094,6 +1094,34 @@ describe("MessageFeed - floating status pill", () => {
     getBoundingClientRectSpy.mockRestore();
   });
 
+  it("puts the Next chip at the feed's lower right on desktop too", () => {
+    // Desktop used to float it at the feed's top right (and, in a leader's chat, in the top bar);
+    // Jiayi asked for the lower right on desktop as on phones, where the floating stack's height
+    // also reserves room under the last message.
+    const sid = "test-feed-desktop-next-chip";
+    const width = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440 });
+    try {
+      setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Scroll target" })]);
+      setStoreNotifications(sid, [
+        {
+          id: "notif-1",
+          category: "needs-input",
+          summary: "Pick one",
+          timestamp: Date.now(),
+          messageId: "msg-anchor",
+          done: false,
+        },
+      ]);
+      render(<MessageFeed sessionId={sid} />);
+      const lowerRight = screen.getByTestId("feed-status-pill-right");
+      expect(within(lowerRight).getByTestId("session-attention-chip")).toBeTruthy();
+      expect(screen.getAllByTestId("session-attention-chip")).toHaveLength(1);
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    }
+  });
+
   it("excludes leader kickoff injected events from previous and next user-message navigation targets", () => {
     const sid = "test-feed-injected-event-navigation";
     setStoreMessages(sid, [

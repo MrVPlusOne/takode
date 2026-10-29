@@ -8,7 +8,6 @@ import { YarnBallDot } from "./CatIcons.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { WaitingChip } from "./WaitingChip.js";
 import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
-import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { formatElapsed, formatTokens } from "./message-feed-utils.js";
 import { normalizeThreadKey, threadViewShows } from "../utils/thread-projection.js";
 import { useTopicKeyNamer } from "../utils/leader-topics.js";
@@ -586,8 +585,6 @@ export function FeedStatusPill({
   const rightStackRef = useRef<HTMLDivElement>(null);
   const [activityVisibleHeight, setActivityVisibleHeight] = useState(0);
   const composerOverlayLift = useComposerOverlayLift();
-  // Desktop shows the attention chip at the feed's top right (MessageFeedTopControls).
-  const desktopShell = useDesktopShellLayout();
 
   useLayoutEffect(() => {
     if (!onVisibleHeightChange && !onRunwayHeightChange) return;
@@ -647,9 +644,8 @@ export function FeedStatusPill({
         className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3"
       >
         <WaitingChip sessionId={sessionId} />
-        {!desktopShell && (
-          <NotificationChip sessionId={sessionId} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
-        )}
+        {/* The session's Next chip, at the feed's lower right on phones and desktop alike. */}
+        <NotificationChip sessionId={sessionId} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
       </div>
     </>
   );

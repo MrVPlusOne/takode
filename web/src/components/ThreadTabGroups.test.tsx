@@ -561,9 +561,9 @@ describe("Topics and Working on, and the marks in their lists", () => {
 
 describe("ThreadTabGroupBar in the top bar", () => {
   // Desktop leaders with topics on (Jiayi's pick, design C with her changes): the bar leaves its
-  // own tab row. Main | All, Topics and the Next chip sit after the session name; Working on, merged
-  // with the Board button, sits before the attention bell, and the full board is behind a button in
-  // the Working on menu.
+  // own tab row. Main | All and Topics sit after the session name; Working on, merged with the Board
+  // button, sits before the attention bell, and the full board is behind a button in the Working on
+  // menu.
   const topic = (id: string, name: string, questIds: string[]) =>
     ({ id, name, activityAt: 1, questIds, latestUpdate: `${name} moved.` }) as never;
   afterEach(() => {
@@ -576,7 +576,6 @@ describe("ThreadTabGroupBar in the top bar", () => {
     const onToggleBoard = vi.fn();
     const view = renderBar({
       currentThreadKey,
-      trailing: <span data-testid="next-chip">Next</span>,
       topicsGroup: {
         topics: [topic("t1", "Relay", ["q-10"])],
         currentTopicId: null,
@@ -588,7 +587,7 @@ describe("ThreadTabGroupBar in the top bar", () => {
     return { ...view, helpers, onToggleBoard };
   }
 
-  it("puts Main | All, Topics and then Next in place, and Working on in the helpers", () => {
+  it("puts Main | All and Topics in place, and Working on in the helpers", () => {
     const { helpers, onSelect } = renderInTopBar();
     const bar = screen.getByTestId("thread-tab-group-bar");
     expect(within(bar).getByTestId("thread-tab-group-main")).toBeTruthy();
@@ -596,13 +595,8 @@ describe("ThreadTabGroupBar in the top bar", () => {
     expect(within(bar).queryByTestId("thread-tab-group-working-on")).toBeNull();
     // No folder tabs: nothing in the bar claims to be the tab on screen.
     expect(within(bar).queryAllByRole("tab")).toEqual([]);
-    // The Next chip sits right after Topics (Jiayi, round 6), not at the right end.
-    const next = within(bar).getByTestId("next-chip");
-    expect(
-      within(bar).getByTestId("thread-tab-group-topics").compareDocumentPosition(next) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(within(helpers).queryByTestId("next-chip")).toBeNull();
+    // The Next chip is not in the bar: it sits at the feed's lower right (round 4 of the header work).
+    expect(screen.queryByTestId("session-attention-chip")).toBeNull();
     const workingOn = within(helpers).getByTestId("thread-tab-group-working-on");
     // The Board button's monitor icon, with the count of unfinished quests (q-10 and q-11).
     expect(within(workingOn).getByTestId("workboard-dots-icon")).toBeTruthy();

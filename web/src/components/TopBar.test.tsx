@@ -1077,6 +1077,9 @@ describe("TopBar", () => {
 
     expect(screen.getByTestId("topbar-thread-nav")).toBeInTheDocument();
     expect(screen.getByTestId("topbar-thread-helpers")).toBeInTheDocument();
+    // The identity keeps a fixed width, so the navigation after it starts at the same spot whatever
+    // the session's name (Jiayi: the controls moved left and right with the name).
+    expect(screen.getByTestId("topbar-identity")).toHaveClass("w-[17rem]", "shrink-0");
     expect(screen.queryByTestId("topbar-workboard-button")).toBeNull();
     expect(screen.queryByTestId("session-settings-summary")).toBeNull();
     expect(screen.getByTitle("Leader Session · opus-5.5 · Accept edits")).toBeInTheDocument();

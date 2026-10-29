@@ -372,7 +372,13 @@ export function TopBar({
         compact ? "gap-2 px-2 py-1.5" : navInTopBar ? "gap-3 px-4 py-1.5" : "px-2 sm:px-4 py-2 sm:py-2.5"
       }`}
     >
-      <div className={`flex items-center min-w-0 ${compact ? "flex-1 gap-2" : "gap-3"}`}>
+      {/* With navigation in the bar, the session's identity keeps a fixed width (a long name
+          truncates, its full form in the tooltip), so whatever sits in the navigation place starts
+          at the same spot for every session instead of moving with the name's length. */}
+      <div
+        className={`flex items-center min-w-0 ${compact ? "flex-1 gap-2" : "gap-3"} ${navInTopBar ? TOP_BAR_IDENTITY_WIDTH : ""}`}
+        data-testid="topbar-identity"
+      >
         {/* Sidebar toggle */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -671,3 +677,6 @@ function TopBarSettingsSummary({ sessionId }: { sessionId: string }) {
     </span>
   );
 }
+
+/** The identity's fixed width when the bar holds navigation: room for a portrait, #N and a short name. */
+const TOP_BAR_IDENTITY_WIDTH = "w-[17rem] shrink-0";

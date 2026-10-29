@@ -574,9 +574,6 @@ export function ChatView({
   );
   const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
   const desktopShell = useDesktopShellLayout();
-  // On desktop a leader's Next chip sits right after the thread tabs instead of over the feed.
-  const hasThreadTabRow = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
-  const attentionChipInTabRow = desktopShell && !preview && hasThreadTabRow;
   // Desktop leaders with topics on: tabs in the top bar, the topic folded into the quest strip.
   const navInTopBar = useLeaderNavInTopBar(sessionId) && !preview;
   // On a phone the open topic panel starts right under the tabs: the thread's strips step aside.
@@ -1246,7 +1243,6 @@ export function ChatView({
           threadRows={isLeaderSession ? workBoardThreadRows : undefined}
           closeTabRef={workBoardCloseTabRef}
           hideThreadStrip={phoneTopicsOpen || newThreadOpen}
-          attentionChipThreadKey={attentionChipInTabRow ? feedThreadKey : undefined}
         />
       )}
 
@@ -1343,7 +1339,6 @@ export function ChatView({
                           onSelectThread={isLeaderSession ? handleSelectThread : undefined}
                           showCodexSubagentControl={!preview}
                           markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
-                          attentionChipInTabRow={attentionChipInTabRow}
                         />
                       </TopicFeedContext.Provider>
                     </StartedQuestsProvider>

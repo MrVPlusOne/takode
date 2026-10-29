@@ -125,27 +125,6 @@ function useNotificationPopoverLayout(anchor: HTMLElement | null, placement: Not
   } as CSSProperties;
 }
 
-/** The popover's left edge under the anchor's left edge, kept inside the window; null without an anchor. */
-function usePopoverLeftUnderAnchor(anchor: HTMLElement | null, popoverRef: RefObject<HTMLDivElement | null>) {
-  const [leftPx, setLeftPx] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const popover = popoverRef.current;
-    if (!anchor || !popover) {
-      setLeftPx(null);
-      return;
-    }
-    const update = () => {
-      const maxLeft = window.innerWidth - popover.offsetWidth - NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX;
-      const left = Math.min(anchor.getBoundingClientRect().left, maxLeft);
-      setLeftPx(Math.max(NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX, left));
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [anchor, popoverRef]);
-  return leftPx;
-}
-
 function useNotifications(sessionId: string) {
   const all = useStore((s) => s.sessionNotifications?.get(sessionId)) ?? EMPTY;
   const actionable = useMemo(() => all.filter(isActionableSessionNotification), [all]);
@@ -801,14 +780,11 @@ function NotificationPopover({
   attentionItems,
   nextAttentionKey,
   onOpenAttentionItem,
-  alignToAnchor = false,
 }: {
   sessionId: string;
   onClose: () => void;
   anchor: HTMLElement | null;
   placement: NotificationChipPlacement;
-  /** Open under the chip, from its left edge, instead of at the window's right edge. */
-  alignToAnchor?: boolean;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   /** The session's queue; its Notify Me and unread items get their own sections. */
@@ -824,7 +800,6 @@ function NotificationPopover({
   const [showDone, setShowDone] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const popoverLayoutStyle = useNotificationPopoverLayout(anchor, placement);
-  const leftPx = usePopoverLeftUnderAnchor(alignToAnchor ? anchor : null, popoverRef);
   const readAll = usePendingAction("Read All failed.");
   const markAllRead = useCallback(() => {
     void readAll.run(() =>
@@ -855,7 +830,7 @@ function NotificationPopover({
       className={`fixed inset-x-3 ${
         placement === "top" ? "top-[var(--notification-popover-top)]" : "bottom-[var(--notification-popover-bottom)]"
       } z-50 flex max-h-[min(60vh,28rem,var(--notification-popover-available-height))] flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:inset-x-auto sm:right-3 sm:w-[36rem] md:w-[39rem] sm:max-w-[calc(100vw-1.5rem)] sm:max-h-[min(60vh,34rem,var(--notification-popover-available-height))]`}
-      style={leftPx === null ? popoverLayoutStyle : { ...popoverLayoutStyle, left: leftPx, right: "auto" }}
+      style={popoverLayoutStyle}
       role="dialog"
       aria-label="Notification inbox"
     >
@@ -1018,7 +993,6 @@ export function NotificationChip({
   onSelectThread,
   attentionPreview,
   placement = "bottom",
-  docked = false,
 }: {
   sessionId: string;
   currentThreadKey?: string;
@@ -1026,11 +1000,6 @@ export function NotificationChip({
   attentionPreview?: SessionAttentionPreview;
   /** Which feed edge the chip floats at; its list opens away from that edge. */
   placement?: NotificationChipPlacement;
-  /**
-   * Sits in the thread tab row rather than floating over the feed: no floating shadow, and its
-   * list opens right under it.
-   */
-  docked?: boolean;
 }) {
   const { active, muted } = useNotifications(sessionId);
   const summary = useNotificationSummary(sessionId);
@@ -1126,7 +1095,7 @@ export function NotificationChip({
               : undefined
           }
           data-testid={next ? "session-attention-next" : undefined}
-          className={`relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-[18px] border bg-cc-card/95 py-1 pl-2.5 pr-1.5 text-[11px] text-cc-muted font-mono-code ${docked ? "" : "shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md"} transition-colors hover:border-cc-muted/35 cursor-pointer ${LONG_PRESS_TARGET_CLASS} ${
+          className={`relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-[18px] border bg-cc-card/95 py-1 pl-2.5 pr-1.5 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md transition-colors hover:border-cc-muted/35 cursor-pointer ${LONG_PRESS_TARGET_CLASS} ${
             tone ? tone.border : "border-cc-border pr-2.5"
           }`}
         >
@@ -1173,7 +1142,6 @@ export function NotificationChip({
           attentionItems={attention.queue}
           nextAttentionKey={next?.item.key ?? null}
           onOpenAttentionItem={attention.open}
-          alignToAnchor={docked}
         />
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}

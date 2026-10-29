@@ -450,7 +450,6 @@ function WorkBoardBarComponent({
   threadRows = [],
   closeTabRef,
   hideThreadStrip = false,
-  attentionChipThreadKey,
 }: {
   sessionId: string;
   currentThreadKey?: string;
@@ -460,8 +459,6 @@ function WorkBoardBarComponent({
   threadRows?: WorkBoardThreadNavigationRow[];
   /** Filled with this bar's close handler, for closing a tab from outside the bar. */
   closeTabRef?: MutableRefObject<((threadKey: string) => void) | null>;
-  /** Desktop: show the Next attention chip after the tabs, for this thread (see ThreadTabRail). */
-  attentionChipThreadKey?: string;
   /** Hides Main's strip under the tabs (the phone topic panel covers the thread). */
   hideThreadStrip?: boolean;
 }) {
@@ -611,7 +608,6 @@ function WorkBoardBarComponent({
       onCloseThreadTab={onCloseThreadTab ? handleCloseThreadTab : undefined}
       threadStatuses={threadStatuses}
       tabOrderRef={tabOrderRef}
-      attentionChipThreadKey={attentionChipThreadKey}
     />
   );
   return (
