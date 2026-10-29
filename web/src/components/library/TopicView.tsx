@@ -4,7 +4,8 @@ import type { TopicDetail, TopicSummary } from "../../../shared/library-topics.j
 import { NOW_ENTRY_STALE_MS, NOW_GROUPS, type NowEntry, nowGroupLabel } from "../../../shared/topic-now-items.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { topicApi } from "../../api/topics.js";
-import { openLibraryArtifact, openTopicLibrary } from "../../utils/library-nav.js";
+import { openTopicLibrary } from "../../utils/library-nav.js";
+import { openArtifact } from "../../utils/side-column.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { InlineLocalImagesContext } from "../inline-local-images.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
@@ -275,7 +276,7 @@ export function TopicView({
                     artifact={artifact}
                     showKind
                     showSpace={false}
-                    onOpen={() => openLibraryArtifact(artifact.id)}
+                    onOpen={(event) => openArtifact({ id: artifact.id, title: artifact.title }, event)}
                   />
                 ))}
               </div>

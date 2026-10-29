@@ -555,6 +555,7 @@ describe("settings-manager", () => {
         enabled: true,
         preset: "vscode-light",
         typeToCompose: true,
+        openInSideModifier: "shift",
         overrides: { search_session: "Ctrl+L", voice_stop: null },
       },
     });
@@ -566,6 +567,7 @@ describe("settings-manager", () => {
       enabled: true,
       preset: "vscode-light",
       typeToCompose: true,
+      openInSideModifier: "shift",
       overrides: { search_session: "Ctrl+L", voice_stop: null },
     });
 
@@ -575,6 +577,7 @@ describe("settings-manager", () => {
       enabled: true,
       preset: "vscode-light",
       typeToCompose: true,
+      openInSideModifier: "shift",
       overrides: { search_session: "Ctrl+L", voice_stop: null },
     });
   });
@@ -587,6 +590,7 @@ describe("settings-manager", () => {
           enabled: "yes",
           preset: "unknown",
           typeToCompose: true,
+          openInSideModifier: "shift",
           overrides: { search_session: "Ctrl+L", missing_action: "Ctrl+M", voice_stop: null, voice_start: 42 },
         },
       }),
@@ -598,6 +602,7 @@ describe("settings-manager", () => {
       enabled: false,
       preset: "standard",
       typeToCompose: true,
+      openInSideModifier: "shift",
       overrides: { search_session: "Ctrl+L", voice_stop: null },
     });
   });

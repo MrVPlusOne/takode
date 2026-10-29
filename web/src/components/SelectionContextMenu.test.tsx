@@ -141,7 +141,7 @@ describe("Ask in side chat", () => {
 
       const [item] = useSideColumnStore.getState().columns.s1!.items;
       expect(item).toEqual(expect.objectContaining({ kind: "new-chat", startedFrom: "q-7" }));
-      const draft = useStore.getState().composerDrafts.get(newSideChatDraftKey("s1", item!.id));
+      const draft = useStore.getState().composerDrafts.get(newSideChatDraftKey("s1"));
       expect(draft?.annotations).toEqual([expect.objectContaining({ selectedText: "A passage", comment: "" })]);
       // The main message box is left as it was.
       expect(useStore.getState().composerDrafts.get("s1")).toBeUndefined();

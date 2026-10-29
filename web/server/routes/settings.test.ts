@@ -54,13 +54,15 @@ afterEach(async () => {
 
 describe("settings routes", () => {
   it("accepts shortcut-only settings updates", async () => {
-    // Type-to-compose is saved off here so the round trip also proves the server keeps that switch.
+    // Type-to-compose is saved off and Open in Side Column on Alt-click here, so the round trip
+    // also proves the server keeps both choices.
     const app = createApp();
     const shortcutSettings = {
       enabled: true,
       preset: "standard",
       overrides: { search_session: "Ctrl+Shift+F" },
       typeToCompose: false,
+      openInSideModifier: "alt",
     };
 
     const res = await app.request("/api/settings", {
@@ -83,7 +85,13 @@ describe("settings routes", () => {
       SHORTCUT_ACTION_IDS.map((actionId) => [actionId, null]),
     );
     overrides.next_attention = "Cmd+N";
-    const shortcutSettings = { enabled: true, preset: "standard", overrides, typeToCompose: true };
+    const shortcutSettings = {
+      enabled: true,
+      preset: "standard",
+      overrides,
+      typeToCompose: true,
+      openInSideModifier: "shift",
+    };
 
     const res = await app.request("/api/settings", {
       method: "PUT",

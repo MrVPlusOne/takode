@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { setTopicPanelOpen, setTopicSheetOpen } from "./topic-panel.js";
 import { readDisplayedLeaderThreadKey } from "./thread-viewport.js";
+import { useStore } from "../store.js";
+import { platformIsMac } from "../shortcuts.js";
+import type { OpenInSideModifier } from "../../shared/shortcut-settings.js";
+import { openLibraryArtifact } from "./library-nav.js";
 
 /**
  * What a leader's side column holds besides the topic page it follows: things the user put there
@@ -13,7 +17,9 @@ export type SideItem =
   /** A conversation of the leader: a quest, a topic's conversation, or a side chat (a thread). */
   | { id: string; kind: "conversation"; threadKey: string }
   /** A side chat being started: its first message starts the thread, from `startedFrom`. */
-  | { id: string; kind: "new-chat"; startedFrom: string | null };
+  | { id: string; kind: "new-chat"; startedFrom: string | null }
+  /** A Library artifact (a report, post, figure...), at a version when one was linked. */
+  | { id: string; kind: "artifact"; artifactId: string; version?: number; title?: string };
 
 export type SideItemInput = SideItem extends infer Item ? (Item extends SideItem ? Omit<Item, "id"> : never) : never;
 
@@ -65,6 +71,8 @@ function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
       return a.threadKey.toLowerCase() === (b as typeof a).threadKey.toLowerCase();
     case "new-chat":
       return true;
+    case "artifact":
+      return a.artifactId === (b as typeof a).artifactId;
   }
 }
 
@@ -138,11 +146,67 @@ export interface OpenInSideEvent {
 }
 
 /**
- * Whether a click asks to open its target in the side column rather than the main view: Shift-click
- * on desktop, like Logseq (to be configurable in Settings).
+ * Whether a click asks to open its target in the side column rather than the main view: a click
+ * with the key chosen in Settings > Keyboard held, and no other (Shift-click by default, like Logseq).
  */
-export function isOpenInSideClick(event: OpenInSideEvent | undefined): boolean {
-  return !!event?.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+export function isOpenInSideClick(
+  event: OpenInSideEvent | undefined,
+  modifier: OpenInSideModifier = useStore.getState().shortcutSettings?.openInSideModifier ?? "shift",
+): boolean {
+  if (!event) return false;
+  const mac = platformIsMac(currentPlatform());
+  const held = {
+    shift: event.shiftKey,
+    alt: event.altKey,
+    // Cmd on Mac, Ctrl elsewhere; the other one counts as an extra key.
+    mod: mac ? event.metaKey : event.ctrlKey,
+    other: mac ? event.ctrlKey : event.metaKey,
+  };
+  return held[modifier] && Object.entries(held).every(([key, down]) => key === modifier || !down);
+}
+
+/** How the click that opens something in the side column is named, for tooltips: "Shift-click". */
+export function openInSideClickLabel(
+  modifier: OpenInSideModifier = useStore.getState().shortcutSettings?.openInSideModifier ?? "shift",
+): string {
+  const mac = platformIsMac(currentPlatform());
+  const key = { shift: "Shift", alt: mac ? "Option" : "Alt", mod: mac ? "⌘" : "Ctrl" }[modifier];
+  return `${key}-click`;
+}
+
+function currentPlatform(): string | undefined {
+  return typeof navigator === "undefined" ? undefined : navigator.platform;
+}
+
+/**
+ * Opens an artifact where a click asks: in the side column of the leader on screen on an
+ * open-in-side click, else in the Library (also when no leader's conversation is on screen).
+ */
+export function openArtifact(target: { id: string; version?: number; title?: string }, event?: OpenInSideEvent): void {
+  if (isOpenInSideClick(event) && openArtifactInSide(target)) return;
+  openLibraryArtifact(target.id, target.version);
+}
+
+/**
+ * Opens an artifact in the side column of the leader whose conversation is on screen. Returns false
+ * when no leader's is, so the caller opens it elsewhere.
+ */
+export function openArtifactInSide(target: { id: string; version?: number; title?: string }): boolean {
+  const leaderId = useStore.getState().currentSessionId;
+  if (!leaderId || readDisplayedLeaderThreadKey(leaderId) === null) return false;
+  openInSide(leaderId, {
+    kind: "artifact",
+    artifactId: target.id,
+    ...(target.version ? { version: target.version } : {}),
+    ...(target.title ? { title: target.title } : {}),
+  });
+  return true;
+}
+
+/** Whether an artifact can open in a side column now: a leader's conversation is on screen. */
+export function canOpenArtifactInSide(): boolean {
+  const leaderId = useStore.getState().currentSessionId;
+  return !!leaderId && readDisplayedLeaderThreadKey(leaderId) !== null;
 }
 
 /**

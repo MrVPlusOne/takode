@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type RefObject } from "react";
-import { libraryMenuItem } from "./ArtifactInline.js";
+import { libraryMenuItems } from "./ArtifactInline.js";
 import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
 import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
 import type { ChatMessage } from "../types.js";
@@ -69,9 +69,9 @@ function MarkdownReportBody({
       [message.content, title],
     ),
   );
-  // The card opens full screen; opening it in the Library, copying and exporting are in More.
+  // The card opens full screen; opening it in the Library or the side column, copying and exporting are in More.
   const menuItems = [
-    ...(!readOnly && reportMarker ? [libraryMenuItem(reportMarker)] : []),
+    ...(!readOnly && reportMarker ? libraryMenuItems(reportMarker) : []),
     { label: "Copy Markdown", onClick: () => void writeClipboardText(message.content).catch(console.error) },
     exportItems(["markdown", "pdf", "png", "html"]),
   ];

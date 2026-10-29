@@ -96,6 +96,11 @@ export interface SessionDraftsState {
   /** Latest write revision for this session, kept even after drafts are cleared. */
   revision: number;
   composer?: SyncedComposerDraftEntry;
+  /**
+   * The message boxes of a leader's side column, by place: the thread a side conversation shows,
+   * or `new` for the side chat not started yet. At most MAX_SIDE_COMPOSER_DRAFTS, newest kept.
+   */
+  sideComposers?: Record<string, SyncedComposerDraftEntry>;
   needsInput?: Record<string, SyncedNeedsInputDraftEntry>;
   /** Guided review answers by review ID, including sent ones. */
   guidedReviews?: Record<string, SyncedGuidedReviewDraftEntry>;
@@ -106,6 +111,7 @@ export interface SessionDraftsState {
 /** One browser write. A null value clears that draft. */
 export type SessionDraftWrite =
   | { kind: "composer"; draft: SyncedComposerDraft | null }
+  | { kind: "side-composer"; place: string; draft: SyncedComposerDraft | null }
   | { kind: "needs-input"; notificationId: string; answers: SyncedNeedsInputAnswers | null }
   | { kind: "guided-review"; reviewId: string; draft: SyncedGuidedReviewDraft | null };
 
@@ -125,12 +131,16 @@ const MAX_CLIENT_ID_CHARS = 100;
 const MAX_GUIDED_REVIEW_ANSWERS = 60;
 const MAX_GUIDED_REVIEW_LINE_COMMENTS = 200;
 const REVIEW_ID_PATTERN = /^[A-Za-z0-9-]{1,100}$/;
+export const MAX_SIDE_COMPOSER_DRAFTS = 30;
+/** A side message box's place: Main, a quest or topic thread, or `new` for the side chat not started yet. */
+const SIDE_DRAFT_PLACE_PATTERN = /^(new|main|q-\d{1,9}|topic:[a-z0-9-]{1,64})$/;
 
 /** Identifies a draft within a session, for per-draft bookkeeping. */
 export function sessionDraftKey(
-  write: Pick<SessionDraftWrite, "kind"> & { notificationId?: string; reviewId?: string },
+  write: Pick<SessionDraftWrite, "kind"> & { notificationId?: string; reviewId?: string; place?: string },
 ): string {
   if (write.kind === "composer") return "composer";
+  if (write.kind === "side-composer") return `side-composer:${write.place}`;
   if (write.kind === "guided-review") return `guided-review:${write.reviewId}`;
   return `needs-input:${write.notificationId}`;
 }
@@ -284,29 +294,14 @@ export function readSessionDraftWriteRequest(value: unknown): SessionDraftWriteR
   }
   if (!isRecord(write)) return { error: "write must be an object." };
   if (write.kind === "composer") {
-    if (write.draft === null) return { clientId, write: { kind: "composer", draft: null } };
-    const draft = write.draft;
-    if (!isRecord(draft) || typeof draft.text !== "string") return { error: "draft.text must be a string." };
-    if (draft.text.length > MAX_COMPOSER_DRAFT_TEXT_CHARS) return { error: "Draft text is too long." };
-    let annotations: ConversationAnnotation[];
-    let images: SyncedDraftImage[];
-    try {
-      annotations = readConversationAnnotations(draft.annotations);
-      images = readSyncedDraftImages(draft.images);
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : "Invalid draft." };
-    }
-    return {
-      clientId,
-      write: {
-        kind: "composer",
-        draft: normalizeSyncedComposerDraft({
-          text: draft.text,
-          annotations,
-          images,
-        }),
-      },
-    };
+    const draft = readComposerDraftWrite(write.draft);
+    return "error" in draft ? draft : { clientId, write: { kind: "composer", draft: draft.value } };
+  }
+  if (write.kind === "side-composer") {
+    const { place } = write;
+    if (typeof place !== "string" || !SIDE_DRAFT_PLACE_PATTERN.test(place)) return { error: "place is required." };
+    const draft = readComposerDraftWrite(write.draft);
+    return "error" in draft ? draft : { clientId, write: { kind: "side-composer", place, draft: draft.value } };
   }
   if (write.kind === "needs-input") {
     const { notificationId, answers } = write;
@@ -345,27 +340,39 @@ export function readSessionDraftWriteRequest(value: unknown): SessionDraftWriteR
       return { error: error instanceof Error ? error.message : "Invalid review answers." };
     }
   }
-  return { error: "write.kind must be composer, needs-input or guided-review." };
+  return { error: "write.kind must be composer, side-composer, needs-input or guided-review." };
+}
+
+function readComposerDraftWrite(draft: unknown): { value: SyncedComposerDraft | null } | { error: string } {
+  if (draft === null) return { value: null };
+  if (!isRecord(draft) || typeof draft.text !== "string") return { error: "draft.text must be a string." };
+  if (draft.text.length > MAX_COMPOSER_DRAFT_TEXT_CHARS) return { error: "Draft text is too long." };
+  try {
+    return {
+      value: normalizeSyncedComposerDraft({
+        text: draft.text,
+        annotations: readConversationAnnotations(draft.annotations),
+        images: readSyncedDraftImages(draft.images),
+      }),
+    };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Invalid draft." };
+  }
 }
 
 /** Reads persisted drafts defensively; malformed parts are dropped. */
 export function readSessionDraftsState(value: unknown): SessionDraftsState | undefined {
   if (!isRecord(value) || typeof value.revision !== "number") return undefined;
   const state: SessionDraftsState = { revision: value.revision };
-  if (isRecord(value.composer) && isEntryMeta(value.composer) && isRecord(value.composer.draft)) {
-    const draft = value.composer.draft;
-    if (typeof draft.text === "string") {
-      try {
-        const normalized = normalizeSyncedComposerDraft({
-          text: draft.text,
-          annotations: readConversationAnnotations(draft.annotations),
-          images: readSyncedDraftImages(draft.images),
-        });
-        if (normalized) state.composer = { ...entryMeta(value.composer), draft: normalized };
-      } catch {
-        // Unreadable annotations or images: drop the composer draft rather than the whole state.
-      }
+  const composer = readComposerDraftEntry(value.composer);
+  if (composer) state.composer = composer;
+  if (isRecord(value.sideComposers)) {
+    const sideComposers: Record<string, SyncedComposerDraftEntry> = {};
+    for (const [place, entry] of Object.entries(value.sideComposers)) {
+      const read = SIDE_DRAFT_PLACE_PATTERN.test(place) ? readComposerDraftEntry(entry) : undefined;
+      if (read) sideComposers[place] = read;
     }
+    if (Object.keys(sideComposers).length > 0) state.sideComposers = sideComposers;
   }
   if (isRecord(value.needsInput)) {
     const needsInput: Record<string, SyncedNeedsInputDraftEntry> = {};
@@ -394,6 +401,15 @@ export function readSessionDraftsState(value: unknown): SessionDraftsState | und
     if (Object.keys(guidedReviews).length > 0) state.guidedReviews = guidedReviews;
   }
   return state;
+}
+
+/** A saved message box draft, or undefined when it is malformed (unreadable annotations or images). */
+function readComposerDraftEntry(value: unknown): SyncedComposerDraftEntry | undefined {
+  if (!isRecord(value) || !isEntryMeta(value) || !isRecord(value.draft) || typeof value.draft.text !== "string") {
+    return undefined;
+  }
+  const read = readComposerDraftWrite(value.draft);
+  return "value" in read && read.value ? { ...entryMeta(value), draft: read.value } : undefined;
 }
 
 function isEntryMeta(value: Record<string, unknown>): boolean {

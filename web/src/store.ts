@@ -69,7 +69,7 @@ import {
 import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from "./store-map-utils.js";
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
 import { createNeedsInputDraftStoreSlice } from "./store-needs-input-drafts.js";
-import { notifyLocalDraftChange } from "./draft-sync-bridge.js";
+import { composerDraftOwner, notifyLocalDraftChange } from "./draft-sync-bridge.js";
 import { mergeSyncedComposerDraft } from "./utils/synced-composer-draft.js";
 import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
 import { attachCodexSubagentToolResultsAcrossSources, updateMessageAcrossSources } from "./store-message-updates.js";
@@ -439,6 +439,13 @@ export const useStore = create<AppState>((set, get) => ({
   setTypeToCompose: (typeToCompose) =>
     set((s) => {
       const shortcutSettings = { ...s.shortcutSettings, typeToCompose };
+      if (shortcutsEqual(shortcutSettings, s.shortcutSettings)) return {};
+      persistShortcutSettingsToServer(shortcutSettings, setShortcutSettingsFromServer);
+      return { shortcutSettings };
+    }),
+  setOpenInSideModifier: (openInSideModifier) =>
+    set((s) => {
+      const shortcutSettings = { ...s.shortcutSettings, openInSideModifier };
       if (shortcutsEqual(shortcutSettings, s.shortcutSettings)) return {};
       persistShortcutSettingsToServer(shortcutSettings, setShortcutSettingsFromServer);
       return { shortcutSettings };
@@ -1503,7 +1510,8 @@ export const useStore = create<AppState>((set, get) => ({
       return { feedScrollPosition };
     }),
 
-  // Composer drafts are shared by the user's browsers through the server (draft-sync.ts):
+  // Composer drafts are shared by the user's browsers through the server (draft-sync.ts),
+  // the side column's message boxes too (keyed by sideComposerDraftKey):
   // local edits are reported to the sync, and other browsers' edits arrive through
   // applySyncedComposerDraft. Images are shared once uploaded (utils/synced-composer-draft.ts).
   setComposerDraft: (sessionId, draft) => {
@@ -1512,7 +1520,8 @@ export const useStore = create<AppState>((set, get) => ({
       composerDrafts.set(sessionId, draft);
       return { composerDrafts };
     });
-    notifyLocalDraftChange(sessionId, { kind: "composer" });
+    const owner = composerDraftOwner(sessionId);
+    notifyLocalDraftChange(owner.sessionId, owner.target);
   },
 
   clearComposerDraft: (sessionId) => {
@@ -1521,7 +1530,8 @@ export const useStore = create<AppState>((set, get) => ({
       composerDrafts.delete(sessionId);
       return { composerDrafts };
     });
-    notifyLocalDraftChange(sessionId, { kind: "composer" });
+    const owner = composerDraftOwner(sessionId);
+    notifyLocalDraftChange(owner.sessionId, owner.target);
   },
 
   applySyncedComposerDraft: (sessionId, synced) =>

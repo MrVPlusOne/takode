@@ -1,4 +1,5 @@
 import {
+  MAX_SIDE_COMPOSER_DRAFTS,
   normalizeSyncedComposerDraft,
   normalizeSyncedGuidedReviewDraft,
   normalizeSyncedNeedsInputAnswers,
@@ -89,6 +90,18 @@ export function applySessionDraftWrite<S extends DraftSession>(
     if (draft) drafts.composer = { ...meta, draft };
     else delete drafts.composer;
     change = { kind: "composer", draft, ...meta };
+  } else if (write.kind === "side-composer") {
+    const draft = normalizeSyncedComposerDraft(withServerImagePaths(session.id, write.draft));
+    const sideComposers = { ...drafts.sideComposers };
+    if (draft) sideComposers[write.place] = { ...meta, draft };
+    else delete sideComposers[write.place];
+    // Side drafts of conversations long gone from the column would pile up: keep the newest.
+    const kept = Object.entries(sideComposers)
+      .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_SIDE_COMPOSER_DRAFTS);
+    if (kept.length > 0) drafts.sideComposers = Object.fromEntries(kept);
+    else delete drafts.sideComposers;
+    change = { kind: "side-composer", place: write.place, draft, ...meta };
   } else if (write.kind === "guided-review") {
     const draft = normalizeSyncedGuidedReviewDraft(write.draft);
     const guidedReviews = { ...drafts.guidedReviews };

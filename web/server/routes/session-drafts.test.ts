@@ -124,6 +124,31 @@ describe("session draft routes", () => {
     ).toBe(400);
   });
 
+  it("keeps the side column's message box drafts by place, newest 30, and refuses unknown places", async () => {
+    // A side draft belongs to Main, a quest or topic thread, or the side chat not started yet ("new").
+    const { session, put } = setup();
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => ++now);
+    for (let quest = 1; quest <= 31; quest++) {
+      const response = await put({
+        clientId: "tab-a",
+        write: { kind: "side-composer", place: `q-${quest}`, draft: { text: `beside q-${quest}` } },
+      });
+      expect(response.status).toBe(200);
+    }
+    const kept = Object.keys(session.drafts?.sideComposers ?? {});
+    expect(kept).toHaveLength(30);
+    expect(kept).not.toContain("q-1");
+    expect(session.drafts?.sideComposers?.["q-31"]?.draft).toEqual({ text: "beside q-31" });
+    expect(session.drafts?.composer).toBeUndefined();
+    for (const place of ["../q-1", "Q-2", "all", ""]) {
+      expect(
+        (await put({ clientId: "tab-a", write: { kind: "side-composer", place, draft: { text: "x" } } })).status,
+      ).toBe(400);
+    }
+    vi.restoreAllMocks();
+  });
+
   it("returns 404 for an unknown session", async () => {
     const { app } = setup();
     expect((await app.request("/sessions/missing/drafts")).status).toBe(404);

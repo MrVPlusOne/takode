@@ -28,6 +28,10 @@ export type ShortcutPresetId = (typeof SHORTCUT_PRESET_IDS)[number];
 /** A key combination such as "Mod+Shift+E", or a tap gesture such as "DoubleTap:Shift". */
 export type ShortcutBinding = string;
 
+/** The key held while clicking to open something in a leader's side column instead of in place. */
+export type OpenInSideModifier = "shift" | "alt" | "mod";
+const OPEN_IN_SIDE_MODIFIERS = new Set<string>(["shift", "alt", "mod"] satisfies OpenInSideModifier[]);
+
 export interface ShortcutSettings {
   enabled: boolean;
   preset: ShortcutPresetId;
@@ -38,6 +42,11 @@ export interface ShortcutSettings {
    * of `enabled`: it binds no key of its own, so it stays on while the shortcut presets are off.
    */
   typeToCompose: boolean;
+  /**
+   * Clicking a quest, topic, artifact or report with this key held opens it in the leader's side
+   * column. Independent of `enabled`, like `typeToCompose`. "mod" is Cmd on Mac and Ctrl elsewhere.
+   */
+  openInSideModifier: OpenInSideModifier;
 }
 
 export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
@@ -45,6 +54,7 @@ export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
   preset: "standard",
   overrides: {},
   typeToCompose: true,
+  openInSideModifier: "shift",
 };
 
 const ACTION_ID_SET = new Set<string>(SHORTCUT_ACTION_IDS);
@@ -77,5 +87,8 @@ export function parseShortcutSettings(raw: unknown): ShortcutSettings | undefine
     overrides,
     typeToCompose:
       typeof candidate.typeToCompose === "boolean" ? candidate.typeToCompose : DEFAULT_SHORTCUT_SETTINGS.typeToCompose,
+    openInSideModifier: OPEN_IN_SIDE_MODIFIERS.has(candidate.openInSideModifier as string)
+      ? (candidate.openInSideModifier as OpenInSideModifier)
+      : DEFAULT_SHORTCUT_SETTINGS.openInSideModifier,
   };
 }

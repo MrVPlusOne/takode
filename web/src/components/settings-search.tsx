@@ -87,6 +87,11 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         text: "Type anywhere to write a message focus composer message box typing paste Escape",
       },
       {
+        id: "open-in-side",
+        text: "Open in Side Column Shift-click Option-click Alt-click Cmd-click Ctrl-click modifier side chat",
+        aliases: ["sidebar"],
+      },
+      {
         id: "shortcuts-enabled",
         text: "Keyboard Shortcuts enabled hotkeys",
         subsection: "shortcuts",

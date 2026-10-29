@@ -399,7 +399,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Universal Search",
-              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, openInSideModifier: "shift", overrides: {} },
               "search_session",
               "MacIntel",
             )}
@@ -411,7 +411,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "New session",
-              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, openInSideModifier: "shift", overrides: {} },
               "new_session",
               "MacIntel",
             )}
@@ -423,7 +423,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Toggle sidebar",
-              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, openInSideModifier: "shift", overrides: {} },
               "toggle_sidebar",
               "MacIntel",
             )}
@@ -435,7 +435,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Terminal",
-              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, openInSideModifier: "shift", overrides: {} },
               "open_terminal",
               "MacIntel",
             )}
@@ -447,7 +447,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Start voice input",
-              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, openInSideModifier: "shift", overrides: {} },
               "voice_start",
               "MacIntel",
             )}
@@ -459,7 +459,7 @@ export function PlaygroundOverviewSections() {
             type="button"
             title={getShortcutTitle(
               "Stop voice recording",
-              { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
+              { enabled: true, preset: "standard", typeToCompose: true, openInSideModifier: "shift", overrides: {} },
               "voice_stop",
               "MacIntel",
             )}

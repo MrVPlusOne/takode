@@ -6,7 +6,7 @@ import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import { NotifyMeControl } from "./NotifyMe.js";
-import { openConversationInSide } from "../utils/side-column.js";
+import { openConversationInSide, openInSideClickLabel } from "../utils/side-column.js";
 
 const BUTTON_CLASS =
   "inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-md border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50";
@@ -112,7 +112,7 @@ function OpenInSideButton({
     <button
       type="button"
       className={className}
-      title="Open the quest's thread in the side column (Shift-click a quest link does the same)"
+      title={`Open the quest's thread in the side column (${openInSideClickLabel()} on a quest link does the same)`}
       data-testid="quest-open-in-side"
       onClick={(event) => {
         event.stopPropagation();

@@ -92,9 +92,9 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
   const canStartThread = useLeaderTopicsOn(sessionId);
   const handleAskInSideChat = useCallback(() => {
     if (!selection.plainText.trim()) return;
-    const itemId = openInSide(sessionId, { kind: "new-chat", startedFrom: sideChatOrigin(sessionId) });
+    openInSide(sessionId, { kind: "new-chat", startedFrom: sideChatOrigin(sessionId) });
     const store = useStore.getState();
-    const draftKey = newSideChatDraftKey(sessionId, itemId);
+    const draftKey = newSideChatDraftKey(sessionId);
     const current = store.composerDrafts.get(draftKey);
     store.setComposerDraft(draftKey, {
       ...current,

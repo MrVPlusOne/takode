@@ -39,3 +39,22 @@ describe("guided review line comments in drafts", () => {
     expect(state?.guidedReviews?.r1.draft).toEqual({ answers: {}, lineComments: [comment], sentAt: 9 });
   });
 });
+
+// The side column's message box drafts are saved with the session and reloaded by place.
+describe("side message box drafts", () => {
+  it("reloads saved side drafts, dropping ones with an unknown place or nothing in them", () => {
+    const meta = { revision: 2, clientId: "tab", updatedAt: 1 };
+    const state = readSessionDraftsState({
+      revision: 2,
+      composer: { ...meta, draft: { text: "main" } },
+      sideComposers: {
+        new: { ...meta, draft: { text: "a new side chat" } },
+        "q-7": { ...meta, draft: { text: "beside q-7" } },
+        "../q-1": { ...meta, draft: { text: "bad place" } },
+        "topic:aaaa0001": { ...meta, draft: { text: "" } },
+      },
+    });
+    expect(state?.composer?.draft).toEqual({ text: "main" });
+    expect(Object.keys(state?.sideComposers ?? {})).toEqual(["new", "q-7"]);
+  });
+});

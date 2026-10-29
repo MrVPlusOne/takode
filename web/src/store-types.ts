@@ -286,6 +286,7 @@ export interface AppState {
   setSendKeyScheme: (scheme: import("../shared/send-key-scheme.js").SendKeyScheme) => void;
   setShortcutsEnabled: (enabled: boolean) => void;
   setTypeToCompose: (typeToCompose: boolean) => void;
+  setOpenInSideModifier: (modifier: import("../shared/shortcut-settings.js").OpenInSideModifier) => void;
   setShortcutPreset: (preset: import("./shortcuts.js").ShortcutPresetId) => void;
   setShortcutOverride: (
     actionId: import("./shortcuts.js").ShortcutActionId,

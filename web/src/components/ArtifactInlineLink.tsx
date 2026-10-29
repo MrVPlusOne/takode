@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ARTIFACT_KIND_LABELS, shortArtifactId, type ArtifactDetail } from "../../shared/artifact-library.js";
 import { artifactApi } from "../api/artifacts.js";
 import { openLibraryArtifact } from "../utils/library-nav.js";
+import { isOpenInSideClick, openArtifactInSide } from "../utils/side-column.js";
 import { LibraryIcon } from "./ArtifactInline.js";
 import { useHoverCardsSuppressed } from "./hover-card-suppression-context.js";
 import { ArtifactThumbnail } from "./library/ArtifactThumbnail.js";
@@ -26,7 +27,8 @@ function loadPreview(id: string): Promise<ArtifactDetail | null> {
 /**
  * Inline link for `artifact:<id>` and `artifact:<id>:v<n>` hrefs: a small Library marker sets it
  * apart from web links. A mouse hovering it shows a card with the artifact's thumbnail, kind and
- * versions; clicking or tapping opens it in the Library, at the linked version.
+ * versions; clicking or tapping opens it in the Library, at the linked version, and the open-in-side
+ * click puts it in the side column of the leader on screen.
  */
 export function ArtifactInlineLink({
   target,
@@ -54,6 +56,12 @@ export function ArtifactInlineLink({
         href="#/library"
         onClick={(event) => {
           if (stopPropagation) event.stopPropagation();
+          // The open-in-side click (Shift by default) puts it beside the leader's conversation.
+          if (event.button === 0 && isOpenInSideClick(event) && openArtifactInSide(target)) {
+            event.preventDefault();
+            setAnchor(null);
+            return;
+          }
           if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
           event.preventDefault();
           setAnchor(null);

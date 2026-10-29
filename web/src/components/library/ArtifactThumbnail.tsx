@@ -144,7 +144,8 @@ export function ArtifactCard({
   artifact: ArtifactSummary;
   showKind: boolean;
   showSpace: boolean;
-  onOpen: () => void;
+  /** Gets the click, so a modifier can open the artifact elsewhere (the side column). */
+  onOpen: (event: React.MouseEvent) => void;
   onToggleStar?: () => void;
 }) {
   return (

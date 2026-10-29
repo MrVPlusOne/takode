@@ -5,6 +5,7 @@ import {
   HOME_ITEM,
   isOpenInSideClick,
   openConversationInSide,
+  openInSideClickLabel,
   openInSide,
   openSideItem,
   replaceSideItem,
@@ -65,12 +66,20 @@ describe("side column items", () => {
 });
 
 describe("opening in the side", () => {
-  it("takes Shift-click alone as asking for the side column", () => {
+  it("takes a click with the chosen key alone as asking for the side column, Shift by default", () => {
     const click = { shiftKey: false, altKey: false, metaKey: false, ctrlKey: false };
     expect(isOpenInSideClick({ ...click, shiftKey: true })).toBe(true);
     expect(isOpenInSideClick(click)).toBe(false);
     expect(isOpenInSideClick({ ...click, shiftKey: true, metaKey: true })).toBe(false);
     expect(isOpenInSideClick(undefined)).toBe(false);
+    expect(openInSideClickLabel()).toBe("Shift-click");
+    // Chosen in Settings > Keyboard. jsdom is not a Mac, so the Cmd/Ctrl choice is Ctrl.
+    expect(isOpenInSideClick({ ...click, altKey: true }, "alt")).toBe(true);
+    expect(isOpenInSideClick({ ...click, shiftKey: true }, "alt")).toBe(false);
+    expect(isOpenInSideClick({ ...click, ctrlKey: true }, "mod")).toBe(true);
+    expect(isOpenInSideClick({ ...click, metaKey: true }, "mod")).toBe(false);
+    expect(isOpenInSideClick({ ...click, ctrlKey: true, shiftKey: true }, "mod")).toBe(false);
+    expect(openInSideClickLabel("mod")).toBe("Ctrl-click");
   });
 
   it("opens a leader's conversation in its column only while that leader is on screen", () => {

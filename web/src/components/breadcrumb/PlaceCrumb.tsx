@@ -5,7 +5,7 @@ import { TopicIcon } from "../library/library-icons.js";
 /**
  * The breadcrumb's first part: where the conversation on screen lives (Main, All threads, or a
  * topic). Like a VS Code breadcrumb, clicking it lists the places to switch to: Main and All first,
- * then the leader's topics. Shift-click on a topic there opens its page in the side column.
+ * then the leader's topics. The open-in-side click (Shift by default) on a topic opens its page in the side column.
  */
 export function PlaceCrumb({
   place,

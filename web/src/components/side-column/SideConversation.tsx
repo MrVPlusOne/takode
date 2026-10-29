@@ -1,3 +1,4 @@
+import { sideComposerDraftKey } from "../../draft-sync-bridge.js";
 import { useMemo } from "react";
 import { api } from "../../api.js";
 import { useStore } from "../../store.js";
@@ -62,15 +63,10 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
           threadKey={key}
           questId={questId}
           topicName={thread?.name ?? topic?.name}
-          draftKey={sideDraftKey(leaderId, key)}
+          draftKey={sideComposerDraftKey(leaderId, key)}
           secondary
         />
       </ComposerFeedLayout>
     </SecondaryFeedContext.Provider>
   );
-}
-
-/** Where a side conversation's unsent message is kept, apart from the main message box's. */
-export function sideDraftKey(leaderId: string, threadKey: string): string {
-  return `${leaderId}#side:${threadKey.toLowerCase()}`;
 }

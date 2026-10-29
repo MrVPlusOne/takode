@@ -22,6 +22,11 @@ vi.mock("./NewSideChat.js", () => ({
     <div data-testid="mock-new-chat">{startedFrom ?? "none"}</div>
   ),
 }));
+vi.mock("../library/ArtifactViewer.js", () => ({
+  ArtifactViewer: ({ id, version }: { id: string; version?: number }) => (
+    <div data-testid="mock-artifact">{`${id} v${version ?? "latest"}`}</div>
+  ),
+}));
 vi.mock("./thread-names.js", () => ({
   ThreadOriginName: ({ threadKey }: { threadKey: string }) => <>{`name of ${threadKey}`}</>,
 }));
@@ -31,6 +36,7 @@ vi.mock("../../utils/leader-topics.js", async (importOriginal) => ({
   useLeaderThreads: () => threads.list,
 }));
 import { closeSideItem, HOME_ITEM, openInSide, useSideColumnStore } from "../../utils/side-column.js";
+import { useLibraryNav } from "../../utils/library-nav.js";
 import { markLeaderThreadDisplayed } from "../../utils/thread-viewport.js";
 import { useTopicPanel } from "../../utils/topic-panel.js";
 import { SideColumn } from "./SideColumn.js";
@@ -86,6 +92,18 @@ describe("SideColumn", () => {
     });
     fireEvent.click(within(rows()[0]!).getByTestId("side-item-close"));
     expect(useSideColumnStore.getState().columns.l1).toEqual({ items: [], open: HOME_ITEM });
+  });
+
+  it("shows an artifact at its version, and moves it to the Library from its row", () => {
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide("l1", { kind: "artifact", artifactId: "0f1e2d3c", version: 2, title: "Memory peak report" });
+    });
+    expect(rows()[0]!.textContent).toBe("Memory peak report");
+    expect(within(openBodies()[0]!).getByTestId("mock-artifact").textContent).toBe("0f1e2d3c v2");
+    fireEvent.click(screen.getByRole("button", { name: "Open in the Library" }));
+    expect(useLibraryNav.getState()).toEqual(expect.objectContaining({ artifactId: "0f1e2d3c", version: 2 }));
+    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([]);
   });
 
   it("tells the server which conversations it shows, and forgets them when it goes", () => {

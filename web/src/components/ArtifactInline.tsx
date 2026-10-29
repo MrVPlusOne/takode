@@ -9,6 +9,7 @@ import {
 import { postDestination, type GroupedDraftPost, type PostPartChanges } from "../../shared/draft-posts.js";
 import { artifactApi } from "../api/artifacts.js";
 import { openLibraryArtifact } from "../utils/library-nav.js";
+import { canOpenArtifactInSide, openArtifact, openArtifactInSide } from "../utils/side-column.js";
 import type { ContextMenuItem } from "./ContextMenu.js";
 import {
   DraftPostCard,
@@ -69,7 +70,7 @@ export function CollapsedArtifact({
           />
           <button
             type="button"
-            onClick={() => openLibraryArtifact(marker.id, marker.version)}
+            onClick={(event) => openArtifact({ id: marker.id, version: marker.version, title: marker.title }, event)}
             className="mt-1 text-[12px] text-cc-primary hover:underline"
           >
             All versions in Library ›
@@ -252,17 +253,22 @@ export function useDraftArtifactMarker(title: string | undefined): ArtifactMessa
 }
 
 /**
- * The More menu item opening a card's artifact in the Library: at its version, named when there
- * are several. Cards open full screen from their header; the Library is the less common place.
+ * The More menu items opening a card's artifact elsewhere: in the Library at its version (named
+ * when there are several), and in the side column while a leader's conversation is on screen.
+ * Cards open full screen from their header; these are the less common places.
  */
-export function libraryMenuItem(marker: ArtifactMessageMarker): ContextMenuItem {
-  return {
-    label:
-      marker.versionCount > 1
-        ? `Open version ${marker.version} of ${marker.versionCount} in Library`
-        : "Open in Library",
-    onClick: () => openLibraryArtifact(marker.id, marker.version),
-  };
+export function libraryMenuItems(marker: ArtifactMessageMarker): ContextMenuItem[] {
+  const target = { id: marker.id, version: marker.version, title: marker.title };
+  return [
+    {
+      label:
+        marker.versionCount > 1
+          ? `Open version ${marker.version} of ${marker.versionCount} in Library`
+          : "Open in Library",
+      onClick: () => openLibraryArtifact(marker.id, marker.version),
+    },
+    ...(canOpenArtifactInSide() ? [{ label: "Open in side column", onClick: () => openArtifactInSide(target) }] : []),
+  ];
 }
 
 /** Attachments of a saved version: the Library's copy of an image, else the file's name. */
@@ -316,7 +322,7 @@ export function FeedDraftPost({
       }
       parts={feedPostParts(post.blocks, marker, saved)}
       removed={removed}
-      menuItems={marker ? [libraryMenuItem(marker)] : []}
+      menuItems={marker ? libraryMenuItems(marker) : []}
       renderMarkdown={renderMarkdown}
       attachments={attachments}
       copied={marker?.copied}

@@ -39,7 +39,7 @@ describe("NewSideChat", () => {
     const itemId = openInSide("l1", { kind: "new-chat", startedFrom: "q-7" });
     render(<NewSideChat leaderId="l1" itemId={itemId} startedFrom="q-7" />);
     expect(screen.getByTestId("new-side-chat").textContent).toContain("About name of q-7");
-    expect(composer.props!.draftKey).toBe(newSideChatDraftKey("l1", itemId));
+    expect(composer.props!.draftKey).toBe(newSideChatDraftKey("l1"));
     expect(composer.props!.threadKey).toBe("q-7");
 
     await expect(composer.props!.newThread.start("Why does it settle?")).resolves.toBe("topic:aaaa0001");

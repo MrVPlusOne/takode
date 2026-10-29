@@ -59,7 +59,7 @@ export function ItemCrumb({
     setOpen(false);
     action();
   };
-  // Shift-click: the quest or thread goes in the side column, beside what's on screen.
+  // The open-in-side click (Shift by default): the quest or thread goes in the side column.
   const goTo = (threadKey: string, open: (key: string) => void) => (event: React.MouseEvent) => {
     setOpen(false);
     if (isOpenInSideClick(event) && openConversationInSide(leaderId, threadKey)) return;

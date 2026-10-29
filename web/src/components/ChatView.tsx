@@ -3,6 +3,7 @@ import { useLeaderBreadcrumb } from "../utils/top-bar-slots.js";
 import { CrumbStart, CrumbStrip, ThreadCrumb } from "./breadcrumb/CrumbStart.js";
 import { ItemCrumb } from "./breadcrumb/ItemCrumb.js";
 import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
+import { isOpenInSideClick, openInSide, type OpenInSideEvent } from "../utils/side-column.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
 import {
   TopicEntryContext,
@@ -711,10 +712,14 @@ export function ChatView({
         ? {
             name: topicConversation.name,
             count: topicConversation.questIds.length,
-            onOpen: zoomOutToTopic,
+            // The open-in-side click puts the topic's page beside the quest instead of zooming out.
+            onOpen: (event?: OpenInSideEvent) =>
+              isOpenInSideClick(event)
+                ? openInSide(sessionId, { kind: "topic", topicId: topicConversation.topicId })
+                : zoomOutToTopic(),
           }
         : null,
-    [topicConversation, topicFeedOn, zoomOutToTopic],
+    [sessionId, topicConversation, topicFeedOn, zoomOutToTopic],
   );
   // Set once handleSelectThread exists, below.
   const openTopicQuestRef = useRef<(questId: string, part?: HTMLElement | null) => void>(() => {});

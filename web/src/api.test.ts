@@ -1585,6 +1585,7 @@ describe("settings", () => {
       enabled: true,
       preset: "standard" as const,
       typeToCompose: true,
+      openInSideModifier: "shift" as const,
       overrides: { search_session: "Ctrl+Shift+F" },
     };
     mockFetch.mockResolvedValueOnce(mockResponse({ serverName: "", serverId: "test-id", shortcutSettings }));

@@ -10,6 +10,7 @@ import {
 } from "../shortcuts.js";
 import { useStore } from "../store.js";
 import type { SendKeyScheme } from "../../shared/send-key-scheme.js";
+import type { OpenInSideModifier } from "../../shared/shortcut-settings.js";
 import { SettingsSubsection, SettingsToggle } from "./settings-controls.js";
 
 export function SettingsShortcutSection({
@@ -210,6 +211,43 @@ export function SendKeySchemeSetting({
       <p className="mt-1.5 text-xs text-cc-muted">
         Applies to the message composer, comments, quest feedback, Side Chat and needs-input answers. On touch
         keyboards, Enter always adds a new line.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The key held while clicking to open a quest, topic or artifact in a leader's side column. Always
+ * active, independent of the keyboard shortcut toggle.
+ */
+export function OpenInSideModifierSetting({
+  shortcutPlatform,
+  hidden = false,
+}: {
+  shortcutPlatform?: string;
+  hidden?: boolean;
+}) {
+  const modifier = useStore((s) => s.shortcutSettings.openInSideModifier);
+  const setModifier = useStore((s) => s.setOpenInSideModifier);
+  const mac = platformIsMac(shortcutPlatform);
+  return (
+    <div hidden={hidden}>
+      <label className="block text-sm font-medium mb-1.5" htmlFor="open-in-side-modifier">
+        Open in Side Column
+      </label>
+      <select
+        id="open-in-side-modifier"
+        value={modifier}
+        onChange={(e) => setModifier(e.target.value as OpenInSideModifier)}
+        className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
+      >
+        <option value="shift">Shift-click</option>
+        <option value="alt">{mac ? "Option-click" : "Alt-click"}</option>
+        <option value="mod">{mac ? "⌘-click" : "Ctrl-click"}</option>
+      </select>
+      <p className="mt-1.5 text-xs text-cc-muted">
+        Clicking a quest, topic, artifact or report with this key held opens it in the leader's side column, beside the
+        conversation, instead of in its place.
       </p>
     </div>
   );

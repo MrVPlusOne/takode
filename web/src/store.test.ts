@@ -182,6 +182,7 @@ describe("Shortcut settings hydration", () => {
         enabled: true,
         preset: "vim-light",
         typeToCompose: true,
+        openInSideModifier: "shift",
         overrides: { search_session: "Alt+/" },
       }),
     );
@@ -191,6 +192,7 @@ describe("Shortcut settings hydration", () => {
         enabled: true,
         preset: "standard",
         typeToCompose: true,
+        openInSideModifier: "shift",
         overrides: { search_session: "Ctrl+K" },
       },
     });
@@ -199,6 +201,7 @@ describe("Shortcut settings hydration", () => {
       enabled: true,
       preset: "standard",
       typeToCompose: true,
+      openInSideModifier: "shift",
       overrides: { search_session: "Ctrl+K" },
     });
     expect(localStorage.getItem("test-server:cc-shortcuts")).toBeNull();
@@ -210,6 +213,7 @@ describe("Shortcut settings hydration", () => {
       enabled: true,
       preset: "vscode-light" as const,
       typeToCompose: true,
+      openInSideModifier: "shift" as const,
       overrides: { search_session: "Ctrl+L", voice_stop: null },
     };
     localStorage.setItem("test-server:cc-shortcuts", JSON.stringify(legacySettings));
@@ -229,6 +233,7 @@ describe("Shortcut settings hydration", () => {
       enabled: false,
       preset: "standard",
       typeToCompose: true,
+      openInSideModifier: "shift",
       overrides: {},
     });
     expect(mockUpdateSettings).not.toHaveBeenCalled();
@@ -241,10 +246,17 @@ describe("Shortcut settings hydration", () => {
       enabled: true,
       preset: "standard",
       typeToCompose: true,
+      openInSideModifier: "shift",
       overrides: {},
     });
     expect(mockUpdateSettings).toHaveBeenCalledWith({
-      shortcutSettings: { enabled: true, preset: "standard", typeToCompose: true, overrides: {} },
+      shortcutSettings: {
+        enabled: true,
+        preset: "standard",
+        typeToCompose: true,
+        openInSideModifier: "shift",
+        overrides: {},
+      },
     });
     expect(localStorage.getItem("test-server:cc-shortcuts")).toBeNull();
   });
@@ -254,7 +266,22 @@ describe("Shortcut settings hydration", () => {
 
     expect(useStore.getState().shortcutSettings.typeToCompose).toBe(false);
     expect(mockUpdateSettings).toHaveBeenCalledWith({
-      shortcutSettings: { enabled: false, preset: "standard", overrides: {}, typeToCompose: false },
+      shortcutSettings: {
+        enabled: false,
+        preset: "standard",
+        overrides: {},
+        typeToCompose: false,
+        openInSideModifier: "shift",
+      },
+    });
+  });
+
+  it("saves the key for opening things in the side column with the other shortcut settings", () => {
+    useStore.getState().setOpenInSideModifier("mod");
+
+    expect(useStore.getState().shortcutSettings.openInSideModifier).toBe("mod");
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      shortcutSettings: expect.objectContaining({ openInSideModifier: "mod", typeToCompose: true }),
     });
   });
 
@@ -269,7 +296,13 @@ describe("Shortcut settings hydration", () => {
 
     useStore.getState().setShortcutOverride("new_session", null);
 
-    const offSettings = { enabled: true, preset: "standard", typeToCompose: true, overrides: { new_session: null } };
+    const offSettings = {
+      enabled: true,
+      preset: "standard",
+      typeToCompose: true,
+      openInSideModifier: "shift",
+      overrides: { new_session: null },
+    };
     expect(useStore.getState().shortcutSettings).toEqual(offSettings);
     expect(mockUpdateSettings).toHaveBeenCalledWith({ shortcutSettings: offSettings });
     expect(getMatchingShortcutAction(useStore.getState().shortcutSettings, ctrlN)).toBeNull();

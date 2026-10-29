@@ -38,6 +38,7 @@ vi.mock("./api/session-drafts.js", async (importOriginal) => {
 });
 
 import { useStore } from "./store.js";
+import { sideComposerDraftKey } from "./draft-sync-bridge.js";
 import {
   markGuidedReviewSent,
   setGuidedReviewAnswer,
@@ -342,6 +343,48 @@ describe("composer draft sync", () => {
     });
     // The old build's recipient choice is retired: comments go to the session showing the report.
     expect(server.session.drafts?.composer?.draft).not.toHaveProperty("reportRecipientSessionId");
+  });
+});
+
+describe("side column draft sync", () => {
+  // A leader's side column has a message box per conversation, plus one for the side chat not
+  // started yet; each keeps its own draft, shared like the main box's and apart from it.
+  const side = (place: string) => sideComposerDraftKey("s1", place);
+
+  it("shares each side message box's draft apart from the main one, across browsers and reloads", async () => {
+    useStore.getState().setComposerDraft("s1", { text: "main box", images: [] });
+    useStore.getState().setComposerDraft(side("q-7"), { text: "beside q-7", images: [] });
+    await settle();
+
+    expect(server.session.drafts?.composer?.draft).toEqual({ text: "main box" });
+    expect(server.session.drafts?.sideComposers).toEqual({
+      "q-7": expect.objectContaining({ draft: { text: "beside q-7" } }),
+    });
+    reload();
+    expect(useStore.getState().composerDrafts.get(side("q-7"))?.text).toBe("beside q-7");
+    expect(useStore.getState().composerDrafts.get("s1")?.text).toBe("main box");
+
+    // The phone starts typing a new side chat; it shows here live, in this column's new side chat.
+    writeFromOtherBrowser({ kind: "side-composer", place: "new", draft: { text: "a question on the side" } });
+    expect(useStore.getState().composerDrafts.get(side("new"))?.text).toBe("a question on the side");
+  });
+
+  it("clears a side draft everywhere when its message is sent, and drops ones sent elsewhere on reconnect", async () => {
+    useStore.getState().setComposerDraft(side("topic:aaaa0001"), { text: "sending this", images: [] });
+    useStore.getState().setComposerDraft(side("q-7"), { text: "sent from the phone later", images: [] });
+    await settle();
+    useStore.getState().clearComposerDraft(side("topic:aaaa0001"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(server.session.drafts?.sideComposers).not.toHaveProperty("topic:aaaa0001");
+
+    // The phone sends the q-7 side message while this tab is away; the next subscribe drops it here.
+    applySessionDraftWrite(
+      server.session,
+      { clientId: OTHER_BROWSER, write: { kind: "side-composer", place: "q-7", draft: null } },
+      { broadcastToBrowsers: () => {}, persistSession: () => {} },
+    );
+    applySessionDraftsSnapshot("s1", server.session.drafts);
+    expect(useStore.getState().composerDrafts.has(side("q-7"))).toBe(false);
   });
 });
 

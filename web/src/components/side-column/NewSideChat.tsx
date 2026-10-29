@@ -7,11 +7,14 @@ import { ComposerFeedLayout } from "../ComposerFeedLayout.js";
 import { Composer } from "../Composer.js";
 import { NewThreadIcon } from "../library/library-icons.js";
 import { ThreadOriginName, threadNameFromMessage } from "./thread-names.js";
-import { sideDraftKey } from "./SideConversation.js";
+import { sideComposerDraftKey } from "../../draft-sync-bridge.js";
 
-/** The draft of a side chat not started yet, kept per side column item. */
-export function newSideChatDraftKey(leaderId: string, itemId: string): string {
-  return sideDraftKey(leaderId, `new:${itemId}`);
+/**
+ * The draft of the leader's side chat not started yet. A column holds one new side chat, so its
+ * draft is the leader's, and another device's New side chat continues it.
+ */
+export function newSideChatDraftKey(leaderId: string): string {
+  return sideComposerDraftKey(leaderId, "new");
 }
 
 /**
@@ -28,7 +31,7 @@ export function NewSideChat({
   itemId: string;
   startedFrom: string | null;
 }) {
-  const draftKey = newSideChatDraftKey(leaderId, itemId);
+  const draftKey = newSideChatDraftKey(leaderId);
   const passages = useStore((state) => state.composerDrafts.get(draftKey)?.annotations);
   const newThread = useMemo(
     () => ({

@@ -82,7 +82,11 @@ export function useTopicWindowFollowsQuests(sessionId: string, viewKey: string |
 }
 
 /** The topic a quest's own feed opens with: its name and a way to zoom out to all of it. */
-export const TopicEntryContext = createContext<{ name: string; count: number; onOpen: () => void } | null>(null);
+export const TopicEntryContext = createContext<{
+  name: string;
+  count: number;
+  onOpen: (event?: React.MouseEvent) => void;
+} | null>(null);
 
 /** At the start of a quest's own conversation, above its description: "Part of <topic>". */
 export function TopicFeedEntry() {

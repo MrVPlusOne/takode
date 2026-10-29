@@ -15,13 +15,19 @@ import {
   guidedReviewIdsForSession,
 } from "./guided-review-state.js";
 import { DraftWriteRejectedError, writeSessionDraft } from "./api/session-drafts.js";
-import { setLocalDraftChangeListener, type LocalDraftTarget } from "./draft-sync-bridge.js";
+import {
+  composerDraftOwner,
+  setLocalDraftChangeListener,
+  sideComposerDraftKey,
+  type LocalDraftTarget,
+} from "./draft-sync-bridge.js";
 import { useStore } from "./store.js";
 import { scopedGetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
 import { toSyncedComposerDraft } from "./utils/synced-composer-draft.js";
 
 /**
- * Shares unsent drafts (composer text and comments, needs-input and guided review answers) between the
+ * Shares unsent drafts (composer text and comments, the side column's message boxes, needs-input and
+ * guided review answers) between the
  * user's browsers through the server, so a draft started on one device continues on
  * another and survives reloads.
  *
@@ -97,6 +103,9 @@ function isPending(slot: DraftSlot): boolean {
 function localValue(sessionId: string, target: LocalDraftTarget): DraftValue {
   const state = useStore.getState();
   if (target.kind === "composer") return toSyncedComposerDraft(state.composerDrafts.get(sessionId));
+  if (target.kind === "side-composer") {
+    return toSyncedComposerDraft(state.composerDrafts.get(sideComposerDraftKey(sessionId, target.place)));
+  }
   if (target.kind === "guided-review") return getGuidedReviewDraft(target.reviewId);
   return normalizeSyncedNeedsInputAnswers(state.needsInputDrafts.get(sessionId)?.get(target.notificationId) ?? null);
 }
@@ -138,16 +147,7 @@ function sendDraft(sessionId: string, slot: DraftSlot, options: { keepalive?: bo
     afterSettled(sessionId, slot);
     return;
   }
-  const write: SessionDraftWrite =
-    slot.target.kind === "composer"
-      ? { kind: "composer", draft: value as SyncedComposerDraft | null }
-      : slot.target.kind === "guided-review"
-        ? { kind: "guided-review", reviewId: slot.target.reviewId, draft: value as SyncedGuidedReviewDraft | null }
-        : {
-            kind: "needs-input",
-            notificationId: slot.target.notificationId,
-            answers: value as SyncedNeedsInputAnswers | null,
-          };
+  const write = writeOf(slot.target, value);
   slot.inFlight = true;
   slot.resendAfterFlight = false;
   writeSessionDraft(sessionId, { clientId, write }, options)
@@ -171,6 +171,23 @@ function sendDraft(sessionId: string, slot: DraftSlot, options: { keepalive?: bo
     });
 }
 
+function writeOf(target: LocalDraftTarget, value: DraftValue): SessionDraftWrite {
+  switch (target.kind) {
+    case "composer":
+      return { kind: "composer", draft: value as SyncedComposerDraft | null };
+    case "side-composer":
+      return { kind: "side-composer", place: target.place, draft: value as SyncedComposerDraft | null };
+    case "guided-review":
+      return { kind: "guided-review", reviewId: target.reviewId, draft: value as SyncedGuidedReviewDraft | null };
+    case "needs-input":
+      return {
+        kind: "needs-input",
+        notificationId: target.notificationId,
+        answers: value as SyncedNeedsInputAnswers | null,
+      };
+  }
+}
+
 /** After a write settles: send newer local edits, or adopt a later change from another browser. */
 function afterSettled(sessionId: string, slot: DraftSlot): void {
   const localChanged = serialize(localValue(sessionId, slot.target)) !== slot.serverValue;
@@ -192,7 +209,9 @@ function applyChange(sessionId: string, slot: DraftSlot, change: SessionDraftCha
   const value = changeValue(change);
   const state = useStore.getState();
   if (change.kind === "composer") state.applySyncedComposerDraft(sessionId, value as SyncedComposerDraft | null);
-  else if (change.kind === "guided-review") applySyncedGuidedReviewDraft(sessionId, change.reviewId, change.draft);
+  else if (change.kind === "side-composer") {
+    state.applySyncedComposerDraft(sideComposerDraftKey(sessionId, change.place), change.draft);
+  } else if (change.kind === "guided-review") applySyncedGuidedReviewDraft(sessionId, change.reviewId, change.draft);
   else state.applySyncedNeedsInputDraft(sessionId, change.notificationId, value as SyncedNeedsInputAnswers | null);
   slot.serverValue = serialize(value);
   slot.revision = Math.max(slot.revision, change.revision);
@@ -200,6 +219,7 @@ function applyChange(sessionId: string, slot: DraftSlot, change: SessionDraftCha
 
 function targetOf(change: SessionDraftChange): LocalDraftTarget {
   if (change.kind === "composer") return { kind: "composer" };
+  if (change.kind === "side-composer") return { kind: "side-composer", place: change.place };
   if (change.kind === "guided-review") return { kind: "guided-review", reviewId: change.reviewId };
   return { kind: "needs-input", notificationId: change.notificationId };
 }
@@ -233,6 +253,21 @@ export function applySessionDraftsSnapshot(sessionId: string, drafts: SessionDra
   }
   for (const [reviewId, entry] of Object.entries(drafts?.guidedReviews ?? {})) {
     remember({ kind: "guided-review", reviewId, draft: entry.draft, ...meta(entry, revision) });
+  }
+  for (const [place, entry] of Object.entries(drafts?.sideComposers ?? {})) {
+    remember({ kind: "side-composer", place, draft: entry.draft, ...meta(entry, revision) });
+  }
+  // Local side drafts the server no longer holds were sent or cleared elsewhere.
+  for (const key of useStore.getState().composerDrafts.keys()) {
+    const owner = composerDraftOwner(key);
+    if (owner.sessionId !== sessionId || owner.target.kind !== "side-composer") continue;
+    const change: SessionDraftChange = {
+      kind: "side-composer",
+      place: owner.target.place,
+      draft: null,
+      ...meta(undefined, revision),
+    };
+    if (!changes.has(sessionDraftKey(change))) remember(change);
   }
   // Local review answers the server no longer holds were cleared elsewhere.
   for (const reviewId of guidedReviewIdsForSession(sessionId)) {

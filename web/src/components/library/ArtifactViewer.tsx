@@ -18,12 +18,23 @@ import { ArtifactVersionLoader, StarIcon } from "../ArtifactInline.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 
 /**
- * One artifact in the Library, shown large: its newest version (or the one stepped to), each
- * version's date, a star, renaming, its short ID with Copy link (for mentioning it to a leader),
- * its topic, and a link to the message the version came from.
+ * One artifact shown large, in the Library or in a leader's side column: its newest version (or the
+ * one linked or stepped to), each version's date, a star, renaming, its short ID with Copy link (for
+ * mentioning it to a leader), its topic, and a link to the message the version came from.
  */
-export function ArtifactViewer({ id, onBack, onChanged }: { id: string; onBack: () => void; onChanged: () => void }) {
-  const requestedVersion = useLibraryNav((state) => state.version);
+export function ArtifactViewer({
+  id,
+  version: requestedVersion,
+  onBack,
+  onChanged,
+}: {
+  id: string;
+  /** The version to show first; the newest when absent or not kept. */
+  version?: number | null;
+  /** Back to the Library's gallery; no back link without it (the side column). */
+  onBack?: () => void;
+  onChanged?: () => void;
+}) {
   const [detail, setDetail] = useState<ArtifactDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shown, setShown] = useState<number | null>(null);
@@ -51,7 +62,7 @@ export function ArtifactViewer({ id, onBack, onChanged }: { id: string; onBack: 
   const update = useCallback(
     (next: ArtifactDetail) => {
       setDetail(next);
-      onChanged();
+      onChanged?.();
     },
     [onChanged],
   );
@@ -181,16 +192,18 @@ export function ArtifactViewer({ id, onBack, onChanged }: { id: string; onBack: 
   );
 }
 
-function ViewerFrame({ onBack, children }: { onBack: () => void; children: React.ReactNode }) {
+function ViewerFrame({ onBack, children }: { onBack?: () => void; children: React.ReactNode }) {
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col" data-testid="artifact-viewer">
-      <button
-        type="button"
-        onClick={onBack}
-        className="flex shrink-0 items-center gap-1 self-start px-3 pt-2 text-[13px] text-cc-muted hover:text-cc-fg"
-      >
-        ‹ Library
-      </button>
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex shrink-0 items-center gap-1 self-start px-3 pt-2 text-[13px] text-cc-muted hover:text-cc-fg"
+        >
+          ‹ Library
+        </button>
+      )}
       {children}
     </div>
   );

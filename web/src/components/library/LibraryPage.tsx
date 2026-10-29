@@ -36,7 +36,7 @@ type KindTab = ArtifactKind | "all";
 const KIND_TABS: readonly KindTab[] = [...ARTIFACT_KINDS, "all"];
 
 export function LibraryPage() {
-  const { artifactId, leaderId, topic: requestedTopic } = useLibraryNav();
+  const { artifactId, leaderId, topic: requestedTopic, version: requestedVersion } = useLibraryNav();
   const currentSpace = useCurrentSessionSpace();
   const leaderLabel = useSessionLabel(leaderId);
   const [space, setSpace] = useState<string | null>(null);
@@ -196,7 +196,12 @@ export function LibraryPage() {
     <div className="flex h-full min-h-0 flex-col bg-cc-bg" data-testid="library-page" data-scope={scopeKey}>
       {artifactId && (
         <div ref={viewerRef} className="flex min-h-0 flex-1 flex-col">
-          <ArtifactViewer id={artifactId} onBack={() => showLibraryArtifact(null)} onChanged={() => fetchPage(0)} />
+          <ArtifactViewer
+            id={artifactId}
+            version={requestedVersion}
+            onBack={() => showLibraryArtifact(null)}
+            onChanged={() => fetchPage(0)}
+          />
         </div>
       )}
       {/* The gallery stays mounted under an open artifact, so going back keeps its scroll position. */}

@@ -257,7 +257,7 @@ export function ThreadTabRail({
     );
   };
   const openTopic = (topic: TopicSummary, event?: OpenInSideEvent) => {
-    // Shift-click: the topic's page goes beside the conversation instead.
+    // The open-in-side click (Shift by default): the topic's page goes beside the conversation instead.
     if (isOpenInSideClick(event)) {
       openInSide(sessionId, { kind: "topic", topicId: topic.id });
       return;

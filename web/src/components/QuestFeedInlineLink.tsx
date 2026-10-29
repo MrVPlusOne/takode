@@ -861,7 +861,7 @@ export function QuestFeedInlineLink({
       };
       const state = useStore.getState();
       const leaderSessionId = selectQuestThreadLeaderId(state, normalizedQuestId);
-      // Shift-click: the quest's conversation goes in its leader's side column, beside this one.
+      // The open-in-side click (Shift by default): the quest's conversation goes in its leader's side column.
       if (leaderSessionId && isOpenInSideClick(event) && openConversationInSide(leaderSessionId, normalizedQuestId)) {
         closeAllRef.current(false);
         return;

@@ -27,6 +27,9 @@ import { useQuestRecord } from "../QuestSummaryCard.js";
 import { getQuestStatusTheme } from "../../utils/quest-status-theme.js";
 import { SideConversation } from "./SideConversation.js";
 import { NewSideChat } from "./NewSideChat.js";
+import { ArtifactViewer } from "../library/ArtifactViewer.js";
+import { LibraryIcon } from "../ArtifactInline.js";
+import { openLibraryArtifact } from "../../utils/library-nav.js";
 
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
 const KEPT_MOUNTED = 3;
@@ -172,19 +175,25 @@ function SideItemRow({
 
 function ItemActions({ leaderId, item }: { leaderId: string; item: SideItem | null }) {
   if (!item) return null;
-  const mainKey = item.kind === "conversation" ? item.threadKey : null;
+  // A conversation moves to the main view, an artifact to the Library; either leaves the column.
+  const moveOut =
+    item.kind === "conversation"
+      ? { label: "Open in the main view", go: () => navigateToSessionThread(leaderId, item.threadKey) }
+      : item.kind === "artifact"
+        ? { label: "Open in the Library", go: () => openLibraryArtifact(item.artifactId, item.version) }
+        : null;
   return (
     <span className="flex shrink-0 items-center">
-      {mainKey && (
+      {moveOut && (
         <button
           type="button"
           onClick={() => {
-            navigateToSessionThread(leaderId, mainKey);
+            moveOut.go();
             closeSideItem(leaderId, item.id);
           }}
           className="flex h-7 w-7 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-          aria-label="Open in the main view"
-          title="Open in the main view"
+          aria-label={moveOut.label}
+          title={moveOut.label}
         >
           <OpenInMainIcon />
         </button>
@@ -290,6 +299,12 @@ function SideItemBody({
       return <SideConversation leaderId={leaderId} threadKey={item.threadKey} />;
     case "new-chat":
       return <NewSideChat leaderId={leaderId} itemId={item.id} startedFrom={item.startedFrom} />;
+    case "artifact":
+      return (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <ArtifactViewer id={item.artifactId} version={item.version} />
+        </div>
+      );
   }
 }
 
@@ -311,6 +326,8 @@ function SideItemTitle({ leaderId, threadKey, item }: { leaderId: string; thread
       );
     case "new-chat":
       return <>New side chat</>;
+    case "artifact":
+      return <>{item.title ?? "Artifact"}</>;
   }
 }
 
@@ -320,6 +337,7 @@ function SideItemIcon({ leaderId, item }: { leaderId: string; item: SideItem | n
   const quest = useQuestRecord(/^q-\d+$/.test(key) ? key : null);
   const className = "h-3.5 w-3.5 shrink-0";
   if (!item || item.kind === "topic") return <TopicIcon className={`${className} text-cc-primary`} />;
+  if (item.kind === "artifact") return <LibraryIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "new-chat" || thread) return <NewThreadIcon className={`${className} text-cc-primary`} />;
   if (isTopicViewKey(key)) return <TopicIcon className={`${className} text-cc-primary`} />;
   // A quest: its status color, as in the quest lists.

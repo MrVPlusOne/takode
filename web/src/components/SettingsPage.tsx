@@ -37,7 +37,12 @@ import { SettingsHostsSection } from "./SettingsHostsSection.js";
 import { SettingsUserContentSection } from "./SettingsUserContentSection.js";
 import { SettingsLoginSection } from "./SettingsLoginSection.js";
 import { SettingsServerTimeZoneSection } from "./SettingsServerTimeZoneSection.js";
-import { SendKeySchemeSetting, SettingsShortcutSection, TypeToComposeSetting } from "./SettingsShortcutSection.js";
+import {
+  OpenInSideModifierSetting,
+  SendKeySchemeSetting,
+  SettingsShortcutSection,
+  TypeToComposeSetting,
+} from "./SettingsShortcutSection.js";
 import {
   SettingsFollowUpReminders,
   SettingsPhoneAlertRules,
@@ -880,6 +885,10 @@ export function SettingsPage({
                 hidden={settingsSearch.rowHidden("keyboard", "send-key")}
               />
               <TypeToComposeSetting hidden={settingsSearch.rowHidden("keyboard", "type-to-compose")} />
+              <OpenInSideModifierSetting
+                shortcutPlatform={shortcutPlatform}
+                hidden={settingsSearch.rowHidden("keyboard", "open-in-side")}
+              />
               <SettingsShortcutSection
                 shortcutSettings={shortcutSettings}
                 setShortcutsEnabled={setShortcutsEnabled}
