@@ -3,7 +3,16 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api.js", () => ({ api: {} }));
+const topicsOn = vi.hoisted(() => ({ value: false }));
+vi.mock("../utils/leader-topics.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/leader-topics.js")>()),
+  useLeaderTopicsOn: () => topicsOn.value,
+}));
 
+import { useStore } from "../store.js";
+import { useSideColumnStore } from "../utils/side-column.js";
+import { markLeaderThreadDisplayed } from "../utils/thread-viewport.js";
+import { newSideChatDraftKey } from "./side-column/NewSideChat.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
 
@@ -29,6 +38,7 @@ beforeEach(() => {
 
 afterEach(() => {
   (globalThis as any).ClipboardItem = originalClipboardItem;
+  topicsOn.value = false;
 });
 
 describe("selection Copy menu", () => {
@@ -97,5 +107,51 @@ describe("selection Copy menu", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Plain words");
     expect(onClose).toHaveBeenCalled();
     message.remove();
+  });
+});
+
+describe("Ask in side chat", () => {
+  it("opens a new side chat about the thread on screen, with the passage in its message box", () => {
+    // Only leaders with topics on have side chats.
+    topicsOn.value = true;
+    const shown = markLeaderThreadDisplayed("s1", "q-7");
+    const message = document.createElement("p");
+    message.textContent = "A passage";
+    document.body.appendChild(message);
+    const range = document.createRange();
+    range.selectNodeContents(message);
+    const clear = vi.fn();
+    const onClose = vi.fn();
+    try {
+      render(
+        <SelectionContextMenu
+          sessionId="s1"
+          onClose={onClose}
+          selection={{
+            isActive: true,
+            plainText: "A passage",
+            range,
+            position: { x: 10, y: 10 },
+            clear,
+            dismiss: vi.fn(),
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Ask in side chat" }));
+
+      const [item] = useSideColumnStore.getState().columns.s1!.items;
+      expect(item).toEqual(expect.objectContaining({ kind: "new-chat", startedFrom: "q-7" }));
+      const draft = useStore.getState().composerDrafts.get(newSideChatDraftKey("s1", item!.id));
+      expect(draft?.annotations).toEqual([expect.objectContaining({ selectedText: "A passage", comment: "" })]);
+      // The main message box is left as it was.
+      expect(useStore.getState().composerDrafts.get("s1")).toBeUndefined();
+      expect(clear).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    } finally {
+      shown();
+      message.remove();
+      useSideColumnStore.setState({ columns: {} });
+      localStorage.clear();
+    }
   });
 });

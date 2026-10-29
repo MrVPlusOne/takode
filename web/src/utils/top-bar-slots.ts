@@ -1,26 +1,24 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { useStore } from "../store.js";
 import { useLeaderTopicsOn } from "./leader-topics.js";
 
 /**
- * On desktop, a leader with Library topics on keeps its thread navigation in the top bar instead
- * of a tab row of its own: Main | All, Topics and the Next chip after the session name, and the
- * Working on menu (which holds the work board) before the attention bell. The conversation on
- * screen fills these two places of the top bar; phones keep the tab row.
+ * A leader with Library topics on navigates by breadcrumb, on desktop and phones alike: no tab row,
+ * the place and quest pickers at the start of the strip under the top bar, and the Working on picker
+ * (which holds the work board) in the top bar before the attention bell. The conversation on screen
+ * fills the top bar's helpers place.
  */
-export function useLeaderNavInTopBar(sessionId: string | null | undefined): boolean {
-  const desktop = useDesktopShellLayout();
+export function useLeaderBreadcrumb(sessionId: string | null | undefined): boolean {
   const isLeader = useStore(
     (state) =>
       !!sessionId && state.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator),
   );
   const topicsOn = useLeaderTopicsOn(sessionId ?? "");
-  return desktop && isLeader && topicsOn;
+  return isLeader && topicsOn;
 }
 
-type TopBarSlot = "nav" | "helpers";
-const slots: Record<TopBarSlot, HTMLElement | null> = { nav: null, helpers: null };
+type TopBarSlot = "helpers";
+const slots: Record<TopBarSlot, HTMLElement | null> = { helpers: null };
 const listeners = new Set<() => void>();
 let shownSessionId: string | null = null;
 
@@ -30,8 +28,7 @@ function setSlot(name: TopBarSlot, element: HTMLElement | null) {
   for (const listener of listeners) listener();
 }
 
-/** Stable ref callbacks for the top bar's two places. */
-export const topBarNavRef = (element: HTMLElement | null) => setSlot("nav", element);
+/** A stable ref callback for the top bar's helpers place. */
 export const topBarHelpersRef = (element: HTMLElement | null) => setSlot("helpers", element);
 
 /**
@@ -52,7 +49,7 @@ function showBox(box: HTMLElement) {
 }
 
 /** A conversation's own box in one of the top bar's places, once the top bar has drawn it. */
-export function useTopBarSlot(name: TopBarSlot, sessionId: string): HTMLElement | null {
+export function useTopBarSlot(name: TopBarSlot, sessionId: string | null): HTMLElement | null {
   const slot = useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
@@ -62,7 +59,7 @@ export function useTopBarSlot(name: TopBarSlot, sessionId: string): HTMLElement 
     () => null,
   );
   const box = useMemo(() => {
-    if (!slot) return null;
+    if (!slot || !sessionId) return null;
     const existing = [...slot.children].find((child) => (child as HTMLElement).dataset.session === sessionId);
     if (existing) return existing as HTMLElement;
     const created = document.createElement("div");

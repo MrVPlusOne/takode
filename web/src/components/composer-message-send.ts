@@ -10,7 +10,13 @@ import { isQuestThreadKey } from "../../shared/thread-routing.js";
 export function sendComposerDraft(
   sessionId: string,
   draft: ComposerDraft,
-  route: { threadKey: string; questId?: string; vscodeSelection?: VsCodeSelectionContextPayload },
+  route: {
+    threadKey: string;
+    questId?: string;
+    vscodeSelection?: VsCodeSelectionContextPayload;
+    /** Where the draft is kept, when not the session's main draft (a side chat's composer). */
+    draftKey?: string;
+  },
   isCodex: boolean,
 ): "sent" | "retained" | "failed" {
   const store = useStore.getState();
@@ -60,7 +66,7 @@ export function sendComposerDraft(
       error: sent ? undefined : "Connection lost before delivery.",
     }));
   if (!sent && !ownsPending) return "failed";
-  store.clearComposerDraft(sessionId);
+  store.clearComposerDraft(route.draftKey ?? sessionId);
   store.setReplyContext(sessionId, null);
   if (sent) store.requestBottomAlignOnNextUserMessage(sessionId);
   return sent ? "sent" : "retained";

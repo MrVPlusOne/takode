@@ -7,7 +7,8 @@ import { htmlFragmentToMarkdown, htmlFragmentToRichText } from "../utils/html-to
 import { selectionCopyForSlack } from "../utils/slack-copy.js";
 import type { TextSelectionState } from "../hooks/useTextSelection.js";
 import { useLeaderTopicsOn } from "../utils/leader-topics.js";
-import { openNewThreadPage } from "../utils/routing.js";
+import { openInSide, sideChatOrigin } from "../utils/side-column.js";
+import { newSideChatDraftKey } from "./side-column/NewSideChat.js";
 
 interface SelectionContextMenuProps {
   selection: TextSelectionState;
@@ -87,13 +88,15 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
     onClose();
   }, [selection, onClose]);
 
-  // A leader with topics on can take the passage to a new thread instead of this one.
+  // A leader with topics on can take the passage to a side chat about it instead of this thread.
   const canStartThread = useLeaderTopicsOn(sessionId);
-  const handleAskInNewThread = useCallback(() => {
+  const handleAskInSideChat = useCallback(() => {
     if (!selection.plainText.trim()) return;
+    const itemId = openInSide(sessionId, { kind: "new-chat", startedFrom: sideChatOrigin(sessionId) });
     const store = useStore.getState();
-    const current = store.composerDrafts.get(sessionId);
-    store.setComposerDraft(sessionId, {
+    const draftKey = newSideChatDraftKey(sessionId, itemId);
+    const current = store.composerDrafts.get(draftKey);
+    store.setComposerDraft(draftKey, {
       ...current,
       text: current?.text ?? "",
       images: current?.images ?? [],
@@ -109,14 +112,12 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
     });
     selection.clear();
     onClose();
-    openNewThreadPage();
-    store.focusComposer();
   }, [selection, sessionId, onClose]);
 
   const items = useMemo<ContextMenuItem[]>(
     () => [
       { label: "Comment", onClick: handleComment },
-      ...(canStartThread ? [{ label: "Ask in new thread", onClick: handleAskInNewThread }] : []),
+      ...(canStartThread ? [{ label: "Ask in side chat", onClick: handleAskInSideChat }] : []),
       {
         label: "Copy",
         onClick: () => {},
@@ -130,7 +131,7 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
     ],
     [
       canStartThread,
-      handleAskInNewThread,
+      handleAskInSideChat,
       handleComment,
       handleCopyRichText,
       handleCopyForSlack,

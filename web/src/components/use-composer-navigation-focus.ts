@@ -6,8 +6,10 @@ export function useComposerNavigationFocus(options: {
   sessionId: string;
   threadKey: string;
   usesTouchKeyboard: boolean;
+  /** False for a composer beside the main one, which focus requests never reach. */
+  enabled?: boolean;
 }): void {
-  const { textareaRef, sessionId, threadKey, usesTouchKeyboard } = options;
+  const { textareaRef, sessionId, threadKey, usesTouchKeyboard, enabled = true } = options;
   const focusTrigger = useStore((state) => state.focusComposerTrigger);
   const previousFocusTriggerRef = useRef(focusTrigger);
   const previousNavigationRef = useRef({ sessionId, threadKey });
@@ -16,13 +18,13 @@ export function useComposerNavigationFocus(options: {
     const previousFocusTrigger = previousFocusTriggerRef.current;
     previousFocusTriggerRef.current = focusTrigger;
     if (typeof focusTrigger !== "number" || typeof previousFocusTrigger !== "number") return;
-    if (focusTrigger <= previousFocusTrigger) return;
+    if (focusTrigger <= previousFocusTrigger || !enabled) return;
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.focus();
     // A focus request means "continue typing here": put the cursor after the draft, not where it last was.
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-  }, [focusTrigger, textareaRef]);
+  }, [enabled, focusTrigger, textareaRef]);
 
   useEffect(() => {
     const previous = previousNavigationRef.current;

@@ -6,17 +6,20 @@ import { AnnotationEditor } from "./AnnotationEditor.js";
 
 export function ComposerAnnotations({
   sessionId,
+  draftKey = sessionId,
   threadKey,
   threadTitle,
   disabled = false,
 }: {
   sessionId: string;
+  /** Where the draft is kept (see Composer). */
+  draftKey?: string;
   threadKey: string;
   threadTitle?: string;
   disabled?: boolean;
 }) {
   const openSource = useAnnotationSourceNavigation(sessionId, threadKey);
-  const draft = useStore((state) => state.composerDrafts.get(sessionId));
+  const draft = useStore((state) => state.composerDrafts.get(draftKey));
   const editor = useStore((state) => state.annotationEditor);
   const annotations = draft?.annotations ?? [];
   const activeEditor =
@@ -34,9 +37,9 @@ export function ComposerAnnotations({
   );
   const remove = (id: string) => {
     const state = useStore.getState();
-    const current = state.composerDrafts.get(sessionId);
+    const current = state.composerDrafts.get(draftKey);
     if (current)
-      state.setComposerDraft(sessionId, {
+      state.setComposerDraft(draftKey, {
         ...current,
         annotations: current.annotations?.filter((entry) => entry.id !== id),
       });
@@ -84,10 +87,10 @@ export function ComposerAnnotations({
           }
           onSave={(comment) => {
             const state = useStore.getState();
-            const current = state.composerDrafts.get(sessionId) ?? { text: "", images: [] };
+            const current = state.composerDrafts.get(draftKey) ?? { text: "", images: [] };
             const saved = { ...activeEditor.annotation, comment };
             const previous = current.annotations ?? [];
-            state.setComposerDraft(sessionId, {
+            state.setComposerDraft(draftKey, {
               ...current,
               annotations: previous.some((entry) => entry.id === saved.id)
                 ? previous.map((entry) => (entry.id === saved.id ? saved : entry))

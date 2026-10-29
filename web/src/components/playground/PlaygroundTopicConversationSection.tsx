@@ -2,12 +2,7 @@ import { TopicLabelButton } from "../MessageTopicLabel.js";
 import { useEffect } from "react";
 import type { QuestmasterTask } from "../../types.js";
 import { useStore } from "../../store.js";
-import {
-  TopicConversationHeader,
-  TopicEntryContext,
-  TopicEntryLine,
-  TopicFeedEntry,
-} from "../library/TopicConversation.js";
+import { TopicEntryContext, TopicFeedEntry } from "../library/TopicConversation.js";
 import { TopicFeedContext, TopicFeedQuestStart } from "../topic-feed.js";
 import { MainQuestStrip } from "../MainQuestStrip.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
@@ -47,9 +42,8 @@ export function PlaygroundTopicConversationSection() {
         title="Topic Conversation"
         description="A quest tab is the quest zoomed in from its topic. The topic line above the quest's strip (‹ topic name) zooms out to the topic's quests read as one conversation, at this quest's place; so do the Part of line at the start of the quest's conversation, View topic tab on the topic page and the Topics tab group. The topic header replaces the quest strip; each quest's strip sits in the feed where its part starts and sticks to the top while you read it, until the next one covers it. Tapping a strip zooms into that quest; back zooms out again."
       >
-        <Card label="Zooming out from a quest tab: the topic line above its strip, and the line its conversation opens with">
+        <Card label="Zooming out from a quest tab: the line its conversation opens with">
           <div className="max-w-md overflow-hidden rounded-lg border border-cc-border">
-            <TopicEntryLine name="Guided review and diffs" count={QUESTS.length} onOpen={() => {}} />
             <div className="px-3 py-3">
               <TopicEntryContext.Provider
                 value={{ name: "Guided review and diffs", count: QUESTS.length, onOpen: () => {} }}
@@ -97,10 +91,6 @@ export function PlaygroundTopicConversationSection() {
         </Card>
         <Card label="Scroll inside the box">
           <div className="max-w-md overflow-hidden rounded-lg border border-cc-border">
-            <TopicConversationHeader
-              leaderId="playground-leader"
-              topic={{ topicId: "t", name: "Guided review and diffs", questIds: QUESTS.map((quest) => quest.questId) }}
-            />
             {/* The topic's own thread (what was written in the conversation itself) has a strip too. */}
             <TopicFeedContext.Provider
               value={{

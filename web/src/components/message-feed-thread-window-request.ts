@@ -11,9 +11,12 @@ export function useThreadWindowRequester({
   normalizedThreadKey,
   sectionTurnCount,
   sessionId,
+  secondary = false,
   onWindowRequest,
   setPendingInitialThreadWindowKey,
 }: {
+  /** A feed beside the main one: its windows don't become the view the server refreshes. */
+  secondary?: boolean;
   activeThreadWindow: ThreadWindowState | null;
   normalizedThreadKey: string;
   sectionTurnCount: number;
@@ -28,7 +31,11 @@ export function useThreadWindowRequester({
       // example the one a session subscribe carries), so asking again would
       // only fetch the same window twice.
       const latestWindowRequest = !activeThreadWindow || (fromItem < 0 && !targetMessageId);
-      if (latestWindowRequest && store.pendingThreadWindowRequests?.get(sessionId) === normalizedThreadKey) {
+      if (
+        !secondary &&
+        latestWindowRequest &&
+        store.pendingThreadWindowRequests?.get(sessionId) === normalizedThreadKey
+      ) {
         return true;
       }
       const itemCount = activeThreadWindow
@@ -55,13 +62,13 @@ export function useThreadWindowRequester({
         item_count: itemCount,
         section_item_count: sectionItemCount,
         visible_item_count: visibleItemCount,
-        activate_view: true,
+        activate_view: !secondary,
         ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
         // A targeted window identical to the held one comes back as a cache hit, not resent in full.
         ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
       });
       if (delivered) onWindowRequest(activeThreadWindow);
-      if (delivered && !activeThreadWindow) {
+      if (delivered && !activeThreadWindow && !secondary) {
         store.setPendingThreadWindowRequest?.(sessionId, normalizedThreadKey);
         setPendingInitialThreadWindowKey(normalizedThreadKey);
       }
@@ -71,6 +78,7 @@ export function useThreadWindowRequester({
       activeThreadWindow,
       normalizedThreadKey,
       onWindowRequest,
+      secondary,
       sectionTurnCount,
       sessionId,
       setPendingInitialThreadWindowKey,

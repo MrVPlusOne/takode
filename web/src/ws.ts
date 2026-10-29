@@ -24,6 +24,7 @@ import {
 } from "../shared/synced-projection-registry.js";
 import { syncedProjectionEntryId, type SyncedProjectionSubscription } from "../shared/synced-projection.js";
 import { announceBackendConnectionOpen } from "./build-compatibility.js";
+import { getSideViews } from "./utils/side-views.js";
 import {
   projectedLeaderOpenThreadTabs,
   resolveLeaderThreadTabsProjection,
@@ -186,6 +187,7 @@ const transport = createWsTransport({
     };
   },
   getInitialThreadWindow: getInitialLeaderThreadWindow,
+  getSideViews,
   getSyncedProjectionSubscriptions,
   getKnownSnapshotParts: heldSnapshotParts,
   onConnecting: (sessionId) => {

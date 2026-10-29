@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { OpenInSideEvent } from "../utils/side-column.js";
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { topicRowLine } from "./library/topic-search.js";
 import { topicApi } from "../api/topics.js";
@@ -59,7 +60,8 @@ export function TopicTabList({
 }: {
   topics: TopicSummary[];
   currentTopicId: string | null;
-  onOpen: (topic: TopicSummary) => void;
+  /** With the click, so a modifier-click can open the topic in the side column instead. */
+  onOpen: (topic: TopicSummary, event?: OpenInSideEvent) => void;
   /** Called before the list opens a topic or a question, so its host can close. */
   onLeave: () => void;
   /** The topic-first bar: what each topic's quest tabs say (work in progress, unread, watched). */
@@ -75,9 +77,9 @@ export function TopicTabList({
           current={topic.id === currentTopicId}
           questions={questionsOf(topic.questIds)}
           status={statusOf?.(topic)}
-          onOpen={() => {
+          onOpen={(event) => {
             onLeave();
-            onOpen(topic);
+            onOpen(topic, event);
           }}
           onOpenQuestion={(entry) => {
             onLeave();
@@ -101,7 +103,7 @@ function TopicTabRow({
   current: boolean;
   questions: GlobalNeedsInputEntry[];
   status?: TopicTabStatus;
-  onOpen: () => void;
+  onOpen: (event: React.MouseEvent) => void;
   onOpenQuestion: (entry: GlobalNeedsInputEntry) => void;
 }) {
   const line = topicRowLine(topic);

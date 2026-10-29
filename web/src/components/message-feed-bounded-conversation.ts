@@ -31,6 +31,8 @@ export function useMessageFeedBoundedConversation(input: {
   activeThreadWindow: ThreadWindowState | null;
   autoFollowEnabledRef: { current: boolean };
   followRevision: number;
+  /** A feed beside the main one never announces its window as this browser's view. */
+  secondary?: boolean;
 }): {
   historyWindowRevision: number;
   noteWindowRequest: (window: HistoryWindowState | ThreadWindowState | null) => void;
@@ -106,6 +108,7 @@ export function useMessageFeedBoundedConversation(input: {
   });
 
   useEffect(() => {
+    if (input.secondary) return;
     if (input.connectionStatus !== "connected") {
       lastAnnouncementRef.current = null;
       requestedFromWindowRef.current = undefined;
@@ -144,6 +147,7 @@ export function useMessageFeedBoundedConversation(input: {
     input.sessionId,
     input.autoFollowEnabledRef,
     input.followRevision,
+    input.secondary,
   ]);
 
   return {

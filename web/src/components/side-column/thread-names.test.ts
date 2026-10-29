@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { threadNameFromMessage } from "./NewThreadPage.js";
+import { threadNameFromMessage } from "./thread-names.js";
 
 /**
  * A new thread is named after its first message's first words until the leader names it: short,

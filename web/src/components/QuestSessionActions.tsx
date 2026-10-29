@@ -6,6 +6,7 @@ import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import { NotifyMeControl } from "./NotifyMe.js";
+import { openConversationInSide } from "../utils/side-column.js";
 
 const BUTTON_CLASS =
   "inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-md border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50";
@@ -72,6 +73,15 @@ export function QuestSessionActions({
         testId="quest-open-thread"
         onNavigate={onNavigate}
       />
+      {/* Beside the leader's conversation on screen, the quest's thread can go in its side column. */}
+      {leaderSessionId && size === "compact" && (
+        <OpenInSideButton
+          leaderSessionId={leaderSessionId}
+          questId={questId}
+          className={`${buttonClass} ${WORKER_COLOR_CLASS}`}
+          onNavigate={onNavigate}
+        />
+      )}
       {/* Notify Me watches the thread Open Thread opens, so it sits beside it. */}
       {leaderSessionId && (
         <NotifyMeControl
@@ -81,6 +91,46 @@ export function QuestSessionActions({
         />
       )}
     </div>
+  );
+}
+
+function OpenInSideButton({
+  leaderSessionId,
+  questId,
+  className,
+  onNavigate,
+}: {
+  leaderSessionId: string;
+  questId: string;
+  className: string;
+  onNavigate?: () => void;
+}) {
+  // Only while that leader's conversation is on screen: the side column is beside it.
+  const shown = useStore((state) => state.currentSessionId === leaderSessionId);
+  if (!shown) return null;
+  return (
+    <button
+      type="button"
+      className={className}
+      title="Open the quest's thread in the side column (Shift-click a quest link does the same)"
+      data-testid="quest-open-in-side"
+      onClick={(event) => {
+        event.stopPropagation();
+        if (openConversationInSide(leaderSessionId, questId)) onNavigate?.();
+      }}
+    >
+      <SideColumnIcon />
+      <span className="whitespace-nowrap">Open in side</span>
+    </button>
+  );
+}
+
+function SideColumnIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M10 2.5v11" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
   );
 }
 

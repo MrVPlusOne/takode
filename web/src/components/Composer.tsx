@@ -109,8 +109,23 @@ export function Composer({
   transcriptionThreadKey,
   transcriptionThreadTitle,
   newThread,
+  draftKey: draftKeyProp,
+  secondary = false,
+  autoFocus = false,
 }: {
+  /** Takes focus when it opens (a new side chat's message box, opened to be typed in). */
+  autoFocus?: boolean;
   sessionId: string;
+  /**
+   * Where the draft is kept, when it is not the session's main draft: a side chat's composer keeps
+   * its own draft beside the main one.
+   */
+  draftKey?: string;
+  /**
+   * A composer beside the main one (a side chat's): page-wide keys (type to compose, voice
+   * shortcuts) and focus requests stay with the main composer.
+   */
+  secondary?: boolean;
   threadKey?: string;
   questId?: string;
   /** In a topic conversation: the topic its messages go to, named in the placeholder. */
@@ -126,7 +141,8 @@ export function Composer({
   transcriptionThreadKey?: string;
   transcriptionThreadTitle?: string;
 }) {
-  const draft = useStore((s) => s.composerDrafts.get(sessionId));
+  const draftKey = draftKeyProp ?? sessionId;
+  const draft = useStore((s) => s.composerDrafts.get(draftKey));
   const shortcutSettings = useStore((s) => s.shortcutSettings);
   const replyContext = useStore((s) => s.replyContexts.get(sessionId));
   const text = draft?.text ?? "";
@@ -136,22 +152,22 @@ export function Composer({
   const setText = useCallback(
     (t: string | ((prev: string) => string)) => {
       const store = useStore.getState();
-      const current = store.composerDrafts.get(sessionId);
+      const current = store.composerDrafts.get(draftKey);
       const prevText = current?.text ?? "";
       const newText = typeof t === "function" ? t(prevText) : t;
-      store.setComposerDraft(sessionId, { ...current, text: newText, images: current?.images ?? [] });
+      store.setComposerDraft(draftKey, { ...current, text: newText, images: current?.images ?? [] });
     },
-    [sessionId],
+    [draftKey],
   );
   const setImages = useCallback(
     (updater: ComposerDraftImage[] | ((prev: ComposerDraftImage[]) => ComposerDraftImage[])) => {
       const store = useStore.getState();
-      const current = store.composerDrafts.get(sessionId);
+      const current = store.composerDrafts.get(draftKey);
       const prevImages = current?.images ?? [];
       const newImages = typeof updater === "function" ? updater(prevImages) : updater;
-      store.setComposerDraft(sessionId, { ...current, text: current?.text ?? "", images: newImages });
+      store.setComposerDraft(draftKey, { ...current, text: current?.text ?? "", images: newImages });
     },
-    [sessionId],
+    [draftKey],
   );
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [sendPressing, setSendPressing] = useState(false);
@@ -427,7 +443,7 @@ export function Composer({
               }
             : { kind: "composer", baseText: composerText, selectionStart: 0, selectionEnd: 0 };
     const releaseOwnRequest = trackOwnVoiceRequest(requestId);
-    const currentComposerText = () => useStore.getState().composerDrafts.get(sessionId)?.text ?? "";
+    const currentComposerText = () => useStore.getState().composerDrafts.get(draftKey)?.text ?? "";
     const startedAt = nowMs();
     const startedAtTimestamp = Date.now();
     const frontendTimingEvents: VoiceTranscriptionFrontendTimingEvent[] = [];
@@ -759,9 +775,13 @@ export function Composer({
     return () => window.removeEventListener("resize", updateLayout);
   }, [zoomLevel]);
 
-  useComposerNavigationFocus({ textareaRef, sessionId, threadKey, usesTouchKeyboard });
+  useComposerNavigationFocus({ textareaRef, sessionId, threadKey, usesTouchKeyboard, enabled: !secondary });
+  useEffect(() => {
+    if (autoFocus && !usesTouchKeyboard) textareaRef.current?.focus();
+  }, [autoFocus, usesTouchKeyboard]);
   // Desktop only: a phone has no keyboard to type with until a text box already has focus.
-  const typeToCompose = (shortcutSettings ?? DEFAULT_SHORTCUT_SETTINGS).typeToCompose && !usesTouchKeyboard;
+  const typeToCompose =
+    !secondary && (shortcutSettings ?? DEFAULT_SHORTCUT_SETTINGS).typeToCompose && !usesTouchKeyboard;
   useComposerTypeToCompose({ textareaRef, enabled: typeToCompose });
 
   useEffect(() => {
@@ -779,7 +799,7 @@ export function Composer({
   useEffect(() => {
     if (!recoveredVoiceEdit) return;
     useStore.getState().setRecoveredVoiceEdit(sessionId, null);
-    if ((useStore.getState().composerDrafts.get(sessionId)?.text ?? "") !== recoveredVoiceEdit.originalText) return;
+    if ((useStore.getState().composerDrafts.get(draftKey)?.text ?? "") !== recoveredVoiceEdit.originalText) return;
     setVoiceEditProposal(recoveredVoiceEdit);
     setComposerExpanded(true);
   }, [recoveredVoiceEdit, sessionId]);
@@ -963,7 +983,7 @@ export function Composer({
         updated_input: { ...pendingAskUserPerm.input, answers },
       });
       store.removePermission(sessionId, pendingAskUserPerm.request_id);
-      store.clearComposerDraft(sessionId);
+      store.clearComposerDraft(draftKey);
       setComposerExpanded(false);
       setAlternateVoiceRerun(null);
       closeAutocompleteMenus();
@@ -995,7 +1015,7 @@ export function Composer({
           mode: resolveCodexPermissionCliMode(targetMode.permissionMode),
         });
         if (!switched) return;
-        store.clearComposerDraft(sessionId);
+        store.clearComposerDraft(draftKey);
         setComposerExpanded(false);
         setAlternateVoiceRerun(null);
         closeAutocompleteMenus();
@@ -1054,6 +1074,7 @@ export function Composer({
       sessionId,
       { text, images, annotations },
       {
+        draftKey,
         threadKey: target.threadKey,
         questId: target.questId,
         vscodeSelection: vscodeSelectionPayload ?? undefined,
@@ -1075,7 +1096,7 @@ export function Composer({
   // - Configured stop action: finishes recording and transcribes
   // - Escape: fixed cancel shortcut while recording/preparing
   useEffect(() => {
-    if (!voiceSupported) return;
+    if (!voiceSupported || secondary) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (useStore.getState().annotationEditor?.sessionId === sessionId) return;
@@ -1169,6 +1190,7 @@ export function Composer({
   }, [
     handleCancelRecording,
     clearVoiceShortcutTap,
+    secondary,
     voiceSupported,
     isRecording,
     isPreparing,
@@ -1776,6 +1798,7 @@ export function Composer({
               />
               <ComposerAnnotations
                 sessionId={sessionId}
+                draftKey={draftKey}
                 threadKey={transcriptionThreadKey ?? threadKey}
                 threadTitle={transcriptionThreadTitle}
                 disabled={!canUseInput}

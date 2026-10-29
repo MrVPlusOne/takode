@@ -1,26 +1,17 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
-import { useLeaderNavInTopBar } from "../utils/top-bar-slots.js";
+import { useLeaderBreadcrumb } from "../utils/top-bar-slots.js";
+import { CrumbStart, CrumbStrip, ThreadCrumb } from "./breadcrumb/CrumbStart.js";
+import { ItemCrumb } from "./breadcrumb/ItemCrumb.js";
 import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
 import {
-  TopicConversationHeader,
   TopicEntryContext,
-  TopicCrumb,
-  TopicEntryLine,
   useStandaloneTopicConversation,
   useTopicConversation,
   useTopicWindowFollowsQuests,
 } from "./library/TopicConversation.js";
 import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
 import { closeTopicConversation, openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
-import {
-  NewThreadBody,
-  NewThreadHeader,
-  ThreadHeader,
-  useNewThreadOrigin,
-  useNewThreadStart,
-} from "./NewThreadPage.js";
-import { useHashLocation } from "../utils/hash-location.js";
 import { useKnownThreadOfKey } from "../utils/leader-topics.js";
 import { landZoom, prepareZoom } from "./topic-zoom.js";
 import { isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
@@ -53,9 +44,7 @@ import {
   historyEntryShowsMainThread,
   markHistoryEntryShowsMainThread,
   navigateToSessionMessageId,
-  closeNewThreadPage,
   navigateToSessionThread,
-  newThreadFromHash,
   parseHash,
   threadRouteFromHash,
 } from "../utils/routing.js";
@@ -574,8 +563,8 @@ export function ChatView({
   );
   const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
   const desktopShell = useDesktopShellLayout();
-  // Desktop leaders with topics on: tabs in the top bar, the topic folded into the quest strip.
-  const navInTopBar = useLeaderNavInTopBar(sessionId) && !preview;
+  // Desktop leaders with topics on: a breadcrumb at the start of the strip, helpers in the top bar.
+  const breadcrumb = useLeaderBreadcrumb(sessionId) && !preview;
   // On a phone the open topic panel starts right under the tabs: the thread's strips step aside.
   const phoneTopicsOpen = useTopicSheetOpen(sessionId) && !desktopShell && !preview;
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
@@ -676,17 +665,11 @@ export function ChatView({
   const topicFeedOn = !!topicConversation && (!!standaloneTopic || topicFeedFor === selectedThreadKey.toLowerCase());
   const feedThreadKey = topicFeedOn ? topicViewKey(topicConversation.topicId) : selectedThreadKey;
   useTopicWindowFollowsQuests(sessionId, topicFeedOn ? feedThreadKey : null, topicConversation?.questIds ?? []);
-  // The New thread page, over the thread it was opened from (which it starts from, unless cleared).
-  const hashLocation = useHashLocation();
-  const newThreadOpen = isLeaderSession && !preview && newThreadFromHash(hashLocation);
-  const [newThreadOrigin, clearNewThreadOrigin] = useNewThreadOrigin(feedThreadKey);
-  const newThreadStart = useNewThreadStart(sessionId, newThreadOrigin);
   useUnreadMessagesSeen({
     sessionId,
     feedKey: feedThreadKey,
     notifications: sessionNotifications,
-    // Not under the New thread page, which hides the feed.
-    enabled: isLeaderSession && !preview && !newThreadOpen,
+    enabled: isLeaderSession && !preview,
     onSeen: (notificationId) => void api.markNotificationDone(sessionId, notificationId, true).catch(console.error),
   });
   // Zooming between the quest and its topic keeps the reader's place and plays the zoom, once the
@@ -803,11 +786,10 @@ export function ChatView({
     return mergeProjectedLeaderThreadRows(detailRows, leaderTabsProjection, canonicalQuestTitles) as LeaderThreadRow[];
   }, [canonicalQuestTitles, leaderTabsProjection, threadRows]);
   // A result is read only once its thread has really been on screen: not while a
-  // returning session briefly shows its saved tab, nor while the page or the New thread page
-  // hides it.
+  // returning session briefly shows its saved tab, nor while the page is hidden.
   const selectedThreadReadOnScreen = useThreadReadOnScreen(
     `${sessionId}:${normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY)}`,
-    !preview && !newThreadOpen,
+    !preview,
   );
   const reviewNotificationIdsToClear = useMemo(
     () =>
@@ -1196,265 +1178,280 @@ export function ChatView({
     archived: isArchived,
     serverReachable,
   });
+  // A leader's side column runs the full height beside the main conversation, whose message box
+  // stays under it alone.
   return (
-    <ComposerFeedLayout>
-      {preview ? (
-        <div className="shrink-0 px-4 py-2 border-b border-cc-border bg-cc-card/80 text-[11px] text-cc-muted font-medium">
-          Previewing search result. Press Enter to select this conversation.
-        </div>
-      ) : (
-        /* Within-session message search bar */
-        <SearchBar sessionId={sessionId} inputRef={searchInputRef} />
-      )}
+    <div className="flex h-full min-h-0">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <ComposerFeedLayout>
+          {preview ? (
+            <div className="shrink-0 px-4 py-2 border-b border-cc-border bg-cc-card/80 text-[11px] text-cc-muted font-medium">
+              Previewing search result. Press Enter to select this conversation.
+            </div>
+          ) : (
+            /* Within-session message search bar */
+            <SearchBar sessionId={sessionId} inputRef={searchInputRef} />
+          )}
 
-      {/* Archived session banner */}
-      {!preview && isArchived && (
-        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/25 flex items-center justify-center gap-3">
-          <span className="text-xs text-amber-300 font-medium">This session is archived. History is read-only.</span>
-          <button
-            onClick={() => void unarchive.run(() => api.unarchiveSession(sessionId))}
-            aria-busy={unarchive.pending || undefined}
-            title={unarchive.error ?? undefined}
-            className="text-xs font-medium px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
-          >
-            Unarchive
-          </button>
-        </div>
-      )}
+          {/* Archived session banner */}
+          {!preview && isArchived && (
+            <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/25 flex items-center justify-center gap-3">
+              <span className="text-xs text-amber-300 font-medium">
+                This session is archived. History is read-only.
+              </span>
+              <button
+                onClick={() => void unarchive.run(() => api.unarchiveSession(sessionId))}
+                aria-busy={unarchive.pending || undefined}
+                title={unarchive.error ?? undefined}
+                className="text-xs font-medium px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
+              >
+                Unarchive
+              </button>
+            </div>
+          )}
 
-      {!preview && modelProvenanceMigration && (
-        <ModelProvenanceMigrationBanner
-          migration={modelProvenanceMigration}
-          onAcknowledge={(eventId) => api.acknowledgeModelProvenanceMigration(sessionId, eventId)}
-        />
-      )}
+          {!preview && modelProvenanceMigration && (
+            <ModelProvenanceMigrationBanner
+              migration={modelProvenanceMigration}
+              onAcknowledge={(eventId) => api.acknowledgeModelProvenanceMigration(sessionId, eventId)}
+            />
+          )}
 
-      {/* Session task outline — horizontal milestone chips */}
-      {!preview && !isLeaderSession && !sessionQuestBannerRow && <TaskOutlineBar sessionId={sessionId} />}
+          {/* Session task outline — horizontal milestone chips */}
+          {!preview && !isLeaderSession && !sessionQuestBannerRow && <TaskOutlineBar sessionId={sessionId} />}
 
-      {/* Persistent work board for orchestrator sessions -- primary thread navigation above the feed */}
-      {!preview && (
-        <WorkBoardBar
-          sessionId={sessionId}
-          currentThreadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-          onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-          openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
-          onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}
-          threadRows={isLeaderSession ? workBoardThreadRows : undefined}
-          closeTabRef={workBoardCloseTabRef}
-          hideThreadStrip={phoneTopicsOpen || newThreadOpen}
-        />
-      )}
+          {/* Persistent work board for orchestrator sessions -- primary thread navigation above the feed */}
+          {!preview && (
+            <WorkBoardBar
+              sessionId={sessionId}
+              currentThreadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+              onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+              openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
+              onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}
+              threadRows={isLeaderSession ? workBoardThreadRows : undefined}
+              closeTabRef={workBoardCloseTabRef}
+              hideThreadStrip={phoneTopicsOpen}
+            />
+          )}
 
-      {/* Plan overlay fills the chat area, OR show the normal message feed */}
-      {!preview && showPlanOverlay ? (
-        <PlanReviewOverlay permission={planPerm} sessionId={sessionId} onCollapse={() => setPlanCollapsed(true)} />
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1">
-            <div ref={zoomColumnRef} className="flex min-w-0 flex-1 flex-col">
-              {newThreadOpen && (
-                <NewThreadHeader
-                  leaderId={sessionId}
-                  startedFrom={newThreadOrigin}
-                  onClearStartedFrom={clearNewThreadOrigin}
-                  onClose={closeNewThreadPage}
-                />
-              )}
-              {!preview && !newThreadOpen && !phoneTopicsOpen && selectedThread && (
-                <div ref={questStripRef} className="contents">
-                  <ThreadHeader leaderId={sessionId} thread={selectedThread} onOpenThread={handleSelectThread} />
-                </div>
-              )}
-              {!preview && !newThreadOpen && !phoneTopicsOpen && topicFeedOn && (
-                <div ref={questStripRef} className="contents">
-                  <TopicConversationHeader leaderId={sessionId} topic={topicConversation} besidePanel={navInTopBar} />
-                </div>
-              )}
-              {!preview && !newThreadOpen && !phoneTopicsOpen && showQuestThreadBanner && !topicFeedOn && (
-                <div ref={questStripRef} className="contents">
-                  {topicConversation && !navInTopBar && (
-                    <TopicEntryLine
-                      name={topicConversation.name}
-                      count={topicConversation.questIds.length}
-                      onOpen={zoomOutToTopic}
+          {/* Plan overlay fills the chat area, OR show the normal message feed */}
+          {!preview && showPlanOverlay ? (
+            <PlanReviewOverlay permission={planPerm} sessionId={sessionId} onCollapse={() => setPlanCollapsed(true)} />
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex min-h-0 flex-1">
+                <div ref={zoomColumnRef} className="flex min-w-0 flex-1 flex-col">
+                  {!preview && !phoneTopicsOpen && selectedThread && (
+                    <div ref={questStripRef} className="contents">
+                      <CrumbStrip sessionId={sessionId}>
+                        <ThreadCrumb leaderId={sessionId} thread={selectedThread} onOpen={handleSelectThread} />
+                      </CrumbStrip>
+                    </div>
+                  )}
+                  {!preview && !phoneTopicsOpen && topicFeedOn && (
+                    <div ref={questStripRef} className="contents">
+                      <CrumbStrip sessionId={sessionId}>
+                        <ItemCrumb
+                          leaderId={sessionId}
+                          topicId={topicConversation.topicId}
+                          current={{ kind: "topic" }}
+                          label={`${topicConversation.questIds.length} quests`}
+                          onOpenTopic={() => {}}
+                          onOpenQuest={(questId) => openTopicQuestRef.current(questId)}
+                          onOpenThread={handleSelectThread}
+                        />
+                      </CrumbStrip>
+                    </div>
+                  )}
+                  {!preview && !phoneTopicsOpen && showQuestThreadBanner && !topicFeedOn && (
+                    <div ref={questStripRef} className="contents">
+                      <QuestThreadBanner
+                        row={selectedThreadRow}
+                        threadKey={selectedThreadKey}
+                        sideQuestOf={selectedSideQuestOf}
+                        monitorSessionId={sessionId}
+                        diffSessionId={sessionId}
+                        onCloseTab={closeSelectedThreadTab}
+                        singleLine={breadcrumb}
+                        // The breadcrumb: the place (Main or the quest's topic), then the quest, which
+                        // lists the topic's other quests when it is filed under one.
+                        leading={breadcrumb ? <CrumbStart sessionId={sessionId} /> : undefined}
+                        renderTitle={
+                          breadcrumb && topicConversation
+                            ? (title) => (
+                                <ItemCrumb
+                                  leaderId={sessionId}
+                                  topicId={topicConversation.topicId}
+                                  current={{ kind: "quest", questId: selectedTabKey }}
+                                  label={title ?? selectedTabKey}
+                                  onOpenTopic={zoomOutToTopic}
+                                  onOpenQuest={handleSelectThread}
+                                  onOpenThread={handleSelectThread}
+                                />
+                              )
+                            : undefined
+                        }
+                      />
+                    </div>
+                  )}
+                  {!preview && !phoneTopicsOpen && !showQuestThreadBanner && sessionQuestBannerRow && (
+                    <QuestThreadBanner
+                      row={sessionQuestBannerRow}
+                      threadKey={sessionQuestBannerRow.threadKey}
+                      variant="session"
+                      currentSessionId={sessionId}
+                      diffSessionId={sessionId}
                     />
                   )}
-                  <QuestThreadBanner
-                    row={selectedThreadRow}
-                    threadKey={selectedThreadKey}
-                    sideQuestOf={selectedSideQuestOf}
-                    monitorSessionId={sessionId}
-                    diffSessionId={sessionId}
-                    onCloseTab={closeSelectedThreadTab}
-                    singleLine={navInTopBar}
-                    leading={
-                      navInTopBar && topicConversation ? (
-                        <TopicCrumb name={topicConversation.name} onOpen={zoomOutToTopic} />
-                      ) : undefined
-                    }
-                  />
-                </div>
-              )}
-              {!preview && !phoneTopicsOpen && !showQuestThreadBanner && sessionQuestBannerRow && (
-                <QuestThreadBanner
-                  row={sessionQuestBannerRow}
-                  threadKey={sessionQuestBannerRow.threadKey}
-                  variant="session"
-                  currentSessionId={sessionId}
-                  diffSessionId={sessionId}
-                />
-              )}
-              {!preview && sessionMetadataKnown && !isLeaderSession && !sessionQuestBannerRow && (
-                <SessionDiffBanner sessionId={sessionId} />
-              )}
-              {/* Where the phone topic panel starts: just under the thread strip. */}
-              <div ref={phoneTopicTopRef} aria-hidden="true" />
-              {newThreadOpen && <NewThreadBody leaderId={sessionId} startedFrom={newThreadOrigin} />}
-              {/* Hidden, not unmounted, under the New thread page, so going back keeps its place. */}
-              <div className={newThreadOpen ? "hidden" : "contents"}>
-                <TopicEntryContext.Provider value={feedTopicEntry}>
-                  <ViewportHandoffThreadEntryGate
-                    key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
-                    sessionId={preview ? null : sessionId}
-                    threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-                    entryId={viewportHandoffThreadEntryRef.current.entryId}
-                    fallback={
-                      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
-                        Loading conversation...
-                      </div>
-                    }
-                  >
-                    {/* Reload fork links when the user changes threads or a new quest thread appears. */}
-                    <StartedQuestsProvider
-                      sessionId={sessionId}
-                      enabled={isLeaderSession && !preview}
-                      refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
-                    >
-                      <TopicFeedContext.Provider value={topicFeed}>
-                        <MessageFeed
+                  {!preview && sessionMetadataKnown && !isLeaderSession && !sessionQuestBannerRow && (
+                    <SessionDiffBanner sessionId={sessionId} />
+                  )}
+                  {/* Where the phone topic panel starts: just under the thread strip. */}
+                  <div ref={phoneTopicTopRef} aria-hidden="true" />
+                  <div className="contents">
+                    <TopicEntryContext.Provider value={feedTopicEntry}>
+                      <ViewportHandoffThreadEntryGate
+                        key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
+                        sessionId={preview ? null : sessionId}
+                        threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+                        entryId={viewportHandoffThreadEntryRef.current.entryId}
+                        fallback={
+                          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
+                            Loading conversation...
+                          </div>
+                        }
+                      >
+                        {/* Reload fork links when the user changes threads or a new quest thread appears. */}
+                        <StartedQuestsProvider
                           sessionId={sessionId}
-                          threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
-                          projectThreadRoutes={isLeaderSession}
-                          onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-                          showCodexSubagentControl={!preview}
-                          markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
-                        />
-                      </TopicFeedContext.Provider>
-                    </StartedQuestsProvider>
-                  </ViewportHandoffThreadEntryGate>
-                </TopicEntryContext.Provider>
+                          enabled={isLeaderSession && !preview}
+                          refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
+                        >
+                          <TopicFeedContext.Provider value={topicFeed}>
+                            <MessageFeed
+                              sessionId={sessionId}
+                              threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
+                              projectThreadRoutes={isLeaderSession}
+                              onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                              showCodexSubagentControl={!preview}
+                              markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                            />
+                          </TopicFeedContext.Provider>
+                        </StartedQuestsProvider>
+                      </ViewportHandoffThreadEntryGate>
+                    </TopicEntryContext.Provider>
+                  </div>
+                </div>
+                {!preview && selectedSideChat && (
+                  <SideChatPanel
+                    rootSessionId={sessionId}
+                    sideChat={selectedSideChat}
+                    onClose={() => setSelectedSideChatId(null)}
+                  />
+                )}
               </div>
             </div>
-            {!preview && selectedSideChat && (
-              <SideChatPanel
-                rootSessionId={sessionId}
-                sideChat={selectedSideChat}
-                onClose={() => setSelectedSideChatId(null)}
-              />
-            )}
-            {!preview && isLeaderSession && (
-              <LeaderTopicPanel
-                leaderId={sessionId}
-                threadKey={selectedThreadKey}
-                desktop={desktopShell}
-                phoneTopRef={phoneTopicTopRef}
-              />
-            )}
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* Collapsed plan chip (when plan exists but is collapsed) */}
-      {!preview && planPerm && planCollapsed && (
-        <div className="shrink-0 border-t border-cc-border bg-cc-card px-2 sm:px-4 py-2">
-          <PlanCollapsedChip permission={planPerm} sessionId={sessionId} onExpand={() => setPlanCollapsed(false)} />
-        </div>
-      )}
-
-      {/* Non-plan permission banners — collapsible */}
-      {!preview &&
-        otherPerms.length > 0 &&
-        (permsCollapsed ? (
-          <PermissionsCollapsedChip permissions={otherPerms} onExpand={() => setPermsCollapsed(false)} />
-        ) : (
-          <div className="shrink-0 max-h-[60dvh] overflow-y-auto border-t border-cc-border bg-cc-card">
-            <div
-              onClick={() => setPermsCollapsed(true)}
-              className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-cc-card border-b border-cc-border/50 cursor-pointer hover:bg-cc-hover/50 transition-colors"
-              role="button"
-              title="Minimize approvals"
-            >
-              <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-cc-warning">
-                <path
-                  fillRule="evenodd"
-                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <span className="text-[11px] font-medium text-cc-warning">
-                {otherPerms.length} pending approval{otherPerms.length !== 1 ? "s" : ""}
-              </span>
-              <span className="ml-auto p-1.5 rounded-md text-cc-muted">
-                <svg
-                  className="w-3.5 h-3.5"
-                  viewBox="0 0 12 12"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
-                  <path d="M4 8h4" />
-                </svg>
-              </span>
+          {/* Collapsed plan chip (when plan exists but is collapsed) */}
+          {!preview && planPerm && planCollapsed && (
+            <div className="shrink-0 border-t border-cc-border bg-cc-card px-2 sm:px-4 py-2">
+              <PlanCollapsedChip permission={planPerm} sessionId={sessionId} onExpand={() => setPlanCollapsed(false)} />
             </div>
-            {otherPerms.map((p) => (
-              <PermissionBanner key={p.request_id} permission={p} sessionId={sessionId} />
+          )}
+
+          {/* Non-plan permission banners — collapsible */}
+          {!preview &&
+            otherPerms.length > 0 &&
+            (permsCollapsed ? (
+              <PermissionsCollapsedChip permissions={otherPerms} onExpand={() => setPermsCollapsed(false)} />
+            ) : (
+              <div className="shrink-0 max-h-[60dvh] overflow-y-auto border-t border-cc-border bg-cc-card">
+                <div
+                  onClick={() => setPermsCollapsed(true)}
+                  className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-cc-card border-b border-cc-border/50 cursor-pointer hover:bg-cc-hover/50 transition-colors"
+                  role="button"
+                  title="Minimize approvals"
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-cc-warning">
+                    <path
+                      fillRule="evenodd"
+                      d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  <span className="text-[11px] font-medium text-cc-warning">
+                    {otherPerms.length} pending approval{otherPerms.length !== 1 ? "s" : ""}
+                  </span>
+                  <span className="ml-auto p-1.5 rounded-md text-cc-muted">
+                    <svg
+                      className="w-3.5 h-3.5"
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
+                      <path d="M4 8h4" />
+                    </svg>
+                  </span>
+                </div>
+                {otherPerms.map((p) => (
+                  <PermissionBanner key={p.request_id} permission={p} sessionId={sessionId} />
+                ))}
+              </div>
             ))}
-          </div>
-        ))}
 
-      {!preview && <HostOfflineBanner sessionId={sessionId} />}
+          {!preview && <HostOfflineBanner sessionId={sessionId} />}
 
-      {liveConnectionStatus && (!preview || liveConnectionStatus === "server-unreachable") && (
-        <LiveConnectionStatusBanner
-          status={liveConnectionStatus}
-          backendState={backendState}
-          backendError={backendError}
-          reconnectProgress={backendReconnect}
-          hasEverConnected={cliEverConnected}
-          idlePaused={cliDisconnectReason === "idle_limit"}
-          isResumeMissingRolloutError={isResumeMissingRolloutError}
-          onRelaunch={
-            liveConnectionStatus === "broken" ||
-            liveConnectionStatus === "cli-disconnected" ||
-            liveConnectionStatus === "recovery-suppressed"
-              ? () => api.relaunchSession(sessionId)
-              : undefined
-          }
+          {liveConnectionStatus && (!preview || liveConnectionStatus === "server-unreachable") && (
+            <LiveConnectionStatusBanner
+              status={liveConnectionStatus}
+              backendState={backendState}
+              backendError={backendError}
+              reconnectProgress={backendReconnect}
+              hasEverConnected={cliEverConnected}
+              idlePaused={cliDisconnectReason === "idle_limit"}
+              isResumeMissingRolloutError={isResumeMissingRolloutError}
+              onRelaunch={
+                liveConnectionStatus === "broken" ||
+                liveConnectionStatus === "cli-disconnected" ||
+                liveConnectionStatus === "recovery-suppressed"
+                  ? () => api.relaunchSession(sessionId)
+                  : undefined
+              }
+            />
+          )}
+
+          {/* Compacting indicator — fixed above composer, green like running state */}
+          {!preview && <CompactingIndicator sessionId={sessionId} />}
+
+          {/* Active todo status — shows current in-progress task */}
+          {!preview && <TodoStatusLine sessionId={sessionId} />}
+
+          {/* Composer */}
+          {!preview && (
+            <Composer
+              sessionId={sessionId}
+              threadKey={composerThreadKey}
+              questId={composerQuestId}
+              topicName={selectedThread ? selectedThread.name : topicFeedOn ? topicConversation.name : undefined}
+              transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
+              transcriptionThreadTitle={composerThreadTitle}
+            />
+          )}
+        </ComposerFeedLayout>
+      </div>
+      {!preview && isLeaderSession && (
+        <LeaderTopicPanel
+          leaderId={sessionId}
+          threadKey={feedThreadKey}
+          desktop={desktopShell}
+          phoneTopRef={phoneTopicTopRef}
         />
       )}
-
-      {/* Compacting indicator — fixed above composer, green like running state */}
-      {!preview && <CompactingIndicator sessionId={sessionId} />}
-
-      {/* Active todo status — shows current in-progress task */}
-      {!preview && <TodoStatusLine sessionId={sessionId} />}
-
-      {/* Composer */}
-      {!preview && (
-        <Composer
-          sessionId={sessionId}
-          threadKey={composerThreadKey}
-          questId={composerQuestId}
-          topicName={selectedThread ? selectedThread.name : topicFeedOn ? topicConversation.name : undefined}
-          newThread={newThreadOpen ? newThreadStart : undefined}
-          transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
-          transcriptionThreadTitle={composerThreadTitle}
-        />
-      )}
-    </ComposerFeedLayout>
+    </div>
   );
 }

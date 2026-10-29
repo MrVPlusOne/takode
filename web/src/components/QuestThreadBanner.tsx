@@ -479,8 +479,11 @@ export function QuestThreadBanner({
   onCloseTab,
   sideQuestOf,
   leading,
+  renderTitle,
   singleLine = false,
 }: {
+  /** Draws the title as something else, such as the breadcrumb's quest picker. */
+  renderTitle?: (title: string | undefined) => ReactNode;
   /** Shown before the quest ID: the quest's topic, as the way to zoom out to it. */
   leading?: ReactNode;
   /**
@@ -569,7 +572,7 @@ export function QuestThreadBanner({
     (isSessionBanner && (!!inputWaitCondition || !!(row?.leaderSessionId && row.leaderSessionId !== currentSessionId)));
   return (
     <div
-      className={`shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3 ${singleLine ? "@container/quest-strip sm:flex sm:min-h-8 sm:flex-col sm:justify-center sm:py-0.5" : ""}`}
+      className={`relative shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3 ${singleLine ? "@container/quest-strip sm:flex sm:min-h-8 sm:flex-col sm:justify-center sm:py-0.5" : ""}`}
       data-testid="quest-thread-banner"
       data-variant={variant}
       data-layout="compact-inline"
@@ -604,14 +607,16 @@ export function QuestThreadBanner({
                 <SideQuestIcon sideQuestOf={sideQuestOf} />
               </span>
             )}
-            {title && (
-              <span
-                className={`truncate text-xs font-medium text-cc-fg sm:text-[13px] ${singleLine ? "min-w-[6rem]" : "min-w-0"}`}
-                title={title}
-              >
-                {title}
-              </span>
-            )}
+            {renderTitle
+              ? renderTitle(title)
+              : title && (
+                  <span
+                    className={`truncate text-xs font-medium text-cc-fg sm:text-[13px] ${singleLine ? "min-w-[6rem]" : "min-w-0"}`}
+                    title={title}
+                  >
+                    {title}
+                  </span>
+                )}
           </div>
           {hasMobileDetails && (
             <button

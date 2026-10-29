@@ -5,7 +5,9 @@
  * waiting quests, canonical titles, and lists that stay open across closes.
  */
 import { rememberTopicList } from "../utils/leader-topics.js";
-import { showTopBarSession, topBarHelpersRef, topBarNavRef } from "../utils/top-bar-slots.js";
+import { showTopBarSession, topBarHelpersRef } from "../utils/top-bar-slots.js";
+import { useSideColumnStore } from "../utils/side-column.js";
+import { topicApi } from "../api/topics.js";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { Activity, type ComponentProps } from "react";
@@ -229,11 +231,12 @@ describe("WorkBoardBar tab groups", () => {
     expect(screen.queryByTestId("thread-tab-group-list")).not.toBeInTheDocument();
   });
 
-  it("draws a desktop leader's tabs in the top bar with topics on, only for the conversation on screen", () => {
-    // Recently viewed conversations stay mounted, hidden in a React Activity, as in KeptConversationViews.
-    // Switching leader A -> B -> A once left A's hidden copy in the top bar beside the one on screen,
-    // so the top bar showed two Main | All switches. Their own leader IDs: the topics cache is module
-    // state that outlives a test.
+  it("navigates a leader with topics on by breadcrumb, with Working on in the top bar only for the conversation on screen", () => {
+    // No tab row: the place picker starts Main's strip, and Working on (the Board button merged in)
+    // sits in the top bar. Recently viewed conversations stay mounted, hidden in a React Activity, as
+    // in KeptConversationViews; switching leader A -> B -> A once left A's hidden copy in the top bar
+    // beside the one on screen. Their own leader IDs: the topics cache is module state that outlives
+    // a test.
     const width = window.innerWidth;
     window.innerWidth = 1280;
     const [leaderA, leaderB] = ["topbar-leader-a", "topbar-leader-b"];
@@ -247,10 +250,8 @@ describe("WorkBoardBar tab groups", () => {
     for (const leader of [leaderA, leaderB]) {
       rememberTopicList(leader, [{ id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never]);
     }
-    const nav = document.createElement("div");
     const helpers = document.createElement("div");
-    document.body.append(nav, helpers);
-    topBarNavRef(nav);
+    document.body.append(helpers);
     topBarHelpersRef(helpers);
     const visible = (place: HTMLElement, testId: string) =>
       within(place)
@@ -272,7 +273,8 @@ describe("WorkBoardBar tab groups", () => {
     try {
       show(leaderA);
       const view = render(kept(leaderA, [leaderA]));
-      expect(visible(nav, "thread-tab-group-main")).toHaveLength(1);
+      expect(visible(document.body, "place-crumb-button")).toHaveLength(1);
+      expect(screen.getByTestId("workboard-main-banner")).toContainElement(screen.getByTestId("place-crumb-button"));
       // Working on carries the Board button's icon, one dot per quest at work on the board.
       expect(within(helpers).getAllByTestId("workboard-dot")).toHaveLength(1);
       // No tab row of its own under the top bar.
@@ -280,22 +282,46 @@ describe("WorkBoardBar tab groups", () => {
 
       show(leaderB);
       view.rerender(kept(leaderB, [leaderA, leaderB]));
-      expect(visible(nav, "thread-tab-group-main")).toHaveLength(1);
+      expect(visible(document.body, "place-crumb-button")).toHaveLength(1);
       expect(visible(helpers, "workboard-dot")).toHaveLength(0);
 
       show(leaderA);
       view.rerender(kept(leaderA, [leaderA, leaderB]));
-      expect(visible(nav, "thread-tab-group-main")).toHaveLength(1);
-      expect(visible(nav, "thread-tab-group-topics")).toHaveLength(1);
+      expect(visible(document.body, "place-crumb-button")).toHaveLength(1);
       expect(visible(helpers, "thread-tab-group-working-on")).toHaveLength(1);
       expect(visible(helpers, "workboard-dot")).toHaveLength(1);
       view.unmount();
     } finally {
       window.innerWidth = width;
-      topBarNavRef(null);
       topBarHelpersRef(null);
-      nav.remove();
       helpers.remove();
+    }
+  });
+
+  it("puts a topic's page in the side column on Shift-click in the place picker", async () => {
+    // A plain click goes to the topic; Shift-click keeps the conversation on screen and opens the
+    // topic's page beside it.
+    const leader = "side-topic-leader";
+    resetStore({ sdkSessions: [{ sessionId: leader, isOrchestrator: true }] });
+    const relay = { id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never;
+    rememberTopicList(leader, [relay]);
+    const list = vi.spyOn(topicApi, "list").mockResolvedValue({ topics: [relay] } as never);
+    const hashBefore = window.location.hash;
+    try {
+      render(<WorkBoardBar sessionId={leader} currentThreadKey="main" openThreadKeys={[]} threadRows={[]} />);
+      fireEvent.click(screen.getByTestId("place-crumb-button"));
+      const row = (await screen.findAllByTestId("topic-tab-row")).find(
+        (candidate) => candidate.dataset.topic === "t1",
+      )!;
+      fireEvent.click(within(row).getByRole("menuitem"), { shiftKey: true });
+      expect(useSideColumnStore.getState().columns[leader]!.items).toEqual([
+        expect.objectContaining({ kind: "topic", topicId: "t1" }),
+      ]);
+      expect(window.location.hash).toBe(hashBefore);
+    } finally {
+      list.mockRestore();
+      useSideColumnStore.setState({ columns: {} });
+      localStorage.clear();
     }
   });
 

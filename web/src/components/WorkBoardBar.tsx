@@ -5,8 +5,9 @@
  * board rows stay independently authoritative and load only while their panel
  * is open.
  */
-import { createPortal } from "react-dom";
-import { useLeaderNavInTopBar, useTopBarSlot } from "../utils/top-bar-slots.js";
+import { useLeaderBreadcrumb, useTopBarSlot } from "../utils/top-bar-slots.js";
+import { useCrumbSlot } from "./breadcrumb/crumb-slot.js";
+import { CrumbStart } from "./breadcrumb/CrumbStart.js";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
@@ -463,11 +464,13 @@ function WorkBoardBarComponent({
   hideThreadStrip?: boolean;
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
-  // Desktop leaders with topics on draw their tabs in the top bar, each conversation in its own box
-  // there, which the top bar shows only while that conversation is on screen.
-  const navInTopBar = useLeaderNavInTopBar(sessionId);
-  const topBarNav = useTopBarSlot("nav", sessionId);
+  // Leaders with topics on navigate by breadcrumb: the place picker at the start of the strip, the
+  // Working on picker in the top bar (each conversation in its own box there, which the top bar
+  // shows only while that conversation is on screen).
+  const navInTopBar = useLeaderBreadcrumb(sessionId);
   const topBarHelpers = useTopBarSlot("helpers", sessionId);
+  // The breadcrumb: the place picker goes to the start of the strip on screen.
+  const crumbSlot = useCrumbSlot(sessionId, navInTopBar);
   // The Working on button's board dots, only in the top bar, and by what they show: a board
   // update that changes no dot must not re-render the bar.
   const boardDotsKey = useStore((state) =>
@@ -588,7 +591,7 @@ function WorkBoardBarComponent({
 
   const rail = (
     <ThreadTabRail
-      inTopBar={
+      breadcrumb={
         navInTopBar
           ? {
               helpers: topBarHelpers,
@@ -597,6 +600,7 @@ function WorkBoardBarComponent({
                 dots: boardDots,
                 onToggle: () => toggleLeaderWorkboard(sessionId),
               },
+              crumbSlot,
             }
           : undefined
       }
@@ -612,16 +616,20 @@ function WorkBoardBarComponent({
   );
   return (
     <div className="shrink-0 flex flex-col min-h-0">
-      {!navInTopBar ? rail : topBarNav ? createPortal(rail, topBarNav) : null}
+      {rail}
 
       {showMainBanner && !hideThreadStrip && (
         <div
-          className={`flex min-w-0 flex-nowrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 sm:px-4 ${navInTopBar ? "min-h-8 py-0.5" : "py-1.5"}`}
+          className={`relative flex min-w-0 flex-nowrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 sm:px-4 ${navInTopBar ? "min-h-8 py-0.5" : "py-1.5"}`}
           data-testid="workboard-main-banner"
           data-active-view={panelView ?? ""}
         >
-          {/* The top bar's Main | All switch replaces it there. */}
-          {!navInTopBar && <ProjectionToggle currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />}
+          {/* The breadcrumb's place picker (Main or All) replaces it there. */}
+          {navInTopBar ? (
+            <CrumbStart sessionId={sessionId} separator={false} />
+          ) : (
+            <ProjectionToggle currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
+          )}
           <WorkBoardIcon className="h-4 w-4 text-cc-info" />
           <MainStripSummary
             summary={projection?.activePhaseSummary ?? []}

@@ -691,6 +691,27 @@ describe("Composer sending messages", () => {
     expect(textarea.value).toBe("side question");
   });
 
+  // A side column's message box keeps its own draft, so typing beside the main conversation leaves
+  // the main box's draft alone, and sending clears only the side draft.
+  it("keeps a side message box's draft under its own key", () => {
+    const drafts = mockStoreState.composerDrafts as Map<string, any>;
+    drafts.set("s1", { text: "main draft", images: [] });
+    const { container } = render(<Composer sessionId="s1" threadKey="q-2" draftKey="s1:side:q-2" secondary />);
+    const textarea = container.querySelector("textarea")!;
+    expect(textarea.value).toBe("");
+
+    fireEvent.change(textarea, { target: { value: "side reply" } });
+    expect(drafts.get("s1:side:q-2")?.text).toBe("side reply");
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ type: "user_message", content: "side reply", threadKey: "q-2" }),
+    );
+    expect(drafts.has("s1:side:q-2")).toBe(false);
+    expect(drafts.get("s1")?.text).toBe("main draft");
+  });
+
   it("pressing Shift+Enter does NOT send the message", () => {
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")!;

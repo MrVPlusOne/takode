@@ -230,6 +230,18 @@ describe("connectSession", () => {
     expect(subscribe.initial_thread_window).toBeUndefined();
   });
 
+  it("names the conversations a leader's side column shows in its subscribe", async () => {
+    // Live messages of a side conversation reach this browser only once the server knows it shows
+    // them, so a reconnect must say so again.
+    const { setSideViewsOf } = await import("./utils/side-views.js");
+    setSideViewsOf("s1", {}, ["topic:aaaa0001", "q-7"]);
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    const subscribe = JSON.parse(lastWs.send.mock.calls[0][0]);
+    expect(subscribe.side_views).toEqual(["q-7", "topic:aaaa0001"]);
+  });
+
   it("sends last_seq: 0 when localStorage has no entry", () => {
     // Brand new session — no localStorage, no store messages
     wsModule.connectSession("s1");

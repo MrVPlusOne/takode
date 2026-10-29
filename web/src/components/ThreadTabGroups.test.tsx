@@ -9,7 +9,6 @@ const navigateToNotification = vi.hoisted(() => vi.fn());
 vi.mock("../utils/notification-navigation.js", () => ({ navigateToNotification }));
 import { useStore } from "../store.js";
 import type { SdkSessionInfo } from "../types.js";
-import type { ThreadSummary } from "../../shared/library-topics.js";
 import {
   ThreadTabGroupBar,
   countUnreadResults,
@@ -296,104 +295,6 @@ describe("ThreadTabGroupBar", () => {
     expect(onClose.mock.calls.map(([key]) => key)).toEqual(["q-13", "q-14"]);
   });
 
-  it("is topic-first with topics on: Main, Working on and Topics, and no status groups", () => {
-    // Jiayi's pick (B): with topics as the home, the In progress, Needs you, New results and Done
-    // groups go away. Working on lists the unfinished quests for quick switching; Topics holds
-    // every quest tab, and is the selected tab on a topic conversation and on a quest that isn't
-    // in Working on.
-    const onOpen = vi.fn();
-    const topic = (id: string, name: string, activityAt: number, questIds: string[]) =>
-      ({ id, name, activityAt, questIds, latestUpdate: `${name} moved.` }) as never;
-    const topics = [topic("t1", "Relay", 2, ["q-10", "q-12"]), topic("t2", "Briefing", 1, ["q-13", "q-14"])];
-    const topicOfQuest = { "q-10": "t1", "q-12": "t1", "q-13": "t2", "q-14": "t2" };
-    const { rerender, onSelect } = renderBar({
-      currentThreadKey: "q-10",
-      topicsGroup: { topics, currentTopicId: null, onOpen, topicOfQuest },
-    });
-    const groups = () =>
-      within(screen.getByTestId("thread-tab-group-bar"))
-        .getAllByRole("tab")
-        .map((item) => item.dataset.group ?? "main");
-    expect(groups()).toEqual(["main", "working-on", "topics"]);
-    expect(screen.queryAllByTestId("thread-tab-group-chip")).toEqual([]);
-
-    // Working on: the unfinished quests (q-10 in progress, q-11 waiting on a question), selected on one.
-    const workingOn = screen.getByTestId("thread-tab-group-working-on");
-    expect(workingOn.dataset.selected).toBe("true");
-    expect(workingOn.dataset.count).toBe("2");
-    fireEvent.click(workingOn);
-    const rows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
-    expect(rows.map((row) => row.dataset.threadKey).sort()).toEqual(["q-10", "q-11"]);
-    fireEvent.click(
-      within(rows.find((row) => row.dataset.threadKey === "q-11")!).getByTestId("thread-tab-list-row-select"),
-    );
-    expect(onSelect).toHaveBeenCalledWith("q-11");
-
-    // Topics: each topic says what its quests are doing; quests under no topic are listed below.
-    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
-    const [relay, briefing] = screen.getAllByTestId("topic-tab-row");
-    expect(within(relay!).getByTestId("topic-tab-status").textContent).toContain("1 in progress");
-    expect(within(relay!).getByTestId("topic-tab-status").textContent).toContain("1 new");
-    expect(within(briefing!).queryByTestId("topic-tab-status")).toBeNull();
-    const unsorted = screen.getByTestId("topic-tab-unsorted");
-    expect(
-      within(unsorted)
-        .getAllByTestId("thread-tab-list-row")
-        .map((row) => row.dataset.threadKey)
-        .sort(),
-    ).toEqual(["q-11", "q-15"]);
-    fireEvent.click(within(briefing!).getByRole("menuitem"));
-    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "t2" }));
-
-    // A finished quest's tab, and a topic conversation, select Topics.
-    rerender({ currentThreadKey: "q-13", topicsGroup: { topics, currentTopicId: null, onOpen, topicOfQuest } });
-    expect(screen.getByTestId("thread-tab-group-topics").dataset.selected).toBe("true");
-    rerender({ currentThreadKey: "q-10", topicsGroup: { topics, currentTopicId: "t1", onOpen, topicOfQuest } });
-    expect(screen.getByTestId("thread-tab-group-topics").dataset.selected).toBe("true");
-    expect(screen.getByTestId("thread-tab-group-working-on").dataset.selected).toBe("false");
-  });
-
-  it("searches the Topics list from its heading, and Escape or clearing brings every topic back", () => {
-    // Jiayi asked for a small search box after "Topics 10": names match first, then the newest
-    // update; the quests under no topic narrow by title too. Escape clears a query without
-    // closing the list, and closes it once nothing is typed.
-    const topic = (id: string, name: string, activityAt: number, questIds: string[], latestUpdate: string) =>
-      ({ id, name, activityAt, questIds, latestUpdate }) as never;
-    const topics = [
-      topic("t1", "Formal verification", 3, ["q-10"], "Lean evals use the relay."),
-      topic("t2", "Relay", 2, ["q-12"], "Proxy fixed."),
-      topic("t3", "Briefing", 1, ["q-13", "q-14"], "Nothing new."),
-    ];
-    const topicOfQuest = { "q-10": "t1", "q-12": "t2", "q-13": "t3", "q-14": "t3" };
-    renderBar({ topicsGroup: { topics, currentTopicId: null, onOpen: vi.fn(), topicOfQuest } });
-    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
-    const listed = () => screen.queryAllByTestId("topic-tab-row").map((row) => row.dataset.topic);
-    const unsorted = () => screen.queryAllByTestId("thread-tab-list-row").map((row) => row.dataset.threadKey);
-    expect(listed()).toEqual(["t1", "t2", "t3"]);
-    const box = screen.getByRole("textbox", { name: "Search topics" });
-    expect(screen.getByTestId("topic-search").dataset.wide).toBe("false");
-    fireEvent.focus(box);
-    expect(screen.getByTestId("topic-search").dataset.wide).toBe("true");
-
-    fireEvent.change(box, { target: { value: "relay" } });
-    expect(listed()).toEqual(["t2", "t1"]);
-    expect(unsorted()).toEqual([]);
-    fireEvent.change(box, { target: { value: "q-11" } });
-    expect(listed()).toEqual([]);
-    expect(unsorted()).toEqual(["q-11"]);
-    fireEvent.change(box, { target: { value: "nowhere" } });
-    expect(screen.getByTestId("topic-search-empty").textContent).toContain('"nowhere"');
-
-    fireEvent.keyDown(box, { key: "Escape" });
-    expect(listed()).toEqual(["t1", "t2", "t3"]);
-    expect(screen.getByTestId("thread-tab-group-list")).toBeTruthy();
-    fireEvent.change(box, { target: { value: "brief" } });
-    fireEvent.click(screen.getByTestId("topic-search-clear"));
-    expect(listed()).toEqual(["t1", "t2", "t3"]);
-    fireEvent.keyDown(box, { key: "Escape" });
-    expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
-  });
-
   it("keeps an open list above the phone keyboard", () => {
     // iOS lays the keyboard over the page without resizing it, so a list sized to 60% of the
     // screen ran under the keyboard while searching. The list ends above the visual viewport.
@@ -406,9 +307,8 @@ describe("ThreadTabGroupBar", () => {
     };
     vi.stubGlobal("visualViewport", viewport);
     try {
-      const topics = [{ id: "t1", name: "Relay", activityAt: 1, questIds: ["q-10"] }] as never[];
-      renderBar({ topicsGroup: { topics, currentTopicId: null, onOpen: vi.fn(), topicOfQuest: { "q-10": "t1" } } });
-      fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
+      renderBar();
+      fireEvent.click(screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "done")!);
       const list = screen.getByTestId("thread-tab-group-list");
       // jsdom places the list at the top (0), less the 8px gap kept above the keyboard.
       expect(list.style.maxHeight).toBe("min(60dvh, 892px)");
@@ -418,47 +318,6 @@ describe("ThreadTabGroupBar", () => {
     } finally {
       vi.unstubAllGlobals();
     }
-  });
-
-  it("shows a topic's open questions in the Topics group, and opens one from there", () => {
-    // "Waiting on you" on a topic means only an open question in one of its quests: the user's
-    // needs-input notifications, as the question list shows them. The badge opens the newest one
-    // where it was asked and closes the list; the row itself still opens the topic.
-    const question = {
-      id: "n1",
-      category: "needs-input" as const,
-      summary: "Keep strict grading?",
-      timestamp: 5,
-      messageId: "m1",
-      threadKey: "q-13",
-      done: false,
-    };
-    useStore.setState({
-      sdkSessions: [{ sessionId: "leader", name: "Leader", sessionNum: 7 } as SdkSessionInfo],
-      sessionNotifications: new Map([["leader", [question]]]),
-    });
-    const topic = (id: string, questIds: string[]) =>
-      ({ id, name: id, activityAt: 1, questIds, latestUpdate: "Moved." }) as never;
-    const onOpen = vi.fn();
-    renderBar({
-      currentThreadKey: "main",
-      topicsGroup: {
-        topics: [topic("asked", ["q-13"]), topic("quiet", ["q-14"])],
-        currentTopicId: null,
-        onOpen,
-        topicOfQuest: {},
-      },
-    });
-    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
-    const [asked, quiet] = screen.getAllByTestId("topic-tab-row");
-    expect(within(quiet!).queryByTestId("topic-questions-badge")).toBeNull();
-    const badge = within(asked!).getByTestId("topic-questions-badge");
-    expect(badge.textContent).toBe("1 question for you");
-    fireEvent.click(badge);
-    expect(navigateToNotification).toHaveBeenCalledWith("leader", question, expect.any(Array));
-    expect(onOpen).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("topic-tab-list")).toBeNull();
-    useStore.getState().reset();
   });
 
   it("offers Close all only in the Done list", () => {
@@ -495,31 +354,7 @@ describe("ThreadTabGroupBar", () => {
   });
 });
 
-describe("Topics and Working on, and the marks in their lists", () => {
-  // One open question used to ring up to four amber bells in the top bar (Oct 28, round 6). Jiayi
-  // chose to let the Next chip and the attention count carry questions and unread results: the
-  // Topics and Working on items show none, and their lists mark each topic and quest instead.
-  // The topic rows count unread results as the attention list does (round 5).
-  const topic = (id: string, name: string, questIds: string[]) =>
-    ({ id, name, activityAt: 1, questIds, latestUpdate: `${name} moved.` }) as never;
-  const topics = [topic("t1", "Relay", ["q-10"]), topic("t2", "Briefing", ["q-13"])];
-  const topicOfQuest = { "q-10": "t1", "q-13": "t2" };
-  const tabs = [tab("q-10"), tab("q-13", { completed: true }), tab("q-20", { completed: true })];
-  function renderTopics(unread: Record<string, { answers: number; finished: number }>, tabOverrides = tabs) {
-    renderBar({
-      tabs: tabOverrides,
-      currentThreadKey: "main",
-      topicsGroup: {
-        topics,
-        currentTopicId: null,
-        onOpen: vi.fn(),
-        topicOfQuest,
-        unreadOf: (threadKeys) => unread[threadKeys.find((key) => unread[key]) ?? ""] ?? { answers: 0, finished: 0 },
-      },
-    });
-  }
-  const bellOn = (testId: string) => within(screen.getByTestId(testId)).queryByTestId("thread-tab-bell");
-
+describe("countUnreadResults", () => {
   it("counts unread results as the attention list does: finished quests apart, one request once", () => {
     expect(
       countUnreadResults([
@@ -529,122 +364,6 @@ describe("Topics and Working on, and the marks in their lists", () => {
         { id: "n-4", unreadReason: "quest-complete" },
       ]),
     ).toEqual({ answers: 2, finished: 1 });
-  });
-
-  it("puts no bell on Topics; the topic's row says what is unread, including its own thread", () => {
-    renderTopics({ "q-13": { answers: 0, finished: 1 }, "topic:t1": { answers: 2, finished: 0 } });
-    expect(bellOn("thread-tab-group-topics")).toBeNull();
-    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
-    const row = (id: string) => screen.getAllByTestId("topic-tab-row").find((element) => element.dataset.topic === id)!;
-    expect(within(row("t2")).getByTestId("topic-tab-unread").textContent).toBe("1 finished");
-    expect(within(row("t1")).getByTestId("topic-tab-unread").textContent).toBe("2 new");
-  });
-
-  it("keeps the bell on a quest under no topic in the Topics list, not on Topics", () => {
-    renderTopics({}, [...tabs.slice(0, 2), tab("q-20", { completed: true, blueNudge: true })]);
-    expect(bellOn("thread-tab-group-topics")).toBeNull();
-    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
-    const unsorted = screen.getByTestId("topic-tab-unsorted");
-    expect(within(unsorted).getByTestId("thread-tab-bell").dataset.kind).toBe("review");
-  });
-
-  it("puts no bell on Working on; the quest's row in its list has it", () => {
-    renderTopics({}, [tab("q-10", { needsInput: true }), ...tabs.slice(1)]);
-    expect(bellOn("thread-tab-group-working-on")).toBeNull();
-    fireEvent.click(screen.getByTestId("thread-tab-group-working-on"));
-    const row = within(screen.getByTestId("thread-tab-group-list"))
-      .getAllByTestId("thread-tab-list-row")
-      .find((element) => element.dataset.threadKey === "q-10")!;
-    expect(within(row).getByTestId("thread-tab-bell").dataset.kind).toBe("needs-input");
-  });
-});
-
-describe("ThreadTabGroupBar in the top bar", () => {
-  // Desktop leaders with topics on (Jiayi's pick, design C with her changes): the bar leaves its
-  // own tab row. Main | All and Topics sit after the session name; Working on, merged with the Board
-  // button, sits before the attention bell, and the full board is behind a button in the Working on
-  // menu.
-  const topic = (id: string, name: string, questIds: string[]) =>
-    ({ id, name, activityAt: 1, questIds, latestUpdate: `${name} moved.` }) as never;
-  afterEach(() => {
-    for (const helpers of document.querySelectorAll("[data-top-bar-helpers]")) helpers.remove();
-  });
-  function renderInTopBar(currentThreadKey = "q-10", boardOpen = false) {
-    const helpers = document.createElement("div");
-    helpers.dataset.topBarHelpers = "";
-    document.body.appendChild(helpers);
-    const onToggleBoard = vi.fn();
-    const view = renderBar({
-      currentThreadKey,
-      topicsGroup: {
-        topics: [topic("t1", "Relay", ["q-10"])],
-        currentTopicId: null,
-        onOpen: vi.fn(),
-        topicOfQuest: { "q-10": "t1" },
-      },
-      inTopBar: { helpers, board: { open: boardOpen, dots: [], onToggle: onToggleBoard } },
-    });
-    return { ...view, helpers, onToggleBoard };
-  }
-
-  it("puts Main | All and Topics in place, and Working on in the helpers", () => {
-    const { helpers, onSelect } = renderInTopBar();
-    const bar = screen.getByTestId("thread-tab-group-bar");
-    expect(within(bar).getByTestId("thread-tab-group-main")).toBeTruthy();
-    expect(within(bar).getByTestId("thread-tab-group-topics")).toBeTruthy();
-    expect(within(bar).queryByTestId("thread-tab-group-working-on")).toBeNull();
-    // No folder tabs: nothing in the bar claims to be the tab on screen.
-    expect(within(bar).queryAllByRole("tab")).toEqual([]);
-    // The Next chip is not in the bar: it sits at the feed's lower right (round 4 of the header work).
-    expect(screen.queryByTestId("session-attention-chip")).toBeNull();
-    const workingOn = within(helpers).getByTestId("thread-tab-group-working-on");
-    // The Board button's monitor icon, with the count of unfinished quests (q-10 and q-11).
-    expect(within(workingOn).getByTestId("workboard-dots-icon")).toBeTruthy();
-    expect(workingOn.textContent).toContain("Working on 2");
-
-    fireEvent.click(screen.getByTestId("thread-tab-group-all"));
-    expect(onSelect).toHaveBeenCalledWith("all");
-    fireEvent.click(screen.getByTestId("thread-tab-group-main"));
-    expect(onSelect).toHaveBeenCalledWith("main");
-  });
-
-  it("marks Main or All only while it is on screen", () => {
-    renderInTopBar("main");
-    expect(screen.getByTestId("thread-tab-group-main").dataset.selected).toBe("true");
-    expect(screen.getByTestId("thread-tab-group-all").dataset.selected).toBe("false");
-    cleanup();
-    renderInTopBar("q-10");
-    expect(screen.getByTestId("thread-tab-group-main").dataset.selected).toBe("false");
-  });
-
-  it("opens the work board from the Working on menu, and shows it pressed while the board is open", () => {
-    const { helpers, onToggleBoard, onSelect } = renderInTopBar();
-    fireEvent.click(within(helpers).getByTestId("thread-tab-group-working-on"));
-    const list = within(helpers).getByTestId("thread-tab-group-list");
-    expect(list.dataset.group).toBe("working-on");
-    fireEvent.click(within(list).getAllByTestId("thread-tab-list-row-select")[0]!);
-    expect(onSelect).toHaveBeenCalled();
-
-    fireEvent.click(within(helpers).getByTestId("thread-tab-group-working-on"));
-    const board = within(helpers).getByTestId("thread-top-bar-board-button");
-    expect(board.textContent).toContain("Full board");
-    fireEvent.click(board);
-    expect(onToggleBoard).toHaveBeenCalledTimes(1);
-    expect(within(helpers).queryByTestId("thread-tab-group-list")).toBeNull();
-
-    cleanup();
-    const reopened = renderInTopBar("q-10", true);
-    const button = within(reopened.helpers).getByTestId("thread-tab-group-working-on");
-    expect(button.className).toContain("border-cc-primary");
-    fireEvent.click(button);
-    expect(within(reopened.helpers).getByTestId("thread-top-bar-board-button").textContent).toContain("Close board");
-  });
-
-  it("opens the Topics list from the Topics button", () => {
-    renderInTopBar();
-    fireEvent.click(screen.getByTestId("thread-tab-group-topics"));
-    expect(screen.getByTestId("thread-tab-group-list").dataset.group).toBe("topics");
-    expect(screen.getAllByTestId("topic-tab-row")).toHaveLength(1);
   });
 });
 
@@ -672,37 +391,6 @@ describe("ThreadTabGroupBar active output", () => {
     cleanup();
     renderBar({ activeOutputThreadKey: "q-11", currentThreadKey: "q-11" });
     expect(spinning()).toEqual([]);
-  });
-
-  it("spins exactly one topic-first tab, and none for writing on screen", () => {
-    // Jiayi saw Working on and Topics both spin for the same writing, often the conversation on
-    // screen. Now: none for writing on screen (its quest, its topic's conversation, Main, All),
-    // Working on for a quest it lists, Topics only for a quest it doesn't, and Main for Main.
-    const topics = [{ id: "t", name: "Relay", activityAt: 1, questIds: ["q-10", "q-13"] }] as never[];
-    const topicOfQuest = { "q-10": "t", "q-13": "t" };
-    const bar = (activeOutputThreadKey: string, currentThreadKey: string, currentTopicId: string | null = null) => {
-      cleanup();
-      renderBar({
-        activeOutputThreadKey,
-        currentThreadKey,
-        topicsGroup: { topics, currentTopicId, onOpen: vi.fn(), topicOfQuest },
-      });
-      return spinning();
-    };
-    expect(bar("q-10", "main")).toEqual(["working-on"]);
-    expect(bar("q-13", "main")).toEqual(["topics"]);
-    expect(bar("main", "q-10")).toEqual(["main"]);
-    expect(bar("q-10", "q-10")).toEqual([]);
-    expect(bar("q-13", "q-10", "t")).toEqual([]);
-    expect(bar("main", "main")).toEqual([]);
-    expect(bar("q-10", "all")).toEqual([]);
-    // Inside an open list, the row being written in keeps its own spinner.
-    bar("q-10", "q-10");
-    fireEvent.click(screen.getByTestId("thread-tab-group-working-on"));
-    const row = within(screen.getByTestId("thread-tab-group-list"))
-      .getAllByTestId("thread-tab-list-row")
-      .find((item) => item.dataset.threadKey === "q-10")!;
-    expect(row.dataset.activeOutput).toBe("true");
   });
 });
 
@@ -856,160 +544,5 @@ describe("ThreadTabRail", () => {
     const list = screen.getByTestId("thread-tab-group-list");
     expect(list.style.left).toBe("120px");
     expect(list.style.width).toBe("448px");
-  });
-});
-
-describe("Threads menu", () => {
-  // Threads the user started live in their own menu next to Topics, not in Working on (which keeps
-  // only quests in motion). Active holds threads with something for the user (not settled, an
-  // unread answer, or the leader writing); Recent holds every read thread, newest first.
-  const thread = (handle: string, name: string, overrides: Partial<ThreadSummary> = {}): ThreadSummary => ({
-    id: handle,
-    key: `topic:${handle}`,
-    name,
-    leaderId: "leader",
-    createdAt: 1,
-    activityAt: 1,
-    ...overrides,
-  });
-  const threads = [
-    thread("aaaa0001", "Not read yet"),
-    thread("aaaa0002", "Read, then answered again", { settledAt: 2 }),
-    thread("aaaa0003", "Read and unfiled", { settledAt: 2 }),
-    thread("aaaa0004", "Read and filed", { settledAt: 2, topic: { id: "t1", name: "Relay" } }),
-  ];
-  function renderThreads(currentThreadKey = "main") {
-    const onStart = vi.fn();
-    const view = renderBar({
-      tabs: [tab("q-10")],
-      currentThreadKey,
-      topicsGroup: { topics: [], currentTopicId: null, onOpen: vi.fn(), topicOfQuest: {} },
-      threadsMenu: {
-        threads,
-        starting: false,
-        onStart,
-        onOpen: vi.fn(),
-        unread: (threadKey) => (threadKey === "topic:aaaa0002" ? 1 : 0),
-      },
-    });
-    return { ...view, onStart };
-  }
-
-  it("lists active threads, then every read thread, filed under a topic or not", () => {
-    // Jiayi: Recent should list all past threads, never cleared; a filed one says where it lives.
-    const { onSelect } = renderThreads();
-    // Working on still counts only the quest.
-    expect(screen.getByTestId("thread-tab-group-working-on").textContent).toContain("1");
-    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
-    const menu = screen.getByTestId("threads-menu");
-    expect(menu.textContent).toContain("Active 2");
-    expect(menu.textContent).toContain("Recent2");
-    const rows = screen.getAllByTestId("threads-menu-row");
-    expect(rows.map((row) => row.dataset.threadKey)).toEqual([
-      "topic:aaaa0001",
-      "topic:aaaa0002",
-      "topic:aaaa0003",
-      "topic:aaaa0004",
-    ]);
-    expect(rows[1]!.textContent).toContain("1 new");
-    expect(rows[3]!.textContent).toContain("in Relay");
-    // The search narrows Active as well as Recent; a topic's name finds the threads filed there.
-    fireEvent.change(screen.getByLabelText("Search threads"), { target: { value: "answered" } });
-    expect(screen.getAllByTestId("threads-menu-row").map((row) => row.dataset.threadKey)).toEqual(["topic:aaaa0002"]);
-    fireEvent.change(screen.getByLabelText("Search threads"), { target: { value: "relay" } });
-    expect(screen.getAllByTestId("threads-menu-row").map((row) => row.dataset.threadKey)).toEqual(["topic:aaaa0004"]);
-    fireEvent.change(screen.getByLabelText("Search threads"), { target: { value: "" } });
-    fireEvent.click(screen.getAllByTestId("threads-menu-row")[2]!);
-    expect(onSelect).toHaveBeenCalledWith("topic:aaaa0003");
-  });
-
-  it("marks a thread whose first message never arrived and offers to remove it", () => {
-    // A failed first send left a thread in Active forever with nothing in it and no way out.
-    // A thread just started (its first message still on the way) is not marked.
-    const onRemove = vi.fn();
-    renderBar({
-      tabs: [tab("q-10")],
-      currentThreadKey: "main",
-      topicsGroup: { topics: [], currentTopicId: null, onOpen: vi.fn(), topicOfQuest: {} },
-      threadsMenu: {
-        threads: [
-          thread("cccc0001", "Never sent", { empty: true, createdAt: Date.now() - 5 * 60_000 }),
-          thread("cccc0002", "Just started", { empty: true, createdAt: Date.now() }),
-        ],
-        starting: false,
-        onStart: vi.fn(),
-        onOpen: vi.fn(),
-        unread: () => 0,
-        onRemove,
-      },
-    });
-    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
-    expect(screen.getAllByTestId("threads-menu-row-unsent")).toHaveLength(1);
-    expect(screen.getAllByTestId("threads-menu-remove")).toHaveLength(1);
-    fireEvent.click(screen.getByTestId("threads-menu-remove"));
-    expect(onRemove).toHaveBeenCalledWith("topic:cccc0001");
-  });
-
-  it("draws a long Recent list a page at a time, and searches all of it", () => {
-    // Read threads are never dropped, so hundreds can gather: rows come 20 at a time (the next
-    // page when the end scrolls into view, or on tap), and the search box finds older ones.
-    const many = Array.from({ length: 45 }, (_, index) =>
-      thread(`bbbb${String(index).padStart(4, "0")}`, `Old thread ${index}`, {
-        settledAt: 2,
-        activityAt: 100 - index,
-      }),
-    );
-    renderBar({
-      tabs: [tab("q-10")],
-      currentThreadKey: "main",
-      topicsGroup: { topics: [], currentTopicId: null, onOpen: vi.fn(), topicOfQuest: {} },
-      threadsMenu: { threads: many, starting: false, onStart: vi.fn(), onOpen: vi.fn(), unread: () => 0 },
-    });
-    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
-    expect(screen.getByTestId("threads-menu").textContent).toContain("Recent45");
-    expect(screen.getAllByTestId("threads-menu-row")).toHaveLength(20);
-    expect(screen.getByTestId("threads-menu-more").textContent).toBe("25 more");
-    fireEvent.click(screen.getByTestId("threads-menu-more"));
-    expect(screen.getAllByTestId("threads-menu-row")).toHaveLength(40);
-    fireEvent.change(screen.getByLabelText("Search threads"), { target: { value: "thread 44" } });
-    expect(screen.getAllByTestId("threads-menu-row").map((row) => row.textContent)).toEqual([
-      expect.stringContaining("Old thread 44"),
-    ]);
-    expect(screen.queryByTestId("threads-menu-more")).toBeNull();
-  });
-
-  it("keeps a thread with an open question active and marks it, and keeps its question out of Working on", () => {
-    // A question asked in a thread (the leader wants the user to pick something) used to show as a
-    // Working on row named by the question and the raw thread key, while the thread's own row said
-    // nothing.
-    renderBar({
-      tabs: [tab("q-10"), { ...tab("topic:aaaa0003"), title: "Pick a name", needsInput: true }],
-      currentThreadKey: "main",
-      topicsGroup: { topics: [], currentTopicId: null, onOpen: vi.fn(), topicOfQuest: {} },
-      threadsMenu: {
-        threads,
-        starting: false,
-        onStart: vi.fn(),
-        onOpen: vi.fn(),
-        unread: () => 0,
-        questions: (threadKey) => (threadKey === "topic:aaaa0003" ? 1 : 0),
-      },
-    });
-    expect(screen.getByTestId("thread-tab-group-working-on").textContent).toContain("1");
-    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
-    const rows = screen.getAllByTestId("threads-menu-row");
-    const asked = rows.find((row) => row.dataset.threadKey === "topic:aaaa0003")!;
-    expect(screen.getByTestId("threads-menu").textContent).toContain("Active 2");
-    expect(asked.textContent).toContain("question");
-  });
-
-  it("selects Threads while a thread is on screen, and New thread closes the list as it starts one", () => {
-    const { onStart } = renderThreads("topic:aaaa0003");
-    expect(screen.getByTestId("thread-tab-group-threads").dataset.selected).toBe("true");
-    expect(screen.getByTestId("thread-tab-group-main").dataset.selected).toBe("false");
-    fireEvent.click(screen.getByTestId("thread-tab-group-threads"));
-    fireEvent.click(screen.getByTestId("threads-menu-new"));
-    expect(onStart).toHaveBeenCalled();
-    expect(screen.queryByTestId("threads-menu")).toBeNull();
   });
 });

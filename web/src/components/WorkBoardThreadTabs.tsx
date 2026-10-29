@@ -7,8 +7,6 @@ import { openTopicConversation, useTopicConversationTab } from "../utils/topic-c
 import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
 import { prepareZoom } from "./topic-zoom.js";
 import { useTopicTabTopics } from "./TopicTabList.js";
-import { newThreadFromHash, openNewThreadPage } from "../utils/routing.js";
-import { useHashLocation } from "../utils/hash-location.js";
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { useLayoutEffect, useState, type MutableRefObject } from "react";
 import { useStore } from "../store.js";
@@ -20,14 +18,10 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
-import {
-  countUnreadResults,
-  ThreadTabGroupBar,
-  topicFirstTabOrder,
-  type ThreadTabGroupBarProps,
-} from "./ThreadTabGroups.js";
-import { reloadLeaderThreads, rememberThreads, useLeaderThreads, useLeaderTopics } from "../utils/leader-topics.js";
-import { topicApi } from "../api/topics.js";
+import { countUnreadResults, ThreadTabGroupBar, topicFirstTabOrder } from "./ThreadTabGroups.js";
+import { LeaderBreadcrumbNav, type LeaderBreadcrumbNavProps } from "./breadcrumb/LeaderBreadcrumbNav.js";
+import { useLeaderThreads, useLeaderTopics } from "../utils/leader-topics.js";
+import { isOpenInSideClick, openInSide, type OpenInSideEvent } from "../utils/side-column.js";
 import { firstUnreadResult, navigateToNotification } from "../utils/notification-navigation.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 
@@ -152,10 +146,13 @@ export function ThreadTabRail({
   onCloseThreadTab,
   threadStatuses,
   tabOrderRef,
-  inTopBar,
+  breadcrumb,
 }: {
-  /** Desktop leaders with topics on: drawn inside the top bar (see ThreadTabGroupBar). */
-  inTopBar?: ThreadTabGroupBarProps["inTopBar"];
+  /**
+   * Leaders with topics on navigate by breadcrumb (`LeaderBreadcrumbNav`): the places it draws into.
+   * Without it, the status-group tab row.
+   */
+  breadcrumb?: Pick<LeaderBreadcrumbNavProps, "helpers" | "board" | "crumbSlot">;
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
   sessionId: string;
@@ -213,7 +210,6 @@ export function ThreadTabRail({
     }
     return items;
   };
-  const newThreadPageOpen = newThreadFromHash(useHashLocation());
   // Every tab's topic: the Done list groups by them, and a quest tab names its topic at once.
   const leaderTopics = useLeaderTopics(
     sessionId,
@@ -230,9 +226,9 @@ export function ThreadTabRail({
     standaloneTopicId ??
     (conversationTab && conversationTab === currentKey ? (leaderTopics?.map[currentKey]?.id ?? null) : null);
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
-  // The leader's threads (New thread), for the Threads menu. Asked again when an answer in a thread
-  // arrives or is read: the leader names a thread with its first answer, and reading the last one
-  // settles it.
+  // The leader's threads (side chats), to name the topic a thread on screen is filed under. Asked
+  // again when an answer in a thread arrives or is read: the leader names a thread with its first
+  // answer, and the Scribe may file it.
   const threadAnswers = (notifications ?? [])
     .filter((notification) => notification.category === "review" && !notification.done)
     .map((notification) => resolveNotificationOwnerThreadKey(notification))
@@ -260,7 +256,12 @@ export function ThreadTabRail({
         members.has(resolveNotificationOwnerThreadKey(notification)),
     );
   };
-  const openTopic = (topic: TopicSummary) => {
+  const openTopic = (topic: TopicSummary, event?: OpenInSideEvent) => {
+    // Shift-click: the topic's page goes beside the conversation instead.
+    if (isOpenInSideClick(event)) {
+      openInSide(sessionId, { kind: "topic", topicId: topic.id });
+      return;
+    }
     // A topic with unread results opens at the first one: answers first, where the "New" line is.
     const firstUnread = firstUnreadResult(unreadIn([topicViewKey(topic.id), ...topic.questIds]), () => true);
     if (firstUnread) {
@@ -284,80 +285,43 @@ export function ThreadTabRail({
   const menuTab = tabMenu ? tabs.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
   const menuItems = menuTab ? tabMenuItems(menuTab) : [];
 
+  const rowProps = {
+    currentThreadKey,
+    activeOutputThreadKey: runningRoute?.threadKey ?? null,
+    monitors,
+    threadStatuses,
+    onSelect: openThread,
+    onClose: onCloseThreadTab,
+    onOpenMenu: (tab: PrimaryThreadChip) =>
+      tabMenuItems(tab).length > 0
+        ? (x: number, y: number) => setTabMenu({ threadKey: normalizeThreadKey(tab.threadKey), x, y })
+        : undefined,
+  };
   return (
     <div
-      className={inTopBar ? "min-w-0" : "border-b border-cc-border bg-cc-card px-3 sm:px-4"}
+      className={breadcrumb && leaderTopics ? "contents" : "border-b border-cc-border bg-cc-card px-3 sm:px-4"}
       data-testid="thread-tab-rail"
       data-open-tab-count={tabs.length + 1}
     >
-      <ThreadTabGroupBar
+      {breadcrumb && leaderTopics ? (
+        <LeaderBreadcrumbNav
+          {...breadcrumb}
+          {...rowProps}
+          main={mainState}
+          tabs={displayedTabs}
+          threads={allThreads}
+          topics={{
+            list: topicList,
+            currentTopicId,
+            topicOfQuest: topicOfQuest ?? {},
+            onOpen: openTopic,
+            unreadOf: (threadKeys) => countUnreadResults(unreadIn(threadKeys)),
+          }}
+        />
+      ) : (
         // A new bar per leader, so motion that compares renders never compares two leaders' tabs.
-        key={sessionId}
-        inTopBar={inTopBar}
-        main={mainState}
-        tabs={displayedTabs}
-        currentThreadKey={currentThreadKey}
-        activeOutputThreadKey={runningRoute?.threadKey ?? null}
-        monitors={monitors}
-        threadStatuses={threadStatuses}
-        onSelect={openThread}
-        onClose={onCloseThreadTab}
-        threadsMenu={
-          leaderTopics
-            ? {
-                threads: allThreads,
-                starting: newThreadPageOpen,
-                onStart: () => {
-                  openNewThreadPage();
-                  useStore.getState().focusComposer();
-                },
-                onOpen: openThread,
-                onRemove: (threadKey) => {
-                  const thread = allThreads.find((candidate) => candidate.key === threadKey);
-                  if (!thread) return;
-                  topicApi
-                    .removeThread(thread.id)
-                    .then(() => {
-                      rememberThreads(
-                        sessionId,
-                        allThreads.filter((candidate) => candidate.id !== thread.id),
-                      );
-                      if (currentKey === threadKey) openThread(MAIN_THREAD_KEY);
-                    })
-                    .catch((error: Error) => {
-                      // It got a message meanwhile (it is a conversation now) or the server failed.
-                      console.warn("[library] Could not remove the thread:", error.message);
-                      reloadLeaderThreads(sessionId);
-                    });
-                },
-                unread: (threadKey) => unreadIn([threadKey]).length,
-                questions: (threadKey) =>
-                  (notifications ?? []).filter(
-                    (notification) =>
-                      notification.category === "needs-input" &&
-                      !notification.done &&
-                      resolveNotificationOwnerThreadKey(notification) === normalizeThreadKey(threadKey),
-                  ).length,
-              }
-            : undefined
-        }
-        topicsGroup={
-          leaderTopics
-            ? {
-                topics: topicList,
-                currentTopicId,
-                onOpen: openTopic,
-                unreadOf: (threadKeys) => countUnreadResults(unreadIn(threadKeys)),
-                topicOfQuest: topicOfQuest ?? {},
-              }
-            : undefined
-        }
-        onOpenMenu={(tab) =>
-          tabMenuItems(tab).length > 0
-            ? (x, y) => setTabMenu({ threadKey: normalizeThreadKey(tab.threadKey), x, y })
-            : undefined
-        }
-      />
+        <ThreadTabGroupBar key={sessionId} main={mainState} tabs={displayedTabs} {...rowProps} />
+      )}
       {tabMenu && menuItems.length > 0 && (
         <ContextMenu x={tabMenu.x} y={tabMenu.y} items={menuItems} onClose={() => setTabMenu(null)} />
       )}

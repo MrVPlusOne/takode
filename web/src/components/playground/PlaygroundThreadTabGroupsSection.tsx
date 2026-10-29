@@ -1,16 +1,17 @@
 /**
- * Phone thread tabs as status groups: the bar with its chips, each chip's list, and Find
- * with its two modes (the user's messages, or open and closed tabs, both newest first),
- * at the top and at the bottom of the screen.
+ * A leader's thread navigation: with topics off, the status-group tab row (at the top and at the
+ * bottom of the screen); with topics on, the breadcrumb (place picker at the start of the strip)
+ * and the Working on picker in the top bar, on phones and desktop alike; and the side chats list.
  */
 import { QuestThreadBanner } from "../QuestThreadBanner.js";
-import { TopicCrumb } from "../library/TopicConversation.js";
 import { useState } from "react";
 import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../../utils/quest-phase-theme.js";
 import type { ThreadSummary, TopicSummary } from "../../../shared/library-topics.js";
-import { NewThreadBody, NewThreadHeader, ThreadHeader } from "../NewThreadPage.js";
-import type { ThreadsMenu } from "../ThreadsMenu.js";
+import { ThreadsList, type ThreadsMenu } from "../ThreadsMenu.js";
+import { LeaderBreadcrumbNav } from "../breadcrumb/LeaderBreadcrumbNav.js";
+import { CrumbStart, CrumbStrip, ThreadCrumb } from "../breadcrumb/CrumbStart.js";
+import { useCrumbSlot } from "../breadcrumb/crumb-slot.js";
 import { ThreadTabGroupBar } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
@@ -68,7 +69,7 @@ const TABS: PrimaryThreadChip[] = [
   ),
 ];
 
-/** For a leader with topics on: its topics by recent activity, for the Topics group. */
+/** For a leader with topics on: its topics by recent activity, for the place picker. */
 const TOPICS: TopicSummary[] = [
   playgroundTopic("topic-feed", "Feed polish", 12, "Answer times sit on the last line of each answer.", [
     "q-9482",
@@ -114,7 +115,7 @@ function playgroundTopic(
 }
 
 /**
- * A leader's threads (New thread) for the Threads menu: one the leader is answering, one with an
+ * A leader's side chats for the side column's Recent list: one the leader is answering, one with an
  * unread answer, one with an open question and one whose first message never arrived (all Active),
  * then two read ones (Recent), one unfiled and one filed under a topic.
  */
@@ -157,8 +158,6 @@ function playgroundThread(
 function threadsMenu(onOpen: (threadKey: string) => void): ThreadsMenu {
   return {
     threads: THREADS,
-    starting: false,
-    onStart: () => {},
     onOpen,
     unread: (threadKey) => THREAD_UNREAD[threadKey] ?? 0,
     questions: (threadKey) => THREAD_QUESTIONS[threadKey] ?? 0,
@@ -168,22 +167,14 @@ function threadsMenu(onOpen: (threadKey: string) => void): ThreadsMenu {
 
 function PhoneFrame({
   placement,
-  topics = false,
   wide = false,
 }: {
   placement: "top" | "bottom";
-  topics?: boolean;
   /** A desktop-width bar. */
   wide?: boolean;
 }) {
   const [current, setCurrent] = useState("q-9482");
-  // The topic whose conversation is on screen: the Topics group stays selected while it is.
-  const [topicOpen, setTopicOpen] = useState<string | null>(null);
   const [tabs, setTabs] = useState(TABS);
-  const select = (threadKey: string) => {
-    setCurrent(threadKey);
-    setTopicOpen(null);
-  };
   const close = (threadKey: string) => {
     setTabs((existing) => existing.filter((tab) => tab.threadKey !== threadKey));
   };
@@ -197,7 +188,7 @@ function PhoneFrame({
         tabs={tabs}
         placement={placement}
         currentThreadKey={current}
-        activeOutputThreadKey={topics ? WRITING_THREAD : "q-9482"}
+        activeOutputThreadKey="q-9482"
         threadStatuses={{
           "q-9479": {
             kind: "ready",
@@ -210,75 +201,73 @@ function PhoneFrame({
             updatedAt: NOW,
           },
         }}
-        onSelect={select}
+        onSelect={setCurrent}
         onClose={close}
-        topicsGroup={
-          topics
-            ? {
-                topics: TOPICS,
-                currentTopicId: topicOpen,
-                onOpen: (topic) => setTopicOpen(topic.id),
-                topicOfQuest: TOPIC_OF_QUEST,
-              }
-            : undefined
-        }
-        threadsMenu={topics ? threadsMenu(select) : undefined}
       />
     </div>
   );
 }
 
 /**
- * A desktop leader with topics on: Main | All, Topics and the Next chip after the session name,
- * Working on (which holds the work board) before the bell, and the quest strip starting with its topic.
+ * A leader with topics on (phones and desktop alike): the top bar with the Working on picker before
+ * the bell, and the strip under it starting with the place picker, then the quest or thread.
  */
-function TopBarFrame() {
+function BreadcrumbFrame({ width, sessionId }: { width: number; sessionId: string }) {
   const [current, setCurrent] = useState("q-9482");
+  const [topicOpen, setTopicOpen] = useState<string | null>(null);
   const [helpers, setHelpers] = useState<HTMLDivElement | null>(null);
   const [boardOpen, setBoardOpen] = useState(false);
+  const crumbSlot = useCrumbSlot(sessionId, true);
+  const thread = THREADS.find((candidate) => candidate.key === current);
   return (
-    <div className="w-[1000px] max-w-full overflow-visible rounded-lg border border-cc-border bg-cc-bg">
-      <div className="flex items-center gap-3 border-b border-cc-border bg-cc-card px-4 py-1.5 text-[11px]">
-        <span className="shrink-0 font-medium text-cc-fg">#2957 Daily Leader</span>
-        <div className="flex min-w-0 flex-1 items-center">
-          <ThreadTabGroupBar
-            main={MAIN}
-            tabs={TABS}
-            currentThreadKey={current}
-            activeOutputThreadKey={null}
-            onSelect={setCurrent}
-            topicsGroup={{ topics: TOPICS, currentTopicId: null, onOpen: () => {}, topicOfQuest: TOPIC_OF_QUEST }}
-            threadsMenu={threadsMenu(setCurrent)}
-            inTopBar={{
-              helpers,
-              board: { open: boardOpen, dots: [], onToggle: () => setBoardOpen((open) => !open) },
-            }}
-          />
-        </div>
+    <div className="relative max-w-full overflow-visible rounded-lg border border-cc-border bg-cc-bg" style={{ width }}>
+      <div className="relative flex items-center gap-3 border-b border-cc-border bg-cc-card px-4 py-1.5 text-[11px]">
+        <span className="min-w-0 flex-1 truncate font-medium text-cc-fg">
+          #2957 Daily Leader · opus-5.5 · Full access
+        </span>
         <div ref={setHelpers} className="flex items-center" />
       </div>
       {boardOpen && <div className="border-b border-cc-border px-4 py-2 text-[12px] text-cc-muted">(work board)</div>}
-      <QuestThreadBanner
-        threadKey={current}
-        row={{ threadKey: current, questId: current, title: "Daily briefing: October 27" } as never}
-        singleLine
-        leading={<TopicCrumb name="Daily briefing" onOpen={() => {}} />}
+      {thread ? (
+        <CrumbStrip sessionId={sessionId}>
+          <ThreadCrumb leaderId={sessionId} thread={thread} onOpen={setCurrent} />
+        </CrumbStrip>
+      ) : current === "main" || current === "all" ? (
+        <CrumbStrip sessionId={sessionId} />
+      ) : (
+        <QuestThreadBanner
+          threadKey={current}
+          row={
+            {
+              threadKey: current,
+              questId: current,
+              title: TABS.find((tab) => tab.threadKey === current)?.title,
+            } as never
+          }
+          singleLine
+          leading={<CrumbStart sessionId={sessionId} />}
+        />
+      )}
+      <LeaderBreadcrumbNav
+        main={MAIN}
+        tabs={TABS}
+        currentThreadKey={current}
+        activeOutputThreadKey={WRITING_THREAD}
+        onSelect={(key) => {
+          setCurrent(key);
+          setTopicOpen(null);
+        }}
+        topics={{
+          list: TOPICS,
+          currentTopicId: topicOpen,
+          topicOfQuest: TOPIC_OF_QUEST,
+          onOpen: (topic) => setTopicOpen(topic.id),
+        }}
+        threads={THREADS}
+        helpers={helpers}
+        crumbSlot={crumbSlot}
+        board={{ open: boardOpen, dots: [], onToggle: () => setBoardOpen((open) => !open) }}
       />
-    </div>
-  );
-}
-
-/** The New thread page (until its first message), and a thread's header once filed under a topic. */
-function NewThreadFrames() {
-  return (
-    <div className="w-[600px] max-w-full space-y-3">
-      <div className="flex h-56 flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-bg">
-        <NewThreadHeader leaderId="playground" startedFrom={null} onClearStartedFrom={() => {}} onClose={() => {}} />
-        <NewThreadBody leaderId="playground" startedFrom={null} />
-      </div>
-      <div className="overflow-hidden rounded-lg border border-cc-border bg-cc-bg">
-        <ThreadHeader leaderId="playground" thread={THREADS[3]!} onOpenThread={() => {}} />
-      </div>
     </div>
   );
 }
@@ -288,25 +277,27 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="Leader thread tabs on every screen size. Without topics: Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name. With topics on, the bar is topic-first: Main, Working on (the unfinished quests) and Topics, where each topic says what its quests are doing (in progress, new answers, Notify me) and quests under no topic are listed below. The quest strip names the current quest, so the bar only marks the group that holds it. The session's Next chip sits at the feed's lower right on phones and desktop. A desktop leader with topics on has no tab row: Main | All, Topics and Threads sit in the top bar after the session name (which keeps a fixed width, so they never shift), Working on (merged with the Board button, the full board behind a button in its menu) before the bell, Topics, Threads and Working on carry no bell (Next and the attention count do; their lists mark each item), and the quest strip starts with the quest's topic. A group lists its tabs (a group of one opens its tab directly; long-press shows the list); the Done list offers Close all. Finding a tab (open or closed) or a message is Search everything's Tabs and Messages modes. For a leader with Library topics on, a Topics group right after Main lists its topics by recent activity, each with its newest update; tapping one reads it as one conversation, and the group stays selected, with that topic marked, while it is on screen. Next to Topics, the Threads menu starts a new thread (a fresh conversation with the leader) and lists the threads the user started: Active while the leader is writing or an answer is unread (its row says how many), then Recent once read; a read thread filed under a topic lives in that topic. Working on lists only quests."
+        description="A leader's thread navigation. With topics off: the tab row, Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name; a group lists its tabs (a group of one opens its tab directly; long-press shows the list) and the Done list offers Close all. With topics on, phones and desktop alike have no tab row: the strip under the top bar is a breadcrumb whose first part picks the place (Main, All threads, then the topics, each saying what its quests are doing, and the quests under no topic), and the top bar's Working on picker lists the quests in motion, with the full board behind a button in its list. Side chats (threads the user started) live in the side column; its Recent list shows those with something for the user first, then every one read."
       >
         <div className="space-y-4">
-          <Card label="At the top (tap a group)">
+          <Card label="Topics off, at the top (tap a group)">
             <PhoneFrame placement="top" />
           </Card>
-          <Card label="Topics on (open Topics, pick one; open Threads for the threads you started)">
-            <PhoneFrame placement="top" topics />
-          </Card>
-          <Card label="Desktop width, topics off">
+          <Card label="Topics off, desktop width">
             <PhoneFrame placement="top" wide />
           </Card>
-          <Card label="Desktop, topics on: the tabs in the top bar, the topic in the quest strip">
-            <TopBarFrame />
+          <Card label="Topics on, phone: Working on in the top bar, the place picker starting the strip">
+            <BreadcrumbFrame width={430} sessionId="playground-crumbs-phone" />
           </Card>
-          <Card label="New thread page, and a thread filed under a topic">
-            <NewThreadFrames />
+          <Card label="Topics on, desktop">
+            <BreadcrumbFrame width={1000} sessionId="playground-crumbs-desktop" />
           </Card>
-          <Card label="At the bottom (lists open upward)">
+          <Card label="Side chats (the side column's Recent list)">
+            <div className="w-[22rem] max-w-full rounded-xl border border-cc-border bg-cc-card py-1">
+              <ThreadsList menu={threadsMenu(() => {})} currentKey="" writingKey={WRITING_THREAD} />
+            </div>
+          </Card>
+          <Card label="Topics off, at the bottom (lists open upward)">
             <div className="pt-72">
               <PhoneFrame placement="bottom" />
             </div>

@@ -6,6 +6,7 @@ import { useStore } from "../store.js";
 import type { ActiveTurnRoute, SdkSessionInfo, SessionState } from "../types.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { NotificationChip } from "./NotificationChip.js";
+import { useSecondaryFeed } from "./secondary-feed.js";
 import { WaitingChip } from "./WaitingChip.js";
 import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
 import { formatElapsed, formatTokens } from "./message-feed-utils.js";
@@ -581,6 +582,7 @@ export function FeedStatusPill({
   onRunwayHeightChange?: (height: number) => void;
   onSelectThread?: (threadKey: string) => void;
 }) {
+  const secondary = useSecondaryFeed();
   const leftStackRef = useRef<HTMLDivElement>(null);
   const rightStackRef = useRef<HTMLDivElement>(null);
   const [activityVisibleHeight, setActivityVisibleHeight] = useState(0);
@@ -643,9 +645,12 @@ export function FeedStatusPill({
         style={composerOverlayLift}
         className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3"
       >
-        <WaitingChip sessionId={sessionId} />
+        {/* Session-wide chips belong to the main feed, not a conversation in the side column. */}
+        {!secondary && <WaitingChip sessionId={sessionId} />}
         {/* The session's Next chip, at the feed's lower right on phones and desktop alike. */}
-        <NotificationChip sessionId={sessionId} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
+        {!secondary && (
+          <NotificationChip sessionId={sessionId} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
+        )}
       </div>
     </>
   );

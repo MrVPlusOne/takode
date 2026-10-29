@@ -33,7 +33,6 @@ const ROUND_QUERY_PARAM = "round";
 const SECONDARY_VIEW_QUERY_PARAM = "view";
 const TOPIC_VIEW_QUERY_PARAM = "topic";
 /** A leader's New thread page, over the thread it was opened from. */
-const NEW_THREAD_QUERY_PARAM = "newThread";
 
 function splitHash(hash: string): { path: string; params: URLSearchParams } {
   const normalized = hash ? (hash.startsWith("#") ? hash : `#${hash}`) : "#/";
@@ -295,32 +294,6 @@ export function topicViewFromHash(hash: string): boolean {
   return splitHash(hash).params.get(TOPIC_VIEW_QUERY_PARAM) === "1";
 }
 
-/** Whether a leader's route shows the New thread page (over the thread it was opened from). */
-export function newThreadFromHash(hash: string): boolean {
-  return splitHash(hash).params.get(NEW_THREAD_QUERY_PARAM) === "1";
-}
-
-/**
- * Opens a leader's New thread page over the thread on screen, a history step of its own, so back
- * returns to that thread.
- */
-export function openNewThreadPage(): void {
-  const { path, params } = splitHash(window.location.hash);
-  if (params.get(NEW_THREAD_QUERY_PARAM) === "1") return;
-  params.delete("msg");
-  params.set(NEW_THREAD_QUERY_PARAM, "1");
-  window.location.hash = joinHash(path, params).slice(1);
-}
-
-/** Leaves the New thread page for the thread it was opened from, replacing its history step. */
-export function closeNewThreadPage(): void {
-  const { path, params } = splitHash(window.location.hash);
-  if (!params.has(NEW_THREAD_QUERY_PARAM)) return;
-  params.delete(NEW_THREAD_QUERY_PARAM);
-  history.replaceState(null, "", joinHash(path, params));
-  window.dispatchEvent(new HashChangeEvent("hashchange"));
-}
-
 /** The route of a leader's quest tab zoomed out to the quest's whole topic. */
 export function sessionTopicViewHash(sessionId: string | number, threadKey: string): string {
   return withThreadKeyInHash(`${sessionHash(sessionId)}?${TOPIC_VIEW_QUERY_PARAM}=1`, threadKey);
@@ -526,12 +499,6 @@ export function navigateToSessionThread(
   const currentRoute = parseHash(window.location.hash);
   const sameSession = currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId);
   let currentHash = sameSession ? window.location.hash : sessionHash(routeSessionId);
-  // Going to a thread leaves the New thread page.
-  if (sameSession && newThreadFromHash(currentHash)) {
-    const { path, params } = splitHash(currentHash);
-    params.delete(NEW_THREAD_QUERY_PARAM);
-    currentHash = joinHash(path, params);
-  }
   // A message route names a message in the thread on screen; another thread must not inherit it,
   // or the new thread would try to scroll to that message.
   if (

@@ -526,11 +526,11 @@ describe("TopicSidePanel", () => {
     expect(screen.queryByTestId("topic-settings")).toBeNull();
   });
 
-  it("is part of the desktop layout: open by default, collapsing to a rail naming the topic", async () => {
+  it("is part of the desktop layout (the side column): open by default, collapsing to a rail naming the topic", async () => {
     mockApi();
     render(<LeaderTopicPanel leaderId="l1" threadKey="q-2713" desktop />);
     expect(await screen.findByTestId("topic-side-panel")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Collapse topics" }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse the side column" }));
     const rail = await screen.findByTestId("topic-rail");
     await waitFor(() => expect(rail).toHaveTextContent("T7 run"));
     fireEvent.click(within(rail).getByRole("button", { name: "Show the topic T7 run" }));

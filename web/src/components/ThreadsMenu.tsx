@@ -4,17 +4,14 @@ import { timeAgo } from "../utils/quest-helpers.js";
 import { NewThreadIcon } from "./library/library-icons.js";
 import { matchesSearch, TopicSearchBox } from "./library/topic-search.js";
 
-/** A leader's threads (New thread) for its Threads menu, and how to start or open one. */
+/** A leader's side chats (threads) for the side column's Recent list, and how to open one. */
 export interface ThreadsMenu {
   threads: readonly ThreadSummary[];
-  onStart: () => void;
   onOpen: (threadKey: string) => void;
   /** How many unread answers a thread has. */
   unread: (threadKey: string) => number;
   /** How many of the leader's questions to the user are open in a thread. */
   questions?: (threadKey: string) => number;
-  /** Whether the New thread page is on screen. */
-  starting: boolean;
   /** Removes a thread whose first message never arrived. */
   onRemove?: (threadKey: string) => void;
 }
@@ -47,8 +44,8 @@ export function isThreadActive(
 }
 
 /**
- * The Threads menu: start a new thread, then the active threads, then every thread read, newest
- * first, filed under a topic or not, with a search box for the older ones.
+ * The side chats list: the active ones, then every one read, newest first, filed under a topic or
+ * not, with a search box for the older ones.
  */
 export function ThreadsList({
   menu,
@@ -149,15 +146,6 @@ export function ThreadsList({
   );
   return (
     <div data-testid="threads-menu">
-      <button
-        type="button"
-        onClick={menu.onStart}
-        className={`flex w-full items-center gap-2.5 border-b border-cc-border/60 px-4 py-2.5 text-left text-[13px] text-cc-fg ${menu.starting ? "bg-cc-active" : "hover:bg-cc-hover"}`}
-        data-testid="threads-menu-new"
-      >
-        <NewThreadIcon className="h-4 w-4 shrink-0 text-cc-primary" />
-        <span>New thread</span>
-      </button>
       {activeShown.length > 0 && heading("Active", activeShown.length)}
       {activeShown.map((thread) => row(thread, false))}
       {read.length > 0 && (
@@ -181,7 +169,7 @@ export function ThreadsList({
         </div>
       )}
       {matching.length > recent.length && <ShowMoreRow left={matching.length - recent.length} onShow={showMore} />}
-      {menu.threads.length === 0 && <div className="px-4 py-3 text-[12px] text-cc-muted">No threads yet</div>}
+      {menu.threads.length === 0 && <div className="px-4 py-3 text-[12px] text-cc-muted">No side chats yet</div>}
     </div>
   );
 }

@@ -91,6 +91,8 @@ export interface WsTransportCallbacks {
     targetHistoryIndex?: number;
   };
   getInitialThreadWindow?: (sessionId: string) => InitialThreadWindowRequest | null | undefined;
+  /** Threads shown beside the main view (a leader's side column), whose live messages it needs too. */
+  getSideViews?: (sessionId: string) => string[];
   /** Undefined means this socket is not the selected projection carrier. */
   getSyncedProjectionSubscriptions?: (sessionId: string) => SyncedProjectionSubscription[] | undefined;
   /** Hashes of large snapshot parts the browser holds, for the server to leave out when unchanged. */
@@ -417,6 +419,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     const knownFrozenHash = hasLocalMessages ? callbacks.getKnownFrozenHash(sessionId) : undefined;
     const freshWindow = callbacks.getFreshHistoryWindow(sessionId);
     const initialThreadWindow = callbacks.getInitialThreadWindow?.(sessionId) ?? null;
+    const sideViews = callbacks.getSideViews?.(sessionId) ?? [];
     const syncedProjectionSubscriptions = callbacks.getSyncedProjectionSubscriptions?.(sessionId);
     // A full-history resync asks for everything again.
     const knownSnapshotParts = forceFullHistory ? undefined : callbacks.getKnownSnapshotParts?.(sessionId);
@@ -440,6 +443,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
           ? { history_window_target_index: freshWindow.targetHistoryIndex }
           : {}),
         ...(initialThreadWindow ? { initial_thread_window: initialThreadWindow } : {}),
+        ...(sideViews.length ? { side_views: sideViews } : {}),
       }),
     );
     if (syncedProjectionSubscriptions !== undefined) {

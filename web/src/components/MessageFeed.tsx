@@ -99,6 +99,7 @@ import { LatestContentPill, MessageFeedNavigationControls } from "./MessageFeedN
 import { resolveThreadResponses } from "./thread-response-presentation.js";
 import { useTopicResponsePresentations } from "./topic-feed.js";
 import { useFeedPinnedTop } from "./feed-pinned-top.js";
+import { useSecondaryFeed } from "./secondary-feed.js";
 import { AnswerReferencesContext, useAllThreadsAnswerReferences } from "./answer-references.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
@@ -208,11 +209,15 @@ export function MessageFeed({
     selectedFeedWindowEnabled &&
     selectedFeedWindow !== null &&
     selectedThreadWindowRevision < threadWindowRefreshRevision;
-  const scrollToMessageId = useStore((s) => s.scrollToMessageId.get(sessionId));
-  const scrollLanding = useStore((s) => s.scrollToMessageLanding?.get(sessionId));
-  const scrollToTurnId = useStore((s) => s.scrollToTurnId.get(sessionId));
-  const pendingScrollToMessageId = useStore((s) => s.pendingScrollToMessageId?.get(sessionId));
-  const routeScrollToMessageId = getRouteMessageTargetForThread(normalizedThreadKey);
+  // Jumps and route targets name the main feed's messages; a feed beside it leaves them alone.
+  const secondary = useSecondaryFeed();
+  const scrollToMessageId = useStore((s) => (secondary ? undefined : s.scrollToMessageId.get(sessionId)));
+  const scrollLanding = useStore((s) => (secondary ? undefined : s.scrollToMessageLanding?.get(sessionId)));
+  const scrollToTurnId = useStore((s) => (secondary ? undefined : s.scrollToTurnId.get(sessionId)));
+  const pendingScrollToMessageId = useStore((s) =>
+    secondary ? undefined : s.pendingScrollToMessageId?.get(sessionId),
+  );
+  const routeScrollToMessageId = secondary ? null : getRouteMessageTargetForThread(normalizedThreadKey);
   const savedViewportTargetMessageId = getSavedViewportTargetMessageId(savedScrollPos);
   const [messageTimeLabels] = useState(() => new MessageTimeLabelStore());
   const [pendingInitialThreadWindowKey, setPendingInitialThreadWindowKey] = useState<string | null>(null);
@@ -662,6 +667,7 @@ export function MessageFeed({
     sessionId,
     autoFollowEnabledRef,
     followRevision,
+    secondary,
   });
 
   const requestThreadWindow = useThreadWindowRequester({
@@ -669,6 +675,7 @@ export function MessageFeed({
     normalizedThreadKey,
     sectionTurnCount,
     sessionId,
+    secondary,
     onWindowRequest: noteWindowRequest,
     setPendingInitialThreadWindowKey,
   });

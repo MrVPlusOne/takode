@@ -191,12 +191,12 @@ export function LeaderWorkboardTopBarButton({
 }
 
 /**
- * On phones, a leader's topic pages next to Board: opens and closes the topic sheet over the
- * conversation. Same 36 px square as the Board button. Desktop shows the topic panel, or its
- * rail, beside the conversation instead.
+ * On phones, a leader's side column next to Working on: opens and closes it as a sheet over the
+ * conversation (the topic page it follows, side chats and whatever else was put there). Same 36 px
+ * square as the Working on button. Desktop shows the column, or its rail, beside the conversation.
  */
 export function LeaderTopicsTopBarButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const label = open ? "Close topics" : "Open topics";
+  const label = open ? "Close the side column" : "Open the side column";
   const tone = open
     ? "border-cc-primary/50 bg-cc-primary/12 text-cc-fg"
     : "border-cc-border bg-cc-hover/40 text-cc-fg hover:bg-cc-hover";

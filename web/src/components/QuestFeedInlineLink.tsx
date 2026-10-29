@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import { useStore } from "../store.js";
+import { isOpenInSideClick, openConversationInSide } from "../utils/side-column.js";
 import type { AppState } from "../store-types.js";
 import type { QuestListPreview, QuestmasterTask } from "../types.js";
 import { navigateTo } from "../utils/navigation.js";
@@ -859,7 +860,13 @@ export function QuestFeedInlineLink({
         onSessionNavigate?.();
       };
       const state = useStore.getState();
-      if (selectQuestThreadLeaderId(state, normalizedQuestId) || questRecordLoaded(state, normalizedQuestId)) {
+      const leaderSessionId = selectQuestThreadLeaderId(state, normalizedQuestId);
+      // Shift-click: the quest's conversation goes in its leader's side column, beside this one.
+      if (leaderSessionId && isOpenInSideClick(event) && openConversationInSide(leaderSessionId, normalizedQuestId)) {
+        closeAllRef.current(false);
+        return;
+      }
+      if (leaderSessionId || questRecordLoaded(state, normalizedQuestId)) {
         goToThread();
         return;
       }
@@ -894,6 +901,17 @@ export function QuestFeedInlineLink({
       const pointerType =
         (event.nativeEvent as Partial<globalThis.PointerEvent>).pointerType || linkPointerTypeRef.current;
       linkPointerTypeRef.current = null;
+      const leaderSessionId = selectQuestThreadLeaderId(useStore.getState(), normalizedQuestId);
+      if (
+        event.button === 0 &&
+        isOpenInSideClick(event) &&
+        leaderSessionId &&
+        openConversationInSide(leaderSessionId, normalizedQuestId)
+      ) {
+        event.preventDefault();
+        closeAllRef.current(false);
+        return;
+      }
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();
       // A touch tap previews the quest, keeping the conversation in view; the preview's Open quest is
@@ -904,7 +922,7 @@ export function QuestFeedInlineLink({
       }
       openQuestView();
     },
-    [openExplicitRichPreview, openQuestView, stopPropagation],
+    [normalizedQuestId, openExplicitRichPreview, openQuestView, stopPropagation],
   );
 
   const retryRichPreview = useCallback(() => {

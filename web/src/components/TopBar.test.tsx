@@ -1063,7 +1063,9 @@ describe("TopBar", () => {
   // Desktop leaders with Library topics on lose the tab row: the conversation fills two places in
   // the top bar (its navigation after the name, Next and Working on before the bell), Working on
   // replaces the Board button, and model and access move to the name's tooltip.
-  it("hands a desktop leader with topics on its navigation places, without Board or the settings line", () => {
+  it("gives a leader with topics on the Working on place instead of Board, and keeps its model and access", () => {
+    // Navigation is a breadcrumb under the bar, so the bar has room again for the model and access
+    // (Jiayi's ask with the breadcrumb's own band); Working on, which holds the board, replaces Board.
     window.innerWidth = 1280;
     // Its own session ID: the topics cache is module state that outlives a test.
     resetStore({
@@ -1075,17 +1077,13 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.getByTestId("topbar-thread-nav")).toBeInTheDocument();
     expect(screen.getByTestId("topbar-thread-helpers")).toBeInTheDocument();
-    // The identity keeps a fixed width, so the navigation after it starts at the same spot whatever
-    // the session's name (Jiayi: the controls moved left and right with the name).
-    expect(screen.getByTestId("topbar-identity")).toHaveClass("w-[17rem]", "shrink-0");
     expect(screen.queryByTestId("topbar-workboard-button")).toBeNull();
-    expect(screen.queryByTestId("session-settings-summary")).toBeNull();
-    expect(screen.getByTitle("Leader Session · opus-5.5 · Accept edits")).toBeInTheDocument();
+    expect(screen.getByTestId("session-settings-summary")).toHaveTextContent("opus-5.5 · Accept edits");
   });
 
-  it("keeps the tab-row layout for a leader on a phone even with topics on", () => {
+  it("gives a leader with topics on a phone the same Working on place, beside the side column's button", () => {
+    // Phones follow the desktop design: no tab row, Working on in the top bar.
     window.innerWidth = 430;
     resetStore({
       currentSessionId: "topics-leader",
@@ -1095,8 +1093,9 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.queryByTestId("topbar-thread-nav")).toBeNull();
-    expect(screen.getByTestId("topbar-workboard-button")).toBeInTheDocument();
+    expect(screen.getByTestId("topbar-thread-helpers")).toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-workboard-button")).toBeNull();
+    expect(screen.getByTestId("topbar-topics-button")).toBeInTheDocument();
   });
 
   it("keeps the Board button for a leader whose board is empty", () => {

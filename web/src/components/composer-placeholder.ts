@@ -38,7 +38,7 @@ export function buildComposerPlaceholder({
   const normalizedThreadKey = normalizeThreadKey(threadKey);
   const shouldShowThreadDestination =
     isLeaderSession && isQuestThreadKey(normalizedThreadKey) && !usesTouchKeyboard && !isNarrowLayout;
-  if (isLeaderSession && newThread) return "Start a new thread...";
+  if (isLeaderSession && newThread) return "Ask the leader on the side...";
   const leadIn =
     isLeaderSession && topicName
       ? // A thread still named after its first words ends in "…" already.

@@ -6,7 +6,6 @@
  */
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
-import { ThreadsList, type ThreadsMenu } from "./ThreadsMenu.js";
 import { TopicTabList } from "./TopicTabList.js";
 import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
 import { matchesSearch, NoTopicMatches, searchTopics, TopicSearchBox } from "./library/topic-search.js";
@@ -35,6 +34,8 @@ import type { SessionNotification } from "../types.js";
 import { createPortal } from "react-dom";
 import { WorkBoardDotsIcon, WorkBoardIcon } from "./leader-workboard-controls.js";
 import type { BoardPhaseDot } from "./leader-board-summary.js";
+import { AllThreadsIcon, MainIcon, PlaceCrumb, PlaceRow } from "./breadcrumb/PlaceCrumb.js";
+import type { OpenInSideEvent } from "../utils/side-column.js";
 
 export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";
 
@@ -89,7 +90,7 @@ export function groupThreadTabs(tabs: readonly PrimaryThreadChip[]): Record<Thre
  * tab under New results meanwhile flashed it through that group, for example on its way
  * from In progress to Done when its quest finishes while the user watches.
  */
-function readOnScreen(tab: PrimaryThreadChip, currentKey: string): PrimaryThreadChip {
+export function readOnScreen(tab: PrimaryThreadChip, currentKey: string): PrimaryThreadChip {
   return tab.blueNudge && normalizeThreadKey(tab.threadKey) === currentKey ? { ...tab, blueNudge: false } : tab;
 }
 
@@ -133,7 +134,7 @@ function tabDotColor(tab: PrimaryThreadChip): string {
   return tab.accentColor ?? tab.titleColor ?? "var(--color-cc-muted)";
 }
 
-interface RowContext {
+export interface RowContext {
   currentThreadKey: string;
   activeOutputThreadKey: string | null;
   monitors?: ThreadMonitoringProjectionValue["threads"];
@@ -143,58 +144,35 @@ interface RowContext {
   onOpenMenu?: (tab: PrimaryThreadChip) => OpenContextMenu | undefined;
 }
 
+/** A leader's topics for the place picker: by recent activity, each quest's topic, and opening one. */
+export interface TopicsGroup {
+  topics: TopicSummary[];
+  currentTopicId: string | null;
+  /** With the click, so a modifier-click can open the topic in the side column instead. */
+  onOpen: (topic: TopicSummary, event?: OpenInSideEvent) => void;
+  /** The topic of each quest tab, by quest ID; a quest with none is listed as not in a topic yet. */
+  topicOfQuest: Readonly<Record<string, string>>;
+  /**
+   * The unread results in these threads (a topic's own thread and its quests), counted as the
+   * attention list counts them, when the leader's notifications are known.
+   */
+  unreadOf?: (threadKeys: readonly string[]) => UnreadResultCount;
+}
+
 export interface ThreadTabGroupBarProps extends RowContext {
   main?: PrimaryThreadChip;
   tabs: readonly PrimaryThreadChip[];
   /** Where the bar sits; group lists open away from the screen edge. */
   placement?: "top" | "bottom";
-  /**
-   * For a leader with Library topics on: the Topics group, right after Main, listing its topics by
-   * recent activity. It is selected while a topic conversation is on screen.
-   */
-  topicsGroup?: {
-    topics: TopicSummary[];
-    currentTopicId: string | null;
-    onOpen: (topic: TopicSummary) => void;
-    /** The topic of each quest tab, by quest ID; a quest with none is listed as not in a topic yet. */
-    topicOfQuest: Readonly<Record<string, string>>;
-    /**
-     * The unread results in these threads (a topic's own thread and its quests), counted as the
-     * attention list counts them, when the leader's notifications are known.
-     */
-    unreadOf?: (threadKeys: readonly string[]) => UnreadResultCount;
-  };
-  /**
-   * Topic-first leaders: the Threads menu (New thread, then active and recent threads), next to
-   * Topics. Threads are not quests: Working on keeps only the quests in motion.
-   */
-  threadsMenu?: ThreadsMenu;
-  /**
-   * Desktop leaders with topics on: the bar lives in the top bar instead of a tab row. Main | All,
-   * Topics and Threads sit where the bar is drawn; the Working on menu, which holds the work board,
-   * goes to `inTopBar.helpers`. Topics, Threads and Working on carry no attention bell: the feed's
-   * Next chip and the attention count carry questions and unread results, and their lists mark each one.
-   */
-  inTopBar?: {
-    helpers: HTMLElement | null;
-    board: { open: boolean; dots: readonly BoardPhaseDot[]; onToggle: () => void };
-  };
 }
 
 /**
- * The phone tab bar: Main, one item per non-empty group, and search. The quest strip
- * below already names the current quest, so the bar only marks which group holds it.
+ * The tab row of a leader with topics off: Main, then one item per non-empty status group. The
+ * quest strip below already names the current quest, so the bar only marks which group holds it.
+ * Leaders with topics on navigate by breadcrumb instead (`LeaderBreadcrumbNav`).
  */
-export function ThreadTabGroupBar({
-  main,
-  tabs,
-  placement = "top",
-  topicsGroup,
-  inTopBar,
-  threadsMenu,
-  ...rows
-}: ThreadTabGroupBarProps) {
-  const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | "topics" | "working-on" | "threads" | null>(null);
+export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: ThreadTabGroupBarProps) {
+  const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | null>(null);
   // The input of the latest press on the bar: a click on an open group differs by mouse and finger.
   const lastPressRef = useRef<string>("mouse");
   const mainTab = main ?? {
@@ -210,51 +188,23 @@ export function ThreadTabGroupBar({
   const groups = groupThreadTabs(tabs.map((tab) => readOnScreen(tab, currentKey)));
   // The All view sits under the Main strip too, so Main is the selected tab there.
   const onMain = currentKey === MAIN_THREAD_KEY || currentKey === ALL_THREADS_KEY;
-  // With topics on, the bar is topic-first: Main, Working on and Topics, which holds every quest tab.
-  const topicFirst = topicsGroup;
-  // Tabs made earlier for a question asked in a topic conversation or user thread stay out: those
-  // live in the Topics and Threads menus.
-  const questTabs = tabs
-    .map((tab) => readOnScreen(tab, currentKey))
-    .filter((tab) => !isMain(tab) && !isTopicViewKey(tab.threadKey));
-  const workingOn = topicFirst ? workingOnTabs(questTabs) : [];
-  const inWorkingOn = workingOn.some((tab) => normalizeThreadKey(tab.threadKey) === currentKey);
-  // A thread (New thread) on screen, or the New thread page: the Threads tab is the selected one.
-  const onThreads =
-    !!threadsMenu && (threadsMenu.starting || threadsMenu.threads.some((thread) => thread.key === currentKey));
-  // Topic-first: every quest tab lives under Topics (or Working on while it is listed there).
-  const onTopic = !onMain && !onThreads && (!!topicsGroup?.currentTopicId || (!!topicFirst && !inWorkingOn));
   // Which bar tab spins: only one, and none for writing already on screen (the feed's "Active
-  // here" chip shows it). The writing is on screen in its own thread, in the All view, and in a
-  // topic conversation holding its quest.
+  // here" chip shows it). The writing is on screen in its own thread and in the All view.
   const writingKey = rows.activeOutputThreadKey ? normalizeThreadKey(rows.activeOutputThreadKey) : null;
-  const writingOnScreen =
-    !!writingKey &&
-    (writingKey === currentKey ||
-      currentKey === ALL_THREADS_KEY ||
-      (!!topicsGroup?.currentTopicId &&
-        (topicsGroup.topicOfQuest[writingKey] === topicsGroup.currentTopicId ||
-          isKeyOfTopic(writingKey, topicsGroup.currentTopicId))));
-  const spinningTab: "main" | "working-on" | "topics" | "threads" | ThreadTabGroupId | null =
+  const writingOnScreen = !!writingKey && (writingKey === currentKey || currentKey === ALL_THREADS_KEY);
+  const spinningTab: "main" | ThreadTabGroupId | null =
     !writingKey || writingOnScreen
       ? null
       : writingKey === MAIN_THREAD_KEY
         ? "main"
-        : topicFirst
-          ? workingOn.some((tab) => normalizeThreadKey(tab.threadKey) === writingKey)
-            ? "working-on"
-            : threadsMenu?.threads.some((thread) => thread.key === writingKey)
-              ? "threads"
-              : "topics"
-          : (THREAD_TAB_GROUP_ORDER.find((id) =>
-              groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === writingKey),
-            ) ?? null);
-  const currentGroup =
-    onMain || onTopic || topicFirst
-      ? null
-      : (THREAD_TAB_GROUP_ORDER.find((id) =>
-          groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === currentKey),
-        ) ?? null);
+        : (THREAD_TAB_GROUP_ORDER.find((id) =>
+            groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === writingKey),
+          ) ?? null);
+  const currentGroup = onMain
+    ? null
+    : (THREAD_TAB_GROUP_ORDER.find((id) =>
+        groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === currentKey),
+      ) ?? null);
   const barRef = useRef<HTMLDivElement | null>(null);
   useGroupMoveAnimation(barRef, currentKey, currentGroup, groups);
   const select = (threadKey: string) => {
@@ -262,30 +212,6 @@ export function ThreadTabGroupBar({
     rows.onSelect(threadKey);
   };
   const rowContext = { ...rows, onSelect: select };
-  const threadsList = threadsMenu && (
-    <ThreadsList
-      menu={{
-        ...threadsMenu,
-        onStart: () => {
-          setOpenGroup(null);
-          threadsMenu.onStart();
-        },
-        onOpen: select,
-      }}
-      currentKey={currentKey}
-      writingKey={writingKey}
-    />
-  );
-  const topicsList = (group: NonNullable<ThreadTabGroupBarProps["topicsGroup"]>) => (
-    <TopicsGroupList
-      topicsGroup={group}
-      topicFirst={!!topicFirst}
-      currentTopicId={onTopic ? group.currentTopicId : null}
-      questTabs={questTabs}
-      rowContext={rowContext}
-      onLeave={() => setOpenGroup(null)}
-    />
-  );
   const [listLeft, setListLeft] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const listMaxHeight = useHeightAboveKeyboard(listRef, !!openGroup && placement === "top");
@@ -316,169 +242,6 @@ export function ThreadTabGroupBar({
   const item = (key: string, props: Omit<BarItemProps, "placement" | "selectedSurface">) => (
     <BarItem key={key} placement={placement} selectedSurface={selectedSurface} {...props} />
   );
-  // The Topics group, right after Main.
-  const topicsItem = () =>
-    topicsGroup &&
-    item("topics", {
-      label: "Topics",
-      selected: onTopic,
-      open: openGroup === "topics",
-      group: "topics",
-      count: topicsGroup.topics.length,
-      activeOutput: spinningTab === "topics",
-      testId: "thread-tab-group-topics",
-      onClick: () => setOpenGroup((open) => (open === "topics" ? null : "topics")),
-      children: (
-        <>
-          <TopicIcon className="h-3.5 w-3.5 shrink-0" />
-          {/* With two or three tabs in the bar, phones have room to name it too. */}
-          <span className={topicFirst ? "" : "hidden md:inline"}>Topics</span>
-        </>
-      ),
-    });
-  const workingOnItem = () =>
-    item("working-on", {
-      label: `Working on: ${workingOn.length}`,
-      selected: !onMain && inWorkingOn && !topicsGroup?.currentTopicId && !onThreads,
-      open: openGroup === "working-on",
-      group: "working-on",
-      count: workingOn.length,
-      activeOutput: spinningTab === "working-on",
-      testId: "thread-tab-group-working-on",
-      onClick: () => setOpenGroup((open) => (open === "working-on" ? null : "working-on")),
-      children: (
-        <>
-          <PhaseDots tabs={workingOn} />
-          <span>Working on {workingOn.length}</span>
-        </>
-      ),
-    });
-  if (inTopBar) {
-    const workingOnList = (
-      <>
-        <ListHeading label="Working on" count={workingOn.length}>
-          <button
-            type="button"
-            onClick={() => {
-              setOpenGroup(null);
-              inTopBar.board.onToggle();
-            }}
-            className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-cc-border bg-cc-hover/40 px-2 text-[12px] normal-case tracking-normal text-cc-fg hover:bg-cc-hover"
-            data-testid="thread-top-bar-board-button"
-          >
-            <WorkBoardIcon className="h-3.5 w-3.5 text-cc-info" />
-            {inTopBar.board.open ? "Close board" : "Full board"}
-          </button>
-        </ListHeading>
-        {workingOn.length === 0 && <div className="px-4 py-3 text-[12px] text-cc-muted">Nothing in progress</div>}
-        {workingOn.map((tab) => (
-          <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
-        ))}
-      </>
-    );
-    const list = (side: "left" | "right", body: ReactNode) => (
-      <>
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setOpenGroup(null)}
-          data-testid="thread-tab-group-backdrop"
-        />
-        <div
-          className={`absolute top-full z-50 mt-2 max-h-[60dvh] overflow-y-auto rounded-xl border border-cc-border bg-cc-card py-1 shadow-xl ${side === "left" ? "left-0" : "right-0"}`}
-          style={{ width: WIDE_LIST_WIDTH_PX }}
-          role="menu"
-          data-testid="thread-tab-group-list"
-          data-group={openGroup ?? ""}
-        >
-          {body}
-        </div>
-      </>
-    );
-    const toggleList = (group: "topics" | "working-on" | "threads") =>
-      setOpenGroup((open) => (open === group ? null : group));
-    const onAll = currentKey === ALL_THREADS_KEY;
-    return (
-      <>
-        <div ref={barRef} className="relative flex shrink-0 items-center gap-1.5" data-testid="thread-tab-group-bar">
-          <div
-            className="inline-flex h-7 shrink-0 items-center rounded-lg border border-cc-border bg-cc-hover/40 p-0.5"
-            role="group"
-            aria-label="Main thread"
-          >
-            <TopBarSegment
-              selected={onMain && !onAll && !onThreads}
-              onClick={() => select(MAIN_THREAD_KEY)}
-              label="Main Thread"
-              testId="thread-tab-group-main"
-            >
-              {spinningTab === "main" && <ActiveOutputSpinner />}
-              Main
-              <AttentionBell tab={mainTab} />
-            </TopBarSegment>
-            <TopBarSegment
-              selected={onAll && !onThreads}
-              onClick={() => select(ALL_THREADS_KEY)}
-              label="All threads"
-              testId="thread-tab-group-all"
-            >
-              All
-            </TopBarSegment>
-          </div>
-          {topicsGroup && (
-            <TopBarButton
-              label="Topics"
-              open={openGroup === "topics"}
-              onClick={() => toggleList("topics")}
-              testId="thread-tab-group-topics"
-              group="topics"
-            >
-              {spinningTab === "topics" && <ActiveOutputSpinner />}
-              <TopicIcon className="h-3.5 w-3.5 shrink-0" />
-              Topics
-              <ListChevron />
-            </TopBarButton>
-          )}
-          {openGroup === "topics" && topicsGroup && list("left", topicsList(topicsGroup))}
-          {threadsMenu && (
-            <TopBarButton
-              label="Threads"
-              open={openGroup === "threads"}
-              pressed={onThreads}
-              onClick={() => toggleList("threads")}
-              testId="thread-tab-group-threads"
-              group="threads"
-            >
-              {spinningTab === "threads" && <ActiveOutputSpinner />}
-              <NewThreadIcon className="h-3.5 w-3.5 shrink-0" />
-              Threads
-              <ListChevron />
-            </TopBarButton>
-          )}
-          {openGroup === "threads" && threadsList && list("left", threadsList)}
-        </div>
-        {inTopBar.helpers &&
-          createPortal(
-            <div className="relative flex items-center gap-2" data-testid="thread-top-bar-helpers">
-              <TopBarButton
-                label={`Working on: ${workingOn.length}`}
-                open={openGroup === "working-on"}
-                pressed={inTopBar.board.open}
-                onClick={() => toggleList("working-on")}
-                testId="thread-tab-group-working-on"
-                group="working-on"
-              >
-                {spinningTab === "working-on" && <ActiveOutputSpinner />}
-                <WorkBoardDotsIcon dots={inTopBar.board.dots} large={false} />
-                <span className="tabular-nums">Working on {workingOn.length}</span>
-                <ListChevron />
-              </TopBarButton>
-              {openGroup === "working-on" && list("right", workingOnList)}
-            </div>,
-            inTopBar.helpers,
-          )}
-      </>
-    );
-  }
   return (
     <div
       ref={barRef}
@@ -492,69 +255,52 @@ export function ThreadTabGroupBar({
         lastPressRef.current = "keyboard";
       }}
     >
-      <div className="contents">
-        <div
-          className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"}`}
-          role="tablist"
-        >
-          {item("main", {
-            label: "Main Thread",
-            selected: onMain && !onThreads,
-            activeOutput: spinningTab === "main",
-            testId: "thread-tab-group-main",
-            onClick: () => select(MAIN_THREAD_KEY),
-            children: (
-              <>
-                <span>Main</span>
-                <AttentionBell tab={mainTab} />
-              </>
-            ),
-          })}
-          {topicFirst && workingOn.length > 0 && workingOnItem()}
-          {topicsGroup && (topicsGroup.topics.length > 0 || topicFirst) && topicsItem()}
-          {threadsMenu &&
-            item("threads", {
-              label: "Threads",
-              selected: onThreads,
-              open: openGroup === "threads",
-              group: "threads",
-              compact: true,
-              activeOutput: spinningTab === "threads",
-              testId: "thread-tab-group-threads",
-              onClick: () => setOpenGroup((open) => (open === "threads" ? null : "threads")),
-              children: <NewThreadIcon className="h-4 w-4 shrink-0" />,
-            })}
-          {!topicFirst &&
-            THREAD_TAB_GROUP_ORDER.map((id) =>
-              groups[id].length > 0
-                ? item(id, {
-                    label: `${GROUP_LABEL[id]}: ${groups[id].length}`,
-                    selected: currentGroup === id,
-                    open: openGroup === id,
-                    group: id,
-                    count: groups[id].length,
-                    activeOutput: spinningTab === id,
-                    testId: "thread-tab-group-chip",
-                    // A group of one opens its tab on a tap; its list (with the tab's latest
-                    // result and menu) stays a long-press or right-click away. A larger group
-                    // opens its list and leaves the tab on screen alone: stepping through items
-                    // that need attention is the feed's Next chip's job. Clicking the group again
-                    // with a mouse opens the list's first tab, saving the trip down to it; a second
-                    // tap of a finger closes the list, undoing the first tap.
-                    onClick: () => {
-                      if (groups[id].length === 1 || (openGroup === id && !isTouchPress(lastPressRef.current))) {
-                        select(groups[id][0]!.threadKey);
-                        return;
-                      }
-                      setOpenGroup((open) => (open === id ? null : id));
-                    },
-                    onOpenList: () => setOpenGroup(id),
-                    single: groups[id].length === 1,
-                    children: <GroupContent id={id} tabs={groups[id]} />,
-                  })
-                : null,
-            )}
-        </div>
+      <div
+        className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"}`}
+        role="tablist"
+      >
+        {item("main", {
+          label: "Main Thread",
+          selected: onMain,
+          activeOutput: spinningTab === "main",
+          testId: "thread-tab-group-main",
+          onClick: () => select(MAIN_THREAD_KEY),
+          children: (
+            <>
+              <span>Main</span>
+              <AttentionBell tab={mainTab} />
+            </>
+          ),
+        })}
+        {THREAD_TAB_GROUP_ORDER.map((id) =>
+          groups[id].length > 0
+            ? item(id, {
+                label: `${GROUP_LABEL[id]}: ${groups[id].length}`,
+                selected: currentGroup === id,
+                open: openGroup === id,
+                group: id,
+                count: groups[id].length,
+                activeOutput: spinningTab === id,
+                testId: "thread-tab-group-chip",
+                // A group of one opens its tab on a tap; its list (with the tab's latest
+                // result and menu) stays a long-press or right-click away. A larger group
+                // opens its list and leaves the tab on screen alone: stepping through items
+                // that need attention is the feed's Next chip's job. Clicking the group again
+                // with a mouse opens the list's first tab, saving the trip down to it; a second
+                // tap of a finger closes the list, undoing the first tap.
+                onClick: () => {
+                  if (groups[id].length === 1 || (openGroup === id && !isTouchPress(lastPressRef.current))) {
+                    select(groups[id][0]!.threadKey);
+                    return;
+                  }
+                  setOpenGroup((open) => (open === id ? null : id));
+                },
+                onOpenList: () => setOpenGroup(id),
+                single: groups[id].length === 1,
+                children: <GroupContent id={id} tabs={groups[id]} />,
+              })
+            : null,
+        )}
       </div>
       {openGroup && (
         <>
@@ -576,33 +322,18 @@ export function ThreadTabGroupBar({
             data-testid="thread-tab-group-list"
             data-group={openGroup}
           >
-            {openGroup === "threads" ? (
-              threadsList
-            ) : openGroup === "working-on" ? (
-              <>
-                <ListHeading label="Working on" count={workingOn.length} />
-                {workingOn.map((tab) => (
-                  <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
-                ))}
-              </>
-            ) : openGroup === "topics" ? (
-              topicsGroup && topicsList(topicsGroup)
-            ) : (
-              <>
-                <GroupHeading
-                  id={openGroup as ThreadTabGroupId}
-                  count={groups[openGroup as ThreadTabGroupId].length}
-                  action={
-                    openGroup === "done" && rows.onClose ? (
-                      <CloseAllButton tabs={groups.done.filter((tab) => tab.canClose)} onClose={rows.onClose} />
-                    ) : undefined
-                  }
-                />
-                {groups[openGroup as ThreadTabGroupId].map((tab) => (
-                  <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
-                ))}
-              </>
-            )}
+            <GroupHeading
+              id={openGroup}
+              count={groups[openGroup].length}
+              action={
+                openGroup === "done" && rows.onClose ? (
+                  <CloseAllButton tabs={groups.done.filter((tab) => tab.canClose)} onClose={rows.onClose} />
+                ) : undefined
+              }
+            />
+            {groups[openGroup].map((tab) => (
+              <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
+            ))}
           </div>
         </>
       )}
@@ -615,7 +346,7 @@ function isActiveOutput(tab: PrimaryThreadChip, activeOutputThreadKey: string | 
 }
 
 /** The bell as today's tabs draw it: an outline in the attention color, nothing when quiet. */
-function AttentionBell({ tab, size = "sm" }: { tab: PrimaryThreadChip; size?: "sm" | "md" }) {
+export function AttentionBell({ tab, size = "sm" }: { tab: PrimaryThreadChip; size?: "sm" | "md" }) {
   const tone = tab.needsInput
     ? "text-cc-attention"
     : tab.blueNudge
@@ -639,7 +370,7 @@ function AttentionBell({ tab, size = "sm" }: { tab: PrimaryThreadChip; size?: "s
  * Marks where the leader is writing right now: a small spinner, so it reads as activity
  * rather than as one more phase-color dot. It holds still when motion is reduced.
  */
-function ActiveOutputSpinner() {
+export function ActiveOutputSpinner() {
   return (
     <span
       role="img"
@@ -657,7 +388,7 @@ interface BarItemProps {
   selected: boolean;
   open?: boolean;
   compact?: boolean;
-  group?: ThreadTabGroupId | "topics" | "working-on" | "threads";
+  group?: ThreadTabGroupId;
   /** How many tabs the group holds. */
   count?: number;
   activeOutput?: boolean;
@@ -722,85 +453,6 @@ function BarItem({
       {activeOutput && <ActiveOutputSpinner />}
       {children}
     </button>
-  );
-}
-
-/** A top-bar button opening one of the bar's lists, shaped like the top bar's other buttons. */
-function TopBarButton({
-  label,
-  open,
-  pressed = false,
-  onClick,
-  testId,
-  group,
-  children,
-}: {
-  label: string;
-  open: boolean;
-  /** Shown pressed while what it opens is on screen (the work board for Working on). */
-  pressed?: boolean;
-  onClick: () => void;
-  testId: string;
-  group: "topics" | "working-on" | "threads";
-  children: ReactNode;
-}) {
-  const tone =
-    open || pressed
-      ? "border-cc-primary/50 bg-cc-primary/12 text-cc-fg"
-      : "border-cc-border bg-cc-hover/40 text-cc-fg hover:bg-cc-hover";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      // Above the open list's backdrop, so a second click closes the list.
-      className={`relative ${open ? "z-50" : ""} inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 ${tone}`}
-      aria-label={label}
-      aria-expanded={open}
-      aria-haspopup="menu"
-      data-testid={testId}
-      data-group={group}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** Main or All in the top bar's Main | All switch. */
-function TopBarSegment({
-  selected,
-  onClick,
-  label,
-  testId,
-  children,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  label: string;
-  testId: string;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex h-full items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 ${
-        selected ? "bg-cc-primary/12 text-cc-fg" : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-      }`}
-      aria-label={label}
-      aria-pressed={selected}
-      data-testid={testId}
-      data-selected={selected ? "true" : "false"}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ListChevron() {
-  return (
-    <svg viewBox="0 0 16 16" className="h-3 w-3 shrink-0 text-cc-muted" fill="none" aria-hidden="true">
-      <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
   );
 }
 
@@ -871,7 +523,7 @@ function GroupHeading({ id, count, action }: { id: ThreadTabGroupId; count: numb
  * One tab in a group list or the switcher: its color, title, quest number and state, bell
  * and close. A closed tab reads muted, has no close or menu, and reopens when chosen.
  */
-function ThreadTabListRow({
+export function ThreadTabListRow({
   tab,
   context,
   query = "",
@@ -1075,7 +727,7 @@ export function topicFirstTabOrder(
  * The quest tabs of the topic-first bar's Working on group: every unfinished quest, newest change
  * first, for switching quickly between the few in active use.
  */
-function workingOnTabs(tabs: readonly PrimaryThreadChip[]): PrimaryThreadChip[] {
+export function workingOnTabs(tabs: readonly PrimaryThreadChip[]): PrimaryThreadChip[] {
   return tabs
     .filter((tab) => !tab.completed || tab.needsInput)
     .sort((left, right) => lastActivityAt(right) - lastActivityAt(left));
@@ -1183,7 +835,7 @@ export function PhaseDots({ tabs }: { tabs: readonly PrimaryThreadChip[] }) {
   );
 }
 
-function ListHeading({ label, count, children }: { label: string; count: number; children?: ReactNode }) {
+export function ListHeading({ label, count, children }: { label: string; count: number; children?: ReactNode }) {
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 bg-cc-card/95 px-4 pb-1 pt-2.5 backdrop-blur">
       <span className="shrink-0 text-[11px] uppercase tracking-wide text-cc-muted">{label}</span>
@@ -1197,7 +849,7 @@ function ListHeading({ label, count, children }: { label: string; count: number;
  * The Topics group's list: its topics with a search box in the heading, then (topic-first) the
  * quest tabs under no topic, which the search narrows by title and quest number too.
  */
-function TopicsGroupList({
+export function TopicsGroupList({
   topicsGroup,
   topicFirst,
   currentTopicId,
@@ -1205,7 +857,7 @@ function TopicsGroupList({
   rowContext,
   onLeave,
 }: {
-  topicsGroup: NonNullable<ThreadTabGroupBarProps["topicsGroup"]>;
+  topicsGroup: TopicsGroup;
   topicFirst: boolean;
   currentTopicId: string | null;
   questTabs: readonly PrimaryThreadChip[];

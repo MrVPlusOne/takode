@@ -31,6 +31,7 @@ import { prepareZoom } from "../topic-zoom.js";
 import { navigateToSession, navigateToSessionThread } from "../../utils/routing.js";
 import type { ScribeActivity } from "../../../shared/library-topics.js";
 import { CollapseIcon, GalleryIcon, SettingsIcon, TopicIcon } from "./library-icons.js";
+import { SideColumn } from "../side-column/SideColumn.js";
 
 const REFRESH_MS = 20_000;
 
@@ -66,15 +67,21 @@ export function TopicSidePanel({
   threadKey,
   variant,
   phone,
+  inColumn = false,
+  pinnedTopicId,
 }: {
   leaderId: string;
   threadKey: string;
   variant: "docked" | "sheet";
   /** On phones: whether it is open (or closing), and where it starts. */
   phone?: { open: boolean; top: number; onHidden: () => void };
+  /** One item of the side column, which frames it and has the close and collapse buttons. */
+  inColumn?: boolean;
+  /** A topic page put in the side column: it shows that topic rather than following the tab. */
+  pinnedTopicId?: string;
 }) {
   const [data, setData] = useState<TopicListResponse | null>(null);
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(pinnedTopicId ?? null);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -109,8 +116,8 @@ export function TopicSidePanel({
   const [seen, setSeen] = useState<{ threadKey: string; focus: typeof focus }>({ threadKey, focus: null });
   if (seen.threadKey !== threadKey || seen.focus !== focus) {
     setSeen({ threadKey, focus });
-    if (focus && focus !== seen.focus) setChosen(focus.topicId);
-    else if (seen.threadKey !== threadKey) setChosen(null);
+    if (focus && focus !== seen.focus && !pinnedTopicId) setChosen(focus.topicId);
+    else if (seen.threadKey !== threadKey && !pinnedTopicId) setChosen(null);
   }
 
   // "" means the list was chosen over the tab's topic.
@@ -120,8 +127,8 @@ export function TopicSidePanel({
   const kept = (keptRef.current = nextKeptTopicPages(keptRef.current, shown || null));
   const close = () => (variant === "sheet" ? setTopicSheetOpen(leaderId, false) : setTopicPanelOpen(leaderId, false));
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  // On phones the back gesture closes the sheet.
-  usePreviewSheetHistoryEntry(variant === "sheet" && (phone?.open ?? true), sheetRef, close);
+  // On phones the back gesture closes the sheet (the side column's own sheet, when in it).
+  usePreviewSheetHistoryEntry(variant === "sheet" && !inColumn && (phone?.open ?? true), sheetRef, close);
   const act = (action: Promise<unknown>) => void action.then(load).catch((reason: Error) => setError(reason.message));
   const collapses = variant === "docked";
   const matching = searchTopics(data?.topics ?? [], query);
@@ -172,15 +179,17 @@ export function TopicSidePanel({
         >
           <GalleryIcon className="h-3.5 w-3.5" /> Artifacts
         </button>
-        <button
-          type="button"
-          onClick={close}
-          aria-label={collapses ? "Collapse topics" : "Close topics"}
-          title={collapses ? "Collapse" : "Close"}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-        >
-          {collapses ? <CollapseIcon className="h-4 w-4" /> : "✕"}
-        </button>
+        {!inColumn && (
+          <button
+            type="button"
+            onClick={close}
+            aria-label={collapses ? "Collapse topics" : "Close topics"}
+            title={collapses ? "Collapse" : "Close"}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+          >
+            {collapses ? <CollapseIcon className="h-4 w-4" /> : "✕"}
+          </button>
+        )}
       </div>
       {data?.scribe && data.scribe.activity.state !== "off" && <ScribeStatusLine activity={data.scribe.activity} />}
       {error && <div className="px-3 py-2 text-[13px] text-cc-error">{error}</div>}
@@ -246,6 +255,13 @@ export function TopicSidePanel({
     </>
   );
 
+  if (inColumn) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-testid="topic-panel-body">
+        {body}
+      </div>
+    );
+  }
   if (variant === "sheet") {
     return (
       <PhoneTopicFrame
@@ -307,23 +323,49 @@ export function LeaderTopicPanel({
     if (!sheetMounted) return null;
     return (
       <Activity mode={sheetOpen || leaving ? "visible" : "hidden"}>
-        <TopicSidePanel
-          leaderId={leaderId}
-          threadKey={threadKey}
-          variant="sheet"
-          phone={{ open: sheetOpen, top, onHidden }}
-        />
+        <SideSheet leaderId={leaderId} threadKey={threadKey} open={sheetOpen} top={top} onHidden={onHidden} />
       </Activity>
     );
   }
   if (!open) return <TopicRail leaderId={leaderId} threadKey={threadKey} />;
   return (
     <>
-      <SplitHandle label="Resize the topic panel" {...split.handleProps} />
+      <SplitHandle label="Resize the side column" {...split.handleProps} />
       <div style={split.style} className="flex min-h-0 w-[var(--split-w)] shrink-0">
-        <TopicSidePanel leaderId={leaderId} threadKey={threadKey} variant="docked" />
+        <aside
+          className="flex min-h-0 w-full flex-col border-l border-cc-border bg-cc-bg"
+          aria-label="Side column"
+          data-testid="topic-side-panel"
+          data-variant="docked"
+        >
+          <SideColumn leaderId={leaderId} threadKey={threadKey} variant="docked" />
+        </aside>
       </div>
     </>
+  );
+}
+
+/** The side column on a phone: a page sliding in from the right; back and a swipe right close it. */
+function SideSheet({
+  leaderId,
+  threadKey,
+  open,
+  top,
+  onHidden,
+}: {
+  leaderId: string;
+  threadKey: string;
+  open: boolean;
+  top: number;
+  onHidden: () => void;
+}) {
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  const close = () => setTopicSheetOpen(leaderId, false);
+  usePreviewSheetHistoryEntry(open, sheetRef, close);
+  return (
+    <PhoneTopicFrame open={open} top={top} onClose={close} onHidden={onHidden} frameRef={sheetRef}>
+      <SideColumn leaderId={leaderId} threadKey={threadKey} variant="sheet" />
+    </PhoneTopicFrame>
   );
 }
 

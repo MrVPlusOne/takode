@@ -17,6 +17,8 @@ import {
   tearDownQuestFeedLinkTest,
 } from "../test-fixtures/quest-feed-inline-link.js";
 import { QuestFeedInlineLink } from "./QuestFeedInlineLink.js";
+import { useSideColumnStore } from "../utils/side-column.js";
+import { markLeaderThreadDisplayed } from "../utils/thread-viewport.js";
 
 vi.mock("../api.js", () => ({
   api: {
@@ -330,6 +332,33 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     expect(onNavigate).toHaveBeenCalledTimes(1);
     // A covering view (guided review, file viewer) closes so the thread is visible.
     expect(onSessionNavigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the quest's thread in its leader's side column on Shift-click while that leader is on screen", () => {
+    // Shift-click on the link or the icon opens the quest beside the conversation instead of in place
+    // of it; elsewhere (the leader not on screen) it does what a plain click does.
+    useStore.setState({
+      questDetails: new Map([
+        ["q-496", quest({ questId: "q-496", title: "Side target", leaderSessionId: "leader-496" })],
+      ]),
+    });
+    const shown = markLeaderThreadDisplayed("leader-496", "main");
+    const hashBefore = window.location.hash;
+    try {
+      render(<QuestFeedInlineLink questId="q-496" className="cc-quest-link" stopPropagation={false} />);
+      fireEvent.click(screen.getByRole("button", { name: "Open the q-496 thread: Side target" }), { shiftKey: true });
+      expect(useSideColumnStore.getState().columns["leader-496"]!.items).toEqual([
+        expect.objectContaining({ kind: "conversation", threadKey: "q-496" }),
+      ]);
+      useSideColumnStore.setState({ columns: {} });
+      fireEvent.click(screen.getByRole("link", { name: /q-496/ }), { shiftKey: true });
+      expect(useSideColumnStore.getState().columns["leader-496"]!.items).toHaveLength(1);
+      expect(window.location.hash).toBe(hashBefore);
+    } finally {
+      shown();
+      useSideColumnStore.setState({ columns: {} });
+      localStorage.clear();
+    }
   });
 
   it("jumps from a hovered icon, where only the title card shows, and from a phone tap", async () => {

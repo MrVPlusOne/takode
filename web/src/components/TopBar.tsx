@@ -1,5 +1,5 @@
 import { usePendingAction } from "../hooks/usePendingAction.js";
-import { showTopBarSession, topBarHelpersRef, topBarNavRef, useLeaderNavInTopBar } from "../utils/top-bar-slots.js";
+import { showTopBarSession, topBarHelpersRef, useLeaderBreadcrumb } from "../utils/top-bar-slots.js";
 import {
   useState,
   useMemo,
@@ -123,9 +123,9 @@ export function TopBar({
   // The phone shell moves Needs input, Notify Me, Search and Quests into the sessions panel.
   const compact = !useDesktopShellLayout();
   const shownSessionId = useStore((s) => s.currentSessionId);
-  const leaderNavInTopBar = useLeaderNavInTopBar(shownSessionId);
+  const leaderBreadcrumb = useLeaderBreadcrumb(shownSessionId);
   // Only the conversation on screen shows its parts of the top bar (see showTopBarSession).
-  useLayoutEffect(() => showTopBarSession(shownSessionId), [shownSessionId, leaderNavInTopBar]);
+  useLayoutEffect(() => showTopBarSession(shownSessionId), [shownSessionId, leaderBreadcrumb]);
   const {
     currentSessionId,
     sidebarOpen,
@@ -363,22 +363,16 @@ export function TopBar({
     .filter(Boolean)
     .join(" ");
 
-  // A desktop leader with topics on keeps its thread navigation here (see useLeaderNavInTopBar);
-  // its model and access then leave the bar for the title's tooltip and Session Info.
-  const navInTopBar = leaderNavInTopBar && isSessionView;
+  // A leader with topics on navigates by the breadcrumb under the bar; the bar keeps its Working on
+  // picker (see useLeaderBreadcrumb).
+  const breadcrumb = leaderBreadcrumb && isSessionView;
   return (
     <header
-      className={`shrink-0 flex items-center justify-between bg-cc-card border-b border-cc-border ${
-        compact ? "gap-2 px-2 py-1.5" : navInTopBar ? "gap-3 px-4 py-1.5" : "px-2 sm:px-4 py-2 sm:py-2.5"
+      className={`relative shrink-0 flex items-center justify-between bg-cc-card border-b border-cc-border ${
+        compact ? "gap-2 px-2 py-1.5" : breadcrumb ? "gap-3 px-4 py-1.5" : "px-2 sm:px-4 py-2 sm:py-2.5"
       }`}
     >
-      {/* With navigation in the bar, the session's identity keeps a fixed width (a long name
-          truncates, its full form in the tooltip), so whatever sits in the navigation place starts
-          at the same spot for every session instead of moving with the name's length. */}
-      <div
-        className={`flex items-center min-w-0 ${compact ? "flex-1 gap-2" : "gap-3"} ${navInTopBar ? TOP_BAR_IDENTITY_WIDTH : ""}`}
-        data-testid="topbar-identity"
-      >
+      <div className={`flex items-center min-w-0 ${compact ? "flex-1 gap-2" : "gap-3"}`} data-testid="topbar-identity">
         {/* Sidebar toggle */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -513,18 +507,13 @@ export function TopBar({
                           draggable={false}
                         />
                       )}
-                      {sessionName &&
-                        (navInTopBar ? (
-                          <TopBarNameWithSettings sessionId={currentSessionId} name={sessionName}>
-                            {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
-                          </TopBarNameWithSettings>
-                        ) : (
-                          <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
-                            {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
-                          </span>
-                        ))}
+                      {sessionName && (
+                        <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
+                          {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
+                        </span>
+                      )}
                       <SessionHostBadge sessionId={currentSessionId} iconOnPhone />
-                      {!navInTopBar && <TopBarSettingsSummary sessionId={currentSessionId} />}
+                      <TopBarSettingsSummary sessionId={currentSessionId} />
                     </button>
                   </>
                 )}
@@ -543,17 +532,11 @@ export function TopBar({
         )}
       </div>
 
-      {navInTopBar && (
-        <div ref={topBarNavRef} className="flex min-w-0 flex-1 items-center" data-testid="topbar-thread-nav" />
-      )}
-
       {/* Right side */}
       <div className={`flex items-center shrink-0 text-[12px] text-cc-muted ${compact ? "gap-1.5" : "gap-2 sm:gap-3"}`}>
-        {/* The conversation's Working on menu, which holds the work board. */}
-        {navInTopBar && (
-          <div ref={topBarHelpersRef} className="flex items-center" data-testid="topbar-thread-helpers" />
-        )}
-        {currentSessionId && isSessionView && isCurrentLeaderSession && !navInTopBar && (
+        {/* The conversation's Working on picker, which holds the work board. */}
+        {breadcrumb && <div ref={topBarHelpersRef} className="flex items-center" data-testid="topbar-thread-helpers" />}
+        {currentSessionId && isSessionView && isCurrentLeaderSession && !breadcrumb && (
           <LeaderWorkboardTopBarButton
             open={currentLeaderWorkboardView !== null}
             dots={currentLeaderPhaseDots}
@@ -641,27 +624,6 @@ function SearchToggleButton({ isOpen, onOpen, onClose }: { isOpen: boolean; onOp
   );
 }
 
-/** The session name when its model and access are left out of the bar: its tooltip names them. */
-function TopBarNameWithSettings({
-  sessionId,
-  name,
-  children,
-}: {
-  sessionId: string;
-  name: string;
-  children: ReactNode;
-}) {
-  const settings = useSessionSettings(sessionId);
-  return (
-    <span
-      className="min-w-0 truncate text-[11px] font-medium text-cc-fg"
-      title={settings.summary ? `${name} · ${settings.summary}` : name}
-    >
-      {children}
-    </span>
-  );
-}
-
 /** The session's model, effort and access as one label that opens the settings menu. */
 /** Model, effort and access as plain text in the title; Session Info changes them. */
 function TopBarSettingsSummary({ sessionId }: { sessionId: string }) {
@@ -677,6 +639,3 @@ function TopBarSettingsSummary({ sessionId }: { sessionId: string }) {
     </span>
   );
 }
-
-/** The identity's fixed width when the bar holds navigation: room for a portrait, #N and a short name. */
-const TOP_BAR_IDENTITY_WIDTH = "w-[17rem] shrink-0";
