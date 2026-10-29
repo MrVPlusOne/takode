@@ -117,6 +117,11 @@ const DEFAULT_MESSAGE_SEARCH_SETTINGS: MessageSearchSettings = {
   },
 };
 
+/** The row shown as selected for a stored index, given a non-empty result list. */
+function clampSelection(index: number, resultCount: number): number {
+  return Math.min(Math.max(index, 0), resultCount - 1);
+}
+
 function useDebouncedValue(value: string, delayMs: number): string {
   const [debounced, setDebounced] = useState(value);
 
@@ -797,7 +802,7 @@ export function UniversalSearchOverlay({
     remoteState.status === "error" &&
     (mode !== "messages" || remoteState.query === liveMessageQuery);
   const hasMore = mode !== "recent" && results.length < totalResults;
-  const selectedResultIndex = results.length === 0 ? -1 : Math.min(Math.max(selectedIndex, 0), results.length - 1);
+  const selectedResultIndex = results.length === 0 ? -1 : clampSelection(selectedIndex, results.length);
 
   useEffect(() => {
     setSelectedIndex((current) => {
@@ -935,13 +940,17 @@ export function UniversalSearchOverlay({
       event.preventDefault();
       return;
     }
+    // Step from the row the list shows as selected: until new results' selection effect runs,
+    // the stored index can still be -1 while the top row is already highlighted.
     if (event.key === "ArrowDown") {
-      if (results.length > 0) setSelectedIndex((current) => (current + 1 + results.length) % results.length);
+      if (results.length > 0)
+        setSelectedIndex((current) => (clampSelection(current, results.length) + 1) % results.length);
       event.preventDefault();
       return;
     }
     if (event.key === "ArrowUp") {
-      if (results.length > 0) setSelectedIndex((current) => (current - 1 + results.length) % results.length);
+      if (results.length > 0)
+        setSelectedIndex((current) => (clampSelection(current, results.length) - 1 + results.length) % results.length);
       event.preventDefault();
       return;
     }

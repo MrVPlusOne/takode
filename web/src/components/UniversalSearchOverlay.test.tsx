@@ -1569,6 +1569,44 @@ describe("UniversalSearchOverlay", () => {
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("moves the selection to the second row when ArrowDown arrives just as results appear", async () => {
+    // Before results load the stored selection is -1 while the list highlights the top row once
+    // results render; the effect that settles it runs a moment after the rows appear. A key press
+    // in that moment (as on a busy machine) must still move from the highlighted top row.
+    let resolveSearch: (response: MessageSearchResponse) => void = () => undefined;
+    mockSearchSessionMessages.mockImplementation(
+      () =>
+        new Promise<MessageSearchResponse>((resolve) => {
+          resolveSearch = resolve;
+        }),
+    );
+    renderOverlay({ initialMode: "messages", initialQuery: "zzzz" });
+    const dialog = screen.getByRole("dialog", { name: "Universal Search" });
+
+    // A mutation observer runs right after React writes the rows, before its pending effects.
+    let pressed = false;
+    const observer = new MutationObserver(() => {
+      if (pressed || screen.queryAllByRole("option").length < 2) return;
+      pressed = true;
+      fireEvent.keyDown(dialog, { key: "ArrowDown" });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    try {
+      resolveSearch(
+        messageSearchResponse([
+          messageResult({ messageId: "user-new" }),
+          messageResult({ messageId: "user-old", snippet: "Older user request about search controls" }),
+        ]),
+      );
+      await waitFor(() => expect(pressed).toBe(true));
+    } finally {
+      observer.disconnect();
+    }
+
+    await waitFor(() => expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "false");
+  });
+
   it("ignores Enter while the search input is in IME composition", async () => {
     const callbacks = renderOverlay({ initialMode: "messages", initialQuery: "zzzz" });
     const dialog = screen.getByRole("dialog", { name: "Universal Search" });
