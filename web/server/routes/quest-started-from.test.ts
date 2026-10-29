@@ -82,6 +82,59 @@ describe("GET /sessions/:id/started-quests", () => {
     });
   });
 
+  it("links a request handed off to a quest (also a reopened one), not only quests filed from it", async () => {
+    // Jiayi: a request filed as a new quest showed "Continued in q-N", but one handed off to a
+    // reopened quest (takode thread handoff) showed no quest. A quest has one startedFrom, so
+    // handoffs are read from the requests' own ownership refs; past handoffs show too.
+    const handedOff = {
+      ...human("msg-c", "u3"),
+      threadRefs: [{ threadKey: "q-44", questId: "q-44", source: "explicit", attachedAt: 2_000 }],
+    } as BrowserIncomingMessage;
+    const filedAndHandedOff = {
+      ...human("msg-d", "u4"),
+      threadRefs: [{ threadKey: "q-45", questId: "q-45", source: "explicit", attachedAt: 2_000 }],
+    } as BrowserIncomingMessage;
+    const attachedOnly = {
+      ...human("msg-e", "u5"),
+      threadRefs: [{ threadKey: "q-44", questId: "q-44", source: "backfill", attachedAt: 2_000 }],
+    } as BrowserIncomingMessage;
+    const api = new Hono();
+    registerStartedQuestsRoute(api, {
+      resolveId: (id) => id,
+      listQuests: async () =>
+        [
+          // Reopened quest: filed long ago from another message.
+          {
+            questId: "q-44",
+            title: "Quest views",
+            relationships: {
+              startedFrom: { sessionId: "leader-1", messageId: "msg-a", threadKey: "main", timestamp: 1 },
+            },
+          },
+          {
+            questId: "q-45",
+            title: "Changelog",
+            relationships: {
+              startedFrom: { sessionId: "leader-1", messageId: "msg-d", threadKey: "main", timestamp: 1 },
+            },
+          },
+        ] as unknown as QuestmasterTask[],
+      getQuest: async () => null,
+      getHistory: () => [...HISTORY, handedOff, filedAndHandedOff, attachedOnly],
+    });
+    const { quests } = (await (await api.request("/sessions/leader-1/started-quests")).json()) as {
+      quests: Array<{ questId: string; startedFrom: { messageId: string; threadKey: string }; sideQuest: boolean }>;
+    };
+    expect(quests.map((quest) => `${quest.startedFrom.messageId}->${quest.questId}`)).toEqual([
+      "msg-a->q-44",
+      "msg-d->q-45",
+      // The handoff into the reopened quest; the filed-and-handed-off one is not listed twice,
+      // and context attached with thread attach (backfill) is not quest work.
+      "msg-c->q-44",
+    ]);
+    expect(quests[2]).toMatchObject({ startedFrom: { threadKey: "main" }, sideQuest: false });
+  });
+
   it("returns the answer that delivered a supporting quest's result", async () => {
     // u3 was asked in q-10 and stayed there; q-11 was filed from it, and the leader
     // answered u3 in q-10 in the turn the worker's herd event started.

@@ -21,23 +21,25 @@ const listedForks = new Map<string, Set<string>>();
 const uncuedForks = new Set<string>();
 
 function forkKey(quest: Pick<StartedQuest, "questId" | "startedFrom">): string {
-  return `${quest.startedFrom.sessionId}:${quest.questId}`;
+  return `${quest.startedFrom.sessionId}:${quest.startedFrom.messageId}:${quest.questId}`;
 }
 
 /**
  * Record a session's started quests. The first list a page loads for a session is what the
- * user already had; quests that show up in a later list get the first-appearance cue once.
+ * user already had; links that show up in a later list get the first-appearance cue once. A
+ * link is one quest of one message: a reopened quest can continue several requests.
  */
 function noteListedForks(sessionId: string, quests: readonly StartedQuest[]): void {
   const listed = listedForks.get(sessionId);
   if (!listed) {
-    listedForks.set(sessionId, new Set(quests.map((quest) => quest.questId)));
+    listedForks.set(sessionId, new Set(quests.map(forkKey)));
     return;
   }
   for (const quest of quests) {
-    if (listed.has(quest.questId)) continue;
-    listed.add(quest.questId);
-    uncuedForks.add(forkKey(quest));
+    const key = forkKey(quest);
+    if (listed.has(key)) continue;
+    listed.add(key);
+    uncuedForks.add(key);
   }
 }
 

@@ -1,6 +1,10 @@
 import type { Hono } from "hono";
-import { leaderMessageThreadKey } from "../../shared/leader-thread-response-routing.js";
-import { findLeaderUserMessageById } from "../leader-user-message-id.js";
+import {
+  leaderMessageThreadKey,
+  leaderResponseOriginalThreadKey,
+  leaderResponseOwnerThreadKey,
+} from "../../shared/leader-thread-response-routing.js";
+import { buildLeaderUserMessageIdentities, findLeaderUserMessageById } from "../leader-user-message-id.js";
 import type { QuestStartedFrom, QuestmasterTask } from "../quest-types.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import {
@@ -67,13 +71,15 @@ export function registerStartedQuestsRoute(
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
     const quests: StartedQuest[] = [];
     let requests: LeaderRequestIndex | null = null;
-    for (const quest of await deps.listQuests()) {
+    const allQuests = await deps.listQuests();
+    for (const quest of allQuests) {
       const startedFrom = quest.relationships?.startedFrom;
       if (startedFrom?.sessionId !== sessionId) continue;
       requests ??= indexLeaderRequests(deps.getHistory(sessionId) ?? []);
       const sideQuest = !!findSupportingQuestSource(requests, sessionId, quest.questId, startedFrom);
       quests.push({ questId: quest.questId, title: quest.title, startedFrom, sideQuest });
     }
+    quests.push(...handedOffRequests(sessionId, deps.getHistory(sessionId) ?? [], allQuests, quests));
     return c.json({ quests });
   });
 
@@ -88,4 +94,36 @@ export function registerStartedQuestsRoute(
     const answer = source ? findSupportingQuestAnswer(history, source, quest.questId, quest.createdAt) : null;
     return c.json({ answer });
   });
+}
+
+/**
+ * Requests that became quest work by a handoff (`takode thread handoff`, also into a reopened
+ * quest) rather than by filing a quest from them: each shows "Continued in" its quest like a quest
+ * filed from it. A quest has one `startedFrom`, so a reopened quest's later requests would
+ * otherwise show no quest at all. Read from the requests' ownership refs, so past handoffs show too.
+ */
+function handedOffRequests(
+  sessionId: string,
+  history: ReadonlyArray<BrowserIncomingMessage>,
+  allQuests: ReadonlyArray<QuestmasterTask>,
+  filed: ReadonlyArray<StartedQuest>,
+): StartedQuest[] {
+  const titles = new Map(allQuests.map((quest) => [quest.questId, quest.title]));
+  const listed = new Set(filed.map((quest) => `${quest.startedFrom.messageId}:${quest.questId}`));
+  const found: StartedQuest[] = [];
+  for (const { historyMessageId, message } of buildLeaderUserMessageIdentities(history)) {
+    const owner = leaderResponseOwnerThreadKey(message);
+    // Where it was written: its own route (Main for a message stored without one).
+    const written = leaderResponseOriginalThreadKey(message) ?? "main";
+    if (!owner || !/^q-\d+$/.test(owner) || owner === written) continue;
+    const title = titles.get(owner);
+    if (title === undefined || listed.has(`${historyMessageId}:${owner}`)) continue;
+    found.push({
+      questId: owner,
+      title,
+      startedFrom: { sessionId, messageId: historyMessageId, threadKey: written, timestamp: message.timestamp },
+      sideQuest: false,
+    });
+  }
+  return found;
 }
