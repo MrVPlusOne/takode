@@ -6,6 +6,7 @@ import { isActualHumanUserMessage } from "./user-message-classification.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import {
+  TOPIC_COUNT_TARGET,
   type TopicEvent,
   type TopicLeaderState,
   type ScribeActivity,
@@ -19,6 +20,7 @@ import {
   retryMessage,
   failureNotice,
   updateMessage,
+  type UpdateContent,
 } from "./scribe-messages.js";
 
 /**
@@ -85,6 +87,8 @@ export interface TopicServiceDeps {
 const STALE_DELIVERY_MS = 15 * 60_000;
 /** Initialization sorts the leader's quests of this window. */
 const RECENT_WINDOW_MS = 30 * 24 * 60 * 60_000;
+/** Quiet topics listed for the Scribe to consider merging. */
+const MAX_CONSOLIDATION_CANDIDATES = 12;
 const EXCERPT_CHARS = 280;
 
 /** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
@@ -516,6 +520,8 @@ export class TopicService {
     // Threads that settled under no topic: the Scribe files them where they belong, now.
     const settledThreads = this.store.settledUnfiledThreads(leaderId);
     const rewritePages = this.store.pageFormat(leaderId) < PAGE_FORMAT;
+    const newTopics = this.store.topicsToReview(leaderId);
+    const consolidate = await this.consolidation(leaderId, leader.space, ownQuests);
     // Events alone wait until they are due, and the user's own page actions only ride along.
     // A rewrite request the Scribe stopped on (its leader was told) waits for the next real update.
     const urgent =
@@ -523,7 +529,9 @@ export class TopicService {
       unsorted.length > 0 ||
       settledThreads.length > 0 ||
       (rewritePages && !this.stalled.has(leaderId)) ||
-      (sendInstructions && !!instructions);
+      (sendInstructions && !!instructions) ||
+      newTopics.length > 0 ||
+      !!consolidate;
     if (!urgent) {
       if (!topics.some((topic) => topic.events.some((event) => eventTiming(event.kind) !== "ride"))) return "nothing";
       if ((this.dueAt.get(leaderId) ?? 0) > this.now()) return "waiting";
@@ -542,6 +550,8 @@ export class TopicService {
         rewritePages,
         ...(sendInstructions && instructions ? { instructions: instructions.text } : {}),
         forced: forcedNames,
+        newTopics: newTopics.map((topic) => ({ id: topic.id, name: topic.name, questIds: topic.questIds })),
+        ...(consolidate ? { consolidate } : {}),
       },
       (sessionId) => this.deps.sessionNum(sessionId),
     );
@@ -555,6 +565,8 @@ export class TopicService {
     );
     this.store.markInstructionsSent(leaderId);
     this.store.markThreadsSortAsked(settledThreads.map((thread) => thread.id));
+    this.store.reviewed(newTopics.map((topic) => topic.id));
+    if (consolidate) this.store.setConsolidationAskedAt(leaderId, consolidate.count);
     this.stalled.delete(leaderId);
     this.dueAt.delete(leaderId);
     this.firstPendingAt.delete(leaderId);
@@ -577,6 +589,55 @@ export class TopicService {
       reminded: false,
     });
     return this.sent();
+  }
+
+  /**
+   * The leader's topics past the soft target: how many there are and the quietest ones, quietness
+   * counted in the leader's quests since the topic last had activity (a topic none of its last 20
+   * quests went into is quiet however recent the calendar says). Null while under the target, or
+   * when the Scribe was already asked at this count or more.
+   */
+  private async consolidation(
+    leaderId: string,
+    space: string,
+    ownQuests: ReadonlySet<string>,
+  ): Promise<UpdateContent["consolidate"] | null> {
+    const topics = this.store.list(space).filter((topic) => topic.questIds.some((id) => ownQuests.has(id)));
+    if (topics.length <= TOPIC_COUNT_TARGET) {
+      this.store.setConsolidationAskedAt(leaderId, undefined);
+      return null;
+    }
+    const asked = this.store.consolidationAskedAt(leaderId);
+    if (asked !== undefined && topics.length <= asked) return null;
+    const quests = await this.deps.listQuests();
+    const createdAt = new Map(quests.map((quest) => [quest.questId, quest.createdAt]));
+    const ownTimes = quests
+      .filter((quest) => ownQuests.has(quest.questId))
+      .map((quest) => quest.createdAt)
+      .sort((a, b) => a - b);
+    const ranked = topics
+      .map((topic) => {
+        const lastActivity = Math.max(topic.activityAt, ...topic.questIds.map((id) => createdAt.get(id) ?? 0));
+        return {
+          id: topic.id,
+          name: topic.name,
+          quests: topic.questIds.length,
+          questsSince: ownTimes.filter((at) => at > lastActivity).length,
+        };
+      })
+      .sort((a, b) => b.questsSince - a.questsSince || a.quests - b.quests);
+    return { count: topics.length, target: TOPIC_COUNT_TARGET, quiet: ranked.slice(0, MAX_CONSOLIDATION_CANDIDATES) };
+  }
+
+  /**
+   * A leader started a topic (filed a quest under a new name): its Scribe checks with its next
+   * message whether it is distinct enough, and merges it into the topic it plainly belongs to if not.
+   */
+  topicCreated(topicId: string, leaderId: string): void {
+    if (!this.store.isLeaderEnabled(leaderId)) return;
+    this.store.markForReview(topicId, leaderId);
+    void this.store.flush();
+    this.schedule(leaderId, "leader");
   }
 
   private sent(): DeliveryResult {

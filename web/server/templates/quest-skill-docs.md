@@ -212,7 +212,7 @@ Reviewers should check documentation quality, not just whether a comment exists.
 | `--session-space <slug>` | Override the quest's session-space metadata. Defaults from the creator session when available. |
 | `--follow-up-of "q-1,q-2"` | Persist that the new quest is a true follow-up of earlier quest(s) |
 | `--source-message <uN>` | Leader sessions: the user's message (its `id:uN`) this quest was filed from; the quest thread links back to it |
-| `--topic "<topic>"` | Leaders with Library topics on: the subject the user would look for later, in their words (reuse an existing topic when one fits; a new name starts a topic). `quest create` reminds you when you leave it out |
+| `--topic "<topic>"` | Leaders with Library topics on: the broad area the user would look for later, in their words. Topics are far fewer than quests: pick the closest existing topic (`takode topic list`) and start a new one (a new name) only for a genuinely new area. `quest create` reminds you when you leave it out |
 | `--image <path>` | Attach an image (can repeat: --image a.png --image b.png) |
 | `--images "a.png,b.png"` | Attach multiple images (comma-separated) |
 | `--json` | Output JSON |

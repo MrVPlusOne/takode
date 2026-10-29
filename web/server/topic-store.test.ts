@@ -130,6 +130,49 @@ describe("topic store", () => {
     expect(store.findByName("MSI", "Seeded QA")).toBeUndefined();
   });
 
+  it("keeps events a merged topic's page took in from waiting on the topic they move to", async () => {
+    // Another leader's quest filed in "Server", whose page that leader's Scribe wrote, then merged
+    // into "Ops": only that leader's Scribe could clear it there, and it never hears of it again.
+    const store = await newStore();
+    const ops = store.assign({ questId: "q-1", space: "MSI", name: "Ops", by: "agent", byAgent: false }).topic;
+    const server = store.assign({
+      ...{ questId: "q-2", space: "MSI", name: "Server", by: "agent" as const, byAgent: false, leaderId: "other" },
+    }).topic;
+    store.writePage(server.id, "## Where it stands\nRestarts.", now, { leaderId: "other" });
+    now += 1000;
+    store.assign({ questId: "q-3", space: "MSI", name: "Server", by: "agent", byAgent: false, leaderId: "other" });
+    store.merge(server.id, ops.id, true);
+    // The filing the page had taken in no longer waits; the newer one still does, for its Scribe.
+    expect(
+      store
+        .pendingEvents(ops.id)
+        .filter((event) => event.kind === "quest_filed")
+        .map((event) => event.questId),
+    ).toEqual(["q-1", "q-3"]);
+    expect(store.list("MSI")[0]?.pendingEvents).toBe(3);
+  });
+
+  it("repairs events earlier merges left waiting, when it loads", async () => {
+    // Merges before the fix moved taken-in events without marking them: loading marks them.
+    const store = await newStore();
+    const ops = store.assign({ questId: "q-1", space: "MSI", name: "Ops", by: "agent", byAgent: false }).topic;
+    const server = store.assign({
+      ...{ questId: "q-2", space: "MSI", name: "Server", by: "agent" as const, byAgent: false, leaderId: "other" },
+    }).topic;
+    store.writePage(server.id, "## Where it stands\nRestarts.", now, { leaderId: "other" });
+    store.writePage(ops.id, "## Where it stands\nOps.", now, { leaderId: "leader" });
+    store.merge(server.id, ops.id, true);
+    await store.flush();
+    const file = join(root, "topics.json");
+    const saved = JSON.parse(await readFile(file, "utf-8"));
+    for (const event of saved.topics[ops.id].events) delete event.covered;
+    await writeFile(file, JSON.stringify(saved));
+    const reloaded = new TopicStore(root, () => now);
+    stores.push(reloaded);
+    await reloaded.load();
+    expect(reloaded.pendingEvents(ops.id).filter((event) => event.questId === "q-2")).toEqual([]);
+  });
+
   it("offers changes to undo for a day, until undone or dismissed", async () => {
     // The panel lists recent changes with Undo; they must not stay there for good: undone,
     // dismissed and day-old changes leave the list (dismissing keeps the change itself).
@@ -500,6 +543,69 @@ describe("topic service", () => {
     settings.topicsForLeaders = true;
     await service.applyLeaderDefaults();
     expect(store.isLeaderEnabled("leader")).toBe(true);
+  });
+
+  it("asks the Scribe to check each topic its leader starts, once", async () => {
+    // A leader filing a quest under a new name starts a topic; its Scribe checks it is distinct and
+    // merges it into the topic it plainly belongs to if not. Topics the Scribe starts aren't checked.
+    const { service, injected, store } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    const { topic } = store.assign({
+      ...{
+        questId: "q-2713",
+        space: "MSI",
+        name: "Eval stalls",
+        by: "agent" as const,
+        byAgent: false,
+        leaderId: "leader",
+      },
+    });
+    service.topicCreated(topic.id, "leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected.at(-1)?.text).toContain("Your leader started new topics");
+    expect(injected.at(-1)?.text).toContain('- "Eval stalls"');
+    expect(store.topicsToReview("leader")).toEqual([]);
+    await service.scribeTurnEnded(scribe);
+  });
+
+  it("asks the Scribe to merge the quietest topics once its leader has more than the target", async () => {
+    // Quietness is counted in the leader's quests since a topic's last activity, not in days.
+    const { service, injected, store, quests } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    const fileTopics = (from: number, to: number) => {
+      for (let index = from; index < to; index += 1) {
+        const questId = `q-t${index}`;
+        quests.push({
+          questId,
+          title: `Work ${index}`,
+          createdAt: NOW - (40 - index) * DAY,
+          leaderSessionId: "leader",
+          status: "done",
+        });
+        store.assign({ questId, space: "MSI", name: `Area ${index}`, by: "agent", byAgent: true });
+      }
+    };
+    fileTopics(0, 16);
+    service.changed("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    const asked = injected.at(-1)?.text ?? "";
+    expect(asked).toContain("Your leader has 16 topics, more than the soft target of 15");
+    // The oldest area had all 15 later quests filed elsewhere: it comes first.
+    expect(asked).toContain('- "Area 0"');
+    // The most active areas aren't offered.
+    expect(asked).not.toContain('"Area 15"');
+    expect(asked).toMatch(/"Area 0" \(\w+\): 15 since, 1 in it/);
+    await service.scribeTurnEnded(scribe);
+
+    // Still 16 (the Scribe found nothing to merge): not asked again until the count grows.
+    injected.length = 0;
+    service.changed("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected.map((message) => message.text).join("\n")).not.toContain("soft target");
+    fileTopics(16, 17);
+    service.changed("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected.at(-1)?.text).toContain("Your leader has 17 topics");
   });
 
   it("sends what changed as soon as the Scribe is idle, and holds later changes until its turn ends", async () => {

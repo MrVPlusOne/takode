@@ -114,6 +114,8 @@ describe("topic routes", () => {
     store.setLeaderEnabled("leader", true);
     const filed = await (await send("/topics/assign", "POST", { questId: "q-1", topic: "T7 run" })).json();
     expect(filed).toMatchObject({ created: true, topic: { name: "T7 run", space: "MSI", nameSource: "agent" } });
+    // A topic the leader started goes to its Scribe to check that it is distinct enough.
+    expect(store.topicsToReview("leader").map((topic) => topic.name)).toEqual(["T7 run"]);
 
     const status = await (await app.request("/topics/caller-status")).json();
     expect(status).toEqual({ enabled: true, space: "MSI", topics: ["T7 run"] });

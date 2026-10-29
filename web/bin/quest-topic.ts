@@ -16,9 +16,11 @@ export async function fileQuestUnderTopic(server: QuestServerClient, questId: st
 export async function remindAboutTopic(server: QuestServerClient, questId: string): Promise<void> {
   const status = await server.read<{ enabled: boolean; topics: string[] }>("/topics/caller-status");
   if (!status?.enabled) return;
-  const known = status.topics.slice(0, 15).map((name) => `"${name}"`);
+  const known = status.topics.slice(0, 25).map((name) => `"${name}"`);
   console.log(
     `Topics are on for you: file this quest with \`quest edit ${questId} --topic "<topic>"\`` +
-      (known.length ? `. Existing topics: ${known.join(", ")}.` : " (a new name starts a topic)."),
+      (known.length
+        ? `, picking the closest existing topic; a new name starts a topic, for a genuinely new area only. Existing topics: ${known.join(", ")}.`
+        : " (a new name starts a topic)."),
   );
 }

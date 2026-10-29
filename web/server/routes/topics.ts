@@ -229,6 +229,12 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       // A thread the quest was started from, under no topic yet, follows it there.
       svc.store.threadFollowsQuest(startedFromThread(quest), result.topic.id);
       if (questLeader) svc.leaderActivity(questLeader);
+      // A leader (or its worker) starting a topic: the leader's Scribe checks it is distinct enough.
+      const callerInfo = callerId ? ctx.launcher.getSession(callerId) : undefined;
+      const starter = questLeader ?? (callerInfo?.isOrchestrator ? callerId! : callerInfo?.herdedBy);
+      if (result.created && callerId && !scribeLeader(svc, callerId) && starter) {
+        svc.topicCreated(result.topic.id, starter);
+      }
       return result;
     }),
   );

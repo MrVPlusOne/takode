@@ -58,6 +58,8 @@ interface StoredTopic {
   instructions?: { text: string; updatedAt: number };
   /** Set when merged or folded into another topic; such a topic is hidden. */
   mergedInto?: string;
+  /** A leader started it (filing a quest under a new name): that leader's Scribe checks it is distinct enough. */
+  reviewFor?: string;
   /**
    * Set on a thread the user started (New thread), which is stored like a topic for its thread
    * plumbing but is not one: never listed or paged as a topic, never matched by name.
@@ -154,6 +156,12 @@ interface StoredScribe {
   instructionsSentAt?: number;
   /** The page format the Scribe last wrote its pages in (it is asked once to rewrite older ones). */
   pageFormat?: number;
+  /**
+   * How many topics the leader had when its Scribe was last asked to merge some (over the target).
+   * It is asked again only once the count grows past that, so a Scribe that found nothing to merge
+   * isn't asked on every update; back under the target, it is cleared.
+   */
+  consolidationAskedAt?: number;
 }
 
 /** What of a quest was already reported to Scribes: ticked checks (by text) and feedback count. */
@@ -198,6 +206,7 @@ export class TopicStore {
         this.moveNowOffPage(topic);
         this.retireWaitingOnYou(topic);
       }
+      this.coverMergedEvents();
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
         console.error("[library-topics] Unreadable topics file, keeping it aside:", error);
@@ -313,6 +322,42 @@ export class TopicStore {
   }
 
   /** Marks events up to `seq`, and these quests with no topic, as sent to the Scribe. */
+  /** Topics a leader started that its Scribe hasn't checked yet. */
+  topicsToReview(leaderId: string): TopicSummary[] {
+    return this.liveTopics()
+      .filter((topic) => topic.reviewFor === leaderId)
+      .map((topic) => this.summary(topic));
+  }
+
+  /** A leader started this topic: its Scribe checks with its next message that it is distinct enough. */
+  markForReview(topicId: string, leaderId: string): void {
+    const topic = this.live(topicId);
+    if (!topic || topic.nameSource === "user") return;
+    topic.reviewFor = leaderId;
+    this.dirty = true;
+  }
+
+  reviewed(topicIds: readonly string[]): void {
+    for (const id of topicIds) {
+      const topic = this.s().topics[id];
+      if (topic?.reviewFor) {
+        delete topic.reviewFor;
+        this.dirty = true;
+      }
+    }
+  }
+
+  consolidationAskedAt(leaderId: string): number | undefined {
+    return this.s().scribes?.[leaderId]?.consolidationAskedAt;
+  }
+
+  setConsolidationAskedAt(leaderId: string, count: number | undefined): void {
+    const scribe = this.scribeRecord(leaderId);
+    if (scribe.consolidationAskedAt === count) return;
+    scribe.consolidationAskedAt = count;
+    this.dirty = true;
+  }
+
   markDelivered(leaderId: string, seq: number, questIds: readonly string[] = []): void {
     const scribe = this.scribeRecord(leaderId);
     scribe.deliveredSeq = Math.max(seq, scribe.deliveredSeq ?? 0);
@@ -735,7 +780,11 @@ export class TopicStore {
     for (const alias of [from.name, ...from.aliases]) {
       if (normalizeName(alias) !== normalizeName(into.name) && !into.aliases.includes(alias)) into.aliases.push(alias);
     }
-    into.events = [...into.events, ...from.events].sort((a, b) => a.at - b.at).slice(-MAX_EVENTS_PER_TOPIC);
+    // Events the merged topic's page took in stay taken in: the merging Scribe carries that page over.
+    // (Other leaders' Scribes, whose events these may be, never hear of them again.)
+    const waiting = new Set(pendingOf(from));
+    const moved = from.events.map((event) => (waiting.has(event) ? event : { ...event, covered: true }));
+    into.events = [...into.events, ...moved].sort((a, b) => a.at - b.at).slice(-MAX_EVENTS_PER_TOPIC);
     if (from.now?.length) into.now = [...(into.now ?? []), ...from.now];
     into.updatedAt = this.now();
     from.mergedInto = into.id;
@@ -964,6 +1013,31 @@ export class TopicStore {
   private nowChanged(topic: StoredTopic): void {
     topic.updatedAt = this.now();
     this.dirty = true;
+  }
+
+  /**
+   * Merges before Oct 29 left events that a merged-in topic's page had taken in waiting on the
+   * topic they moved to, where only their own leader's Scribe could clear them (often never): they
+   * are marked taken in, as merges now do.
+   */
+  private coverMergedEvents(): void {
+    const topics = Object.values(this.s().topics);
+    // A topic merged into one that was merged further passes its events on: repeat until settled.
+    for (let pass = 0, changed = true; changed && pass < 5; pass += 1) {
+      changed = false;
+      for (const from of topics) {
+        const into = from.mergedInto ? this.s().topics[from.mergedInto] : undefined;
+        if (!into) continue;
+        const waiting = new Set(pendingOf(from).map(eventKey));
+        const takenIn = new Set(from.events.map(eventKey).filter((key) => !waiting.has(key)));
+        into.events = into.events.map((event) => {
+          if (event.covered || !takenIn.has(eventKey(event))) return event;
+          changed = true;
+          return { ...event, covered: true };
+        });
+      }
+      if (changed) this.dirty = true;
+    }
   }
 
   /**
@@ -1241,6 +1315,7 @@ function pendingOf(topic: StoredTopic, leaderId?: string): TopicEvent[] {
   const covered = (leader: string | undefined) =>
     leader && topic.coveredThrough ? (topic.coveredThrough[leader] ?? none) : (topic.upToDateAt ?? none);
   return topic.events.filter((event) => {
+    if (event.covered) return false;
     if (leaderId && event.leaderId && event.leaderId !== leaderId) return false;
     return event.at > covered(event.leaderId);
   });

@@ -29,6 +29,15 @@ export interface UpdateContent {
   forced: string[];
   /** The page format changed since the Scribe wrote its pages: rewrite them all, once. */
   rewritePages?: boolean;
+  /** Topics the leader started since the last message: check each is distinct enough. */
+  newTopics?: Array<{ id: string; name: string; questIds: string[] }>;
+  /** The leader has more topics than the soft target: merge the quietest that plainly belong elsewhere. */
+  consolidate?: {
+    count: number;
+    target: number;
+    /** Quietest first: the leader's quests filed since the topic's last activity, then fewest quests. */
+    quiet: Array<{ id: string; name: string; quests: number; questsSince: number }>;
+  };
 }
 
 const MAX_EVENTS_PER_TOPIC = 8;
@@ -47,15 +56,18 @@ export function updateMessage(
   content: UpdateContent,
   sessionNum: (sessionId: string) => number | null,
 ): string | null {
-  const { topics, unsorted, instructions, forced, rewritePages } = content;
+  const { topics, unsorted, instructions, forced, rewritePages, consolidate } = content;
   const settledThreads = content.settledThreads ?? [];
+  const newTopics = content.newTopics ?? [];
   if (
     !topics.length &&
     !unsorted.length &&
     !settledThreads.length &&
     !instructions &&
     !forced.length &&
-    !rewritePages
+    !rewritePages &&
+    !newTopics.length &&
+    !consolidate
   ) {
     return null;
   }
@@ -82,6 +94,24 @@ export function updateMessage(
     for (const thread of settledThreads) {
       lines.push(`- ${thread.key} "${thread.name}"${thread.startedFrom ? `, started from ${thread.startedFrom}` : ""}`);
       if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
+    }
+  }
+  if (newTopics.length) {
+    lines.push(
+      "",
+      "Your leader started new topics. Check each is a distinct subject, one the user would look for apart from every other topic. If it isn't, merge it into the topic it plainly belongs to (`takode topic merge <new> <topic> --fold`); never widen a topic to take it in. If no topic fits, keep it.",
+    );
+    for (const topic of newTopics) {
+      lines.push(`- "${topic.name}" (${topic.id.slice(0, 8)}), with ${topic.questIds.join(", ") || "no quests yet"}`);
+    }
+  }
+  if (consolidate) {
+    lines.push(
+      "",
+      `Your leader has ${consolidate.count} topics, more than the soft target of ${consolidate.target} (or the range in the user's instructions). Merge quiet topics into the topic each plainly belongs to until it is back near the target, quietest first; leave a topic that has no such home as it is. Never stretch a topic into a generic one to take others in: keep every topic distinct, so the user can tell where a new quest goes; split or rename instead when that keeps them clearer. Quietest topics (quests your leader filed since the topic's last activity; quests in the topic):`,
+    );
+    for (const topic of consolidate.quiet) {
+      lines.push(`- "${topic.name}" (${topic.id.slice(0, 8)}): ${topic.questsSince} since, ${topic.quests} in it`);
     }
   }
   if (unsorted.length) {

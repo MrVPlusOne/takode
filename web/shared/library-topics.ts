@@ -92,6 +92,11 @@ export interface TopicEvent {
   byScribe?: boolean;
   /** Order in which events were recorded, so each is sent to a Scribe exactly once. */
   seq?: number;
+  /**
+   * A page already took it in before a merge moved it here: the merged-in topic's page did, and the
+   * Scribe merging the topics carries that page over. Not waiting for any page.
+   */
+  covered?: boolean;
   questId?: string;
   /** Session and history index of the message, for links. */
   sessionId?: string;
@@ -211,3 +216,9 @@ export const TOPIC_TENTATIVE_MS = 24 * 60 * 60 * 1000;
 
 /** Source of the requests Takode sends a Scribe. */
 export const LIBRARY_MESSAGE_SOURCE = { sessionId: "library", sessionLabel: "Library" } as const;
+
+/**
+ * Soft target for a leader's topics: past it, its Scribe is asked to merge the quietest ones that
+ * plainly belong in another. The user's own instructions for the Scribe (a different range) win.
+ */
+export const TOPIC_COUNT_TARGET = 15;

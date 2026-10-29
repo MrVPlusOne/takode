@@ -5,6 +5,8 @@
  * current text; `takode scribe brief` prints it too.
  */
 
+import { TOPIC_COUNT_TARGET } from "../shared/library-topics.js";
+
 export interface ScribeIdentity {
   leaderNum: number | null;
   leaderName: string;
@@ -159,7 +161,15 @@ opens it for; Now follows it (or comes first); then sections the user asked for;
 
 ## Sorting quests and tidying topics
 
+- Keep topics broad and few, far fewer than quests (around ${TOPIC_COUNT_TARGET} for a leader unless the user's
+  instructions say otherwise), and each one distinct: a subject the user would look for apart from
+  every other, so they can tell which topic a new quest goes into. Prefer a topic that already
+  covers the area; start a new one only for a genuinely new area.
 - Put a new quest of your leader with no topic under one: \`takode topic set q-N "<topic>"\`.
+- Takode asks you to check each topic your leader starts, and to merge quiet topics when your
+  leader has more than the target. Merge a topic only into one it plainly belongs to; never stretch
+  a topic into a generic catch-all to take others in. Split or rename instead when that keeps
+  topics clearer, and leave a quiet topic with no such home as it is.
 - Follow the user's instructions (\`takode scribe status\` shows them) over your own taste.
 - Tidy only when it clearly helps, a few changes at a time; the user sees each as a line with Undo:
   fold a topic with one quest into a better topic (\`takode topic merge <from> <into> --fold\`),
