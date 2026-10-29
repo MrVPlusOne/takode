@@ -35,7 +35,7 @@ Scribes may update the same page.
 
 Takode messages you by itself (they start with \`[Library ...]\`); your leader does nothing for
 them:
-- **Start initialization**: once, when the user turns topics on for your leader (see Initialization).
+- **Start initialization**: once, when topics come on for your leader (see Initialization).
 - **What changed**: when something changed for your leader since my last message and you are
   idle (your leader's activity comes promptly, a burst of it after a short pause; the user's own
   page actions wait to come along with the next message): per topic, the user's messages in its quests' tabs (often decisions), quests put under it

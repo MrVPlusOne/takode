@@ -6,7 +6,6 @@ import { isActualHumanUserMessage } from "./user-message-classification.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import {
-  TOPIC_HINT_QUEST_COUNT,
   type TopicEvent,
   type TopicLeaderState,
   type ScribeActivity,
@@ -77,6 +76,8 @@ export interface TopicServiceDeps {
   messageText: (sessionNum: number, index: number) => string | null;
   /** Tells browsers the topics changed. */
   broadcastChanged: () => void;
+  /** Whether leaders get topics (Settings); on unless the user turned them off there. */
+  topicsForLeaders?: () => boolean;
   now?: () => number;
 }
 
@@ -178,7 +179,12 @@ export class TopicService {
    * own thread (its conversation) are events of that topic.
    */
   sessionSaved(sessionId: string): void {
-    if (!this.store.loaded || !this.store.isLeaderEnabled(sessionId)) return;
+    if (!this.store.loaded) return;
+    if (!this.store.isLeaderEnabled(sessionId)) {
+      // A leader that never had topics, a new one included, gets them now.
+      void this.turnOnByDefault(sessionId);
+      return;
+    }
     const session = this.deps.getSession(sessionId);
     if (!session) return;
     const history = session.messageHistory;
@@ -705,25 +711,76 @@ export class TopicService {
   }
 
   /**
-   * Turns topics on or off for a leader. Turning on starts its Scribe, which initializes: it sorts
-   * the leader's recent work into topics and writes the pages. Turning off archives the Scribe.
+   * The user turns topics on or off for a leader. Turning on starts its Scribe, which initializes:
+   * it sorts the leader's recent work into topics and writes the pages. Turning off archives the
+   * Scribe, and the leader stays off while other leaders get topics by default.
    */
   async setLeaderEnabled(sessionId: string, enabled: boolean): Promise<void> {
     const leader = this.deps.getLeaderInfo(sessionId);
     if (!leader?.isOrchestrator) throw new Error("Topics can be turned on only for leaders.");
-    this.store.setLeaderEnabled(sessionId, enabled);
+    if (enabled && !this.topicsForLeaders()) {
+      throw new Error("Library topics are off for leaders in Settings; turn them on there first.");
+    }
+    this.store.setLeaderEnabled(sessionId, enabled, true);
     const session = this.deps.getSession(sessionId);
     if (enabled && session) this.store.setCursor(sessionId, session.messageHistory.length);
-    if (!enabled) {
-      const scribe = this.store.scribeSession(sessionId);
-      this.store.setScribeSession(sessionId, undefined);
-      this.awaiting.delete(sessionId);
-      this.forced.delete(sessionId);
-      if (scribe && this.deps.isScribeAlive(scribe)) await this.deps.retireScribe(scribe);
-    }
+    if (!enabled) await this.stopScribe(sessionId);
     await this.store.flush();
     this.deps.broadcastChanged();
     if (enabled) await this.deliver(sessionId);
+  }
+
+  /**
+   * Topics are on for every leader by default. At startup and when Settings change: with topics on
+   * for leaders, each leader the user didn't turn off gets them; with them off, every leader's are
+   * turned off (each leader's own choice is kept for when they come back on).
+   */
+  async applyLeaderDefaults(): Promise<void> {
+    if (!this.store.loaded) return;
+    // First, so leaders this turns off below aren't later taken for leaders the user turned off.
+    this.store.recordEarlierTurnOffs();
+    if (this.topicsForLeaders()) {
+      for (const leader of this.deps.listLeaders()) await this.turnOnByDefault(leader.sessionId);
+    } else {
+      for (const leaderId of this.store.enabledLeaderIds()) {
+        this.store.setLeaderEnabled(leaderId, false);
+        await this.stopScribe(leaderId);
+      }
+    }
+    await this.store.flush();
+    this.deps.broadcastChanged();
+  }
+
+  /**
+   * Turns topics on for a leader that hasn't got them and wasn't turned off by the user. Its Scribe
+   * starts at once when the leader has recent quests to sort; a new leader's starts with its first.
+   */
+  private async turnOnByDefault(sessionId: string): Promise<void> {
+    // Before any leader comes on by default, leaders turned off earlier are recorded as such.
+    this.store.recordEarlierTurnOffs();
+    if (!this.topicsForLeaders() || this.store.isLeaderEnabled(sessionId) || this.store.turnedOffByUser(sessionId)) {
+      return;
+    }
+    const leader = this.deps.getLeaderInfo(sessionId);
+    if (!leader?.isOrchestrator || leader.archived) return;
+    this.store.setLeaderEnabled(sessionId, true);
+    const session = this.deps.getSession(sessionId);
+    if (session) this.store.setCursor(sessionId, session.messageHistory.length);
+    await this.store.flush();
+    this.deps.broadcastChanged();
+    if ((await this.leaderQuests(sessionId, this.now() - RECENT_WINDOW_MS)).length) await this.deliver(sessionId);
+  }
+
+  private async stopScribe(leaderId: string): Promise<void> {
+    const scribe = this.store.scribeSession(leaderId);
+    this.store.setScribeSession(leaderId, undefined);
+    this.awaiting.delete(leaderId);
+    this.forced.delete(leaderId);
+    if (scribe && this.deps.isScribeAlive(scribe)) await this.deps.retireScribe(scribe);
+  }
+
+  private topicsForLeaders(): boolean {
+    return this.deps.topicsForLeaders?.() ?? true;
   }
 
   /** At startup: Scribes whose pages predate the current page format are asked to rewrite them. */
@@ -901,7 +958,7 @@ export class TopicService {
           space: leader.space,
           enabled,
           questCount,
-          suggest: !enabled && questCount >= TOPIC_HINT_QUEST_COUNT && !this.store.hintDismissed(leader.sessionId),
+          ...(this.topicsForLeaders() ? {} : { offInSettings: true }),
         };
       });
   }

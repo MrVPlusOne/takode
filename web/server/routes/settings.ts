@@ -79,6 +79,7 @@ import {
   type ServerCheckoutRestartMode,
 } from "../server-checkout-policy.js";
 import * as questStore from "../quest-store.js";
+import { getTopicService } from "./topics.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { canonicalTimeZone, serverDefaultTimeZone, timeZoneInEffect } from "../server-time-zone.js";
 import {
@@ -1086,6 +1087,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sessionDefaults: settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: normalizeWorkerSlotLimits(settings.workerSlotLimits),
       scribeBackend: settings.scribeBackend ?? "leader",
+      leaderTopics: settings.leaderTopics !== false,
       leaderProfilePortraits: LEADER_PROFILE_PORTRAITS,
       leaderProfileFallbackPortrait: FALLBACK_LEADER_PROFILE_PORTRAIT,
       leaderProfilePoolOptions: LEADER_PROFILE_POOLS,
@@ -1295,6 +1297,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (body.restartUpdatesCheckout !== undefined && typeof body.restartUpdatesCheckout !== "boolean") {
       return c.json({ error: "restartUpdatesCheckout must be a boolean" }, 400);
     }
+    if (body.leaderTopics !== undefined && typeof body.leaderTopics !== "boolean") {
+      return c.json({ error: "leaderTopics must be a boolean" }, 400);
+    }
     if (
       body.sleepInhibitorDurationMinutes !== undefined &&
       (typeof body.sleepInhibitorDurationMinutes !== "number" ||
@@ -1474,6 +1479,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sessionDefaults",
       "workerSlotLimits",
       "scribeBackend",
+      "leaderTopics",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -1552,12 +1558,19 @@ export function createSettingsRoutes(ctx: RouteContext) {
         ? normalizeWorkerSlotLimits({ ...getSettings().workerSlotLimits, ...body.workerSlotLimits })
         : undefined,
       scribeBackend: body.scribeBackend as "leader" | "claude" | "codex" | undefined,
+      leaderTopics: typeof body.leaderTopics === "boolean" ? body.leaderTopics : undefined,
       ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
       serverTimeZone: normalizedServerTimeZone,
     };
     const settings = updateSettings(settingsPatch);
     if (normalizedServerSlug !== undefined && typeof launcher.setServerSlug === "function") {
       launcher.setServerSlug(settings.serverSlug);
+    }
+    if (typeof body.leaderTopics === "boolean") {
+      // Turns every leader's topics on (except ones the user turned off) or off, Scribes included.
+      await getTopicService()
+        ?.applyLeaderDefaults()
+        .catch((error) => console.error("[library-topics] Could not apply the leader topics setting:", error));
     }
     if (parsedSessionDefaults) {
       wsBridge.broadcastGlobal({

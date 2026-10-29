@@ -137,8 +137,8 @@ export interface TopicLeaderState {
   space: string;
   enabled: boolean;
   questCount: number;
-  /** Suggest turning topics on: off, about 20 quests, hint not dismissed. */
-  suggest: boolean;
+  /** Topics are off for every leader in Settings, so this one can't be turned on here. */
+  offInSettings?: boolean;
 }
 
 /** A new name a Scribe suggests for a topic the user named; nothing changes until accepted. */
@@ -206,8 +206,6 @@ export interface QuestTopicsResponse {
   topics: Record<string, TopicBrief>;
 }
 
-/** Leaders get a hint to turn topics on at this many quests. */
-export const TOPIC_HINT_QUEST_COUNT = 20;
 /** A topic stays tentative this long unless a second quest joins. */
 export const TOPIC_TENTATIVE_MS = 24 * 60 * 60 * 1000;
 

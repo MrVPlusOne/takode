@@ -9,8 +9,8 @@ import { topicApi } from "../../api/topics.js";
  */
 
 /**
- * The offer to turn topics on for a leader whose topics are off (with the quest count once there
- * are about 20); null while they are on.
+ * What a leader's panel shows while its topics are off: turned off for this leader (with Turn on),
+ * or for every leader in Settings. Null while they are on, which is the default.
  */
 export function TopicsOffHint({
   data,
@@ -26,31 +26,22 @@ export function TopicsOffHint({
   return (
     <div className="border-b border-cc-border px-4 py-3 text-[13px]" data-testid="topic-hint">
       <div className="text-cc-fg">
-        {leader.suggest
-          ? `#${leader.sessionNum} ${leader.name} has ${leader.questCount} quests. Group them by topic?`
-          : "Topics are off for this leader."}
+        {leader.offInSettings ? "Library topics are off for leaders in Settings." : "Topics are off for this leader."}
       </div>
       <div className="mt-0.5 text-cc-muted">
         A Scribe keeps a page per topic: where it stands, your decisions, what was made.
       </div>
-      <div className="mt-2 flex gap-2">
-        <button
-          type="button"
-          onClick={() => act(topicApi.setLeaderEnabled(leader.sessionId, true))}
-          className="rounded-md bg-cc-primary px-2.5 py-1 text-white"
-        >
-          Turn on
-        </button>
-        {leader.suggest && (
+      {!leader.offInSettings && (
+        <div className="mt-2 flex gap-2">
           <button
             type="button"
-            onClick={() => act(topicApi.dismissHint(leader.sessionId))}
-            className="rounded-md px-2.5 py-1 text-cc-muted hover:bg-cc-hover"
+            onClick={() => act(topicApi.setLeaderEnabled(leader.sessionId, true))}
+            className="rounded-md bg-cc-primary px-2.5 py-1 text-white"
           >
-            Not now
+            Turn on
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

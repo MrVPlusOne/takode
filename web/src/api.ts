@@ -697,6 +697,8 @@ export interface AppSettings {
   workerSlotLimits: WorkerSlotLimits;
   /** Backend of leaders' Scribes: the leader's own, or a fixed one. */
   scribeBackend?: "leader" | "claude" | "codex";
+  /** Whether leaders have Library topics and a Scribe; on by default. */
+  leaderTopics?: boolean;
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -1393,6 +1395,7 @@ export const api = {
     sessionDefaults?: SessionDefaultsSettings;
     workerSlotLimits?: Partial<WorkerSlotLimits>;
     scribeBackend?: "leader" | "claude" | "codex";
+    leaderTopics?: boolean;
   }) => put<AppSettings>("/settings", data),
   updateLeaderProfilePortrait: (sessionId: string, portraitId: string) =>
     put<{

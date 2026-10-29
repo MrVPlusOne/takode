@@ -90,6 +90,7 @@ describe("settings-manager", () => {
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
       scribeBackend: "leader",
+      leaderTopics: true,
       updatedAt: expect.any(Number),
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -761,6 +762,7 @@ describe("settings-manager", () => {
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
       scribeBackend: "leader",
+      leaderTopics: true,
       updatedAt: 0,
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -780,6 +782,15 @@ describe("settings-manager", () => {
     writeFileSync(settingsPath, JSON.stringify({ workerSlotLimits: { claude: 0, codex: 6 } }), "utf-8");
     _resetForTest(settingsPath);
     expect(getSettings().workerSlotLimits).toEqual({ claude: 8, codex: 6 });
+  });
+
+  it("has Library topics on for leaders unless they were turned off", () => {
+    // Topics became on by default; only a saved false turns them off.
+    expect(getSettings().leaderTopics).toBe(true);
+    expect(updateSettings({ leaderTopics: false }).leaderTopics).toBe(false);
+    writeFileSync(settingsPath, JSON.stringify({ leaderTopics: "no" }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().leaderTopics).toBe(true);
   });
 
   it("runs Scribes on the leader's backend unless Settings name one", () => {

@@ -1618,6 +1618,22 @@ describe("PUT /api/settings", () => {
     expect(bad.status).toBe(400);
   });
 
+  it("saves whether leaders have Library topics and rejects anything but a boolean", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leaderTopics: false }),
+    });
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ leaderTopics: false }));
+    const bad = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leaderTopics: "off" }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it("changes one follow-up reminder setting and keeps the others", async () => {
     // The mocked saved settings have no reminder settings, so the rest stay at their defaults.
     const res = await app.request("/api/settings", {

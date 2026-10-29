@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, type AppSettings } from "../api.js";
-import { SettingsRow, SettingsSubsection } from "./settings-controls.js";
+import { SettingsRow, SettingsSubsection, SettingsToggle } from "./settings-controls.js";
 
 type ScribeBackend = NonNullable<AppSettings["scribeBackend"]>;
 
 /**
- * Which backend runs a leader's Scribe, the worker that keeps its Library topic pages. The default
- * matches each leader's own backend, so users with only one backend can use topics; a change
- * applies to Scribes started afterwards.
+ * Library topics for leaders, on by default: the switch turns them off for every leader (their
+ * Scribes stop), saving the Scribes' tokens. And which backend runs a leader's Scribe, the worker
+ * that keeps its topic pages. The default matches each leader's own backend, so users with only one
+ * backend can use topics; a change applies to Scribes started afterwards.
  */
 export function SettingsScribeSection({
   settings,
@@ -17,11 +18,27 @@ export function SettingsScribeSection({
   hidden?: boolean;
 }) {
   const [backend, setBackend] = useState<ScribeBackend>("leader");
+  const [topicsOn, setTopicsOn] = useState(true);
+  const [savingTopics, setSavingTopics] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (settings?.scribeBackend) setBackend(settings.scribeBackend);
+    if (settings) setTopicsOn(settings.leaderTopics !== false);
   }, [settings]);
+
+  async function saveTopics(next: boolean) {
+    setSavingTopics(true);
+    setError("");
+    try {
+      const res = await api.updateSettings({ leaderTopics: next });
+      setTopicsOn(res.leaderTopics !== false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingTopics(false);
+    }
+  }
 
   async function save(next: ScribeBackend) {
     const previous = backend;
@@ -38,10 +55,17 @@ export function SettingsScribeSection({
 
   return (
     <SettingsSubsection
-      title="Scribes"
-      description="A leader with Library topics on has a Scribe, a worker in its herd that keeps the topic pages. Choose which backend Scribes run on; it applies to Scribes started afterwards."
+      title="Topics and Scribes"
+      description="Every leader groups its quests into Library topics, and a Scribe, a worker in its herd, keeps the topic pages."
       hidden={hidden}
     >
+      <SettingsToggle
+        label="Library topics for leaders"
+        description="On for every leader unless you turn it off for one in its topic panel. Off stops every leader's Scribe, to save its tokens."
+        checked={topicsOn}
+        disabled={savingTopics}
+        onChange={(next) => void saveTopics(next)}
+      />
       <SettingsRow label="Scribe backend" htmlFor="scribe-backend">
         <select
           id="scribe-backend"

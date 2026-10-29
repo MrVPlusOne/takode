@@ -211,7 +211,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       },
       {
         id: "scribe-backend",
-        text: "Scribes Scribe backend Library topics topic pages same as leader Claude Codex",
+        text: "Topics and Scribes Library topics for leaders on off Scribe backend topic pages same as leader Claude Codex tokens",
       },
       {
         id: "namer-enabled",

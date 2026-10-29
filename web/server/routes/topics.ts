@@ -368,15 +368,6 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
-  api.post("/topics/leaders/:sessionId/dismiss-hint", (c) =>
-    run(c, (svc) => {
-      const sessionId = ctx.resolveId(c.req.param("sessionId"));
-      if (!sessionId) throw new TopicStoreError("Leader not found.", 404);
-      svc.store.dismissHint(sessionId);
-      return { ok: true };
-    }),
-  );
-
   /**
    * For a quest's topic link: the message in the leader's conversation where the quest was last
    * discussed, so its topic conversation opens there (null when the leader never discussed it).

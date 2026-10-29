@@ -79,7 +79,6 @@ const LIST: TopicListResponse = {
       space: "MSI",
       enabled: false,
       questCount: 24,
-      suggest: true,
     },
   ],
   spaces: ["MSI"],
@@ -89,7 +88,7 @@ const LIST: TopicListResponse = {
 /** The same leader once topics are on: its Scribe is initializing, a rename waits for the user. */
 const ON: TopicListResponse = {
   ...LIST,
-  leaders: [{ ...LIST.leaders[0]!, enabled: true, suggest: false }],
+  leaders: [{ ...LIST.leaders[0]!, enabled: true }],
   suggestions: [
     { id: "s1", topicId: "t7", topicName: "T7 run", name: "Coding T7", reason: "Two runs share it", at: NOW },
   ],
@@ -193,7 +192,7 @@ function mockApi() {
 }
 
 describe("TopicSidePanel", () => {
-  it("offers to turn topics on, lists topics and undoes the Scribe's tidying", async () => {
+  it("offers to turn topics back on, lists topics and undoes the Scribe's tidying", async () => {
     const api = mockApi();
     // q-2713 (T7 run) has an open question; an answered one and a muted one don't count.
     const [question] = askQuestions(
@@ -202,8 +201,9 @@ describe("TopicSidePanel", () => {
       { questId: "q-2713", muted: true },
     );
     render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
+    // Topics are on by default; a leader the user turned off can turn them back on here.
     const hint = await screen.findByTestId("topic-hint");
-    expect(hint).toHaveTextContent("#2851 Daily Leader has 24 quests. Group them by topic?");
+    expect(hint).toHaveTextContent("Topics are off for this leader.");
     fireEvent.click(within(hint).getByText("Turn on"));
     expect(api.enable).toHaveBeenCalledWith("l1", true);
 

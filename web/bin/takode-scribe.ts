@@ -145,7 +145,7 @@ export interface ScribeStatusResponse {
 export function formatScribeStatus(status: ScribeStatusResponse): string {
   const leader = `#${status.leader.sessionNum ?? "?"}`;
   if (!status.enabled)
-    return `Topics are off for ${leader}, so it has no Scribe; the user turns topics on in the topics panel.`;
+    return `Topics are off for ${leader}, so it has no Scribe: the user turned them off in its topics panel or for every leader in Settings.`;
   const { activity, paused, instructions } = status.scribe;
   const scribe = activity.sessionNum != null ? `#${activity.sessionNum}` : "not started";
   const lines = [

@@ -339,6 +339,7 @@ async function setupService() {
     const hostId = leaderHosts.get(id);
     return leader && hostId ? { ...leader, hostId } : leader;
   };
+  const settings = { topicsForLeaders: true };
   const service = new TopicService(store, {
     getSession: (id) => sessions.get(id),
     getLeaderInfo: leaderInfo,
@@ -368,11 +369,12 @@ async function setupService() {
     notifyLeader: (leaderId, text) => notices.push({ leaderId, text }),
     messageText: (sessionNum, index) => messages.get(`${sessionNum}:${index}`) ?? null,
     broadcastChanged: () => {},
+    topicsForLeaders: () => settings.topicsForLeaders,
     now: () => Date.now(),
   });
   return {
     ...{ store, service, leader, sessions, quests, injected, notices, created, busy, retired, messages },
-    ...{ leaderHosts, unstartable },
+    ...{ leaderHosts, unstartable, settings },
   };
 }
 
@@ -390,9 +392,9 @@ function writePage(store: TopicStore, name: string, leaderId = "leader") {
 }
 
 describe("topic service", () => {
-  it("suggests topics at about 20 quests; turning them on starts a Scribe and asks it to initialize", async () => {
+  it("turning topics on starts a Scribe and asks it to initialize", async () => {
     const { service, injected, store, created, retired } = await setupService();
-    expect((await service.leaderStates())[0]).toMatchObject({ enabled: false, questCount: 25, suggest: true });
+    expect((await service.leaderStates())[0]).toMatchObject({ enabled: false, questCount: 25 });
 
     store.setScribeInstructions("leader", "One topic per training run.");
     await service.setLeaderEnabled("leader", true);
@@ -412,6 +414,92 @@ describe("topic service", () => {
       sessionId: "scribe-leader-2",
       text: expect.stringContaining("One topic per training run."),
     });
+  });
+
+  it("turns topics on for every leader by default, but keeps a leader the user turned off off", async () => {
+    // Topics became on by default: a leader that never chose gets them, one the user turned off
+    // (before, it had a Scribe record and is off now; or turned off since) stays off.
+    const { service, store, created, quests } = await setupService();
+    store.setScribeInstructions("other", "Earlier, topics were on and then turned off.");
+    quests.push({
+      questId: "q-new",
+      title: "Recent",
+      createdAt: NOW - DAY,
+      leaderSessionId: "leader",
+      status: "in_progress",
+    });
+    await service.applyLeaderDefaults();
+    expect(store.isLeaderEnabled("leader")).toBe(true);
+    expect(store.isLeaderEnabled("other")).toBe(false);
+    // A leader with recent quests gets its Scribe at once, to sort them.
+    expect(created).toEqual(["scribe-leader-1"]);
+
+    // Turned off by the user, a leader stays off: at the next start and when its session saves.
+    await service.setLeaderEnabled("leader", false);
+    await service.applyLeaderDefaults();
+    service.sessionSaved("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.isLeaderEnabled("leader")).toBe(false);
+    // Turning it back on by hand clears that.
+    await service.setLeaderEnabled("leader", true);
+    expect(store.turnedOffByUser("leader")).toBe(false);
+  });
+
+  it("gives a new leader topics when its session saves, and starts its Scribe with its first quest", async () => {
+    const { service, store, created, quests } = await setupService();
+    service.sessionSaved("other");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.isLeaderEnabled("other")).toBe(true);
+    // Nothing to sort yet, so no Scribe runs until there is.
+    expect(created).toEqual([]);
+    const quest = {
+      questId: "q-first",
+      title: "First",
+      createdAt: NOW,
+      leaderSessionId: "other",
+      status: "in_progress",
+    };
+    quests.push(quest);
+    service.questChanged(quest as unknown as QuestmasterTask);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(created).toEqual(["scribe-other-1"]);
+  });
+
+  it("turns every leader's topics off with the Settings switch, and back on except ones the user turned off", async () => {
+    const { service, store, retired, settings } = await setupService();
+    await service.applyLeaderDefaults();
+    const scribe = await enable(service, store, "leader");
+    await service.setLeaderEnabled("other", false);
+
+    settings.topicsForLeaders = false;
+    await service.applyLeaderDefaults();
+    expect(store.enabledLeaderIds()).toEqual([]);
+    expect(retired).toContain(scribe);
+    expect(await service.leaderStates()).toEqual([
+      expect.objectContaining({ sessionId: "leader", enabled: false, offInSettings: true }),
+      expect.objectContaining({ sessionId: "other", enabled: false, offInSettings: true }),
+    ]);
+    await expect(service.setLeaderEnabled("leader", true)).rejects.toThrow(/off for leaders in Settings/);
+    // A save doesn't bring them back while the switch is off.
+    service.sessionSaved("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.isLeaderEnabled("leader")).toBe(false);
+
+    settings.topicsForLeaders = true;
+    await service.applyLeaderDefaults();
+    expect(store.isLeaderEnabled("leader")).toBe(true);
+    expect(store.isLeaderEnabled("other")).toBe(false);
+  });
+
+  it("brings leaders the Settings switch turned off back on, even when it was off at the first start", async () => {
+    // Leaders turned off with every leader aren't taken for ones the user turned off.
+    const { service, store, settings } = await setupService();
+    await enable(service, store, "leader");
+    settings.topicsForLeaders = false;
+    await service.applyLeaderDefaults();
+    settings.topicsForLeaders = true;
+    await service.applyLeaderDefaults();
+    expect(store.isLeaderEnabled("leader")).toBe(true);
   });
 
   it("sends what changed as soon as the Scribe is idle, and holds later changes until its turn ends", async () => {

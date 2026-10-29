@@ -77,11 +77,6 @@ export const topicApi = {
       method: "POST",
       body: { enabled },
     }),
-  dismissHint: (sessionId: string) =>
-    request<{ ok: true }>(`/topics/leaders/${encodeURIComponent(sessionId)}/dismiss-hint`, {
-      method: "POST",
-      body: {},
-    }),
   /** Pauses or resumes a leader's Scribe. */
   setScribePaused: (leaderSessionId: string, paused: boolean) =>
     request<{ paused: boolean }>(`/scribe/${encodeURIComponent(leaderSessionId)}/pause`, {

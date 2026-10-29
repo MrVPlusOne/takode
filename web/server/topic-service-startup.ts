@@ -102,6 +102,7 @@ export async function startLibraryTopics(input: {
       return message ? historyMessageText(message) : null;
     },
     broadcastChanged: () => {},
+    topicsForLeaders: () => getSettings().leaderTopics !== false,
   });
   await service.store.load();
   setScribeHooks({

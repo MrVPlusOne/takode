@@ -1552,11 +1552,14 @@ const websocketHandlers: WebSocketHandler<SocketData> = {
 };
 
 // Archive the page writers of the retired one-per-space design, now that sessions can be archived,
-// and ask Scribes whose pages predate the current page format to rewrite them.
+// ask Scribes whose pages predate the current page format to rewrite them, and give topics to
+// leaders that have none.
 void topicService
   .retireLegacyWriters()
   .then(() => topicService.askOutdatedScribes())
-  .catch((error) => console.error("[library-topics] Could not retire the old page writers:", error));
+  // Topics are on for every leader by default: leaders without them (unless the user turned them off) get them.
+  .then(() => topicService.applyLeaderDefaults())
+  .catch((error) => console.error("[library-topics] Startup work failed:", error));
 
 const server = Bun.serve<SocketData>({
   hostname: listenHost,
