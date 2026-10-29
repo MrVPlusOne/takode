@@ -104,14 +104,18 @@ export function ContinuedInLinks({
   message,
   currentThreadKey,
   onSelectThread,
+  exclude,
 }: {
   message: Pick<ChatMessage, "id" | "metadata">;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  /** A quest named elsewhere on the message (its quest breadcrumb). */
+  exclude?: string;
 }) {
   const quests = useContext(StartedQuestsContext)?.get(message.id);
   const current = currentThreadKey ? normalizeThreadKey(currentThreadKey) : null;
-  const shown = quests?.filter((quest) => normalizeThreadKey(quest.questId) !== current) ?? [];
+  const shown =
+    quests?.filter((quest) => normalizeThreadKey(quest.questId) !== current && quest.questId !== exclude) ?? [];
   if (!onSelectThread || shown.length === 0) return null;
   const owner = leaderResponseOwnerThreadKey(message.metadata ?? {});
   return (

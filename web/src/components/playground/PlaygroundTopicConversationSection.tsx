@@ -9,6 +9,7 @@ import {
   TopicFeedEntry,
 } from "../library/TopicConversation.js";
 import { TopicFeedContext, TopicFeedQuestStart } from "../topic-feed.js";
+import { MainQuestStrip } from "../MainQuestStrip.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const QUESTS = [
@@ -68,6 +69,30 @@ export function PlaygroundTopicConversationSection() {
               />
               Could the diff header stay on screen while I scroll?
             </div>
+          </div>
+        </Card>
+        <Card label="Main: a strip above each request that went to a quest, and Main where Main's own talk resumes (a day divider always comes before a strip)">
+          <div className="h-56 max-w-md overflow-y-auto rounded-lg border border-cc-border px-3">
+            <MainQuestStrip
+              sessionId="playground-leader"
+              quest={{
+                questId: QUESTS[0]!.questId,
+                title: QUESTS[0]!.title,
+                sideQuest: false,
+                startedFrom: { sessionId: "playground-leader", messageId: "m1", threadKey: "main", timestamp: 1 },
+              }}
+            />
+            {Array.from({ length: 4 }, (_, index) => (
+              <p key={index} className="py-2 text-sm text-cc-fg">
+                Conversation about the guided review ({index + 1}).
+              </p>
+            ))}
+            <MainQuestStrip sessionId="playground-leader" quest={null} />
+            {Array.from({ length: 4 }, (_, index) => (
+              <p key={index} className="py-2 text-sm text-cc-fg">
+                Back to Main ({index + 1}).
+              </p>
+            ))}
           </div>
         </Card>
         <Card label="Scroll inside the box">

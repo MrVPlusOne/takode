@@ -175,7 +175,7 @@ export function TopicFeedQuestStart({ questId }: { questId: string }) {
  * distance from the message above while scrolling and no empty band shows above it once pinned.
  * z-30 keeps it above bubbles, cards and their own sticky bars as they scroll by.
  */
-const STRIP_WRAPPER = "sticky -top-4 z-30 sm:-top-6 mt-2 bg-cc-bg pb-1";
+export const STRIP_WRAPPER = "sticky -top-4 z-30 sm:-top-6 mt-2 bg-cc-bg pb-1";
 
 /** The strip where the conversation moves to the topic's own thread: what was written in the topic itself. */
 function TopicFeedOwnStart({
@@ -200,7 +200,7 @@ function TopicFeedOwnStart({
   const box =
     "flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm sm:text-[13px]";
   return (
-    <div className={STRIP_WRAPPER} data-testid="topic-feed-quest-start" data-quest="">
+    <div className={STRIP_WRAPPER} data-testid="topic-feed-quest-start" data-feed-quest-strip="true" data-quest="">
       {onOpen ? (
         <button type="button" onClick={onOpen} className={`${box} text-left hover:bg-cc-hover`}>
           {content}
@@ -217,7 +217,12 @@ function QuestStart({ questId }: { questId: string }) {
   const quest = useQuestRecord(questId);
   const status = quest ? (quest.status === "done" ? "Done" : quest.status.replace("_", " ")) : "";
   return (
-    <div className={STRIP_WRAPPER} data-testid="topic-feed-quest-start" data-quest={questId}>
+    <div
+      className={STRIP_WRAPPER}
+      data-testid="topic-feed-quest-start"
+      data-feed-quest-strip="true"
+      data-quest={questId}
+    >
       {/* The quest ID is a real quest link (hover preview, jump icon); the rest of the strip zooms. */}
       <div className="flex w-full min-w-0 items-baseline gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 pl-3 text-xs shadow-sm backdrop-blur-sm sm:text-[13px]">
         <span className="shrink-0 py-1.5 font-mono-code font-medium">

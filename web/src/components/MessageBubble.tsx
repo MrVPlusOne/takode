@@ -35,6 +35,8 @@ import {
   MessageThreadHeaderOwnedContext,
 } from "./MessageThreadHeader.js";
 import { MessageTopicLabel } from "./MessageTopicLabel.js";
+import { MainQuestStripsContext, useContinuedQuest } from "./MainQuestStrip.js";
+import { isMainThreadKey } from "../utils/thread-projection.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 import { getDisplayReplyContext } from "../utils/reply-context.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
@@ -909,6 +911,9 @@ function UserMessage({
   const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
   const today = useLocalToday();
   const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
+  // In a leader's Main the strip above the request names its quest (`MainQuestStrip`).
+  const continued = useContinuedQuest(message, currentThreadKey);
+  const namedByStrip = useContext(MainQuestStripsContext) && !!continued && isMainThreadKey(currentThreadKey ?? "");
   // A pending message keeps its future time's space invisibly, so landing changes no line breaks.
   const timeLabel =
     showTimestamp && isValidMessageTimestamp(message.timestamp) ? (
@@ -942,7 +947,7 @@ function UserMessage({
           onSelectThread={onSelectThread}
           message={{ sessionId, id: message.id }}
         />
-        {onSelectThread && (
+        {onSelectThread && !namedByStrip && (
           <MessageTopicLabel message={message} sessionId={sessionId} currentThreadKey={currentThreadKey} />
         )}
         {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
@@ -1005,7 +1010,12 @@ function UserMessage({
             {timeLabel}
           </div>
         )}
-        <ContinuedInLinks message={message} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
+        <ContinuedInLinks
+          message={message}
+          currentThreadKey={currentThreadKey}
+          onSelectThread={onSelectThread}
+          exclude={namedByStrip ? continued?.questId : undefined}
+        />
       </div>
       {!readOnly && !message.pendingState && (
         <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />

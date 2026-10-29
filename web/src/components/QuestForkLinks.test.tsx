@@ -169,7 +169,9 @@ function forkRow(questId: string, scope: HTMLElement = document.body): HTMLEleme
 }
 
 describe("Quest fork links under the source message", () => {
-  it("adds Continued in, the quest number and the title under a handed-off message", async () => {
+  it("names a handed-off request's quest with a strip in Main, not with rows in the bubble", async () => {
+    // Jiayi chose the topic view's strips for Main (Oct 29): the strip above the request names its
+    // quest and continues there; the bubble no longer repeats it as a topic label or Continued in row.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -186,18 +188,18 @@ describe("Quest fork links under the source message", () => {
       </StartedQuestsProvider>,
     );
 
-    const bubble = screen.getByTestId("user-message-bubble");
-    await waitFor(() => expect(within(bubble).getByTestId("quest-fork-link")).toBeVisible());
-    const row = forkRow(QUEST_ID, bubble);
-    expect(row).toHaveAttribute("data-mode", "continued");
-    expect(within(row).getByText("Continued in")).toBeVisible();
-    // The number is an ordinary quest link (previews the quest); the title opens its thread.
-    expect(within(row).getByRole("link", { name: QUEST_ID })).toHaveAttribute(
+    const strip = await screen.findByTestId("main-quest-strip");
+    expect(strip).toHaveAttribute("data-quest", QUEST_ID);
+    expect(strip.compareDocumentPosition(screen.getByTestId("user-message-bubble"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(within(screen.getByTestId("user-message-bubble")).queryByTestId("quest-fork-link")).toBeNull();
+    // The number is an ordinary quest link; the title continues in the quest at that message.
+    expect(within(strip).getByRole("link", { name: QUEST_ID })).toHaveAttribute(
       "href",
       expect.stringContaining(QUEST_ID),
     );
-    // A request that moved into its quest continues there: the title opens the quest at that message.
-    fireEvent.click(within(row).getByTestId("quest-fork-thread-link"));
+    fireEvent.click(within(strip).getByText("Relay timeout"));
     expect(window.location.hash).toBe(`#/session/${SESSION_ID}/msg/main-ask?thread=${QUEST_ID}`);
     expect(onSelectThread).not.toHaveBeenCalled();
   });
@@ -274,7 +276,7 @@ describe("Quest fork links under the source message", () => {
     await waitFor(() => expect(forkRow(QUEST_ID)).toHaveAttribute("data-mode", "continued"));
   });
 
-  it("turns a side quest into Continued in when the request is handed off after the quests loaded", async () => {
+  it("turns a side quest into the quest's strip when the request is handed off after the quests loaded", async () => {
     // The leader files q-9 and moves the request into it moments later. The started quests
     // load when q-9's thread appears, before the handoff, and are not loaded again; the
     // updated message alone must switch the row.
@@ -291,11 +293,14 @@ describe("Quest fork links under the source message", () => {
       </StartedQuestsProvider>,
     );
     await waitFor(() => expect(forkRow(QUEST_ID)).toHaveAttribute("data-mode", "side-quest"));
+    // A side quest leaves the request in Main: no strip.
+    expect(screen.queryByTestId("main-quest-strip")).toBeNull();
 
     installThread("main", HANDED_OFF_HISTORY);
 
-    expect(forkRow(QUEST_ID)).toHaveAttribute("data-mode", "continued");
-    expect(within(forkRow(QUEST_ID)).getByText("Continued in")).toBeVisible();
+    // Moved into the quest: Main's strip now names it, and the bubble's row goes.
+    expect(await screen.findByTestId("main-quest-strip")).toHaveAttribute("data-quest", QUEST_ID);
+    expect(screen.queryByTestId("quest-fork-link")).toBeNull();
     // Started quests were loaded once (the message's topic label looks up its quest separately).
     const startedQuestCalls = (fetchMock.mock.calls as unknown as Array<[unknown]>).filter(([url]) =>
       String(url).includes("started-quests"),

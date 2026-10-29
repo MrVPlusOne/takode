@@ -28,7 +28,7 @@ function Feed({ strip, report }: { strip: boolean; report?: { cardTop: number; b
     <div data-testid="overlay" style={pinned.style} data-below-strip={String(pinned.belowPinnedStrip)}>
       <div ref={containerRef} data-testid="container">
         <div ref={rootRef}>
-          {strip && <div data-testid="topic-feed-quest-start" />}
+          {strip && <div data-testid="topic-feed-quest-start" data-feed-quest-strip="true" />}
           {report && (
             <div data-testid="card" ref={(el) => stubRect(el, rect(report.cardTop, 2000))}>
               <div data-feed-pinned-bar="" ref={(el) => stubRect(el, rect(report.barTop, 26))} />
