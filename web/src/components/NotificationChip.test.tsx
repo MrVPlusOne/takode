@@ -1074,6 +1074,38 @@ describe("NotificationChip", () => {
     );
   });
 
+  it("sends the panel's additional comments after the answers", () => {
+    // The panel answers the same questions as the feed card, so it offers the same place for anything
+    // beyond the answers; the box stays hidden until asked for.
+    setNotifications("s1", [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Ship it?",
+        questions: [{ prompt: "Ship it?", suggestedAnswers: ["yes"] }],
+        timestamp: Date.now(),
+        messageId: "msg-123",
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    openInbox();
+    expect(screen.queryByRole("textbox", { name: "Additional comments" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Additional comments" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Additional comments" }), {
+      target: { value: "Also tag the release." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
+
+    expect(mockSendNeedsInputResponse).toHaveBeenCalledWith(
+      "s1",
+      "n-1",
+      expect.objectContaining({ content: "Ship it?\n\nAnswer: yes\n\nAdditional comments:\nAlso tag the release." }),
+    );
+  });
+
   it("does not surface active review rows or clear them from the lower-right panel", () => {
     const observer = installIntersectionObserverMock();
     setNotifications("s1", [

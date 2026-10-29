@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useStore } from "../../store.js";
+import { ADDITIONAL_COMMENTS_KEY } from "../../utils/notification-questions.js";
 import { NotificationMarker } from "../NotificationMarker.js";
 import {
   NEEDS_INPUT_ANSWER_TEXTAREA_CLASS,
@@ -168,6 +169,73 @@ export function PlaygroundNeedsInputPendingCommentsPreview() {
       sessionId={PENDING_COMMENTS_SESSION}
       messageId="playground-pending-comments-msg"
       notificationId="n-pending-comments-1"
+    />
+  );
+}
+
+const ADDITIONAL_COMMENTS_SESSION = "playground-additional-comments-notify";
+
+/**
+ * A three-question card answered and with "Additional comments" filled in, while the user also has a pending
+ * conversation comment. The drafts are seeded straight into the store so nothing syncs.
+ */
+export function PlaygroundNeedsInputAdditionalCommentsPreview() {
+  useEffect(() => {
+    const { sessionNotifications, composerDrafts, needsInputDrafts } = useStore.getState();
+    const notifications = new Map(sessionNotifications);
+    notifications.set(ADDITIONAL_COMMENTS_SESSION, [
+      {
+        id: "n-additional-comments-1",
+        category: "needs-input",
+        timestamp: Date.now() - 60_000,
+        messageId: "playground-additional-comments-msg",
+        summary: "New threads: a Threads menu",
+        questions: [
+          {
+            prompt: "Threads menu with Active and Recent: right?",
+            suggestedAnswers: ["Looks right", "Change something"],
+          },
+          { prompt: "How should you start a thread?", suggestedAnswers: ["Menu + Ask in new thread"] },
+          {
+            prompt: "Should the Scribe file a settled thread?",
+            suggestedAnswers: ["Scribe files it", "No auto filing"],
+          },
+        ],
+        done: false,
+      },
+    ]);
+    const drafts = new Map(composerDrafts);
+    drafts.set(ADDITIONAL_COMMENTS_SESSION, {
+      text: "",
+      images: [],
+      annotations: [{ id: "ac-1", selectedText: "Recent keeps a week", comment: "A week feels short." }],
+    });
+    const answerDrafts = new Map(needsInputDrafts);
+    answerDrafts.set(
+      ADDITIONAL_COMMENTS_SESSION,
+      new Map([
+        [
+          "n-additional-comments-1",
+          {
+            "q-0": "Looks right",
+            "q-1": "Menu + Ask in new thread",
+            "q-2": "Scribe files it",
+            [ADDITIONAL_COMMENTS_KEY]: "Also show the thread count on the menu button.",
+          },
+        ],
+      ]),
+    );
+    useStore.setState({ sessionNotifications: notifications, composerDrafts: drafts, needsInputDrafts: answerDrafts });
+    return () => useStore.setState({ sessionNotifications, composerDrafts, needsInputDrafts });
+  }, []);
+
+  return (
+    <NotificationMarker
+      category="needs-input"
+      summary="New threads: a Threads menu"
+      sessionId={ADDITIONAL_COMMENTS_SESSION}
+      messageId="playground-additional-comments-msg"
+      notificationId="n-additional-comments-1"
     />
   );
 }

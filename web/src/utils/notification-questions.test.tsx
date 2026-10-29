@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { render } from "@testing-library/react";
 import { MarkdownContent } from "../components/MarkdownContent.js";
-import { formatNeedsInputResponse, type NeedsInputQuestionView } from "./notification-questions.js";
+import {
+  ADDITIONAL_COMMENTS_KEY,
+  formatNeedsInputResponse,
+  type NeedsInputQuestionView,
+} from "./notification-questions.js";
 
 function question(key: string, prompt: string): NeedsInputQuestionView {
   return { key, prompt, suggestedAnswers: [] };
@@ -82,5 +86,30 @@ describe("formatNeedsInputResponse", () => {
     expect(items).toHaveLength(10);
     expect(items[9]?.textContent).toContain("How would this work for someone else?");
     expect(container.querySelector("ol ol")).toBeNull();
+  });
+
+  it("adds additional comments after the answers, outside the numbered list", () => {
+    // The asker must see comments beyond the questions as their own section, not as part of the last answer.
+    const content = formatNeedsInputResponse("Choices", [question("q-0", "Which?"), question("q-1", "When?")], {
+      "q-0": "A",
+      "q-1": "now",
+      [ADDITIONAL_COMMENTS_KEY]: " Also check the docs.\n\nThanks ",
+    });
+    expect(content.endsWith("2. When?\n   Answer: now\n\nAdditional comments:\nAlso check the docs.\n\nThanks")).toBe(
+      true,
+    );
+
+    const { container } = render(<MarkdownContent text={content} />);
+    expect(container.querySelectorAll("ol > li")).toHaveLength(2);
+    expect(container.querySelector("ol")?.textContent).not.toContain("Additional comments");
+  });
+
+  it("leaves the reply unchanged when the additional comments are blank", () => {
+    expect(
+      formatNeedsInputResponse("Deploy?", [question("q-0", "Deploy now?")], {
+        "q-0": "yes",
+        [ADDITIONAL_COMMENTS_KEY]: "  ",
+      }),
+    ).toBe("Deploy now?\n\nAnswer: yes");
   });
 });

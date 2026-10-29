@@ -26,6 +26,7 @@ import { PlaygroundContextCommands } from "./PlaygroundContextCommands.js";
 import {
   PlaygroundNeedsInputRecordingPreview,
   PlaygroundNeedsInputPendingCommentsPreview,
+  PlaygroundNeedsInputAdditionalCommentsPreview,
   PlaygroundNeedsInputReplyPendingPreview,
   PlaygroundNeedsInputTranscriptionFailurePreview,
 } from "./NeedsInputAnswerPreviews.js";
@@ -876,6 +877,13 @@ export function PlaygroundInteractiveSections() {
               <p className="mb-1">The user has two unsent conversation comments.</p>
               <p className="text-cc-muted">Checking the box sends them with the reply, as the composer would.</p>
               <PlaygroundNeedsInputPendingCommentsPreview />
+            </div>
+          </Card>
+          <Card label="needs-input with additional comments">
+            <div className="text-cc-fg text-sm">
+              <p className="mb-1">Every question is answered and the user added a remark beyond them.</p>
+              <p className="text-cc-muted">The remark goes after the answers, under "Additional comments".</p>
+              <PlaygroundNeedsInputAdditionalCommentsPreview />
             </div>
           </Card>
           <Card label="needs-input with structured questions">

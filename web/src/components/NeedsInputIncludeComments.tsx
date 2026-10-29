@@ -45,10 +45,9 @@ export function usePendingReplyComments(sessionId: string | undefined) {
   };
 }
 
-/**
- * "Include my N comments": shown on a needs-input card only while the user has pending comments. It leads the
- * action row on wide screens and takes its own line above the actions on phones, so Reply keeps its place.
- */
+export type PendingReplyComments = ReturnType<typeof usePendingReplyComments>;
+
+/** "Include my N comments": shown on a needs-input card only while the user has pending comments. */
 export function IncludeCommentsCheckbox({
   count,
   checked,
@@ -61,7 +60,7 @@ export function IncludeCommentsCheckbox({
   if (count === 0) return null;
   return (
     <label
-      className="mr-auto inline-flex basis-full sm:basis-auto cursor-pointer items-center gap-1.5 px-1 py-1 text-[11px] font-normal cc-muted-readable hover:text-cc-fg"
+      className="inline-flex cursor-pointer items-center gap-1.5 px-1 py-1 text-[11px] font-normal cc-muted-readable hover:text-cc-fg"
       onClick={(event) => event.stopPropagation()}
     >
       <input

@@ -123,6 +123,8 @@ export function NeedsInputAnswerField({
   className = "",
   onClickStopsPropagation = true,
   onSubmit,
+  ariaLabel = `Answer for ${question.prompt}`,
+  autoFocus,
 }: {
   sessionId: string;
   notification: SessionNotification;
@@ -131,6 +133,9 @@ export function NeedsInputAnswerField({
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
+  ariaLabel?: string;
+  /** Focus the box when it appears, as when the user just asked for it. */
+  autoFocus?: boolean;
   sourceContext?: string | null;
   threadKey?: string;
   threadTitle?: string;
@@ -145,7 +150,7 @@ export function NeedsInputAnswerField({
       value={value}
       onChange={onChange}
       placeholder={placeholder}
-      ariaLabel={`Answer for ${question.prompt}`}
+      ariaLabel={ariaLabel}
       focusedContext={buildNeedsInputVoiceFocusedContext({ notification, question, questionCount, sourceContext })}
       voiceTarget={{ kind: "needs-input", notificationId: notification.id, questionKey: question.key }}
       resetKey={`${sessionId}:${notification.id}:${question.key}`}
@@ -154,6 +159,7 @@ export function NeedsInputAnswerField({
       className={className}
       onClickStopsPropagation={onClickStopsPropagation}
       onSubmit={onSubmit}
+      autoFocus={autoFocus}
     />
   );
 }
@@ -180,6 +186,7 @@ export function VoiceAnswerField({
   textareaClassName = NEEDS_INPUT_ANSWER_TEXTAREA_CLASS,
   onClickStopsPropagation = true,
   onSubmit,
+  autoFocus,
 }: {
   sessionId: string;
   value: string;
@@ -196,6 +203,7 @@ export function VoiceAnswerField({
   textareaClassName?: string;
   onClickStopsPropagation?: boolean;
   onSubmit?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  autoFocus?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sendKey = useSendKey();
@@ -377,6 +385,7 @@ export function VoiceAnswerField({
           ref={textareaRef}
           value={value}
           rows={1}
+          autoFocus={autoFocus}
           spellCheck={false}
           onClick={handleTextareaClick}
           onChange={(event) => {

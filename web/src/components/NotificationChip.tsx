@@ -21,7 +21,11 @@ import {
 } from "../notification-status.js";
 import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
-import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
+import {
+  ADDITIONAL_COMMENTS_KEY,
+  formatNeedsInputResponse,
+  getNeedsInputQuestionViews,
+} from "../utils/notification-questions.js";
 import {
   getNotificationSourceContext,
   getNotificationTitle,
@@ -51,7 +55,12 @@ import {
 } from "./AttentionKind.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
-import { IncludeCommentsCheckbox, usePendingReplyComments } from "./NeedsInputIncludeComments.js";
+import {
+  AdditionalCommentsField,
+  NeedsInputReplyOptions,
+  useAdditionalComments,
+} from "./NeedsInputAdditionalComments.js";
+import { usePendingReplyComments } from "./NeedsInputIncludeComments.js";
 import { useAttentionThreadTitles, type AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
 import {
   NEEDS_INPUT_ACTION_ROW_CLASS,
@@ -452,6 +461,7 @@ function NotificationItem({
   const setQuestionAnswer = useCallback((key: string, value: string) => {
     setAnswersByQuestion((prev) => ({ ...prev, [key]: value }));
   }, []);
+  const additional = useAdditionalComments(answersByQuestion);
   const startReply = useCallback(
     (answerText?: string) => (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -521,12 +531,14 @@ function NotificationItem({
               if (!sent) return;
               useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
               setAnswersByQuestion({});
+              additional.reset();
               pendingComments.retire(annotations);
             });
         },
       });
     },
     [
+      additional.reset,
       answersByQuestion,
       canSendResponse,
       currentThreadKey,
@@ -729,11 +741,26 @@ function NotificationItem({
                 />
               </div>
             ))}
+            {additional.shown && (
+              <AdditionalCommentsField
+                sessionId={sessionId}
+                notification={notif}
+                questionCount={questionViews.length}
+                value={additional.value}
+                onChange={(value) => setQuestionAnswer(ADDITIONAL_COMMENTS_KEY, value)}
+                autoFocus={additional.requested}
+                sourceContext={sourceContext}
+                threadKey={ownerThreadKey}
+                threadTitle={voiceThreadTitle}
+                onSubmit={sendResponse}
+                headingClassName="text-[11px] leading-snug text-cc-fg/80"
+              />
+            )}
             <div className={NEEDS_INPUT_ACTION_ROW_CLASS}>
-              <IncludeCommentsCheckbox
-                count={pendingComments.count}
-                checked={pendingComments.checked}
-                onChange={pendingComments.setChecked}
+              <NeedsInputReplyOptions
+                showAdditionalToggle={!additional.shown}
+                onAddComments={additional.open}
+                pendingComments={pendingComments}
               />
               <button
                 type="button"

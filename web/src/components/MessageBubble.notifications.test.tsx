@@ -425,8 +425,8 @@ describe("MessageBubble notification markers", () => {
 
   it("keeps the Reply button at the right edge of the action row for right-thumb reach", () => {
     // On phones the primary send action must sit where the composer's send button does: right-aligned and last,
-    // with secondary actions to its left. The snooze picker must wrap below the whole row rather than between
-    // Remind me later and Reply.
+    // with secondary actions to its left (Additional comments leads the row). The snooze picker must wrap below
+    // the whole row rather than between Remind me later and Reply.
     const prevNotifications = useStore.getState().sessionNotifications;
     const notifications = new Map(prevNotifications);
     notifications.set("notify-session", [
@@ -457,6 +457,7 @@ describe("MessageBubble notification markers", () => {
       const buttons = within(footer).getAllByRole("button");
       expect(footer.className).toContain("justify-end");
       expect(buttons.map((button) => button.textContent?.trim() || button.getAttribute("aria-label"))).toEqual([
+        "Additional comments",
         "Remind me later",
         "reply in composer",
         "Reply",

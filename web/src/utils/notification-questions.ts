@@ -24,7 +24,31 @@ export function getNeedsInputQuestionViews(notif: SessionNotification): NeedsInp
   ];
 }
 
+/**
+ * The draft key of a reply's "Additional comments": anything the user adds beyond the questions' answers.
+ * It shares the prompt's answer draft (synced, voice-fillable) under a key no question uses.
+ */
+export const ADDITIONAL_COMMENTS_KEY = "additional";
+
+/** The additional-comments field as a pseudo-question, for its voice context and draft key. */
+export const ADDITIONAL_COMMENTS_QUESTION: NeedsInputQuestionView = {
+  key: ADDITIONAL_COMMENTS_KEY,
+  prompt: "Additional comments beyond the answers",
+  suggestedAnswers: [],
+};
+
+/** The reply text for the agent: each question's answer, then any additional comments as their own section. */
 export function formatNeedsInputResponse(
+  summary: string | undefined,
+  questions: NeedsInputQuestionView[],
+  answers: Record<string, string>,
+): string {
+  const answerText = formatAnswers(summary, questions, answers);
+  const additional = answers[ADDITIONAL_COMMENTS_KEY]?.trim();
+  return additional ? `${answerText}\n\nAdditional comments:\n${additional}` : answerText;
+}
+
+function formatAnswers(
   summary: string | undefined,
   questions: NeedsInputQuestionView[],
   answers: Record<string, string>,

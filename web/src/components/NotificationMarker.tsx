@@ -5,7 +5,11 @@ import { useNeedsInputDraft } from "../hooks/useNeedsInputDraft.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, SessionNotification } from "../types.js";
-import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
+import {
+  ADDITIONAL_COMMENTS_KEY,
+  formatNeedsInputResponse,
+  getNeedsInputQuestionViews,
+} from "../utils/notification-questions.js";
 import {
   isNotificationOwnerSelected,
   resolveNotificationOwnerThreadKey,
@@ -25,7 +29,12 @@ import {
   NeedsInputSendButton,
   NeedsInputSuggestedAnswers,
 } from "./NeedsInputAnswerField.js";
-import { IncludeCommentsCheckbox, usePendingReplyComments } from "./NeedsInputIncludeComments.js";
+import {
+  AdditionalCommentsField,
+  NeedsInputReplyOptions,
+  useAdditionalComments,
+} from "./NeedsInputAdditionalComments.js";
+import { usePendingReplyComments } from "./NeedsInputIncludeComments.js";
 import { NeedsInputResponseHistory } from "./NeedsInputResponseHistory.js";
 import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
 
@@ -93,6 +102,7 @@ export function NotificationMarker({
   const [historyOpen, setHistoryOpen] = useState(false);
   const reply = usePendingAction("Reply failed.");
   const pendingComments = usePendingReplyComments(isAction ? sessionId : undefined);
+  const additional = useAdditionalComments(answersByQuestion);
   const toggle = usePendingAction(isReview ? "Review update failed." : "Update failed.");
   const answeredKey = sessionId && notif ? `${sessionId}:${notif.id}` : null;
   const answeredHere = answeredKey !== null && answeredInThisBrowser.has(answeredKey);
@@ -189,12 +199,14 @@ export function NotificationMarker({
               }
               useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
               clearAnswers();
+              additional.reset();
               pendingComments.retire(annotations);
             });
         },
       });
     },
     [
+      additional.reset,
       answersByQuestion,
       canSendQuickReply,
       clearAnswers,
@@ -239,17 +251,33 @@ export function NotificationMarker({
       </svg>
     </button>
   ) : null;
-  const includeComments = (
-    <IncludeCommentsCheckbox
-      count={pendingComments.count}
-      checked={pendingComments.checked}
-      onChange={pendingComments.setChecked}
+  const replyOptions = (
+    <NeedsInputReplyOptions
+      showAdditionalToggle={!additional.shown}
+      onAddComments={additional.open}
+      pendingComments={pendingComments}
     />
   );
   const snoozeControl =
     isAction && sessionId && notif ? <NeedsInputSnoozeControl sessionId={sessionId} notification={notif} /> : null;
   const voiceThreadKey = notif ? resolveNotificationOwnerThreadKey(notif) : MAIN_THREAD_KEY;
   const voiceThreadTitle = voiceThreadKey === MAIN_THREAD_KEY ? "Main Thread" : (notif?.questId ?? voiceThreadKey);
+  const additionalField =
+    additional.shown && sessionId && notif ? (
+      <AdditionalCommentsField
+        sessionId={sessionId}
+        notification={notif}
+        questionCount={questionViews.length}
+        value={additional.value}
+        onChange={(value) => setQuestionAnswer(ADDITIONAL_COMMENTS_KEY, value)}
+        autoFocus={additional.requested}
+        sourceContext={sourceContext}
+        threadKey={voiceThreadKey}
+        threadTitle={voiceThreadTitle}
+        onSubmit={sendQuickReply}
+        headingClassName={`${textSize} font-medium leading-snug text-cc-fg`}
+      />
+    ) : null;
 
   return (
     <div
@@ -397,9 +425,10 @@ export function NotificationMarker({
                   onSubmit={sendQuickReply}
                 />
               )}
+              {questionViews.length === 1 && additionalField}
               {questionViews.length === 1 && (
                 <div className={`${NEEDS_INPUT_ACTION_ROW_CLASS} pt-0.5`} data-testid="notification-answer-footer">
-                  {includeComments}
+                  {replyOptions}
                   {snoozeControl}
                   {replyButton}
                   <NeedsInputSendButton
@@ -412,9 +441,10 @@ export function NotificationMarker({
               )}
             </div>
           ))}
+          {questionViews.length > 1 && additionalField}
           {questionViews.length > 1 && (
             <div className={NEEDS_INPUT_ACTION_ROW_CLASS}>
-              {includeComments}
+              {replyOptions}
               {snoozeControl}
               {replyButton}
               <NeedsInputSendButton
