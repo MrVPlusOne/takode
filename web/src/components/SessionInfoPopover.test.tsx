@@ -451,9 +451,9 @@ describe("SessionInfoPopover", () => {
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    expect(await screen.findByTestId("codex-instructions-section")).toHaveAttribute(
-      "data-thread-id",
-      "thread-snapshot",
+    // The section first renders in its loading state, so wait for the snapshot to arrive.
+    await waitFor(() =>
+      expect(screen.getByTestId("codex-instructions-section")).toHaveAttribute("data-thread-id", "thread-snapshot"),
     );
     expect(screen.queryByTestId("claude-md-section")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("codex-instructions-section")).toHaveLength(1);

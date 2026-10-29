@@ -35,7 +35,10 @@ describe("SettingsLeaderProfilesSection", () => {
   it("loads enabled pools and persists pool toggles", async () => {
     render(<SettingsLeaderProfilesSection />);
 
+    // The switches render disabled until the saved pools load, and a click on a
+    // disabled switch is dropped, so wait for the load before toggling.
     const tako = await screen.findByRole("switch", { name: /tako/i });
+    await waitFor(() => expect(tako).toBeEnabled());
     fireEvent.click(tako);
 
     await waitFor(() => {
@@ -54,6 +57,7 @@ describe("SettingsLeaderProfilesSection", () => {
 
     const tako = await screen.findByRole("switch", { name: /tako/i });
     const shmi = screen.getByRole("switch", { name: /shmi/i });
+    await waitFor(() => expect(tako).toBeEnabled());
     fireEvent.click(tako);
 
     await waitFor(() => {
