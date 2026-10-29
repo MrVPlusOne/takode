@@ -7,6 +7,7 @@ import {
   prepareBoundedConversationSubscribe,
   recordBoundedConversationRequest,
   recordBoundedConversationViewUpdate,
+  setSideViews,
   shouldDeliverBrowserEventToSocket,
   withMessageViewKeys,
   type BrowserConversationWindowSocketData,
@@ -230,6 +231,26 @@ describe("bounded browser conversation delivery", () => {
     expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, message, threadSocket("q-1"))).toBe(true);
     expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, message, threadSocket("q-2"))).toBe(false);
     expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, message, threadSocket("main"))).toBe(false);
+  });
+
+  it("also delivers live messages of the threads the browser shows beside its main view", () => {
+    // A leader's side column shows other conversations (a side chat, another quest) next to the
+    // main one; their live messages must reach the browser too, and stop once it drops them.
+    const inSide = { type: "user_message", content: "q", timestamp: 1, threadKey: "q-2" } as BrowserIncomingMessage;
+    const elsewhere = { type: "user_message", content: "q", timestamp: 1, threadKey: "q-3" } as BrowserIncomingMessage;
+    const socketData = threadSocket("q-1");
+    setSideViews(socketData, ["Q-2"]);
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, inSide, socketData)).toBe(true);
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, elsewhere, socketData)).toBe(false);
+    // Side views never change the main view.
+    expect(socketData.conversationView).toMatchObject({ kind: "thread", request: { threadKey: "q-1" } });
+    setSideViews(socketData, []);
+    expect(socketData.sideViews).toBeUndefined();
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, inSide, socketData)).toBe(false);
+    // Before a subscribe there is no main view: nothing is delivered, side views or not.
+    const unsubscribed: BrowserConversationWindowSocketData = {};
+    setSideViews(unsubscribed, ["q-2"]);
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, inSide, unsubscribed)).toBe(false);
   });
 
   it("delivers quest lifecycle history only to its owner thread or full-history view", () => {

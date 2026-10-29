@@ -68,6 +68,7 @@ import {
   normalizeInitialThreadWindowRequest,
   recordBoundedConversationRequest,
   recordBoundedConversationViewUpdate,
+  setSideViews,
   shouldDeliverBrowserEventToSocket,
   withMessageViewKeys,
   type BoundedConversationView,
@@ -325,6 +326,7 @@ function isArchivedReadOnlyBrowserMessage(msg: BrowserOutgoingMessage): boolean 
     msg.type === "history_window_request" ||
     msg.type === "thread_window_request" ||
     msg.type === "conversation_view_update" ||
+    msg.type === "side_views_update" ||
     msg.type === "session_ack" ||
     msg.type === "history_sync_mismatch" ||
     msg.type === "synced_projection_subscribe" ||
@@ -616,6 +618,8 @@ export function handleBrowserProtocolMessage(
   }
   if (msg.type === "session_subscribe") {
     if (ws) ((ws.data ??= {}) as BrowserTransportSocketData).knownSnapshotParts = msg.known_snapshot_parts;
+    // Before the subscribe's replay, so live work missed in a side conversation is replayed too.
+    if (ws) setSideViews((ws.data ??= {}) as BrowserTransportSocketData, msg.side_views ?? []);
     const observingInitialSubscribe = ws && beginBrowserConnectionSubscribe(ws, msg.last_seq, msg.full_history_sync);
     return handleSessionSubscribe(
       session,
@@ -687,6 +691,11 @@ export function handleBrowserProtocolMessage(
     });
     const complete = boundedConversationSyncComplete(socketData, session.nextEventSeq - 1);
     if (complete) sendToBrowser(ws, complete);
+    return true;
+  }
+
+  if (msg.type === "side_views_update") {
+    if (ws) setSideViews((ws.data ??= {}) as BrowserTransportSocketData, msg.thread_keys);
     return true;
   }
 

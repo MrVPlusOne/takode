@@ -42,6 +42,11 @@ export type BoundedConversationView =
 
 export interface BrowserConversationWindowSocketData {
   conversationView?: BoundedConversationView;
+  /**
+   * Threads the browser shows beside its main view (a leader's side column), as it last said
+   * (`side_views_update`, or with its subscribe): their live messages reach it too.
+   */
+  sideViews?: Set<string>;
 }
 
 export function hasConnectedCurrentBuildBrowserViewingThread(
@@ -285,6 +290,13 @@ export function setBoundedThreadView(
   };
 }
 
+/** Records the threads a browser shows beside its main view; an empty list clears them. */
+export function setSideViews(socketData: BrowserConversationWindowSocketData, threadKeys: readonly string[]): void {
+  const keys = threadKeys.filter((key) => typeof key === "string" && key).map(normalizeSelectedFeedThreadKey);
+  if (keys.length === 0) delete socketData.sideViews;
+  else socketData.sideViews = new Set(keys);
+}
+
 export function recordBoundedConversationRequest(
   socketData: BrowserConversationWindowSocketData,
   request: Extract<BrowserOutgoingMessage, { type: "history_window_request" | "thread_window_request" }>,
@@ -374,7 +386,10 @@ export function shouldDeliverBrowserEventToSocket(
   if (!view) return false;
   if (view.kind === "history") return true;
   const selectedThreadKey = normalizeSelectedFeedThreadKey(view.request.threadKey);
-  return messageViewKeys(session, message).includes(selectedThreadKey);
+  const views = messageViewKeys(session, message);
+  if (views.includes(selectedThreadKey)) return true;
+  const side = socketData.sideViews;
+  return !!side && views.some((key) => side.has(key));
 }
 
 type ViewStampedMessage = BrowserIncomingMessage & { viewKeys?: string[] };

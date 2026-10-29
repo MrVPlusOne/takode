@@ -714,6 +714,8 @@ export type BrowserOutgoingMessage =
       synced_projection_subscriptions?: SyncedProjectionSubscription[];
       /** Large snapshot parts the browser holds, by hash; the server leaves out those still identical. */
       known_snapshot_parts?: import("../shared/snapshot-part-hash.js").KnownSnapshotParts;
+      /** Threads the browser shows beside its main view (see `side_views_update`). */
+      side_views?: string[];
     }
   | SyncedProjectionSubscribeMessage
   | SyncedProjectionResyncMessage
@@ -756,6 +758,14 @@ export type BrowserOutgoingMessage =
       cached_window_hash?: string;
       target_message_id?: string;
       activate_view?: boolean;
+    }
+  | {
+      /**
+       * The threads this browser shows beside its main view (a leader's side column), replacing the
+       * previous list: their live messages reach it as the main view's do.
+       */
+      type: "side_views_update";
+      thread_keys: string[];
     }
   | {
       type: "conversation_view_update";
