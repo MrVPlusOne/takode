@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
+import { useConversationShown } from "./KeptConversationViews.js";
 
 /**
  * On touch screens menus behave like native iOS menus: they pop in and have
@@ -112,6 +113,12 @@ export function ContextMenu({
     }
   }, [x]);
   useEffect(clampToViewport, [x, y, confirmingItem, clampToViewport]);
+
+  // The portal below sits outside a hidden kept conversation, whose effects (the outside-press
+  // and Escape listeners) are off, so a menu left open there would stay on the next conversation
+  // with nothing able to close it.
+  const conversationShown = useConversationShown();
+  if (!conversationShown) return null;
 
   // Portal to document.body so the menu escapes overflow-hidden ancestors
   // and the CSS transform containing block on the root layout div.

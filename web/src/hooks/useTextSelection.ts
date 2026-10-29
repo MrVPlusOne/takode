@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type RefObject } from "react";
+import { useState, useEffect, useCallback, useLayoutEffect, useRef, type RefObject } from "react";
 import { htmlFragmentToPlainText, normalizeMathSelectionRange, rangeContainsMath } from "../utils/html-to-markdown.js";
 
 export interface TextSelectionState {
@@ -267,7 +267,13 @@ export function useTextSelection(
     setState(EMPTY_STATE);
   }, []);
 
-  const container = containerRef.current;
+  // The element to listen on, read after each commit rather than during render: while a kept
+  // conversation is hidden its Activity detaches refs, so a render then read null, and the
+  // conversation came back with no listeners until something else re-rendered it.
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (containerRef.current !== container) setContainer(containerRef.current);
+  });
 
   useEffect(() => {
     if (!container) return;
@@ -405,6 +411,13 @@ export function useTextSelection(
       container.removeEventListener("scroll", handleScroll);
       cancelAnimationFrame(rafRef.current);
       if (touchDelayRef.current) clearTimeout(touchDelayRef.current);
+      // Without these listeners nothing could close the menu, so it closes with them. This also
+      // runs when a kept conversation is hidden: its state survives, and the menu, portaled outside
+      // the hidden conversation, would otherwise stay over the next one and come back with this one.
+      setState(EMPTY_STATE);
+      mouseDownRef.current = false;
+      touchActiveRef.current = false;
+      pressInMenuRef.current = false;
     };
   }, [container, suppressSelectionChanges]);
 

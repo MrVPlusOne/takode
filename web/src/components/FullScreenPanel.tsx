@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
+import { useConversationShown } from "./KeptConversationViews.js";
 
 /**
  * An artifact shown over the whole window, for reading something long without the feed around it:
@@ -32,6 +33,9 @@ export function FullScreenPanel({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  // Portaled outside its conversation, so it must leave when a kept conversation is hidden.
+  const conversationShown = useConversationShown();
+  if (!conversationShown) return null;
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex flex-col bg-cc-bg"
