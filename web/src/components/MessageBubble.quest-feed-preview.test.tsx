@@ -48,11 +48,17 @@ function installGeometry() {
       if (element.getAttribute("href")?.includes("quest=q-67")) {
         return [DOMRect.fromRect({ x: 598.9, y: 716.9, width: 44.9, height: 16.2 })] as unknown as DOMRectList;
       }
+      if (element.getAttribute("href")?.includes("quest=q-66")) {
+        return [DOMRect.fromRect({ x: 100, y: 400, width: 90, height: 20 })] as unknown as DOMRectList;
+      }
       return [DOMRect.fromRect({ x: 100, y: 100, width: 90, height: 20 })] as unknown as DOMRectList;
     }
     if (element.dataset.testid === "quest-feed-preview-button") {
       if (element.dataset.questId === "q-67") {
         return [DOMRect.fromRect({ x: 645.6, y: 715.2, width: 23.4, height: 23.4 })] as unknown as DOMRectList;
+      }
+      if (element.dataset.questId === "q-66") {
+        return [DOMRect.fromRect({ x: 192, y: 397, width: 26, height: 26 })] as unknown as DOMRectList;
       }
       return [DOMRect.fromRect({ x: 192, y: 97, width: 26, height: 26 })] as unknown as DOMRectList;
     }
@@ -62,7 +68,8 @@ function installGeometry() {
       return (rect ? [rect] : []) as unknown as DOMRectList;
     }
     if (element.dataset.producerNearbyControl === "cover") {
-      return [DOMRect.fromRect({ x: 0, y: 0, width: 1200, height: 800 })] as unknown as DOMRectList;
+      // Right under the q-66 icon; elsewhere these overlays are hidden or inert and must be ignored.
+      return [DOMRect.fromRect({ x: 192, y: 431, width: 100, height: 24 })] as unknown as DOMRectList;
     }
     return [] as unknown as DOMRectList;
   });
@@ -119,8 +126,8 @@ describe("producer-shaped chat feed quest preview", () => {
       </div>,
     );
 
-    expect(screen.getByRole("button", { name: "Preview q-60" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Preview q-61 feedback #2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the q-60 thread" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the q-61 thread" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "q-61 feedback #2" })).toHaveAttribute(
       "href",
       "#/session/s1?quest=q-61&feedback=2",
@@ -135,7 +142,7 @@ describe("producer-shaped chat feed quest preview", () => {
       </>,
     );
 
-    expect(screen.queryByRole("button", { name: /Preview q-/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Preview q-|the q-[0-9]+ thread/ })).toBeNull();
     expect(screen.getByRole("link", { name: "q-62" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "q-63" })).toBeInTheDocument();
   });
@@ -323,8 +330,9 @@ describe("producer-shaped chat feed quest preview", () => {
     fireEvent.click(screen.getByRole("button", { name: /Preview q-66/ }), { detail: 0 });
     await act(async () => Promise.resolve());
 
+    // The control under the icon counts, so the preview opens above the icon instead of below.
     const dialog = screen.getByRole("dialog", { name: "Protected producer control" });
-    expect(dialog).toHaveAttribute("data-surface", "bottom-sheet");
-    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("data-surface", "popover");
+    expect(Number.parseFloat(dialog.style.top) + 300).toBeLessThan(397);
   });
 });

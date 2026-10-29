@@ -3,7 +3,7 @@ import type { QuestmasterTask, QuestTitlePreview, SdkSessionInfo } from "../../t
 import { useStore } from "../../store.js";
 import { seedLeaderTopics } from "../../utils/leader-topics.js";
 import { MarkdownContent } from "../MarkdownContent.js";
-import { QuestFeedInlineLink } from "../QuestFeedInlineLink.js";
+import { QuestFeedInlineLink, QuestThreadIcon } from "../QuestFeedInlineLink.js";
 import { QuestQuizSection } from "../QuestQuizSection.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
@@ -705,6 +705,34 @@ export function PlaygroundInlineQuestPreviewSection() {
               <p className="mt-3 text-xs text-cc-muted">
                 The narrow feed fixture keeps the link and icon together while surrounding prose wraps. Only the
                 explicit chat-feed producer adds the icon; the adjacent non-feed surface keeps legacy behavior.
+              </p>
+            </Card>
+          </div>
+
+          <div className="xl:col-span-2">
+            <Card label="Already in the quest's thread">
+              <div
+                className="rounded-lg border border-cc-border/70 bg-cc-bg p-3 text-sm"
+                data-testid="playground-inline-quest-preview-in-thread"
+              >
+                Inside its own thread, as in that tab's topic panel:{" "}
+                <span className="cc-feed-quest-link-pair">
+                  <a href="#/playground" className="cc-quest-link hover:underline">
+                    q-9410
+                  </a>
+                  <button
+                    type="button"
+                    className="cc-feed-quest-preview-trigger"
+                    aria-label="Already in the q-9410 thread"
+                    aria-disabled="true"
+                  >
+                    <QuestThreadIcon />
+                  </button>
+                </span>
+              </div>
+              <p className="mt-3 text-xs text-cc-muted">
+                A static copy of the link and icon: the real icon dims and does nothing when the page already shows that
+                quest's thread, since there is nowhere to go.
               </p>
             </Card>
           </div>

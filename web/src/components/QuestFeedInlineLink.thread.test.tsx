@@ -8,6 +8,7 @@ import "@testing-library/jest-dom";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import {
+  deferred,
   quest,
   hoverQuestLinkForPreview,
   questLinkIcon,
@@ -351,7 +352,7 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     expect(window.location.hash).toBe("#/session/leader-497?thread=q-497");
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
 
-    // Back outside the thread (inside it the icon would preview instead).
+    // Back outside the thread (inside it the icon does nothing).
     act(() => {
       window.location.hash = "#/session/s1";
       window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -387,19 +388,63 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     expect(mockGetQuestValidated).not.toHaveBeenCalled();
   });
 
-  it("previews instead of jumping when the link is already inside the quest's thread", async () => {
-    // A quest thread mentions its own quest; going "to" the thread on screen would do nothing.
+  it("does nothing, dimmed, when the link is already inside the quest's thread", async () => {
+    // The user's report: on a quest's own tab, the icon of that quest's link in the topic panel opened
+    // the preview at the window's corner instead of going anywhere. Going "to" the thread on screen
+    // has nowhere to go, so the icon says so and a click changes nothing.
     const cached = quest({ questId: "q-489", title: "Own thread", leaderSessionId: "leader-489" });
     useStore.setState({ questDetails: new Map([["q-489", cached]]) });
     mockGetQuestValidated.mockResolvedValue({ status: "not-modified", etag: '"own-thread"' });
     window.location.hash = "#/session/leader-489?thread=q-489";
     renderFeedLink("q-489");
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview q-489: Own thread" }));
+    const icon = screen.getByRole("button", { name: "Already in the q-489 thread: Own thread" });
+    expect(icon).toHaveAttribute("aria-disabled", "true");
+    expect(icon).not.toHaveAttribute("aria-haspopup");
+    fireEvent.pointerDown(icon, { pointerType: "mouse" });
+    fireEvent.click(icon, { detail: 1 });
     await act(async () => Promise.resolve());
 
-    expect(screen.getByRole("dialog", { name: "Own thread" })).toHaveAttribute("data-open-mode", "explicit");
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(window.location.hash).toBe("#/session/leader-489?thread=q-489");
+  });
+
+  it("looks up a quest the browser does not know yet, then goes to its thread", async () => {
+    // Links to quests outside the loaded boards (old quests, other leaders' quests) used to open the
+    // preview, because the browser did not know their leader. The icon now fetches the quest first.
+    const fetched = quest({ questId: "q-488", title: "Fetched first", leaderSessionId: "leader-488" });
+    const response = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
+    mockGetQuestValidated.mockReturnValue(response.promise);
+    renderFeedLink("q-488");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open the q-488 thread" }), { detail: 1 });
+    await act(async () => Promise.resolve());
+    expect(mockGetQuestValidated).toHaveBeenCalledTimes(1);
+    expect(window.location.hash).toBe("#/session/s1");
+
+    await act(async () => response.resolve({ status: "fresh", data: fetched, etag: '"fetched"' }));
+    expect(window.location.hash).toBe("#/session/leader-488?thread=q-488");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("previews a looked-up quest that turns out to have no thread", async () => {
+    mockGetQuestValidated.mockResolvedValue({
+      status: "fresh",
+      data: quest({ questId: "q-487", title: "Never dispatched" }),
+      etag: '"never-dispatched"',
+    });
+    renderFeedLink("q-487");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open the q-487 thread" }), { detail: 1 });
+    await act(async () => vi.runOnlyPendingTimersAsync());
+
+    expect(screen.getByRole("dialog", { name: "Never dispatched" })).toHaveAttribute("data-open-mode", "explicit");
+    expect(window.location.hash).toBe("#/session/s1");
+    // Now that the browser knows, the icon says what it does.
+    expect(screen.getByRole("button", { name: "Preview q-487: Never dispatched" })).toHaveAttribute(
+      "aria-haspopup",
+      "dialog",
+    );
   });
 
   it("opens the preview instead when the quest has no thread to go to", async () => {

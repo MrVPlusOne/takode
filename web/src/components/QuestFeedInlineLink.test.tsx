@@ -76,7 +76,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     );
 
     const links = screen.getAllByRole("link");
-    const eyes = screen.getAllByRole("button", { name: /Preview q-42/ });
+    const eyes = screen.getAllByRole("button", { name: /the q-42\d thread/ });
     expect(links).toHaveLength(2);
     expect(eyes).toHaveLength(2);
     expect(links[0]!.nextElementSibling).toBe(eyes[0]);
@@ -370,12 +370,13 @@ describe("QuestInlineLink chat-feed preview", () => {
   });
 
   it("promotes a link-hover preview to explicit ownership without restarting hydration or replacing the dialog", async () => {
-    // A quest with no thread: Enter on the icon opens the preview, here the one the link hover shows.
+    // A quest the browser does not know yet: Enter on the icon looks it up (sharing the hover's
+    // request), finds no thread and opens the preview, here the one the link hover shows.
     const request = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
     const loaded = quest({ questId: "q-80", title: "Promoted hover detail", tldr: "Loaded once" });
     mockGetQuestValidated.mockReturnValueOnce(request.promise);
     renderFeedLink("q-80");
-    const preview = screen.getByRole("button", { name: "Preview q-80" });
+    const preview = screen.getByRole("button", { name: "Open the q-80 thread" });
 
     await hoverQuestLinkForPreview("q-80");
     const dialog = screen.getByRole("dialog");
@@ -386,16 +387,17 @@ describe("QuestInlineLink chat-feed preview", () => {
     preview.focus();
     fireEvent.keyDown(preview, { key: "Enter" });
     fireEvent.click(preview, { detail: 0 });
-    expect(screen.getByRole("dialog")).toBe(dialog);
+    await act(async () => Promise.resolve());
+    expect(dialog).toHaveAttribute("data-open-mode", "hover");
+
+    await act(async () => request.resolve({ status: "fresh", data: loaded, etag: '"promoted"' }));
+    expect(screen.getByRole("dialog", { name: "Promoted hover detail" })).toBe(dialog);
+    expect(dialog).toHaveTextContent("Loaded once");
     expect(dialog).toHaveAttribute("data-open-mode", "explicit");
     expect(preview).toHaveAttribute("data-rich-open-mode", "explicit");
     expect(preview).toHaveAttribute("aria-expanded", "true");
     expect(mockGetQuestValidated).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(dialog);
-
-    await act(async () => request.resolve({ status: "fresh", data: loaded, etag: '"promoted"' }));
-    expect(screen.getByRole("dialog", { name: "Promoted hover detail" })).toBe(dialog);
-    expect(dialog).toHaveTextContent("Loaded once");
   });
 
   it("omits a cached title layer when its by-id revalidation fails", async () => {
@@ -843,7 +845,7 @@ describe("QuestInlineLink chat-feed preview", () => {
       etag: '"fresh"',
     });
     renderFeedLink("q-50");
-    fireEvent.click(screen.getByRole("button", { name: "Preview q-50" }));
+    await hoverQuestLinkForPreview("q-50");
     await act(async () => first.reject(new Error("offline")));
 
     let dialog = screen.getByRole("dialog");
@@ -1151,33 +1153,35 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(top).toBeGreaterThanOrEqual(15 + 8);
   });
 
-  it("switches a desktop no-fit popover to a right-edge-docked nonmodal side sheet", async () => {
+  it("opens a desktop preview with no clear spot under its icon instead of at the window's edge", async () => {
+    // The user's report: a preview with no spot clear of its surroundings docked at the window's
+    // edge, far from the link. It now sits like a hover card under the icon (flipped up and
+    // clamped here), covering what it must.
     setGeometryFixture({
       ...geometryFixture,
       richRect: domRect(0, 0, 560, 700),
     });
-    renderFeedLink("q-66", { title: "Right docked sheet" });
+    renderFeedLink("q-66", { title: "Next to its icon" });
 
     fireEvent.click(screen.getByRole("button", { name: /Preview q-66/ }), { detail: 0 });
     await act(async () => Promise.resolve());
 
-    const dialog = screen.getByRole("dialog", { name: "Right docked sheet" });
+    const dialog = screen.getByRole("dialog", { name: "Next to its icon" });
     expect(dialog).toHaveAttribute("aria-modal", "false");
-    expect(dialog).toHaveAttribute("data-surface", "side-sheet");
-    expect(dialog).toHaveAttribute("data-edge", "right");
-    const renderedLeft = Number.parseFloat(dialog.style.left);
-    const renderedWidth = Number.parseFloat(dialog.style.width);
-    expect(renderedLeft + renderedWidth).toBe(1200);
-    expect(renderedLeft).toBeGreaterThan(geometryFixture.previewRect.right);
+    expect(dialog).toHaveAttribute("data-surface", "popover");
+    expect(dialog).toHaveStyle({ left: `${geometryFixture.previewRect.left}px`, top: "8px" });
   });
 
   it("protects visible controls outside the source's local feed container", async () => {
+    // A control right under the icon, outside the link's own feed container, moves the preview above.
     const cached = quest({ questId: "q-69", title: "Viewport-wide exclusions" });
     useStore.setState({ questDetails: new Map([["q-69", cached]]) });
     mockGetQuestValidated.mockResolvedValue({ status: "fresh", data: cached, etag: '"q-69"' });
     setGeometryFixture({
       ...geometryFixture,
-      nearbyControlRects: [domRect(180, 128, 680, 360)],
+      sourceRects: [domRect(100, 400, 82, 20)],
+      previewRect: domRect(186, 397, 26, 26),
+      nearbyControlRects: [domRect(186, 431, 100, 24)],
     });
     render(
       <>
@@ -1194,13 +1198,14 @@ describe("QuestInlineLink chat-feed preview", () => {
     await act(async () => Promise.resolve());
 
     const dialog = screen.getByRole("dialog", { name: "Viewport-wide exclusions" });
-    expect(dialog).toHaveAttribute("data-surface", "side-sheet");
+    expect(dialog).toHaveAttribute("data-surface", "popover");
     const layer = domRect(
       Number.parseFloat(dialog.style.left),
       Number.parseFloat(dialog.style.top),
       Number.parseFloat(dialog.style.width),
-      Math.min(geometryFixture.richRect.height, Number.parseFloat(dialog.style.maxHeight)),
+      geometryFixture.richRect.height,
     );
+    expect(layer.bottom).toBeLessThan(geometryFixture.previewRect.top);
     const control = geometryFixture.nearbyControlRects[0];
     expect(
       layer.left < control.right &&
@@ -1251,7 +1256,9 @@ describe("QuestInlineLink chat-feed preview", () => {
     mockGetQuestValidated.mockResolvedValue({ status: "fresh", data: cached, etag: '"q-87"' });
     setGeometryFixture({
       ...geometryFixture,
-      nearbyControlRects: [domRect(0, 0, 1200, 800)],
+      sourceRects: [domRect(100, 400, 82, 20)],
+      previewRect: domRect(186, 397, 26, 26),
+      nearbyControlRects: [domRect(186, 431, 100, 24)],
     });
     render(
       <>
@@ -1270,30 +1277,13 @@ describe("QuestInlineLink chat-feed preview", () => {
     fireEvent.click(screen.getByRole("button", { name: /Preview q-87/ }), { detail: 0 });
     await act(async () => Promise.resolve());
 
+    // Both controls under the icon count, so the preview opens above it rather than below.
     const dialog = screen.getByRole("dialog", { name: "Focusable controls stay protected" });
-    expect(dialog).toHaveAttribute("data-surface", "bottom-sheet");
-    expect(dialog).toHaveAttribute("aria-modal", "true");
-  });
-
-  it("uses a top-edge-docked desktop sheet when neither inline side can fit", async () => {
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
-    setGeometryFixture({
-      ...geometryFixture,
-      sourceRects: [domRect(180, 400, 420, 28)],
-      previewRect: domRect(610, 396, 70, 36),
-      richRect: domRect(0, 0, 560, 500),
-    });
-    renderFeedLink("q-67", { title: "Top docked sheet" });
-
-    fireEvent.click(screen.getByRole("button", { name: /Preview q-67/ }), { detail: 0 });
-    await act(async () => Promise.resolve());
-
-    const dialog = screen.getByRole("dialog", { name: "Top docked sheet" });
-    expect(dialog).toHaveAttribute("data-surface", "side-sheet");
-    expect(dialog).toHaveAttribute("data-edge", "top");
-    expect(Number.parseFloat(dialog.style.top)).toBe(0);
-    const renderedBottom = Number.parseFloat(dialog.style.top) + Number.parseFloat(dialog.style.maxHeight);
-    expect(renderedBottom).toBeLessThan(geometryFixture.sourceRects[0].top);
+    expect(dialog).toHaveAttribute("data-surface", "popover");
+    expect(dialog).toHaveAttribute("data-open-mode", "explicit");
+    expect(Number.parseFloat(dialog.style.top) + geometryFixture.richRect.height).toBeLessThan(
+      geometryFixture.previewRect.top,
+    );
   });
 
   it("keeps a high-zoom bottom sheet within the rendered visual viewport", async () => {
@@ -1444,7 +1434,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(document.activeElement).toBe(link);
   });
 
-  it("falls back to a labelled modal sheet when explicit desktop placement has no legal fit", async () => {
+  it("keeps an explicit desktop preview by its icon when no placement clears the link", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
     setGeometryFixture({
@@ -1459,9 +1449,11 @@ describe("QuestInlineLink chat-feed preview", () => {
     fireEvent.click(preview, { detail: 0 });
     await act(async () => Promise.resolve());
 
+    // Clamped into the window and flipped above the icon, like a hover card: never a far-off sheet.
     const dialog = screen.getByRole("dialog", { name: "Impossible rich placement" });
-    expect(dialog).toHaveAttribute("data-surface", "bottom-sheet");
-    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("data-surface", "popover");
+    expect(dialog).toHaveAttribute("aria-modal", "false");
+    expect(dialog).toHaveStyle({ left: "32px", top: "8px" });
     expect(preview).toHaveAttribute("aria-expanded", "true");
     expect(document.activeElement).toBe(dialog);
 
@@ -1488,7 +1480,7 @@ describe("QuestInlineLink chat-feed preview", () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview q-61" }), { detail: 0 });
+    await hoverQuestLinkForPreview("q-61");
     expect(screen.getByRole("dialog")).toHaveTextContent("q-61 preview");
     view.rerender(
       <div data-message-id="rerendered-target">
@@ -1497,7 +1489,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     );
     expect(screen.queryByRole("dialog")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview q-62" }), { detail: 0 });
+    await hoverQuestLinkForPreview("q-62");
     await act(async () => newRequest.resolve({ status: "fresh", data: newQuest, etag: '"new-target"' }));
     expect(screen.getByRole("dialog", { name: "New target result" })).toBeInTheDocument();
 
@@ -1537,8 +1529,9 @@ describe("QuestInlineLink chat-feed preview", () => {
       </div>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview q-64" }), { detail: 0 });
-    await act(async () => Promise.resolve());
+    // The icon looks the unknown quest up with the same loader, finds no thread and previews it.
+    fireEvent.click(screen.getByRole("button", { name: "Open the q-64 thread" }), { detail: 0 });
+    await act(async () => vi.runOnlyPendingTimersAsync());
 
     const dialog = screen.getByRole("dialog", { name: "Injected rich state" });
     expect(dialog).toHaveTextContent("Fixture detail");
@@ -1546,8 +1539,22 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(mockGetQuestValidated).not.toHaveBeenCalled();
   });
 
-  it("uses and traps a modal sheet for explicit keyboard activation on a wide coarse-capability layout", async () => {
+  it("opens a mouse-clicked preview next to its link on a wide screen that also has touch", async () => {
+    // A touch-screen laptop clicked with the mouse used to get the phone's bottom sheet, far from the link.
     setMatchMedia({ coarse: true });
+    renderFeedLink("q-76", { title: "Wide touch-capable screen" });
+    const preview = screen.getByRole("button", { name: /Preview q-76/ });
+    fireEvent.pointerDown(preview, { pointerType: "mouse" });
+    fireEvent.click(preview, { detail: 1 });
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Wide touch-capable screen" });
+    expect(dialog).toHaveAttribute("data-surface", "popover");
+    expect(dialog).toHaveAttribute("aria-modal", "false");
+  });
+
+  it("uses and traps a modal sheet for explicit keyboard activation on a phone-width layout", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 430 });
     renderFeedLink("q-65", { title: "Modal focus order" });
     const preview = screen.getByRole("button", { name: /Preview q-65/ });
     fireEvent.click(preview, { detail: 0 });

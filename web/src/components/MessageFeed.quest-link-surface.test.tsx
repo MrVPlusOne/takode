@@ -70,8 +70,8 @@ describe("MessageFeed quest-link surface wiring", () => {
   it("opts real MessageFeed user and assistant payloads into chat-feed previews", () => {
     render(<MessageFeed sessionId={SESSION_ID} />);
 
-    expect(screen.getByRole("button", { name: "Preview q-80" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Preview q-81 feedback #2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the q-80 thread" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the q-81 thread" })).toBeInTheDocument();
   });
 
   it("threads the feed surface into pending user rows", () => {
@@ -98,13 +98,13 @@ describe("MessageFeed quest-link surface wiring", () => {
 
     render(<MessageFeed sessionId={SESSION_ID} />);
 
-    expect(screen.getByRole("button", { name: "Preview q-82" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the q-82 thread" })).toBeInTheDocument();
   });
 
   it("keeps the reused read-only Codex transcript producer on legacy links", () => {
     render(<CodexSubagentTranscript sessionId={SESSION_ID} messages={messages()} />);
 
-    expect(screen.queryByRole("button", { name: /Preview q-/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Preview q-|the q-[0-9]+ thread/ })).toBeNull();
     expect(screen.getByRole("link", { name: "q-80" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "q-81 feedback #2" })).toBeInTheDocument();
   });

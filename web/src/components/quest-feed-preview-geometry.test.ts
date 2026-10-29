@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 
 import {
-  chooseQuestBlockSheetPlacement,
   chooseQuestRichPopoverPlacement,
-  chooseQuestSideSheetPlacement,
   chooseQuestTitlePlacement,
   collectNonEmptyClientRects,
   expandPreviewRect,
@@ -12,7 +10,6 @@ import {
   previewRectInsideViewport,
   previewRectsIntersect,
   rectFromEdges,
-  shortestCenterDistanceToSource,
   type PreviewRect,
 } from "./quest-feed-preview-geometry.js";
 
@@ -167,7 +164,7 @@ describe("quest feed preview geometry", () => {
     expect(placement).toBeNull();
   });
 
-  it("uses final rendered layer dimensions for rich placement and a right-edge-docked side sheet", () => {
+  it("places a rich popover from the final rendered layer dimensions", () => {
     const sourceRects = [rect(420, 270, 120, 24)];
     const triggerRect = rect(548, 268, 72, 28);
     const viewport = rect(0, 0, 1200, 640);
@@ -180,229 +177,5 @@ describe("quest feed preview geometry", () => {
         layerSize: { width: 520, height: 300 },
       }),
     ).not.toBeNull();
-
-    const sheet = chooseQuestSideSheetPlacement({
-      sourceRects: [...sourceRects, triggerRect],
-      viewport,
-      preferredWidth: 560,
-      minimumWidth: 280,
-      preferredHeight: 300,
-    });
-    expect(sheet).toMatchObject({ side: "right", top: 8, width: 560, maxHeight: 624 });
-    expect(sheet!.left + sheet!.width).toBe(viewport.right);
-    expect(sheet!.left).toBeGreaterThanOrEqual(triggerRect.right + 12);
-    const layer = placedRect(sheet!, sheet!.width, 300);
-    expect(
-      [...sourceRects, triggerRect].some((source) => previewRectsIntersect(layer, expandPreviewRect(source, 8))),
-    ).toBe(false);
-  });
-
-  it("docks a left side sheet to a non-zero visual viewport edge", () => {
-    const viewport = rect(100, 50, 900, 620);
-    const sourceRects = [rect(700, 260, 120, 24), rect(828, 258, 72, 28)];
-
-    const sheet = chooseQuestSideSheetPlacement({
-      sourceRects,
-      viewport,
-      preferredWidth: 480,
-      minimumWidth: 280,
-      preferredHeight: 260,
-    });
-
-    expect(sheet).toMatchObject({ side: "left", left: 100, top: 58, width: 480, maxHeight: 604 });
-    const layer = placedRect(sheet!, sheet!.width, 260);
-    expect(sourceRects.some((source) => previewRectsIntersect(layer, expandPreviewRect(source, 8)))).toBe(false);
-  });
-
-  it("uses rendered 150%-zoom dimensions with visual viewport offsets and remains right-edge docked", () => {
-    const zoom = 1.5;
-    const viewport = rect(120, 75, 960, 720);
-    const sourceRects = [rect(300, 300, 120, 30), rect(430, 296, 70, 42)];
-
-    const sheet = chooseQuestSideSheetPlacement({
-      sourceRects,
-      viewport,
-      preferredWidth: 560 * zoom,
-      minimumWidth: 280 * zoom,
-      preferredHeight: 300 * zoom,
-    });
-
-    expect(sheet).toMatchObject({ side: "right", left: 512, top: 83, width: 568, maxHeight: 704 });
-    expect(sheet!.left + sheet!.width).toBe(viewport.right);
-    const layer = placedRect(sheet!, sheet!.width, 300 * zoom);
-    expect(sourceRects.some((source) => previewRectsIntersect(layer, expandPreviewRect(source, 8)))).toBe(false);
-  });
-
-  it("moves a side sheet to the opposite block anchor rather than covering an interactive control", () => {
-    const viewport = rect(0, 0, 1000, 700);
-    const sourceRects = [rect(260, 320, 160, 28), rect(430, 316, 70, 36)];
-    const control = rect(620, 80, 180, 80);
-
-    const sheet = chooseQuestSideSheetPlacement({
-      sourceRects,
-      viewport,
-      preferredWidth: 420,
-      minimumWidth: 280,
-      preferredHeight: 300,
-      interactiveRects: [control],
-    });
-
-    expect(sheet).toMatchObject({ side: "right", left: 580, top: 392, width: 420 });
-    const layer = placedRect(sheet!, sheet!.width, 300);
-    expect(previewRectsIntersect(layer, expandPreviewRect(control, 4))).toBe(false);
-  });
-
-  it("rejects a wider side even when it has more room if visible controls occupy every legal anchor", () => {
-    const viewport = rect(0, 0, 1000, 700);
-    const sourceRects = [rect(360, 320, 160, 28), rect(530, 316, 70, 36)];
-    const rightTopControl = rect(650, 60, 250, 260);
-    const rightBottomControl = rect(650, 380, 250, 260);
-
-    const sheet = chooseQuestSideSheetPlacement({
-      sourceRects,
-      viewport,
-      preferredWidth: 320,
-      minimumWidth: 280,
-      preferredHeight: 300,
-      interactiveRects: [rightTopControl, rightBottomControl],
-    });
-
-    expect(sheet).toMatchObject({ side: "left", left: 0, width: 320 });
-  });
-
-  it("reports no side-sheet fit when neither side can avoid the source", () => {
-    expect(
-      chooseQuestSideSheetPlacement({
-        sourceRects: [rect(120, 40, 360, 40)],
-        viewport: rect(0, 0, 600, 500),
-        preferredWidth: 560,
-        minimumWidth: 280,
-        preferredHeight: 260,
-      }),
-    ).toBeNull();
-  });
-
-  it("fails closed when controls obstruct all otherwise legal side-sheet footprints", () => {
-    const viewport = rect(0, 0, 1200, 700);
-    const sourceRects = [rect(500, 330, 120, 28), rect(628, 326, 72, 36)];
-
-    expect(
-      chooseQuestSideSheetPlacement({
-        sourceRects,
-        viewport,
-        preferredWidth: 420,
-        minimumWidth: 280,
-        preferredHeight: 300,
-        interactiveRects: [rect(0, 0, 430, 700), rect(770, 0, 430, 700)],
-      }),
-    ).toBeNull();
-  });
-
-  it("uses a genuinely top-edge-docked block sheet when the upper region is the larger legal fallback", () => {
-    const viewport = rect(120, 75, 800, 600);
-    const sourceRects = [rect(340, 480, 160, 30), rect(510, 474, 72, 42)];
-
-    const sheet = chooseQuestBlockSheetPlacement({
-      sourceRects,
-      viewport,
-      preferredWidth: 600,
-      preferredHeight: 240,
-      minimumHeight: 120,
-    });
-
-    expect(sheet).toMatchObject({ edge: "top", left: 220, top: 75, width: 600, maxHeight: 387 });
-    const layer = placedRect(sheet!, sheet!.width, 240);
-    expect(layer.top).toBe(viewport.top);
-    expect(sourceRects.some((source) => previewRectsIntersect(layer, expandPreviewRect(source, 8)))).toBe(false);
-  });
-
-  it("uses a genuinely bottom-edge-docked block sheet when the lower region is the larger legal fallback", () => {
-    const viewport = rect(120, 75, 800, 600);
-    const sourceRects = [rect(340, 150, 160, 30), rect(510, 174, 72, 42)];
-
-    const sheet = chooseQuestBlockSheetPlacement({
-      sourceRects,
-      viewport,
-      preferredWidth: 600,
-      preferredHeight: 260,
-      minimumHeight: 120,
-    });
-
-    expect(sheet).toMatchObject({ edge: "bottom", left: 220, top: 415, width: 600, maxHeight: 447 });
-    const layer = placedRect(sheet!, sheet!.width, 260);
-    expect(layer.bottom).toBe(viewport.bottom);
-    expect(sourceRects.some((source) => previewRectsIntersect(layer, expandPreviewRect(source, 8)))).toBe(false);
-  });
-
-  it("slides a block-edge sheet along the edge to preserve a nearby interactive control", () => {
-    const viewport = rect(0, 0, 1000, 700);
-    const sourceRects = [rect(400, 280, 120, 28), rect(530, 276, 72, 36)];
-    const control = rect(300, 500, 100, 40);
-
-    const sheet = chooseQuestBlockSheetPlacement({
-      sourceRects,
-      viewport,
-      preferredWidth: 500,
-      preferredHeight: 240,
-      minimumHeight: 120,
-      interactiveRects: [control],
-    });
-
-    expect(sheet).toMatchObject({ edge: "bottom", left: 492, top: 460, width: 500 });
-    const layer = placedRect(sheet!, sheet!.width, 240);
-    expect(previewRectsIntersect(layer, expandPreviewRect(control, 4))).toBe(false);
-  });
-
-  it("uses the opposite block edge rather than tolerating an obstructed preferred edge", () => {
-    const viewport = rect(0, 0, 1000, 700);
-    const sourceRects = [rect(400, 300, 120, 28), rect(530, 296, 72, 36)];
-    const bottomControls = rect(0, 500, 1000, 40);
-
-    const sheet = chooseQuestBlockSheetPlacement({
-      sourceRects,
-      viewport,
-      preferredWidth: 500,
-      preferredHeight: 240,
-      minimumHeight: 120,
-      interactiveRects: [bottomControls],
-    });
-
-    expect(sheet).toMatchObject({ edge: "top", top: 0, width: 500 });
-  });
-
-  it("fails closed instead of choosing a half-viewport block fallback across source or controls", () => {
-    const viewport = rect(0, 0, 1000, 700);
-    const sourceRects = [rect(400, 300, 120, 28), rect(530, 296, 72, 36)];
-
-    expect(
-      chooseQuestBlockSheetPlacement({
-        sourceRects,
-        viewport,
-        preferredWidth: 500,
-        preferredHeight: 240,
-        minimumHeight: 120,
-        interactiveRects: [rect(0, 80, 1000, 40), rect(0, 540, 1000, 40)],
-      }),
-    ).toBeNull();
-  });
-
-  it("reports no block-sheet fit when expanded source geometry leaves neither edge tall enough", () => {
-    expect(
-      chooseQuestBlockSheetPlacement({
-        sourceRects: [rect(100, 110, 600, 280)],
-        viewport: rect(0, 0, 800, 500),
-        preferredWidth: 560,
-        preferredHeight: 260,
-        minimumHeight: 120,
-      }),
-    ).toBeNull();
-  });
-
-  it("measures Preview-center travel to the nearest point of any source fragment", () => {
-    const distance = shortestCenterDistanceToSource(rect(106, 40, 68, 28), [
-      rect(10, 10, 30, 18),
-      rect(80, 40, 20, 28),
-    ]);
-    expect(distance).toBe(40);
   });
 });

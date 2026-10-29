@@ -42,9 +42,7 @@ import {
 import { chooseLegacyQuestHoverPlacement } from "./quest-hover-card-placement.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
 import {
-  chooseQuestBlockSheetPlacement,
   chooseQuestRichPopoverPlacement,
-  chooseQuestSideSheetPlacement,
   chooseQuestTitlePlacement,
   collectNonEmptyClientRects,
   getVisualViewportRect,
@@ -58,7 +56,6 @@ const HOVER_ARM_MS = 250;
 const MICRO_LEAVE_GRACE_MS = 150;
 const TITLE_LOGICAL_WIDTH_PX = 320;
 const RICH_LOGICAL_WIDTH_PX = 560;
-const RICH_MIN_SIDE_WIDTH_PX = 280;
 const RICH_MAX_LOGICAL_HEIGHT_PX = 544;
 const NARROW_RICH_BREAKPOINT_PX = 640;
 const NEARBY_CONTROL_GAP_PX = 72;
@@ -82,9 +79,16 @@ function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterT
  * quest's record when loaded, else from a loaded board that holds it. Resolved like the preview's
  * Open Thread button.
  */
-function selectQuestThreadLeaderId(state: AppState, questId: string): string | null {
+function selectQuestThreadLeaderId(
+  state: AppState,
+  questId: string,
+  fetched: QuestmasterTask | null = null,
+): string | null {
   const quest =
-    state.questDetails?.get(questId) ?? findQuestById(state.quests ?? [], questId) ?? ({ questId } as QuestListPreview);
+    fetched ??
+    state.questDetails?.get(questId) ??
+    findQuestById(state.quests ?? [], questId) ??
+    ({ questId } as QuestListPreview);
   const context = findQuestJourneyContext(
     quest,
     state.sessionBoards,
@@ -92,6 +96,10 @@ function selectQuestThreadLeaderId(state: AppState, questId: string): string | n
     state.sessionBoardRowStatuses,
   );
   return resolveQuestSessionTargets(quest, context, state.sdkSessions).leaderSessionId;
+}
+
+function questRecordLoaded(state: AppState, questId: string): boolean {
+  return state.questDetails?.has(questId) === true || findQuestById(state.quests ?? [], questId) !== null;
 }
 
 type PreviewPhase = "idle" | "arming" | "micro" | "rich-loading" | "rich-ready" | "rich-error";
@@ -106,14 +114,6 @@ type RichPlacement =
       linkBridgeRect?: PreviewRect;
       iconBridgeRect?: PreviewRect;
     } & PreviewPlacement)
-  | {
-      kind: "side-sheet";
-      edge: "left" | "right" | "top" | "bottom";
-      left: number;
-      top: number;
-      width: number;
-      maxHeight: number;
-    }
   | { kind: "bottom-sheet"; left: number; top: number; width: number; maxHeight: number };
 
 type ActivePreviewOwner = { id: string; kind: "transient" | "rich"; close: () => void };
@@ -143,13 +143,10 @@ function isFineHoverPointer(pointerType: string): boolean {
   return pointerType === "mouse" || pointerType === "pen";
 }
 
-function hasCoarsePointerCapability(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia("(any-pointer: coarse)").matches;
-}
-
+// A preview opened by a touch or on a phone-width screen is a bottom sheet; otherwise it opens next
+// to its link, whatever pointers the device also has.
 function shouldUseBottomSheet(zoomLevel: number): boolean {
-  const viewport = getVisualViewportRect();
-  return viewport.width / zoomLevel < NARROW_RICH_BREAKPOINT_PX || hasCoarsePointerCapability();
+  return getVisualViewportRect().width / zoomLevel < NARROW_RICH_BREAKPOINT_PX;
 }
 
 function samePlacement(a: RichPlacement | null, b: RichPlacement | null): boolean {
@@ -357,6 +354,7 @@ export function QuestFeedInlineLink({
   const [richOpenMode, setRichOpenModeState] = useState<RichOpenMode | null>(null);
   const richOpenModeRef = useRef<RichOpenMode | null>(null);
   const epochRef = useRef(0);
+  const threadLookupRef = useRef(0);
   const hydrationEpochRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const hoverTargetsRef = useRef(new Set<ControlKey>());
@@ -373,7 +371,6 @@ export function QuestFeedInlineLink({
   const pendingPreviewPointerTypeRef = useRef<string | null>(null);
   const linkPointerTypeRef = useRef<string | null>(null);
   const hoverActivationPointerDownRef = useRef(false);
-  const pendingFocusedLinkRestoreRef = useRef(false);
   const suppressedUntilExitRef = useRef(false);
   const openingPointerRef = useRef<PreviewPoint | null>(null);
   const lastActivationPointerTypeRef = useRef<string | null>(null);
@@ -439,7 +436,6 @@ export function QuestFeedInlineLink({
       openingPointerRef.current = null;
       pendingPreviewPointerTypeRef.current = null;
       hoverActivationPointerDownRef.current = false;
-      pendingFocusedLinkRestoreRef.current = false;
       setRichPlacement(null);
       setRichError(null);
       setValidatedRichQuest(null);
@@ -539,7 +535,6 @@ export function QuestFeedInlineLink({
   const beginMicroIntent = useCallback(
     (kind: "source-pointer" | "focus", pointer?: PreviewPoint) => {
       if (phaseRef.current.startsWith("rich") || suppressedUntilExitRef.current) return;
-      pendingFocusedLinkRestoreRef.current = false;
       clearTimer(leaveTimerRef);
       if (!claimThisPreview("transient")) return;
       let epoch = epochRef.current;
@@ -571,7 +566,6 @@ export function QuestFeedInlineLink({
   const beginHoverRichPreview = useCallback(
     (pointerType: string) => {
       if (suppressedUntilExitRef.current) return;
-      pendingFocusedLinkRestoreRef.current = false;
       if (phaseRef.current.startsWith("rich") && richOpenModeRef.current === "explicit") return;
       clearTimer(armTimerRef);
       clearTimer(leaveTimerRef);
@@ -615,22 +609,14 @@ export function QuestFeedInlineLink({
     [beginHoverRichPreview],
   );
 
-  const closeHoverRichAndRestoreLinkFocus = useCallback(
-    (deferWhileLinkHovered = false) => {
-      const restoreLinkFocus =
-        !suppressedUntilExitRef.current &&
-        focusTargetsRef.current.has("link") &&
-        document.activeElement === linkRef.current;
-      closeAllRef.current(false);
-      if (!restoreLinkFocus) return;
-      if (deferWhileLinkHovered && hoverTargetsRef.current.has("link")) {
-        pendingFocusedLinkRestoreRef.current = true;
-        return;
-      }
-      beginMicroIntent("focus");
-    },
-    [beginMicroIntent],
-  );
+  const closeHoverRichAndRestoreLinkFocus = useCallback(() => {
+    const restoreLinkFocus =
+      !suppressedUntilExitRef.current &&
+      focusTargetsRef.current.has("link") &&
+      document.activeElement === linkRef.current;
+    closeAllRef.current(false);
+    if (restoreLinkFocus) beginMicroIntent("focus");
+  }, [beginMicroIntent]);
 
   const scheduleTransientClose = useCallback(() => {
     clearTimer(leaveTimerRef);
@@ -709,16 +695,6 @@ export function QuestFeedInlineLink({
     (control: ControlKey, event: PointerEvent<HTMLElement>) => {
       hoverTargetsRef.current.delete(control);
       if (control === "link") clearTimer(richArmTimerRef);
-      if (control === "link" && pendingFocusedLinkRestoreRef.current) {
-        pendingFocusedLinkRestoreRef.current = false;
-        if (
-          !suppressedUntilExitRef.current &&
-          focusTargetsRef.current.has("link") &&
-          document.activeElement === linkRef.current
-        ) {
-          beginMicroIntent("focus");
-        }
-      }
       const relatedControl =
         event.relatedTarget instanceof Element
           ? event.relatedTarget.closest<HTMLElement>(FOCUSABLE_CONTROL_SELECTOR)
@@ -755,7 +731,7 @@ export function QuestFeedInlineLink({
         scheduleTransientClose();
       }
     },
-    [beginMicroIntent, closeHoverRichAndRestoreLinkFocus, hitProxySelector, scheduleTransientClose],
+    [closeHoverRichAndRestoreLinkFocus, hitProxySelector, scheduleTransientClose],
   );
 
   const handleFocus = useCallback(
@@ -828,7 +804,6 @@ export function QuestFeedInlineLink({
 
   const openExplicitRichPreview = useCallback(
     (activationPointerType: string) => {
-      pendingFocusedLinkRestoreRef.current = false;
       claimThisPreview("rich");
       pendingPreviewPointerTypeRef.current = null;
       hoverActivationPointerDownRef.current = false;
@@ -862,24 +837,44 @@ export function QuestFeedInlineLink({
   );
 
   // The icon after the link goes to the quest's thread in its leader, like the preview's Open Thread;
-  // hovering it shows only the title card. With no known thread, or inside that thread already, it
-  // opens the preview instead, whose Open quest goes on to the quest.
+  // hovering it shows only the title card. When the browser holds nothing about the quest it looks the
+  // quest up first. Inside that thread already it does nothing (it is shown dimmed); only a quest known
+  // to have no thread opens the preview instead, whose Open quest goes on to the quest.
   const activateTrigger = useCallback(
     (event: MouseEvent<HTMLElement>) => {
       if (stopPropagation) event.stopPropagation();
+      const activationPointerType = pendingPreviewPointerTypeRef.current ?? (event.detail === 0 ? "keyboard" : "mouse");
+      const goToThread = (fetched: QuestmasterTask | null = null) => {
+        const state = useStore.getState();
+        const leaderSessionId = selectQuestThreadLeaderId(state, normalizedQuestId, fetched);
+        if (!leaderSessionId) {
+          openExplicitRichPreview(activationPointerType);
+          return;
+        }
+        if (isSessionThreadRoute(window.location.hash, leaderSessionId, normalizedQuestId)) return;
+        const leaderSessionNum = state.sdkSessions.find((session) => session.sessionId === leaderSessionId)?.sessionNum;
+        closeAllRef.current(false);
+        navigateToSessionThread(leaderSessionId, normalizedQuestId, false, leaderSessionNum ?? leaderSessionId);
+        onNavigate?.();
+        onSessionNavigate?.();
+      };
       const state = useStore.getState();
-      const leaderSessionId = selectQuestThreadLeaderId(state, normalizedQuestId);
-      if (!leaderSessionId || isSessionThreadRoute(window.location.hash, leaderSessionId, normalizedQuestId)) {
-        openExplicitRichPreview(pendingPreviewPointerTypeRef.current ?? (event.detail === 0 ? "keyboard" : "mouse"));
+      if (selectQuestThreadLeaderId(state, normalizedQuestId) || questRecordLoaded(state, normalizedQuestId)) {
+        goToThread();
         return;
       }
-      const leaderSessionNum = state.sdkSessions.find((session) => session.sessionId === leaderSessionId)?.sessionNum;
-      closeAllRef.current(false);
-      navigateToSessionThread(leaderSessionId, normalizedQuestId, false, leaderSessionNum ?? leaderSessionId);
-      onNavigate?.();
-      onSessionNavigate?.();
+      // Going to another page meanwhile, or clicking again, drops this lookup's jump.
+      const request = ++threadLookupRef.current;
+      const requestedHash = window.location.hash;
+      void Promise.resolve()
+        .then(() => loadQuest(questId))
+        .catch(() => null)
+        .then((fetched) => {
+          if (!mountedRef.current || threadLookupRef.current !== request) return;
+          if (window.location.hash === requestedHash) goToThread(fetched);
+        });
     },
-    [normalizedQuestId, onNavigate, onSessionNavigate, openExplicitRichPreview, stopPropagation],
+    [loadQuest, normalizedQuestId, onNavigate, onSessionNavigate, openExplicitRichPreview, questId, stopPropagation],
   );
 
   const openQuestView = useCallback(() => {
@@ -1027,70 +1022,28 @@ export function QuestFeedInlineLink({
         return;
       }
 
-      const popover = chooseQuestRichPopoverPlacement({
-        sourceRects,
-        triggerRect,
-        layerSize: { width: richRect.width, height: richRect.height },
-        interactiveRects: nearbyInteractiveRects,
-        viewport,
-      });
-      if (popover) {
-        updateIfChanged(
-          setRichPlacement,
-          { kind: "popover", ...popover, width: RICH_LOGICAL_WIDTH_PX, maxHeight: maxLogicalHeight },
-          samePlacement,
-        );
-        return;
-      }
-
-      const sideSheet = chooseQuestSideSheetPlacement({
-        sourceRects: [...sourceRects, triggerRect],
-        viewport,
-        preferredWidth: richRect.width,
-        preferredHeight: richRect.height,
-        minimumWidth: RICH_MIN_SIDE_WIDTH_PX * zoomLevel,
-        interactiveRects: nearbyInteractiveRects,
-      });
-      if (sideSheet) {
-        const placement: RichPlacement = {
-          kind: "side-sheet",
-          edge: sideSheet.side,
-          left: sideSheet.left,
-          top: sideSheet.top,
-          width: sideSheet.width / zoomLevel,
-          maxHeight: sideSheet.maxHeight / zoomLevel,
-        };
-        updateIfChanged(setRichPlacement, placement, samePlacement);
-        return;
-      }
-
-      const blockSheet = chooseQuestBlockSheetPlacement({
-        sourceRects: [...sourceRects, triggerRect],
-        interactiveRects: nearbyInteractiveRects,
-        viewport,
-        preferredWidth: Math.min(richRect.width, viewport.width - 16),
-        preferredHeight: richRect.height,
-        minimumHeight: Math.min(120 * zoomLevel, Math.max(1, viewport.height / 4)),
-      });
-      if (blockSheet) {
-        const placement: RichPlacement = {
-          kind: "side-sheet",
-          edge: blockSheet.edge,
-          left: blockSheet.left,
-          top: blockSheet.top,
-          width: blockSheet.width / zoomLevel,
-          maxHeight: blockSheet.maxHeight / zoomLevel,
-        };
-        updateIfChanged(setRichPlacement, placement, samePlacement);
-        return;
-      }
-      if (explicitRich) {
-        placeBottomSheet();
-        return;
-      }
-      closeHoverRichAndRestoreLinkFocus(true);
+      // Beside the icon, clear of nearby controls when there is room; otherwise like a hover card
+      // under the icon, covering whatever it must rather than moving away from the link.
+      const popover =
+        chooseQuestRichPopoverPlacement({
+          sourceRects,
+          triggerRect,
+          layerSize: { width: richRect.width, height: richRect.height },
+          interactiveRects: nearbyInteractiveRects,
+          viewport,
+        }) ??
+        chooseLegacyQuestHoverPlacement({
+          anchorRect: triggerRect,
+          layerSize: { width: richRect.width, height: richRect.height },
+          viewport,
+        });
+      updateIfChanged(
+        setRichPlacement,
+        { kind: "popover", ...popover, width: RICH_LOGICAL_WIDTH_PX, maxHeight: maxLogicalHeight },
+        samePlacement,
+      );
     }
-  }, [canonicalTitle, closeHoverRichAndRestoreLinkFocus, zoomLevel]);
+  }, [canonicalTitle, zoomLevel]);
 
   collectGeometryRef.current = collectGeometry;
 
@@ -1205,13 +1158,17 @@ export function QuestFeedInlineLink({
   usePreviewSheetHistoryEntry(richOpen && richPlacement?.kind === "bottom-sheet", richRef, () =>
     closeAllRef.current(false),
   );
-  const jumpsToThread =
-    threadLeaderSessionId !== null && !isSessionThreadRoute(hash, threadLeaderSessionId, normalizedQuestId);
-  const triggerAccessibleLabel = jumpsToThread
-    ? `Open the ${questId} thread${canonicalTitle ? `: ${canonicalTitle}` : ""}`
-    : canonicalTitle
-      ? `Preview ${targetLabel}: ${canonicalTitle}`
-      : `Preview ${targetLabel}`;
+  // What the icon does (see activateTrigger): a quest the browser does not know yet is looked up first
+  // and is labelled by its likely thread.
+  const inThread =
+    threadLeaderSessionId !== null && isSessionThreadRoute(hash, threadLeaderSessionId, normalizedQuestId);
+  const previews = threadLeaderSessionId === null && quest !== null;
+  const titleSuffix = canonicalTitle ? `: ${canonicalTitle}` : "";
+  const triggerAccessibleLabel = inThread
+    ? `Already in the ${questId} thread${titleSuffix}`
+    : previews
+      ? `Preview ${targetLabel}${titleSuffix}`
+      : `Open the ${questId} thread${titleSuffix}`;
   return (
     <>
       <span className="cc-feed-quest-link-pair" data-testid="quest-feed-link-pair">
@@ -1252,7 +1209,8 @@ export function QuestFeedInlineLink({
           type="button"
           className="cc-feed-quest-preview-trigger"
           aria-label={triggerAccessibleLabel}
-          aria-haspopup={jumpsToThread ? undefined : "dialog"}
+          aria-haspopup={previews ? "dialog" : undefined}
+          aria-disabled={inThread || undefined}
           aria-expanded={richOpen && richOpenMode === "explicit"}
           aria-controls={dialogId}
           data-rich-open-mode={richOpenMode ?? undefined}
@@ -1282,19 +1240,7 @@ export function QuestFeedInlineLink({
           }}
           onClick={activateTrigger}
         >
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="8" cy="8" r="7" />
-            <path d="M4.5 8h6.5" />
-            <path d="M8 5l3 3-3 3" />
-          </svg>
+          <QuestThreadIcon />
         </button>
       </span>
       {richOpenMode === "hover" &&
@@ -1423,6 +1369,25 @@ export function QuestFeedInlineLink({
           document.body,
         )}
     </>
+  );
+}
+
+/** The circled arrow after a feed quest link, which goes to the quest's thread. */
+export function QuestThreadIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="7" />
+      <path d="M4.5 8h6.5" />
+      <path d="M8 5l3 3-3 3" />
+    </svg>
   );
 }
 
@@ -1578,18 +1543,7 @@ const QuestFeedRichPreview = forwardRef<
       data-testid="quest-feed-rich-preview"
       data-surface={placement?.kind ?? "measuring"}
       data-open-mode={openMode}
-      data-edge={placement?.kind === "side-sheet" ? placement.edge : undefined}
-      className={`fixed z-[82] overflow-y-auto rounded-xl border border-cc-border bg-cc-card px-3 py-2.5 text-left shadow-xl focus:outline-none ${
-        placement?.kind === "side-sheet"
-          ? placement.edge === "right"
-            ? "rounded-r-none"
-            : placement.edge === "left"
-              ? "rounded-l-none"
-              : placement.edge === "top"
-                ? "rounded-t-none"
-                : "rounded-b-none"
-          : ""
-      }`}
+      className="fixed z-[82] overflow-y-auto rounded-xl border border-cc-border bg-cc-card px-3 py-2.5 text-left shadow-xl focus:outline-none"
       style={style}
       onKeyDown={handleKeyDown}
       onPointerEnter={onPointerEnter}

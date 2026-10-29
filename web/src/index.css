@@ -145,6 +145,16 @@ html, body {
   color: var(--cc-feed-preview-link-color, var(--color-cc-quest-link));
 }
 
+/* Already in this quest's thread: the icon has nowhere to go. */
+.cc-feed-quest-preview-trigger[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cc-feed-quest-preview-trigger[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
 .cc-feed-quest-preview-trigger:focus-visible {
   outline: 2px solid
     color-mix(in srgb, var(--cc-feed-preview-link-color, var(--color-cc-quest-link)) 55%, transparent);

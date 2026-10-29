@@ -137,7 +137,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(live).toHaveAttribute("data-preview-fixture-state", "idle");
     expect(within(live).getByRole("link", { name: "q-9410 feedback #4" })).toBeInTheDocument();
     const idleEye = within(live).getByRole("button", {
-      name: /Preview q-9410 feedback #4/,
+      name: /the q-9410 thread/,
     });
     expect(idleEye).toHaveAttribute("aria-expanded", "false");
     expect(idleEye.querySelector("svg")).toBeInTheDocument();
@@ -182,7 +182,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     });
     live = within(section).getByTestId("playground-inline-quest-preview-live");
     expect(within(live).getByRole("link")).toHaveTextContent("deliberately long wrapped exact-target label");
-    expect(within(live).getByRole("button", { name: /Preview q-9412 feedback #4/ })).toBeEnabled();
+    expect(within(live).getByRole("button", { name: /the q-9412 thread/ })).toBeEnabled();
     expect(within(live).getByRole("status")).toHaveTextContent("optional title layer is omitted");
 
     const richControl = within(controls).getByRole("button", {
@@ -239,10 +239,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       expect(dialog).toHaveFocus();
     });
     live = within(section).getByTestId("playground-inline-quest-preview-live");
-    expect(within(live).getByRole("button", { name: /Preview q-9415 feedback #4/ })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    expect(within(live).getByRole("button", { name: /the q-9415 thread/ })).toHaveAttribute("aria-expanded", "true");
 
     fireEvent.click(
       within(controls).getByRole("button", {
@@ -255,7 +252,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       expect(dialog).toHaveAttribute("data-surface", "bottom-sheet");
     });
     live = within(section).getByTestId("playground-inline-quest-preview-live");
-    expect(within(live).getByRole("button", { name: /Preview q-9416 feedback #4/ })).toHaveClass(
+    expect(within(live).getByRole("button", { name: /the q-9416 thread/ })).toHaveClass(
       "cc-feed-quest-preview-trigger-force-coarse",
     );
 
@@ -329,7 +326,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     const legacy = screen.getByTestId("playground-inline-quest-preview-legacy-boundary");
     const feedLink = within(feed).getByRole("link", { name: "q-9410 feedback #4" });
     const feedEye = within(feed).getByRole("button", {
-      name: /Preview q-9410 feedback #4/,
+      name: /the q-9410 thread/,
     });
     const feedPair = feedLink.closest<HTMLElement>(".cc-feed-quest-link-pair");
     // This constrained real-Markdown fixture is the browser-visible wrapping
@@ -340,7 +337,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(feedEye.querySelector("svg")).toBeInTheDocument();
     expect(feedEye).not.toHaveTextContent("Preview");
     expect(within(legacy).getByRole("link", { name: "q-9410 feedback #4" })).toBeInTheDocument();
-    expect(within(legacy).queryByRole("button", { name: /Preview q-/ })).toBeNull();
+    expect(within(legacy).queryByRole("button", { name: /Preview q-|the q-[0-9]+ thread/ })).toBeNull();
   });
 
   it("shows standard-blue and inline-quiz-orange eyes matching their own adjacent links", async () => {
@@ -359,9 +356,9 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     const bluePair = screen.getByTestId("playground-inline-quest-preview-blue-color");
     const orangePair = screen.getByTestId("playground-inline-quest-preview-orange-color");
     const blueLink = within(bluePair).getByRole("link", { name: "q-9410" });
-    const blueEye = within(bluePair).getByRole("button", { name: /Preview q-9410/ });
+    const blueEye = within(bluePair).getByRole("button", { name: /the q-9410 thread/ });
     const orangeLink = within(orangePair).getByRole("link", { name: "q-9410" });
-    const orangeEye = within(orangePair).getByRole("button", { name: /Preview q-9410/ });
+    const orangeEye = within(orangePair).getByRole("button", { name: /the q-9410 thread/ });
     const orangeLinkPair = orangeLink.closest<HTMLElement>(".cc-feed-quest-link-pair");
 
     // The screenshot-shaped constrained quiz host must see one pair child,

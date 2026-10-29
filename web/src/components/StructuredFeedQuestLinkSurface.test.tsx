@@ -30,7 +30,7 @@ function message(overrides: Partial<ChatMessage> & Pick<ChatMessage, "id" | "rol
 function expectPreview(questId: string) {
   expect(
     screen.getByRole("button", {
-      name: new RegExp(`Preview ${questId}(?:$|:)`),
+      name: new RegExp(`Open the ${questId} thread(?:$|:)`),
     }),
   ).toBeInTheDocument();
 }
@@ -74,7 +74,7 @@ describe("structured chat-feed quest-link producers", () => {
 
     expectPreview("q-202");
     const quizQuestLink = screen.getByRole("link", { name: "q-202" });
-    const quizQuestEye = screen.getByRole("button", { name: /Preview q-202/ });
+    const quizQuestEye = screen.getByRole("button", { name: /the q-202 thread/ });
     const quizQuestPair = quizQuestLink.closest<HTMLElement>(".cc-feed-quest-link-pair");
     // The quiz header is a flex layout. The wrapper must be its one cohesive
     // child so wrapping or available width cannot distribute the link and eye
@@ -113,8 +113,8 @@ describe("structured chat-feed quest-link producers", () => {
       name: "Quest details: Claimed producer",
     });
     expect(within(dialog).getByRole("link", { name: "q-205" })).toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: /Preview q-205/ })).toBeNull();
-    expect(screen.getAllByRole("button", { name: /Preview q-205/ })).toHaveLength(1);
+    expect(within(dialog).queryByRole("button", { name: /the q-205 thread/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /the q-205 thread/ })).toHaveLength(1);
   });
 
   it("opts expanded timer reminder Markdown into the feed surface", () => {

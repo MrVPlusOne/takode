@@ -68,7 +68,7 @@ describe("Journey proposal approval card", () => {
       `#/session/${sessionId}?quest=q-42&feedback=3`,
     );
     expect(screen.getByRole("link", { name: "the discussion" })).toHaveAttribute("href", "#/session/5?msg=12");
-    expect(screen.getByRole("button", { name: "Preview q-42 feedback #3" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the q-42 thread" })).toBeInTheDocument();
     expect(view.container.querySelector("script")).toBeNull();
     expect(view.container.querySelector('a[href^="javascript:"]')).toBeNull();
     expect(screen.getAllByText("Final approval question: proceed with these terms?")).toHaveLength(1);

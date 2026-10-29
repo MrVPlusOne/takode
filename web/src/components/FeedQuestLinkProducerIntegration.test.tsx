@@ -21,8 +21,11 @@ function message(overrides: Partial<ChatMessage> & Pick<ChatMessage, "id" | "rol
   };
 }
 
+/** The feed-only icon after the link shows that this producer opted the link into the chat-feed surface. */
 function expectPreview(questId: string) {
-  expect(screen.getByRole("button", { name: new RegExp(`Preview ${questId}(?:$|:)`) })).toBeInTheDocument();
+  expect(
+    document.querySelector(`[data-testid="quest-feed-preview-button"][data-quest-id="${questId}"]`),
+  ).toBeInTheDocument();
 }
 
 function renderProducerEntries(messages: ChatMessage[]) {
