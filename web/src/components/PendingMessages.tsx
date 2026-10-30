@@ -199,8 +199,10 @@ function uploadItem(sessionId: string, upload: PendingUserUpload): PendingInputI
   const restoreToDraft = () => {
     const store = useStore.getState();
     store.removePendingUserUpload(sessionId, upload.id);
-    store.setComposerDraft(sessionId, { text: upload.content, images: upload.images, annotations: upload.annotations });
-    store.setReplyContext(sessionId, upload.replyContext ?? null);
+    // Back into the composer it was sent from (a side chat's, or the main one).
+    const draftKey = upload.draftKey ?? sessionId;
+    store.setComposerDraft(draftKey, { text: upload.content, images: upload.images, annotations: upload.annotations });
+    store.setReplyContext(draftKey, upload.replyContext ?? null);
     store.focusComposer();
   };
 

@@ -63,6 +63,44 @@ function openNewComment() {
 }
 
 describe("composer annotation attachments", () => {
+  it("saves a comment in the composer of the conversation it was made in, with a side chat open", () => {
+    // Jiayi's bug: with a side chat in the side column, a comment on the main feed landed in the side
+    // chat's composer, so it seemed to vanish on Save. Each composer shows only comments for its draft.
+    const sideKey = "session#side:topic:aaaa0001";
+    useStore.getState().setAnnotationEditor({ sessionId: "session", draftKey: "session", annotation: second });
+    render(
+      <>
+        <ComposerAnnotations sessionId="session" threadKey="q-1" />
+        <ComposerAnnotations sessionId="session" draftKey={sideKey} threadKey="topic:aaaa0001" />
+      </>,
+    );
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "On the main answer" } });
+    fireEvent.click(screen.getByText("Save"));
+    expect(
+      useStore
+        .getState()
+        .composerDrafts.get("session")
+        ?.annotations?.map((entry) => entry.comment),
+    ).toEqual(["First comment", "On the main answer"]);
+    expect(useStore.getState().composerDrafts.get(sideKey)).toBeUndefined();
+
+    // And one made in the side chat goes to the side chat's composer.
+    act(() =>
+      useStore
+        .getState()
+        .setAnnotationEditor({ sessionId: "session", draftKey: sideKey, annotation: { ...second, id: "third" } }),
+    );
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "On the side chat" } });
+    fireEvent.click(screen.getByText("Save"));
+    expect(
+      useStore
+        .getState()
+        .composerDrafts.get(sideKey)
+        ?.annotations?.map((entry) => entry.comment),
+    ).toEqual(["On the side chat"]);
+  });
+
   it("saves, edits and removes pairs without expanding the main text draft", () => {
     // All mutations are browser-local drafts; no message is admitted until the existing send path runs.
     openNewComment();

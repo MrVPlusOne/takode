@@ -9,6 +9,7 @@ import type { TextSelectionState } from "../hooks/useTextSelection.js";
 import { useLeaderTopicsOn } from "../utils/leader-topics.js";
 import { openInSide, sideChatOrigin } from "../utils/side-column.js";
 import { newSideChatDraftKey } from "./side-column/NewSideChat.js";
+import { useComposerTarget } from "./composer-target.js";
 
 interface SelectionContextMenuProps {
   selection: TextSelectionState;
@@ -32,10 +33,13 @@ export function formatSelectedTextAsBlockquote(text: string): string | null {
  * with four formats: rich text, for Slack, Markdown and plain text.
  */
 export function SelectionContextMenu({ selection, sessionId, onClose }: SelectionContextMenuProps) {
+  // The comment goes to the composer of the conversation the passage is in (main or side).
+  const draftKey = useComposerTarget(sessionId);
   const handleComment = useCallback(() => {
     if (!selection.plainText.trim()) return;
     useStore.getState().setAnnotationEditor({
       sessionId,
+      draftKey,
       annotation: {
         id: crypto.randomUUID(),
         selectedText: selection.plainText,
@@ -46,7 +50,7 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
     });
     selection.clear();
     onClose();
-  }, [selection, sessionId, onClose]);
+  }, [selection, sessionId, draftKey, onClose]);
 
   const handleCopyRichText = useCallback(() => {
     if (!selection.range) return;

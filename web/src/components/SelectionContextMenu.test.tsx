@@ -14,6 +14,7 @@ import { useSideColumnStore } from "../utils/side-column.js";
 import { markLeaderThreadDisplayed } from "../utils/thread-viewport.js";
 import { newSideChatDraftKey } from "./side-column/NewSideChat.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
+import { ComposerTargetContext } from "./composer-target.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
 
 const written: Array<Record<string, string>> = [];
@@ -152,6 +153,45 @@ describe("Ask in side chat", () => {
       message.remove();
       useSideColumnStore.setState({ columns: {} });
       localStorage.clear();
+    }
+  });
+});
+
+describe("Comment", () => {
+  it("opens the editor for the composer of the conversation the passage is in", () => {
+    // A passage in a side chat's feed comments into the side chat's composer; one in the main feed
+    // (no provider) into the session's main composer.
+    const message = document.createElement("p");
+    message.textContent = "A passage";
+    document.body.appendChild(message);
+    const range = document.createRange();
+    range.selectNodeContents(message);
+    const selection = {
+      isActive: true,
+      plainText: "A passage",
+      range,
+      position: { x: 10, y: 10 },
+      clear: vi.fn(),
+      dismiss: vi.fn(),
+    };
+    try {
+      const view = render(<SelectionContextMenu sessionId="s1" onClose={vi.fn()} selection={selection} />);
+      fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+      expect(useStore.getState().annotationEditor).toEqual(
+        expect.objectContaining({ sessionId: "s1", draftKey: "s1" }),
+      );
+      view.unmount();
+
+      render(
+        <ComposerTargetContext.Provider value="s1#side:topic:aaaa0001">
+          <SelectionContextMenu sessionId="s1" onClose={vi.fn()} selection={selection} />
+        </ComposerTargetContext.Provider>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+      expect(useStore.getState().annotationEditor?.draftKey).toBe("s1#side:topic:aaaa0001");
+    } finally {
+      message.remove();
+      useStore.getState().setAnnotationEditor(null);
     }
   });
 });

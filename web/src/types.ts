@@ -388,6 +388,8 @@ export interface PendingUserUpload {
   vscodeSelection?: VsCodeSelectionMetadata;
   threadKey?: string;
   questId?: string;
+  /** The composer it was sent from, when not the session's main one (a side chat's): Edit puts it back there. */
+  draftKey?: string;
   prepared?: {
     deliveryContent: string;
     imageRefs: ImageRef[];
@@ -414,6 +416,8 @@ export interface ComposerDraft {
 
 export interface AnnotationEditorState {
   threadKey?: string;
+  /** The composer the comment goes to, by its draft key (see ComposerTargetContext); unset: any of the session's. */
+  draftKey?: string;
   navigateToSource?: boolean;
   sourceUnavailable?: boolean;
   sessionId: string;

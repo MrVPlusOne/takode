@@ -3,6 +3,7 @@ import type { ConversationAnnotation } from "../../shared/conversation-annotatio
 import { useStore } from "../store.js";
 import { annotationHighlightPath, annotationPassageRects, resolveAnnotationRange } from "./annotation-passages.js";
 import { useAnnotationPreview } from "./use-annotation-preview.js";
+import { useComposerTarget } from "./composer-target.js";
 
 interface Rect {
   left: number;
@@ -28,10 +29,16 @@ export function AnnotationSourceMarkers({
   messageId: string;
   contentRef?: RefObject<HTMLDivElement | null>;
 }) {
+  // The comments of the composer this conversation writes into (a side chat's, or the main one).
+  const draftKey = useComposerTarget(sessionId ?? "");
   const annotations = useStore((state) =>
-    sessionId ? (state.composerDrafts.get(sessionId)?.annotations ?? EMPTY) : EMPTY,
+    sessionId ? (state.composerDrafts.get(draftKey)?.annotations ?? EMPTY) : EMPTY,
   );
-  const editor = useStore((state) => (state.annotationEditor?.sessionId === sessionId ? state.annotationEditor : null));
+  const editor = useStore((state) =>
+    state.annotationEditor?.sessionId === sessionId && (state.annotationEditor?.draftKey ?? sessionId) === draftKey
+      ? state.annotationEditor
+      : null,
+  );
   const highlightedId = useStore((state) =>
     state.annotationHover?.sessionId === sessionId ? state.annotationHover?.annotationId : undefined,
   );
@@ -131,7 +138,13 @@ export function AnnotationSourceMarkers({
         if (!position) return null;
         return (
           <div key={annotation.id}>
-            <PassageMarker annotation={annotation} number={number} sessionId={sessionId} position={position} />
+            <PassageMarker
+              annotation={annotation}
+              number={number}
+              sessionId={sessionId}
+              draftKey={draftKey}
+              position={position}
+            />
           </div>
         );
       })}
@@ -143,11 +156,13 @@ function PassageMarker({
   annotation,
   number,
   sessionId,
+  draftKey,
   position,
 }: {
   annotation: ConversationAnnotation;
   number: number;
   sessionId: string;
+  draftKey: string;
   position: Position;
 }) {
   const { preview, triggerProps, close } = useAnnotationPreview(annotation, number, sessionId);
@@ -165,7 +180,9 @@ function PassageMarker({
         onClick={(event) => {
           close();
           const rect = event.currentTarget.getBoundingClientRect();
-          useStore.getState().setAnnotationEditor({ sessionId, annotation, position: { x: rect.left, y: rect.top } });
+          useStore
+            .getState()
+            .setAnnotationEditor({ sessionId, draftKey, annotation, position: { x: rect.left, y: rect.top } });
         }}
       >
         {number}

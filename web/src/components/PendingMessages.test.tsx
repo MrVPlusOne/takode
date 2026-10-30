@@ -107,6 +107,17 @@ describe("PendingMessages", () => {
     expect(useStore.getState().pendingUserUploads.get(SID)).toBeUndefined();
   });
 
+  it("puts Edit's text back in the side chat's composer it was sent from", () => {
+    // Sent from a side chat in the side column: Edit returns it there, not to the main composer.
+    const sideKey = `${SID}#side:topic:aaaa0001`;
+    const failed = upload({ stage: "failed", error: "Connection lost before delivery.", draftKey: sideKey });
+    useStore.getState().addPendingUserUpload(SID, failed);
+    render(<PendingMessages sessionId={SID} uploads={[failed]} codexInputs={[]} />);
+    fireEvent.click(within(itemFor("Local send")).getByRole("button", { name: "Edit" }));
+    expect(useStore.getState().composerDrafts.get(sideKey)?.text).toBe("Local send");
+    expect(useStore.getState().composerDrafts.get(SID)).toBeUndefined();
+  });
+
   it("labels a failed server input Edit only in the browser that keeps its draft", () => {
     const failed = codexInput({
       clientMsgId: "client-1",

@@ -1,3 +1,4 @@
+import { useComposerTarget } from "./composer-target.js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MouseEvent, SyntheticEvent } from "react";
 import { api } from "../api.js";
@@ -66,6 +67,8 @@ export function NotificationMarker({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
 }) {
+  // A reply quote goes to the composer of the conversation the marker is in (main or side).
+  const replyTarget = useComposerTarget(sessionId ?? "");
   const isAction = category === "needs-input";
   const isReview = category === "review";
   const label = summary || (isAction ? "Needs input" : isReview ? "Ready for review" : "Waiting");
@@ -157,7 +160,7 @@ export function NotificationMarker({
         currentThreadKey,
         onSelectThread,
         action: () => {
-          useStore.getState().setReplyContext(sessionId, {
+          useStore.getState().setReplyContext(replyTarget, {
             ...(messageId ? { messageId } : {}),
             ...(liveNotif ? { notificationId: liveNotif.id } : {}),
             previewText,
@@ -166,7 +169,7 @@ export function NotificationMarker({
         },
       });
     },
-    [sessionId, notificationId, messageId, label, notif, category, currentThreadKey, onSelectThread],
+    [sessionId, notificationId, messageId, label, notif, category, currentThreadKey, onSelectThread, replyTarget],
   );
 
   const sendQuickReply = useCallback(

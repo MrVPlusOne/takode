@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { useStore } from "../store.js";
+import { useComposerTarget } from "./composer-target.js";
 
 const NO_COMMENTS: ConversationAnnotation[] = [];
 
@@ -11,7 +12,9 @@ const NO_COMMENTS: ConversationAnnotation[] = [];
  * the reply is on its way stay pending.
  */
 export function usePendingReplyComments(sessionId: string | undefined) {
-  const pending = useStore((s) => (sessionId ? s.composerDrafts.get(sessionId)?.annotations : undefined));
+  // The comments of the composer of the conversation the card is in (a side chat's, or the main one).
+  const draftKey = useComposerTarget(sessionId ?? "");
+  const pending = useStore((s) => (sessionId ? s.composerDrafts.get(draftKey)?.annotations : undefined));
   const comments = pending ?? NO_COMMENTS;
   const [checked, setChecked] = useState(false);
   const include = checked && comments.length > 0;
@@ -23,16 +26,16 @@ export function usePendingReplyComments(sessionId: string | undefined) {
       if (!sessionId || !sent?.length) return;
       const ids = new Set(sent.map((comment) => comment.id));
       const state = useStore.getState();
-      const current = state.composerDrafts.get(sessionId);
+      const current = state.composerDrafts.get(draftKey);
       if (current?.annotations?.some((comment) => ids.has(comment.id)))
-        state.setComposerDraft(sessionId, {
+        state.setComposerDraft(draftKey, {
           ...current,
           annotations: current.annotations.filter((comment) => !ids.has(comment.id)),
         });
       const editor = state.annotationEditor;
       if (editor?.sessionId === sessionId && ids.has(editor.annotation.id)) state.setAnnotationEditor(null);
     },
-    [sessionId],
+    [sessionId, draftKey],
   );
 
   return {

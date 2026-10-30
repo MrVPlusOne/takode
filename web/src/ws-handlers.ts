@@ -955,12 +955,14 @@ function handleParsedMessage(
       const hasServerImages = Boolean(data.input.imageRefs?.length);
       const hasRestorableImages = Boolean(data.input.draftImages?.length || restoredUpload?.images.length);
       if (!hasServerImages || hasRestorableImages) {
-        store.setComposerDraft(sessionId, {
+        // Back into the composer it was sent from, when known (a side chat's), else the main one.
+        const draftKey = restoredUpload?.draftKey ?? sessionId;
+        store.setComposerDraft(draftKey, {
           text: data.input.content,
           annotations: data.input.annotations ?? restoredUpload?.annotations,
           images: fallbackImages,
         });
-        store.setReplyContext(sessionId, data.input.replyContext ?? restoredUpload?.replyContext ?? null);
+        store.setReplyContext(draftKey, data.input.replyContext ?? restoredUpload?.replyContext ?? null);
       }
       break;
     }

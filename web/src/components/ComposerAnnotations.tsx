@@ -3,6 +3,26 @@ import { useEffect } from "react";
 import { useStore } from "../store.js";
 import { AnnotationAttachments } from "./AnnotationAttachments.js";
 import { AnnotationEditor } from "./AnnotationEditor.js";
+import type { AnnotationEditorState } from "../types.js";
+
+/**
+ * Whether a composer shows the comment being edited: one for its own draft (a comment made in a side
+ * chat goes to the side chat's composer, one made in the main feed to the main one), in its thread
+ * when the editor names one.
+ */
+export function editsHere(
+  editor: AnnotationEditorState | null,
+  sessionId: string,
+  draftKey: string,
+  threadKey: string,
+): editor is AnnotationEditorState {
+  return (
+    !!editor &&
+    editor.sessionId === sessionId &&
+    (editor.draftKey ?? sessionId) === draftKey &&
+    (!editor.threadKey || editor.threadKey === threadKey)
+  );
+}
 
 export function ComposerAnnotations({
   sessionId,
@@ -18,22 +38,17 @@ export function ComposerAnnotations({
   threadTitle?: string;
   disabled?: boolean;
 }) {
-  const openSource = useAnnotationSourceNavigation(sessionId, threadKey);
+  const openSource = useAnnotationSourceNavigation(sessionId, threadKey, draftKey);
   const draft = useStore((state) => state.composerDrafts.get(draftKey));
   const editor = useStore((state) => state.annotationEditor);
   const annotations = draft?.annotations ?? [];
-  const activeEditor =
-    editor?.sessionId === sessionId && (!editor.threadKey || editor.threadKey === threadKey) ? editor : null;
+  const activeEditor = editsHere(editor, sessionId, draftKey, threadKey) ? editor : null;
   useEffect(
     () => () => {
       const state = useStore.getState();
-      if (
-        state.annotationEditor?.sessionId === sessionId &&
-        (!state.annotationEditor.threadKey || state.annotationEditor.threadKey === threadKey)
-      )
-        state.setAnnotationEditor(null);
+      if (editsHere(state.annotationEditor, sessionId, draftKey, threadKey)) state.setAnnotationEditor(null);
     },
-    [sessionId, threadKey],
+    [sessionId, draftKey, threadKey],
   );
   const remove = (id: string) => {
     const state = useStore.getState();

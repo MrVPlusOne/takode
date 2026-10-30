@@ -144,7 +144,7 @@ export function Composer({
   const draftKey = draftKeyProp ?? sessionId;
   const draft = useStore((s) => s.composerDrafts.get(draftKey));
   const shortcutSettings = useStore((s) => s.shortcutSettings);
-  const replyContext = useStore((s) => s.replyContexts.get(sessionId));
+  const replyContext = useStore((s) => s.replyContexts.get(draftKey));
   const text = draft?.text ?? "";
   const images = draft?.images ?? EMPTY_COMPOSER_IMAGES;
   const annotations = draft?.annotations;
@@ -1026,7 +1026,7 @@ export function Composer({
     }
 
     // Keep reply metadata separate from stored user text; send concise context to the assistant.
-    const currentReplyContext = useStore.getState().replyContexts.get(sessionId);
+    const currentReplyContext = useStore.getState().replyContexts.get(draftKey);
     const clearComposerUi = () => {
       setComposerExpanded(false);
       undoHistory.reset("");
@@ -1772,7 +1772,7 @@ export function Composer({
                 onUndoVoiceEdit={undoVoiceEdit}
                 onRerunAlternateVoiceMode={rerunAlternateVoiceMode}
                 onDismissUnsupportedInfo={() => setVoiceUnsupportedInfoOpen(false)}
-                onDismissReply={() => useStore.getState().setReplyContext(sessionId, null)}
+                onDismissReply={() => useStore.getState().setReplyContext(draftKey, null)}
                 onDismissVsCodeSelection={() => useStore.getState().dismissVsCodeSelection(currentVsCodeSelectionKey)}
                 onSetVoiceModeEdit={() => {
                   voiceCaptureModeRef.current = "edit";

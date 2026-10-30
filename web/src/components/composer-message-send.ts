@@ -21,7 +21,8 @@ export function sendComposerDraft(
 ): "sent" | "retained" | "failed" {
   const store = useStore.getState();
   const content = draft.text.trim();
-  const replyContext = store.replyContexts.get(sessionId);
+  const draftKey = route.draftKey ?? sessionId;
+  const replyContext = store.replyContexts.get(draftKey);
   const paths = draft.images.flatMap((image) => (image.prepared ? [image.prepared.path] : []));
   const imageRefs = draft.images.flatMap((image) => (image.prepared ? [image.prepared.imageRef] : []));
   const deliveryContent =
@@ -46,6 +47,7 @@ export function sendComposerDraft(
       timestamp: Date.now(),
       stage: "delivering",
       ...metadata,
+      ...(draftKey !== sessionId ? { draftKey } : {}),
       prepared: { deliveryContent, imageRefs },
     });
   }
@@ -66,8 +68,8 @@ export function sendComposerDraft(
       error: sent ? undefined : "Connection lost before delivery.",
     }));
   if (!sent && !ownsPending) return "failed";
-  store.clearComposerDraft(route.draftKey ?? sessionId);
-  store.setReplyContext(sessionId, null);
+  store.clearComposerDraft(draftKey);
+  store.setReplyContext(draftKey, null);
   if (sent) store.requestBottomAlignOnNextUserMessage(sessionId);
   return sent ? "sent" : "retained";
 }

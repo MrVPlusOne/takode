@@ -30,7 +30,7 @@ function sourcePosition(source: HTMLElement, annotation: ConversationAnnotation)
 }
 
 /** Use normal bounded-feed navigation, then position the editor beside the verified passage. */
-export function useAnnotationSourceNavigation(sessionId: string, threadKey: string) {
+export function useAnnotationSourceNavigation(sessionId: string, threadKey: string, draftKey: string = sessionId) {
   const request = useRef<AbortController | null>(null);
   const editor = useStore((state) => state.annotationEditor);
   const scrollTarget = useStore((state) =>
@@ -43,7 +43,13 @@ export function useAnnotationSourceNavigation(sessionId: string, threadKey: stri
     [sessionId, threadKey],
   );
   useEffect(() => {
-    if (!editor?.navigateToSource || editor.sessionId !== sessionId || editor.threadKey !== threadKey || scrollTarget)
+    if (
+      !editor?.navigateToSource ||
+      editor.sessionId !== sessionId ||
+      (editor.draftKey ?? sessionId) !== draftKey ||
+      editor.threadKey !== threadKey ||
+      scrollTarget
+    )
       return;
     const source = sourceElement(sessionId, editor.annotation.sourceMessageId!, threadKey);
     useStore.getState().setAnnotationEditor({
@@ -61,13 +67,19 @@ export function useAnnotationSourceNavigation(sessionId: string, threadKey: stri
       const sourceId = annotation.sourceMessageId;
       const source = sourceId ? sourceElement(sessionId, sourceId, threadKey) : undefined;
       if (source?.closest("[data-annotation-preview-session]")) {
-        store.setAnnotationEditor({ sessionId, threadKey, annotation, ...sourcePosition(source, annotation) });
+        store.setAnnotationEditor({
+          sessionId,
+          draftKey,
+          threadKey,
+          annotation,
+          ...sourcePosition(source, annotation),
+        });
         return;
       }
       if (source) {
         store.requestScrollToMessage(sessionId, sourceId!);
         store.setExpandAllInTurn(sessionId, sourceId!);
-        store.setAnnotationEditor({ sessionId, threadKey, annotation, navigateToSource: true });
+        store.setAnnotationEditor({ sessionId, draftKey, threadKey, annotation, navigateToSource: true });
         return;
       }
       try {
@@ -75,32 +87,38 @@ export function useAnnotationSourceNavigation(sessionId: string, threadKey: stri
         if (controller.signal.aborted) return;
         const current = useStore
           .getState()
-          .composerDrafts.get(sessionId)
+          .composerDrafts.get(draftKey)
           ?.annotations?.find((item) => item.id === annotation.id);
         if (!current) return;
         annotation = current;
         if (!target) {
-          store.setAnnotationEditor({ sessionId, threadKey, annotation, sourceUnavailable: true });
+          store.setAnnotationEditor({ sessionId, draftKey, threadKey, annotation, sourceUnavailable: true });
           return;
         }
         navigateToSessionMessageId(sessionId, target.messageId, {
           threadKey: target.threadKey,
           preserveMainThreadRoute: true,
         });
-        store.setAnnotationEditor({ sessionId, threadKey: target.threadKey, annotation, navigateToSource: true });
+        store.setAnnotationEditor({
+          sessionId,
+          draftKey,
+          threadKey: target.threadKey,
+          annotation,
+          navigateToSource: true,
+        });
       } catch (error) {
         if (controller.signal.aborted) return;
         if (
           !useStore
             .getState()
-            .composerDrafts.get(sessionId)
+            .composerDrafts.get(draftKey)
             ?.annotations?.some((item) => item.id === annotation.id)
         )
           return;
         console.error("Failed to locate comment source:", error);
-        store.setAnnotationEditor({ sessionId, threadKey, annotation, sourceUnavailable: true });
+        store.setAnnotationEditor({ sessionId, draftKey, threadKey, annotation, sourceUnavailable: true });
       }
     },
-    [sessionId, threadKey],
+    [sessionId, threadKey, draftKey],
   );
 }

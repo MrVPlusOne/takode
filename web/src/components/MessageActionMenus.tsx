@@ -1,3 +1,4 @@
+import { useComposerTarget } from "./composer-target.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
 import { useCallback, useMemo, useState, type RefObject } from "react";
 import { api } from "../api.js";
@@ -81,6 +82,8 @@ export function UserMessageMenu({
   const { menu, toggle, close } = useMenuButton();
   const [copied, setCopied] = useState(false);
   const starAction = useMessageStarActions(sessionId, message);
+  // Reverting puts the message back into the composer of the conversation it is in (main or side).
+  const draftKey = useComposerTarget(sessionId ?? "");
 
   const showCopied = useCallback(() => {
     setCopied(true);
@@ -104,7 +107,7 @@ export function UserMessageMenu({
     try {
       await api.revertToMessage(sessionId, message.id);
       const store = useStore.getState();
-      store.setComposerDraft(sessionId, {
+      store.setComposerDraft(draftKey, {
         text: message.content,
         images: [],
         annotations: message.metadata?.annotations,
@@ -112,7 +115,7 @@ export function UserMessageMenu({
       if (message.images?.length) {
         try {
           const images = await restoreMessageImagesToDraft(sessionId, message.images);
-          store.setComposerDraft(sessionId, {
+          store.setComposerDraft(draftKey, {
             text: message.content,
             images,
             annotations: message.metadata?.annotations,
@@ -124,7 +127,7 @@ export function UserMessageMenu({
     } catch (err) {
       console.error("Revert failed:", err);
     }
-  }, [sessionId, message.id, message.content, message.images, message.metadata?.annotations]);
+  }, [sessionId, draftKey, message.id, message.content, message.images, message.metadata?.annotations]);
 
   const items = useMemo(() => {
     const list: ContextMenuItem[] = [{ label: "Copy message", onClick: handleCopy }];
@@ -203,6 +206,8 @@ export function AssistantMessageMenu({
   currentThreadKey?: string;
   showSideChatActions: boolean;
 }) {
+  // A reply quote goes to the composer of the conversation the message is in (main or side).
+  const replyTarget = useComposerTarget(sessionId ?? "");
   const { menu, toggle, close } = useMenuButton();
   const [copied, setCopied] = useState<string | null>(null);
   const starAction = useMessageStarActions(sessionId, message);
@@ -261,8 +266,8 @@ export function AssistantMessageMenu({
       .filter((m) => m.role === "assistant" && m.id !== message.id)
       .map((m) => m.content);
     const previewText = generateReplyPreview(message.content, otherContents);
-    store.setReplyContext(sessionId, { messageId: message.id, previewText });
-  }, [message, sessionId]);
+    store.setReplyContext(replyTarget, { messageId: message.id, previewText });
+  }, [message, sessionId, replyTarget]);
 
   const handleReadAloud = useCallback(() => {
     if (!sessionId) return;

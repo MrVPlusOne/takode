@@ -10,6 +10,7 @@ import { ComposerFeedLayout } from "../ComposerFeedLayout.js";
 import { Composer } from "../Composer.js";
 import { MessageFeed } from "../MessageFeed.js";
 import { SecondaryFeedContext } from "../secondary-feed.js";
+import { ComposerTargetContext } from "../composer-target.js";
 import { TopicFeedContext, type TopicFeed } from "../topic-feed.js";
 import { navigateToSessionThread } from "../../utils/routing.js";
 
@@ -45,28 +46,32 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
     [leaderId, topic],
   );
   const questId = /^q-\d+$/.test(key) ? key : undefined;
+  const draftKey = sideComposerDraftKey(leaderId, key);
   return (
     <SecondaryFeedContext.Provider value={true}>
-      <ComposerFeedLayout>
-        <div className="flex min-h-0 flex-1 flex-col" data-testid="side-conversation" data-thread-key={key}>
-          <TopicFeedContext.Provider value={topicFeed}>
-            <MessageFeed
-              sessionId={leaderId}
-              threadKey={key}
-              projectThreadRoutes
-              onSelectThread={(next) => navigateToSessionThread(leaderId, next)}
-            />
-          </TopicFeedContext.Provider>
-        </div>
-        <Composer
-          sessionId={leaderId}
-          threadKey={key}
-          questId={questId}
-          topicName={thread?.name ?? topic?.name}
-          draftKey={sideComposerDraftKey(leaderId, key)}
-          secondary
-        />
-      </ComposerFeedLayout>
+      {/* What the feed adds to a draft (comments, reply quotes) goes to this conversation's composer. */}
+      <ComposerTargetContext.Provider value={draftKey}>
+        <ComposerFeedLayout>
+          <div className="flex min-h-0 flex-1 flex-col" data-testid="side-conversation" data-thread-key={key}>
+            <TopicFeedContext.Provider value={topicFeed}>
+              <MessageFeed
+                sessionId={leaderId}
+                threadKey={key}
+                projectThreadRoutes
+                onSelectThread={(next) => navigateToSessionThread(leaderId, next)}
+              />
+            </TopicFeedContext.Provider>
+          </div>
+          <Composer
+            sessionId={leaderId}
+            threadKey={key}
+            questId={questId}
+            topicName={thread?.name ?? topic?.name}
+            draftKey={draftKey}
+            secondary
+          />
+        </ComposerFeedLayout>
+      </ComposerTargetContext.Provider>
     </SecondaryFeedContext.Provider>
   );
 }
