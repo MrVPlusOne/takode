@@ -490,7 +490,10 @@ export interface AppState {
   replyContexts: Map<string, ReplyContext>;
   setReplyContext: (sessionId: string, context: ReplyContext | null) => void;
   focusComposerTrigger: number;
-  focusComposer: () => void;
+  /** The composer the last focus request is for, by its draft key; null: the main composer on screen. */
+  focusComposerTarget: string | null;
+  /** Asks a composer to take focus: the one with this draft key, or the main one on screen. */
+  focusComposer: (draftKey?: string) => void;
   turnActivityOverrides: Map<string, Map<string, boolean>>;
   autoExpandedTurnIds: Map<string, Set<string>>;
   toggleTurnActivity: (sessionId: string, turnId: string, defaultExpanded: boolean) => void;

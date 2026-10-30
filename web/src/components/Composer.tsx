@@ -775,7 +775,7 @@ export function Composer({
     return () => window.removeEventListener("resize", updateLayout);
   }, [zoomLevel]);
 
-  useComposerNavigationFocus({ textareaRef, sessionId, threadKey, usesTouchKeyboard, enabled: !secondary });
+  useComposerNavigationFocus({ textareaRef, sessionId, threadKey, usesTouchKeyboard, draftKey, enabled: !secondary });
   useEffect(() => {
     if (autoFocus && !usesTouchKeyboard) textareaRef.current?.focus();
   }, [autoFocus, usesTouchKeyboard]);

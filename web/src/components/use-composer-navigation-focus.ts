@@ -6,10 +6,12 @@ export function useComposerNavigationFocus(options: {
   sessionId: string;
   threadKey: string;
   usesTouchKeyboard: boolean;
-  /** False for a composer beside the main one, which focus requests never reach. */
+  /** This composer's draft key: a focus request naming it reaches it (see `focusComposer`). */
+  draftKey?: string;
+  /** False for a composer beside the main one, which focus requests reach only by naming it. */
   enabled?: boolean;
 }): void {
-  const { textareaRef, sessionId, threadKey, usesTouchKeyboard, enabled = true } = options;
+  const { textareaRef, sessionId, threadKey, usesTouchKeyboard, draftKey = sessionId, enabled = true } = options;
   const focusTrigger = useStore((state) => state.focusComposerTrigger);
   const previousFocusTriggerRef = useRef(focusTrigger);
   const previousNavigationRef = useRef({ sessionId, threadKey });
@@ -18,13 +20,17 @@ export function useComposerNavigationFocus(options: {
     const previousFocusTrigger = previousFocusTriggerRef.current;
     previousFocusTriggerRef.current = focusTrigger;
     if (typeof focusTrigger !== "number" || typeof previousFocusTrigger !== "number") return;
-    if (focusTrigger <= previousFocusTrigger || !enabled) return;
+    if (focusTrigger <= previousFocusTrigger) return;
+    // A request for one composer (a side chat's after a Reply there) reaches only that one; one naming
+    // none, the main composer.
+    const target = useStore.getState().focusComposerTarget;
+    if (target ? target !== draftKey : !enabled) return;
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.focus();
     // A focus request means "continue typing here": put the cursor after the draft, not where it last was.
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-  }, [enabled, focusTrigger, textareaRef]);
+  }, [draftKey, enabled, focusTrigger, textareaRef]);
 
   useEffect(() => {
     const previous = previousNavigationRef.current;

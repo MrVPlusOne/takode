@@ -308,6 +308,7 @@ export const useStore = create<AppState>((set, get) => ({
   pendingUserUploadRestorations: new Map(),
   replyContexts: new Map(),
   focusComposerTrigger: 0,
+  focusComposerTarget: null,
   turnActivityOverrides: new Map(),
   autoExpandedTurnIds: new Map(),
   terminalOpen: false,
@@ -1629,7 +1630,8 @@ export const useStore = create<AppState>((set, get) => ({
       return { replyContexts };
     }),
 
-  focusComposer: () => set((s) => ({ focusComposerTrigger: s.focusComposerTrigger + 1 })),
+  focusComposer: (draftKey) =>
+    set((s) => ({ focusComposerTrigger: s.focusComposerTrigger + 1, focusComposerTarget: draftKey ?? null })),
 
   toggleTurnActivity: (sessionId, turnId, defaultExpanded) =>
     set((s) => {
@@ -1796,6 +1798,7 @@ export const useStore = create<AppState>((set, get) => ({
       pendingUserUploadRestorations: new Map(),
       replyContexts: new Map(),
       focusComposerTrigger: 0,
+      focusComposerTarget: null,
       turnActivityOverrides: new Map(),
       autoExpandedTurnIds: new Map(),
       questDetails: new Map(),

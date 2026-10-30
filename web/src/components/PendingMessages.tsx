@@ -203,7 +203,7 @@ function uploadItem(sessionId: string, upload: PendingUserUpload): PendingInputI
     const draftKey = upload.draftKey ?? sessionId;
     store.setComposerDraft(draftKey, { text: upload.content, images: upload.images, annotations: upload.annotations });
     store.setReplyContext(draftKey, upload.replyContext ?? null);
-    store.focusComposer();
+    store.focusComposer(draftKey);
   };
 
   const retry = () => {

@@ -36,6 +36,7 @@ export function AnnotationEditor({
   target,
   quotesCode = false,
   focusComposerOnKeySave = true,
+  composerDraftKey,
   onSave,
   onCancel,
   onRemove,
@@ -56,6 +57,8 @@ export function AnnotationEditor({
    * message. Off where the comments are sent some other way.
    */
   focusComposerOnKeySave?: boolean;
+  /** The message box the comment goes to, which a keyboard save focuses (a side chat's, or the main one). */
+  composerDraftKey?: string;
   onSave: (comment: string) => void;
   onCancel: () => void;
   onRemove?: () => void;
@@ -93,7 +96,7 @@ export function AnnotationEditor({
       capture.current = null;
       // A keyboard save hands focus to the composer so the next send key sends the message. Tap and click saves
       // keep the earlier focus, so a phone keyboard does not pop up unasked.
-      if (focusComposerOnClose.current) useStore.getState().focusComposer();
+      if (focusComposerOnClose.current) useStore.getState().focusComposer(composerDraftKey);
       else previous?.focus({ preventScroll: true });
     };
   }, []);

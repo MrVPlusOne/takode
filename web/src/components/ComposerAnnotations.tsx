@@ -80,6 +80,7 @@ export function ComposerAnnotations({
           sessionId={sessionId}
           threadKey={threadKey}
           threadTitle={threadTitle}
+          composerDraftKey={draftKey}
           annotation={activeEditor.annotation}
           position={activeEditor.position}
           sourceUnavailable={activeEditor.sourceUnavailable}

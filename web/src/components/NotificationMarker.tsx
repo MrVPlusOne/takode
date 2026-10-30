@@ -165,7 +165,7 @@ export function NotificationMarker({
             ...(liveNotif ? { notificationId: liveNotif.id } : {}),
             previewText,
           });
-          useStore.getState().focusComposer();
+          useStore.getState().focusComposer(replyTarget);
         },
       });
     },
