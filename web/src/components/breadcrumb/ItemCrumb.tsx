@@ -7,7 +7,6 @@ import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { timeAgo } from "../../utils/quest-helpers.js";
 import { getQuestStatusTheme } from "../../utils/quest-status-theme.js";
 import { NewThreadIcon, TopicIcon } from "../library/library-icons.js";
-import { CrumbChevron } from "./PlaceCrumb.js";
 import { isOpenInSideClick, openConversationInSide } from "../../utils/side-column.js";
 
 type TopicQuest = NonNullable<TopicDetail["quests"]>[number];
@@ -77,14 +76,13 @@ export function ItemCrumb({
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[13px] font-medium text-cc-fg hover:bg-cc-hover ${
+        className={`-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[13px] font-medium text-cc-fg hover:bg-cc-hover active:bg-cc-hover ${
           open ? "bg-cc-hover" : ""
         }`}
         title="Switch to another quest or thread of this topic"
         data-testid="item-crumb-button"
       >
         <span className="min-w-0 truncate">{label}</span>
-        <CrumbChevron />
       </button>
       {open && (
         <div

@@ -6,6 +6,8 @@ import { TopicIcon } from "../library/library-icons.js";
  * The breadcrumb's first part: where the conversation on screen lives (Main, All threads, or a
  * topic). Like a VS Code breadcrumb, clicking it lists the places to switch to: Main and All first,
  * then the leader's topics. The open-in-side click (Shift by default) on a topic opens its page in the side column.
+ * As in VS Code there is no ▾ (Jiayi's call): the name is the picker, marked by its hover and pressed
+ * background, and the room goes to the names.
  */
 export function PlaceCrumb({
   place,
@@ -35,7 +37,7 @@ export function PlaceCrumb({
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[13px] text-cc-fg hover:bg-cc-hover ${
+        className={`-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[13px] text-cc-fg hover:bg-cc-hover active:bg-cc-hover ${
           open ? "bg-cc-hover" : ""
         }`}
         title="Switch to Main, All threads or another topic"
@@ -48,7 +50,6 @@ export function PlaceCrumb({
         )}
         <span className="min-w-0 truncate">{label}</span>
         {attention}
-        <CrumbChevron />
       </button>
       {open && (
         <div
@@ -130,19 +131,7 @@ export function Chevron() {
   );
 }
 
-/**
- * The ▾ of a breadcrumb picker, drawn without the empty margin of an icon box so the names get the
- * room (Jiayi: "too much space wasted by the point down arrows"). Its button stays as tall as before.
- */
-export function CrumbChevron() {
-  return (
-    <svg viewBox="3.5 5.5 9 5.5" className="h-[5px] w-2 shrink-0 text-cc-muted" fill="none" aria-hidden="true">
-      <path d="M4.5 6.5 8 10l3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** The ">" between the breadcrumb's parts, drawn tight like CrumbChevron. */
+/** The ">" between the breadcrumb's parts, drawn as wide as the glyph so the names get the room. */
 export function CrumbSeparator() {
   return (
     <svg viewBox="5 2.5 6.5 11" className="h-2.5 w-1.5 shrink-0 text-cc-muted/80" fill="none" aria-hidden="true">
