@@ -875,8 +875,9 @@ describe("MarkdownContent quest links", () => {
     render(<MarkdownContent text="[#123](session:123)" />);
     fireEvent.mouseEnter(screen.getByRole("link", { name: "#123" }));
 
+    // The active quest is one row that jumps to the quest's thread (or its details without a leader).
     expect(await screen.findByTestId("session-hover-active-quest")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "q-42" })).toBeTruthy();
+    expect(screen.getByTestId("session-hover-active-quest-open").textContent).toContain("q-42");
     expect(screen.getByText("Fix auth race condition")).toBeTruthy();
   });
 
