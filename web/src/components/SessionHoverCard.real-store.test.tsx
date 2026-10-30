@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { StrictMode } from "react";
 import type { SessionTaskEntry } from "../../server/session-types.js";
@@ -7,6 +7,7 @@ import type { QuestmasterTask, SdkSessionInfo } from "../types.js";
 import { useStore } from "../store.js";
 import { hydrateSessionList } from "../session-list-hydration.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
+import { isSessionThreadRoute } from "../utils/routing.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import {
   createLeaderThreadTabsProjectionEnvelope,
@@ -74,6 +75,7 @@ describe("SessionHoverCard with the real store", () => {
       zoomLevel: 1,
     });
     vi.restoreAllMocks();
+    window.location.hash = "";
   });
 
   it("mounts non-leader hovers without update-depth loops", () => {
@@ -279,5 +281,147 @@ describe("SessionHoverCard with the real store", () => {
     expect(screen.queryByText("Tasks")).toBeNull();
     expect(screen.getByText("Last message")).toBeInTheDocument();
     expect(screen.getByText("Latest leader coordination update")).toBeInTheDocument();
+  });
+
+  it("opens a leader's active quest thread from its row and closes the card", () => {
+    // The Active quests rows are another way into the leader's quest threads, like the Working on
+    // list: a click routes to that quest's thread in the hovered leader (by its session number) and
+    // dismisses the card, even when another session is on screen.
+    const now = Date.now();
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "clickable-leader",
+          sessionNum: 565,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: now - 120_000,
+          backendType: "codex",
+          isOrchestrator: true,
+        },
+      ],
+    });
+    useStore.getState().applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: "clickable-leader",
+        value: createLeaderThreadTabsProjectionValue({
+          tabs: [
+            {
+              ...createLeaderThreadTabsProjectionValue().tabs[0]!,
+              threadKey: "q-77",
+              questId: "q-77",
+              title: "Clickable active quest",
+              boardStatus: "WORKING",
+              active: true,
+              completed: false,
+            },
+          ],
+        }),
+      }),
+    );
+    window.location.hash = "#/session/9";
+    const onMouseLeave = vi.fn();
+
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          id: "clickable-leader",
+          isOrchestrator: true,
+          sessionNum: 565,
+        })}
+        sessionName="Leader Session"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={onMouseLeave}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("session-hover-active-quest-row"));
+
+    expect(window.location.hash).toContain("#/session/565");
+    expect(isSessionThreadRoute(window.location.hash, "clickable-leader", "q-77")).toBe(true);
+    expect(onMouseLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a worker's active quest in its leader's thread, or its details without a leader", () => {
+    // A worker's quest thread lives in the leader herding it, so the worker card's Active quest goes
+    // there; a session no leader herds has no quest thread, so its quest opens in Questmaster.
+    const now = Date.now();
+    const quest: QuestmasterTask = {
+      id: "q-88-v1",
+      questId: "q-88",
+      version: 1,
+      title: "Worker quest",
+      status: "in_progress",
+      description: "",
+      createdAt: now - 90_000,
+      updatedAt: now - 30_000,
+      sessionId: "worker-session",
+      claimedAt: now - 80_000,
+    };
+    const worker = {
+      sessionId: "worker-session",
+      sessionNum: 566,
+      state: "running" as const,
+      cwd: "/repo",
+      createdAt: now - 60_000,
+      backendType: "codex" as const,
+      claimedQuestId: "q-88",
+      claimedQuestTitle: "Worker quest",
+      claimedQuestStatus: "in_progress",
+    };
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "leader-session",
+          sessionNum: 565,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: now,
+          isOrchestrator: true,
+        },
+        { ...worker, herdedBy: "leader-session" },
+      ],
+      quests: [quest],
+    });
+    window.location.hash = "#/session/566";
+    const onMouseLeave = vi.fn();
+    const card = render(
+      <SessionHoverCard
+        session={makeSession({ herdedBy: "leader-session" })}
+        sessionName="Worker"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={onMouseLeave}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("session-hover-active-quest-open"));
+    expect(isSessionThreadRoute(window.location.hash, "leader-session", "q-88")).toBe(true);
+    expect(onMouseLeave).toHaveBeenCalledTimes(1);
+    card.unmount();
+
+    useStore.setState({ sdkSessions: [worker], questOverlayId: null });
+    window.location.hash = "#/session/566";
+    render(
+      <SessionHoverCard
+        session={makeSession()}
+        sessionName="Worker"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={onMouseLeave}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("session-hover-active-quest-open"));
+    expect(useStore.getState().questOverlayId).toBe("q-88");
+    expect(window.location.hash).toBe("#/session/566");
+    expect(onMouseLeave).toHaveBeenCalledTimes(2);
   });
 });

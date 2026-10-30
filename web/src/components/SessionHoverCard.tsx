@@ -13,7 +13,6 @@ import {
   waitingStatusLabel,
   type SessionStatusDotProps,
 } from "./SessionStatusDot.js";
-import { QuestInlineLink } from "./QuestInlineLink.js";
 import { getQuestJourneyPhase, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 import type { SessionViewModel } from "../utils/session-view-model.js";
@@ -27,6 +26,10 @@ import { getQuestOwner } from "../../shared/quest-owner.js";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { resolveLeaderThreadTabsProjection } from "../utils/leader-thread-tabs-resolver.js";
+import { isSessionThreadRoute, navigateToSessionThread, openQuestOverlayRouteAware } from "../utils/routing.js";
+import { getQuestLeaderSessionId } from "../utils/quest-helpers.js";
+import { normalizeThreadKey } from "../utils/thread-projection.js";
+import type { SdkSessionInfo } from "../types.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -55,6 +58,14 @@ function getConfiguredMaxContextLength(sessionVm: SessionViewModel | null): numb
 
 function normalizeQuestId(questId: string): string {
   return questId.toLowerCase();
+}
+
+/** Opens a quest's thread in its leader, like a Working on row; already there, it stays put. */
+function openQuestThread(leaderSessionId: string, threadKey: string, sdkSessions: readonly SdkSessionInfo[]): void {
+  const key = normalizeThreadKey(threadKey);
+  if (isSessionThreadRoute(window.location.hash, leaderSessionId, key)) return;
+  const sessionNum = sdkSessions.find((session) => session.sessionId === leaderSessionId)?.sessionNum;
+  navigateToSessionThread(leaderSessionId, key, false, sessionNum ?? leaderSessionId);
 }
 
 function sessionHoverStatusLabel(visualStatus: ReturnType<typeof deriveSessionStatus>): string {
@@ -194,6 +205,7 @@ export function SessionHoverCard({
         const phaseColor = phase ? getQuestPhaseColorValue(phase.color) : undefined;
         return {
           questId,
+          threadKey: tab.threadKey,
           title: questTitlesById.get(normalizeQuestId(questId)) ?? tab.title ?? questId,
           phaseLabel: phase?.label ?? presentation?.label ?? tab.boardStatus ?? "Active",
           phaseColor,
@@ -231,6 +243,9 @@ export function SessionHoverCard({
     sessionVm?.claimedQuestTitle,
     resolvedNavigation,
   ]);
+  const workerQuestLeaderId = activeQuest
+    ? (("status" in activeQuest ? getQuestLeaderSessionId(activeQuest) : null) ?? leaderSession)
+    : null;
   const showTaskHistory = !s.isOrchestrator && taskEntries.length > 0;
 
   // Current-build navigation stays fresh for selected and unselected sessions.
@@ -301,7 +316,13 @@ export function SessionHoverCard({
     <div
       ref={cardRef}
       className={`fixed ${zIndexClassName} pointer-events-auto hidden-on-touch`}
-      style={{ left, top, width: cardWidth, transform: `scale(${zoomLevel})`, transformOrigin: "top left" }}
+      style={{
+        left,
+        top,
+        width: cardWidth,
+        transform: `scale(${zoomLevel})`,
+        transformOrigin: "top left",
+      }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       data-testid="session-hover-card"
@@ -393,13 +414,20 @@ export function SessionHoverCard({
         {s.isOrchestrator && leaderActiveQuestRows.length > 0 && (
           <div data-testid="session-hover-active-quests" className="px-4 py-2 border-t border-cc-border/50">
             <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Active quests</span>
-            <div className="mt-1 space-y-1.5">
+            <div className="mt-1 space-y-0.5">
               {leaderActiveQuestRows.map((row) => {
                 const phaseStyle = row.phaseColor ? { color: row.phaseColor } : undefined;
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={row.questId}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openQuestThread(s.id, row.threadKey, sdkSessions);
+                      onMouseLeave();
+                    }}
+                    className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 cursor-pointer rounded-md px-2 py-0.5 text-left transition-colors hover:bg-cc-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+                    title={`Open ${row.questId}'s thread`}
                     aria-label={`${row.phaseLabel}: ${row.title}`}
                     data-testid="session-hover-active-quest-row"
                     data-quest-id={row.questId}
@@ -420,7 +448,7 @@ export function SessionHoverCard({
                     >
                       {row.phaseLabel}
                     </span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -429,16 +457,24 @@ export function SessionHoverCard({
         {activeQuest && (
           <div data-testid="session-hover-active-quest" className="px-4 py-2 border-t border-cc-border/50">
             <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Active quest</span>
-            <div className="mt-1 flex items-center gap-2 min-w-0">
-              <QuestInlineLink
-                questId={activeQuest.questId}
-                className="inline-flex shrink-0 items-center rounded-full border border-cc-primary/15 bg-cc-primary/10 px-2 py-0.5 text-[11px] font-medium text-cc-primary transition-colors hover:bg-cc-primary/20"
-                stopPropagation
-              >
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                // A worker's quest thread lives in its leader; a quest no leader runs opens its details.
+                if (workerQuestLeaderId) openQuestThread(workerQuestLeaderId, activeQuest.questId, sdkSessions);
+                else openQuestOverlayRouteAware(activeQuest.questId);
+                onMouseLeave();
+              }}
+              className="-mx-2 mt-1 flex w-[calc(100%+1rem)] min-w-0 items-center gap-2 cursor-pointer rounded-md px-2 py-0.5 text-left transition-colors hover:bg-cc-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+              title={workerQuestLeaderId ? `Open ${activeQuest.questId}'s thread` : `Open ${activeQuest.questId}`}
+              data-testid="session-hover-active-quest-open"
+            >
+              <span className="inline-flex shrink-0 items-center rounded-full border border-cc-primary/15 bg-cc-primary/10 px-2 py-0.5 text-[11px] font-medium text-cc-primary">
                 {activeQuest.questId}
-              </QuestInlineLink>
+              </span>
               <span className="min-w-0 truncate text-[11px] text-cc-muted">{activeQuest.title}</span>
-            </div>
+            </button>
           </div>
         )}
 

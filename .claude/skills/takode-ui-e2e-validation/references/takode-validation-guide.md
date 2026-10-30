@@ -144,6 +144,10 @@ Prefer semantic interactions and visible UI checks. Use DOM probes only when the
 
 On macOS, headless Chrome waits for a display frame before capturing, so `agent-browser screenshot` hangs indefinitely while the display is asleep (`open`, `eval` and `snapshot` still work). The Takode wrapper runs `caffeinate -u -t 2` before each screenshot, which wakes the display (the lock screen is enough) and lets the capture finish; the display then sleeps again on its normal idle timer. If you call the real `agent-browser` binary directly, or a capture still hangs, run `caffeinate -u -t 2` yourself and retry. Stop a hung capture by its own PID (`pgrep -fl "agent-browser.*screenshot"`); the wrapper forwards termination signals to it.
 
+### Hover-Only UI In Headless Chrome
+
+Headless Chrome reports no mouse, so `(hover: none)` matches: session hover cards (`hidden-on-touch`) stay hidden and Tailwind `hover:` styles never apply, even after `agent-browser hover`. To check hover cards or hover states, open the browser as one with a mouse: `agent-browser --color-scheme dark --args "--blink-settings=primaryHoverType=2" open <url>` (close it first if it is already open; `--args` splits on commas, so pass only this one setting). Confirm with `agent-browser eval 'matchMedia("(hover: hover)").matches'`. CDP `Emulation.setEmulatedMedia` does not change `hover`.
+
 ### Click Targets During Layout Changes
 
 When hover or focus changes layout, validate the complete approach -> transition -> click sequence. Choose the intended click position before the layout-changing approach or focus event, then click that original position without retargeting. Do not silently reposition the pointer, locate the moved control again with a selector, or programmatically focus it to turn a failed interaction into a pass. Verify that the intended action occurred, such as the input receiving focus and accepting typing.
