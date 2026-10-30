@@ -6,6 +6,7 @@ import { filterMessagesForThread } from "../utils/thread-projection.js";
 import { topicViewKey } from "../../shared/topic-thread-key.js";
 import { rememberTopicViewMembers } from "../utils/thread-projection.js";
 import { topicQuestsOfTurns, topicTurnMarks, turnHasFinalMessage } from "./topic-feed.js";
+import { topicProgressRuns } from "./topic-progress-card.js";
 import { getMessageThreadLinkKey } from "./MessageThreadHeader.js";
 
 /**
@@ -135,6 +136,57 @@ describe("quest strips in a topic conversation", () => {
     ];
     const quests = topicQuestsOfTurns(turns, ["q-2837", "q-2892"]);
     expect(topicTurnMarks(turns, quests)).toEqual(["strip", "label", null, "strip", null]);
+  });
+
+  it("labels a run of another quest's working steps once, not on each turn", () => {
+    const turns = [
+      turn(answer("a", "q-1")),
+      turn(commentary("b", "q-2")),
+      turn(commentary("c", "q-2")),
+      turn(commentary("d", "q-3")),
+      turn(commentary("e", "q-2")),
+    ];
+    const quests = topicQuestsOfTurns(turns, ["q-1", "q-2", "q-3"]);
+    expect(topicTurnMarks(turns, quests)).toEqual(["strip", "label", null, "label", "label"]);
+  });
+
+  it("folds only stretches of progress that interleave quests, ending them at final messages and new days", () => {
+    // Progress cards: working-steps turns of two or more quests in a row fold into one run. A final
+    // message ends a run, so it stays in time order, and so does a new day, so its divider stays.
+    const at = (msg: ChatMessage, timestamp: number) => ({ ...msg, timestamp });
+    const day = 24 * 60 * 60 * 1000;
+    const turns = [
+      turn(commentary("a", "q-1")),
+      turn(commentary("b", "q-2")),
+      turn(commentary("c", "q-1")),
+      turn(answer("d", "q-2")), // final: ends the first run
+      turn(commentary("e", "q-2")),
+      turn(commentary("f", "q-2")), // one quest only: stays as it is
+      turn(answer("g", "q-1")),
+      turn(commentary("h", "q-1")),
+      turn(commentary("i", "q-2")),
+      turn(commentary("j", "q-1")),
+      turn(at(commentary("k", "q-2"), 1 + day)), // next day: alone, so it stays
+    ];
+    const quests = topicQuestsOfTurns(turns, ["q-1", "q-2"]);
+    const runs = topicProgressRuns(turns, quests);
+    expect([...runs.starts.entries()].map(([index, run]) => [index, run.groups])).toEqual([
+      [
+        0,
+        [
+          { quest: "q-1", turnIndexes: [0, 2] },
+          { quest: "q-2", turnIndexes: [1] },
+        ],
+      ],
+      [
+        7,
+        [
+          { quest: "q-1", turnIndexes: [7, 9] },
+          { quest: "q-2", turnIndexes: [8] },
+        ],
+      ],
+    ]);
+    expect([...runs.runOfTurn.keys()]).toEqual([0, 1, 2, 7, 8, 9]);
   });
 
   it("counts the user's own message as final, but not a herd event or a subagent's text", () => {

@@ -1,4 +1,5 @@
 import { dividersAboveStrips } from "./feed-strip-dividers.js";
+import { useTopicProgress } from "./topic-progress-card.js";
 import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 import { MainQuestStrip, MainQuestStripsContext, mainQuestStrips } from "./MainQuestStrip.js";
 import { StartedQuestsContext } from "./QuestForkLinks.js";
@@ -52,7 +53,6 @@ import {
   TopicFeedQuestStart,
   topicFeedParts,
   topicQuestsOfTurns,
-  topicTurnMarks,
 } from "./topic-feed.js";
 import { TopicFeedEntry } from "./library/TopicConversation.js";
 
@@ -288,6 +288,8 @@ function groupTurnActivity(
   return runs;
 }
 
+const NO_TURN_QUESTS: ReadonlyArray<string | null> = [];
+
 export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   turn,
   threadStatusFooter,
@@ -414,7 +416,14 @@ export const TurnEntries = memo(function TurnEntries({
     () => (topicFeed ? topicQuestsOfTurns(turns, topicFeedParts(topicFeed)) : null),
     [topicFeed, turns],
   );
-  const turnMarks = useMemo(() => (turnQuests ? topicTurnMarks(turns, turnQuests) : null), [turnQuests, turns]);
+  // Quests running together fold their interleaved progress into cards; without parts, nothing folds.
+  const topicProgress = useTopicProgress({
+    sessionId,
+    topicKey: topicFeed?.topicKey ?? "",
+    turns,
+    turnQuests: turnQuests ?? NO_TURN_QUESTS,
+  });
+  const turnMarks = turnQuests ? topicProgress.marks : null;
   // A leader's Main names the quest each request went to with a strip, as topic conversations do.
   const startedQuests = useContext(StartedQuestsContext);
   const mainStrips = useMemo(
@@ -579,8 +588,20 @@ export const TurnEntries = memo(function TurnEntries({
             ) : null;
 
           const topicMark = turnQuest ? (turnMarks?.[turnIndex] ?? null) : null;
+          const progressCard = topicProgress.card(turnIndex);
+          if (topicProgress.hidden(turnIndex)) {
+            return (
+              <Fragment key={turn.id}>
+                {progressCard}
+                {/* A folded turn can start a section; the feed's section navigation still finds it here. */}
+                {sectionStartTurnIds.has(turn.id) && <div data-feed-section-id={turn.id} />}
+                {threadStatusFooter}
+              </Fragment>
+            );
+          }
           return (
             <Fragment key={turn.id}>
+              {progressCard}
               {dividerAboveStrip.has(turnIndex) && (
                 <MinuteBoundaryTimestamp
                   timestamp={dividerAboveStrip.get(turnIndex)!.timestamp}

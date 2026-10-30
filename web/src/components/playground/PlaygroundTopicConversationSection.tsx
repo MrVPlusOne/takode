@@ -1,10 +1,12 @@
 import { TopicLabelButton } from "../MessageTopicLabel.js";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { Turn } from "../../hooks/use-feed-model.js";
 import type { QuestmasterTask } from "../../types.js";
 import { useStore } from "../../store.js";
 import { TopicEntryContext, TopicFeedEntry } from "../library/TopicConversation.js";
 import { TopicFeedContext, TopicFeedQuestStart } from "../topic-feed.js";
 import { MainQuestStrip } from "../MainQuestStrip.js";
+import { TopicProgressCard, type ProgressRun } from "../topic-progress-card.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const QUESTS = [
@@ -89,6 +91,11 @@ export function PlaygroundTopicConversationSection() {
             ))}
           </div>
         </Card>
+        <Card label="Quests running together: their interleaved progress folds into one card, each quest's latest updates rolling (Show all brings its turns back into the conversation)">
+          <div className="max-w-xl">
+            <PlaygroundProgressCard />
+          </div>
+        </Card>
         <Card label="Scroll inside the box">
           <div className="max-w-md overflow-hidden rounded-lg border border-cc-border">
             {/* The topic's own thread (what was written in the conversation itself) has a strip too. */}
@@ -117,5 +124,58 @@ export function PlaygroundTopicConversationSection() {
         </Card>
       </Section>
     </PlaygroundSectionGroup>
+  );
+}
+
+const PROGRESS_UPDATES: Array<[questId: string, text: string]> = [
+  ["q-9601", "The review map is drafted; links in summaries now open the quest."],
+  ["q-9602", "Back and Next sit closer to the answer; checking the phone layout."],
+  ["q-9601", "File lists render as **links**, one per line."],
+  ["q-9602", "Redundant answer choices are gone from walkthrough questions."],
+  ["q-9601", "Waiting for the reviewer to finish the second pass."],
+  ["q-9601", "Reviewer found one stale link; fixing it now."],
+  ["q-9602", "Phone layout checked in dark and light."],
+  ["q-9601", "Stale link fixed, the review is ready."],
+];
+
+/** A progress run of the two quests, as the feed builds it from their turns. */
+function PlaygroundProgressCard() {
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const start = Date.now() - PROGRESS_UPDATES.length * 4 * 60_000;
+  const turns = PROGRESS_UPDATES.map(
+    ([, text], index) =>
+      ({
+        id: `progress-${index}`,
+        userEntry: null,
+        allEntries: [
+          {
+            kind: "message",
+            msg: { id: `progress-msg-${index}`, role: "assistant", content: text, timestamp: start + index * 240_000 },
+          },
+        ],
+      }) as unknown as Turn,
+  );
+  const run: ProgressRun = {
+    key: "progress-0",
+    groups: QUESTS.map((quest) => ({
+      quest: quest.questId,
+      turnIndexes: PROGRESS_UPDATES.flatMap(([questId], index) => (questId === quest.questId ? [index] : [])),
+    })),
+  };
+  return (
+    <TopicProgressCard
+      run={run}
+      turns={turns}
+      topicKey="topic:aaaaaaaa"
+      openQuests={open}
+      onToggle={(quest) =>
+        setOpen((previous) => {
+          const next = new Set(previous);
+          if (next.has(quest)) next.delete(quest);
+          else next.add(quest);
+          return next;
+        })
+      }
+    />
   );
 }

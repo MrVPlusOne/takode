@@ -28,7 +28,7 @@ beforeAll(() => {
   });
 });
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 
 // Mock react-markdown to avoid ESM issues in tests
@@ -85,6 +85,7 @@ vi.mock("../store.js", () => {
       clearScrollToTurn: mockClearScrollToTurn,
       scrollToMessageId: mockStoreValues.scrollToMessageId ?? new Map(),
       clearScrollToMessage: mockClearScrollToMessage,
+      clearPendingScrollToMessageId: vi.fn(),
       expandAllInTurn: mockStoreValues.expandAllInTurn ?? new Map(),
       clearExpandAllInTurn: vi.fn(),
       bottomAlignNextUserMessage: mockStoreValues.bottomAlignNextUserMessage ?? new Set(),
@@ -242,5 +243,90 @@ describe("quest strips and day dividers", () => {
       "message u3",
     ]);
     expect(screen.getAllByTestId("minute-boundary-timestamp")).toHaveLength(2);
+  });
+});
+
+/**
+ * Jiayi's Formal verification topic: two quests running together alternated their progress
+ * updates, each a label, a collapsed activity row and the text, which was hard to follow. A
+ * stretch of progress turns that interleaves quests folds into one card with a row per quest,
+ * whose latest updates roll like the worker preview; opening a row brings that quest's turns back.
+ */
+describe("progress of quests running together in a topic", () => {
+  const sid = "topic-progress";
+  const start = new Date("2026-02-25T12:00:00.000Z").getTime();
+  const views = (threadKey: string) => [threadKey, "topic:aaaaaaaa"];
+  const human = (id: string, threadKey: string, minute: number): ChatMessage => ({
+    id,
+    role: "user",
+    content: id,
+    timestamp: start + minute * 60_000,
+    metadata: { leaderResponseCoverageVersion: 1, threadKey, questId: threadKey, viewKeys: views(threadKey) },
+  });
+  const update = (id: string, threadKey: string, minute: number): ChatMessage => ({
+    id,
+    role: "assistant",
+    content: `update ${id}`,
+    timestamp: start + minute * 60_000,
+    metadata: { leaderThreadRole: "commentary", threadKey, questId: threadKey, viewKeys: views(threadKey) },
+  });
+  // The user's request and its first reply, then q-12 and q-3 taking turns: five updates of
+  // q-12 (b2 to b10), four of q-3 (a3 to a9).
+  const messages = [
+    human("ask", "q-3", 0),
+    update("a1", "q-3", 1),
+    ...[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => update(`${n % 2 ? "a" : "b"}${n}`, n % 2 ? "q-3" : "q-12", n)),
+  ];
+
+  function renderTopic() {
+    mockStoreValues.messages = new Map([[sid, messages]]);
+    return render(
+      <QuestRecordFetchContext.Provider value={false}>
+        <TopicFeedContext.Provider
+          value={{ questIds: ["q-3", "q-12"], topicKey: "topic:aaaaaaaa", topicName: "Relay", openQuest: vi.fn() }}
+        >
+          <MessageFeed sessionId={sid} threadKey="topic:aaaaaaaa" projectThreadRoutes />
+        </TopicFeedContext.Provider>
+      </QuestRecordFetchContext.Provider>,
+    );
+  }
+  const rowOf = (quest: string) =>
+    screen.getAllByTestId("topic-progress-row").find((row) => row.querySelector("a")?.textContent === quest)!;
+  // The turns the conversation shows, by their first message (a split part's id ends with it).
+  const shownTurns = () =>
+    [...document.querySelectorAll<HTMLElement>("[data-turn-id]")].map((turn) => turn.dataset.turnId!.split("-").at(-1));
+
+  it("folds the interleaved updates into one card, a row per quest with its latest updates", () => {
+    renderTopic();
+    expect(screen.getAllByTestId("topic-progress-card")).toHaveLength(1);
+    // Rows in the order the quests first post in the run.
+    const rows = screen.getAllByTestId("topic-progress-row");
+    expect(rows.map((row) => row.querySelector("a")?.textContent)).toEqual(["q-12", "q-3"]);
+    // The rolling window keeps the latest four updates; the fifth, oldest, rolls out.
+    const q12 = rowOf("q-12");
+    expect(q12.textContent).toContain("+1 earlier");
+    expect(q12.textContent).not.toContain("update b2");
+    for (const id of ["b4", "b6", "b8", "b10"]) expect(q12.textContent).toContain(`update ${id}`);
+    expect(rowOf("q-3").textContent).not.toContain("earlier");
+    // The folded turns are out of the conversation, and so are their labels.
+    expect(screen.queryAllByTestId("topic-feed-quest-label")).toHaveLength(0);
+    expect(shownTurns()).toEqual(["ask"]);
+  });
+
+  it("opens a row into that quest's turns under one label, the window giving way to them", () => {
+    renderTopic();
+    fireEvent.click(rowOf("q-12").querySelector('[data-testid="topic-progress-toggle"]')!);
+    expect(shownTurns()).toEqual(["ask", "b2", "b4", "b6", "b8", "b10"]);
+    const labels = screen.getAllByTestId("topic-feed-quest-label");
+    expect(labels.map((label) => label.dataset.quest)).toEqual(["q-12"]);
+    expect(rowOf("q-12").querySelector('[data-testid="topic-progress-updates"]')).toBeNull();
+    expect(rowOf("q-12").textContent).toContain("Hide updates");
+  });
+
+  it("opens the row of a folded message the feed is asked to jump to", () => {
+    mockStoreValues.scrollToMessageId = new Map([[sid, "a5"]]);
+    renderTopic();
+    expect(shownTurns()).toEqual(["ask", "a3", "a5", "a7", "a9"]);
+    expect(rowOf("q-3").textContent).toContain("Hide updates");
   });
 });

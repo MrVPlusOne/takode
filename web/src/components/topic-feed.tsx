@@ -85,7 +85,8 @@ export function topicTurnMarks(turns: readonly Turn[], turnQuests: ReadonlyArray
       pinned = quest;
       return "strip";
     }
-    return quest === pinned ? null : "label";
+    // One label heads a quest's consecutive turns; repeating it on each says nothing new.
+    return quest === pinned || quest === turnQuests[index - 1] ? null : "label";
   });
 }
 
