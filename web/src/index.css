@@ -1493,3 +1493,18 @@ select {
 .tk-visual-body:has(iframe[data-ready]) > .tk-visual-placeholder {
   display: none;
 }
+
+/* Slides (shared/slides.ts): slide type sizes. The stage is laid out at 1280x720 and scaled to
+   its space, so these sizes are relative to that design size; a page is read at its real size. */
+.takode-slide-stage .markdown-body { font-size: 26px; line-height: 1.45 !important; }
+.takode-slide-stage .markdown-body h1 { font-size: 2.1em; line-height: 1.15; margin: 0 0 0.5em; }
+.takode-slide-stage .markdown-body h2 { font-size: 1.65em; line-height: 1.2; margin: 0 0 0.6em; }
+.takode-slide-stage .markdown-body h3 { font-size: 1.25em; margin: 0.6em 0 0.3em; }
+.takode-slide-stage .markdown-body p { margin-bottom: 0.6em; }
+.takode-slide-page .markdown-body { font-size: 17px; }
+.takode-slide-page .markdown-body h1 { font-size: 1.9em; line-height: 1.2; margin: 0 0 0.5em; }
+.takode-slide-page .markdown-body h2 { font-size: 1.5em; line-height: 1.25; margin: 0 0 0.6em; }
+.takode-slide-stage .markdown-body pre { font-size: 0.7em; }
+.takode-slide-stage .markdown-body code { font-size: 0.85em; }
+.takode-slide-stage .markdown-body pre code { font-size: inherit; }
+.takode-slide-stage .markdown-body [data-visual-block] { zoom: 1.5; }

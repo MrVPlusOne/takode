@@ -11,6 +11,8 @@ import { ReportCard } from "./ReportCard.js";
 import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
 import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-player.js";
 import { GuidedReviewCard } from "./GuidedReviewCard.js";
+import { isSlideDeck, withoutFrontMatter } from "../../shared/slides.js";
+import { SlideDeckCard } from "./slides/SlideDeckCard.js";
 
 /**
  * A source-labelled snapshot with the ordinary chat selection scope. Reports can
@@ -28,6 +30,8 @@ export function MarkdownReport({
   readOnly?: boolean;
 }) {
   const guidedReview = message.metadata?.guidedReview;
+  if (!guidedReview && isSlideDeck(message.content))
+    return <MarkdownReportDeck message={message} readOnly={readOnly} />;
   if (!guidedReview) return <MarkdownReportBody message={message} feedSessionId={feedSessionId} readOnly={readOnly} />;
   const source = message.metadata!.markdownReport!;
   return (
@@ -124,6 +128,47 @@ function MarkdownReportBody({
 }
 
 /**
+ * A report written as a slide deck: one slide at a time with Present, in place of the long card.
+ * Slides render like the report's text (file links resolve against its file, text can be commented
+ * on); its More menu holds what the report card's does, with the deck's own exports.
+ */
+function MarkdownReportDeck({ message, readOnly }: { message: ChatMessage; readOnly: boolean }) {
+  const source = message.metadata!.markdownReport!;
+  const reportMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "report");
+  const title = reportMarker?.title || reportTitleOf(message.content, source.sourcePath);
+  const renderSlide = useCallback(
+    (markdown: string) => (
+      <MarkdownContent
+        text={markdown}
+        sessionId={source.responsibleWorkerId ?? source.sessionId}
+        enableChatSelectionMenu={!readOnly}
+        fileLinkMode={readOnly ? "text-only" : "interactive"}
+        fileBasePath={source.sourcePath}
+        questLinkSurface="chat-feed"
+      />
+    ),
+    [readOnly, source.responsibleWorkerId, source.sessionId, source.sourcePath],
+  );
+  return (
+    <>
+      {!readOnly && <ReadAloudPlayer messageId={message.id} />}
+      <article className="min-w-0" data-markdown-report-source={JSON.stringify(source)}>
+        <SlideDeckCard
+          title={title}
+          markdown={message.content}
+          render={renderSlide}
+          readAloud={!readOnly && <ReportReadAloudButton message={message} sessionId={source.sessionId} />}
+          menuItems={[
+            ...(!readOnly && reportMarker ? libraryMenuItems(reportMarker) : []),
+            { label: "Copy Markdown", onClick: () => void writeClipboardText(message.content).catch(console.error) },
+          ]}
+        />
+      </article>
+    </>
+  );
+}
+
+/**
  * A report's text, as the feed shows it: file links resolve against the report's file, selected
  * text can be commented on, and comments show where they point.
  */
@@ -180,7 +225,7 @@ function ReportReadAloudButton({ message, sessionId }: { message: ChatMessage; s
             : startReadAloud({
                 sessionId,
                 messageId: message.id,
-                text: message.content,
+                text: withoutFrontMatter(message.content),
                 historyIndex: message.historyIndex,
               })
         }

@@ -33,16 +33,24 @@ export async function exportContent(
     saveFile(new Blob([html], { type: "text/html;charset=utf-8" }), `${name}.html`);
     return;
   }
+  saveFile(await renderDocument(html, format), `${name}.${format}`);
+}
+
+/**
+ * A standalone web page printed as a PDF or captured as a PNG by the server's headless Chrome,
+ * laid out `width` CSS pixels wide (its default when absent).
+ */
+export async function renderDocument(html: string, format: "pdf" | "png", width?: number): Promise<Blob> {
   const response = await fetch("/api/exports/document", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ html, format }),
+    body: JSON.stringify({ html, format, ...(width ? { width } : {}) }),
   });
   if (!response.ok) {
     const error = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new Error(error?.error ?? `Export failed (${response.status}).`);
   }
-  saveFile(await response.blob(), `${name}.${format}`);
+  return response.blob();
 }
 
 /** A visual as a PNG, drawn by the server in the light theme at desktop width. */
@@ -79,7 +87,15 @@ export function exportFileName(title: string): string {
 export async function standaloneHtml(content: HTMLElement, title: string): Promise<string> {
   const body = content.matches(".markdown-body") ? content : content.querySelector<HTMLElement>(".markdown-body");
   if (!body) throw new Error("Nothing to export yet.");
-  const copy = body.cloneNode(true) as HTMLElement;
+  return standalonePage(body, title, EXPORT_STYLES);
+}
+
+/**
+ * A web page holding a copy of `content` in the light theme, with Takode's style rules and `styles`
+ * after them: controls and comment overlays left out, images inlined, visuals kept as still pictures.
+ */
+export async function standalonePage(content: HTMLElement, title: string, styles: string): Promise<string> {
+  const copy = content.cloneNode(true) as HTMLElement;
   for (const element of copy.querySelectorAll(
     "[data-copy-exclude], [data-read-aloud-player], [data-annotation-overlay], button, iframe[data-live]",
   )) {
@@ -90,7 +106,7 @@ export async function standaloneHtml(content: HTMLElement, title: string): Promi
     frame.srcdoc = frame.srcdoc.replace(/^<!doctype html><html class="dark"/i, '<!doctype html><html class=""');
     frame.removeAttribute("sandbox");
   }
-  await inlineImages(body, copy);
+  await inlineImages(content, copy);
   return [
     "<!doctype html>",
     '<html lang="en">',
@@ -100,7 +116,7 @@ export async function standaloneHtml(content: HTMLElement, title: string): Promi
     `<title>${escapeHtml(title)}</title>`,
     // Fonts and other assets the styles name load from this Takode while it is reachable.
     `<base href="${escapeHtml(window.location.origin)}/">`,
-    `<style>${appStyles()}\n${EXPORT_STYLES}</style>`,
+    `<style>${appStyles()}\n${styles}</style>`,
     "</head>",
     `<body><main class="takode-export">${copy.outerHTML}</main></body>`,
     "</html>",

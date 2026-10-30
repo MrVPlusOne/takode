@@ -9,6 +9,9 @@ Files above 2 MiB, invalid UTF-8, and empty files are rejected, never truncated.
 --worker names the worker whose checkout resolves the report's Takode file: links.
 Comments on the report come to your session, like any other comment.
 The receipt contains identity and size only; use takode read for saved content.
+A file that opens with \`slides: true\` front matter is a slide deck: Takode shows it one slide
+at a time (slides separated by --- lines) with a full-screen Present. The visual-blocks skill
+explains how to write one.
 `;
 
 export async function handleReport(base: string, args: string[]): Promise<void> {

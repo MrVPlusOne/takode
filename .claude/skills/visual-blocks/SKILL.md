@@ -1,6 +1,6 @@
 ---
 name: visual-blocks
-description: Use when an answer, report or guided review would explain better with a picture than with prose or a table: a pipeline or flow, who sends what to whom, a timeline or branch history, before/after, nested counts, numbers across runs or steps. Explains the ```visual block, Takode's visual kit (pipelines, flows, sequences, timelines, comparisons, stat cards, rows, nested sets, bars, notes), the Mermaid and chart helpers, and the required preview with `takode visual preview` before publishing.
+description: Use when an answer, report or guided review would explain better with a picture than with prose or a table: a pipeline or flow, who sends what to whom, a timeline or branch history, before/after, nested counts, numbers across runs or steps. Also use when asked for slides, a presentation or a deck. Explains the ```visual block, Takode's visual kit (pipelines, flows, sequences, timelines, comparisons, stat cards, rows, nested sets, bars, notes), the Mermaid and chart helpers, the required preview with `takode visual preview` before publishing, and slide decks (`slides: true` reports shown one slide at a time).
 ---
 
 # Visual blocks
@@ -57,6 +57,31 @@ takode visual preview visual.txt      # the fence body, or a file with the whole
 ```
 
 It renders the visual on the Takode server at a phone's and a desktop's message width, dark and light, writes four PNGs and prints checks: missing alt text, script errors, sideways scrolling on phones, text under 11 px, too many elements, too tall, slow. **Look at all four images**, fix what's wrong and preview again before you publish. Then paste the same text into the ```visual fence. The preview is for you: don't mention it in the answer.
+
+## Slides
+
+When asked for slides, a presentation or a deck, publish a `takode report` file written as a deck. Takode shows it one slide at a time with previous/next and Present (full screen), and exports it as a PDF with one slide per page.
+
+````markdown
+---
+slides: true
+---
+
+# The deck's title
+
+*One line on what it covers.*
+
+---
+
+## One point per slide
+
+A lead sentence, then one visual, a short code block or a few bullets.
+````
+
+- `slides: true` front matter opens the file. A `---` line with a blank line before it starts the next slide (`---` inside a fence, like a visual's header, doesn't).
+- A slide that starts with a `#` heading is a title slide and sits in the middle. Give every other slide a `##` heading: it names the slide in the slide list.
+- **A slide is one screen.** On wide screens it is a 16:9 slide laid out at 1280x720 with large text; visuals draw half again as large. Aim for a heading, at most about four lines of prose or five bullets, and one visual or a code block of up to about 12 lines. A longer slide shrinks, down to half size, and then scrolls, which reads badly when presenting: split it into two slides instead, and put detail that fits no slide in a separate report the deck links to.
+- On a phone held upright each slide shows as a page at reading size that scrolls, so the same file works there.
 
 ## Limits
 

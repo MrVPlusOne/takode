@@ -1,6 +1,6 @@
 import { GuidedReviewCard } from "./GuidedReviewCard.js";
 import { Lightbox } from "./Lightbox.js";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import {
   ARTIFACT_KIND_LABELS,
   type ArtifactMessageMarker,
@@ -21,6 +21,9 @@ import {
   type AttachmentRendering,
 } from "./DraftPostCard.js";
 import { VisualBlock } from "./VisualBlock.js";
+import { writeClipboardText } from "../utils/copy-utils.js";
+import { isSlideDeck } from "../../shared/slides.js";
+import { SlideDeckCard } from "./slides/SlideDeckCard.js";
 
 /** Renders Markdown with the caller's settings; passed in so these components don't import MarkdownContent. */
 /** Renders a version's Markdown; a report passes its file's path so its relative file links resolve. */
@@ -201,6 +204,16 @@ export function ArtifactVersionContentView({
       if (content.review) return <GuidedReviewCard target={content.review} />;
       return <div>{renderMarkdown(content.markdown)}</div>;
     case "report":
+      if (isSlideDeck(content.markdown)) {
+        return (
+          <LibraryDeck
+            title={title ?? ""}
+            markdown={content.markdown}
+            sourcePath={content.sourcePath}
+            renderMarkdown={renderMarkdown}
+          />
+        );
+      }
       return <div>{renderMarkdown(content.markdown, { fileBasePath: content.sourcePath })}</div>;
     case "table":
       return <div>{renderMarkdown(content.markdown)}</div>;
@@ -213,6 +226,33 @@ export function ArtifactVersionContentView({
         <p className="py-1 text-[13px] text-cc-muted">Only the newest version of a figure is kept.</p>
       );
   }
+}
+
+/** A deck in the Library or an artifact window, under the viewer's own title. */
+function LibraryDeck({
+  title,
+  markdown,
+  sourcePath,
+  renderMarkdown,
+}: {
+  title: string;
+  markdown: string;
+  sourcePath?: string;
+  renderMarkdown: RenderMarkdown;
+}) {
+  const render = useCallback(
+    (slide: string) => renderMarkdown(slide, { fileBasePath: sourcePath }),
+    [renderMarkdown, sourcePath],
+  );
+  return (
+    <SlideDeckCard
+      title={title}
+      markdown={markdown}
+      render={render}
+      framed={false}
+      menuItems={[{ label: "Copy Markdown", onClick: () => void writeClipboardText(markdown).catch(console.error) }]}
+    />
+  );
 }
 
 /** A figure's newest saved file; figures keep only their newest version. */

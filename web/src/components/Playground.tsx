@@ -1,5 +1,6 @@
 import { PlaygroundAnnotationsSection } from "./playground/PlaygroundAnnotationsSection.js";
 import { PlaygroundMarkdownReportSection } from "./playground/PlaygroundMarkdownReportSection.js";
+import { PlaygroundSlideDeckSection } from "./playground/PlaygroundSlideDeckSection.js";
 import { PlaygroundCommitDeliverySection } from "./playground/PlaygroundCommitDeliverySection.js";
 import { useMemo } from "react";
 import { COLOR_THEMES, useStore } from "../store.js";
@@ -108,6 +109,7 @@ export function Playground() {
           {/* Sections also turn this off; this covers fixtures rendered outside a Section. */}
           <QuestRecordFetchContext.Provider value={false}>
             <PlaygroundMarkdownReportSection />
+            <PlaygroundSlideDeckSection />
             <PlaygroundAnnotationsSection />
             <PlaygroundSessionHeaderMenu />
             <PlaygroundOverviewSections />
