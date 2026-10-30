@@ -7,7 +7,12 @@ import { findLocalImageReferences } from "../../shared/local-image-references.js
  * session whose files they are, so a remote host's images show too. `refreshKey` changes the
  * image URLs, so a file rewritten in place (a monitor's plot) shows its current version.
  */
-export const InlineLocalImagesContext = createContext<{ sessionId?: string; refreshKey: string } | null>(null);
+export const InlineLocalImagesContext = createContext<{
+  sessionId?: string;
+  refreshKey: string;
+  /** When each image was last modified, by the path the Markdown uses: shown under it as "Redrawn …". */
+  modifiedAt?: Record<string, number>;
+} | null>(null);
 
 /** True inside a Markdown link: an image there follows the link instead of opening the image viewer. */
 export const MarkdownLinkContext = createContext(false);
@@ -106,6 +111,7 @@ export function InlineLocalImage({
   variant = "thumbnail",
   fallback,
   onOpen,
+  modifiedAt,
 }: {
   path: string;
   isRelative: boolean;
@@ -117,6 +123,8 @@ export function InlineLocalImage({
   /** Shown when the image cannot be loaded: the link chat would show. */
   fallback: React.ReactNode;
   onOpen: (image: ViewedImage) => void;
+  /** When the file was last modified: a picture rewritten in place says how current it is. */
+  modifiedAt?: number;
 }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <>{fallback}</>;
@@ -125,7 +133,7 @@ export function InlineLocalImage({
     if (sessionId) params.set("sessionId", sessionId);
     return `/api/fs/file-link/image?${params.toString()}`;
   };
-  return (
+  const image = (
     <ViewableImage
       src={url(variant)}
       fullSrc={url("full")}
@@ -137,5 +145,20 @@ export function InlineLocalImage({
       className={`${variant === "thumbnail" ? "max-h-80 " : ""}max-w-full rounded-lg border border-cc-border bg-cc-code-bg object-contain`}
       onOpen={onOpen}
     />
+  );
+  if (modifiedAt === undefined) return image;
+  return (
+    <span className="inline-flex max-w-full flex-col">
+      {image}
+      <span className="mt-0.5 text-[11px] text-cc-muted" data-testid="inline-image-modified">
+        Redrawn{" "}
+        {new Date(modifiedAt).toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })}
+      </span>
+    </span>
   );
 }

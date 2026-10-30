@@ -69,7 +69,11 @@ export function TopicView({
   // Pages show local images inline, re-read each minute: monitors rewrite plots in place. A stable
   // value spares the page's Markdown a re-render on every refresh of the panel.
   const refreshKey = String(Math.floor(Date.now() / IMAGE_REFRESH_MS));
-  const inlineImages = useMemo(() => ({ sessionId: leaderId, refreshKey }), [leaderId, refreshKey]);
+  const pictures = useStablePictures(detail?.pictures);
+  const inlineImages = useMemo(
+    () => ({ sessionId: leaderId, refreshKey, modifiedAt: pictures }),
+    [leaderId, refreshKey, pictures],
+  );
 
   const load = useCallback(() => {
     topicApi
@@ -234,6 +238,15 @@ export function TopicView({
         )}
 
         <div className="mt-3" data-testid="topic-page">
+          {body && detail.picturesNewerThanText && (
+            // Pictures the page shows were redrawn after its text: say so until the Scribe catches up.
+            <p
+              className="mb-2 rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2 text-[13px] text-cc-muted"
+              data-testid="topic-pictures-newer"
+            >
+              Some pictures here were redrawn after the text about them was written. The Scribe is updating it.
+            </p>
+          )}
           {body ? (
             <InlineLocalImagesContext.Provider value={inlineImages}>
               <TopicPageBody
@@ -746,4 +759,11 @@ function ConversationIcon({ className }: { className: string }) {
       <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" strokeLinejoin="round" />
     </svg>
   );
+}
+
+/** The page's picture times, the same object while they don't change, so the page doesn't re-render. */
+function useStablePictures(pictures: Record<string, number> | undefined): Record<string, number> | undefined {
+  const ref = useRef(pictures);
+  if (JSON.stringify(ref.current) !== JSON.stringify(pictures)) ref.current = pictures;
+  return ref.current;
 }

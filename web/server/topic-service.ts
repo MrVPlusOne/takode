@@ -80,6 +80,10 @@ export interface TopicServiceDeps {
   broadcastChanged: () => void;
   /** Whether leaders get topics (Settings); on unless the user turned them off there. */
   topicsForLeaders?: () => boolean;
+  /** A file's modification time on the leader's machine (its pages' images load from there), or null when missing. */
+  fileModifiedAt?: (leaderId: string, path: string) => Promise<number | null>;
+  /** The images in a folder on the leader's machine, with paths written the way the folder was. */
+  listImages?: (leaderId: string, folder: string) => Promise<Array<{ path: string; mtimeMs: number }>>;
   now?: () => number;
 }
 
@@ -100,6 +104,36 @@ export type DeliveryResult = "sent" | "nothing" | "waiting" | "paused" | "busy" 
 type EventTiming = "ride" | "user" | "leader";
 
 /** The user's own page actions ride along; their other actions and the leader's activity are scheduled. */
+/**
+ * Local image files a page shows: `src` as the page writes it (a path, absolute or home-relative,
+ * or the server's image URL for one, as Scribes often write plots) and the file's `path`.
+ */
+export function pageImages(page: string | null): Array<{ src: string; path: string }> {
+  if (!page) return [];
+  const images = new Map<string, string>();
+  for (const match of page.matchAll(/!\[[^\]]*\]\(\s*<?([^)>\s]+)>?\s*\)/g)) {
+    const src = match[1]!;
+    const path = src.startsWith(FILE_LINK_IMAGE) ? fileLinkImagePath(src) : /^[~/]/.test(src) ? src : null;
+    if (path && IMAGE_FILE.test(path)) images.set(src, path);
+  }
+  return [...images].map(([src, path]) => ({ src, path }));
+}
+
+const FILE_LINK_IMAGE = "/api/fs/file-link/image?";
+
+/** The file an image URL of the server names, when it is an absolute or home-relative path. */
+function fileLinkImagePath(src: string): string | null {
+  const params = new URLSearchParams(src.slice(FILE_LINK_IMAGE.length).replace(/&amp;/g, "&"));
+  const path = params.get("path");
+  return path && params.get("isRelative") !== "1" && /^[~/]/.test(path) ? path : null;
+}
+
+const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg)$/i;
+
+function clockOf(ms: number): string {
+  return new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 function eventTiming(kind: TopicEvent["kind"]): EventTiming {
   if (kind === "now_done") return "ride";
   if (kind === "message" || kind === "undone") return "user";
@@ -462,6 +496,13 @@ export class TopicService {
     const instructions = this.store.scribeInstructions(leaderId);
     const sendInstructions = !this.store.instructionsSent(leaderId);
     const recent = await this.leaderQuests(leaderId, this.now() - RECENT_WINDOW_MS);
+    // Pictures on the pages this Scribe wrote that were redrawn since go with this message.
+    for (const topic of this.store.list(leader.space)) {
+      if (this.store.pageWriter(topic.id) !== leaderId) continue;
+      await this.checkPictures(topic.id).catch((error: Error) =>
+        console.warn(`[library-topics] Could not check the pictures of "${topic.name}":`, error.message),
+      );
+    }
     // Events recorded from here on are not in this message.
     const throughSeq = this.store.eventSeq();
 
@@ -838,6 +879,59 @@ export class TopicService {
     this.awaiting.delete(leaderId);
     this.forced.delete(leaderId);
     if (scribe && this.deps.isScribeAlive(scribe)) await this.deps.retireScribe(scribe);
+  }
+
+  /**
+   * Checks the images a topic's page shows: a picture redrawn since the page's text was brought up
+   * to date with it, or a new image beside them, becomes an event for the Scribe of the leader that
+   * wrote the page, which reads the picture and fixes the text about it. Run when the page is opened
+   * and before that Scribe's updates, so a page can't keep text that its pictures have outgrown.
+   * Returns each image's modification time, for the page to show.
+   */
+  async checkPictures(topicId: string, options: { schedule?: boolean } = {}): Promise<Record<string, number>> {
+    const images = pageImages(this.store.detail(topicId).page);
+    const paths = [...new Set(images.map((image) => image.path))];
+    const leaderId = this.store.pageWriter(topicId);
+    const { fileModifiedAt, listImages } = this.deps;
+    if (!paths.length || !leaderId || !fileModifiedAt) return {};
+    const stats: Record<string, number | null> = {};
+    for (const path of paths) stats[path] = await fileModifiedAt(leaderId, path).catch(() => null);
+    const folders: Record<string, Array<{ path: string; mtimeMs: number }>> = {};
+    if (listImages) {
+      for (const folder of new Set(paths.map((path) => path.slice(0, path.lastIndexOf("/"))))) {
+        // Agents' reduced copies of an image (`.takode-agent.` siblings) aren't images of their own.
+        folders[folder] = (await listImages(leaderId, folder).catch(() => [])).filter(
+          (image) => !image.path.includes(".takode-agent."),
+        );
+      }
+    }
+    const { redrawn, added } = this.store.notePictures(topicId, stats, folders);
+    const at = this.now();
+    for (const image of redrawn) {
+      this.store.addEvent(topicId, {
+        at,
+        kind: "picture",
+        leaderId,
+        text: `the picture ${image.path} on this page was redrawn (${clockOf(image.mtimeMs)}): look at it again and bring the text that describes it up to date`,
+      });
+    }
+    for (const image of added) {
+      this.store.addEvent(topicId, {
+        at,
+        kind: "picture",
+        leaderId,
+        text: `a new image appeared beside this page's pictures: ${image.path} (${clockOf(image.mtimeMs)}); show it if the page should`,
+      });
+    }
+    if (redrawn.length || added.length) {
+      void this.store.flush();
+      this.deps.broadcastChanged();
+      if (options.schedule) this.schedule(leaderId, "leader");
+    }
+    // By the page's own `src`, which is what the page's images look up.
+    return Object.fromEntries(
+      images.flatMap(({ src, path }) => (stats[path] == null ? [] : [[src, stats[path]] as [string, number]])),
+    );
   }
 
   private topicsForLeaders(): boolean {

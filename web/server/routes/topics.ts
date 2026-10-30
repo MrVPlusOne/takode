@@ -388,10 +388,18 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
 
   api.get("/topics/:id", (c) =>
     run(c, async (svc) => {
-      const detail = svc.store.detail(topicFor(svc, c, c.req.param("id")).id);
+      const topicId = topicFor(svc, c, c.req.param("id")).id;
+      // Opening a page checks its pictures: redrawn ones go to the Scribe, and the page shows when.
+      const pictures = await svc.checkPictures(topicId, { schedule: true }).catch((error: Error) => {
+        console.warn("[library-topics] Could not check a page's pictures:", error.message);
+        return {};
+      });
+      const detail = svc.store.detail(topicId);
       const quests = await Promise.all(detail.questIds.map((questId) => getQuest(questId)));
       return {
         ...detail,
+        pictures,
+        picturesNewerThanText: svc.store.picturesNewerThanText(topicId),
         now: svc.store
           .nowEntries(detail.id)
           .map((entry) =>

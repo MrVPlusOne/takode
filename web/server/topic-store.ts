@@ -61,6 +61,13 @@ interface StoredTopic {
   /** A leader started it (filing a quest under a new name): that leader's Scribe checks it is distinct enough. */
   reviewFor?: string;
   /**
+   * The local images the page shows, by the path it uses: the modification time last reported to
+   * Scribes (or found when first checked). A later time means the picture was redrawn since.
+   */
+  pictures?: Record<string, number>;
+  /** Per folder of those images: images in it changed up to this time were already offered to Scribes. */
+  pictureFolders?: Record<string, number>;
+  /**
    * Set on a thread the user started (New thread), which is stored like a topic for its thread
    * plumbing but is not one: never listed or paged as a topic, never matched by name.
    */
@@ -890,6 +897,60 @@ export class TopicStore {
     return pendingOf(this.require(topicId), leaderId);
   }
 
+  /**
+   * Compares the images a page shows (and their folders) with what Scribes were told: `stats` has
+   * each image's current modification time (null when gone), `folders` the images found beside them.
+   * Returns what changed since, and records it as told: a picture redrawn after it was last
+   * reported, or first seen newer than the page's text; an image in a folder changed since the folder
+   * was last looked at (on the first look, at least as new as the pictures the page shows there).
+   */
+  notePictures(
+    topicId: string,
+    stats: Record<string, number | null>,
+    folders: Record<string, Array<{ path: string; mtimeMs: number }>>,
+  ): { redrawn: Array<{ path: string; mtimeMs: number }>; added: Array<{ path: string; mtimeMs: number }> } {
+    const topic = this.require(topicId);
+    const seen = (topic.pictures ??= {});
+    const textAt = topic.writtenAt ?? 0;
+    const redrawn: Array<{ path: string; mtimeMs: number }> = [];
+    for (const [path, mtimeMs] of Object.entries(stats)) {
+      if (mtimeMs === null) continue;
+      const before = seen[path];
+      if (before === undefined ? mtimeMs > textAt : mtimeMs > before) redrawn.push({ path, mtimeMs });
+      if (before !== mtimeMs) {
+        seen[path] = mtimeMs;
+        this.dirty = true;
+      }
+    }
+    const added: Array<{ path: string; mtimeMs: number }> = [];
+    const lookedAt = (topic.pictureFolders ??= {});
+    for (const [folder, images] of Object.entries(folders)) {
+      // First look at a folder: images at least as new as the ones the page shows there are offered.
+      const shown = images.filter((image) => stats[image.path] != null).map((image) => image.mtimeMs);
+      const since = lookedAt[folder] ?? (shown.length ? Math.min(...shown) : textAt);
+      for (const image of images) {
+        if (!(image.path in stats) && image.mtimeMs > since) added.push(image);
+      }
+      const newest = Math.max(since, ...images.map((image) => image.mtimeMs));
+      if (lookedAt[folder] !== newest) {
+        lookedAt[folder] = newest;
+        this.dirty = true;
+      }
+    }
+    return { redrawn, added };
+  }
+
+  /** The topic's pictures redrawn after its text: picture events no page write covered yet. */
+  picturesNewerThanText(topicId: string): boolean {
+    return pendingOf(this.require(topicId)).some((event) => event.kind === "picture");
+  }
+
+  /** The leader whose Scribe last wrote the page (the one that covered events latest), if known. */
+  pageWriter(topicId: string): string | undefined {
+    const covered = Object.entries(this.require(topicId).coveredThrough ?? {});
+    return covered.sort((a, b) => b[1] - a[1])[0]?.[0];
+  }
+
   /** When a Scribe last saved the page or confirmed it needs no change. */
   pageTouchedAt(topicId: string): number {
     const topic = this.require(topicId);
@@ -1371,7 +1432,10 @@ function publicChange(change: StoredChange): TopicChange {
 /** What happened last in a topic: its newest event that is news (not a Scribe's own tidying). */
 function activityOf(topic: StoredTopic): Pick<TopicSummary, "activityAt" | "latestActivity"> {
   const latest = topic.events
-    .filter((event) => !event.byScribe && event.kind !== "now_done" && event.kind !== "page_request")
+    .filter(
+      (event) =>
+        !event.byScribe && event.kind !== "now_done" && event.kind !== "page_request" && event.kind !== "picture",
+    )
     .reduce<TopicEvent | null>((newest, event) => (!newest || event.at >= newest.at ? event : newest), null);
   // Events exist only since topics were turned on; the route adds the quests' own changes.
   if (!latest) return { activityAt: 0 };

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { CHANGE_SHOWN_MS, TopicStore, pageSummary } from "./topic-store.js";
-import { PAGE_FORMAT, TopicService, historyMessageText, type TopicSessionLike } from "./topic-service.js";
+import { PAGE_FORMAT, TopicService, historyMessageText, pageImages, type TopicSessionLike } from "./topic-service.js";
 import { TOPIC_TENTATIVE_MS, type TopicRenameSuggestion } from "../shared/library-topics.js";
 
 /**
@@ -383,6 +383,8 @@ async function setupService() {
     return leader && hostId ? { ...leader, hostId } : leader;
   };
   const settings = { topicsForLeaders: true };
+  // Files on the leader's machine, by path: their modification times.
+  const files = new Map<string, number>();
   const service = new TopicService(store, {
     getSession: (id) => sessions.get(id),
     getLeaderInfo: leaderInfo,
@@ -413,11 +415,16 @@ async function setupService() {
     messageText: (sessionNum, index) => messages.get(`${sessionNum}:${index}`) ?? null,
     broadcastChanged: () => {},
     topicsForLeaders: () => settings.topicsForLeaders,
+    fileModifiedAt: async (_leaderId, path) => files.get(path) ?? null,
+    listImages: async (_leaderId, folder) =>
+      [...files].flatMap(([path, mtimeMs]) =>
+        path.slice(0, path.lastIndexOf("/")) === folder ? [{ path, mtimeMs }] : [],
+      ),
     now: () => Date.now(),
   });
   return {
     ...{ store, service, leader, sessions, quests, injected, notices, created, busy, retired, messages },
-    ...{ leaderHosts, unstartable, settings },
+    ...{ leaderHosts, unstartable, settings, files },
   };
 }
 
@@ -433,6 +440,18 @@ async function enable(service: TopicService, store: TopicStore, leaderId: string
 function writePage(store: TopicStore, name: string, leaderId = "leader") {
   store.writePage(store.findByName("MSI", name)!.id, "## Where it stands\nUp to date.", Date.now(), { leaderId });
 }
+
+describe("page images", () => {
+  it("finds the local images a page shows, written as paths or as the server's image URLs", () => {
+    // Scribes write plots as the server's image URL for a file; both forms name the file.
+    const url = "/api/fs/file-link/image?path=%2Fruns%2Ft7%2Fevals.png&isRelative=0&variant=full";
+    const page = `![a](${url})\n![b](~/plots/b.png)\n![c](https://example.com/c.png)\n![d](notes.md)`;
+    expect(pageImages(page)).toEqual([
+      { src: url, path: "/runs/t7/evals.png" },
+      { src: "~/plots/b.png", path: "~/plots/b.png" },
+    ]);
+  });
+});
 
 describe("topic service", () => {
   it("turning topics on starts a Scribe and asks it to initialize", async () => {
@@ -606,6 +625,46 @@ describe("topic service", () => {
     service.changed("leader");
     await vi.advanceTimersByTimeAsync(0);
     expect(injected.at(-1)?.text).toContain("Your leader has 17 topics");
+  });
+
+  it("tells the Scribe when a picture its page shows is redrawn, or a new one appears beside it", async () => {
+    // The T7 page: plots a monitor redraws in place. A redraw after the text was written, and a new
+    // plot in the same folder, become events for the page's Scribe; until it writes the page again,
+    // the page says its pictures are newer than its text.
+    const { service, injected, store, files } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    const plot = "/runs/t7/evals_by_data.png";
+    files.set(plot, NOW - DAY);
+    files.set("/runs/t7/older_unrelated.png", NOW - 2 * DAY);
+    const { topic } = store.assign({ questId: "q-2713", space: "MSI", name: "T7 run", by: "agent", byAgent: true });
+    vi.setSystemTime(NOW);
+    store.writePage(topic.id, `## Latest plots\nData through Oct 29.\n\n![Evals](${plot})`, Date.now(), {
+      leaderId: "leader",
+    });
+    await service.scribeTurnEnded(scribe);
+    // First look: nothing is newer than the text.
+    expect(await service.checkPictures(topic.id)).toEqual({ [plot]: NOW - DAY });
+    expect(store.picturesNewerThanText(topic.id)).toBe(false);
+
+    files.set(plot, NOW + 60_000);
+    files.set("/runs/t7/progress_and_eval_lag.png", NOW + 90_000);
+    vi.advanceTimersByTime(120_000);
+    injected.length = 0;
+    service.changed("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    const message = injected.at(-1)?.text ?? "";
+    expect(message).toContain(`the picture ${plot} on this page was redrawn`);
+    expect(message).toContain("a new image appeared beside this page's pictures: /runs/t7/progress_and_eval_lag.png");
+    expect(message).not.toContain("older_unrelated");
+    expect(store.picturesNewerThanText(topic.id)).toBe(true);
+
+    // Checking again finds nothing new; the Scribe's write takes the note away.
+    expect(await service.checkPictures(topic.id)).toEqual({ [plot]: NOW + 60_000 });
+    expect(store.pendingEvents(topic.id).filter((event) => event.kind === "picture")).toHaveLength(2);
+    store.writePage(topic.id, `## Latest plots\nData through Oct 30.\n\n![Evals](${plot})`, Date.now(), {
+      leaderId: "leader",
+    });
+    expect(store.picturesNewerThanText(topic.id)).toBe(false);
   });
 
   it("sends what changed as soon as the Scribe is idle, and holds later changes until its turn ends", async () => {

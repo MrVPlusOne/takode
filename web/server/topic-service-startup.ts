@@ -12,7 +12,11 @@ import { TopicStore } from "./topic-store.js";
 import { setTopicViewSource } from "./topic-views.js";
 import { setScribeHooks } from "./scribe-registry.js";
 import { getSettings } from "./settings-manager.js";
+import { machineFor } from "./remote-host/session-machine.js";
 import { LIBRARY_MESSAGE_SOURCE } from "../shared/library-topics.js";
+
+/** Most images of one folder looked at when checking for new ones beside a page's pictures. */
+const MAX_FOLDER_IMAGES = 200;
 
 /** How long a burst of thread changes is gathered into one notice to the browsers. */
 const THREAD_NOTICE_DELAY_MS = 300;
@@ -44,6 +48,15 @@ export async function startLibraryTopics(input: {
     };
   };
   const leaderCwd = (leader: TopicLeaderInfo) => launcher.getSession(leader.sessionId)?.cwd;
+  /** The machine a leader runs on, and how a home-relative path there reads. */
+  const leaderMachine = (leaderId: string) => {
+    const hostId = leaderInfo(leaderId)?.hostId;
+    const home = hostId ? launcher.remoteHosts?.links.homeDir(hostId) : homedir();
+    return {
+      machine: machineFor(hostId),
+      expand: (path: string) => (path.startsWith("~/") && home ? `${home}${path.slice(1)}` : path),
+    };
+  };
   const service = new TopicService(new TopicStore(join(homedir(), ".companion", "library", input.serverId)), {
     getSession: (sessionId) => wsBridge.getSession(sessionId) as TopicSessionLike | undefined,
     getLeaderInfo: leaderInfo,
@@ -103,6 +116,27 @@ export async function startLibraryTopics(input: {
     },
     broadcastChanged: () => {},
     topicsForLeaders: () => getSettings().leaderTopics !== false,
+    // A page's images load from its leader's machine (a remote host's too), so they are checked there.
+    fileModifiedAt: async (leaderId, path) => {
+      const where = leaderMachine(leaderId);
+      return (await where.machine.stat(where.expand(path)))?.mtimeMs ?? null;
+    },
+    listImages: async (leaderId, folder) => {
+      const where = leaderMachine(leaderId);
+      const dir = where.expand(folder);
+      const { stdout } = await where.machine.exec("ls -1A", { cwd: dir, timeout: 5000 });
+      const names = stdout
+        .split("\n")
+        .filter((name) => /\.(png|jpe?g|gif|webp|svg)$/i.test(name))
+        .slice(0, MAX_FOLDER_IMAGES);
+      const images = await Promise.all(
+        names.map(async (name) => {
+          const info = await where.machine.stat(`${dir}/${name}`);
+          return info?.isFile ? [{ path: `${folder}/${name}`, mtimeMs: info.mtimeMs }] : [];
+        }),
+      );
+      return images.flat();
+    },
   });
   await service.store.load();
   setScribeHooks({

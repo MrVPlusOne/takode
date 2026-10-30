@@ -192,6 +192,24 @@ function mockApi() {
 }
 
 describe("TopicSidePanel", () => {
+  it("says when pictures are newer than the text about them", async () => {
+    // A monitor redraws the T7 plots in place; until the Scribe has caught up, the page says that
+    // its text predates them. (Each picture's redraw time is tested with the Markdown images.)
+    mockApi();
+    const plot = "/runs/t7/evals_by_data.png";
+    vi.mocked(topicApi.get).mockResolvedValue({
+      ...DETAIL,
+      page: `T7 is the 12B coding run.\n\n## Latest plots\n![Evals](${plot})`,
+      pictures: { [plot]: NOW },
+      picturesNewerThanText: true,
+    });
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    const view = await screen.findByTestId("topic-view");
+    expect(within(view).getByTestId("topic-pictures-newer")).toHaveTextContent(
+      "Some pictures here were redrawn after the text about them was written",
+    );
+  });
+
   it("offers to turn topics back on, lists topics and undoes the Scribe's tidying", async () => {
     const api = mockApi();
     // q-2713 (T7 run) has an open question; an answered one and a muted one don't count.

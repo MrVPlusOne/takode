@@ -158,6 +158,12 @@ opens it for; Now follows it (or comes first); then sections the user asked for;
   when a quoted phrase isn't in its linked message; then fix the quote or the link and save again.
   Never present a paraphrase in quotation marks.
 - Plain words for the user: no internal jargon, no IDs beyond the links.
+- Text about a live picture or report (a plot a monitor redraws in place) says which data it
+  describes ("data through Oct 30, 12:20 PM"). Takode tells you when a picture on a page was
+  redrawn: look at the file again and bring what the page says about it up to date, keeping the
+  picture's link as the page has it (a server image URL with variant=full shows it full size). It also tells
+  you about new images beside a page's pictures: show one if the page should (follow the user's
+  instructions for the page).
 
 ## Sorting quests and tidying topics
 

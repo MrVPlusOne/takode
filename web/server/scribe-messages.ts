@@ -192,6 +192,7 @@ function describeEvent(event: TopicEvent, sessionNum: (sessionId: string) => num
       return `${time} · note on ${quest}: "${text}"`;
     case "now_done":
     case "page_request":
+    case "picture":
       return `${time} · ${text}`;
   }
 }

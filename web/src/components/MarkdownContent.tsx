@@ -1050,6 +1050,7 @@ export const MarkdownContent = memo(function MarkdownContent({
                   alt={alt ?? ""}
                   sessionId={localImage.sessionId ?? inlineLocalImages!.sessionId ?? sessionId}
                   refreshKey={inlineLocalImages!.refreshKey}
+                  modifiedAt={inlineLocalImages!.modifiedAt?.[source]}
                   fallback={fileLink ?? alt}
                   onOpen={setViewedImage}
                 />

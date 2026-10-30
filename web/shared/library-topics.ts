@@ -74,7 +74,8 @@ export interface TopicEvent {
   /**
    * check: a User review check of a quest was ticked; note: the user's or leader's note on a
    * quest; now_done: the user marked a Now item done on the page; page_request: the user's requests
-   * for the topic's page changed.
+   * for the topic's page changed; picture: an image the page shows was redrawn, or a new image
+   * appeared beside it.
    */
   kind:
     | "quest_filed"
@@ -85,7 +86,8 @@ export interface TopicEvent {
     | "check"
     | "note"
     | "now_done"
-    | "page_request";
+    | "page_request"
+    | "picture";
   /** The leader whose activity it came from; its Scribe handles it. */
   leaderId?: string;
   /** Made by a Scribe's own filing or tidying: it needs a page update but is not news to Scribes. */
@@ -122,6 +124,10 @@ export interface TopicDetail extends TopicSummary {
   }>;
   /** The topic's Now entries, when the server includes them. */
   now?: NowEntry[];
+  /** When each local image the page shows was last modified, by the path the page uses. */
+  pictures?: Record<string, number>;
+  /** Some of those images were redrawn after the page's text was last brought up to date with them. */
+  picturesNewerThanText?: boolean;
 }
 
 /** One line in the Library's change list; every change can be undone. */

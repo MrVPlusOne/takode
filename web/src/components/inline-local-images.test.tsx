@@ -35,6 +35,25 @@ describe("inline local images", () => {
     });
   });
 
+  it("says when a picture was last redrawn, when the page knows", () => {
+    // A topic page passes each picture's modification time, so a plot rewritten in place says how
+    // current it is.
+    render(
+      <InlineLocalImagesContext.Provider
+        value={{
+          sessionId: "leader-1",
+          refreshKey: "42",
+          modifiedAt: { "/data/t7/evals.png": Date.UTC(2026, 9, 30, 19, 20) },
+        }}
+      >
+        <MarkdownContent text="![evals](/data/t7/evals.png) ![other](/data/t7/other.png)" />
+      </InlineLocalImagesContext.Provider>,
+    );
+    const labels = screen.getAllByTestId("inline-image-modified");
+    expect(labels).toHaveLength(1);
+    expect(labels[0]!.textContent).toMatch(/^Redrawn Oct 30/);
+  });
+
   it("refreshes plots a Scribe embeds as server image URLs, like local paths", () => {
     // Scribes write plots as the server's image URL for a local file. On a topic page that URL
     // must get the same thumbnail, session and refresh key as a local path, or a monitor's
