@@ -12,7 +12,6 @@ import {
   useTopicWindowFollowsQuests,
 } from "./library/TopicConversation.js";
 import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
-import { closeTopicConversation, openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
 import { useKnownThreadOfKey } from "../utils/leader-topics.js";
 import { landZoom, prepareZoom } from "./topic-zoom.js";
 import { isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
@@ -43,6 +42,7 @@ import { useSessionSearch } from "../hooks/useSessionSearch.js";
 import {
   hasMessageDeepLinkFromHash,
   historyEntryShowsMainThread,
+  legacyTopicViewQuestFromHash,
   markHistoryEntryShowsMainThread,
   navigateToSessionMessageId,
   navigateToSessionThread,
@@ -64,9 +64,7 @@ import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.
 import {
   markLeaderThreadDisplayed,
   persistLeaderSelectedThreadKey,
-  persistLeaderTopicView,
   readLeaderSelectedThreadKey,
-  readLeaderTopicView,
   requestThreadViewportSnapshot,
 } from "../utils/thread-viewport.js";
 import { ViewportHandoffThreadEntryGate } from "./ViewportHandoffEntryGate.js";
@@ -408,6 +406,8 @@ function restorableSelectedThreadKey({
   if (!threadKey) return null;
   const normalized = normalizeThreadKey(threadKey);
   if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY) return normalized;
+  // A topic's conversation is a place of its own, not a tab: it stays restorable while its topic does.
+  if (isTopicViewKey(normalized)) return normalized;
   if (!shouldPersistLeaderThreadTab(normalized)) return null;
   if (openThreadTabKeys.includes(normalized)) return normalized;
   if (authoritativeLeaderOpenThreadTabs) return null;
@@ -648,8 +648,7 @@ export function ChatView({
     selectedThreadKey.toLowerCase() !== MAIN_THREAD_KEY &&
     selectedThreadKey.toLowerCase() !== ALL_THREADS_KEY &&
     isQuestThreadKey(selectedThreadKey);
-  // A quest tab can show its whole topic as one conversation.
-  const topicFeedFor = useTopicConversationTab(sessionId);
+  // The topic a quest on screen is filed under (for its breadcrumb and "Part of" line).
   const questTopicConversation = useTopicConversation(
     sessionId,
     showQuestThreadBanner && !preview ? selectedThreadKey : "",
@@ -659,13 +658,22 @@ export function ChatView({
     sessionId,
     isLeaderSession && !preview && isTopicViewKey(selectedThreadKey) ? selectedThreadKey : "",
   );
-  // A topic's conversation selected on its own, when no quest tab of it is known.
+  // A route from before topic conversations had their own key (`?thread=q-N&topic=1`, from an old
+  // history entry or link) opens as that quest's topic conversation once the quest's topic is known.
+  const legacyTopicKey =
+    !preview && questTopicConversation && legacyTopicViewQuestFromHash(window.location.hash) === selectedThreadKey
+      ? topicViewKey(questTopicConversation.topicId)
+      : null;
+  useEffect(() => {
+    if (legacyTopicKey) navigateToSessionThread(sessionId, legacyTopicKey, true);
+  }, [legacyTopicKey, sessionId]);
+  // A topic's conversation on screen: a place of its own (`topic:<handle>`), like a quest.
   const standaloneTopic = useStandaloneTopicConversation(
     sessionId,
     isLeaderSession && !preview && !selectedThread ? selectedThreadKey : "",
   );
   const topicConversation = standaloneTopic ?? questTopicConversation;
-  const topicFeedOn = !!topicConversation && (!!standaloneTopic || topicFeedFor === selectedThreadKey.toLowerCase());
+  const topicFeedOn = !!topicConversation && !!standaloneTopic;
   const feedThreadKey = topicFeedOn ? topicViewKey(topicConversation.topicId) : selectedThreadKey;
   useTopicWindowFollowsQuests(sessionId, topicFeedOn ? feedThreadKey : null, topicConversation?.questIds ?? []);
   const feedQuestKeys = topicFeedOn ? topicConversation.questIds.map((questId) => normalizeThreadKey(questId)) : null;
@@ -686,7 +694,6 @@ export function ChatView({
         navigateToSessionMessageId(sessionId, unreadAbove.first.messageId!, {
           threadKey: selectedThreadKey,
           preserveMainThreadRoute: true,
-          ...(topicFeedOn ? { topicView: true } : {}),
         })
       }
     />
@@ -695,19 +702,13 @@ export function ChatView({
   // new feed is on screen.
   const zoomColumnRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => landZoom(sessionId, feedThreadKey, zoomColumnRef.current), [sessionId, feedThreadKey]);
-  // Remember whether the quest tab on screen shows its topic's conversation, the place a return to
-  // this leader reopens. Only while the route names this tab: a route without it (another session,
-  // or this one before its saved place is restored) says nothing about the place that was left.
-  useEffect(() => {
-    if (!isLeaderSession || preview || !isQuestThreadKey(selectedThreadKey)) return;
-    if (!routeThreadKey || normalizeThreadKey(routeThreadKey) !== normalizeThreadKey(selectedThreadKey)) return;
-    persistLeaderTopicView(sessionId, selectedThreadKey, topicFeedFor === normalizeThreadKey(selectedThreadKey));
-  }, [isLeaderSession, preview, routeThreadKey, selectedThreadKey, sessionId, topicFeedFor]);
-
+  // Set once handleSelectThread exists, below.
+  const selectThreadRef = useRef<(threadKey: string) => void>(() => {});
   const zoomOutToTopic = useCallback(() => {
     if (!topicConversation) return;
-    prepareZoom(sessionId, topicViewKey(topicConversation.topicId), "out", { feedKey: selectedThreadKey });
-    openTopicConversation(sessionId, selectedThreadKey);
+    const topicKey = topicViewKey(topicConversation.topicId);
+    prepareZoom(sessionId, topicKey, "out", { feedKey: selectedThreadKey });
+    selectThreadRef.current(topicKey);
   }, [sessionId, selectedThreadKey, topicConversation]);
 
   // Reconnects and handoff refetches request the window of the feed on screen, which the saved
@@ -901,8 +902,6 @@ export function ChatView({
   const lastProcessedRouteThreadKeyRef = useRef<string | null>(null);
   const handleSelectThread = useCallback(
     (threadKey: string) => {
-      // A topic's own thread is not a tab: its conversation opens in one of its quests' tabs.
-      if (isTopicViewKey(threadKey)) return navigateToSessionThread(sessionId, threadKey);
       const nextThreadKey = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
       const currentThreadKey = normalizeThreadKey(selectedThreadKey);
       if (nextThreadKey !== currentThreadKey) {
@@ -937,12 +936,11 @@ export function ChatView({
     },
     [cachedThreadWindows, isLeaderSession, openThreadTab, preview, selectedThreadKey, sessionId],
   );
-  // Zooming into a quest from its strip in the topic: the tab's own quest drops the topic view,
-  // another quest opens its own tab (which shows it alone), each one history step.
+  selectThreadRef.current = handleSelectThread;
+  // Zooming into a quest from its strip in the topic: the quest opens on its own, one history step.
   openTopicQuestRef.current = (questId, part) => {
     prepareZoom(sessionId, questId, "in", { feedKey: feedThreadKey, part });
-    if (normalizeThreadKey(questId) === normalizeThreadKey(selectedThreadKey)) closeTopicConversation(sessionId);
-    else handleSelectThread(questId);
+    handleSelectThread(questId);
   };
   // Closing the tab on screen plays its quest strip away (any close path, not only the strip's button).
   const questStripRef = useRef<HTMLDivElement | null>(null);
@@ -1075,16 +1073,9 @@ export function ChatView({
         markHistoryEntryShowsMainThread();
       } else {
         // This URL follows passive selection restore, not an external route
-        // requesting first placement over the authoritative tab order. A quest tab left on its
-        // topic's conversation reopens there, not on the quest alone.
+        // requesting first placement over the authoritative tab order.
         locallySelectedRouteThreadKeyRef.current = nextThreadKey;
-        navigateToSessionThread(
-          sessionId,
-          nextThreadKey,
-          true,
-          sessionId,
-          readLeaderTopicView(sessionId, nextThreadKey) ? { topicView: true } : {},
-        );
+        navigateToSessionThread(sessionId, nextThreadKey, true);
       }
       return;
     }

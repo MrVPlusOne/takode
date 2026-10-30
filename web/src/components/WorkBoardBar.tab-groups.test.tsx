@@ -368,7 +368,8 @@ describe("WorkBoardBar tab groups", () => {
       )!;
       fireEvent.click(within(row).getByRole("menuitem"));
       expect(window.location.hash).not.toContain("/msg/");
-      expect(window.location.hash).toContain("topic=1");
+      // The topic's conversation, a place of its own.
+      expect(onSelectThread).toHaveBeenCalledWith("topic:t1");
     } finally {
       list.mockRestore();
       localStorage.clear();

@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../api.js", () => ({ api: {} }));
 vi.mock("../MarkdownContent.js", () => ({ MarkdownContent: ({ text }: { text: string }) => <div>{text}</div> }));
-const readTopicConversation = vi.hoisted(() => vi.fn());
+const openTopicConversation = vi.hoisted(() => vi.fn());
 const navigateToNotification = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/notification-navigation.js", () => ({ navigateToNotification }));
 vi.mock("../../utils/topic-conversation.js", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  readTopicConversation,
+  openTopicConversation,
 }));
 const navigateToSessionThread = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/routing.js", async (importOriginal) => ({
@@ -322,13 +322,14 @@ describe("TopicSidePanel", () => {
     expect(view.tagName).toBe("BUTTON");
     expect(view).toHaveTextContent("View topic tab");
     fireEvent.click(view);
-    expect(readTopicConversation).toHaveBeenCalledWith("l1", ["q-2713", "q-2797"], "q-2713", { replace: false });
+    // The topic's conversation is a place of its own.
+    expect(openTopicConversation).toHaveBeenCalledWith("l1", "topic:t7", { replace: false });
+    cleanup();
 
-    // The route says the tab shows its topic (zoomed out).
-    act(() => showRoute("#/session/l1?thread=q-2713&topic=1"));
-    expect(screen.getByTestId("topic-viewing-conversation")).toHaveTextContent("Viewing topic tab");
+    // With the topic's conversation on screen, the page says so.
+    render(<TopicSidePanel leaderId="l1" threadKey="topic:t7" variant="docked" />);
+    expect(await screen.findByTestId("topic-viewing-conversation")).toHaveTextContent("Viewing topic tab");
     expect(screen.queryByTestId("topic-read-conversation")).toBeNull();
-    act(() => showRoute("#/session/l1?thread=q-2713"));
   });
 
   it("turns the quest count into a picker of the topic's quests, most recent first", async () => {
@@ -342,8 +343,6 @@ describe("TopicSidePanel", () => {
         { questId: "q-2801", title: "Grading check", status: "done", changedAt: NOW - 60 * 60_000 },
       ],
     });
-    // The tab on screen shows the topic's conversation; picking its own quest reads it alone.
-    showRoute("#/session/l1?thread=q-2713&topic=1");
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
     const picker = await screen.findByTestId("topic-quest-picker");
     expect(picker).toHaveTextContent("3 quests");
@@ -355,14 +354,8 @@ describe("TopicSidePanel", () => {
     expect(rows[0]).toHaveTextContent("q-2797 · In Progress · 5m ago");
 
     fireEvent.click(rows[1]!);
-    expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-2801", false, "l1", { topicView: false });
+    expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-2801", false, "l1");
     expect(screen.queryByTestId("topic-quest-picker-list")).toBeNull();
-
-    // Picking the tab's own quest zooms in: the same tab, without the topic view.
-    fireEvent.click(picker);
-    fireEvent.click(screen.getAllByTestId("topic-quest-picker-row")[2]!);
-    expect(navigateToSessionThread).toHaveBeenLastCalledWith("l1", "q-2713", false, "l1", { topicView: false });
-    showRoute("");
   });
 
   it("folds sections at their headings, remembered per topic, and lists all quests folded at the end", async () => {

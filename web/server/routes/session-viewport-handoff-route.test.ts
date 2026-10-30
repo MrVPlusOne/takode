@@ -91,10 +91,11 @@ describe("session viewport handoff routes", () => {
     expect(body).not.toHaveProperty("record");
   });
 
-  it("publishes and reads leader Main, All, and quest handoffs without broadcasting", async () => {
+  it("publishes and reads leader Main, All, quest and topic handoffs without broadcasting", async () => {
+    // A topic's conversation is a place of its own, so another device reopens it, not one of its quests.
     const { api, broadcastToSession } = await makeRoute({ leader: true });
 
-    for (const [index, threadKey] of ["main", "all", "q-41"].entries()) {
+    for (const [index, threadKey] of ["main", "all", "topic:2bd59c8c", "q-41"].entries()) {
       const response = await put(
         api,
         request({
@@ -115,11 +116,11 @@ describe("session viewport handoff routes", () => {
     const body = await response.json();
     expect(body).toMatchObject({
       threadKey: "q-41",
-      state: { revision: 3, selectedThreadKey: "q-41" },
-      record: { threadKey: "q-41", revision: 3 },
+      state: { revision: 4, selectedThreadKey: "q-41" },
+      record: { threadKey: "q-41", revision: 4 },
       serverNow: expect.any(Number),
     });
-    expect(Object.keys(body.state.handoffs)).toEqual(expect.arrayContaining(["main", "all", "q-41"]));
+    expect(Object.keys(body.state.handoffs)).toEqual(expect.arrayContaining(["main", "all", "topic:2bd59c8c", "q-41"]));
     expect(broadcastToSession).not.toHaveBeenCalled();
   });
 

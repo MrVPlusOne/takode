@@ -1,3 +1,4 @@
+import { isTopicViewKey } from "./topic-thread-key.js";
 export const VIEWPORT_HANDOFF_VERSION = 1 as const;
 export const MAX_VIEWPORT_HANDOFFS_PER_SESSION = 32;
 export const MAX_VIEWPORT_HANDOFF_ID_LENGTH = 512;
@@ -99,6 +100,8 @@ export function normalizeViewportHandoffThreadKey(value: unknown): string | null
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   if (normalized === "main" || normalized === "all" || /^q-\d+$/.test(normalized)) return normalized;
+  // A topic's conversation is a place of its own, handed between devices like a quest.
+  if (isTopicViewKey(normalized)) return normalized;
   return null;
 }
 

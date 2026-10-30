@@ -1,3 +1,4 @@
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
@@ -218,7 +219,8 @@ function describeViewedTab(
   if (key === ALL_THREADS_KEY) return { title: "All Threads", thread: null, place: sessionLabel };
   return {
     title: threads.titleFor(entry.sessionId, key) || key,
-    thread: key,
+    // A quest's ID helps tell quests apart; a topic's conversation is named by its topic alone.
+    thread: isTopicViewKey(key) ? null : key,
     place: sessionTag ? `· ${sessionLabel}` : sessionLabel,
   };
 }

@@ -27,7 +27,7 @@ export interface TopicFeed {
   /** Threads filed under the topic: parts of the conversation, each under its own name. */
   threads?: readonly TopicThreadRef[];
   /**
-   * Zooms into a quest: its own tab, showing it alone (also when it is this tab's quest). `part` is
+   * Zooms into a quest: opens it on its own. `part` is
    * the strip tapped, whose messages on screen stay in place.
    */
   openQuest: (questId: string, part?: HTMLElement | null) => void;

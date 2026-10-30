@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo } from "react";
 import { useStore } from "../../store.js";
-import { useKnownTopicBrief, useKnownTopicOfKey } from "../../utils/leader-topics.js";
+import { loadLeaderNamesOnce, useKnownTopicBrief, useKnownTopicOfKey } from "../../utils/leader-topics.js";
 import { isTopicViewKey, topicIdOfViewKey } from "../../../shared/topic-thread-key.js";
 import type { TopicThreadRef } from "../../../shared/library-topics.js";
 import { sendToSession } from "../../ws.js";
@@ -16,8 +16,8 @@ type TopicConversationInfo = {
 };
 
 /**
- * The topic of a leader's quest tab, with its quests, for reading the topic as one conversation
- * (the quest zoomed out); null on Main or for a quest under no topic yet.
+ * The topic a leader's quest on screen is filed under, with its quests (for its breadcrumb and
+ * the way back to the topic's conversation); null on Main or for a quest under no topic yet.
  */
 export function useTopicConversation(leaderId: string, threadKey: string): TopicConversationInfo | null {
   const topic = useQuestTopic(leaderId, threadKey);
@@ -33,13 +33,17 @@ export function useTopicConversation(leaderId: string, threadKey: string): Topic
 }
 
 /**
- * A topic's conversation selected on its own (`topic:<handle>` as the leader's thread), when no
- * quest tab of the topic is known to open it in. Threads the user started are not topics: see
- * `ThreadHeader`.
+ * A topic's conversation on screen (`topic:<handle>` as the leader's thread), a place of its own
+ * like a quest. Threads the user started share the key form but are not topics.
  */
 export function useStandaloneTopicConversation(leaderId: string, threadKey: string): TopicConversationInfo | null {
   const isTopic = isTopicViewKey(threadKey);
   const topic = useKnownTopicOfKey(leaderId, isTopic ? threadKey : "");
+  // Opened straight from its route (a reload, a link, coming back to the leader), before anything
+  // else asked for the leader's topics: ask now, for its name and quests.
+  useEffect(() => {
+    if (isTopic && !topic) loadLeaderNamesOnce(leaderId);
+  }, [isTopic, leaderId, topic]);
   // One object per change, so the conversation built from it isn't rebuilt on every render.
   return useMemo(() => {
     if (!isTopic) return null;

@@ -1,3 +1,4 @@
+import { topicViewKey } from "../../shared/topic-thread-key.js";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { api } from "../api.js";
 import { openNotifyMeEntry } from "../components/NotifyMe.js";
@@ -124,7 +125,9 @@ export function openAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessi
   // (a finished quest opens its quest).
   if (item.notification) {
     const inTopic = !!item.topic && item.notification.unreadReason !== "quest-complete";
-    navigateToNotification(sessionId, item.notification, sdkSessions, { topicView: inTopic });
+    navigateToNotification(sessionId, item.notification, sdkSessions, {
+      ...(inTopic ? { viewKey: topicViewKey(item.topic!.id) } : {}),
+    });
     return;
   }
   if (threadKey) {

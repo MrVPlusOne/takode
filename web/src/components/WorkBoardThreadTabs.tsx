@@ -3,7 +3,6 @@
  * tabs as status groups (ThreadTabGroups) on every screen size, with the tab menu
  * (close, Notify Me) behind a long-press or right-click on a listed tab.
  */
-import { openTopicConversation, useTopicConversationTab } from "../utils/topic-conversation.js";
 import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
 import { prepareZoom } from "./topic-zoom.js";
 import { useTopicTabTopics } from "./TopicTabList.js";
@@ -214,16 +213,11 @@ export function ThreadTabRail({
     sessionId,
     displayedTabs.flatMap((tab) => (tab.questId ? [tab.questId] : [])),
   );
-  // The Topics group: recent topics; one is selected while its conversation is on screen.
-  const conversationTab = useTopicConversationTab(sessionId);
+  // The topic whose conversation is on screen (its own place, `topic:<handle>`), selected in the list.
   const currentKey = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
-  // A topic's conversation on screen on its own (no quest tab of it known) is its topic too.
-  const standaloneTopicId = isTopicViewKey(currentKey)
+  const currentTopicId = isTopicViewKey(currentKey)
     ? (Object.keys(leaderTopics?.topics ?? {}).find((topicId) => isKeyOfTopic(currentKey, topicId)) ?? null)
     : null;
-  const currentTopicId =
-    standaloneTopicId ??
-    (conversationTab && conversationTab === currentKey ? (leaderTopics?.map[currentKey]?.id ?? null) : null);
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
   // The leader's threads (side chats), to name the topic a thread on screen is filed under. Asked
   // again when an answer in a thread arrives or is read: the leader names a thread with its first
@@ -261,20 +255,11 @@ export function ThreadTabRail({
       openInSide(sessionId, { kind: "topic", topicId: topic.id });
       return;
     }
-    // Like any opening: where it was left if recent, else at the latest with the unread counted above.
-    // The tab on screen when it is one of the topic's quests, else its newest quest with a tab.
-    const inTabs = new Set(displayedTabs.map((tab) => tab.questId));
-    const byNewest = [...topic.questIds].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)));
-    const questId = topic.questIds.includes(currentKey)
-      ? currentKey
-      : (byNewest.find((id) => inTabs.has(id)) ?? byNewest[0]);
-    // A thread the user started, before any quest joins it, opens on its own.
-    if (!questId) return openThread(topicViewKey(topic.id));
-    // A zoom out to the topic, one history step: from the tab on screen, or after opening the tab.
-    prepareZoom(sessionId, topicViewKey(topic.id), "out", { feedKey: questId });
-    if (questId === currentKey) return openTopicConversation(sessionId, questId);
-    openThread(questId);
-    openTopicConversation(sessionId, questId, { replace: true });
+    // Like any opening: where it was left if recent, else at the latest with the unread counted
+    // above. From one of its quests it zooms out to the topic.
+    const topicKey = topicViewKey(topic.id);
+    if (topic.questIds.includes(currentKey)) prepareZoom(sessionId, topicKey, "out", { feedKey: currentKey });
+    openThread(topicKey);
   };
   const menuTab = tabMenu ? tabs.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
   const menuItems = menuTab ? tabMenuItems(menuTab) : [];

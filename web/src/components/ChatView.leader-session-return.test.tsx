@@ -7,7 +7,7 @@ import {
   readDisplayedLeaderThreadKey,
   readLeaderSelectedThreadKey,
 } from "../utils/thread-viewport.js";
-import { parseHash, threadRouteFromHash } from "../utils/routing.js";
+import { navigateToSessionThread, parseHash, threadRouteFromHash } from "../utils/routing.js";
 import { needsInputNotification, threadMessage } from "./chat-view-leader-tabs-fixtures.js";
 import { installChatViewLeaderProjection } from "../test-fixtures/chat-view-leader-projection.js";
 
@@ -221,7 +221,10 @@ vi.mock("./session-participant-status.js", () => ({ useParticipantSessionStatusD
 
 import { ChatView } from "./ChatView.js";
 import { topicApi } from "../api/topics.js";
-import { closeTopicConversation, openTopicConversation } from "../utils/topic-conversation.js";
+import { resetLeaderTopicsForTest } from "../utils/leader-topics.js";
+import { openTopicConversation } from "../utils/topic-conversation.js";
+import { getViewHistory } from "../utils/view-history.js";
+
 import { topicViewKey } from "../../shared/topic-thread-key.js";
 
 function RouteAwareChatView() {
@@ -253,6 +256,8 @@ function navigate(hash: string) {
 }
 
 beforeEach(() => {
+  // Topics are module state: a leader whose topics an earlier test loaded would keep them.
+  resetLeaderTopicsForTest();
   mockState = createMockState();
   installChatViewLeaderProjection(mockState, LEADER_SESSION_ID, [QUEST_ID]);
   installChatViewLeaderProjection(mockState, OTHER_SESSION_ID, []);
@@ -263,6 +268,24 @@ beforeEach(() => {
   localStorage.setItem("cc-server-id", "test-server");
   history.replaceState(null, "", `#/session/${LEADER_SESSION_ID}?thread=${QUEST_ID}`);
 });
+
+/** The leader's topic t1 ("Library") holding QUEST_ID, as the topic routes answer. */
+function mockLibraryTopic() {
+  const library = { id: "t1", name: "Library", questIds: [QUEST_ID, "q-1945"], activityAt: 1 };
+  vi.spyOn(topicApi, "questMap").mockResolvedValue({
+    enabled: true,
+    map: { [QUEST_ID]: { id: "t1", name: "Library" } },
+    topics: { t1: library },
+  });
+  vi.spyOn(topicApi, "list").mockResolvedValue({
+    topics: [library],
+    changes: [],
+    leaders: [],
+    spaces: [],
+    suggestions: [],
+  } as never);
+  vi.spyOn(topicApi, "threads").mockResolvedValue({ threads: [] } as never);
+}
 
 function latestViewportThreadEntryId(sessionId: string, threadKey: string): string | undefined {
   const calls = mockViewportHandoffGates.thread.mock.calls
@@ -276,12 +299,8 @@ describe("ChatView passive leader-session returns", () => {
     // Regression: a topic conversation kept recording its tab's quest as the thread on screen, so a
     // phone coming back asked for that quest's window; the topic's window kept a gap where messages
     // arrived while it was away, and later live messages appeared after it.
-    vi.spyOn(topicApi, "questMap").mockResolvedValue({
-      enabled: true,
-      map: { [QUEST_ID]: { id: "t1", name: "Library" } },
-      topics: { t1: { name: "Library", questIds: [QUEST_ID, "q-1945"], activityAt: 1 } },
-    });
-    act(() => openTopicConversation(LEADER_SESSION_ID, QUEST_ID));
+    mockLibraryTopic();
+    act(() => openTopicConversation(LEADER_SESSION_ID, topicViewKey("t1")));
     render(<RouteAwareChatView />);
     const topicKey = topicViewKey("t1");
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicKey));
@@ -290,8 +309,8 @@ describe("ChatView passive leader-session returns", () => {
     const composer = screen.getByTestId("composer");
     expect(composer).toHaveAttribute("data-thread-key", topicKey);
     expect(composer).toHaveAttribute("data-topic-name", "Library");
-    act(() => closeTopicConversation(LEADER_SESSION_ID));
-    // Zoomed back into the quest tab, it posts to the quest again.
+    act(() => navigateToSessionThread(LEADER_SESSION_ID, QUEST_ID));
+    // Back on the quest, it posts to the quest again.
     await waitFor(() => expect(screen.getByTestId("composer")).toHaveAttribute("data-thread-key", QUEST_ID));
   });
 
@@ -439,19 +458,20 @@ describe("ChatView passive leader-session returns", () => {
   });
 });
 
-describe("ChatView returns to a quest tab's topic conversation", () => {
-  it("reopens the topic's conversation, not the quest alone, after another session and back", async () => {
-    // Regression (Jiayi's report): a leader left on a topic's conversation (a quest tab zoomed out,
-    // `topic=1`) reopened on that quest alone, because only the tab's quest was remembered.
-    vi.spyOn(topicApi, "questMap").mockResolvedValue({
-      enabled: true,
-      map: { [QUEST_ID]: { id: "t1", name: "Library" } },
-      topics: { t1: { name: "Library", questIds: [QUEST_ID, "q-1945"], activityAt: 1 } },
-    });
-    act(() => openTopicConversation(LEADER_SESSION_ID, QUEST_ID));
+describe("ChatView keeps a topic's conversation as a place of its own", () => {
+  it("remembers, lists and reopens the topic's conversation, not one of its quests", async () => {
+    // Regression (Jiayi's report, twice): a leader left on a topic's conversation reopened on one of
+    // its quests. The conversation was a quest tab zoomed out (`topic=1`), so everything that
+    // remembers a leader's place (the saved selection, Recently viewed, other devices) named the quest.
+    mockLibraryTopic();
     render(<RouteAwareChatView />);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    // Back to the quest's topic, as the band's × does.
+    fireEvent.click(await screen.findByRole("button", { name: "Back to Library" }));
     const topicKey = topicViewKey("t1");
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicKey));
+    expect(readLeaderSelectedThreadKey(LEADER_SESSION_ID)).toBe(topicKey);
+    expect(getViewHistory()[0]).toEqual(expect.objectContaining({ sessionId: LEADER_SESSION_ID, threadKey: topicKey }));
 
     mockState.currentSessionId = OTHER_SESSION_ID;
     navigate(`#/session/${OTHER_SESSION_ID}`);
@@ -461,20 +481,12 @@ describe("ChatView returns to a quest tab's topic conversation", () => {
     mockState.currentSessionId = LEADER_SESSION_ID;
     navigate(`#/session/${LEADER_SESSION_ID}`);
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicKey));
-    expect(window.location.hash).toContain("topic=1");
+    expect(threadRouteFromHash(window.location.hash).threadKey).toBe(topicKey);
 
-    // Zoomed back in, the quest alone is the place to return to.
-    act(() => closeTopicConversation(LEADER_SESSION_ID));
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
-    mockState.currentSessionId = OTHER_SESSION_ID;
-    navigate(`#/session/${OTHER_SESSION_ID}`);
-    await waitFor(() =>
-      expect(screen.getByTestId("message-feed")).toHaveAttribute("data-session-id", OTHER_SESSION_ID),
-    );
-    mockState.currentSessionId = LEADER_SESSION_ID;
-    navigate(`#/session/${LEADER_SESSION_ID}`);
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
-    expect(window.location.hash).not.toContain("topic=1");
+    // A route from before (`?thread=q-N&topic=1`) opens as the topic's conversation too.
+    navigate(`#/session/${LEADER_SESSION_ID}?thread=${QUEST_ID}&topic=1`);
+    await waitFor(() => expect(threadRouteFromHash(window.location.hash).threadKey).toBe(topicKey));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicKey));
   });
 });
 

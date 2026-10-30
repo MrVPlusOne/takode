@@ -17,7 +17,7 @@ import {
   navigateToSessionMessageId,
   navigateToSessionThread,
   routeLeavesFeed,
-  topicViewFromHash,
+  legacyTopicViewQuestFromHash,
   navigateHome,
   navigateToMostRecentSession,
   openQuestOverlayRouteAware,
@@ -437,14 +437,13 @@ describe("navigateToSessionThread", () => {
     expect(window.location.hash).toBe("#/session/s1/msg/m-1?thread=q-1");
   });
 
-  it("keeps a quest tab's topic view on the same thread and opens another thread zoomed in", () => {
-    // `topic=1` shows the quest's whole topic; a link to another quest opens that quest alone.
-    window.location.hash = "#/session/s1?thread=q-1";
-    navigateToSessionThread("s1", "q-1", false, "s1", { topicView: true });
-    expect(window.location.hash).toBe("#/session/s1?thread=q-1&topic=1");
-    expect(topicViewFromHash(window.location.hash)).toBe(true);
-    navigateToSessionThread("s1", "q-1", true);
-    expect(window.location.hash).toBe("#/session/s1?thread=q-1&topic=1");
+  it("reads a route from before topic conversations had their own key as its quest's topic view", () => {
+    // `?thread=q-N&topic=1` was a quest tab zoomed out to its topic; it opens as the topic now.
+    expect(legacyTopicViewQuestFromHash("#/session/s1?thread=q-1&topic=1")).toBe("q-1");
+    expect(legacyTopicViewQuestFromHash("#/session/s1?thread=q-1")).toBeNull();
+    expect(legacyTopicViewQuestFromHash("#/session/s1?thread=topic%3At1")).toBeNull();
+    // Moving on from such a route drops the flag.
+    window.location.hash = "#/session/s1?thread=q-1&topic=1";
     navigateToSessionThread("s1", "q-2");
     expect(window.location.hash).toBe("#/session/s1?thread=q-2");
   });
@@ -722,7 +721,7 @@ describe("routeLeavesFeed", () => {
   // take it, even when it shows the same message (a quest's message is also in its topic).
   it("says whether the route moved this session to another feed", () => {
     rememberTopicViewMembers("topic:t1", ["q-1", "q-2"]);
-    window.location.hash = "#/session/s1?thread=q-2&topic=1";
+    window.location.hash = "#/session/s1?thread=topic%3At1";
     expect(routeLeavesFeed("s1", "topic:t1")).toBe(false);
     expect(routeLeavesFeed("s1", "q-2")).toBe(true);
     window.location.hash = "#/session/s1/msg/m-1?thread=main";

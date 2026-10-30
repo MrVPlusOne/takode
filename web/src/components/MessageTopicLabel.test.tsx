@@ -45,7 +45,8 @@ describe("MessageTopicLabel", () => {
     const label = await screen.findByTestId("message-topic-label");
     await waitFor(() => expect(label.textContent).toBe("Relay"));
     fireEvent.click(label.querySelector("button")!);
-    expect(window.location.hash).toBe("#/session/l1/msg/m-1?topic=1&thread=q-7");
+    // The topic's own conversation, at the message.
+    expect(window.location.hash).toBe("#/session/l1/msg/m-1?thread=topic%3At1");
   });
 
   it("is absent where the message is at home: its quest, its topic, or another quest of that topic", async () => {
@@ -94,9 +95,8 @@ describe("a message written in a topic's own thread", () => {
     const label = await screen.findByTestId("message-topic-label");
     expect(label.textContent).toContain("Relay");
     fireEvent.click(label.querySelector("button")!);
-    // It opens in the tab of the topic's newest quest, zoomed out to the topic.
-    await waitFor(() => expect(window.location.hash).toContain("q-9"));
-    expect(window.location.hash).toContain("topic=1");
+    // It opens the topic's own conversation, at the message.
+    expect(window.location.hash).toBe("#/session/l1/msg/m-2?thread=topic%3Aaaaaaaaa");
   });
 
   it("is named by its thread when the user started it, and opens the thread at it", async () => {

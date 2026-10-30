@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { topicApi } from "../../api/topics.js";
 import { useStore } from "../../store.js";
 import { loadLeaderTopics, useKnownQuestTopic } from "../../utils/leader-topics.js";
+import { topicViewKey } from "../../../shared/topic-thread-key.js";
 import { navigateToSessionMessageId, navigateToSessionThread, sessionTopicViewHash } from "../../utils/routing.js";
 import { TopicIcon } from "./library-icons.js";
 import type { QuestTopicMap } from "../../../shared/library-topics.js";
@@ -50,11 +51,11 @@ export function QuestTopicLink({
   const label = `Topic ${topic.name}: open its conversation where ${questId} was last discussed`;
   return (
     <a
-      href={sessionTopicViewHash(routeSessionId, questId)}
+      href={sessionTopicViewHash(routeSessionId, topicViewKey(topic.id))}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        void openQuestInTopic(leaderSessionId, questId, routeSessionId);
+        void openQuestInTopic(leaderSessionId, questId, topicViewKey(topic.id), routeSessionId);
         onNavigate?.();
       }}
       className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-cc-primary/40 bg-cc-primary/10 px-2 py-0.5 text-[11px] text-cc-primary transition-colors hover:bg-cc-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 ${className}`}
@@ -69,12 +70,13 @@ export function QuestTopicLink({
 }
 
 /**
- * Opens a quest's topic conversation (its leader's quest tab zoomed out) at the place the quest
- * was last discussed; at the conversation's end when the server can't say where that was.
+ * Opens a quest's topic conversation (`topicKey`) at the place the quest was last discussed; at
+ * the conversation's end when the server can't say where that was.
  */
 export async function openQuestInTopic(
   leaderId: string,
   questId: string,
+  topicKey: string,
   routeSessionId: string | number = leaderId,
 ): Promise<void> {
   const messageId = await topicApi.lastDiscussed(leaderId, questId).then(
@@ -84,7 +86,6 @@ export async function openQuestInTopic(
       return null;
     },
   );
-  if (messageId)
-    navigateToSessionMessageId(leaderId, messageId, { routeSessionId, threadKey: questId, topicView: true });
-  else navigateToSessionThread(leaderId, questId, false, routeSessionId, { topicView: true });
+  if (messageId) navigateToSessionMessageId(leaderId, messageId, { routeSessionId, threadKey: topicKey });
+  else navigateToSessionThread(leaderId, topicKey, false, routeSessionId);
 }

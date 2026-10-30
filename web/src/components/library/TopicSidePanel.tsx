@@ -25,8 +25,8 @@ import { ChangeList, RenameSuggestions, TopicSettings, TopicsOffHint } from "./T
 import { TopicActivityList } from "./TopicActivityList.js";
 import { NoTopicMatches, searchTopics, TopicSearchBox } from "./topic-search.js";
 import { TopicView } from "./TopicView.js";
-import { readTopicConversation, useTopicConversationTab } from "../../utils/topic-conversation.js";
-import { isTopicViewKey, topicViewKey } from "../../../shared/topic-thread-key.js";
+import { openTopicConversation } from "../../utils/topic-conversation.js";
+import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../../shared/topic-thread-key.js";
 import { prepareZoom } from "../topic-zoom.js";
 import { navigateToSession, navigateToSessionThread } from "../../utils/routing.js";
 import type { ScribeActivity } from "../../../shared/library-topics.js";
@@ -89,10 +89,8 @@ export function TopicSidePanel({
   // An expanded desktop composer can cover the panel's lower part; the feed gets the same room.
   const composerRoom = useComposerScrollSpace(`topic-panel:${leaderId}`);
   const focus = useTopicPanel((state) => (state.focus?.leaderId === leaderId ? state.focus : null));
-  // The quest tab on screen when it shows its topic as one conversation: the page then says so.
+  // The thread on screen: a quest, or a topic's conversation, which the topic's page then says.
   const tabKey = threadKey.toLowerCase();
-  const conversationTab = useTopicConversationTab(leaderId);
-  const conversationQuestId = conversationTab === tabKey ? tabKey : null;
 
   const load = useCallback(() => {
     topicApi
@@ -206,20 +204,20 @@ export function TopicSidePanel({
               onChanged={load}
               embedded
               leaderId={leaderId}
-              onReadConversation={(questIds) => {
-                // Zooms out at the tab's quest's place when the tab's quest is in this topic.
+              onReadConversation={() => {
+                // Zooms out at the quest's place when the quest on screen is in this topic.
                 prepareZoom(leaderId, topicViewKey(topicId), "out", { feedKey: tabKey });
                 // From the phone sheet the step replaces the sheet's own history entry, so back
                 // returns to the view the sheet was opened over, not to a closed sheet.
-                readTopicConversation(leaderId, questIds, threadKey, { replace: variant === "sheet" });
+                openTopicConversation(leaderId, topicViewKey(topicId), { replace: variant === "sheet" });
                 if (variant === "sheet") close();
               }}
-              conversationQuestId={conversationQuestId}
+              conversationOnScreen={isKeyOfTopic(tabKey, topicId)}
               currentQuestId={tabKey.startsWith("q-") ? tabKey : null}
               onOpenQuest={(questId) => {
-                // A quest picked from the topic opens zoomed in, also when its tab showed the topic.
+                // A quest picked from the topic opens on its own.
                 prepareZoom(leaderId, questId, "in");
-                navigateToSessionThread(leaderId, questId, variant === "sheet", leaderId, { topicView: false });
+                navigateToSessionThread(leaderId, questId, variant === "sheet", leaderId);
                 if (variant === "sheet") close();
               }}
             />

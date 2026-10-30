@@ -36,7 +36,7 @@ export function TopicView({
   leaderId,
   bottomRoom = 0,
   onReadConversation,
-  conversationQuestId = null,
+  conversationOnScreen = false,
   currentQuestId = null,
   onOpenQuest,
 }: {
@@ -50,10 +50,10 @@ export function TopicView({
   leaderId?: string;
   /** Extra room at the bottom, so an expanded composer covering the panel's lower part hides nothing. */
   bottomRoom?: number;
-  /** Reads the topic's quests as one conversation in the leader's feed. */
-  onReadConversation?: (questIds: string[]) => void;
-  /** The quest tab on screen when it shows its topic as one conversation. */
-  conversationQuestId?: string | null;
+  /** Opens the topic's conversation (its quests read as one) in the leader's feed. */
+  onReadConversation?: () => void;
+  /** Whether the topic's conversation is what the leader's feed shows. */
+  conversationOnScreen?: boolean;
   /** The quest whose tab is on screen. */
   currentQuestId?: string | null;
   /** Opens one of the topic's quests in its tab. */
@@ -137,7 +137,7 @@ export function TopicView({
         <div className="relative mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12px] text-cc-muted">
           {onReadConversation &&
             detail.questIds.length > 0 &&
-            (conversationQuestId && detail.questIds.includes(conversationQuestId) ? (
+            (conversationOnScreen ? (
               <span
                 className="inline-flex items-center gap-1.5 rounded-md bg-cc-hover px-2.5 py-1 text-[13px] text-cc-muted"
                 data-testid="topic-viewing-conversation"
@@ -149,7 +149,7 @@ export function TopicView({
               // How Jiayi jumps to the topic's conversation most of the time, so a button, not a link.
               <button
                 type="button"
-                onClick={() => onReadConversation(detail.questIds)}
+                onClick={() => onReadConversation()}
                 className="inline-flex items-center gap-1.5 rounded-md border border-cc-primary/40 bg-cc-primary/10 px-2.5 py-1 text-[13px] font-medium text-cc-primary hover:bg-cc-primary/15"
                 title="Read the topic's quests as one conversation"
                 data-testid="topic-read-conversation"

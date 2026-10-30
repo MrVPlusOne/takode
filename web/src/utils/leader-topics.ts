@@ -268,17 +268,6 @@ export function useQuestTopicsOf(
   );
 }
 
-/**
- * The quest tab that shows a topic thread's conversation (a topic conversation opens in one of its
- * quests' tabs, zoomed out): the topic's newest quest, as last known; null when unknown.
- */
-export function topicHostQuest(leaderId: string, topicKey: string): string | null {
-  const topics = useLeaderTopicsStore.getState().byLeader[leaderId]?.topics ?? {};
-  const id = Object.keys(topics).find((topicId) => isKeyOfTopic(topicKey, topicId));
-  const quests = id ? [...topics[id]!.questIds] : [];
-  return quests.sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)))[0] ?? null;
-}
-
 /** For the Playground: the topics of some quests, as if the server had answered about them. */
 export function seedLeaderTopics(leaderId: string, map: QuestTopicMap): void {
   remember(leaderId, Object.keys(map), { enabled: true, map, topics: {} });

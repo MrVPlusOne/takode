@@ -1,6 +1,6 @@
 import { useContext, useEffect } from "react";
 import { leaderMessageThreadKey, leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
-import { isKeyOfTopic, isTopicViewKey } from "../../shared/topic-thread-key.js";
+import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
 import type { ChatMessage } from "../types.js";
 import {
   loadLeaderNamesOnce,
@@ -86,15 +86,11 @@ export function TopicThreadLabel({
   }
   // In a quest of this topic, the message is in its topic already.
   if (topic && viewTopic && isKeyOfTopic(topicKey, viewTopic.id)) return null;
-  // The topic conversation opens in the tab of one of its quests, the newest.
-  const quest = topic ? [...topic.questIds].sort((a, b) => Number(b.slice(2)) - Number(a.slice(2)))[0] : undefined;
   return (
     <TopicLabelButton
       name={topic?.name ?? "Topic"}
       title={topic ? `Written in the topic ${topic.name}: open it at this message` : "Written in a topic"}
-      onClick={() => {
-        if (quest) navigateToSessionMessageId(sessionId, messageId, { threadKey: quest, topicView: true });
-      }}
+      onClick={() => navigateToSessionMessageId(sessionId, messageId, { threadKey: topicKey })}
     />
   );
 }
@@ -129,7 +125,9 @@ function TopicLabel({
     <TopicLabelButton
       name={topic ? topic.name : questId}
       title={topic ? `In the topic ${topic.name}: open it at this message` : `In ${questId}: open it at this message`}
-      onClick={() => navigateToSessionMessageId(sessionId, messageId, { threadKey: questId, topicView: !!topic })}
+      onClick={() =>
+        navigateToSessionMessageId(sessionId, messageId, { threadKey: topic ? topicViewKey(topic.id) : questId })
+      }
     />
   );
 }

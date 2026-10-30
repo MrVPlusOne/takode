@@ -27,7 +27,7 @@ export interface LeaderBreadcrumbNavProps extends RowContext {
   /** The leader's topics by recent activity, the topic of each quest tab, and opening one. */
   topics: {
     list: TopicSummary[];
-    /** The topic whose conversation is on screen (a quest tab zoomed out, or the topic's own thread). */
+    /** The topic whose conversation is on screen. */
     currentTopicId: string | null;
     topicOfQuest: Readonly<Record<string, string>>;
     /** With the click, so a modifier-click can open the topic in the side column instead. */

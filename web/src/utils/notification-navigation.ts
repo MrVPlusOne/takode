@@ -14,7 +14,10 @@ export function navigateToNotification(
   sessionId: string,
   notification: Pick<SessionNotification, "id" | "messageId" | "threadKey" | "questId" | "unreadReason">,
   sdkSessions: SdkSessionInfo[],
-  options: { topicView?: boolean } = {},
+  options: {
+    /** The conversation to show the notification in, when not its own thread (its topic's). */
+    viewKey?: string;
+  } = {},
 ): void {
   const threadKey = resolveNotificationOwnerThreadKey(notification);
   const routeSessionId = routeSessionRefForId(sessionId, sdkSessions);
@@ -27,10 +30,9 @@ export function navigateToNotification(
   if (messageId) {
     navigateToSessionMessageId(sessionId, messageId, {
       routeSessionId,
-      threadKey,
+      threadKey: options.viewKey ?? threadKey,
       preserveMainThreadRoute: true,
       landing: resultLanding(notification),
-      ...(options.topicView ? { topicView: true } : {}),
     });
     return;
   }

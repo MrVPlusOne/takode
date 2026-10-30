@@ -43,12 +43,12 @@ describe("QuestTopicLink", () => {
     const link = await screen.findByTestId("quest-topic-link");
     expect(link.textContent).toBe("Relay");
     // Without script (or copied), the link still leads to the topic conversation.
-    expect(link.getAttribute("href")).toBe("#/session/l1?topic=1&thread=q-7");
+    expect(link.getAttribute("href")).toBe("#/session/l1?thread=topic%3At1");
 
     fireEvent.click(link);
     expect(onNavigate).toHaveBeenCalledOnce();
     expect(lastDiscussed).toHaveBeenCalledWith("l1", "q-7");
-    await waitFor(() => expect(window.location.hash).toBe("#/session/l1/msg/u-9?topic=1&thread=q-7"));
+    await waitFor(() => expect(window.location.hash).toBe("#/session/l1/msg/u-9?thread=topic%3At1"));
   });
 
   it("opens the topic conversation at its end when the server can't say where the quest was discussed", async () => {
@@ -56,7 +56,7 @@ describe("QuestTopicLink", () => {
     vi.spyOn(topicApi, "lastDiscussed").mockResolvedValue({ messageId: null });
     render(<QuestTopic leader="l1" />);
     fireEvent.click(await screen.findByTestId("quest-topic-link"));
-    await waitFor(() => expect(window.location.hash).toBe("#/session/l1?topic=1&thread=q-7"));
+    await waitFor(() => expect(window.location.hash).toBe("#/session/l1?thread=topic%3At1"));
   });
 
   it("shows nothing for a quest under no topic or without a leader, which asks nothing", async () => {
