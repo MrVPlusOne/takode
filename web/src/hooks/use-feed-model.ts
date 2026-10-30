@@ -1412,7 +1412,7 @@ export function groupIntoTurns(
  */
 export function splitTurnsByPart(
   turns: readonly Turn[],
-  partOf: (message: ChatMessage) => string | null,
+  partOf: (message: ChatMessage, request: ChatMessage | null) => string | null,
   options: {
     leaderMode: boolean;
     leaderSessionMode: boolean;
@@ -1422,9 +1422,11 @@ export function splitTurnsByPart(
 ): Turn[] {
   const anchored = new Set(options.anchoredNotificationMessageIds ?? []);
   const visibleChildren = new Set(options.visibleAssistantChildMessageIds ?? []);
-  const partOfEntry = (entry: FeedEntry | null) => (entry?.kind === "message" ? partOf(entry.msg) : null);
   const result: Turn[] = [];
   for (const turn of turns) {
+    // A part can depend on the turn's request (the topic's replies about it join its quest).
+    const request = turn.userEntry?.kind === "message" ? turn.userEntry.msg : null;
+    const partOfEntry = (entry: FeedEntry | null) => (entry?.kind === "message" ? partOf(entry.msg, request) : null);
     let part = partOfEntry(turn.userEntry);
     const pieces: FeedEntry[][] = [[]];
     for (const entry of turn.allEntries) {

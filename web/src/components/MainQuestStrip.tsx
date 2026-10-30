@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect } from "react";
-import { leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
 import type { StartedQuest } from "../api/started-quests.js";
 import type { ChatMessage } from "../types.js";
 import { isUserBoundaryEntry, type Turn } from "../hooks/use-feed-model.js";
@@ -7,7 +6,7 @@ import { loadLeaderTopics, useKnownQuestTopic } from "../utils/leader-topics.js"
 import { navigateToSessionMessageId } from "../utils/routing.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { TopicIcon } from "./library/library-icons.js";
-import { StartedQuestsContext } from "./QuestForkLinks.js";
+import { continuedQuestOf, StartedQuestsContext } from "./QuestForkLinks.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 import { STRIP_WRAPPER } from "./topic-feed.js";
@@ -54,14 +53,6 @@ export function mainQuestStrips(
     pinned = key;
     return { quest };
   });
-}
-
-function continuedQuestOf(
-  message: Pick<ChatMessage, "metadata">,
-  started: ReadonlyArray<StartedQuest> | null,
-): StartedQuest | null {
-  const owner = leaderResponseOwnerThreadKey(message.metadata ?? {});
-  return started?.find((quest) => normalizeThreadKey(quest.questId) === owner || !quest.sideQuest) ?? null;
 }
 
 /** The strip: the quest a request went to, with its topic, or "Main" where Main's conversation resumes. */

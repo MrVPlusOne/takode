@@ -4,7 +4,9 @@ import type { LeaderThreadResponseProjection } from "../../server/leader-thread-
 import type { FeedSection } from "./message-feed-sections.js";
 import { resolveThreadResponses, type ThreadResponsePresentation } from "./thread-response-presentation.js";
 import type { Turn } from "../hooks/use-feed-model.js";
-import { topicMemberOfMessage } from "../utils/thread-projection.js";
+import { normalizeThreadKey, topicMemberOfMessage } from "../utils/thread-projection.js";
+import { continuedQuestOf, StartedQuestsContext } from "./QuestForkLinks.js";
+import { leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
 import type { TopicThreadRef } from "../../shared/library-topics.js";
@@ -45,16 +47,19 @@ export function topicFeedParts(topicFeed: Pick<TopicFeed, "topicKey" | "questIds
 }
 
 /**
- * The part each turn belongs to: the first of the conversation's threads (the topic's own, or a
- * quest's) its messages are routed to. A turn routed to none of them (a tool result, a
+ * The part each turn belongs to: the part of its first message that has one (`useTopicTurnPartOf`). A turn routed to none of them (a tool result, a
  * turn-closing result) continues the previous part.
  */
-export function topicQuestsOfTurns(turns: readonly Turn[], questIds: readonly string[]): Array<string | null> {
+export function topicQuestsOfTurns(
+  turns: readonly Turn[],
+  partOf: (message: ChatMessage, request: ChatMessage | null) => string | null,
+): Array<string | null> {
   let previous: string | null = null;
   return turns.map((turn) => {
+    const request = turn.userEntry?.kind === "message" ? turn.userEntry.msg : null;
     for (const entry of [turn.userEntry, ...turn.allEntries]) {
       if (entry?.kind !== "message") continue;
-      const quest = topicMemberOfMessage(entry.msg, questIds);
+      const quest = partOf(entry.msg, request);
       if (quest) {
         previous = quest;
         return quest;
@@ -136,15 +141,41 @@ export function TopicFeedQuestLabel({ questId }: { questId: string }) {
  * In a topic conversation: which of the topic's quests a message belongs to, so the feed starts a
  * new turn (and shows the quest's strip) wherever the conversation moves to another quest, also
  * in the middle of what would otherwise be one turn. Null outside topic conversations.
+ *
+ * The user's request belongs to the quest it continued in (handed off to, or filed from it), as in
+ * Main: that quest's strip then sits above the request, which reads as the quest's start (Jiayi:
+ * the request sat under the topic's strip, with the quest's strip only after the filing note). The
+ * leader's replies in the request's own thread during that turn (the filing note) join the quest
+ * too, so the request and what the leader did with it read as one part, as under a strip in Main.
  */
-export function useTopicTurnPartOf(): ((message: ChatMessage) => string | null) | null {
+export function useTopicTurnPartOf(): ((message: ChatMessage, request: ChatMessage | null) => string | null) | null {
   const topicFeed = useContext(TopicFeedContext);
+  const started = useContext(StartedQuestsContext);
   const key = topicFeed ? topicFeedParts(topicFeed).join(",") : "";
   return useMemo(() => {
     if (!key) return null;
-    const questIds = key.split(",");
-    return (message: ChatMessage) => topicMemberOfMessage(message, questIds);
-  }, [key]);
+    const parts = key.split(",");
+    const requestPart = (request: ChatMessage): string | null => {
+      // The thread it was moved into is on the message itself; a quest filed from it is in the started list.
+      const owner = leaderResponseOwnerThreadKey(request.metadata ?? {});
+      const filed = continuedQuestOf(request, started?.get(request.id) ?? null);
+      for (const quest of [owner, filed && normalizeThreadKey(filed.questId)]) {
+        if (quest && parts.includes(quest)) return quest;
+      }
+      return null;
+    };
+    return (message: ChatMessage, request: ChatMessage | null) => {
+      if (isUserRequest(message)) return requestPart(message) ?? topicMemberOfMessage(message, parts);
+      const part = topicMemberOfMessage(message, parts);
+      if (!request || !isUserRequest(request) || part !== topicMemberOfMessage(request, parts)) return part;
+      return requestPart(request) ?? part;
+    };
+  }, [key, started]);
+}
+
+/** The user's own request, as opposed to herd events, timers and other agents' messages. */
+function isUserRequest(message: ChatMessage): boolean {
+  return message.role === "user" && message.metadata?.leaderResponseCoverageVersion === 1 && !message.agentSource;
 }
 
 /**

@@ -92,6 +92,15 @@ export function StartedQuestsProvider({
   return <StartedQuestsContext.Provider value={byMessageId}>{children}</StartedQuestsContext.Provider>;
 }
 
+/** The quest a request continues in: the one it was moved into, or one filed from it that is not a side quest. */
+export function continuedQuestOf(
+  message: Pick<ChatMessage, "metadata">,
+  started: ReadonlyArray<StartedQuest> | null,
+): StartedQuest | null {
+  const owner = leaderResponseOwnerThreadKey(message.metadata ?? {});
+  return started?.find((quest) => normalizeThreadKey(quest.questId) === owner || !quest.sideQuest) ?? null;
+}
+
 /**
  * Under a user's message: the quests it started, except the one whose thread is on screen.
  * A request moved into its quest (Main-to-quest handoff) continues there, and so does a

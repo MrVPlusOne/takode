@@ -36,7 +36,8 @@ import {
 } from "./MessageThreadHeader.js";
 import { MessageTopicLabel } from "./MessageTopicLabel.js";
 import { MainQuestStripsContext, useContinuedQuest } from "./MainQuestStrip.js";
-import { isMainThreadKey } from "../utils/thread-projection.js";
+import { isMainThreadKey, normalizeThreadKey } from "../utils/thread-projection.js";
+import { TopicFeedContext, topicFeedParts } from "./topic-feed.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 import { getDisplayReplyContext } from "../utils/reply-context.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
@@ -911,9 +912,15 @@ function UserMessage({
   const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
   const today = useLocalToday();
   const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
-  // In a leader's Main the strip above the request names its quest (`MainQuestStrip`).
+  // In a leader's Main, and in a topic conversation holding the quest, the strip above the request
+  // names the quest it continued in (`MainQuestStrip`, `useTopicTurnPartOf`).
   const continued = useContinuedQuest(message, currentThreadKey);
-  const namedByStrip = useContext(MainQuestStripsContext) && !!continued && isMainThreadKey(currentThreadKey ?? "");
+  const mainStrips = useContext(MainQuestStripsContext);
+  const topicFeed = useContext(TopicFeedContext);
+  const namedByStrip =
+    !!continued &&
+    ((mainStrips && isMainThreadKey(currentThreadKey ?? "")) ||
+      (!!topicFeed && topicFeedParts(topicFeed).includes(normalizeThreadKey(continued.questId))));
   // A pending message keeps its future time's space invisibly, so landing changes no line breaks.
   const timeLabel =
     showTimestamp && isValidMessageTimestamp(message.timestamp) ? (

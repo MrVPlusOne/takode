@@ -27,6 +27,11 @@ function message(id: string, threadKey?: string, mentions: string[] = []): ChatM
   } as ChatMessage;
 }
 
+/** The part rule for messages alone, as the feed applies it without started quests. */
+function partsOf(questIds: readonly string[]) {
+  return (message: ChatMessage) => topicMemberOfMessage(message, questIds);
+}
+
 function turn(...messages: ChatMessage[]): Turn {
   return {
     id: messages[0]!.id,
@@ -45,7 +50,7 @@ describe("topic feed", () => {
       turn(message("c")),
       turn(message("d", "q-3")),
     ];
-    expect(topicQuestsOfTurns(turns, quests)).toEqual(["q-3", "q-12", "q-12", "q-3"]);
+    expect(topicQuestsOfTurns(turns, partsOf(quests))).toEqual(["q-3", "q-12", "q-12", "q-3"]);
   });
 
   it("starts a quest's own turn where herd events move the conversation to it", () => {
@@ -70,7 +75,7 @@ describe("topic feed", () => {
     const quests = ["q-2856", "q-2871"];
     const { turns } = buildFeedModel(messages, true);
     expect(turns).toHaveLength(1);
-    expect(topicQuestsOfTurns(turns, quests)).toEqual(["q-2856"]);
+    expect(topicQuestsOfTurns(turns, partsOf(quests))).toEqual(["q-2856"]);
 
     const split = splitTurnsByPart(turns, (msg) => topicMemberOfMessage(msg, quests), {
       leaderMode: true,
@@ -82,7 +87,7 @@ describe("topic feed", () => {
     ]);
     // The first part keeps the turn's id; the strip now changes where q-2871 starts.
     expect(split[0]!.id).toBe(turns[0]!.id);
-    expect(topicQuestsOfTurns(split, quests)).toEqual(["q-2856", "q-2871"]);
+    expect(topicQuestsOfTurns(split, partsOf(quests))).toEqual(["q-2856", "q-2871"]);
   });
 
   it("keeps the live messages the server says belong to it, and nothing by rules of its own", () => {
@@ -134,7 +139,7 @@ describe("quest strips in a topic conversation", () => {
       turn(report("d", "q-2892")),
       turn(answer("e", "q-2892")),
     ];
-    const quests = topicQuestsOfTurns(turns, ["q-2837", "q-2892"]);
+    const quests = topicQuestsOfTurns(turns, partsOf(["q-2837", "q-2892"]));
     expect(topicTurnMarks(turns, quests)).toEqual(["strip", "label", null, "strip", null]);
   });
 
@@ -146,7 +151,7 @@ describe("quest strips in a topic conversation", () => {
       turn(commentary("d", "q-3")),
       turn(commentary("e", "q-2")),
     ];
-    const quests = topicQuestsOfTurns(turns, ["q-1", "q-2", "q-3"]);
+    const quests = topicQuestsOfTurns(turns, partsOf(["q-1", "q-2", "q-3"]));
     expect(topicTurnMarks(turns, quests)).toEqual(["strip", "label", null, "label", "label"]);
   });
 
@@ -168,7 +173,7 @@ describe("quest strips in a topic conversation", () => {
       turn(commentary("j", "q-1")),
       turn(at(commentary("k", "q-2"), 1 + day)), // next day: alone, so it stays
     ];
-    const quests = topicQuestsOfTurns(turns, ["q-1", "q-2"]);
+    const quests = topicQuestsOfTurns(turns, partsOf(["q-1", "q-2"]));
     const runs = topicProgressRuns(turns, quests);
     expect([...runs.starts.entries()].map(([index, run]) => [index, run.groups])).toEqual([
       [

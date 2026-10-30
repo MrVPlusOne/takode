@@ -17,7 +17,7 @@ export function useCodexSafeFeedModel(params: {
   visibleAssistantChildMessageIds?: readonly string[];
   leadingTurnId?: string;
   /** In a topic conversation: the topic quest a message belongs to; each quest's work becomes its own turn. */
-  turnPartOf?: ((message: ChatMessage) => string | null) | null;
+  turnPartOf?: ((message: ChatMessage, request: ChatMessage | null) => string | null) | null;
   perf: { sessionId: string; threadKey: string };
 }) {
   const anchoredNotificationMessageIds = useMemo(

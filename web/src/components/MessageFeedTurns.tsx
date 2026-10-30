@@ -51,7 +51,7 @@ import {
   TopicFeedContext,
   TopicFeedQuestLabel,
   TopicFeedQuestStart,
-  topicFeedParts,
+  useTopicTurnPartOf,
   topicQuestsOfTurns,
 } from "./topic-feed.js";
 import { TopicFeedEntry } from "./library/TopicConversation.js";
@@ -412,9 +412,10 @@ export const TurnEntries = memo(function TurnEntries({
   const threadQuestId =
     leaderSession && isQuestThreadKey(currentThreadKey.toLowerCase()) ? currentThreadKey.toLowerCase() : null;
   const topicFeed = useContext(TopicFeedContext);
+  const topicTurnPartOf = useTopicTurnPartOf();
   const turnQuests = useMemo(
-    () => (topicFeed ? topicQuestsOfTurns(turns, topicFeedParts(topicFeed)) : null),
-    [topicFeed, turns],
+    () => (topicTurnPartOf ? topicQuestsOfTurns(turns, topicTurnPartOf) : null),
+    [topicTurnPartOf, turns],
   );
   // Quests running together fold their interleaved progress into cards; without parts, nothing folds.
   const topicProgress = useTopicProgress({

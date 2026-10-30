@@ -247,6 +247,133 @@ describe("quest strips and day dividers", () => {
 });
 
 /**
+ * Jiayi (T7 run topic): a request asked in the topic and handed off to a quest sat under the
+ * topic's strip with a "Continued in" row, and the quest's strip came only after the leader's
+ * filing note. As in Main, the quest's strip now sits above the request, which reads as the
+ * quest's start, and the strip makes the "Continued in" row redundant.
+ */
+describe("a request in a topic that continued in a quest", () => {
+  it("sits under its quest's strip, after the day divider, without a Continued in row", () => {
+    const sid = "topic-request-strip";
+    const day1 = new Date("2026-02-25T12:00:00.000Z").getTime();
+    const day2 = new Date("2026-02-26T12:00:00.000Z").getTime();
+    const topic = "topic:aaaaaaaa";
+    mockStoreValues.messages = new Map([
+      [
+        sid,
+        [
+          {
+            id: "earlier",
+            role: "user",
+            content: "earlier",
+            timestamp: day1,
+            metadata: { leaderResponseCoverageVersion: 1, threadKey: topic, viewKeys: [topic] },
+          },
+          {
+            // Asked in the topic, then handed off to q-12: its newest attachment is the quest.
+            id: "ask",
+            role: "user",
+            content: "ask",
+            timestamp: day2,
+            metadata: {
+              leaderResponseCoverageVersion: 1,
+              threadKey: topic,
+              threadRefs: [
+                { threadKey: topic, source: "explicit", attachedAt: day2 },
+                { threadKey: "q-12", questId: "q-12", source: "explicit", attachedAt: day2 + 30_000 },
+              ],
+              viewKeys: [topic, "q-12"],
+            },
+          },
+        ] as ChatMessage[],
+      ],
+    ]);
+    render(
+      <QuestRecordFetchContext.Provider value={false}>
+        <TopicFeedContext.Provider
+          value={{ questIds: ["q-12"], topicKey: topic, topicName: "Relay", openQuest: vi.fn() }}
+        >
+          <MessageFeed sessionId={sid} threadKey={topic} projectThreadRoutes onSelectThread={vi.fn()} />
+        </TopicFeedContext.Provider>
+      </QuestRecordFetchContext.Provider>,
+    );
+    const order = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-testid="minute-boundary-timestamp"], [data-testid="topic-feed-quest-start"], [data-testid="user-message-bubble"]',
+      ),
+    ].map((element) =>
+      element.dataset.testid === "minute-boundary-timestamp"
+        ? "divider"
+        : element.dataset.testid === "topic-feed-quest-start"
+          ? `strip ${element.dataset.quest || "topic"}`
+          : `message ${element.textContent?.includes("earlier") ? "earlier" : "ask"}`,
+    );
+    expect(order).toEqual(["divider", "strip topic", "message earlier", "divider", "strip q-12", "message ask"]);
+    expect(screen.queryByTestId("continued-in-links")).toBeNull();
+  });
+});
+
+describe("the leader's reply in the topic right after a request it moved to a quest", () => {
+  it("joins the request's quest, so no topic label interrupts the quest's start", () => {
+    // The filing note ("Filed as q-12 …") is routed to the topic, where the request was asked. In
+    // the same turn it reads as part of what the leader did with the request, as under a Main strip.
+    const sid = "topic-request-fold";
+    const at = new Date("2026-02-25T12:00:00.000Z").getTime();
+    const topic = "topic:aaaaaaaa";
+    mockStoreValues.messages = new Map([
+      [
+        sid,
+        [
+          {
+            id: "ask",
+            role: "user",
+            content: "ask",
+            timestamp: at,
+            metadata: {
+              leaderResponseCoverageVersion: 1,
+              threadKey: topic,
+              threadRefs: [
+                { threadKey: topic, source: "explicit", attachedAt: at },
+                { threadKey: "q-12", questId: "q-12", source: "explicit", attachedAt: at + 30_000 },
+              ],
+              viewKeys: [topic, "q-12"],
+            },
+          },
+          {
+            id: "filed",
+            role: "assistant",
+            content: "Filed as q-12",
+            timestamp: at + 40_000,
+            metadata: { leaderThreadRole: "commentary", threadKey: topic, viewKeys: [topic] },
+          },
+          {
+            id: "started",
+            role: "assistant",
+            content: "Worker started",
+            timestamp: at + 50_000,
+            metadata: { leaderThreadRole: "commentary", threadKey: "q-12", questId: "q-12", viewKeys: ["q-12", topic] },
+          },
+        ] as ChatMessage[],
+      ],
+    ]);
+    render(
+      <QuestRecordFetchContext.Provider value={false}>
+        <TopicFeedContext.Provider
+          value={{ questIds: ["q-12"], topicKey: topic, topicName: "Relay", openQuest: vi.fn() }}
+        >
+          <MessageFeed sessionId={sid} threadKey={topic} projectThreadRoutes />
+        </TopicFeedContext.Provider>
+      </QuestRecordFetchContext.Provider>,
+    );
+    expect(screen.getAllByTestId("topic-feed-quest-start").map((strip) => strip.dataset.quest)).toEqual(["q-12"]);
+    expect(screen.queryAllByTestId("topic-feed-quest-label")).toHaveLength(0);
+    expect(screen.queryAllByTestId("topic-progress-card")).toHaveLength(0);
+    // One turn: the request and everything the leader did with it.
+    expect(document.querySelectorAll("[data-turn-id]")).toHaveLength(1);
+  });
+});
+
+/**
  * Jiayi's Formal verification topic: two quests running together alternated their progress
  * updates, each a label, a collapsed activity row and the text, which was hard to follow. A
  * stretch of progress turns that interleaves quests folds into one card with a row per quest,
