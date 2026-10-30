@@ -10,7 +10,7 @@ import { postDestination, type GroupedDraftPost, type PostPartChanges } from "..
 import { artifactApi } from "../api/artifacts.js";
 import { openLibraryArtifact } from "../utils/library-nav.js";
 import { newWindowClickLabel, openArtifactWindow } from "../utils/artifact-window.js";
-import { canOpenArtifactInSide, openArtifact, openArtifactInSide } from "../utils/side-column.js";
+import { canOpenInSide, openArtifact, openArtifactInSide } from "../utils/side-column.js";
 import type { ContextMenuItem } from "./ContextMenu.js";
 import {
   DraftPostCard,
@@ -269,7 +269,7 @@ export function libraryMenuItems(marker: ArtifactMessageMarker): ContextMenuItem
           : "Open in Library",
       onClick: () => openLibraryArtifact(marker.id, marker.version),
     },
-    ...(canOpenArtifactInSide() ? [{ label: "Open in side column", onClick: () => openArtifactInSide(target) }] : []),
+    ...(canOpenInSide() ? [{ label: "Open in side column", onClick: () => openArtifactInSide(target) }] : []),
     { label: `Open in new window (${newWindowClickLabel()})`, onClick: () => openArtifactWindow(target) },
   ];
 }

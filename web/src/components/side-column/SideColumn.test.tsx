@@ -27,6 +27,12 @@ vi.mock("../library/ArtifactViewer.js", () => ({
     <div data-testid="mock-artifact">{`${id} v${version ?? "latest"}`}</div>
   ),
 }));
+vi.mock("./SideQuest.js", () => ({
+  SideQuest: ({ questId }: { questId: string }) => <div data-testid="mock-quest">{questId}</div>,
+}));
+vi.mock("./SideSession.js", () => ({
+  SideSession: ({ sessionId }: { sessionId: string }) => <div data-testid="mock-session">{sessionId}</div>,
+}));
 vi.mock("./thread-names.js", () => ({
   ThreadOriginName: ({ threadKey }: { threadKey: string }) => <>{`name of ${threadKey}`}</>,
 }));
@@ -39,6 +45,7 @@ import { closeSideItem, HOME_ITEM, openInSide, useSideColumnStore } from "../../
 import { useLibraryNav } from "../../utils/library-nav.js";
 import { markLeaderThreadDisplayed } from "../../utils/thread-viewport.js";
 import { useTopicPanel } from "../../utils/topic-panel.js";
+import { useStore } from "../../store.js";
 import { SideColumn } from "./SideColumn.js";
 
 afterEach(() => {
@@ -104,6 +111,27 @@ describe("SideColumn", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open in the Library" }));
     expect(useLibraryNav.getState()).toEqual(expect.objectContaining({ artifactId: "0f1e2d3c", version: 2 }));
     expect(useSideColumnStore.getState().columns.l1!.items).toEqual([]);
+  });
+
+  it("shows a quest's details and another session's conversation, each moving out to its own view", () => {
+    // What a Shift-clicked quest link or session link puts in the column.
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "worker-9", sessionNum: 9, name: "Probe", state: "connected", cwd: "/", createdAt: 1 },
+      ],
+    } as never);
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide("l1", { kind: "session", sessionId: "worker-9" });
+      openInSide("l1", { kind: "quest", questId: "q-7" });
+    });
+    expect(within(openBodies()[0]!).getByTestId("mock-quest").textContent).toBe("q-7");
+    expect(rows()[1]!.textContent).toContain("#9 Probe");
+    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: false }));
+    expect(within(openBodies()[0]!).getByTestId("mock-session").textContent).toBe("worker-9");
+    fireEvent.click(within(rows()[1]!).getByRole("button", { name: "Open in the main view" }));
+    expect(window.location.hash).toContain("session/worker-9");
+    useStore.setState({ sdkSessions: [] } as never);
   });
 
   it("tells the server which conversations it shows, and forgets them when it goes", () => {

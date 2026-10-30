@@ -11,7 +11,7 @@ import { TurnEntries } from "./MessageFeedTurns.js";
 import { MessageTimeLabelContext, MessageTimeLabelStore } from "./message-time-labels.js";
 import { useScrollActivity } from "./message-feed-scroll-activity.js";
 import { MessageFeedTopControls } from "./MessageFeedTopControls.js";
-import { type FeedViewportPosition, getFeedViewportKey } from "../utils/thread-viewport.js";
+import type { FeedViewportPosition } from "../utils/thread-viewport.js";
 import {
   CodexTerminalInspector,
   LiveCodexTerminalStub,
@@ -70,10 +70,9 @@ import {
 import { useSelectedThreadWindowRefresh } from "./message-feed-selected-thread-refresh.js";
 import {
   getSavedViewportRestoreKey,
-  readSavedViewportPosition,
   useIdempotentState,
   useExactViewportRestore,
-  useFeedEntry,
+  useFeedPlace,
   useViewportBoundaryNavigation,
   useUserViewportNavigationIntent,
 } from "./message-feed-viewport-state.js";
@@ -103,7 +102,6 @@ import {
 import { resolveThreadResponses } from "./thread-response-presentation.js";
 import { useTopicResponsePresentations } from "./topic-feed.js";
 import { useFeedPinnedTop } from "./feed-pinned-top.js";
-import { useSecondaryFeed } from "./secondary-feed.js";
 import { AnswerReferencesContext, useAllThreadsAnswerReferences } from "./answer-references.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
@@ -181,7 +179,13 @@ export function MessageFeed({
   const selectedFeedWindowEnabled = isLeaderSession && !isAllThreadsKey(normalizedThreadKey);
   const collapseLeaderThreadActivity =
     isLeaderSession && !isMainThreadKey(normalizedThreadKey) && !isAllThreadsKey(normalizedThreadKey);
-  const viewportKey = useMemo(() => getFeedViewportKey(sessionId, threadKey), [sessionId, threadKey]);
+  const {
+    secondary,
+    ownsLeaderPlace,
+    viewportKey,
+    feedEntry,
+    readSaved: readSavedPosition,
+  } = useFeedPlace(sessionId, threadKey, normalizedThreadKey, isLeaderSession);
   const {
     feedEndScrollSlack,
     feedEndSlackProps,
@@ -196,14 +200,7 @@ export function MessageFeed({
     workerPreviewTarget,
     threadStatusLayoutKey,
   } = useMessageFeedStatusLayout(sessionId, normalizedThreadKey);
-  const feedEntry = useFeedEntry(viewportKey);
-  const savedScrollPos = readSavedViewportPosition({
-    sessionId,
-    viewportKey,
-    normalizedThreadKey,
-    isLeaderSession,
-    entry: feedEntry,
-  });
+  const savedScrollPos = readSavedPosition();
   const savedViewportRestoreKey = getSavedViewportRestoreKey(viewportKey, savedScrollPos);
   const selectedFeedWindow = useStore((s) => s.threadWindows?.get(sessionId)?.get(normalizedThreadKey) ?? null);
   const selectedFeedWindowMessages = useStore(
@@ -218,7 +215,6 @@ export function MessageFeed({
     selectedFeedWindow !== null &&
     selectedThreadWindowRevision < threadWindowRefreshRevision;
   // Jumps and route targets name the main feed's messages; a feed beside it leaves them alone.
-  const secondary = useSecondaryFeed();
   const scrollToMessageId = useStore((s) => (secondary ? undefined : s.scrollToMessageId.get(sessionId)));
   const scrollLanding = useStore((s) => (secondary ? undefined : s.scrollToMessageLanding?.get(sessionId)));
   const scrollToTurnId = useStore((s) => (secondary ? undefined : s.scrollToTurnId.get(sessionId)));
@@ -310,12 +306,8 @@ export function MessageFeed({
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
   const notedDeliberateMessageTargetRef = useRef<string | null>(null);
   const readCurrentRestoreKey = useCallback(
-    () =>
-      getSavedViewportRestoreKey(
-        viewportKey,
-        readSavedViewportPosition({ sessionId, viewportKey, normalizedThreadKey, isLeaderSession, entry: feedEntry }),
-      ),
-    [feedEntry, isLeaderSession, normalizedThreadKey, sessionId, viewportKey],
+    () => getSavedViewportRestoreKey(viewportKey, readSavedPosition()),
+    [readSavedPosition, viewportKey],
   );
   const [exactRestoreRef, cancelExactRestore] = useExactViewportRestore(
     restoredViewportRef,
@@ -339,6 +331,7 @@ export function MessageFeed({
     cancelRestoreAndJumpPin,
     sessionId,
     normalizedThreadKey,
+    !secondary,
   );
 
   useLayoutEffect(() => {
@@ -535,7 +528,8 @@ export function MessageFeed({
     exactRestoreRef,
     findVisibleFeedAnchor,
     getRealContentBottom,
-    isLeaderSession,
+    isLeaderSession: ownsLeaderPlace,
+    respondsToSessionSnapshots: !secondary,
     isNearBottom,
     lastSeenContentBottomRef,
     normalizedThreadKey,
@@ -1244,13 +1238,7 @@ export function MessageFeed({
 
   useLayoutEffect(() => {
     if (showConversationLoading) return;
-    const pos = readSavedViewportPosition({
-      sessionId,
-      viewportKey,
-      normalizedThreadKey,
-      isLeaderSession,
-      entry: feedEntry,
-    });
+    const pos = readSavedPosition();
     const restoreKey = getSavedViewportRestoreKey(viewportKey, pos);
     const restoredViewport = restoredViewportRef.current;
     const container = containerRef.current;
@@ -1643,7 +1631,7 @@ export function MessageFeed({
             sessionId,
             threadKey: normalizedThreadKey,
             viewportKey,
-            isLeaderSession,
+            isLeaderSession: ownsLeaderPlace,
             lastSeenContentBottom: lastSeenContentBottomRef.current,
             getRealContentBottom,
             markProgrammaticScroll,

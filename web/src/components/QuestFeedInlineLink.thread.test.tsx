@@ -334,29 +334,43 @@ describe("QuestInlineLink chat-feed quest thread", () => {
     expect(onSessionNavigate).toHaveBeenCalledTimes(1);
   });
 
-  it("puts the quest's thread in its leader's side column on Shift-click while that leader is on screen", () => {
-    // Shift-click on the link or the icon opens the quest beside the conversation instead of in place
-    // of it; elsewhere (the leader not on screen) it does what a plain click does.
+  it("opens in the side column what a plain click opens, and never leaves Shift-click to the browser", () => {
+    // Shift-click shows in the side column of the leader on screen what a plain click shows: the
+    // link the quest's details, the icon the quest's conversation. Jiayi's report: a Shift-clicked
+    // quest link opened a new browser window (Chrome's default), because a link whose leader was
+    // unknown left the click to the browser.
     useStore.setState({
       questDetails: new Map([
         ["q-496", quest({ questId: "q-496", title: "Side target", leaderSessionId: "leader-496" })],
+        ["q-497", quest({ questId: "q-497", title: "Another leader's", leaderSessionId: undefined })],
       ]),
+      currentSessionId: "leader-496",
     });
     const shown = markLeaderThreadDisplayed("leader-496", "main");
     const hashBefore = window.location.hash;
+    const items = () => useSideColumnStore.getState().columns["leader-496"]!.items;
     try {
-      render(<QuestFeedInlineLink questId="q-496" className="cc-quest-link" stopPropagation={false} />);
+      render(
+        <>
+          <QuestFeedInlineLink questId="q-496" className="cc-quest-link" stopPropagation={false} />
+          <QuestFeedInlineLink questId="q-497" className="cc-quest-link" stopPropagation={false} />
+        </>,
+      );
       fireEvent.click(screen.getByRole("button", { name: "Open the q-496 thread: Side target" }), { shiftKey: true });
-      expect(useSideColumnStore.getState().columns["leader-496"]!.items).toEqual([
-        expect.objectContaining({ kind: "conversation", threadKey: "q-496" }),
-      ]);
-      useSideColumnStore.setState({ columns: {} });
-      fireEvent.click(screen.getByRole("link", { name: /q-496/ }), { shiftKey: true });
-      expect(useSideColumnStore.getState().columns["leader-496"]!.items).toHaveLength(1);
+      expect(items()).toEqual([expect.objectContaining({ kind: "conversation", threadKey: "q-496" })]);
+
+      const link = screen.getByRole("link", { name: /q-496/ });
+      // fireEvent returns false when the default (here a new window) was prevented.
+      expect(fireEvent.click(link, { shiftKey: true })).toBe(false);
+      expect(items()[0]).toEqual(expect.objectContaining({ kind: "quest", questId: "q-496" }));
+      // A quest with no leader known still opens in the side column, not a new window.
+      expect(fireEvent.click(screen.getByRole("link", { name: /q-497/ }), { shiftKey: true })).toBe(false);
+      expect(items()[0]).toEqual(expect.objectContaining({ kind: "quest", questId: "q-497" }));
       expect(window.location.hash).toBe(hashBefore);
     } finally {
       shown();
       useSideColumnStore.setState({ columns: {} });
+      useStore.setState({ currentSessionId: null });
       localStorage.clear();
     }
   });

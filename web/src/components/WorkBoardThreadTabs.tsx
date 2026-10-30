@@ -270,6 +270,8 @@ export function ThreadTabRail({
     monitors,
     threadStatuses,
     onSelect: openThread,
+    // The open-in-side click on a listed quest puts its conversation in the side column.
+    onOpenInSide: (threadKey: string) => openInSide(sessionId, { kind: "conversation", threadKey }),
     onClose: onCloseThreadTab,
     onOpenMenu: (tab: PrimaryThreadChip) =>
       tabMenuItems(tab).length > 0

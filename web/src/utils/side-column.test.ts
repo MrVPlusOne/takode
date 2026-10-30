@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useStore } from "../store.js";
 import {
   closeSideItem,
   HOME_ITEM,
+  handleOpenInSideClick,
   isOpenInSideClick,
   openConversationInSide,
   openInSideClickLabel,
+  openQuestInSide,
+  openSessionInSide,
   openInSide,
   openSideItem,
   replaceSideItem,
@@ -103,6 +107,43 @@ describe("opening in the side", () => {
       const shown = markLeaderThreadDisplayed("l1", onScreen);
       expect(sideChatOrigin("l1")).toBe(origin);
       shown();
+    }
+  });
+
+  it("never leaves the open-in-side click to the browser, and falls back to the plain click", () => {
+    const click = (shiftKey: boolean) => ({
+      shiftKey,
+      altKey: false,
+      metaKey: false,
+      ctrlKey: false,
+      preventDefault: vi.fn(),
+    });
+    const plain = vi.fn();
+    // Not the open-in-side click: the caller's to handle.
+    const other = click(false);
+    expect(handleOpenInSideClick(other, () => true, plain)).toBe(false);
+    expect(other.preventDefault).not.toHaveBeenCalled();
+    // With nowhere to open it in the side, it does what a plain click does.
+    const noSide = click(true);
+    expect(handleOpenInSideClick(noSide, () => false, plain)).toBe(true);
+    expect(noSide.preventDefault).toHaveBeenCalled();
+    expect(plain).toHaveBeenCalledOnce();
+  });
+
+  it("opens a quest's details or a session's conversation in the side column of the leader on screen", () => {
+    expect(openQuestInSide("Q-5")).toBe(false);
+    useStore.setState({ currentSessionId: "l1" });
+    const shown = markLeaderThreadDisplayed("l1", "main");
+    try {
+      expect(openQuestInSide("Q-5")).toBe(true);
+      expect(openSessionInSide("worker-9")).toBe(true);
+      // The leader on screen itself opens as its Main thread.
+      expect(openSessionInSide("l1")).toBe(true);
+      expect(column("l1")!.items.map((item) => item.kind)).toEqual(["conversation", "session", "quest"]);
+      expect(column("l1")!.items[2]).toEqual(expect.objectContaining({ questId: "q-5" }));
+    } finally {
+      shown();
+      useStore.setState({ currentSessionId: null });
     }
   });
 });

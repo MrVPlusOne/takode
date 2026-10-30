@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useStore } from "../store.js";
 import type { FeedViewportPosition } from "../utils/thread-viewport.js";
-import { readLeaderViewportPosition, restorableViewportPosition, type FeedEntry } from "../utils/thread-viewport.js";
+import {
+  getFeedViewportKey,
+  readLeaderViewportPosition,
+  restorableViewportPosition,
+  type FeedEntry,
+} from "../utils/thread-viewport.js";
+import { useSecondaryFeed } from "./secondary-feed.js";
 import { noteViewportDeliberateActivity } from "../utils/viewport-handoff-client.js";
 import { retireSessionMessageRoute } from "../utils/routing.js";
 import { isRecentFeedPlace, noteFeedPlaceShown } from "../utils/recent-feed-places.js";
@@ -37,17 +43,20 @@ export function useUserViewportNavigationIntent(
   cancelPendingRestore: () => void,
   sessionId: string,
   threadKey: string,
+  /** False for a feed beside the main one: the session's place, route and jumps are the main feed's. */
+  ownsSessionPlace = true,
 ) {
   return useCallback(() => {
-    noteViewportDeliberateActivity(sessionId, threadKey);
     cancelPendingRestore();
+    if (!ownsSessionPlace) return;
+    noteViewportDeliberateActivity(sessionId, threadKey);
     if (!retireSessionMessageRoute(sessionId, threadKey)) return;
     const store = useStore.getState();
     store.clearScrollToMessage(sessionId);
     store.clearPendingScrollToMessageId(sessionId);
     store.clearPendingScrollToMessageIndex(sessionId);
     store.clearExpandAllInTurn(sessionId);
-  }, [cancelPendingRestore, sessionId, threadKey]);
+  }, [cancelPendingRestore, ownsSessionPlace, sessionId, threadKey]);
 }
 
 export function useViewportBoundaryNavigation({
@@ -118,6 +127,39 @@ export function readSavedViewportPosition({
     ? (readLeaderViewportPosition(sessionId, normalizedThreadKey) ?? memoryPosition)
     : memoryPosition;
   return restorableViewportPosition(position, entry);
+}
+
+/**
+ * A feed's place: its viewport key, when it was opened, and its saved position. A feed beside the
+ * main one (the side column, `secondary`) is not the leader's place: it keeps its reading position
+ * apart (its own key, in memory only) and never saves, restores or hands to other devices the main
+ * feed's, which showed as the main chat jumping while the same thread was scrolled in the side.
+ */
+export function useFeedPlace(
+  sessionId: string,
+  threadKey: string | undefined,
+  normalizedThreadKey: string,
+  isLeaderSession: boolean,
+) {
+  const secondary = useSecondaryFeed();
+  const ownsLeaderPlace = isLeaderSession && !secondary;
+  const viewportKey = useMemo(
+    () => `${getFeedViewportKey(sessionId, threadKey)}${secondary ? ":side" : ""}`,
+    [secondary, sessionId, threadKey],
+  );
+  const feedEntry = useFeedEntry(viewportKey);
+  const readSaved = useCallback(
+    () =>
+      readSavedViewportPosition({
+        sessionId,
+        viewportKey,
+        normalizedThreadKey,
+        isLeaderSession: ownsLeaderPlace,
+        entry: feedEntry,
+      }),
+    [feedEntry, normalizedThreadKey, ownsLeaderPlace, sessionId, viewportKey],
+  );
+  return { secondary, ownsLeaderPlace, viewportKey, feedEntry, readSaved };
 }
 
 /**

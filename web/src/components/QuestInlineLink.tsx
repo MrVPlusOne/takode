@@ -1,3 +1,4 @@
+import { handleOpenInSideClick, openQuestInSide } from "../utils/side-column.js";
 import { useState, useRef, useEffect, type MouseEvent, type ReactNode } from "react";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
@@ -166,16 +167,21 @@ function LegacyQuestInlineLink({
         href={questHash}
         onClick={(e) => {
           if (stopPropagation) e.stopPropagation();
+          const open = () => {
+            if (normalizedFeedbackIndex === undefined && !round) {
+              openQuestOverlayRouteAware(questId);
+            } else {
+              if (round) useStore.getState().openQuestOverlay(questId, undefined, undefined, round);
+              else useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
+              navigateTo(questHash);
+            }
+            onNavigate?.();
+          };
+          // The open-in-side click shows the quest's details in the side column, never a new window.
+          if (e.button === 0 && handleOpenInSideClick(e, () => openQuestInSide(questId), open)) return;
           if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
           e.preventDefault();
-          if (normalizedFeedbackIndex === undefined && !round) {
-            openQuestOverlayRouteAware(questId);
-          } else {
-            if (round) useStore.getState().openQuestOverlay(questId, undefined, undefined, round);
-            else useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
-            navigateTo(questHash);
-          }
-          onNavigate?.();
+          open();
         }}
         onMouseEnter={hoverCardsSuppressed ? undefined : handleLinkMouseEnter}
         onMouseLeave={hoverCardsSuppressed ? undefined : handleLinkMouseLeave}

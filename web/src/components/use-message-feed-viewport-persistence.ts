@@ -19,6 +19,7 @@ export function useMessageFeedViewportPersistence({
   findVisibleFeedAnchor,
   getRealContentBottom,
   isLeaderSession,
+  respondsToSessionSnapshots = true,
   isNearBottom,
   lastSeenContentBottomRef,
   normalizedThreadKey,
@@ -32,7 +33,13 @@ export function useMessageFeedViewportPersistence({
   exactRestoreRef: MutableRefObject<PendingExactViewportRestore | null>;
   findVisibleFeedAnchor: (container: HTMLDivElement) => viewportAnchor.FeedViewportAnchor | null;
   getRealContentBottom: () => number | null;
+  /** Whether the leader's saved place for this thread is this feed's (not a feed beside the main one). */
   isLeaderSession: boolean;
+  /**
+   * Whether this feed answers the session's snapshot requests (leaving a thread or the session),
+   * which save and hand on the session's place: only the main feed is that place.
+   */
+  respondsToSessionSnapshots?: boolean;
   isNearBottom: MutableRefObject<boolean>;
   lastSeenContentBottomRef: MutableRefObject<number | null>;
   normalizedThreadKey: string;
@@ -91,6 +98,7 @@ export function useMessageFeedViewportPersistence({
   useLayoutEffect(() => () => void persistFeedViewport(), [persistFeedViewport]);
 
   useEffect(() => {
+    if (!respondsToSessionSnapshots) return;
     const handleSnapshotRequest = (event: Event) => {
       const detail = (event as CustomEvent<ThreadViewportSnapshotDetail>).detail;
       if (!detail?.sessionId || detail.sessionId !== sessionId) return;
@@ -107,7 +115,7 @@ export function useMessageFeedViewportPersistence({
     };
     window.addEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshotRequest as EventListener);
     return () => window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshotRequest as EventListener);
-  }, [normalizedThreadKey, persistFeedViewport, sessionId]);
+  }, [normalizedThreadKey, persistFeedViewport, respondsToSessionSnapshots, sessionId]);
 
   return persistFeedViewport;
 }

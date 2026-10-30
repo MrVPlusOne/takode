@@ -242,6 +242,18 @@ describe("connectSession", () => {
     expect(subscribe.side_views).toEqual(["q-7", "topic:aaaa0001"]);
   });
 
+  it("keeps a session shown in a side column connected while the main view moves on", () => {
+    // A worker's conversation in the side column must keep its socket when the main view, which
+    // disconnects the session it leaves, was on that worker; the last holder lets it go.
+    const release = wsModule.holdSessionConnection("worker-9");
+    lastWs.onopen?.(new Event("open"));
+    const ping = { type: "session_read", mode: "session-view" } as const;
+    wsModule.disconnectSession("worker-9");
+    expect(wsModule.sendToSession("worker-9", ping)).toBe(true);
+    release();
+    expect(wsModule.sendToSession("worker-9", ping)).toBe(false);
+  });
+
   it("sends last_seq: 0 when localStorage has no entry", () => {
     // Brand new session — no localStorage, no store messages
     wsModule.connectSession("s1");

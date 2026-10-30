@@ -5,6 +5,7 @@ import { loadLeaderTopics, useKnownQuestTopic } from "../../utils/leader-topics.
 import { topicViewKey } from "../../../shared/topic-thread-key.js";
 import { navigateToSessionMessageId, navigateToSessionThread, sessionTopicViewHash } from "../../utils/routing.js";
 import { TopicIcon } from "./library-icons.js";
+import { handleOpenInSideClick, openConversationInSide } from "../../utils/side-column.js";
 import type { QuestTopicMap } from "../../../shared/library-topics.js";
 
 type QuestTopic = QuestTopicMap[string];
@@ -55,7 +56,10 @@ export function QuestTopicLink({
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        void openQuestInTopic(leaderSessionId, questId, topicViewKey(topic.id), routeSessionId);
+        const open = () => void openQuestInTopic(leaderSessionId, questId, topicViewKey(topic.id), routeSessionId);
+        // The open-in-side click shows the topic's conversation beside its leader's conversation.
+        const inSide = () => openConversationInSide(leaderSessionId, topicViewKey(topic.id));
+        if (!handleOpenInSideClick(event, inSide, open)) open();
         onNavigate?.();
       }}
       className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-cc-primary/40 bg-cc-primary/10 px-2 py-0.5 text-[11px] text-cc-primary transition-colors hover:bg-cc-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 ${className}`}

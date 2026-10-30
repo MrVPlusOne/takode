@@ -14,7 +14,7 @@ import {
 import { setTopicPanelOpen, setTopicSheetOpen } from "../../utils/topic-panel.js";
 import { reloadLeaderThreads, useKnownThreadOfKey, useLeaderThreads } from "../../utils/leader-topics.js";
 import { topicApi } from "../../api/topics.js";
-import { navigateToSessionThread } from "../../utils/routing.js";
+import { navigateToSession, navigateToSessionThread, openQuestOverlayRouteAware } from "../../utils/routing.js";
 import { resolveNotificationOwnerThreadKey } from "../../utils/notification-thread.js";
 import { normalizeThreadKey } from "../../utils/thread-projection.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
@@ -27,6 +27,8 @@ import { useQuestRecord } from "../QuestSummaryCard.js";
 import { getQuestStatusTheme } from "../../utils/quest-status-theme.js";
 import { SideConversation } from "./SideConversation.js";
 import { NewSideChat } from "./NewSideChat.js";
+import { SideQuest } from "./SideQuest.js";
+import { SideSession } from "./SideSession.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { openLibraryArtifact } from "../../utils/library-nav.js";
@@ -179,9 +181,13 @@ function ItemActions({ leaderId, item }: { leaderId: string; item: SideItem | nu
   const moveOut =
     item.kind === "conversation"
       ? { label: "Open in the main view", go: () => navigateToSessionThread(leaderId, item.threadKey) }
-      : item.kind === "artifact"
-        ? { label: "Open in the Library", go: () => openLibraryArtifact(item.artifactId, item.version) }
-        : null;
+      : item.kind === "session"
+        ? { label: "Open in the main view", go: () => navigateToSession(item.sessionId) }
+        : item.kind === "quest"
+          ? { label: "Open the quest", go: () => openQuestOverlayRouteAware(item.questId) }
+          : item.kind === "artifact"
+            ? { label: "Open in the Library", go: () => openLibraryArtifact(item.artifactId, item.version) }
+            : null;
   return (
     <span className="flex shrink-0 items-center">
       {moveOut && (
@@ -305,6 +311,10 @@ function SideItemBody({
           <ArtifactViewer id={item.artifactId} version={item.version} />
         </div>
       );
+    case "quest":
+      return <SideQuest questId={item.questId} />;
+    case "session":
+      return <SideSession sessionId={item.sessionId} />;
   }
 }
 
@@ -328,7 +338,30 @@ function SideItemTitle({ leaderId, threadKey, item }: { leaderId: string; thread
       return <>New side chat</>;
     case "artifact":
       return <>{item.title ?? "Artifact"}</>;
+    case "quest":
+      return <SideQuestTitle questId={item.questId} />;
+    case "session":
+      return <SideSessionTitle sessionId={item.sessionId} />;
   }
+}
+
+function SideQuestTitle({ questId }: { questId: string }) {
+  const quest = useQuestRecord(questId);
+  return (
+    <>
+      <span className="font-mono-code text-[12px] text-cc-muted">{questId}</span> {quest?.title ?? ""}
+    </>
+  );
+}
+
+function SideSessionTitle({ sessionId }: { sessionId: string }) {
+  const session = useStore((state) => state.sdkSessions.find((candidate) => candidate.sessionId === sessionId));
+  const name = session?.name;
+  return (
+    <>
+      <span className="font-mono-code text-[12px] text-cc-muted">#{session?.sessionNum ?? "?"}</span> {name ?? ""}
+    </>
+  );
 }
 
 function SideItemIcon({ leaderId, item }: { leaderId: string; item: SideItem | null }) {
@@ -338,6 +371,8 @@ function SideItemIcon({ leaderId, item }: { leaderId: string; item: SideItem | n
   const className = "h-3.5 w-3.5 shrink-0";
   if (!item || item.kind === "topic") return <TopicIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "artifact") return <LibraryIcon className={`${className} text-cc-primary`} />;
+  if (item.kind === "session") return <SessionIcon className={`${className} text-cc-muted`} />;
+  if (item.kind === "quest") return <SideQuestIcon questId={item.questId} />;
   if (item.kind === "new-chat" || thread) return <NewThreadIcon className={`${className} text-cc-primary`} />;
   if (isTopicViewKey(key)) return <TopicIcon className={`${className} text-cc-primary`} />;
   // A quest: its status color, as in the quest lists.
@@ -359,6 +394,25 @@ function useUnreadIn(leaderId: string, threadKey: string | null): number {
             resolveNotificationOwnerThreadKey(notification) === normalizeThreadKey(threadKey),
         ).length
       : 0,
+  );
+}
+
+/** A quest's status color, as in the quest lists. */
+function SideQuestIcon({ questId }: { questId: string }) {
+  const quest = useQuestRecord(questId);
+  return (
+    <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+      <span className={`h-2 w-2 rounded-full ${getQuestStatusTheme(quest?.status ?? "in_progress").dot}`} />
+    </span>
+  );
+}
+
+function SessionIcon({ className }: { className: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <rect x="2.5" y="3" width="11" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M5 13.5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
   );
 }
 

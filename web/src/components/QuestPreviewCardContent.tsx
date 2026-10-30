@@ -1,3 +1,5 @@
+import { handleOpenInSideClick } from "../utils/side-column.js";
+import { navigateTo } from "../utils/navigation.js";
 import { useMemo, type ReactNode } from "react";
 import type { BoardParticipantStatus, QuestListPreview, QuestmasterTask } from "../types.js";
 import type { QuestOwnerRef } from "../../shared/quest-owner.js";
@@ -93,6 +95,7 @@ export function QuestPreviewHeaderAction({
   testId,
   previewFocusable = false,
   onActivate,
+  onOpenInSide,
 }: {
   label: string;
   ariaLabel: string;
@@ -100,6 +103,8 @@ export function QuestPreviewHeaderAction({
   testId?: string;
   previewFocusable?: boolean;
   onActivate: () => void;
+  /** Opens the quest in the side column on screen for the open-in-side click; false when there is none. */
+  onOpenInSide?: () => boolean;
 }) {
   const className =
     "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-cc-border/70 bg-cc-hover/20 px-2 text-[11px] font-medium text-cc-muted transition-colors hover:border-cc-primary/45 hover:bg-cc-hover/55 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 active:bg-cc-hover/70";
@@ -122,7 +127,20 @@ export function QuestPreviewHeaderAction({
         data-preview-focusable={previewFocusable ? "true" : undefined}
         className={className}
         aria-label={ariaLabel}
-        onClick={onActivate}
+        onClick={(event) => {
+          // The open-in-side click never leaves to the browser (a new window or tab).
+          if (
+            handleOpenInSideClick(
+              event,
+              () => onOpenInSide?.() ?? false,
+              () => navigateTo(href),
+            )
+          ) {
+            onActivate();
+            return;
+          }
+          onActivate();
+        }}
       >
         {content}
       </a>

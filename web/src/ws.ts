@@ -262,8 +262,35 @@ export function connectSession(sessionId: string) {
 }
 
 export function disconnectSession(sessionId: string) {
+  // A side column still shows it: its socket stays until the last one lets go.
+  if (sessionHolds.has(sessionId)) return;
   clearPushedViewportHandoffState(sessionId);
   transport.disconnectSession(sessionId);
+}
+
+/** Holds on a session's connection, by the side columns that show its conversation. */
+const sessionHolds = new Map<string, number>();
+
+/**
+ * Keeps a session connected while something other than the main view shows it (a session's
+ * conversation in the side column), whatever the main view does meanwhile. Returns the release,
+ * which disconnects the session when nothing else holds it and it isn't the session on screen.
+ */
+export function holdSessionConnection(sessionId: string): () => void {
+  sessionHolds.set(sessionId, (sessionHolds.get(sessionId) ?? 0) + 1);
+  connectSession(sessionId);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const count = (sessionHolds.get(sessionId) ?? 1) - 1;
+    if (count > 0) {
+      sessionHolds.set(sessionId, count);
+      return;
+    }
+    sessionHolds.delete(sessionId);
+    if (useStore.getState().currentSessionId !== sessionId) disconnectSession(sessionId);
+  };
 }
 
 export function disconnectAll() {

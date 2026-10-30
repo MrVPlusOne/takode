@@ -83,7 +83,18 @@ export function LeaderBreadcrumbNav({
     setWorkingOnOpen(false);
     rows.onSelect(threadKey);
   };
-  const rowContext = { ...rows, onSelect: select };
+  const rowContext = {
+    ...rows,
+    onSelect: select,
+    ...(rows.onOpenInSide
+      ? {
+          onOpenInSide: (threadKey: string) => {
+            setWorkingOnOpen(false);
+            rows.onOpenInSide!(threadKey);
+          },
+        }
+      : {}),
+  };
 
   useEffect(() => {
     if (!workingOnOpen) return;
@@ -147,7 +158,18 @@ export function LeaderBreadcrumbNav({
             topicFirst
             currentTopicId={placeTopicId}
             questTabs={questTabs}
-            rowContext={{ ...rowContext, onSelect: go }}
+            rowContext={{
+              ...rowContext,
+              onSelect: go,
+              ...(rowContext.onOpenInSide
+                ? {
+                    onOpenInSide: (threadKey: string) => {
+                      close();
+                      rowContext.onOpenInSide!(threadKey);
+                    },
+                  }
+                : {}),
+            }}
             onLeave={close}
           />
         </div>

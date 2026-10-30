@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ARTIFACT_KIND_LABELS, shortArtifactId, type ArtifactDetail } from "../../shared/artifact-library.js";
 import { artifactApi } from "../api/artifacts.js";
 import { openLibraryArtifact } from "../utils/library-nav.js";
-import { isOpenInSideClick, openArtifactInSide } from "../utils/side-column.js";
+import { handleOpenInSideClick, openArtifactInSide } from "../utils/side-column.js";
 import { isNewWindowClick, openArtifactWindow } from "../utils/artifact-window.js";
 import { LibraryIcon } from "./ArtifactInline.js";
 import { useHoverCardsSuppressed } from "./hover-card-suppression-context.js";
@@ -57,11 +57,11 @@ export function ArtifactInlineLink({
         href="#/library"
         onClick={(event) => {
           if (stopPropagation) event.stopPropagation();
+          const open = () => openLibraryArtifact(target.id, target.version);
           // The open-in-side click (Shift by default) puts it beside the leader's conversation.
-          if (event.button === 0 && isOpenInSideClick(event) && openArtifactInSide(target)) {
-            event.preventDefault();
+          if (event.button === 0) {
             setAnchor(null);
-            return;
+            if (handleOpenInSideClick(event, () => openArtifactInSide(target), open)) return;
           }
           // Cmd/Ctrl-click: a window of its own, also in the installed app (see artifact-window.ts).
           if (event.button === 0 && isNewWindowClick(event)) {
@@ -72,8 +72,7 @@ export function ArtifactInlineLink({
           }
           if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
           event.preventDefault();
-          setAnchor(null);
-          openLibraryArtifact(target.id, target.version);
+          open();
         }}
         onPointerEnter={(event) => {
           // Only a mouse hovers; a tap opens the Library straight away.

@@ -133,6 +133,7 @@ import {
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
 import { getFeedViewportKey, requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
+import { SecondaryFeedContext } from "./secondary-feed.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -1883,5 +1884,30 @@ describe("MessageFeed - scroll behavior", () => {
         delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
       }
     }
+  });
+
+  it("keeps a side column feed's reading position apart from the main feed's", () => {
+    // Regression (Jiayi's report): scrolling a conversation in the side column moved the main chat.
+    // The side feed saved its position under the main feed's key (and answered the session's
+    // snapshot requests), so the main feed of the same thread restored the side's position.
+    const sid = "test-side-feed-own-place";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First request" }),
+      makeMessage({ id: "a1", role: "assistant", content: "First result" }),
+    ]);
+    render(<MessageFeed sessionId={sid} />);
+    const side = render(
+      <SecondaryFeedContext.Provider value>
+        <MessageFeed sessionId={sid} />
+      </SecondaryFeedContext.Provider>,
+    );
+    mockSetFeedScrollPosition.mockClear();
+    // Leaving the session saves only the main feed's place.
+    requestThreadViewportSnapshot(sid);
+    expect(mockSetFeedScrollPosition.mock.calls.map(([key]) => key)).toEqual([getFeedViewportKey(sid)]);
+    // The side feed keeps its own position, under its own key.
+    mockSetFeedScrollPosition.mockClear();
+    side.unmount();
+    expect(mockSetFeedScrollPosition.mock.calls.map(([key]) => key)).toEqual([`${getFeedViewportKey(sid)}:side`]);
   });
 });

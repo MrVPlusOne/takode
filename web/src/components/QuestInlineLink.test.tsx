@@ -5,6 +5,8 @@ import type { QuestmasterTask } from "../types.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
+import { useSideColumnStore } from "../utils/side-column.js";
+import { markLeaderThreadDisplayed } from "../utils/thread-viewport.js";
 
 vi.mock("../api.js", () => ({
   api: {
@@ -271,5 +273,30 @@ describe("QuestInlineLink", () => {
     expect(mockGetQuestValidated).toHaveBeenCalledWith("q-88", '"shared-v1"');
     resolveFetch({ status: "not-modified", etag: '"shared-v1"' });
     await waitFor(() => expect(screen.getAllByTestId("quest-hover-title")[0]?.textContent).toBe("Shared cached hover"));
+  });
+
+  it("opens the quest's details in the side column on Shift-click, never in a new window", () => {
+    // Jiayi's report: a Shift-clicked quest link opened a new browser window (Chrome's default).
+    // With a leader's conversation on screen it goes to that leader's side column; without one, it
+    // does what a plain click does, still never the browser's new window.
+    useStore.setState({ currentSessionId: "leader-1" });
+    const shown = markLeaderThreadDisplayed("leader-1", "main");
+    try {
+      render(<QuestInlineLink questId="q-12">q-12</QuestInlineLink>);
+      const link = screen.getByRole("link", { name: "q-12" });
+      expect(fireEvent.click(link, { shiftKey: true })).toBe(false);
+      expect(useSideColumnStore.getState().columns["leader-1"]!.items).toEqual([
+        expect.objectContaining({ kind: "quest", questId: "q-12" }),
+      ]);
+      expect(useStore.getState().questOverlayId).toBeNull();
+      shown();
+      // No leader on screen: the quest opens as a plain click opens it.
+      expect(fireEvent.click(link, { shiftKey: true })).toBe(false);
+      expect(useStore.getState().questOverlayId).toBe("q-12");
+    } finally {
+      shown();
+      useSideColumnStore.setState({ columns: {} });
+      localStorage.clear();
+    }
   });
 });

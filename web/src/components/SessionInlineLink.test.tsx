@@ -12,6 +12,8 @@ vi.mock("../api.js", () => ({
 }));
 
 import { SessionInlineLink } from "./SessionInlineLink.js";
+import { useSideColumnStore } from "../utils/side-column.js";
+import { markLeaderThreadDisplayed } from "../utils/thread-viewport.js";
 
 describe("SessionInlineLink", () => {
   beforeEach(() => {
@@ -105,5 +107,28 @@ describe("SessionInlineLink", () => {
       expect(mockFetchMessagePreview).toHaveBeenCalledWith("plain-session", 42);
       expect(useStore.getState().pendingScrollToMessageIndex.get("plain-session")).toBe(42);
     });
+  });
+
+  it("opens the session's conversation in the side column on Shift-click", () => {
+    // Jiayi's report: Shift-clicking a worker link (#3264) behaved like a plain click.
+    useStore.getState().setSdkSessions([
+      { sessionId: "leader-1", sessionNum: 1, state: "connected", cwd: "/repo", createdAt: 1, isOrchestrator: true },
+      { sessionId: "worker-9", sessionNum: 9, state: "connected", cwd: "/repo", createdAt: 1 },
+    ] as any);
+    useStore.setState({ currentSessionId: "leader-1" });
+    const shown = markLeaderThreadDisplayed("leader-1", "main");
+    const hashBefore = window.location.hash;
+    try {
+      render(<SessionInlineLink sessionId="worker-9">#9</SessionInlineLink>);
+      expect(fireEvent.click(screen.getByRole("link", { name: "#9" }), { shiftKey: true })).toBe(false);
+      expect(useSideColumnStore.getState().columns["leader-1"]!.items).toEqual([
+        expect.objectContaining({ kind: "session", sessionId: "worker-9" }),
+      ]);
+      expect(window.location.hash).toBe(hashBefore);
+    } finally {
+      shown();
+      useSideColumnStore.setState({ columns: {} });
+      localStorage.clear();
+    }
   });
 });

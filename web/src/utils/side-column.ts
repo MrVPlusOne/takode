@@ -20,7 +20,17 @@ export type SideItem =
   /** A side chat being started: its first message starts the thread, from `startedFrom`. */
   | { id: string; kind: "new-chat"; startedFrom: string | null }
   /** A Library artifact (a report, post, figure...), at a version when one was linked. */
-  | { id: string; kind: "artifact"; artifactId: string; version?: number; title?: string };
+  | {
+      id: string;
+      kind: "artifact";
+      artifactId: string;
+      version?: number;
+      title?: string;
+    }
+  /** A quest's details (what a click on a quest link shows), of any leader. */
+  | { id: string; kind: "quest"; questId: string }
+  /** Another session's conversation (what a click on a session link opens), such as a worker's. */
+  | { id: string; kind: "session"; sessionId: string };
 
 export type SideItemInput = SideItem extends infer Item ? (Item extends SideItem ? Omit<Item, "id"> : never) : never;
 
@@ -74,6 +84,10 @@ function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
       return true;
     case "artifact":
       return a.artifactId === (b as typeof a).artifactId;
+    case "quest":
+      return a.questId.toLowerCase() === (b as typeof a).questId.toLowerCase();
+    case "session":
+      return a.sessionId === (b as typeof a).sessionId;
   }
 }
 
@@ -150,12 +164,16 @@ export interface OpenInSideEvent {
  * Whether a click asks to open its target in the side column rather than the main view: a click
  * with the key chosen in Settings > Keyboard held, and no other (Shift-click by default, like Logseq).
  */
-export function isOpenInSideClick(
-  event: OpenInSideEvent | undefined,
-  modifier: OpenInSideModifier = useStore.getState().shortcutSettings?.openInSideModifier ?? "shift",
-): boolean {
-  if (!event) return false;
-  const held = { shift: event.shiftKey, alt: event.altKey, meta: event.metaKey, ctrl: event.ctrlKey };
+export function isOpenInSideClick(event: OpenInSideEvent | undefined, chosen?: OpenInSideModifier): boolean {
+  // A plain click is never one; the setting is read only for a click with a key held.
+  if (!event || !(event.shiftKey || event.altKey || event.metaKey || event.ctrlKey)) return false;
+  const modifier = chosen ?? useStore.getState().shortcutSettings?.openInSideModifier ?? "shift";
+  const held = {
+    shift: event.shiftKey,
+    alt: event.altKey,
+    meta: event.metaKey,
+    ctrl: event.ctrlKey,
+  };
   return held[modifier] && Object.entries(held).every(([key, down]) => key === modifier || !down);
 }
 
@@ -173,6 +191,38 @@ function currentPlatform(): string | undefined {
 }
 
 /**
+ * For an in-app link's click: the open-in-side click opens what `openInSideColumn` names in the
+ * side column, and the browser never gets it (Chrome opens Shift-clicked links in a new window).
+ * When there is no side column to open it in (no leader's
+ * conversation on screen), the click does what a plain click does (`plainClick`). Returns whether
+ * it was the open-in-side click, handled here; any other click is the caller's.
+ */
+export function handleOpenInSideClick(
+  event: OpenInSideEvent & { preventDefault?: () => void },
+  openInSideColumn: () => boolean,
+  plainClick: () => void,
+): boolean {
+  if (!isOpenInSideClick(event)) return false;
+  event.preventDefault?.();
+  if (!openInSideColumn()) plainClick();
+  return true;
+}
+
+/** The leader whose side column is on screen: the session on screen, when a leader's conversation. */
+export function sideColumnOnScreen(): string | null {
+  const leaderId = useStore.getState().currentSessionId;
+  return leaderId && readDisplayedLeaderThreadKey(leaderId) !== null ? leaderId : null;
+}
+
+/** Opens something in the side column on screen; false when there is none. */
+export function openInSideOnScreen(input: SideItemInput): boolean {
+  const leaderId = sideColumnOnScreen();
+  if (!leaderId) return false;
+  openInSide(leaderId, input);
+  return true;
+}
+
+/**
  * Opens an artifact where a click asks: in a window of its own on Cmd/Ctrl-click, in the side
  * column of the leader on screen on an open-in-side click, else in the Library (also when no
  * leader's conversation is on screen).
@@ -186,26 +236,38 @@ export function openArtifact(target: { id: string; version?: number; title?: str
   openLibraryArtifact(target.id, target.version);
 }
 
-/**
- * Opens an artifact in the side column of the leader whose conversation is on screen. Returns false
- * when no leader's is, so the caller opens it elsewhere.
- */
+/** Opens an artifact in the side column on screen; false when there is none. */
 export function openArtifactInSide(target: { id: string; version?: number; title?: string }): boolean {
-  const leaderId = useStore.getState().currentSessionId;
-  if (!leaderId || readDisplayedLeaderThreadKey(leaderId) === null) return false;
-  openInSide(leaderId, {
+  return openInSideOnScreen({
     kind: "artifact",
     artifactId: target.id,
     ...(target.version ? { version: target.version } : {}),
     ...(target.title ? { title: target.title } : {}),
   });
+}
+
+/** Opens a quest's details in the side column on screen; false when there is none. */
+export function openQuestInSide(questId: string): boolean {
+  return openInSideOnScreen({ kind: "quest", questId: questId.toLowerCase() });
+}
+
+/**
+ * Opens a session's conversation in the side column on screen; false when there is none. The
+ * leader on screen itself opens as its Main thread.
+ */
+export function openSessionInSide(sessionId: string): boolean {
+  const leaderId = sideColumnOnScreen();
+  if (!leaderId) return false;
+  openInSide(
+    leaderId,
+    sessionId === leaderId ? { kind: "conversation", threadKey: "main" } : { kind: "session", sessionId },
+  );
   return true;
 }
 
-/** Whether an artifact can open in a side column now: a leader's conversation is on screen. */
-export function canOpenArtifactInSide(): boolean {
-  const leaderId = useStore.getState().currentSessionId;
-  return !!leaderId && readDisplayedLeaderThreadKey(leaderId) !== null;
+/** Whether something can open in a side column now: a leader's conversation is on screen. */
+export function canOpenInSide(): boolean {
+  return sideColumnOnScreen() !== null;
 }
 
 /**
@@ -214,6 +276,9 @@ export function canOpenArtifactInSide(): boolean {
  */
 export function openConversationInSide(leaderId: string, threadKey: string): boolean {
   if (readDisplayedLeaderThreadKey(leaderId) === null) return false;
-  openInSide(leaderId, { kind: "conversation", threadKey: threadKey.toLowerCase() });
+  openInSide(leaderId, {
+    kind: "conversation",
+    threadKey: threadKey.toLowerCase(),
+  });
   return true;
 }

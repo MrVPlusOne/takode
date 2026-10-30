@@ -35,7 +35,7 @@ import { createPortal } from "react-dom";
 import { WorkBoardDotsIcon, WorkBoardIcon } from "./leader-workboard-controls.js";
 import type { BoardPhaseDot } from "./leader-board-summary.js";
 import { AllThreadsIcon, MainIcon, PlaceCrumb, PlaceRow } from "./breadcrumb/PlaceCrumb.js";
-import type { OpenInSideEvent } from "../utils/side-column.js";
+import { isOpenInSideClick, type OpenInSideEvent } from "../utils/side-column.js";
 
 export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";
 
@@ -140,6 +140,8 @@ export interface RowContext {
   monitors?: ThreadMonitoringProjectionValue["threads"];
   threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
   onSelect: (threadKey: string) => void;
+  /** A list row's open-in-side click: the thread goes in the side column instead of the main view. */
+  onOpenInSide?: (threadKey: string) => void;
   onClose?: (threadKey: string) => void;
   onOpenMenu?: (tab: PrimaryThreadChip) => OpenContextMenu | undefined;
 }
@@ -211,7 +213,18 @@ export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: Th
     setOpenGroup(null);
     rows.onSelect(threadKey);
   };
-  const rowContext = { ...rows, onSelect: select };
+  const rowContext = {
+    ...rows,
+    onSelect: select,
+    ...(rows.onOpenInSide
+      ? {
+          onOpenInSide: (threadKey: string) => {
+            setOpenGroup(null);
+            rows.onOpenInSide!(threadKey);
+          },
+        }
+      : {}),
+  };
   const [listLeft, setListLeft] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const listMaxHeight = useHeightAboveKeyboard(listRef, !!openGroup && placement === "top");
@@ -577,7 +590,11 @@ export function ThreadTabListRow({
     >
       <button
         type="button"
-        onClick={() => context.onSelect(threadKey)}
+        onClick={(event) =>
+          context.onOpenInSide && isOpenInSideClick(event)
+            ? context.onOpenInSide(threadKey)
+            : context.onSelect(threadKey)
+        }
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
         data-testid="thread-tab-list-row-select"
       >
