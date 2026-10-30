@@ -5,6 +5,7 @@ import { useStore } from "../store.js";
 import { platformIsMac } from "../shortcuts.js";
 import type { OpenInSideModifier } from "../../shared/shortcut-settings.js";
 import { openLibraryArtifact } from "./library-nav.js";
+import { isNewWindowClick, openArtifactWindow } from "./artifact-window.js";
 
 /**
  * What a leader's side column holds besides the topic page it follows: things the user put there
@@ -154,14 +155,7 @@ export function isOpenInSideClick(
   modifier: OpenInSideModifier = useStore.getState().shortcutSettings?.openInSideModifier ?? "shift",
 ): boolean {
   if (!event) return false;
-  const mac = platformIsMac(currentPlatform());
-  const held = {
-    shift: event.shiftKey,
-    alt: event.altKey,
-    // Cmd on Mac, Ctrl elsewhere; the other one counts as an extra key.
-    mod: mac ? event.metaKey : event.ctrlKey,
-    other: mac ? event.ctrlKey : event.metaKey,
-  };
+  const held = { shift: event.shiftKey, alt: event.altKey, meta: event.metaKey, ctrl: event.ctrlKey };
   return held[modifier] && Object.entries(held).every(([key, down]) => key === modifier || !down);
 }
 
@@ -170,7 +164,7 @@ export function openInSideClickLabel(
   modifier: OpenInSideModifier = useStore.getState().shortcutSettings?.openInSideModifier ?? "shift",
 ): string {
   const mac = platformIsMac(currentPlatform());
-  const key = { shift: "Shift", alt: mac ? "Option" : "Alt", mod: mac ? "⌘" : "Ctrl" }[modifier];
+  const key = { shift: "Shift", alt: mac ? "Option" : "Alt" }[modifier];
   return `${key}-click`;
 }
 
@@ -179,10 +173,15 @@ function currentPlatform(): string | undefined {
 }
 
 /**
- * Opens an artifact where a click asks: in the side column of the leader on screen on an
- * open-in-side click, else in the Library (also when no leader's conversation is on screen).
+ * Opens an artifact where a click asks: in a window of its own on Cmd/Ctrl-click, in the side
+ * column of the leader on screen on an open-in-side click, else in the Library (also when no
+ * leader's conversation is on screen).
  */
 export function openArtifact(target: { id: string; version?: number; title?: string }, event?: OpenInSideEvent): void {
+  if (isNewWindowClick(event)) {
+    openArtifactWindow(target);
+    return;
+  }
   if (isOpenInSideClick(event) && openArtifactInSide(target)) return;
   openLibraryArtifact(target.id, target.version);
 }

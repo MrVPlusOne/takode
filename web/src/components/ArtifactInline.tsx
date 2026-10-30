@@ -9,6 +9,7 @@ import {
 import { postDestination, type GroupedDraftPost, type PostPartChanges } from "../../shared/draft-posts.js";
 import { artifactApi } from "../api/artifacts.js";
 import { openLibraryArtifact } from "../utils/library-nav.js";
+import { newWindowClickLabel, openArtifactWindow } from "../utils/artifact-window.js";
 import { canOpenArtifactInSide, openArtifact, openArtifactInSide } from "../utils/side-column.js";
 import type { ContextMenuItem } from "./ContextMenu.js";
 import {
@@ -254,7 +255,8 @@ export function useDraftArtifactMarker(title: string | undefined): ArtifactMessa
 
 /**
  * The More menu items opening a card's artifact elsewhere: in the Library at its version (named
- * when there are several), and in the side column while a leader's conversation is on screen.
+ * when there are several), in the side column while a leader's conversation is on screen, and in a
+ * window of its own.
  * Cards open full screen from their header; these are the less common places.
  */
 export function libraryMenuItems(marker: ArtifactMessageMarker): ContextMenuItem[] {
@@ -268,6 +270,7 @@ export function libraryMenuItems(marker: ArtifactMessageMarker): ContextMenuItem
       onClick: () => openLibraryArtifact(marker.id, marker.version),
     },
     ...(canOpenArtifactInSide() ? [{ label: "Open in side column", onClick: () => openArtifactInSide(target) }] : []),
+    { label: `Open in new window (${newWindowClickLabel()})`, onClick: () => openArtifactWindow(target) },
   ];
 }
 

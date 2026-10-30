@@ -10,6 +10,7 @@ import { useStore } from "../../store.js";
 import { setLibraryLeader, showLibraryArtifact, useLibraryNav } from "../../utils/library-nav.js";
 import { ArtifactViewer } from "./ArtifactViewer.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
+import { isNewWindowClick, openArtifactWindow } from "../../utils/artifact-window.js";
 import { StarIcon } from "../ArtifactInline.js";
 import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import {
@@ -221,7 +222,12 @@ export function LibraryPage() {
           showSpace={!leaderId && !effectiveSpace}
           filtered={filtersActive(filters)}
           onMore={() => !loading && total !== null && items.length < total && fetchPage(items.length)}
-          onOpen={(id) => {
+          onOpen={(id, event) => {
+            // Cmd/Ctrl-click: a window of its own, keeping the gallery here.
+            if (isNewWindowClick(event)) {
+              openArtifactWindow({ id });
+              return;
+            }
             setOpenedFromGallery(id);
             showLibraryArtifact(id);
           }}
@@ -321,7 +327,7 @@ function Gallery({
   showSpace: boolean;
   filtered: boolean;
   onMore: () => void;
-  onOpen: (artifactId: string) => void;
+  onOpen: (artifactId: string, event: React.MouseEvent) => void;
   onToggleStar: (artifact: ArtifactSummary) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -367,7 +373,7 @@ function Gallery({
                   artifact={artifact}
                   showKind={kind === "all"}
                   showSpace={showSpace}
-                  onOpen={() => onOpen(artifact.id)}
+                  onOpen={(event) => onOpen(artifact.id, event)}
                   onToggleStar={() => onToggleStar(artifact)}
                 />
               ))}

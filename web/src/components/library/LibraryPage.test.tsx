@@ -7,6 +7,7 @@ vi.mock("../../api.js", () => ({ api: {} }));
 
 import type { ArtifactDetail, ArtifactSummary } from "../../../shared/artifact-library.js";
 import { LibraryPage, groupByDay } from "./LibraryPage.js";
+import { ArtifactWindow } from "./ArtifactWindow.js";
 import { showLibraryArtifact } from "../../utils/library-nav.js";
 
 /**
@@ -178,6 +179,50 @@ describe("LibraryPage", () => {
     // Starred has its own toggle, so the Filter button doesn't look pressed for it.
     expect(screen.getByTestId("library-filter-button")).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByTestId("library-filter-button").className).not.toContain("bg-cc-primary/10");
+  });
+
+  it("opens an artifact in a window of its own from a Ctrl-click on its card or the viewer's button", async () => {
+    // jsdom is not a Mac, so Ctrl is the new-window key. The gallery stays where it is.
+    const open = vi.fn(() => ({ focus: vi.fn() }) as unknown as Window);
+    vi.stubGlobal("open", open);
+    render(<LibraryPage />);
+    const card = await screen.findByTestId("library-artifact-card");
+    fireEvent.click(within(card).getByText("T7 thread update"), { ctrlKey: true });
+    expect(open).toHaveBeenCalledWith(
+      expect.stringMatching(/#\/artifact\/a1$/),
+      "takode-artifact-a1",
+      expect.any(String),
+    );
+    expect(screen.getByTestId("library-gallery")).toBeVisible();
+
+    fireEvent.click(within(card).getByText("T7 thread update"));
+    fireEvent.click(await screen.findByTestId("artifact-open-window"));
+    expect(open).toHaveBeenLastCalledWith(
+      expect.stringMatching(/#\/artifact\/a1\?v=3$/),
+      "takode-artifact-a1",
+      expect.any(String),
+    );
+  });
+
+  it("keeps an artifact window current: a new version shows when it was showing the newest", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      render(<ArtifactWindow id="a1" />);
+      expect(await screen.findByText("Draft version 3")).toBeInTheDocument();
+      expect(document.title).toBe("T7 thread update");
+      // A fourth version is saved; the window reads the artifact again on its own.
+      const v4 = { ...DETAIL.versions[2]!, n: 4, source: { ...DETAIL.versions[2]!.source, messageId: "m4" } };
+      DETAIL.versions.push(v4);
+      DETAIL.latest = v4;
+      await act(async () => vi.advanceTimersByTime(15_000));
+      expect(await screen.findByText("Draft version 4")).toBeInTheDocument();
+      // It has no Open in new window of its own.
+      expect(screen.queryByTestId("artifact-open-window")).not.toBeInTheDocument();
+    } finally {
+      DETAIL.versions.pop();
+      DETAIL.latest = DETAIL.versions[2]!;
+      vi.useRealTimers();
+    }
   });
 
   it("groups rows by day of their last change", () => {

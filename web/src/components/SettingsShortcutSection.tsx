@@ -243,11 +243,11 @@ export function OpenInSideModifierSetting({
       >
         <option value="shift">Shift-click</option>
         <option value="alt">{mac ? "Option-click" : "Alt-click"}</option>
-        <option value="mod">{mac ? "⌘-click" : "Ctrl-click"}</option>
       </select>
       <p className="mt-1.5 text-xs text-cc-muted">
         Clicking a quest, topic, artifact or report with this key held opens it in the leader's side column, beside the
-        conversation, instead of in its place.
+        conversation, instead of in its place. {mac ? "⌘-click" : "Ctrl-click"} on an artifact opens it in a window of
+        its own.
       </p>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ARTIFACT_KIND_LABELS,
   formatArtifactLink,
@@ -12,7 +12,8 @@ import { artifactApi } from "../../api/artifacts.js";
 import { useStore } from "../../store.js";
 import { useLibraryNav } from "../../utils/library-nav.js";
 import { openTopicInPanel } from "../../utils/topic-panel.js";
-import { navigateToSessionMessageId } from "../../utils/routing.js";
+import { navigateToSessionMessageId, sessionMessageIdHash } from "../../utils/routing.js";
+import { newWindowClickLabel, openArtifactWindow, openInMainWindow } from "../../utils/artifact-window.js";
 import { closeSecondaryPage } from "../../utils/secondary-view.js";
 import { ArtifactVersionLoader, StarIcon } from "../ArtifactInline.js";
 import { MarkdownContent } from "../MarkdownContent.js";
@@ -27,6 +28,7 @@ export function ArtifactViewer({
   version: requestedVersion,
   onBack,
   onChanged,
+  standalone = false,
 }: {
   id: string;
   /** The version to show first; the newest when absent or not kept. */
@@ -34,6 +36,11 @@ export function ArtifactViewer({
   /** Back to the Library's gallery; no back link without it (the side column). */
   onBack?: () => void;
   onChanged?: () => void;
+  /**
+   * In a window of its own: it keeps up with new versions and renames by itself, and links to
+   * conversations open in the window it came from.
+   */
+  standalone?: boolean;
 }) {
   const [detail, setDetail] = useState<ArtifactDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +65,36 @@ export function ArtifactViewer({
       cancelled = true;
     };
   }, [id, requestedVersion]);
+
+  const latestRef = useRef<number | undefined>(undefined);
+  latestRef.current = detail?.latest.n;
+  // A window of its own stays current: it reads the artifact again every little while it is visible
+  // and when it comes back to the front. Showing the newest version, it moves on to a newer one.
+  useEffect(() => {
+    if (!standalone) return;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      artifactApi
+        .get(id)
+        .then((next) => {
+          const previousLatest = latestRef.current;
+          setDetail(next);
+          setShown((current) => (current === null || current === previousLatest ? next.latest.n : current));
+        })
+        .catch((reason: Error) => console.warn("[artifact-window] Could not refresh the artifact:", reason.message));
+    };
+    const timer = setInterval(refresh, STANDALONE_REFRESH_MS);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [id, standalone]);
+  useEffect(() => {
+    if (standalone && detail) document.title = detail.title;
+  }, [standalone, detail]);
 
   const update = useCallback(
     (next: ArtifactDetail) => {
@@ -114,6 +151,18 @@ export function ArtifactViewer({
           >
             <StarIcon filled={detail.starred} />
           </button>
+          {!standalone && (
+            <button
+              type="button"
+              onClick={() => openArtifactWindow({ id: detail.id, version: version.n })}
+              aria-label="Open in new window"
+              title={`Open in new window (${newWindowClickLabel()} on an artifact does the same)`}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+              data-testid="artifact-open-window"
+            >
+              <NewWindowIcon />
+            </button>
+          )}
           {renaming === null && (
             <button
               type="button"
@@ -162,8 +211,13 @@ export function ArtifactViewer({
           </span>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <SourceLink sessionId={source.sessionId} messageId={source.messageId} threadKey={source.threadKey} />
-          <TopicLink threadKey={detail.threadKey} />
+          <SourceLink
+            sessionId={source.sessionId}
+            messageId={source.messageId}
+            threadKey={source.threadKey}
+            standalone={standalone}
+          />
+          {!standalone && <TopicLink threadKey={detail.threadKey} />}
           <IdChip detail={detail} version={detail.versions.length > 1 ? version.n : undefined} />
         </div>
       </div>
@@ -189,6 +243,18 @@ export function ArtifactViewer({
         )}
       </div>
     </ViewerFrame>
+  );
+}
+
+/** How often a window of its own reads its artifact again while visible. */
+const STANDALONE_REFRESH_MS = 15_000;
+
+function NewWindowIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-4 w-4" aria-hidden="true">
+      <path d="M9 2.5h4.5V7M13.5 2.5L7.5 8.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 9.5v3a1 1 0 01-1 1H3.5a1 1 0 01-1-1V5a1 1 0 011-1h3" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -283,13 +349,27 @@ function TopicLink({ threadKey }: { threadKey: string }) {
 }
 
 /** "From #2957 Daily Leader · q-2713": opens the conversation at the message the version came from. */
-function SourceLink({ sessionId, messageId, threadKey }: { sessionId: string; messageId: string; threadKey: string }) {
+function SourceLink({
+  sessionId,
+  messageId,
+  threadKey,
+  standalone,
+}: {
+  sessionId: string;
+  messageId: string;
+  threadKey: string;
+  standalone: boolean;
+}) {
   const session = useStore((state) => state.sdkSessions.find((candidate) => candidate.sessionId === sessionId));
   const name = session ? `#${session.sessionNum ?? ""} ${session.name ?? ""}`.trim() : "its conversation";
   return (
     <button
       type="button"
       onClick={() => {
+        if (standalone) {
+          openInMainWindow(sessionMessageIdHash(sessionId, messageId, threadKey));
+          return;
+        }
         closeSecondaryPage();
         navigateToSessionMessageId(sessionId, messageId, { threadKey });
       }}

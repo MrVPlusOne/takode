@@ -4,6 +4,7 @@ import { ARTIFACT_KIND_LABELS, shortArtifactId, type ArtifactDetail } from "../.
 import { artifactApi } from "../api/artifacts.js";
 import { openLibraryArtifact } from "../utils/library-nav.js";
 import { isOpenInSideClick, openArtifactInSide } from "../utils/side-column.js";
+import { isNewWindowClick, openArtifactWindow } from "../utils/artifact-window.js";
 import { LibraryIcon } from "./ArtifactInline.js";
 import { useHoverCardsSuppressed } from "./hover-card-suppression-context.js";
 import { ArtifactThumbnail } from "./library/ArtifactThumbnail.js";
@@ -60,6 +61,13 @@ export function ArtifactInlineLink({
           if (event.button === 0 && isOpenInSideClick(event) && openArtifactInSide(target)) {
             event.preventDefault();
             setAnchor(null);
+            return;
+          }
+          // Cmd/Ctrl-click: a window of its own, also in the installed app (see artifact-window.ts).
+          if (event.button === 0 && isNewWindowClick(event)) {
+            event.preventDefault();
+            setAnchor(null);
+            openArtifactWindow(target);
             return;
           }
           if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

@@ -55,6 +55,7 @@ import {
   type SecondaryViewSize,
 } from "./utils/secondary-view.js";
 import { SecondaryViewArea } from "./components/SecondaryViewArea.js";
+import { ArtifactWindow } from "./components/library/ArtifactWindow.js";
 import { UserContentNotice } from "./components/UserContentNotice.js";
 import { AnimalPortraitsOffer } from "./components/AnimalPortraitsOffer.js";
 import { navigateTo } from "./utils/navigation.js";
@@ -1079,6 +1080,18 @@ export default function App() {
   );
   const visibleConversationSessionId =
     !searchPreviewSessionId && displayedSessionId === activeConversationSessionId ? activeConversationSessionId : null;
+
+  if (route.page === "artifact") {
+    return (
+      <>
+        <ActiveBuildMismatchNotice />
+        <ArtifactWindow id={route.artifactId} version={route.version} />
+        <FileViewerHost />
+        <InAppPageViewerHost />
+        <GuidedReviewViewerHost />
+      </>
+    );
+  }
 
   if (route.page === "playground") {
     return (

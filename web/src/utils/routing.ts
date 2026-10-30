@@ -4,6 +4,7 @@ import type { MessageJumpLanding } from "../store-types.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey, threadViewShows } from "./thread-projection.js";
 import type { QuestLinkTarget } from "./quest-link-target.js";
+import { parseArtifactWindowHash } from "./artifact-window.js";
 
 export type Route =
   | { page: "home" }
@@ -17,7 +18,9 @@ export type Route =
   | { page: "questmaster" }
   | { page: "memory" }
   | { page: "library" }
-  | { page: "playground" };
+  | { page: "playground" }
+  /** An artifact in a window of its own (see `artifact-window.ts`). */
+  | { page: "artifact"; artifactId: string; version?: number };
 
 const SESSION_PREFIX = "#/session/";
 /** Opens the top bar's attention list over whatever is on screen; follow-up phone reminders link here. */
@@ -71,7 +74,7 @@ function normalizePlaygroundSectionId(raw: string | null): string | null {
  * Parse a window.location.hash string into a typed Route.
  */
 export function parseHash(hash: string): Route {
-  const { path } = splitHash(hash);
+  const { path, params } = splitHash(hash);
   if (path === "#/settings") return { page: "settings" };
   if (path === "#/changelog") return { page: "changelog" };
   if (path === "#/logs") return { page: "logs" };
@@ -82,6 +85,8 @@ export function parseHash(hash: string): Route {
   if (path === "#/memory" || path === "#/streams") return { page: "memory" };
   if (path === "#/library") return { page: "library" };
   if (path === "#/playground") return { page: "playground" };
+  const artifactWindow = parseArtifactWindowHash(`${path}?${params}`);
+  if (artifactWindow) return { page: "artifact", artifactId: artifactWindow.id, version: artifactWindow.version };
 
   if (path.startsWith(SESSION_PREFIX)) {
     const sessionPath = path.slice(SESSION_PREFIX.length);
@@ -546,6 +551,17 @@ export function navigateToSessionMessage(sessionId: string, messageIndex: number
  * Navigate to a specific message ID within a session. With `landing`, the view lands on what
  * that names instead of the message (see MessageJumpLanding).
  */
+/** The hash of a message in a session's conversation, by its ID, in a leader thread when given. */
+export function sessionMessageIdHash(
+  sessionId: string | number,
+  messageId: string,
+  threadKey?: string,
+  preserveMain = false,
+): string {
+  const messageHash = `${sessionHash(sessionId)}/msg/${encodeURIComponent(messageId)}`;
+  return threadKey ? withThreadKeyInHashOptions(messageHash, threadKey, { preserveMain }) : messageHash;
+}
+
 export function navigateToSessionMessageId(
   sessionId: string,
   messageId: string,
@@ -558,11 +574,7 @@ export function navigateToSessionMessageId(
   } = {},
 ): void {
   const { replace = false, routeSessionId = sessionId, preserveMainThreadRoute = false, landing } = options;
-  const { threadKey } = options;
-  const messageHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}`;
-  const newHash = threadKey
-    ? withThreadKeyInHashOptions(messageHash, threadKey, { preserveMain: preserveMainThreadRoute })
-    : messageHash;
+  const newHash = sessionMessageIdHash(routeSessionId, messageId, options.threadKey, preserveMainThreadRoute);
   if (replace) {
     history.replaceState(null, "", newHash);
     window.dispatchEvent(new HashChangeEvent("hashchange"));

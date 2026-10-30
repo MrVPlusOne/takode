@@ -28,9 +28,13 @@ export type ShortcutPresetId = (typeof SHORTCUT_PRESET_IDS)[number];
 /** A key combination such as "Mod+Shift+E", or a tap gesture such as "DoubleTap:Shift". */
 export type ShortcutBinding = string;
 
-/** The key held while clicking to open something in a leader's side column instead of in place. */
-export type OpenInSideModifier = "shift" | "alt" | "mod";
-const OPEN_IN_SIDE_MODIFIERS = new Set<string>(["shift", "alt", "mod"] satisfies OpenInSideModifier[]);
+/**
+ * The key held while clicking to open something in a leader's side column instead of in place.
+ * Cmd/Ctrl-click opens it in a window of its own, as in browsers, so it isn't offered here (a saved
+ * "mod" from before reads as the default).
+ */
+export type OpenInSideModifier = "shift" | "alt";
+const OPEN_IN_SIDE_MODIFIERS = new Set<string>(["shift", "alt"] satisfies OpenInSideModifier[]);
 
 export interface ShortcutSettings {
   enabled: boolean;
@@ -44,7 +48,7 @@ export interface ShortcutSettings {
   typeToCompose: boolean;
   /**
    * Clicking a quest, topic, artifact or report with this key held opens it in the leader's side
-   * column. Independent of `enabled`, like `typeToCompose`. "mod" is Cmd on Mac and Ctrl elsewhere.
+   * column. Independent of `enabled`, like `typeToCompose`.
    */
   openInSideModifier: OpenInSideModifier;
 }

@@ -73,13 +73,10 @@ describe("opening in the side", () => {
     expect(isOpenInSideClick({ ...click, shiftKey: true, metaKey: true })).toBe(false);
     expect(isOpenInSideClick(undefined)).toBe(false);
     expect(openInSideClickLabel()).toBe("Shift-click");
-    // Chosen in Settings > Keyboard. jsdom is not a Mac, so the Cmd/Ctrl choice is Ctrl.
+    // Chosen in Settings > Keyboard. Cmd/Ctrl-click opens a window of its own instead.
     expect(isOpenInSideClick({ ...click, altKey: true }, "alt")).toBe(true);
     expect(isOpenInSideClick({ ...click, shiftKey: true }, "alt")).toBe(false);
-    expect(isOpenInSideClick({ ...click, ctrlKey: true }, "mod")).toBe(true);
-    expect(isOpenInSideClick({ ...click, metaKey: true }, "mod")).toBe(false);
-    expect(isOpenInSideClick({ ...click, ctrlKey: true, shiftKey: true }, "mod")).toBe(false);
-    expect(openInSideClickLabel("mod")).toBe("Ctrl-click");
+    expect(isOpenInSideClick({ ...click, ctrlKey: true })).toBe(false);
   });
 
   it("opens a leader's conversation in its column only while that leader is on screen", () => {

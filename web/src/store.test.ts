@@ -277,11 +277,11 @@ describe("Shortcut settings hydration", () => {
   });
 
   it("saves the key for opening things in the side column with the other shortcut settings", () => {
-    useStore.getState().setOpenInSideModifier("mod");
+    useStore.getState().setOpenInSideModifier("alt");
 
-    expect(useStore.getState().shortcutSettings.openInSideModifier).toBe("mod");
+    expect(useStore.getState().shortcutSettings.openInSideModifier).toBe("alt");
     expect(mockUpdateSettings).toHaveBeenCalledWith({
-      shortcutSettings: expect.objectContaining({ openInSideModifier: "mod", typeToCompose: true }),
+      shortcutSettings: expect.objectContaining({ openInSideModifier: "alt", typeToCompose: true }),
     });
   });
 
