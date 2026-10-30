@@ -3,12 +3,22 @@ import "@testing-library/jest-dom";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SecondaryViewArea } from "./SecondaryViewArea.js";
+import type { SplitWidth } from "./SplitHandle.js";
 import { setSecondaryViewTarget, useSecondaryViewTarget } from "../utils/secondary-view.js";
+
+const SPLIT: SplitWidth = {
+  width: 500,
+  style: {},
+  handleProps: {
+    ...{ width: 500, min: 420, max: 1200, side: "right", defaultWidth: 500 },
+    ...{ clamp: (value: number) => value, setWidth: () => {}, save: () => {} },
+  },
+};
 
 function renderArea(props: Partial<Parameters<typeof SecondaryViewArea>[0]> = {}) {
   const handlers = { onClose: vi.fn(), onDismiss: vi.fn() };
   const view = render(
-    <SecondaryViewArea width={500} open title="Memory" contentRef={() => {}} {...handlers} {...props}>
+    <SecondaryViewArea split={SPLIT} open title="Memory" contentRef={() => {}} {...handlers} {...props}>
       <div data-testid="page" />
     </SecondaryViewArea>,
   );
@@ -75,12 +85,19 @@ describe("SecondaryViewArea", () => {
     expect(document.activeElement).toBe(composer);
 
     view.rerender(
-      <SecondaryViewArea width={500} open title="Memory" contentRef={() => {}} onClose={vi.fn()} onDismiss={vi.fn()} />,
+      <SecondaryViewArea
+        split={SPLIT}
+        open
+        title="Memory"
+        contentRef={() => {}}
+        onClose={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
     );
     expect(document.activeElement).toBe(screen.getByTestId("secondary-view-pane"));
 
     view.rerender(
-      <SecondaryViewArea width={500} open={false} contentRef={() => {}} onClose={vi.fn()} onDismiss={vi.fn()} />,
+      <SecondaryViewArea split={SPLIT} open={false} contentRef={() => {}} onClose={vi.fn()} onDismiss={vi.fn()} />,
     );
     await act(async () => {});
     expect(document.activeElement).toBe(composer);

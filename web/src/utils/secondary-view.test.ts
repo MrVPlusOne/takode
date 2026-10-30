@@ -7,7 +7,7 @@ import {
   openSecondaryPage,
   setSecondaryViewTarget,
   toggleSecondaryPage,
-  useSecondaryViewersMaxWidth,
+  useSecondaryViewersSize,
   useSecondaryViewOccupied,
   useSecondaryViewTarget,
 } from "./secondary-view.js";
@@ -48,19 +48,19 @@ describe("secondary view area registry", () => {
 
   // The area grows to the widest of the viewers open in it, so a narrow viewer opened over a wide
   // one does not shrink it, and it falls back once the wide one closes.
-  it("reports the widest maximum among the open viewers", () => {
+  it("reports the widest size among the open viewers", () => {
     act(() => setSecondaryViewTarget(document.createElement("div")));
-    const maxWidth = renderHook(() => useSecondaryViewersMaxWidth());
-    expect(maxWidth.result.current).toBe(0);
+    const maxWidth = renderHook(() => useSecondaryViewersSize());
+    expect(maxWidth.result.current).toBeNull();
 
     const image = renderHook(({ open }) => useSecondaryViewTarget(open, vi.fn(), "media"), {
       initialProps: { open: true },
     });
     renderHook(() => useSecondaryViewTarget(true, vi.fn(), "reading"));
-    expect(maxWidth.result.current).toBe(1600);
+    expect(maxWidth.result.current).toBe("media");
 
     image.rerender({ open: false });
-    expect(maxWidth.result.current).toBe(880);
+    expect(maxWidth.result.current).toBe("reading");
   });
 });
 

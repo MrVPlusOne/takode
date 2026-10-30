@@ -49,7 +49,8 @@ import {
   closeSecondaryViewers,
   SECONDARY_VIEW_MAX_WIDTHS,
   setSecondaryViewTarget,
-  useSecondaryViewersMaxWidth,
+  useSecondaryViewersSize,
+  widestSecondaryViewSize,
   useSecondaryViewOccupied,
   type SecondaryViewSize,
 } from "./utils/secondary-view.js";
@@ -87,6 +88,8 @@ import { isPendingId } from "./utils/pending-creation.js";
 import {
   getEffectiveViewportWidth,
   secondaryViewWidth,
+  SECONDARY_VIEW_MIN_UNCOVERED_WIDTH,
+  SECONDARY_VIEW_MIN_WIDTH,
   isDesktopShellLayout,
   isDesktopTaskPanelLayout,
 } from "./utils/layout.js";
@@ -473,22 +476,30 @@ export default function App() {
   const viewportWidth = useViewportWidth(zoomLevel);
   // Wide screens float the secondary view (a page and viewers opened from the conversation) over
   // the whole app from the right, as wide as its content needs; phones cover the conversation with
-  // it. Either way the conversation, the primary view, stays mounted.
+  // it. Either way the conversation, the primary view, stays mounted. Its left edge can be dragged:
+  // the width chosen is kept per kind of content (pages, reading, wide, media, full) as a share of
+  // the window, so it follows the window's size.
   const secondaryViewersOpen = useSecondaryViewOccupied();
-  const secondaryViewersMaxWidth = useSecondaryViewersMaxWidth();
+  const secondaryViewersSize = useSecondaryViewersSize();
   const secondaryAreaAvailable = isDesktopShell && isSessionView;
   const diffInSecondaryArea =
     secondaryAreaAvailable && activeTab === "diff" && !!currentSessionId && !isPendingId(currentSessionId);
   const secondaryAreaOpen =
     secondaryAreaAvailable && (secondaryPage !== null || secondaryViewersOpen || diffInSecondaryArea);
-  const secondaryAreaWidth = secondaryViewWidth(
-    viewportWidth,
-    Math.max(
-      secondaryViewersMaxWidth,
-      secondaryPage ? SECONDARY_VIEW_MAX_WIDTHS[SECONDARY_PAGES[secondaryPage].size] : 0,
-      diffInSecondaryArea ? SECONDARY_VIEW_MAX_WIDTHS.wide : 0,
-    ),
-  );
+  const secondaryAreaSize =
+    widestSecondaryViewSize([
+      secondaryViewersSize,
+      secondaryPage ? SECONDARY_PAGES[secondaryPage].size : null,
+      diffInSecondaryArea ? "wide" : null,
+    ]) ?? "page";
+  const secondaryAreaSplit = useSplitWidth(`secondary-${secondaryAreaSize}`, {
+    defaultWidth: secondaryViewWidth(viewportWidth, SECONDARY_VIEW_MAX_WIDTHS[secondaryAreaSize]),
+    min: SECONDARY_VIEW_MIN_WIDTH,
+    max: Math.max(SECONDARY_VIEW_MIN_WIDTH, viewportWidth - SECONDARY_VIEW_MIN_UNCOVERED_WIDTH),
+    side: "right",
+    share: true,
+    keepUncovered: SECONDARY_VIEW_MIN_UNCOVERED_WIDTH,
+  });
   const primaryHidden =
     (activeTab !== "chat" && !diffInSecondaryArea && !!displayedSessionId) ||
     (secondaryPage !== null && !secondaryAreaAvailable);
@@ -1224,7 +1235,7 @@ export default function App() {
 
       {secondaryAreaAvailable && (
         <SecondaryViewArea
-          width={secondaryAreaWidth}
+          split={secondaryAreaSplit}
           open={secondaryAreaOpen}
           // Viewers bring their own header and cover the page's.
           title={

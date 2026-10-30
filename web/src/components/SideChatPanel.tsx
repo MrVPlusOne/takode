@@ -80,7 +80,7 @@ export function SideChatPanel({
   sideChat: SideChatRecord;
   onClose: () => void;
 }) {
-  const split = useSplitWidth("side-chat", { defaultWidth: 420, min: 300, max: 760, side: "right" });
+  const split = useSplitWidth("side-chat", { defaultWidth: 420, min: 300, max: 760, side: "right", share: true });
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);

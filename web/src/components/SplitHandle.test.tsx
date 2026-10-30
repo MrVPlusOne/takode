@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api.js", () => ({ api: {} }));
 
 import { SplitHandle, useSplitWidth } from "./SplitHandle.js";
+import { useStore } from "../store.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { useLibraryNav } from "../utils/library-nav.js";
 
@@ -70,6 +71,41 @@ describe("SplitHandle", () => {
     fireEvent.pointerDown(handle, { button: 0, clientX: 500, pointerId: 1 });
     fireEvent.pointerMove(handle, { clientX: 450, pointerId: 1 });
     expect(handle).toHaveAttribute("aria-valuenow", "350");
+  });
+});
+
+describe("SplitHandle sharing the window", () => {
+  function SharedSplit() {
+    const split = useSplitWidth("test-share", { defaultWidth: 300, min: 200, max: 2000, side: "right", share: true });
+    return <SplitHandle label="Resize the panel" {...split.handleProps} />;
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps a dragged width as a share of the window, so it follows the window's size", () => {
+    // The user widens the panel to 600 of 1000 px; the window doubles and the panel with it.
+    useStore.setState({ zoomLevel: 1 });
+    vi.stubGlobal("innerWidth", 1000);
+    render(<SharedSplit />);
+    const handle = screen.getByRole("separator");
+    handle.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(handle, { button: 0, clientX: 500, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 200, pointerId: 1 });
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+    expect(handle).toHaveAttribute("aria-valuenow", "600");
+    expect(JSON.parse(localStorage.getItem("cc-split-widths")!)).toEqual({ "test-share": 0.6 });
+
+    act(() => {
+      vi.stubGlobal("innerWidth", 2000);
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(handle).toHaveAttribute("aria-valuenow", "1200");
+    // Narrower than the share allows: the rest of the window keeps its room.
+    act(() => {
+      vi.stubGlobal("innerWidth", 700);
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(handle).toHaveAttribute("aria-valuenow", "380");
   });
 });
 

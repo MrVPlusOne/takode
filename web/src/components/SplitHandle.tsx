@@ -3,22 +3,26 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
+import { useStore } from "../store.js";
+import { getEffectiveViewportWidth } from "../utils/layout.js";
 
 /**
  * Draggable dividers for side-by-side split views. Every split view in Takode lets people drag
  * its divider to resize the panes (see the `takode-desktop-ui-design` skill): a fixed divider
  * forces one layout on every screen and every task. Widths are a local preference, kept per split
- * in this browser.
+ * in this browser: in pixels, or for panes beside or over the conversation (`share`), as a share of
+ * the window, so the pane keeps its proportion when the window changes size.
  */
 
 const STORAGE_KEY = "cc-split-widths";
 
 /** Mounted panes per split, so a width saved in one (another leader's view, kept mounted) reaches all. */
-const panes = new Map<string, Set<(width: number) => void>>();
+const panes = new Map<string, Set<(stored: number | undefined) => void>>();
 
 function readStoredWidths(): Record<string, number> {
   let parsed: unknown;
@@ -46,50 +50,89 @@ export interface SplitWidth {
  * The width of a split's resizable pane, remembered per `id` and shared by every pane with that
  * `id`, mounted or not (each leader's topic panel, say). `side` is where the pane sits: a
  * pane on the left grows as the divider moves right, one on the right as it moves left.
+ *
+ * With `share`, a width the user chose is kept as a share of the window and turned back into pixels
+ * whenever the window changes size; until then the pane has `defaultWidth`, which the caller may
+ * compute from the window too. (A pixel width saved before is used as it is until the next drag.)
+ * `keepUncovered` is the room always left for the rest of the window.
  */
 export function useSplitWidth(
   id: string,
-  options: { defaultWidth: number; min: number; max: number; side?: "left" | "right" },
+  options: {
+    defaultWidth: number;
+    min: number;
+    max: number;
+    side?: "left" | "right";
+    share?: boolean;
+    keepUncovered?: number;
+  },
 ): SplitWidth {
-  const { defaultWidth, min, max, side = "left" } = options;
+  const { defaultWidth, min, max, side = "left", share = false, keepUncovered = 320 } = options;
+  const windowWidth = useWindowWidth();
   const clamp = useCallback(
     (value: number) => {
       // Leave the other pane room on narrow windows.
-      const limit = typeof window === "undefined" ? max : Math.min(max, Math.max(min, window.innerWidth - 320));
+      const limit = Math.min(max, Math.max(min, windowWidth - keepUncovered));
       return Math.round(Math.min(limit, Math.max(min, value)));
     },
-    [min, max],
+    [min, max, windowWidth, keepUncovered],
   );
-  const [width, setWidth] = useState(() => clamp(readStoredWidths()[id] ?? defaultWidth));
+  // Stored values: pixels, or with `share` a share of the window (at most 1).
+  const toWidth = useCallback(
+    (stored: number | undefined) =>
+      clamp(stored === undefined ? defaultWidth : share && stored <= 1 ? stored * windowWidth : stored),
+    [clamp, defaultWidth, share, windowWidth],
+  );
+  // The saved value, read again at once when the split's ID changes (one pane serving several).
+  const [saved, setSaved] = useState<{ id: string; value: number | undefined }>(() => ({
+    id,
+    value: readStoredWidths()[id],
+  }));
+  const stored = saved.id === id ? saved.value : readStoredWidths()[id];
+  // While dragging, the pane follows the pointer; the drag's end saves.
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
   useEffect(() => {
-    const follow = (value: number) => setWidth(clamp(value));
+    const follow = (value: number | undefined) => setSaved({ id, value });
     // A hidden view (React Activity) drops its effects, so catch up on what was saved meanwhile.
-    follow(readStoredWidths()[id] ?? defaultWidth);
+    follow(readStoredWidths()[id]);
     const set = panes.get(id) ?? new Set();
     panes.set(id, set.add(follow));
     return () => {
       set.delete(follow);
       if (!set.size) panes.delete(id);
     };
-  }, [id, clamp, defaultWidth]);
+  }, [id]);
+  const width = dragWidth ?? toWidth(stored);
   const save = useCallback(
     (value: number) => {
+      setDragWidth(null);
       const widths = readStoredWidths();
-      if (value === defaultWidth) delete widths[id];
-      else widths[id] = value;
+      if (value === clamp(defaultWidth)) delete widths[id];
+      else widths[id] = share ? Math.round((value / windowWidth) * 10_000) / 10_000 : value;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
-      for (const follow of panes.get(id) ?? []) follow(value);
+      for (const follow of panes.get(id) ?? []) follow(widths[id]);
     },
-    [id, defaultWidth],
+    [id, clamp, defaultWidth, share, windowWidth],
   );
   return {
     width,
     style: { "--split-w": `${width}px` } as CSSProperties,
-    handleProps: { width, min, max, side, defaultWidth, clamp, setWidth, save },
+    handleProps: { width, min, max, side, defaultWidth, clamp, setWidth: setDragWidth, save },
   };
 }
 
-interface SplitHandleProps {
+function subscribeResize(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
+/** The window's width in the app's CSS pixels (zoom applied), following resizes. */
+function useWindowWidth(): number {
+  const zoomLevel = useStore((state) => state.zoomLevel);
+  return useSyncExternalStore(subscribeResize, () => getEffectiveViewportWidth(zoomLevel));
+}
+
+export interface SplitHandleProps {
   width: number;
   min: number;
   max: number;

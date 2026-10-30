@@ -69,11 +69,20 @@ export function secondaryViewersOpen(): boolean {
   return useSecondaryDock.getState().occupants.size > 0;
 }
 
-/** The widest maximum among the viewers open in the right-hand area, or 0 when none is. */
-export function useSecondaryViewersMaxWidth(): number {
-  return useSecondaryDock((state) =>
-    Math.max(0, ...[...state.occupants.values()].map((occupant) => SECONDARY_VIEW_MAX_WIDTHS[occupant.size])),
-  );
+/** The widest size among the viewers open in the right-hand area, or null when none is. */
+export function useSecondaryViewersSize(): SecondaryViewSize | null {
+  return useSecondaryDock((state) => widestSecondaryViewSize([...state.occupants.values()].map(({ size }) => size)));
+}
+
+/** The size with the largest maximum width among these, or null when there are none. */
+export function widestSecondaryViewSize(
+  sizes: ReadonlyArray<SecondaryViewSize | null | undefined>,
+): SecondaryViewSize | null {
+  let widest: SecondaryViewSize | null = null;
+  for (const size of sizes) {
+    if (size && (!widest || SECONDARY_VIEW_MAX_WIDTHS[size] > SECONDARY_VIEW_MAX_WIDTHS[widest])) widest = size;
+  }
+  return widest;
 }
 
 /** Close every viewer open in the right-hand area, as an outside click does. */

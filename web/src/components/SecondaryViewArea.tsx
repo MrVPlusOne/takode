@@ -1,15 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { isShortcutEventTargetEditable } from "../shortcuts.js";
 import { secondaryViewersOpen } from "../utils/secondary-view.js";
+import { SplitHandle, type SplitWidth } from "./SplitHandle.js";
 
 /**
  * The secondary view on wide screens: a page such as Questmaster and any viewers opened from the
  * conversation, which render into `contentRef` from their own place in the tree. It floats over
  * the app from the right; a click outside dismisses everything in it and Escape closes what is on
- * top. While open, focus moves into it, and returns where it was when it closes.
+ * top. Its left edge can be dragged to resize it. While open, focus moves into it, and returns
+ * where it was when it closes.
  */
 export function SecondaryViewArea({
-  width,
+  split,
   open,
   title,
   onClose,
@@ -17,7 +19,8 @@ export function SecondaryViewArea({
   contentRef,
   children,
 }: {
-  width: number;
+  /** Its width, which the user sets by dragging its left edge. */
+  split: SplitWidth;
   /** Whether anything is shown; the area stays mounted while empty so viewers have a stable target. */
   open: boolean;
   /** Name of the page shown, when its header is not covered by a viewer. */
@@ -63,9 +66,12 @@ export function SecondaryViewArea({
         ref={areaRef}
         tabIndex={-1}
         className={`${open ? "flex" : "hidden"} secondary-view-enter absolute right-0 top-0 z-50 h-full flex-col overflow-clip border-l border-cc-border bg-cc-bg shadow-2xl outline-none`}
-        style={{ width }}
+        style={{ width: split.width }}
         data-testid="secondary-view-pane"
       >
+        <div className="absolute inset-y-0 left-0 z-30">
+          <SplitHandle label="Resize this panel" className="h-full" {...split.handleProps} />
+        </div>
         {title && (
           <div className="shrink-0 flex items-center justify-between gap-2 px-3 py-2 bg-cc-card border-b border-cc-border">
             <span className="truncate text-[12px] font-semibold text-cc-fg">{title}</span>

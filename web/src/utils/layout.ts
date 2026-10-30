@@ -22,7 +22,10 @@ export function isNarrowComposerLayout(zoomLevel: number): boolean {
   return getEffectiveViewportWidth(zoomLevel) < COMPOSER_NARROW_BREAKPOINT;
 }
 
-const SECONDARY_VIEW_MIN_UNCOVERED_WIDTH = 48;
+/** The strip of the app the secondary view always leaves uncovered, so a click there dismisses it. */
+export const SECONDARY_VIEW_MIN_UNCOVERED_WIDTH = 48;
+/** The narrowest the user can make the secondary view: a reading column still fits. */
+export const SECONDARY_VIEW_MIN_WIDTH = 420;
 
 /**
  * Width of the secondary view floating over the app from the right: as wide as its content's

@@ -303,7 +303,11 @@ export function LeaderTopicPanel({
 }) {
   const open = useTopicPanelOpen(leaderId);
   const sheetOpen = useTopicSheetOpen(leaderId);
-  const split = useSplitWidth("topic-panel", { defaultWidth: 440, min: 320, max: 820, side: "right" });
+  const split = useSplitWidth("topic-panel", {
+    ...{ defaultWidth: 440, min: 320, max: 820, side: "right" },
+    // Kept as a share of the window once the user drags it, so it follows the window.
+    share: true,
+  });
   // Once opened, the phone sheet stays mounted while dismissed, so reopening shows the same page
   // where it was left; hidden, it runs no effects (no refreshes, no back-gesture entry).
   const [sheetMounted, setSheetMounted] = useState(sheetOpen);
