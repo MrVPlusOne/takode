@@ -1,12 +1,14 @@
-import { Activity, useEffect, useRef, useState, type ReactNode } from "react";
+import { Activity, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { setSideViewsOf } from "../../utils/side-views.js";
 import { useStore } from "../../store.js";
 import { useOutsidePress } from "../../hooks/useOutsidePress.js";
 import {
   closeSideItem,
   HOME_ITEM,
+  NO_ITEM,
   openInSide,
   openSideItem,
+  setSideOverviewFolded,
   sideChatOrigin,
   useSideColumn,
   type SideItem,
@@ -20,7 +22,7 @@ import { normalizeThreadKey } from "../../utils/thread-projection.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { CollapseIcon, NewThreadIcon, TopicIcon } from "../library/library-icons.js";
-import { TopicSidePanel, useQuestTopic } from "../library/TopicSidePanel.js";
+import { TopicSidePanel } from "../library/TopicSidePanel.js";
 import { ThreadsList } from "../ThreadsMenu.js";
 import { ThreadOriginName } from "./thread-names.js";
 import { useQuestRecord } from "../QuestSummaryCard.js";
@@ -32,15 +34,20 @@ import { SideSession } from "./SideSession.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { openLibraryArtifact } from "../../utils/library-nav.js";
+import { countAttentionPlaces } from "../../utils/next-attention.js";
+import { LeaderOverview, LeaderOverviewContext, useLeaderOverview } from "../overview/LeaderOverview.js";
+import { OverviewIcon } from "../overview/OverviewIcon.js";
 
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
 const KEPT_MOUNTED = 3;
 
 /**
- * A leader's side column (Logseq's right sidebar): the topic page it follows, plus whatever the user
- * put beside the conversation (side chats, other conversations, topic pages), newest first, as a
- * stack: one item open, filling the column, the others as one-line rows above and below it. On a
- * phone it is the same stack in a sheet.
+ * A leader's side column (Logseq's right sidebar), from the top: whatever the user put beside the
+ * conversation (side chats, other conversations, topic pages), newest first; the leader's overview
+ * (what needs the user and what runs now, across its topics); and the topic page it follows. The
+ * items and the topic page are a stack: one open, filling the column, the others as one-line rows.
+ * The overview folds on its own, and stays open beside whatever is. On a phone it is the same
+ * column in a sheet.
  */
 export function SideColumn({
   leaderId,
@@ -52,9 +59,10 @@ export function SideColumn({
   threadKey: string;
   variant: "docked" | "sheet";
 }) {
-  const { items, open } = useSideColumn(leaderId);
+  const { items, open, overviewFolded = false } = useSideColumn(leaderId);
+  const overview = useLeaderOverview(leaderId);
   const entries: Array<SideItem | null> = [...items, null];
-  const openId = open === HOME_ITEM || items.some((item) => item.id === open) ? open : HOME_ITEM;
+  const openId = open === HOME_ITEM || open === NO_ITEM || items.some((item) => item.id === open) ? open : HOME_ITEM;
   // Recently open items stay mounted while folded, like kept conversations.
   const keptRef = useRef<string[]>([]);
   keptRef.current = [openId, ...keptRef.current.filter((id) => id !== openId)]
@@ -62,6 +70,8 @@ export function SideColumn({
     .slice(0, KEPT_MOUNTED);
   const kept = keptRef.current;
   const close = () => (variant === "sheet" ? setTopicSheetOpen(leaderId, false) : setTopicPanelOpen(leaderId, false));
+  // A row toggles its item: opening it folds the one open before, and the open one folds.
+  const toggle = (id: string) => openSideItem(leaderId, id === openId ? NO_ITEM : id);
   // The server sends this browser the live messages of the conversations in the column too.
   const conversationKeys = items
     .flatMap((item) => (item.kind === "conversation" ? [item.threadKey.toLowerCase()] : []))
@@ -84,63 +94,132 @@ export function SideColumn({
     );
   };
 
+  const row = (entry: SideItem | null) => {
+    const id = entry?.id ?? HOME_ITEM;
+    return (
+      <SideItemRow key={`row:${id}`} leaderId={leaderId} item={entry} open={id === openId} onOpen={() => toggle(id)} />
+    );
+  };
+
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="side-column">
-      {/* As tall as the strip under the top bar, so their lines meet. */}
-      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-cc-border/80 px-2">
+    <LeaderOverviewContext.Provider value={overview}>
+      <div className="flex h-full min-h-0 flex-col" data-testid="side-column">
+        {/* As tall as the strip under the top bar, so their lines meet. */}
+        <div className="flex h-8 shrink-0 items-center gap-1 border-b border-cc-border/80 px-2">
+          <button
+            type="button"
+            onClick={() => openInSide(leaderId, { kind: "new-chat", startedFrom: sideChatOrigin(leaderId) })}
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[13px] text-cc-primary hover:bg-cc-hover"
+            title="Start a side chat with the leader about what's on screen"
+            data-testid="side-new-chat"
+          >
+            <NewThreadIcon className="h-4 w-4" />
+            New side chat
+          </button>
+          <span className="flex-1" />
+          <RecentChats leaderId={leaderId} />
+          <button
+            type="button"
+            onClick={close}
+            aria-label={variant === "sheet" ? "Close the side column" : "Collapse the side column"}
+            title={variant === "sheet" ? "Close" : "Collapse"}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+          >
+            {variant === "sheet" ? "✕" : <CollapseIcon className="h-4 w-4" />}
+          </button>
+        </div>
+        {items.map((entry) => [row(entry), body(entry)])}
+        <SideOverview
+          leaderId={leaderId}
+          folded={overviewFolded}
+          // Beside an open item it takes up to about half the column; alone, all of it.
+          shared={openId !== NO_ITEM}
+          variant={variant}
+          onClose={close}
+        />
+        {row(null)}
+        {body(null)}
+      </div>
+    </LeaderOverviewContext.Provider>
+  );
+}
+
+/**
+ * The leader's overview in its column: what needs the user and what runs now, across its topics,
+ * under a row that folds it (remembered per leader). Its topics, with the same counts, are the
+ * topic list under it.
+ */
+function SideOverview({
+  leaderId,
+  folded,
+  shared,
+  variant,
+  onClose,
+}: {
+  leaderId: string;
+  folded: boolean;
+  shared: boolean;
+  variant: "docked" | "sheet";
+  onClose: () => void;
+}) {
+  const overview = useContext(LeaderOverviewContext)!;
+  const needYou = countAttentionPlaces(overview.forYou);
+  // On a phone the sheet covers the conversation: going somewhere closes it.
+  const leave = () => variant === "sheet" && onClose();
+  return (
+    <>
+      <div
+        className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-3 text-[13px] ${
+          folded ? "hover:bg-cc-hover/30" : "bg-cc-hover/40"
+        }`}
+        data-testid="side-overview-row"
+      >
         <button
           type="button"
-          onClick={() => openInSide(leaderId, { kind: "new-chat", startedFrom: sideChatOrigin(leaderId) })}
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[13px] text-cc-primary hover:bg-cc-hover"
-          title="Start a side chat with the leader about what's on screen"
-          data-testid="side-new-chat"
+          onClick={() => setSideOverviewFolded(leaderId, !folded)}
+          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
+          aria-expanded={!folded}
         >
-          <NewThreadIcon className="h-4 w-4" />
-          New side chat
-        </button>
-        <span className="flex-1" />
-        <RecentChats leaderId={leaderId} />
-        <button
-          type="button"
-          onClick={close}
-          aria-label={variant === "sheet" ? "Close the side column" : "Collapse the side column"}
-          title={variant === "sheet" ? "Close" : "Collapse"}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-        >
-          {variant === "sheet" ? "✕" : <CollapseIcon className="h-4 w-4" />}
+          <OverviewIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
+          <span className={folded ? "text-cc-fg/80" : "text-cc-fg"}>Overview</span>
+          <span className="ml-auto flex shrink-0 gap-2 text-[11.5px] tabular-nums">
+            {needYou > 0 && <span className="text-[var(--color-cc-phase-accent-amber)]">{needYou} need you</span>}
+            {overview.running.length > 0 && <span className="text-cc-success">{overview.running.length} running</span>}
+          </span>
         </button>
       </div>
-      {entries.map((entry) => {
-        const id = entry?.id ?? HOME_ITEM;
-        return [
-          // The topic page alone needs no row of its own: its page starts with its own header.
-          items.length > 0 && (
-            <SideItemRow
-              key={`row:${id}`}
-              leaderId={leaderId}
-              threadKey={threadKey}
-              item={entry}
-              open={id === openId}
-              onOpen={() => openSideItem(leaderId, id)}
-            />
-          ),
-          body(entry),
-        ];
-      })}
-    </div>
+      {!folded && (
+        <div
+          className={`overflow-y-auto border-b border-cc-border/70 ${shared ? "max-h-[45%] shrink-0" : "min-h-0 flex-1"}`}
+          data-testid="side-overview"
+        >
+          <LeaderOverview
+            data={{
+              ...overview,
+              open: (item) => {
+                leave();
+                overview.open(item);
+              },
+            }}
+            onOpenQuest={(questId) => {
+              leave();
+              navigateToSessionThread(leaderId, questId);
+            }}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
 /** One item's header in the stack: its kind, its name, and its actions. */
 function SideItemRow({
   leaderId,
-  threadKey,
   item,
   open,
   onOpen,
 }: {
   leaderId: string;
-  threadKey: string;
   item: SideItem | null;
   open: boolean;
   onOpen: () => void;
@@ -162,7 +241,7 @@ function SideItemRow({
       >
         <SideItemIcon leaderId={leaderId} item={item} />
         <span className={`min-w-0 truncate ${open ? "text-cc-fg" : "text-cc-fg/80"}`}>
-          <SideItemTitle leaderId={leaderId} threadKey={threadKey} item={item} />
+          <SideItemTitle leaderId={leaderId} item={item} />
         </span>
         {unread > 0 && (
           <span className="shrink-0 rounded-full bg-cc-info/15 px-1.5 text-[11px] tabular-nums text-cc-info">
@@ -318,10 +397,10 @@ function SideItemBody({
   }
 }
 
-function SideItemTitle({ leaderId, threadKey, item }: { leaderId: string; threadKey: string; item: SideItem | null }) {
-  const followed = useQuestTopic(leaderId, item ? "" : threadKey);
+function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | null }) {
   const pinned = useKnownTopicBrief(leaderId, item?.kind === "topic" ? item.topicId : undefined);
-  if (!item) return <>{followed?.name ?? "Topics"}</>;
+  // The section's name: the page under it names its topic.
+  if (!item) return <>Topics</>;
   switch (item.kind) {
     case "topic":
       return <>{pinned?.name ?? "Topic"}</>;

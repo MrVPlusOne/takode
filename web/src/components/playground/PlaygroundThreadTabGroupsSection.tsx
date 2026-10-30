@@ -249,6 +249,7 @@ function BreadcrumbFrame({ width, sessionId }: { width: number; sessionId: strin
         />
       )}
       <LeaderBreadcrumbNav
+        leaderId={sessionId}
         main={MAIN}
         tabs={TABS}
         currentThreadKey={current}

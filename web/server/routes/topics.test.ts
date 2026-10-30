@@ -97,6 +97,16 @@ async function setup() {
                 { type: "user_message", id: "u-main", content: "status?", timestamp: 1 },
                 { type: "user_message", id: "u-q1", content: "launch", timestamp: 2, threadKey: "q-1", questId: "q-1" },
               ],
+              // What its overview lists: a question in q-2, an unread answer in Main, q-2 running.
+              notifications: [
+                { id: "n1", category: "needs-input", summary: "Which context lengths?", threadKey: "q-2", done: false },
+                { id: "n2", category: "review", summary: "Answer in main | Done", threadKey: "main", done: false },
+                { id: "n3", category: "needs-input", summary: "Answered already", threadKey: "q-1", done: true },
+              ],
+              board: new Map([
+                ["q-2", { questId: "q-2", title: "256K twin", status: "IMPLEMENTING", createdAt: 1, updatedAt: 1 }],
+                ["q-3", { questId: "q-3", title: "Later", status: "QUEUED", createdAt: 2, updatedAt: 2 }],
+              ]),
             }
           : undefined,
     },
@@ -108,6 +118,44 @@ async function setup() {
 }
 
 describe("topic routes", () => {
+  it("lets a leader's Scribe read its overview and save an order with short notes the panel gets", async () => {
+    // Jiayi: the Scribe orders the overview by what to handle first and adds a short line of context.
+    const { app, store, send, setCaller } = await setup();
+    store.setLeaderEnabled("leader", true);
+    setCaller("scribe");
+    const read = await (await app.request("/scribe/overview")).json();
+    expect(read.order).toBeNull();
+    expect(read.items).toEqual([
+      { key: "q-2", title: "256K twin", questions: ["Which context lengths?"], results: [], running: "Implement" },
+      { key: "main", questions: [], results: ["Answer in main | Done"] },
+    ]);
+
+    // One short line each: a long note is refused rather than cut, and keys must name threads.
+    const long = await send("/scribe/overview", "POST", { entries: [{ key: "q-2", note: "x".repeat(91) }] });
+    expect(long.status).toBe(400);
+    expect((await long.json()).error).toContain("one short line");
+    expect((await send("/scribe/overview", "POST", { entries: [{ key: "T7 run" }] })).status).toBe(400);
+
+    const saved = await (
+      await send("/scribe/overview", "POST", {
+        entries: [
+          { key: "Q-2", note: "Pick the buckets before Friday's draft ([q-2](quest:q-2))" },
+          { key: "main" },
+          { key: "q-2", note: "a repeat is dropped" },
+        ],
+      })
+    ).json();
+    // Plain words: the row links to its thread, so the note's links keep only their text.
+    expect(saved.entries).toEqual([
+      { key: "q-2", note: "Pick the buckets before Friday's draft (q-2)" },
+      { key: "main" },
+    ]);
+
+    setCaller(null);
+    const list = await (await app.request("/topics?leader=leader")).json();
+    expect(list.overviewOrder.entries).toEqual(saved.entries);
+  });
+
   it("files a leader's quest under a topic and tells quest create the leader's topics", async () => {
     const { app, store, send, setCaller } = await setup();
     setCaller("leader");

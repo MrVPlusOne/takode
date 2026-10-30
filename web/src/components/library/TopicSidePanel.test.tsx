@@ -279,8 +279,12 @@ describe("TopicSidePanel", () => {
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
     const view = await screen.findByTestId("topic-view");
     expect(within(view).getByTestId("topic-lead")).toHaveTextContent("T7 is the 12B coding run with 384K context.");
-    // Only quests still open are listed (live), not every quest of the topic.
+    // Only quests still open are listed (live), not every quest of the topic. In the side column
+    // they start folded behind their count: the overview above lists what runs.
     const open = within(view).getByTestId("topic-open-quests");
+    expect(open).toHaveTextContent("Open quests · 1");
+    expect(open.dataset.collapsed).toBe("true");
+    fireEvent.click(within(open).getByTestId("topic-section-toggle"));
     expect(open).toHaveTextContent("Twin evals · in progress");
     expect(open).not.toHaveTextContent("Launch T7");
     const page = within(view).getByTestId("topic-page");
@@ -374,6 +378,23 @@ describe("TopicSidePanel", () => {
     fireEvent.click(rows[1]!);
     expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-2801", false, "l1");
     expect(screen.queryByTestId("topic-quest-picker-list")).toBeNull();
+  });
+
+  it("shows History's newest lines in the side column, folding the older ones until asked", async () => {
+    // Jiayi: a long History always on the side is too much; recent entries show, older ones fold.
+    mockApi();
+    const lines = Array.from({ length: 7 }, (_, index) => `- **Oct ${30 - index}** · Change ${index + 1}`);
+    vi.mocked(topicApi.get).mockResolvedValue({ ...DETAIL, page: `T7.\n## History\n${lines.join("\n")}` });
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    const view = await screen.findByTestId("topic-view");
+    const page = within(view).getByTestId("topic-page");
+    expect(page).toHaveTextContent("Change 5");
+    expect(page).not.toHaveTextContent("Change 6");
+    const older = within(view).getByTestId("topic-history-older");
+    expect(older).toHaveTextContent("2 older entries");
+    fireEvent.click(older);
+    expect(page).toHaveTextContent("Change 7");
+    expect(within(view).queryByTestId("topic-history-older")).toBeNull();
   });
 
   it("folds sections at their headings, remembered per topic, and lists all quests folded at the end", async () => {

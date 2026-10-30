@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
- * The side column as a stack: the topic page it follows, plus what the user put there (side chats,
- * other conversations, topic pages), newest first; one open, the others as rows. It tells the
- * server which conversations it shows, starts side chats from what's on screen and lists past ones.
+ * The side column: what the user put there (side chats, other conversations, topic pages), newest
+ * first, then the leader's overview, then the topic page it follows. The items and the topic page are
+ * a stack (one open, the others as rows); the overview folds on its own. It tells the server which
+ * conversations it shows, starts side chats from what's on screen and lists past ones.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -36,6 +37,27 @@ vi.mock("./SideSession.js", () => ({
 vi.mock("./thread-names.js", () => ({
   ThreadOriginName: ({ threadKey }: { threadKey: string }) => <>{`name of ${threadKey}`}</>,
 }));
+// The overview's own data is tested with LeaderOverview; here the column shows what it is given.
+vi.mock("../overview/LeaderOverview.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../overview/LeaderOverview.js")>()),
+  useLeaderOverview: () => ({
+    forYou: [],
+    running: [
+      {
+        questId: "q-3",
+        title: "Running quest",
+        phase: { label: "Work", accent: "green" },
+        worker: null,
+        phaseSince: null,
+        updatedAt: 0,
+        topic: null,
+      },
+    ],
+    noteFor: () => undefined,
+    countsOf: () => ({ needYou: 0, fresh: 0, running: 0 }),
+    open: () => {},
+  }),
+}));
 const threads = vi.hoisted(() => ({ list: [] as unknown[] }));
 vi.mock("../../utils/leader-topics.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../utils/leader-topics.js")>()),
@@ -62,10 +84,26 @@ const openBodies = () =>
   screen.getAllByTestId("side-item-body").filter((body) => body.closest("[style*='display: none']") === null);
 
 describe("SideColumn", () => {
-  it("shows only the followed topic page until something is put beside it", () => {
+  it("shows the overview, then the topic page it follows, each folding on its own and remembered", () => {
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
-    expect(rows()).toEqual([]);
+    // Jiayi: the leader's overview sits at the top everywhere, the current topic's page under it.
+    expect(rows().map((row) => row.textContent)).toEqual(["Topics"]);
+    expect(within(screen.getByTestId("side-overview")).getByTestId("overview-running-row").textContent).toContain(
+      "Running quest",
+    );
     expect(screen.getByTestId("mock-topic-page").textContent).toBe("followed");
+    // Beside the open topic page, the overview takes part of the column; alone, all of it.
+    expect(screen.getByTestId("side-overview").className).toContain("max-h-[45%]");
+    fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
+    expect(openBodies()).toHaveLength(0);
+    expect(screen.getByTestId("side-overview").className).toContain("flex-1");
+    fireEvent.click(within(screen.getByTestId("side-overview-row")).getByRole("button", { expanded: true }));
+    expect(screen.queryByTestId("side-overview")).toBeNull();
+    // Both stay as left: they are remembered per leader.
+    expect(useSideColumnStore.getState().columns.l1).toEqual(
+      expect.objectContaining({ open: "", overviewFolded: true }),
+    );
+    expect(JSON.parse(localStorage.getItem("cc-side-columns")!).l1.overviewFolded).toBe(true);
   });
 
   it("stacks items newest first with the topic page last, one open, and opens another by its row", () => {
@@ -74,8 +112,8 @@ describe("SideColumn", () => {
       openInSide("l1", { kind: "conversation", threadKey: "q-2" });
       openInSide("l1", { kind: "topic", topicId: "t9" });
     });
-    // The followed topic page is last, under the topic of the quest on screen.
-    expect(rows().map((row) => row.textContent)).toEqual(["Topic", "q-2 name of q-2", "Relay"]);
+    // The topic page it follows is last, under the overview.
+    expect(rows().map((row) => row.textContent)).toEqual(["Topic", "q-2 name of q-2", "Topics"]);
     expect(rows().map((row) => row.dataset.open)).toEqual(["true", "false", "false"]);
     expect(openBodies()).toHaveLength(1);
     expect(within(openBodies()[0]!).getByTestId("mock-topic-page").textContent).toBe("t9");

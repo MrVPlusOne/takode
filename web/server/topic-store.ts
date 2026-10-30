@@ -1,10 +1,12 @@
-import { topicHandle } from "../shared/topic-thread-key.js";
+import { normalizeTopicKey, topicHandle } from "../shared/topic-thread-key.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type NowEntry, type NowGroup, NOW_GROUPS, questLinksOf, takeLegacyNow } from "../shared/topic-now-items.js";
 import {
+  OVERVIEW_NOTE_MAX,
   TOPIC_TENTATIVE_MS,
+  type OverviewOrder,
   type QuestTopicMap,
   type TopicChange,
   type TopicDetail,
@@ -169,6 +171,8 @@ interface StoredScribe {
    * isn't asked on every update; back under the target, it is cleared.
    */
   consolidationAskedAt?: number;
+  /** The Scribe's order for the leader's overview, with a note per line. */
+  overviewOrder?: OverviewOrder;
 }
 
 /** What of a quest was already reported to Scribes: ticked checks (by text) and feedback count. */
@@ -408,6 +412,43 @@ export class TopicStore {
   setScribePaused(leaderId: string, paused: boolean): void {
     this.scribeRecord(leaderId).paused = paused || undefined;
     this.dirty = true;
+  }
+
+  overviewOrder(leaderId: string): OverviewOrder | undefined {
+    return this.s().scribes?.[leaderId]?.overviewOrder;
+  }
+
+  /**
+   * Saves the Scribe's order for its leader's overview, replacing the last one. Keys are thread
+   * keys; a note is one short line, so a longer one is refused rather than cut.
+   */
+  setOverviewOrder(leaderId: string, entries: ReadonlyArray<{ key: string; note?: string }>): OverviewOrder {
+    const seen = new Set<string>();
+    const clean: OverviewOrder["entries"] = [];
+    for (const entry of entries) {
+      const raw = entry.key.trim().toLowerCase();
+      const key = raw.startsWith("topic:") ? normalizeTopicKey(raw) : raw;
+      if (!key || !/^(q-\d+|topic:[\w-]+|main)$/.test(key)) {
+        throw new TopicStoreError(`"${entry.key}" is not a thread key (q-N, topic:<handle> or main).`);
+      }
+      // Plain words: the row itself links to its thread.
+      const note = entry.note
+        ?.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (note && note.length > OVERVIEW_NOTE_MAX) {
+        throw new TopicStoreError(
+          `The note for ${key} is ${note.length} characters; keep each to one short line (${OVERVIEW_NOTE_MAX} at most) and link to the detail.`,
+        );
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      clean.push(note ? { key, note } : { key });
+    }
+    const order = { writtenAt: this.now(), entries: clean };
+    this.scribeRecord(leaderId).overviewOrder = order;
+    this.dirty = true;
+    return order;
   }
 
   scribeInstructions(leaderId: string): ScribeInstructions | undefined {

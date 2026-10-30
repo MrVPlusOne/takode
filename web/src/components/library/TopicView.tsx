@@ -26,6 +26,7 @@ import { questOf, questionText, useTopicQuestions } from "./topic-questions.js";
 const REFRESH_MS = 20_000;
 const IMAGE_REFRESH_MS = 60_000;
 const ARTIFACTS_SHOWN = 3;
+const HISTORY_SHOWN = 5;
 
 export function TopicView({
   id,
@@ -226,10 +227,11 @@ export function TopicView({
         {open.length > 0 && (
           <div className="mt-4">
             <TopicSection
-              title="Open quests"
+              title={`Open quests · ${open.length}`}
               size="meta"
-              collapsed={sections.isCollapsed("Open quests")}
-              onToggle={() => sections.toggle("Open quests")}
+              // In the side column the overview above lists what runs, so the topic's open quests fold.
+              collapsed={sections.isCollapsed("Open quests", embedded)}
+              onToggle={() => sections.toggle("Open quests", embedded)}
               testId="topic-open-quests"
             >
               <QuestList quests={open} />
@@ -254,6 +256,8 @@ export function TopicView({
                 entries={detail.now ?? []}
                 leaderId={leaderId}
                 sections={sections}
+                // The side column keeps the page short: the newest History lines, the rest folded.
+                historyShown={embedded ? HISTORY_SHOWN : undefined}
                 onDone={leaderId ? (id, done) => act(topicApi.nowDone(detail.id, id, leaderId, done)) : undefined}
               />
             </InlineLocalImagesContext.Provider>
@@ -330,12 +334,15 @@ function TopicPageBody({
   entries,
   leaderId,
   sections,
+  historyShown,
   onDone,
 }: {
   body: string;
   entries: NowEntry[];
   leaderId?: string;
   sections: ReturnType<typeof useCollapsedSections>;
+  /** How many History lines show before the older ones fold; all when unset. */
+  historyShown?: number;
   onDone?: (id: string, done: boolean) => void;
 }) {
   const [othersOpen, setOthersOpen] = useState(false);
@@ -354,7 +361,11 @@ function TopicPageBody({
         collapsed={sections.isCollapsed(part.title)}
         onToggle={() => sections.toggle(part.title!)}
       >
-        <MarkdownContent text={part.text} questLinkSurface="chat-feed" />
+        {historyShown !== undefined && /^history$/i.test(part.title.trim()) ? (
+          <RecentHistory text={part.text} shown={historyShown} />
+        ) : (
+          <MarkdownContent text={part.text} questLinkSurface="chat-feed" />
+        )}
       </TopicSection>
     );
   return (
@@ -384,6 +395,45 @@ function TopicPageBody({
       {all.slice(leading).map((part, index) => section(part, leading + index))}
     </>
   );
+}
+
+/**
+ * A History section's newest lines (it is newest first), with the older ones folded behind a button
+ * until asked for.
+ */
+function RecentHistory({ text, shown }: { text: string; shown: number }) {
+  const [all, setAll] = useState(false);
+  const { lead, items } = listItems(text);
+  const older = items.length - shown;
+  if (older <= 0 || all) return <MarkdownContent text={text} questLinkSurface="chat-feed" />;
+  return (
+    <>
+      <MarkdownContent
+        text={[lead, ...items.slice(0, shown)].filter(Boolean).join("\n")}
+        questLinkSurface="chat-feed"
+      />
+      <button
+        type="button"
+        onClick={() => setAll(true)}
+        className="mt-1 text-[13px] text-cc-muted hover:text-cc-fg"
+        data-testid="topic-history-older"
+      >
+        › {older} older {older === 1 ? "entry" : "entries"}
+      </button>
+    </>
+  );
+}
+
+/** Splits Markdown into the text before its list and the list's top-level items (each with its own lines). */
+export function listItems(text: string): { lead: string; items: string[] } {
+  const lead: string[] = [];
+  const items: string[] = [];
+  for (const line of text.split("\n")) {
+    if (/^[-*+] /.test(line)) items.push(line);
+    else if (items.length > 0) items[items.length - 1] += `\n${line}`;
+    else lead.push(line);
+  }
+  return { lead: lead.join("\n").trim(), items };
 }
 
 /** Quests as linked lines with their state, in the order given. */

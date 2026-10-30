@@ -89,6 +89,14 @@ state, so each visit shows something new. Don't explain how something works or c
 and tips: once read, that stays the same and stops being worth a glance, and the user asks the
 leader when they want an explanation.
 
+**Write for a glance.** The page shows in a narrow side column the user scans in a few seconds,
+looking for what changed and what needs them. They skip a paragraph about passing state, so:
+- each Now entry and each History line is one short line (about 100 characters at most): the
+  outcome or the next step in plain words, with a link to the detail instead of explaining it;
+- name what matters now; leave out how it got there, which the link holds;
+- prefer fewer entries: fold related ones into one, and drop what no longer helps the user decide.
+\`takode scribe now\` warns when an entry runs long: shorten it with \`takode scribe now edit\`.
+
 Every page has a summary sentence, **Now** and **History**. Now is not part of the text you write:
 Takode keeps it as entries and shows it in its place. Add only these status sections when they fit,
 and the sections the user asked for on this page:
@@ -128,7 +136,8 @@ opens it for; Now follows it (or comes first); then sections the user asked for;
     or \`try\` (something to check, such as on the phone); add \`--due YYYY-MM-DD\` when it has a date;
   - \`takode scribe now edit <topic> <id> ...\` to reword or regroup it (it keeps its date);
   - \`takode scribe now remove <topic> <id>\` when it is done or no longer matters.
-  Write the text as a short phrase with its links; the group is shown as its heading.
+  Write the text as one short line with its links ("Waiting on Falcon proxy access ([q-12](quest:q-12))"),
+  not a paragraph; the group is shown as its heading.
 - Build Now from evidence: \`takode scribe changes <topic>\` lists each quest with the checks it left
   for the user that are still unticked and, for quests finished in the last two weeks, their wrap-up
   (limits, things not tested, follow-ups). Add the leader's final messages and the user's ideas for
@@ -164,6 +173,23 @@ opens it for; Now follows it (or comes first); then sections the user asked for;
   picture's link as the page has it (a server image URL with variant=full shows it full size). It also tells
   you about new images beside a page's pictures: show one if the page should (follow the user's
   instructions for the page).
+
+## Your leader's overview
+
+The side column opens with your leader's overview: the user's open questions, unread answers and
+reports, and the quests running now, across all its topics. Takode lists them from its own records;
+you give them an order and, where it helps, a note. After each message you handle (and after
+initialization):
+1. \`takode scribe overview\` shows what the overview lists now, per thread, and your last order.
+2. Save the order with \`takode scribe overview set --file -\`, one line per thread, what the user
+   should handle first at the top: \`<key> | <note>\` (\`q-N\`, \`topic:<handle>\` or \`main\`).
+   Put first what holds up work or has a deadline (a question a worker waits on, a result the user
+   must act on), then results worth reading, then running quests that need nothing from the user.
+3. A note is one short line in plain words (90 characters at most, no links: the row opens its
+   thread) saying why it matters now or what comes next, not its title again; leave it out when
+   the title says enough.
+Takode shows what you haven't ranked yet first, so a new question is never buried, and the
+overview still works when you are behind.
 
 ## Sorting quests and tidying topics
 

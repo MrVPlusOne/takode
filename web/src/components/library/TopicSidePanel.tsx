@@ -3,6 +3,7 @@ import { Activity, type RefObject, useCallback, useEffect, useLayoutEffect, useR
 import type { QuestTopicMap, TopicListResponse } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 import { openLeaderLibrary } from "../../utils/library-nav.js";
+import { rememberOverviewOrder } from "../../utils/leader-topics.js";
 import {
   loadLeaderTopics,
   useKnownQuestTopic,
@@ -98,6 +99,7 @@ export function TopicSidePanel({
       .then((next) => {
         setData(next);
         setError(null);
+        rememberOverviewOrder(leaderId, next.overviewOrder);
       })
       .catch((reason: Error) => setError(reason.message));
   }, [leaderId]);
@@ -142,7 +144,8 @@ export function TopicSidePanel({
           <button type="button" onClick={() => setChosen("")} className="text-cc-muted hover:text-cc-fg">
             ‹ All topics
           </button>
-        ) : (
+        ) : inColumn ? null : (
+          // In the side column the row above names the list.
           <span className="font-medium text-cc-fg">Topics</span>
         )}
         {shown || !data?.topics.length ? (

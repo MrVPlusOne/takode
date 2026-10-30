@@ -96,7 +96,7 @@ const MAX_CONSOLIDATION_CANDIDATES = 12;
 const EXCERPT_CHARS = 280;
 
 /** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
-export const PAGE_FORMAT = 7;
+export const PAGE_FORMAT = 8;
 
 export type DeliveryResult = "sent" | "nothing" | "waiting" | "paused" | "busy" | "off";
 

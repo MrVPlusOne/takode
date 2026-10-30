@@ -10,16 +10,15 @@ import { WorkBoardDotsIcon, WorkBoardIcon } from "../leader-workboard-controls.j
 import {
   ActiveOutputSpinner,
   AttentionBell,
-  ListHeading,
   readOnScreen,
-  ThreadTabListRow,
   TopicsGroupList,
-  workingOnTabs,
   type RowContext,
   type UnreadResultCount,
 } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { AllThreadsIcon, MainIcon, PlaceCrumb, PlaceRow } from "./PlaceCrumb.js";
+import { LeaderOverview, useLeaderOverview } from "../overview/LeaderOverview.js";
+import { countAttentionPlaces } from "../../utils/next-attention.js";
 
 export interface LeaderBreadcrumbNavProps extends RowContext {
   main?: PrimaryThreadChip;
@@ -36,18 +35,21 @@ export interface LeaderBreadcrumbNavProps extends RowContext {
   };
   /** The leader's threads (side chats), to name the topic a thread on screen is filed under. */
   threads: readonly ThreadSummary[];
-  /** The top bar's helpers place, where the Working on picker goes. */
+  /** The top bar's helpers place, where the Overview menu goes. */
   helpers: HTMLElement | null;
   board: { open: boolean; dots: readonly BoardPhaseDot[]; onToggle: () => void };
   /** The start of the strip on screen, where the place picker goes (null until a strip draws it). */
   crumbSlot: HTMLElement | null;
+  /** The leader, whose overview the top bar's picker shows. */
+  leaderId: string;
 }
 
 /**
  * A topic-first leader's navigation, on desktop and phones alike: no tab row. Where the conversation
  * lives is the breadcrumb's first part (Main, All threads or a topic, drawn at the start of the strip
- * under the top bar), and the quests in motion are the Working on picker in the top bar, which also
- * holds the full work board. Draws nothing in place; both parts go to their places by portal.
+ * under the top bar), and the top bar's Overview menu lists what needs the user, what runs now and
+ * the topics, with the full work board at its top. Draws nothing in place; both parts go to their
+ * places by portal.
  */
 export function LeaderBreadcrumbNav({
   main,
@@ -57,8 +59,11 @@ export function LeaderBreadcrumbNav({
   helpers,
   board,
   crumbSlot,
+  leaderId,
   ...rows
 }: LeaderBreadcrumbNavProps) {
+  const overview = useLeaderOverview(leaderId);
+  const needYou = countAttentionPlaces(overview.forYou);
   const [workingOnOpen, setWorkingOnOpen] = useState(false);
   const desktop = useDesktopShellLayout();
   const currentKey = normalizeThreadKey(rows.currentThreadKey);
@@ -66,7 +71,6 @@ export function LeaderBreadcrumbNav({
   const questTabs = tabs
     .map((tab) => readOnScreen(tab, currentKey))
     .filter((tab) => normalizeThreadKey(tab.threadKey) !== MAIN_THREAD_KEY && !isTopicViewKey(tab.threadKey));
-  const workingOn = workingOnTabs(questTabs);
   const mainTab = main ?? quietMain;
   // The leader writing somewhere not on screen: Working on spins for a quest it lists, the place
   // picker's Main row for Main (the feed's "Active here" covers writing on screen).
@@ -177,8 +181,9 @@ export function LeaderBreadcrumbNav({
     );
   };
 
-  const workingOnSpins =
-    !!writingElsewhere && workingOn.some((tab) => normalizeThreadKey(tab.threadKey) === writingElsewhere);
+  // Spins while the leader writes in a running quest that isn't on screen.
+  const workingOnSpins = !!writingElsewhere && overview.running.some((quest) => quest.questId === writingElsewhere);
+  const close = () => setWorkingOnOpen(false);
   const workingOnPicker = (
     // On a phone the list spans the top bar (the nearest positioned box), not just this button's width.
     <div className="relative flex items-center max-sm:static" data-testid="thread-top-bar-helpers">
@@ -193,50 +198,66 @@ export function LeaderBreadcrumbNav({
             ? "border-cc-primary/50 bg-cc-primary/12 text-cc-fg"
             : "border-cc-border bg-cc-hover/40 text-cc-fg hover:bg-cc-hover"
         }`}
-        aria-label={`Working on: ${workingOn.length}`}
+        aria-label={`Overview: ${needYou} need you, ${overview.running.length} running`}
         aria-expanded={workingOnOpen}
         aria-haspopup="menu"
-        title="Quests in progress"
+        title="What needs you and what runs now"
         data-testid="thread-tab-group-working-on"
         data-group="working-on"
       >
         {workingOnSpins && <ActiveOutputSpinner />}
         <WorkBoardDotsIcon dots={board.dots} large={false} />
-        {/* A phone's top bar has room for the count only; the list is headed "Working on". */}
-        <span className="tabular-nums">{desktop ? `Working on ${workingOn.length}` : workingOn.length}</span>
+        {/* A phone's top bar has room for the count only; the list is headed "Overview". */}
+        {desktop && <span>Overview</span>}
+        {needYou > 0 && (
+          <span
+            className="rounded-full bg-[var(--color-cc-phase-accent-amber)]/20 px-1.5 text-[11px] tabular-nums text-[var(--color-cc-phase-accent-amber)]"
+            data-testid="overview-need-you-count"
+          >
+            {needYou}
+          </span>
+        )}
         <Chevron />
       </button>
       {workingOnOpen && (
         <>
+          <div className="fixed inset-0 z-40" onClick={close} data-testid="thread-tab-group-backdrop" />
           <div
-            className="fixed inset-0 z-40"
-            onClick={() => setWorkingOnOpen(false)}
-            data-testid="thread-tab-group-backdrop"
-          />
-          <div
-            className="absolute right-0 top-full z-50 mt-2 max-h-[70dvh] w-[28rem] overflow-y-auto rounded-xl border border-cc-border bg-cc-card py-1 shadow-xl max-sm:left-2 max-sm:right-2 max-sm:w-auto"
+            className="absolute right-0 top-full z-50 mt-2 max-h-[70dvh] w-[28rem] overflow-y-auto rounded-xl border border-cc-border bg-cc-card shadow-xl max-sm:left-2 max-sm:right-2 max-sm:w-auto"
             role="menu"
             data-testid="thread-tab-group-list"
             data-group="working-on"
           >
-            <ListHeading label="Working on" count={workingOn.length}>
+            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-cc-border/60 bg-cc-card/95 px-3 py-1.5 backdrop-blur">
+              <span className="text-[13px] text-cc-fg">Overview</span>
               <button
                 type="button"
                 onClick={() => {
-                  setWorkingOnOpen(false);
+                  close();
                   board.onToggle();
                 }}
-                className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-cc-border bg-cc-hover/40 px-2 text-[12px] normal-case tracking-normal text-cc-fg hover:bg-cc-hover"
+                className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-cc-border bg-cc-hover/40 px-2 text-[12px] text-cc-fg hover:bg-cc-hover"
                 data-testid="thread-top-bar-board-button"
               >
                 <WorkBoardIcon className="h-3.5 w-3.5 text-cc-info" />
                 {board.open ? "Close board" : "Full board"}
               </button>
-            </ListHeading>
-            {workingOn.length === 0 && <div className="px-4 py-3 text-[12px] text-cc-muted">Nothing in progress</div>}
-            {workingOn.map((tab) => (
-              <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
-            ))}
+            </div>
+            <LeaderOverview
+              data={{
+                ...overview,
+                open: (item) => {
+                  close();
+                  overview.open(item);
+                },
+              }}
+              topics={topics.list}
+              onOpenQuest={select}
+              onOpenTopic={(topic) => {
+                close();
+                topics.onOpen(topic);
+              }}
+            />
           </div>
         </>
       )}

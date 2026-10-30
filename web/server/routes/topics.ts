@@ -10,6 +10,8 @@ import { SCRIBE_BRIEF } from "../scribe-brief.js";
 import { findThreadLastDiscussedMessageId } from "../../shared/thread-window.js";
 import { isRootAgentHistoryMessage } from "../root-agent-feed-message.js";
 import type { RouteContext } from "./context.js";
+import { getBoard } from "../bridge/board-watchdog-controller.js";
+import { leaderOverviewItems } from "../leader-overview-items.js";
 
 let activeService: TopicService | null = null;
 
@@ -108,7 +110,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
             : leaders,
         spaces: [...new Set([...svc.store.spaces(), ...leaders.map((leader) => leader.space)])].sort(),
         suggestions: svc.store.suggestions(scoped),
-        ...(leaderId ? { scribe: await svc.overview(leaderId) } : {}),
+        ...(leaderId ? { scribe: await svc.overview(leaderId), overviewOrder: svc.store.overviewOrder(leaderId) } : {}),
       };
     }),
   );
@@ -134,6 +136,38 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
           .suggestions(space)
           .filter((suggestion) => topics.some((topic) => topic.id === suggestion.topicId)),
       };
+    }),
+  );
+
+  /**
+   * For a Scribe: what its leader's overview lists now (questions, unread results, running quests,
+   * per thread) and the order it last saved.
+   */
+  api.get("/scribe/overview", (c) =>
+    run(c, (svc) => {
+      const leaderId = leaderFor(svc, c);
+      if (!leaderId) throw new TopicStoreError("Name the leader (--leader).", 404);
+      const session = ctx.wsBridge.getSession(leaderId);
+      return {
+        items: session ? leaderOverviewItems(session.notifications, getBoard(session)) : [],
+        order: svc.store.overviewOrder(leaderId) ?? null,
+      };
+    }),
+  );
+
+  /** The Scribe saves its order for the overview, replacing the last one. */
+  api.post("/scribe/overview", (c) =>
+    run(c, async (svc) => {
+      const leaderId = leaderFor(svc, c);
+      if (!leaderId) throw new TopicStoreError("Name the leader (--leader).", 404);
+      const body = (await c.req.json().catch(() => ({}))) as { entries?: unknown };
+      if (!Array.isArray(body.entries)) throw new TopicStoreError("Send the order as entries: [{ key, note }].");
+      const entries = body.entries.map((entry) => {
+        const { key, note } = (entry ?? {}) as { key?: unknown; note?: unknown };
+        if (typeof key !== "string") throw new TopicStoreError("Each entry needs a key.");
+        return { key, ...(typeof note === "string" ? { note } : {}) };
+      });
+      return svc.store.setOverviewOrder(leaderId, entries);
     }),
   );
 

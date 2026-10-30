@@ -2,17 +2,67 @@
 /**
  * A topic-first leader's navigation by breadcrumb (phones and desktop alike): the place picker at
  * the start of the strip (Main, All threads, then the topics and the quests under no topic), and
- * the Working on picker of quests in motion in the top bar, which also opens the full board.
+ * the Overview menu in the top bar (what needs the user, what runs, the topics), which also opens
+ * the full board.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 const navigateToNotification = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/notification-navigation.js", () => ({ navigateToNotification }));
+// The overview's own data is tested with LeaderOverview; here the menu shows what it is given.
+const overview = vi.hoisted(() => ({ data: null as unknown }));
+vi.mock("../overview/LeaderOverview.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../overview/LeaderOverview.js")>()),
+  useLeaderOverview: () => overview.data,
+}));
 import { useStore } from "../../store.js";
 import type { SdkSessionInfo } from "../../types.js";
 import type { ThreadSummary } from "../../../shared/library-topics.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { LeaderBreadcrumbNav, type LeaderBreadcrumbNavProps } from "./LeaderBreadcrumbNav.js";
+import type { LeaderOverviewData, RunningQuest } from "../overview/LeaderOverview.js";
+import type { NextAttentionItem } from "../../utils/next-attention.js";
+
+const running = (questId: string, title: string): RunningQuest => ({
+  questId,
+  title,
+  phase: { label: "Work", accent: "green" },
+  worker: { sessionId: "w", sessionNum: 7, status: "running" },
+  phaseSince: null,
+  updatedAt: 0,
+  topic: { id: "t1", name: "Relay" },
+});
+const question = {
+  kind: "needs-input",
+  key: "needs-input:leader:n1",
+  sessionId: "leader",
+  threadKey: "q-11",
+  label: "Which fix should be built?",
+  timestamp: 1,
+  entry: {
+    sessionId: "leader",
+    sessionName: "Leader",
+    sessionNum: 1,
+    notification: {
+      id: "n1",
+      category: "needs-input",
+      summary: "Which fix should be built?",
+      timestamp: 1,
+      messageId: null,
+      done: false,
+      questId: "q-11",
+    },
+  },
+} as unknown as NextAttentionItem;
+function overviewData(forYou: NextAttentionItem[] = [question]): LeaderOverviewData {
+  return {
+    forYou,
+    running: [running("q-10", "Fix the relay proxy")],
+    noteFor: () => undefined,
+    countsOf: (topic) => ({ needYou: 0, fresh: 0, running: topic.id === "t1" ? 1 : 0 }),
+    open: vi.fn(),
+  };
+}
 
 function tab(threadKey: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
   return {
@@ -41,11 +91,14 @@ const TOPICS = [topic("t1", "Relay", ["q-10", "q-12"]), topic("t2", "Briefing", 
 const TOPIC_OF_QUEST = { "q-10": "t1", "q-12": "t1", "q-13": "t2" };
 
 afterEach(() => {
+  overview.data = overviewData();
   cleanup();
   for (const place of document.querySelectorAll("[data-test-place]")) place.remove();
   vi.restoreAllMocks();
   useStore.getState().reset();
 });
+
+overview.data = overviewData();
 
 function renderNav(overrides: Partial<LeaderBreadcrumbNavProps> = {}) {
   const place = (name: string) => {
@@ -60,6 +113,7 @@ function renderNav(overrides: Partial<LeaderBreadcrumbNavProps> = {}) {
   const onOpenTopic = vi.fn();
   const onToggleBoard = vi.fn();
   const props = (next: Partial<LeaderBreadcrumbNavProps>): LeaderBreadcrumbNavProps => ({
+    leaderId: "leader",
     main: MAIN,
     tabs: TABS,
     currentThreadKey: "q-10",
@@ -210,28 +264,32 @@ describe("the place picker", () => {
   });
 });
 
-describe("the Working on picker", () => {
-  it("lists the quests in motion in the top bar, and opens one", () => {
-    // Jiayi: ongoing quests need their own picker in the top bar, not only the breadcrumb.
+describe("the Overview menu", () => {
+  it("counts what needs the user on its button, and lists what needs them, what runs and the topics", () => {
+    // Jiayi: the top bar's picker became an easy way into what needs them and what is going on.
     const { helpers, onSelect } = renderNav();
     const button = within(helpers).getByTestId("thread-tab-group-working-on");
     // jsdom has the desktop shell's width: the label is spelled out (phones show the count only).
-    expect(button.textContent).toContain("Working on 2");
-    // No bell on the picker: the quest's row carries it.
-    expect(within(button).queryByTestId("thread-tab-bell")).toBeNull();
+    expect(button.textContent).toContain("Overview");
+    expect(within(button).getByTestId("overview-need-you-count").textContent).toBe("1");
     openWorkingOn();
     const list = within(helpers).getByTestId("thread-tab-group-list");
-    const rows = within(list).getAllByTestId("thread-tab-list-row");
-    // Unfinished quests, and finished ones still waiting on a question; never Main or finished work.
-    expect(rows.map((row) => row.dataset.threadKey).sort()).toEqual(["q-10", "q-11"]);
+    expect(within(list).getByTestId("overview-for-you").textContent).toContain("Which fix should be built?");
     expect(
-      within(rows.find((row) => row.dataset.threadKey === "q-11")!).getByTestId("thread-tab-bell").dataset.kind,
-    ).toBe("needs-input");
-    fireEvent.click(
-      within(rows.find((row) => row.dataset.threadKey === "q-11")!).getByTestId("thread-tab-list-row-select"),
-    );
-    expect(onSelect).toHaveBeenCalledWith("q-11");
+      within(list)
+        .getAllByTestId("overview-topic-row")
+        .map((row) => row.textContent),
+    ).toEqual([expect.stringContaining("Relay"), expect.stringContaining("Briefing")]);
+    expect(within(list).getAllByTestId("overview-topic-row")[0]!.textContent).toContain("1 running");
+    fireEvent.click(within(list).getByTestId("overview-running-row"));
+    expect(onSelect).toHaveBeenCalledWith("q-10");
     expect(within(helpers).queryByTestId("thread-tab-group-list")).toBeNull();
+  });
+
+  it("shows no count while nothing needs the user", () => {
+    overview.data = overviewData([]);
+    const { helpers } = renderNav();
+    expect(within(helpers).queryByTestId("overview-need-you-count")).toBeNull();
   });
 
   it("opens the full board from its list, and shows pressed while the board is open", () => {
@@ -248,7 +306,7 @@ describe("the Working on picker", () => {
     expect(within(helpers).getByTestId("thread-top-bar-board-button").textContent).toContain("Close board");
   });
 
-  it("spins for writing in a quest it lists, unless that writing is on screen", () => {
+  it("spins for writing in a running quest, unless that writing is on screen", () => {
     const spins = () =>
       !!within(screen.getByTestId("thread-tab-group-working-on")).queryByTestId("thread-tab-active-output-spinner");
     const { rerender } = renderNav({ currentThreadKey: "main", activeOutputThreadKey: "q-10" });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { create } from "zustand";
 import type {
+  OverviewOrder,
   QuestTopicMap,
   QuestTopicsResponse,
   ThreadSummary,
@@ -69,6 +70,22 @@ export function rememberTopicList(leaderId: string, topics: readonly TopicSummar
     if (JSON.stringify(next) === JSON.stringify(previous)) return state;
     return { byLeader: { ...state.byLeader, [leaderId]: next } };
   });
+}
+
+/** Each leader's Scribe-written order for its overview, as last loaded with its topic list. */
+const useOverviewOrderStore = create<{ byLeader: Record<string, OverviewOrder | null> }>(() => ({ byLeader: {} }));
+
+/** Records the order that came with a leader's topic list (null when its Scribe wrote none). */
+export function rememberOverviewOrder(leaderId: string, order: OverviewOrder | undefined): void {
+  const next = order ?? null;
+  const previous = useOverviewOrderStore.getState().byLeader[leaderId];
+  if (previous === next || (previous && next && previous.writtenAt === next.writtenAt)) return;
+  useOverviewOrderStore.setState((state) => ({ byLeader: { ...state.byLeader, [leaderId]: next } }));
+}
+
+/** A leader's overview order, as last known; null without one. */
+export function useOverviewOrder(leaderId: string): OverviewOrder | null {
+  return useOverviewOrderStore((state) => state.byLeader[leaderId] ?? null);
 }
 
 /**

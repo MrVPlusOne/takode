@@ -3,7 +3,7 @@ import type { OpenInSideEvent } from "../utils/side-column.js";
 import type { TopicSummary } from "../../shared/library-topics.js";
 import { topicRowLine } from "./library/topic-search.js";
 import { topicApi } from "../api/topics.js";
-import { rememberTopicList } from "../utils/leader-topics.js";
+import { rememberOverviewOrder, rememberTopicList } from "../utils/leader-topics.js";
 import type { GlobalNeedsInputEntry } from "../utils/global-needs-input.js";
 import { TopicIcon } from "./library/library-icons.js";
 import { TopicQuestionsBadge, useTopicQuestions } from "./library/topic-questions.js";
@@ -33,6 +33,7 @@ export function useTopicTabTopics(leaderId: string, enabled: boolean, refreshKey
         .then((response) => {
           if (cancelled) return;
           rememberTopicList(leaderId, response.topics);
+          rememberOverviewOrder(leaderId, response.overviewOrder);
           setTopics(byActivity(response.topics));
         })
         .catch((error: Error) => console.warn("[library] Could not load the recent topics:", error.message));

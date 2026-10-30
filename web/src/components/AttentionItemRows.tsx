@@ -125,6 +125,7 @@ export function AttentionItemRow({
   sessionTag,
   threads,
   isNext = false,
+  note,
 }: {
   item: NextAttentionItem;
   onOpen: (item: NextAttentionItem) => void;
@@ -132,6 +133,8 @@ export function AttentionItemRow({
   sessionTag?: string;
   threads?: AttentionThreadTitles;
   isNext?: boolean;
+  /** A one-line note on it, such as why it matters now (the Scribe's, in a leader's overview). */
+  note?: string;
 }) {
   const label = itemLabel(item);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
@@ -176,6 +179,7 @@ export function AttentionItemRow({
             sessionTag={sessionTag}
             timestamp={item.timestamp}
           />
+          {note && <AttentionNote note={note} />}
         </div>
       </div>
       {/* Outside the row, so taps and right-clicks in the menu do not reach the row's gesture handlers. */}
@@ -234,6 +238,7 @@ export function AttentionItemSections({
   sessionTagFor,
   threads,
   nextKey,
+  noteFor,
 }: {
   items: readonly NextAttentionItem[];
   kinds: readonly AttentionSection[];
@@ -242,6 +247,8 @@ export function AttentionItemSections({
   sessionTagFor?: (item: NextAttentionItem) => string | undefined;
   threads?: AttentionThreadTitles;
   nextKey?: string | null;
+  /** A one-line note per item (a place takes its first item's). */
+  noteFor?: (item: NextAttentionItem) => string | undefined;
 }) {
   const row = (item: NextAttentionItem) => (
     <AttentionItemRow
@@ -252,6 +259,7 @@ export function AttentionItemSections({
       sessionTag={sessionTagFor?.(item)}
       threads={threads}
       isNext={item.key === nextKey}
+      note={noteFor?.(item)}
     />
   );
   return (
@@ -283,6 +291,7 @@ export function AttentionItemSections({
                       sessionLabel={sessionLabelFor?.(place.items[0]!)}
                       threads={threads}
                       isNext={place.items.some((item) => item.key === nextKey)}
+                      note={noteFor?.(place.items[0]!)}
                     />
                   ))
                 : group.map(row)}
@@ -318,6 +327,7 @@ function AttentionPlaceRow({
   sessionTag,
   threads,
   isNext,
+  note,
 }: {
   items: readonly NextAttentionItem[];
   onOpen: (item: NextAttentionItem) => void;
@@ -325,6 +335,7 @@ function AttentionPlaceRow({
   sessionTag?: string;
   threads?: AttentionThreadTitles;
   isNext: boolean;
+  note?: string;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const first = firstUnreadItem(items);
@@ -382,10 +393,20 @@ function AttentionPlaceRow({
                 .join(" · ")}
             </span>
           </p>
+          {note && <AttentionNote note={note} />}
         </div>
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </>
+  );
+}
+
+/** A row's one-line note, under its place line. */
+function AttentionNote({ note }: { note: string }) {
+  return (
+    <p className="mt-0.5 truncate text-[11.5px] text-cc-fg/75" title={note} data-testid="attention-note">
+      {note}
+    </p>
   );
 }
 

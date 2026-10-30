@@ -288,6 +288,7 @@ export function ThreadTabRail({
         <LeaderBreadcrumbNav
           {...breadcrumb}
           {...rowProps}
+          leaderId={sessionId}
           main={mainState}
           tabs={displayedTabs}
           threads={allThreads}

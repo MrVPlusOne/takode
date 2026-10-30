@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatScribeStatus, type ScribeStatusResponse } from "./takode-scribe.js";
+import { formatScribeStatus, parseOverviewOrder, type ScribeStatusResponse } from "./takode-scribe.js";
 
 /**
  * `takode scribe status` for a leader: a few lines naming the Scribe by session number, what it is
@@ -33,5 +33,14 @@ describe("formatScribeStatus", () => {
     expect(formatScribeStatus({ ...STATUS, enabled: false })).toBe(
       "Topics are off for #2957, so it has no Scribe: the user turned them off in its topics panel or for every leader in Settings.",
     );
+  });
+});
+
+describe("parseOverviewOrder", () => {
+  it("reads one thread per line, most urgent first, with an optional note after a bar", () => {
+    // `takode scribe overview set --file -`: list bullets, blank lines and comments are allowed.
+    expect(
+      parseOverviewOrder("# most urgent first\n- q-12 | Worker waits on the budget\n\nmain\ntopic:8df94bcb |\n"),
+    ).toEqual([{ key: "q-12", note: "Worker waits on the budget" }, { key: "main" }, { key: "topic:8df94bcb" }]);
   });
 });

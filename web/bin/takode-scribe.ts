@@ -1,4 +1,4 @@
-import type { ScribeOverview, TopicRenameSuggestion } from "../shared/library-topics.js";
+import type { OverviewOrder, ScribeOverview, TopicRenameSuggestion } from "../shared/library-topics.js";
 import { type NowEntry, nowGroupLabel } from "../shared/topic-now-items.js";
 import { formatArtifactLink } from "../shared/artifact-library.js";
 import { parseActivityTime } from "./takode-activity.js";
@@ -31,6 +31,11 @@ For the Scribe:
                                                        waiting (needs --who), progress, next, followup, try
   takode scribe now edit <topic> <id> [--group <group>] [--who "<who>"] [--due YYYY-MM-DD] ["<text>"]
   takode scribe now remove <topic> <id>                It is done or no longer matters
+  takode scribe overview                               What your leader's overview lists now, and
+                                                       your last order for it
+  takode scribe overview set --file <path>|-           Save the order, most urgent first: one line
+                                                       per thread, "<key> | <short note>" (the note
+                                                       is optional)
   takode scribe quests [--unsorted] [--since 30d]      Your leader's recent quests (--unsorted: those
                                                        with no topic yet)
 
@@ -52,6 +57,17 @@ export async function handleScribe(base: string, args: string[]): Promise<void> 
     }
     case "now": {
       console.log(await handleNow(base, positionals, flags, pagePath));
+      return;
+    }
+    case "overview": {
+      if (positionals[0] === "set") {
+        if (typeof flags.file !== "string") err("Usage: takode scribe overview set --file <path>|-");
+        const entries = parseOverviewOrder(await readOptionTextFile(flags.file, "--file"));
+        const order = (await apiPost(base, `/scribe/overview${leaderQuery}`, { entries })) as OverviewOrder;
+        console.log(`Saved the overview's order (${order.entries.length} lines).`);
+        return;
+      }
+      console.log(formatOverview((await apiGet(base, `/scribe/overview${leaderQuery}`)) as ScribeOverviewResponse));
       return;
     }
     case "instructions": {
@@ -230,6 +246,53 @@ function formatChanges(response: TopicChangesResponse): string {
   return lines.join("\n");
 }
 
+interface ScribeOverviewResponse {
+  items: Array<{ key: string; title?: string; questions: string[]; results: string[]; running?: string }>;
+  order: OverviewOrder | null;
+}
+
+/** The overview's threads as the Scribe ranks them, then its last order. */
+export function formatOverview(response: ScribeOverviewResponse): string {
+  const lines = [
+    "## What your leader's overview lists now",
+    ...(response.items.length
+      ? response.items.map((item) => {
+          const facts = [
+            item.running ? `running (${item.running})` : "",
+            ...item.questions.map((question) => `question: "${question}"`),
+            item.results.length ? `${item.results.length} unread: ${item.results.map((r) => `"${r}"`).join(", ")}` : "",
+          ].filter(Boolean);
+          return `- ${item.key}${item.title ? ` "${item.title}"` : ""} · ${facts.join(" · ")}`;
+        })
+      : ["- nothing: no questions, unread results or running quests"]),
+    "",
+    "## Your last order",
+    ...(response.order?.entries.length
+      ? [
+          `(saved ${new Date(response.order.writtenAt).toLocaleString()})`,
+          ...response.order.entries.map((entry) => `${entry.key}${entry.note ? ` | ${entry.note}` : ""}`),
+        ]
+      : ["none yet"]),
+    "",
+    'Save a new one with `takode scribe overview set --file -`: one line per thread, most urgent first, "<key> | <short note>".',
+  ];
+  return lines.join("\n");
+}
+
+/** Lines of "<key> | <note>" (or a bare key); blank lines and "#" comments are skipped. */
+export function parseOverviewOrder(text: string): Array<{ key: string; note?: string }> {
+  return text
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-*] +/, ""))
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const bar = line.indexOf("|");
+      const key = (bar < 0 ? line : line.slice(0, bar)).trim();
+      const note = bar < 0 ? "" : line.slice(bar + 1).trim();
+      return note ? { key, note } : { key };
+    });
+}
+
 function formatNowEntry(entry: TopicChangesResponse["now"][number]): string {
   const facts = [
     entry.yours ? "" : `from leader #${entry.leaderNum ?? "?"}`,
@@ -238,6 +301,16 @@ function formatNowEntry(entry: TopicChangesResponse["now"][number]): string {
     `since ${new Date(entry.since).toLocaleDateString()}`,
   ].filter(Boolean);
   return `- ${entry.id} · ${nowGroupLabel(entry)}: ${entry.text} (${facts.join(", ")})`;
+}
+
+/** A Now entry past one short line reads as a wall of text in the side column. */
+const NOW_ENTRY_SHORT = 100;
+
+function longNowWarning(text: string): string {
+  const length = text.replace(/\]\([^)]*\)/g, "]").length;
+  return length > NOW_ENTRY_SHORT
+    ? `\nWarning: this entry reads ${length} characters. Keep each to one short line (about ${NOW_ENTRY_SHORT}) and link to the detail: edit it with \`takode scribe now edit\`.`
+    : "";
 }
 
 /** `takode scribe now add|edit|remove`: one line saying what changed. */
@@ -257,7 +330,7 @@ async function handleNow(
   };
   if (action === "add") {
     const entry = (await apiPost(base, `${pagePath(topic)}/now`, { ...fields, text: more.join(" ") })) as NowEntry;
-    return `Added ${entry.id} under ${nowGroupLabel(entry)}.`;
+    return `Added ${entry.id} under ${nowGroupLabel(entry)}.${longNowWarning(entry.text)}`;
   }
   const id = more[0];
   if (!id) err(`Usage: ${usage}`);
@@ -267,7 +340,7 @@ async function handleNow(
       ...fields,
       ...(text ? { text } : {}),
     })) as NowEntry;
-    return `Updated ${entry.id} (${nowGroupLabel(entry)}).`;
+    return `Updated ${entry.id} (${nowGroupLabel(entry)}).${longNowWarning(entry.text)}`;
   }
   if (action === "remove") {
     await apiDelete(base, `${pagePath(topic)}/now/${encodeURIComponent(id)}`);

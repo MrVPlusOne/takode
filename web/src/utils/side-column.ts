@@ -37,10 +37,15 @@ export type SideItemInput = SideItem extends infer Item ? (Item extends SideItem
 /** The topic page the column follows (the tab's topic, or the leader's topic list). */
 export const HOME_ITEM = "home";
 
+/** No item open: the user folded the one that was. */
+export const NO_ITEM = "";
+
 interface LeaderColumn {
   items: SideItem[];
-  /** The item shown open: an item's ID or HOME_ITEM. */
+  /** The item shown open: an item's ID, HOME_ITEM, or NO_ITEM when the user folded the open one. */
   open: string;
+  /** The user folded the leader's overview at the column's top. */
+  overviewFolded?: boolean;
 }
 
 interface SideColumnState {
@@ -102,6 +107,7 @@ export function openInSide(leaderId: string, input: SideItemInput): string {
     const item = existing ? ({ ...existing, ...input } as SideItem) : ({ ...input, id: newId() } as SideItem);
     id = item.id;
     return {
+      ...column,
       items: [item, ...column.items.filter((other) => other.id !== item.id)].slice(0, MAX_ITEMS),
       open: item.id,
     };
@@ -111,9 +117,14 @@ export function openInSide(leaderId: string, input: SideItemInput): string {
   return id;
 }
 
-/** Opens one of the column's items (or HOME_ITEM), folding the one open before. */
+/** Opens one of the column's items (or HOME_ITEM), folding the one open before; NO_ITEM folds it. */
 export function openSideItem(leaderId: string, id: string): void {
   update(leaderId, (column) => ({ ...column, open: id }));
+}
+
+/** Folds or unfolds the leader's overview at the column's top. */
+export function setSideOverviewFolded(leaderId: string, folded: boolean): void {
+  update(leaderId, (column) => ({ ...column, overviewFolded: folded }));
 }
 
 /** Takes an item out of the column; the one after it opens if it was open. */
@@ -123,7 +134,7 @@ export function closeSideItem(leaderId: string, id: string): void {
     const items = column.items.filter((item) => item.id !== id);
     if (column.open !== id) return { ...column, items };
     const next = items[Math.min(index, items.length - 1)];
-    return { items, open: next?.id ?? HOME_ITEM };
+    return { ...column, items, open: next?.id ?? HOME_ITEM };
   });
 }
 
