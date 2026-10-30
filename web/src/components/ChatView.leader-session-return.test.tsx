@@ -438,3 +438,73 @@ describe("ChatView passive leader-session returns", () => {
     view.unmount();
   });
 });
+
+describe("ChatView returns to a quest tab's topic conversation", () => {
+  it("reopens the topic's conversation, not the quest alone, after another session and back", async () => {
+    // Regression (Jiayi's report): a leader left on a topic's conversation (a quest tab zoomed out,
+    // `topic=1`) reopened on that quest alone, because only the tab's quest was remembered.
+    vi.spyOn(topicApi, "questMap").mockResolvedValue({
+      enabled: true,
+      map: { [QUEST_ID]: { id: "t1", name: "Library" } },
+      topics: { t1: { name: "Library", questIds: [QUEST_ID, "q-1945"], activityAt: 1 } },
+    });
+    act(() => openTopicConversation(LEADER_SESSION_ID, QUEST_ID));
+    render(<RouteAwareChatView />);
+    const topicKey = topicViewKey("t1");
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicKey));
+
+    mockState.currentSessionId = OTHER_SESSION_ID;
+    navigate(`#/session/${OTHER_SESSION_ID}`);
+    await waitFor(() =>
+      expect(screen.getByTestId("message-feed")).toHaveAttribute("data-session-id", OTHER_SESSION_ID),
+    );
+    mockState.currentSessionId = LEADER_SESSION_ID;
+    navigate(`#/session/${LEADER_SESSION_ID}`);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicKey));
+    expect(window.location.hash).toContain("topic=1");
+
+    // Zoomed back in, the quest alone is the place to return to.
+    act(() => closeTopicConversation(LEADER_SESSION_ID));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    mockState.currentSessionId = OTHER_SESSION_ID;
+    navigate(`#/session/${OTHER_SESSION_ID}`);
+    await waitFor(() =>
+      expect(screen.getByTestId("message-feed")).toHaveAttribute("data-session-id", OTHER_SESSION_ID),
+    );
+    mockState.currentSessionId = LEADER_SESSION_ID;
+    navigate(`#/session/${LEADER_SESSION_ID}`);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    expect(window.location.hash).not.toContain("topic=1");
+  });
+});
+
+describe("ChatView breadcrumb band ×", () => {
+  it("leaves a quest for its topic's conversation, or Main when it has no topic", async () => {
+    // Regression (Jiayi's report): with the breadcrumb, the band's × closed the quest tab and opened
+    // whichever tab came next, often another quest. It now leaves the quest for where it lives.
+    const questMap = vi.spyOn(topicApi, "questMap").mockResolvedValue({
+      enabled: true,
+      map: { [QUEST_ID]: { id: "t1", name: "Library" } },
+      topics: { t1: { name: "Library", questIds: [QUEST_ID, "q-1945"], activityAt: 1 } },
+    });
+    const view = render(<RouteAwareChatView />);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    fireEvent.click(await screen.findByRole("button", { name: "Back to Library" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", topicViewKey("t1")),
+    );
+    view.unmount();
+
+    // A quest under no topic goes back to Main.
+    questMap.mockResolvedValue({
+      enabled: true,
+      map: {},
+      topics: { t2: { name: "Other", questIds: ["q-1945"], activityAt: 1 } },
+    });
+    history.replaceState(null, "", `#/session/${LEADER_SESSION_ID}?thread=${QUEST_ID}`);
+    render(<RouteAwareChatView />);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    fireEvent.click(await screen.findByRole("button", { name: "Back to Main" }));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+  });
+});

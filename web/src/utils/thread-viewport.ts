@@ -89,6 +89,11 @@ export function registerViewportHandoffPublisher(
 interface LeaderSessionViewState {
   version: 2;
   selectedThreadKey: string;
+  /**
+   * The quest tab whose topic conversation (`topic=1`, its topic's quests as one) was on screen
+   * when the session was left, so coming back reopens the topic rather than the quest alone.
+   */
+  topicViewThreadKey?: string;
   viewports: Record<string, FeedViewportPosition>;
   updatedAt: number;
 }
@@ -182,6 +187,24 @@ export function persistLeaderSelectedThreadKey(sessionId: string, threadKey: str
   });
 }
 
+/**
+ * Records whether the quest tab on screen shows its topic's conversation, the place to reopen when
+ * the user comes back to this leader. Not a thread of its own: the tab's quest is still the selection.
+ */
+export function persistLeaderTopicView(sessionId: string, threadKey: string, topicView: boolean): void {
+  const state = readLeaderSessionViewState(sessionId) ?? emptyLeaderSessionViewState();
+  const key = normalizeThreadKey(threadKey);
+  const { topicViewThreadKey: current, ...rest } = state;
+  const next = topicView ? key : current === key ? undefined : current;
+  if (next === current) return;
+  writeLeaderSessionViewState(sessionId, { ...rest, ...(next ? { topicViewThreadKey: next } : {}) });
+}
+
+/** Whether coming back to this leader on this quest tab reopens its topic's conversation. */
+export function readLeaderTopicView(sessionId: string, threadKey: string): boolean {
+  return readLeaderSessionViewState(sessionId)?.topicViewThreadKey === normalizeThreadKey(threadKey);
+}
+
 export function readLeaderViewportPosition(sessionId: string, threadKey: string): FeedViewportPosition | null {
   const state = readLeaderSessionViewState(sessionId);
   if (!state) return null;
@@ -255,9 +278,14 @@ function normalizeLeaderSessionViewState(value: unknown): LeaderSessionViewState
   const selectedThreadKey = normalizeRestorableThreadKey(record.selectedThreadKey);
   if (!selectedThreadKey) return null;
   const viewports = normalizeViewportMap(record.viewports);
+  const topicViewThreadKey =
+    typeof record.topicViewThreadKey === "string" && /^q-\d+$/.test(record.topicViewThreadKey)
+      ? record.topicViewThreadKey
+      : undefined;
   return {
     version: 2,
     selectedThreadKey,
+    ...(topicViewThreadKey ? { topicViewThreadKey } : {}),
     viewports,
     updatedAt: normalizeFiniteNumber(record.updatedAt) ?? Date.now(),
   };

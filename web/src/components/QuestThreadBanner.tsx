@@ -526,6 +526,7 @@ export function QuestThreadBanner({
   monitorSessionId,
   diffSessionId,
   onCloseTab,
+  closeLabel,
   sideQuestOf,
   leading,
   renderTitle,
@@ -551,6 +552,8 @@ export function QuestThreadBanner({
   diffSessionId?: string;
   /** Closes the thread tab this strip names; only passed while that tab can close. */
   onCloseTab?: () => void;
+  /** What the close button does, when it leaves the quest rather than closing its tab. */
+  closeLabel?: string;
 }) {
   const questId = row?.questId ?? threadKey.toLowerCase();
   const [collapsed, setCollapsed] = useState(false);
@@ -804,8 +807,8 @@ export function QuestThreadBanner({
             type="button"
             // 32 px to tap easily on a phone; the negative margin keeps the strip's height.
             className="col-start-5 row-start-1 -my-1 -mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
-            aria-label={`Close the ${questId} tab`}
-            title="Close tab"
+            aria-label={closeLabel ?? `Close the ${questId} tab`}
+            title={closeLabel ?? "Close tab"}
             onClick={onCloseTab}
             data-testid="quest-thread-close-tab"
           >

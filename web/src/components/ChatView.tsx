@@ -64,7 +64,9 @@ import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.
 import {
   markLeaderThreadDisplayed,
   persistLeaderSelectedThreadKey,
+  persistLeaderTopicView,
   readLeaderSelectedThreadKey,
+  readLeaderTopicView,
   requestThreadViewportSnapshot,
 } from "../utils/thread-viewport.js";
 import { ViewportHandoffThreadEntryGate } from "./ViewportHandoffEntryGate.js";
@@ -693,6 +695,15 @@ export function ChatView({
   // new feed is on screen.
   const zoomColumnRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => landZoom(sessionId, feedThreadKey, zoomColumnRef.current), [sessionId, feedThreadKey]);
+  // Remember whether the quest tab on screen shows its topic's conversation, the place a return to
+  // this leader reopens. Only while the route names this tab: a route without it (another session,
+  // or this one before its saved place is restored) says nothing about the place that was left.
+  useEffect(() => {
+    if (!isLeaderSession || preview || !isQuestThreadKey(selectedThreadKey)) return;
+    if (!routeThreadKey || normalizeThreadKey(routeThreadKey) !== normalizeThreadKey(selectedThreadKey)) return;
+    persistLeaderTopicView(sessionId, selectedThreadKey, topicFeedFor === normalizeThreadKey(selectedThreadKey));
+  }, [isLeaderSession, preview, routeThreadKey, selectedThreadKey, sessionId, topicFeedFor]);
+
   const zoomOutToTopic = useCallback(() => {
     if (!topicConversation) return;
     prepareZoom(sessionId, topicViewKey(topicConversation.topicId), "out", { feedKey: selectedThreadKey });
@@ -961,6 +972,21 @@ export function ChatView({
   const closeSelectedThreadTab = selectedTabCanClose
     ? () => (workBoardCloseTabRef.current ?? handleCloseThreadTab)(selectedTabKey)
     : undefined;
+  // With the breadcrumb the band's × leaves the quest for where it lives: its topic's conversation
+  // (the tab stays, since that conversation is shown in it), else Main, closing the tab when it may
+  // close. Closing it instead opened whichever tab came next, often another quest (Jiayi's report).
+  const leaveSelectedQuest: { run: () => void; label: string } | undefined =
+    breadcrumb && isQuestThreadKey(selectedTabKey)
+      ? topicConversation
+        ? { run: zoomOutToTopic, label: `Back to ${topicConversation.name}` }
+        : {
+            run: () =>
+              selectedTabCanClose
+                ? handleCloseThreadTab(selectedTabKey, MAIN_THREAD_KEY)
+                : handleSelectThread(MAIN_THREAD_KEY),
+            label: "Back to Main",
+          }
+      : undefined;
   // Attention lists close this session's tabs through the same path as the tab's own close button.
   useEffect(() => {
     if (!isLeaderSession || preview) return;
@@ -1049,9 +1075,16 @@ export function ChatView({
         markHistoryEntryShowsMainThread();
       } else {
         // This URL follows passive selection restore, not an external route
-        // requesting first placement over the authoritative tab order.
+        // requesting first placement over the authoritative tab order. A quest tab left on its
+        // topic's conversation reopens there, not on the quest alone.
         locallySelectedRouteThreadKeyRef.current = nextThreadKey;
-        navigateToSessionThread(sessionId, nextThreadKey, true);
+        navigateToSessionThread(
+          sessionId,
+          nextThreadKey,
+          true,
+          sessionId,
+          readLeaderTopicView(sessionId, nextThreadKey) ? { topicView: true } : {},
+        );
       }
       return;
     }
@@ -1271,7 +1304,8 @@ export function ChatView({
                         sideQuestOf={selectedSideQuestOf}
                         monitorSessionId={sessionId}
                         diffSessionId={sessionId}
-                        onCloseTab={closeSelectedThreadTab}
+                        onCloseTab={leaveSelectedQuest?.run ?? closeSelectedThreadTab}
+                        closeLabel={leaveSelectedQuest?.label}
                         singleLine={breadcrumb}
                         // The breadcrumb: the place (Main or the quest's topic), then the quest, which
                         // lists the topic's other quests when it is filed under one.
