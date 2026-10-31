@@ -1,3 +1,4 @@
+import { isSidebarViewMode, type SidebarViewMode } from "../shared/sidebar-view-mode.js";
 import { mkdirSync, readFileSync, existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname, basename, extname } from "node:path";
@@ -142,12 +143,7 @@ function normalizeScribeBackend(value: unknown): ScribeBackendSetting {
 }
 
 /** Sessions grouped by Session Space, or one list ordered by recent interaction. */
-/** The sessions panel's view: sessions by Session Space, by recency, or the topics leaders work in. */
-export type SidebarViewMode = "spaces" | "recent" | "topics";
-
-export function isSidebarViewMode(value: unknown): value is SidebarViewMode {
-  return value === "spaces" || value === "recent" || value === "topics";
-}
+export type { SidebarViewMode } from "../shared/sidebar-view-mode.js";
 export const QUESTMASTER_COMPACT_SORT_COLUMNS = [
   "quest",
   "title",

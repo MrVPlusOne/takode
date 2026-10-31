@@ -1,3 +1,4 @@
+import { isSidebarViewMode } from "../../shared/sidebar-view-mode.js";
 import { Hono, type Context } from "hono";
 import { exec as execCb } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -17,7 +18,6 @@ import {
   getServerName,
   setServerName,
   getServerId,
-  isSidebarViewMode,
   getClaudeUserDefaultModel,
   getCodexUserDefaultModel,
   QUESTMASTER_COMPACT_SORT_COLUMNS,
