@@ -46,6 +46,11 @@ export type QuestClaimOptions = {
   ownerKind?: QuestOwnerKind;
   ownershipEvent?: QuestOwnershipEventDraft;
   provenance?: QuestInvocationProvenance;
+  /**
+   * Whether a quest only waits in the Landing phase: its change is submitted and final Memory is
+   * done, so it no longer occupies its worker, and the worker may claim another quest.
+   */
+  waitsInLanding?: (questId: string) => boolean;
 };
 
 /** Build a new Quest record without performing persistence. */

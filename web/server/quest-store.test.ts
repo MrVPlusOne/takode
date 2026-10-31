@@ -752,6 +752,28 @@ describe("claimQuest", () => {
     expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
   });
 
+  it("lets a worker claim its next quest while its previous one only waits in Landing", async () => {
+    // The caller (the claim route) says which quests only wait in Landing; those don't occupy the
+    // worker. Any other in-progress quest still blocks a second claim.
+    await questStore.createQuest({ title: "Waiting to land" });
+    await questStore.transitionQuest("q-1", { status: "refined", description: "Submitted" });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.createQuest({ title: "Next quest" });
+    await questStore.transitionQuest("q-2", { status: "refined", description: "Next" });
+
+    await expect(questStore.claimQuest("q-2", "sess-1")).rejects.toThrow("Session already has an active quest: q-1");
+    const claimed = await questStore.claimQuest("q-2", "sess-1", { waitsInLanding: (id) => id === "q-1" });
+    expect(claimed).toMatchObject({ questId: "q-2", status: "in_progress", sessionId: "sess-1" });
+    // The quest in Landing keeps its owner, so a bounce still returns it to the same worker.
+    expect(await questStore.getQuest("q-1")).toMatchObject({ status: "in_progress", sessionId: "sess-1" });
+
+    await questStore.createQuest({ title: "Third quest" });
+    await questStore.transitionQuest("q-3", { status: "refined", description: "Third" });
+    await expect(questStore.claimQuest("q-3", "sess-1", { waitsInLanding: (id) => id === "q-1" })).rejects.toThrow(
+      "Session already has an active quest: q-2",
+    );
+  });
+
   it("reconciles a parseable stale snapshot before enforcing active quest ownership", async () => {
     await questStore.createQuest({ title: "Already active" });
     await questStore.transitionQuest("q-1", {

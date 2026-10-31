@@ -1548,9 +1548,7 @@ export async function claimQuest(
       const current = getLiveQuestById(store, questId);
       if (!current) return { store, result: null, write: false };
       if (!nextOwner) throw new Error("sessionId is required to claim a quest");
-      const existing = store.quests.find(
-        (quest) => quest.status === "in_progress" && sameQuestOwner(getQuestOwner(quest), nextOwner),
-      );
+      const existing = activeQuestBlockingClaim(store.quests, nextOwner, options);
       const input = buildQuestClaimTransitionInput(current, nextOwner, leaderSessionId, options, existing);
       if (!input) return { store, result: current, write: false };
       const quest = buildTransitionedQuest(current, input, { liveStore: true });
@@ -1562,13 +1560,30 @@ export async function claimQuest(
     const current = await getQuest(questId);
     if (!current) return null;
     if (!nextOwner) throw new Error("sessionId is required to claim a quest");
-    const existing = await getActiveQuestForOwner(nextOwner);
+    const existing = activeQuestBlockingClaim((await loadLatestSnapshot()).quests, nextOwner, options);
     const input = buildQuestClaimTransitionInput(current, nextOwner, leaderSessionId, options, existing);
     if (!input) return current;
     const quest = buildTransitionedQuest(current, input, { liveStore: false });
     await writeQuest(quest);
     return quest;
   });
+}
+
+/**
+ * The owner's in-progress quest that keeps it from claiming another, if any. A quest that only
+ * waits in Landing doesn't: its worker finished with it at final Memory.
+ */
+function activeQuestBlockingClaim(
+  quests: readonly QuestmasterTask[],
+  owner: QuestOwnerRef,
+  options: QuestClaimOptions | undefined,
+): QuestmasterTask | undefined {
+  return quests.find(
+    (quest) =>
+      quest.status === "in_progress" &&
+      sameQuestOwner(getQuestOwner(quest), owner) &&
+      !options?.waitsInLanding?.(quest.questId),
+  );
 }
 
 /**

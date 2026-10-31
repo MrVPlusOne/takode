@@ -484,6 +484,59 @@ describe("POST /api/quests/:questId/complete", () => {
       expect(questStore.completeQuest).not.toHaveBeenCalled();
     });
 
+    it("completes a quest that landed after its worker moved on without replacing the worker's current quest", async () => {
+      // The worker finished final Memory and claimed its next quest while this one waited in
+      // Landing. When the change lands, the old quest completes, but the worker keeps showing q-2.
+      installV2MemoryFixture({
+        row: landingRow(),
+        workerState: { claimedQuestId: "q-2", claimedQuestTitle: "Next quest", claimedQuestStatus: "in_progress" },
+      });
+      vi.spyOn(questStore, "getQuest").mockResolvedValue({
+        id: "q-1",
+        questId: "q-1",
+        title: "Quest",
+        status: "in_progress",
+        sessionId: "worker-1",
+        createdAt: 1,
+        claimedAt: 1,
+        description: "Ready",
+      } as any);
+      vi.spyOn(questStore, "completeQuest").mockResolvedValue({
+        id: "q-1",
+        questId: "q-1",
+        title: "Quest",
+        status: "done",
+        sessionId: "worker-1",
+        createdAt: 1,
+        claimedAt: 1,
+        completedAt: 2,
+        description: "Ready",
+        verificationItems: [{ text: "Check it", checked: false }],
+        verificationInboxUnread: true,
+      } as any);
+
+      await bridge.completeLandedQuest(
+        "q-1",
+        {
+          verificationItems: [{ text: "Check it", checked: false }],
+          debrief: "Done.",
+          debriefTldr: "Done.",
+          completedAt: 1,
+        },
+        "worker-1",
+      );
+
+      expect(questStore.completeQuest).toHaveBeenCalledWith(
+        "q-1",
+        [{ text: "Check it", checked: false }],
+        expect.anything(),
+      );
+      expect(bridge._sessions["worker-1"].state).toMatchObject({
+        claimedQuestId: "q-2",
+        claimedQuestStatus: "in_progress",
+      });
+    });
+
     it("completes normally, with the usual git checks, once the landed commits are recorded", async () => {
       const auth = installV2MemoryFixture({
         row: landingRow({ outcome: "landed", deliveryId: "d".repeat(32) }),

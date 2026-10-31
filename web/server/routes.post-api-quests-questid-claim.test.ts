@@ -703,6 +703,68 @@ describe("POST /api/quests/:questId/claim", () => {
     expect(opts.isSessionArchived("session-2")).toBe(false);
   });
 
+  it("tells the quest store which of a worker's quests only wait in Landing", async () => {
+    // A worker finishes with a quest at final Memory, even while its change still waits in the
+    // landing queue: that quest must not keep the worker from claiming its next one.
+    vi.spyOn(questStore, "claimQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "session-2",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    const journey = { phaseIds: ["work", "memory", "landing"], activePhaseIndex: 2, currentPhaseId: "landing" };
+    const landing = {
+      entryId: "le-1",
+      workerSessionId: "session-2",
+      workPhaseOccurrenceId: "o",
+      branch: "b",
+      tip: "t",
+    };
+    const completion = { verificationItems: [], debrief: "Done.", debriefTldr: "Done.", completedAt: 1 };
+    launcher.getSession.mockImplementation((sid: string) => ({ sessionId: sid, state: "running", cwd: "/test" }));
+    bridge._sessions["leader-1"] = {
+      id: "leader-1",
+      board: new Map([
+        // Final Memory done: only the landing is left.
+        [
+          "q-7",
+          { questId: "q-7", worker: "session-2", status: "LANDING", journey, landing: { ...landing, completion } },
+        ],
+        // Still in Memory: the worker owes final Memory.
+        [
+          "q-8",
+          {
+            questId: "q-8",
+            worker: "session-2",
+            status: "MEMORY",
+            journey: { ...journey, activePhaseIndex: 1 },
+            landing,
+          },
+        ],
+      ]),
+      messageHistory: [],
+      taskHistory: [],
+      browserSockets: new Set(),
+      state: {},
+    };
+
+    const res = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "session-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    const opts = vi.mocked(questStore.claimQuest).mock.calls[0][2] as { waitsInLanding: (id: string) => boolean };
+    expect(opts.waitsInLanding("q-7")).toBe(true);
+    expect(opts.waitsInLanding("q-8")).toBe(false);
+    expect(opts.waitsInLanding("q-9")).toBe(false);
+  });
+
   it("allows authenticated board-assigned worker force-claim with audit data", async () => {
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1",

@@ -341,6 +341,21 @@ function isActiveV2JourneyRow(row: BoardRow): boolean {
   return phaseIds.length > 0 && phaseIds.every((phaseId) => !isLegacyQuestJourneyPhaseId(phaseId));
 }
 
+/**
+ * Whether a quest only waits in Landing: final Memory is done (its completion is parked on the board
+ * row) and the change waits for the landing queue. Its worker is free to claim another quest; a
+ * bounce brings the quest back to the same worker when the leader advances it to Work.
+ */
+function questWaitsInLanding(
+  questId: string,
+  launcher: RouteContext["launcher"],
+  wsBridge: RouteContext["wsBridge"],
+): boolean {
+  return findActiveV2BoardRowsForQuest(questId, launcher, wsBridge).some(
+    ({ row }) => (row.status ?? "").trim().toUpperCase() === "LANDING" && !!row.landing?.completion,
+  );
+}
+
 function findActiveV2BoardRowsForQuest(
   questId: string,
   launcher: RouteContext["launcher"],
@@ -1363,6 +1378,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       const quest = await questStore.claimQuest(c.req.param("questId"), sessionId, {
         allowArchivedOwnerTakeover: true,
         isSessionArchived: (sid: string) => !!launcher.getSession(sid)?.archived,
+        waitsInLanding: (id) => questWaitsInLanding(id, launcher, wsBridge),
         ...(force ? { force: true } : {}),
         ...(leaderSessionId ? { leaderSessionId } : {}),
         ...(force && previousOwnerSessionId
@@ -1452,6 +1468,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       const quest = await questStore.claimQuest(questId, targetSessionId, {
         force: true,
         leaderSessionId: auth.callerId,
+        waitsInLanding: (id) => questWaitsInLanding(id, launcher, wsBridge),
         ownershipEvent: {
           operation: "reassign",
           actorSessionId: auth.callerId,
@@ -1493,7 +1510,13 @@ export function createQuestRoutes(ctx: RouteContext) {
     // Update session's quest status so browsers can show review-pending state.
     const reviewOwnerSessionId =
       targetSessionId || getTakodeQuestOwnerSessionId(currentQuest) || getTakodeDisplayOwnerSessionId(quest) || "";
-    if (reviewOwnerSessionId && hasQuestReviewMetadata(quest) && !isDirectCodexOwnedQuest(quest)) {
+    // A quest that landed after its worker moved on must not replace the quest the worker shows now.
+    const ownerState = reviewOwnerSessionId ? wsBridge.getSession(reviewOwnerSessionId)?.state : undefined;
+    const ownerMovedOn =
+      !!ownerState?.claimedQuestId &&
+      ownerState.claimedQuestId.toLowerCase() !== questId.toLowerCase() &&
+      ownerState.claimedQuestStatus === "in_progress";
+    if (reviewOwnerSessionId && !ownerMovedOn && hasQuestReviewMetadata(quest) && !isDirectCodexOwnedQuest(quest)) {
       setClaimedQuest(
         reviewOwnerSessionId,
         claimedQuestEvent(quest),
