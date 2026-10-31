@@ -106,7 +106,7 @@ function HomeThreads({ leaderId }: { leaderId: string }) {
           onSelect: open,
           onOpenInSide: (threadKey) => openInSide(leaderId, { kind: "conversation", threadKey }),
         }}
-        doneLimit={5}
+        idleLimit={5}
       />
     </section>
   );

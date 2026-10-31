@@ -1,4 +1,5 @@
 import { joinThread, unjoinThread } from "../thread-join.js";
+import { topicHandle } from "../../shared/topic-thread-key.js";
 import { topicInteractionAt } from "../topic-interaction.js";
 import { Hono, type Context } from "hono";
 import { getQuest, listQuests } from "../quest-store.js";
@@ -289,7 +290,17 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     run(c, (svc) => {
       const leaderId = leaderFor(svc, c);
       if (!leaderId) throw new TopicStoreError("Name the leader.", 404);
-      return { threads: svc.store.threadsOf(leaderId) };
+      // For the sessions panel's Threads view, which orders idle threads as Recent orders leaders.
+      const times = svc.interactionTimes(leaderId);
+      const threads = svc.store.threadsOf(leaderId).map((thread) => ({
+        ...thread,
+        interactionAt: Math.max(
+          thread.createdAt,
+          times.get(thread.key) ?? 0,
+          ...svc.store.threadsJoinedInto(thread.id).map((joined) => times.get(`topic:${topicHandle(joined.id)}`) ?? 0),
+        ),
+      }));
+      return { threads };
     }),
   );
 

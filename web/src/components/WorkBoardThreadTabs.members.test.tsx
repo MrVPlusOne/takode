@@ -17,6 +17,7 @@ vi.mock("../utils/leader-topics.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../utils/leader-topics.js")>()),
   useLeaderThreads: () => threads.list,
 }));
+import { useStore } from "../store.js";
 import { ThreadTabRail, useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
 afterEach(() => {
@@ -125,5 +126,31 @@ describe("ThreadTabRail members", () => {
     // Main's question is read in the leader log.
     fireEvent.click(groupTab("needs-input")!);
     expect(onSelect).toHaveBeenCalledWith("all");
+  });
+
+  it("puts an idle thread under Idle and the one the leader is answering in under In progress", () => {
+    // Jiayi: idle threads under In progress weren't making progress. A thread is In progress only
+    // while the leader writes in it (quests: while the board says they run).
+    threads.list = [
+      { id: "aa11", key: "topic:aa11", name: "Answering now", leaderId: "leader", createdAt: 1, activityAt: 9 },
+      { id: "cc33", key: "topic:cc33", name: "Quiet", leaderId: "leader", createdAt: 1, activityAt: 5 },
+    ];
+    useStore.setState({
+      sessionStatus: new Map([["leader", "running"]]),
+      activeTurnRoutes: new Map([["leader", { threadKey: "topic:aa11" }]]),
+    } as never);
+    try {
+      renderRail([]);
+      const members = Object.fromEntries(
+        useLeaderThreadMembers.getState().byLeader.leader!.map((member) => [member.threadKey, member.running]),
+      );
+      expect(members).toEqual({ "topic:aa11": true, "topic:cc33": false });
+      expect(screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group)).toEqual([
+        "in-progress",
+        "idle",
+      ]);
+    } finally {
+      useStore.setState({ sessionStatus: new Map(), activeTurnRoutes: new Map() } as never);
+    }
   });
 });

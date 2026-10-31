@@ -60,26 +60,39 @@ const groupTab = (group: string) =>
   screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === group)!;
 
 describe("groupThreads", () => {
-  it("files threads by question, unread result, finished state", () => {
+  it("files threads by question, unread result, then whether work goes on in them", () => {
     // A question outranks an unread result, and a finished thread with an unread result stays
-    // under New results until it is read.
+    // under Unread until it is read.
     const groups = groupThreads(TABS);
     const keys = (id: keyof typeof groups) => groups[id].map((item) => item.threadKey);
     expect(keys("needs-input")).toEqual(["q-11"]);
     expect(keys("new-results")).toEqual(["q-12"]);
     expect(keys("in-progress")).toEqual(["q-10"]);
-    expect(keys("done")).toEqual(["q-13", "q-14", "q-15"]);
+    expect(keys("idle")).toEqual(["q-13", "q-14", "q-15"]);
+  });
+
+  it("puts only threads with work going on under In progress; idle ones go to Idle", () => {
+    // Jiayi: idle threads listed under In progress weren't making progress. A thread is In progress
+    // only while its quest runs or the leader writes in it (`running`), finished or not.
+    const groups = groupThreads([
+      tab("q-30", { running: true }),
+      tab("q-31", { running: false }),
+      tab("topic:aa", { questId: undefined, running: false }),
+      tab("topic:bb", { questId: undefined, running: true }),
+    ]);
+    expect(groups["in-progress"].map((item) => item.threadKey)).toEqual(["q-30", "topic:bb"]);
+    expect(groups.idle.map((item) => item.threadKey)).toEqual(["q-31", "topic:aa"]);
   });
 
   it("lists the thread that entered a group most recently first, keeping order for ties", () => {
-    // q-21 was read a moment ago (moving it from New results into Done), so it leads Done.
-    const done = groupThreads([
+    // q-21 was read a moment ago (moving it from Unread into Idle), so it leads Idle.
+    const idle = groupThreads([
       tab("q-22", { completed: true, groupChangedAt: 100 }),
       tab("q-23", { completed: true, groupChangedAt: 100 }),
       tab("q-20", { completed: true, groupChangedAt: 50 }),
       tab("q-21", { completed: true, groupChangedAt: 900 }),
-    ]).done;
-    expect(done.map((item) => item.threadKey)).toEqual(["q-21", "q-22", "q-23", "q-20"]);
+    ]).idle;
+    expect(idle.map((item) => item.threadKey)).toEqual(["q-21", "q-22", "q-23", "q-20"]);
   });
 });
 
@@ -105,7 +118,7 @@ describe("plainThreadChip", () => {
   const note = (category: "needs-input" | "review", done = false) =>
     ({ id: `n-${category}`, category, summary: "", timestamp: 1, threadKey: thread.key, done }) as SessionNotification;
 
-  it("files a leader's other thread by its open question or unread answer, and as done once settled", () => {
+  it("files a leader's other thread by its open question or unread answer, and as running only while written in", () => {
     // Threads are members of the groups like quest threads: what waits on the user decides.
     expect(plainThreadChip(thread, [note("needs-input")]).needsInput).toBe(true);
     expect(plainThreadChip(thread, [note("review")]).blueNudge).toBe(true);
@@ -114,6 +127,8 @@ describe("plainThreadChip", () => {
     expect(plainThreadChip({ ...thread, settledAt: 9 }, []).completed).toBe(true);
     // A settled thread with a new answer is still a new result.
     expect(plainThreadChip({ ...thread, settledAt: 9 }, [note("review")]).completed).toBe(false);
+    expect(plainThreadChip(thread, []).running).toBe(false);
+    expect(plainThreadChip(thread, [], true).running).toBe(true);
   });
 
   it("names its topic as a tag in the list's meta line", () => {
@@ -133,16 +148,16 @@ describe("ThreadGroupBar", () => {
     const chips = screen.getAllByTestId("thread-tab-group-chip");
     // No question waits, so Needs you is hidden rather than showing 0.
     expect(chips.map((chip) => [chip.dataset.group, chip.dataset.count])).toEqual([
-      ["in-progress", "1"],
       ["new-results", "1"],
-      ["done", "3"],
+      ["in-progress", "1"],
+      ["idle", "3"],
     ]);
-    expect(chips.map((chip) => chip.dataset.selected)).toEqual(["true", "false", "false"]);
+    expect(chips.map((chip) => chip.dataset.selected)).toEqual(["false", "true", "false"]);
   });
 
   it("opens a larger group's list without switching, and switches from the list", () => {
     const { onSelect } = renderBar();
-    fireEvent.click(groupTab("done"));
+    fireEvent.click(groupTab("idle"));
     expect(onSelect).not.toHaveBeenCalled();
     const list = screen.getByTestId("thread-tab-group-list");
     expect(
@@ -179,20 +194,20 @@ describe("ThreadGroupBar", () => {
 
   it("opens the list on a first click and its first thread on a second mouse click", () => {
     const { onSelect } = renderBar({ currentThreadKey: "q-14" });
-    fireEvent.pointerDown(groupTab("done"), { pointerType: "mouse" });
-    fireEvent.click(groupTab("done"));
+    fireEvent.pointerDown(groupTab("idle"), { pointerType: "mouse" });
+    fireEvent.click(groupTab("idle"));
     expect(onSelect).not.toHaveBeenCalled();
-    fireEvent.pointerDown(groupTab("done"), { pointerType: "mouse" });
-    fireEvent.click(groupTab("done"));
+    fireEvent.pointerDown(groupTab("idle"), { pointerType: "mouse" });
+    fireEvent.click(groupTab("idle"));
     expect(onSelect).toHaveBeenCalledWith("q-13");
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
   });
 
   it("closes the list on a second finger tap instead of switching", () => {
     const { onSelect } = renderBar({ currentThreadKey: "q-14" });
-    fingerTap(groupTab("done"));
+    fingerTap(groupTab("idle"));
     expect(screen.getByTestId("thread-tab-group-list")).toBeTruthy();
-    fingerTap(groupTab("done"));
+    fingerTap(groupTab("idle"));
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
     expect(onSelect).not.toHaveBeenCalled();
   });
@@ -209,7 +224,7 @@ describe("ThreadGroupBar", () => {
     vi.stubGlobal("visualViewport", viewport);
     try {
       renderBar();
-      fireEvent.click(groupTab("done"));
+      fireEvent.click(groupTab("idle"));
       const list = screen.getByTestId("thread-tab-group-list");
       expect(list.style.maxHeight).toBe("min(60dvh, 892px)");
       viewport.height = 500;
@@ -222,7 +237,7 @@ describe("ThreadGroupBar", () => {
 
   it("marks side quests with the branch icon in group lists", () => {
     renderBar({ threads: TABS.map((item) => (item.threadKey === "q-13" ? { ...item, sideQuestOf: "main" } : item)) });
-    fireEvent.click(groupTab("done"));
+    fireEvent.click(groupTab("idle"));
     const rows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
     expect(
       rows.filter((row) => within(row).queryByTestId("side-quest-icon")).map((row) => row.dataset.threadKey),
@@ -242,7 +257,7 @@ describe("ThreadGroupBar", () => {
       ],
       currentThreadKey: "main",
     });
-    fireEvent.contextMenu(groupTab("done"), { clientX: 10, clientY: 10 });
+    fireEvent.contextMenu(groupTab("idle"), { clientX: 10, clientY: 10 });
     const meta = screen.getByTestId("thread-tab-list-row-meta").textContent ?? "";
     expect(meta).toContain("Thread · Remote");
     expect(meta).not.toContain("topic:");
@@ -314,9 +329,9 @@ describe("ThreadGroupBar group move animation", () => {
     const played = trackAnimations();
     const { rerender } = render(<ThreadGroupBar {...props(working, "q-10")} />);
     rerender(<ThreadGroupBar {...props(finished, "q-10")} />);
-    expect(played).toEqual(["done"]);
+    expect(played).toEqual(["idle"]);
     rerender(<ThreadGroupBar {...props(finished, "q-10")} />);
-    expect(played).toEqual(["done"]);
+    expect(played).toEqual(["idle"]);
   });
 
   it("stays still when the user opens a thread that stays in its group, or prefers reduced motion", () => {
@@ -333,26 +348,26 @@ describe("ThreadGroupBar group move animation", () => {
 });
 
 describe("ThreadGroupSections", () => {
-  it("lists the groups as Home's sections, Done's newest few with the rest behind N older", () => {
+  it("lists the groups as Home's sections, Idle's newest few with the rest behind N older", () => {
     const onSelect = vi.fn();
     render(
       <ThreadGroupSections
         threads={TABS}
         context={{ currentThreadKey: "main", activeOutputThreadKey: null, onSelect }}
-        doneLimit={2}
+        idleLimit={2}
       />,
     );
     const sections = screen.getAllByTestId("thread-group-section");
     expect(sections.map((section) => section.dataset.group)).toEqual([
       "needs-input",
-      "in-progress",
       "new-results",
-      "done",
+      "in-progress",
+      "idle",
     ]);
-    const done = sections[3]!;
-    expect(within(done).getAllByTestId("thread-tab-list-row")).toHaveLength(2);
-    fireEvent.click(within(done).getByTestId("thread-group-more"));
-    expect(within(done).getAllByTestId("thread-tab-list-row")).toHaveLength(3);
+    const idle = sections[3]!;
+    expect(within(idle).getAllByTestId("thread-tab-list-row")).toHaveLength(2);
+    fireEvent.click(within(idle).getByTestId("thread-group-more"));
+    expect(within(idle).getAllByTestId("thread-tab-list-row")).toHaveLength(3);
     fireEvent.click(within(sections[0]!).getByTestId("thread-tab-list-row-select"));
     expect(onSelect).toHaveBeenCalledWith("q-11");
   });

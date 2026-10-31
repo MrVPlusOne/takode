@@ -119,6 +119,45 @@ export function useLeaderThreads(leaderId: string, enabled: boolean, refreshKey 
   return useMemo(() => withoutQuestThreads(threads), [threads]);
 }
 
+/**
+ * The threads of several leaders (the sessions panel's Threads view), each loaded once, again when
+ * `refreshKey` changes and every minute while `enabled`; a leader's change notice reloads it too
+ * (`reloadLeaderThreads`). Threads that became another conversation are left out.
+ */
+export function useLeadersThreads(
+  leaderIds: readonly string[],
+  enabled: boolean,
+  refreshKey = "",
+): Readonly<Record<string, ThreadSummary[]>> {
+  const idsKey = enabled ? leaderIds.join(",") : "";
+  useEffect(() => {
+    if (!idsKey) return;
+    let cancelled = false;
+    const load = () => {
+      for (const leaderId of idsKey.split(",")) {
+        topicApi
+          .threads(leaderId)
+          .then((response) => !cancelled && rememberThreads(leaderId, response.threads))
+          .catch((error: Error) => console.warn("[library] Could not load a leader's threads:", error.message));
+      }
+    };
+    load();
+    const timer = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [idsKey, refreshKey]);
+  const byLeader = useLeaderThreadsStore((state) => state.byLeader);
+  return useMemo(
+    () =>
+      Object.fromEntries(
+        (idsKey ? idsKey.split(",") : []).map((leaderId) => [leaderId, withoutQuestThreads(byLeader[leaderId] ?? [])]),
+      ),
+    [idsKey, byLeader],
+  );
+}
+
 /** The threads still conversations of their own: one that became another's is listed as that one. */
 export function withoutQuestThreads(threads: readonly ThreadSummary[]): ThreadSummary[] {
   return threads.filter((thread) => !threadDestination(thread));

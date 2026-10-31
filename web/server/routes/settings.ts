@@ -1306,7 +1306,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       return c.json({ error: "sleepInhibitorDurationMinutes must be an integer between 1 and 30" }, 400);
     }
     if (body.sidebarViewMode !== undefined && !isSidebarViewMode(body.sidebarViewMode)) {
-      return c.json({ error: 'sidebarViewMode must be "spaces" or "recent"' }, 400);
+      return c.json({ error: 'sidebarViewMode must be "spaces", "recent" or "threads"' }, 400);
     }
     if (body.questmasterCompactSort !== undefined) {
       if (

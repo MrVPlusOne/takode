@@ -59,7 +59,7 @@ describe("LeaderHomePage", () => {
     });
     render(<LeaderHomePage leaderId="l1" />);
     const sections = screen.getAllByTestId("thread-group-section");
-    expect(sections.map((section) => section.dataset.group)).toEqual(["needs-input", "new-results", "done"]);
+    expect(sections.map((section) => section.dataset.group)).toEqual(["needs-input", "new-results", "idle"]);
     expect(sections[1]!.textContent).toContain("Quick question");
     fireEvent.click(within(sections[0]!).getByTestId("thread-tab-list-row-select"));
     expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-4");

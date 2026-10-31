@@ -519,13 +519,13 @@ describe("settings-manager", () => {
     expect(getSettings().sidebarViewMode).toBe("recent");
   });
 
-  it("reads the retired Topics sidebar view as Recent and drops pinned topics", () => {
-    // Topics became tags, so the sidebar lost its Topics view and topic pins; an older settings
-    // file opens on Recent, which listed the same sessions by recency.
+  it("reads the retired Topics sidebar view as Threads and drops pinned topics", () => {
+    // Topics became tags, so the sidebar's Topics view became the Threads view and topic pins went;
+    // an older settings file opens on Threads, which took its place.
     writeFileSync(settingsPath, JSON.stringify({ sidebarViewMode: "topics", sidebarPinnedTopics: ["t-1"] }), "utf-8");
     _resetForTest(settingsPath);
 
-    expect(getSettings().sidebarViewMode).toBe("recent");
+    expect(getSettings().sidebarViewMode).toBe("threads");
     expect(getSettings()).not.toHaveProperty("sidebarPinnedTopics");
   });
 

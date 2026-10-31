@@ -1,6 +1,5 @@
 /**
- * A leader's threads, grouped by what the user looks for: Needs you, In progress, New results and
- * Done. Every thread is a member: a quest's, and the leader's other threads alike. The status row
+ * A leader's threads, grouped by what the user looks for: Needs you, Unread, In progress and Idle. Every thread is a member: a quest's, and the leader's other threads alike. The status row
  * under the top bar (`ThreadGroupBar`) is the leader's navigation; its Home lists the same groups
  * at full width (`ThreadGroupSections`). Topics are tags on a thread, not places.
  */
@@ -32,16 +31,20 @@ import { SideQuestIcon } from "./SideQuestCue.js";
 import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
-export type ThreadGroupId = "needs-input" | "in-progress" | "new-results" | "done";
+export type ThreadGroupId = "needs-input" | "new-results" | "idle" | "in-progress";
 
-/** Left to right as stages of the work: waiting on the user, ongoing, finished but unread, done. */
-export const THREAD_GROUP_ORDER: readonly ThreadGroupId[] = ["needs-input", "in-progress", "new-results", "done"];
+/**
+ * Left to right, Jiayi's order: what needs the user (questions, then unread results), then work
+ * going on now, then the large, quiet Idle group (nothing running, nothing unread; finished quests
+ * included).
+ */
+export const THREAD_GROUP_ORDER: readonly ThreadGroupId[] = ["needs-input", "new-results", "in-progress", "idle"];
 
 const GROUP_LABEL: Record<ThreadGroupId, string> = {
   "needs-input": "Needs you",
+  "new-results": "Unread",
+  idle: "Idle",
   "in-progress": "In progress",
-  "new-results": "New results",
-  done: "Done",
 };
 
 /** Wide screens (the desktop shell) label each group and anchor its list under its tab. */
@@ -50,21 +53,21 @@ const WIDE_LIST_WIDTH_PX = 448;
 
 /**
  * Splits threads by what the user looks for. A question outranks an unread result; without either,
- * a thread is in progress until it is done (a finished quest, a settled thread). Within a group, the
- * thread that entered it or was chatted in most recently comes first.
+ * a thread is In progress only while work goes on in it (`isRunning`), else Idle. Within a group,
+ * the thread that entered it or was chatted in most recently comes first.
  */
 export function groupThreads(threads: readonly PrimaryThreadChip[]): Record<ThreadGroupId, PrimaryThreadChip[]> {
   const groups: Record<ThreadGroupId, PrimaryThreadChip[]> = {
     "needs-input": [],
-    "in-progress": [],
     "new-results": [],
-    done: [],
+    idle: [],
+    "in-progress": [],
   };
   for (const thread of threads) {
     if (thread.needsInput) groups["needs-input"].push(thread);
     else if (thread.blueNudge) groups["new-results"].push(thread);
-    else if (thread.completed) groups.done.push(thread);
-    else groups["in-progress"].push(thread);
+    else if (isRunning(thread)) groups["in-progress"].push(thread);
+    else groups.idle.push(thread);
   }
   for (const group of Object.values(groups)) {
     group.sort((left, right) => lastActivityAt(right) - lastActivityAt(left));
@@ -72,11 +75,16 @@ export function groupThreads(threads: readonly PrimaryThreadChip[]): Record<Thre
   return groups;
 }
 
+/** Work goes on in a thread now: as its member says, else (no word) an unfinished quest. */
+export function isRunning(thread: PrimaryThreadChip): boolean {
+  return thread.running ?? !thread.completed;
+}
+
 /**
  * The thread on screen shows its result as read. The browser marks a result in the open thread read
  * as soon as it arrives, but the server confirms that a round trip later; filing the thread under
- * New results meanwhile flashed it through that group, for example on its way from In progress to
- * Done when its quest finishes while the user watches.
+ * Unread meanwhile flashed it through that group, for example on its way from In progress to Idle
+ * when its quest finishes while the user watches.
  */
 export function readOnScreen(tab: PrimaryThreadChip, currentKey: string): PrimaryThreadChip {
   return tab.blueNudge && normalizeThreadKey(tab.threadKey) === currentKey ? { ...tab, blueNudge: false } : tab;
@@ -84,12 +92,13 @@ export function readOnScreen(tab: PrimaryThreadChip, currentKey: string): Primar
 
 /**
  * A thread that is not a quest's (the user started it, or the leader opened it), as a group member:
- * an open question puts it under Needs you, an unread answer under New results; once read and
- * settled it is done.
+ * an open question puts it under Needs you, an unread answer under Unread; it is In progress
+ * only while the leader is writing in it (`writing`), else Idle.
  */
 export function plainThreadChip(
   thread: ThreadSummary,
   notifications: readonly SessionNotification[] | undefined,
+  writing = false,
 ): PrimaryThreadChip {
   const key = normalizeThreadKey(thread.key);
   const open = (notifications ?? []).filter(
@@ -104,8 +113,9 @@ export function plainThreadChip(
     mutedNeedsInput: false,
     blueNudge: unread,
     completed: !!thread.settledAt && !questions && !unread,
+    running: writing,
     stateLabel: thread.topic ? `Thread · ${thread.topic.name}` : "Thread",
-    groupChangedAt: thread.activityAt,
+    groupChangedAt: thread.interactionAt ?? thread.activityAt,
     canClose: false,
     updatedAt: thread.activityAt,
   };
@@ -305,25 +315,25 @@ const quietHome: PrimaryThreadChip = {
 };
 
 /**
- * The groups as sections of one list, for the leader's Home. Done shows its newest few, the rest
+ * The groups as sections of one list, for the leader's Home. Idle shows its newest few, the rest
  * behind "N older".
  */
 export function ThreadGroupSections({
   threads,
   context,
-  doneLimit = 8,
+  idleLimit = 8,
 }: {
   threads: readonly PrimaryThreadChip[];
   context: RowContext;
-  doneLimit?: number;
+  idleLimit?: number;
 }) {
   const groups = groupThreads(threads);
-  const [allDone, setAllDone] = useState(false);
+  const [allIdle, setAllIdle] = useState(false);
   return (
     <>
       {THREAD_GROUP_ORDER.map((id) => {
         if (groups[id].length === 0) return null;
-        const shown = id === "done" && !allDone ? groups.done.slice(0, doneLimit) : groups[id];
+        const shown = id === "idle" && !allIdle ? groups.idle.slice(0, idleLimit) : groups[id];
         return (
           <section
             key={id}
@@ -338,7 +348,7 @@ export function ThreadGroupSections({
             {shown.length < groups[id].length && (
               <button
                 type="button"
-                onClick={() => setAllDone(true)}
+                onClick={() => setAllIdle(true)}
                 className="w-full px-4 py-2 text-left text-[12.5px] text-cc-muted hover:bg-cc-hover/40"
                 data-testid="thread-group-more"
               >
@@ -593,18 +603,19 @@ function GroupContent({ id, tabs }: { id: ThreadGroupId; tabs: readonly PrimaryT
       </>
     );
   }
-  if (id === "done") {
+  if (id === "idle") {
     return (
       <>
+        {/* A pause: nothing runs here and nothing is unread. */}
         <svg
           viewBox="0 0 16 16"
           className="h-3 w-3 shrink-0"
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.5"
+          strokeWidth="1.6"
           aria-hidden="true"
         >
-          <path d="M3.5 8.5l3 3 6-7" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M6 4.5v7M10 4.5v7" strokeLinecap="round" />
         </svg>
         <span>
           <WideLabel id={id} />

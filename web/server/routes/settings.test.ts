@@ -144,9 +144,10 @@ describe("settings routes", () => {
     expect(bad.status).toBe(400);
     expect(getSettings().sidebarViewMode).toBe("recent");
 
-    // The Topics view is retired (topics became tags): a browser from before it asks in vain.
+    // The Threads view lists every leader's threads; the retired Topics view is refused.
+    expect((await (await put("threads")).json()).sidebarViewMode).toBe("threads");
     expect((await put("topics")).status).toBe(400);
-    expect(getSettings().sidebarViewMode).toBe("recent");
+    expect(getSettings().sidebarViewMode).toBe("threads");
   });
 
   it("accepts centralized session defaults settings updates", async () => {

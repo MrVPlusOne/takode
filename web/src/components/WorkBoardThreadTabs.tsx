@@ -9,6 +9,7 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { useStore } from "../store.js";
+import { resolveLeaderThreadTabsProjection } from "../utils/leader-thread-tabs-resolver.js";
 import type { QuestmasterTask } from "../types.js";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
@@ -99,8 +100,13 @@ export interface PrimaryThreadChip {
   ledElsewhere?: boolean;
   canClose: boolean;
   updatedAt: number;
-  /** True once the quest is finished; the phone tab groups file it under Done. */
+  /** True once the quest is finished. */
   completed?: boolean;
+  /**
+   * Work is going on in it now: the quest runs (the board's running rule) or the leader is writing
+   * there. Only such threads are In progress; others are Idle. Unset, an unfinished quest counts.
+   */
+  running?: boolean;
   /** Phase accent for dots and bars, where the title color is tuned for text. */
   accentColor?: string;
   /** The tab's phase or state ("Work", "Done", "Led by #12"), even while it needs input. */
@@ -234,17 +240,27 @@ export function ThreadTabRail({
     .join(",");
   const plainThreads = useLeaderThreads(sessionId, true, `${currentKey}|${threadAnswers}`);
   const boardQuests = useStore(useShallow((state) => leaderQuestIds(state, sessionId)));
+  // In progress follows the board's running rule (`runningQuestIds`, absent from older servers).
+  const runningKey = useStore(
+    (state) =>
+      resolveLeaderThreadTabsProjection(state, sessionId).value?.runningQuestIds?.map(normalizeThreadKey).join(",") ??
+      null,
+  );
+  const writingKey = runningRoute?.threadKey ? normalizeThreadKey(runningRoute.threadKey) : null;
   const questions = useOthersQuestions(sessionId, displayedTabs, boardQuests);
   const threads = useMemo(() => {
     const questionOf = new Map(questions.map((question) => [question.questId, question]));
-    const members: PrimaryThreadChip[] = displayedTabs.map((tab) => {
-      const question = questionOf.get(normalizeThreadKey(tab.questId ?? tab.threadKey));
+    const running = runningKey === null ? null : new Set(runningKey ? runningKey.split(",") : []);
+    const members: PrimaryThreadChip[] = displayedTabs.map((raw) => {
+      const key = normalizeThreadKey(raw.questId ?? raw.threadKey);
+      const tab = running ? { ...raw, running: running.has(key) || writingKey === key } : raw;
+      const question = questionOf.get(key);
       if (!question || tab.needsInput) return tab;
       questionOf.delete(question.questId);
       return { ...tab, needsInput: true, stateLabel: question.label, onOpen: question.open };
     });
     for (const thread of plainThreads) {
-      if (!thread.empty) members.push(plainThreadChip(thread, notifications));
+      if (!thread.empty) members.push(plainThreadChip(thread, notifications, writingKey === thread.key));
     }
     // A question or answer still in Main (from before Home) is read in the leader log.
     if (mainState && (mainState.needsInput || mainState.blueNudge)) {
@@ -265,7 +281,7 @@ export function ThreadTabRail({
       });
     }
     return members;
-  }, [displayedTabs, plainThreads, notifications, mainState, questions]);
+  }, [displayedTabs, plainThreads, notifications, mainState, questions, runningKey, writingKey]);
   // Home lists the same threads at full width.
   useEffect(() => {
     useLeaderThreadMembers.setState((state) => ({ byLeader: { ...state.byLeader, [sessionId]: threads } }));

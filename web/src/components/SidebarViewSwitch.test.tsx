@@ -22,14 +22,14 @@ function Row({ width, needed, onSwitch }: { width: number; needed: number; onSwi
         Object.defineProperty(element, "scrollWidth", { configurable: true, value: Math.max(width, needed) });
       }}
     >
-      <SidebarViewSwitch mode="recent" compact={compact} onSwitch={onSwitch} />
+      <SidebarViewSwitch mode="threads" compact={compact} onSwitch={onSwitch} />
       <button type="button">New</button>
     </div>
   );
 }
 
 describe("SidebarViewSwitch", () => {
-  it("shows both views side by side when they fit", () => {
+  it("shows the three views side by side when they fit", () => {
     render(<Row width={300} needed={260} onSwitch={() => {}} />);
     expect(screen.getByRole("group", { name: "Sidebar view" })).toBeTruthy();
     expect(screen.queryByTestId("sidebar-view-dropdown")).toBeNull();
@@ -39,9 +39,9 @@ describe("SidebarViewSwitch", () => {
     const onSwitch = vi.fn();
     render(<Row width={220} needed={260} onSwitch={onSwitch} />);
     const dropdown = screen.getByTestId("sidebar-view-dropdown");
-    expect(dropdown.textContent).toBe("Recent");
+    expect(dropdown.textContent).toBe("Threads");
     fireEvent.click(dropdown);
-    expect(screen.getByText("Recent ✓")).toBeTruthy();
+    expect(screen.getByText("Threads ✓")).toBeTruthy();
     fireEvent.click(screen.getByText("Spaces"));
     expect(onSwitch).toHaveBeenCalledWith("spaces");
   });

@@ -4,8 +4,8 @@
  * When the tab on screen moves to another status group, its selected tab glides from where
  * its old group sat into its new group's place, so the move reads as one motion rather than
  * one tab item losing the selection and another gaining it. That covers a quest finishing
- * while the user watches (In progress to Done) and opening a tab whose result the opening
- * reads (New results to Done). It plays once per real move: never on first render, never
+ * while the user watches (In progress to Idle) and opening a tab whose result the opening
+ * reads (Unread to Idle). It plays once per real move: never on first render, never
  * when the user opens a tab that stays in its group, never with reduced motion.
  */
 import { useLayoutEffect, useRef, type RefObject } from "react";

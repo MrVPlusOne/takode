@@ -365,7 +365,7 @@ describe("WorkBoardBar tab groups", () => {
     expect(within(q4).getByTestId("thread-tab-bell")).toHaveClass("text-cc-attention");
   });
 
-  it("moves the tab on screen from In progress straight to Done when its quest finishes", () => {
+  it("moves the tab on screen from In progress straight to Idle when its quest finishes", () => {
     // The server finishes a quest in two steps (completeBoardRow): it moves the board row to
     // the completed board, then posts a "ready for review" result for that quest. The user
     // is watching q-4, so the browser marks that result read as soon as it arrives, one
@@ -407,12 +407,12 @@ describe("WorkBoardBar tab groups", () => {
 
     expect(onScreenGroups).toEqual([
       { selected: "in-progress", groups: ["in-progress"] },
-      { selected: "done", groups: ["in-progress", "done"] },
-      { selected: "done", groups: ["in-progress", "done"] },
+      { selected: "idle", groups: ["in-progress", "idle"] },
+      { selected: "idle", groups: ["in-progress", "idle"] },
     ]);
   });
 
-  it("still files another tab's unread result under New results", () => {
+  it("still files another tab's unread result under Unread", () => {
     // Only the tab on screen counts as read: q-1 finished while the user watched q-4.
     resetStore({
       sessionCompletedBoards: new Map([
@@ -431,7 +431,7 @@ describe("WorkBoardBar tab groups", () => {
     expect(row(openGroup("new-results"), "q-1")).toHaveAttribute("data-blue-notification", "true");
   });
 
-  it("uses the done gray for finished quests listed under Done", () => {
+  it("uses the done gray for finished quests listed under Idle", () => {
     resetStore({
       sessionCompletedBoards: new Map([
         [
@@ -456,7 +456,7 @@ describe("WorkBoardBar tab groups", () => {
 
     render(<WorkBoardBar sessionId="s1" currentThreadKey="q-5" openThreadKeys={OPEN_KEYS} threadRows={THREAD_ROWS} />);
 
-    const meta = within(row(openGroup("done"), "q-4")).getByTestId("thread-tab-list-row-meta");
+    const meta = within(row(openGroup("idle"), "q-4")).getByTestId("thread-tab-list-row-meta");
     expect(meta).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(meta).not.toHaveStyle({ color: getPhaseColor("PORTING") });
   });
@@ -478,7 +478,7 @@ describe("WorkBoardBar tab groups", () => {
     const groups = screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group);
     expect(groups).not.toContain("needs-input");
     expect(groups).not.toContain("new-results");
-    const meta = within(row(openGroup("done"), "q-4")).getByTestId("thread-tab-list-row-meta");
+    const meta = within(row(openGroup("idle"), "q-4")).getByTestId("thread-tab-list-row-meta");
     expect(meta).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
   });
 

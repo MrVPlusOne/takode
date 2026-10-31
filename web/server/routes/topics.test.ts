@@ -432,7 +432,9 @@ describe("topic routes", () => {
     ).json();
     expect(thread).toMatchObject({ name: "Quick question", leaderId: "leader", startedFrom: "q-2" });
     expect((await (await app.request("/topics?leader=leader")).json()).topics).toEqual([]);
-    expect((await (await app.request("/topics/threads?leader=leader")).json()).threads).toHaveLength(1);
+    const [listed] = (await (await app.request("/topics/threads?leader=leader")).json()).threads;
+    // The Threads view orders idle threads by interaction: with no message yet, its creation.
+    expect(listed.interactionAt).toBe(listed.createdAt);
 
     // q-1 was started from a message in the thread: filing it pulls the thread into its topic.
     const quest = (await import("../quest-store.js")) as unknown as { getQuest: (id: string) => Promise<unknown> };

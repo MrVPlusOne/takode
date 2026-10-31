@@ -82,7 +82,10 @@ const NOTIFICATIONS = [
 ] as SessionNotification[];
 const WRITING_THREAD = "topic:0a1b2c3d";
 
-const MEMBERS: PrimaryThreadChip[] = [...QUESTS, ...THREADS.map((thread) => plainThreadChip(thread, NOTIFICATIONS))];
+const MEMBERS: PrimaryThreadChip[] = [
+  ...QUESTS,
+  ...THREADS.map((thread) => plainThreadChip(thread, NOTIFICATIONS, thread.key === WRITING_THREAD)),
+];
 
 function playgroundThread(
   handle: string,
@@ -180,7 +183,7 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="A leader's navigation, phones and desktop alike: the status row under the top bar lists Home, then the leader's threads (quest threads and its other threads alike) by what they need: Needs you, In progress, New results and Done. A group of one opens its thread; a larger group opens its list. The strip names the thread on screen with its topic tag, which opens the topic's page. Home shows the same groups at full width."
+        description="A leader's navigation, phones and desktop alike: the status row under the top bar lists Home, then the leader's threads (quest threads and its other threads alike) by what they need: Needs you, Unread, In progress and Idle (In progress only while work goes on: a running quest, or the thread the leader is answering in). A group of one opens its thread; a larger group opens its list. The strip names the thread on screen with its topic tag, which opens the topic's page. Home shows the same groups at full width."
       >
         <div className="space-y-4">
           <Card label="Phone">
@@ -194,7 +197,7 @@ export function PlaygroundThreadTabGroupsSection() {
               <ThreadGroupSections
                 threads={MEMBERS}
                 context={{ currentThreadKey: "main", activeOutputThreadKey: WRITING_THREAD, onSelect: () => {} }}
-                doneLimit={2}
+                idleLimit={2}
               />
             </div>
           </Card>

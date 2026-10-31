@@ -43,6 +43,7 @@ import { SidebarLockToggle } from "./SidebarFold.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { RecentNewSessionMenuButton, RecentSessionList, RecentSpacesStatus } from "./RecentSessionList.js";
+import { SidebarThreadsMode, ThreadsModeNewButton, useThreadsModeData } from "./sidebar-threads/SidebarThreadsMode.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import type { SdkSessionInfo } from "../types.js";
 import {
@@ -118,7 +119,9 @@ export function Sidebar({
   const viewRowRef = useRef<HTMLDivElement>(null);
   const viewSwitchCompact = useCompactWhenCrowded(viewRowRef);
   const setSidebarViewMode = useStore((s) => s.setSidebarViewMode);
-  const recentView = sidebarViewMode === "recent";
+  const threadsView = sidebarViewMode === "threads";
+  // The Threads view lists every leader's threads, and the other sessions as Recent does.
+  const recentView = sidebarViewMode === "recent" || threadsView;
   const treeGroups = useStore((s) => s.treeGroups);
   const treeAssignments = useStore((s) => s.treeAssignments);
   const collapsedTreeGroups = useStore((s) => s.collapsedTreeGroups);
@@ -492,7 +495,7 @@ export function Sidebar({
     window.setTimeout(() => void refreshSessionListNow(true), 1500);
   }
 
-  function switchSidebarView(mode: "spaces" | "recent") {
+  function switchSidebarView(mode: "spaces" | "recent" | "threads") {
     if (mode !== "spaces") {
       cancelBulkSelection();
       setBulkSourceMenuOpen(false);
@@ -541,6 +544,8 @@ export function Sidebar({
       sidebarViewMode,
     ],
   );
+
+  const threadsData = useThreadsModeData(recentNodes, threadsView);
 
   useEffect(() => {
     const sessionById = new Map(allSessionList.map((session) => [session.id, session] as const));
@@ -832,7 +837,12 @@ export function Sidebar({
         ref={sessionScrollerRef}
         data-testid="sidebar-session-scroller"
         className={`flex-1 px-2 pb-2 overflow-x-hidden ${
-          mobileReorderHandleActive ? "overflow-y-hidden overscroll-none" : "overflow-y-auto"
+          // The Threads view's groups scroll on their own, so the panel itself doesn't.
+          threadsView
+            ? "flex min-h-0 flex-col overflow-y-hidden"
+            : mobileReorderHandleActive
+              ? "overflow-y-hidden overscroll-none"
+              : "overflow-y-auto"
         }`}
         style={{
           touchAction: mobileReorderHandleActive ? "none" : "pan-y",
@@ -843,8 +853,15 @@ export function Sidebar({
           <div ref={viewRowRef} className="px-2 pt-2 pb-1.5 flex shrink-0 items-center gap-1">
             <SidebarViewSwitch mode={sidebarViewMode} compact={viewSwitchCompact} onSwitch={switchSidebarView} />
             {recentView && <RecentSpacesStatus spaces={treeViewGroups} />}
-            {recentView && (
+            {recentView && !threadsView && (
               <RecentNewSessionMenuButton spaces={treeViewGroups} onCreateSession={handleCreateSessionInTreeGroup} />
+            )}
+            {threadsView && (
+              <ThreadsModeNewButton
+                leaders={threadsData.leaders.map((leader) => leader.node)}
+                spaces={treeViewGroups}
+                onCreateSession={handleCreateSessionInTreeGroup}
+              />
             )}
             {!recentView && bulkSourceGroups.length > 0 && (
               <button
@@ -936,7 +953,31 @@ export function Sidebar({
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">No sessions yet.</p>
         ) : (
           <>
-            {recentView ? (
+            {threadsView ? (
+              <SidebarThreadsMode
+                data={threadsData}
+                currentSessionId={currentSessionId}
+                onOpened={() => {
+                  setContextMenu(null);
+                  if (!isDesktopLayout) useStore.getState().setSidebarOpen(false);
+                }}
+                otherSessions={(others) => (
+                  <>
+                    {pendingList}
+                    <RecentSessionList
+                      nodes={others}
+                      currentSessionId={currentSessionId}
+                      recentlyRenamed={recentlyRenamed}
+                      sessionAttention={sessionSetAttention}
+                      herdGroupBadgeThemes={herdGroupBadgeThemes}
+                      rowProps={{ ...sessionItemProps, reorderMode: false, isDraggable: false }}
+                    />
+                    {cronSection}
+                    {archivedSection}
+                  </>
+                )}
+              />
+            ) : recentView ? (
               <>
                 {pendingList}
                 <RecentSessionList

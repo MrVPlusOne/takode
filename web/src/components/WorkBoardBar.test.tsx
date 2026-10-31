@@ -342,8 +342,8 @@ describe("WorkBoardBar", () => {
     );
     expect(queryByText("q-4 ready for review")).toBeInTheDocument();
     expect(queryByText("Finished work")).not.toBeInTheDocument();
-    // Listed by status group (Needs you, In progress, New results), keeping the tab order inside a group.
-    expect(groupedThreadTabKeys()).toEqual(["q-1", "q-5", "q-2", "q-4"]);
+    // Listed by status group (Needs you, Unread, In progress), keeping the tab order inside a group.
+    expect(groupedThreadTabKeys()).toEqual(["q-1", "q-4", "q-5", "q-2"]);
   });
 
   it("selects attention tabs without replaying notification route targets", () => {

@@ -66,6 +66,12 @@ export interface ThreadSummary {
   createdAt: number;
   activityAt: number;
   /**
+   * When the user and it last dealt with each other: the user's message there, or the leader's
+   * answer or question to the user there (also in threads joined onto it); its creation before that.
+   * Sent with a leader's thread list.
+   */
+  interactionAt?: number;
+  /**
    * When it settled: you read its last answer. A settled thread leaves the Threads menu's Active
    * section; writing in it makes it active again.
    */
