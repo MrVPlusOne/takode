@@ -88,6 +88,7 @@ import {
 } from "../../shared/codex-leader-compaction-mode.js";
 
 import { closeSecondaryPage } from "../utils/secondary-view.js";
+import { setLocalStorageItem } from "../utils/scoped-storage.js";
 
 const SCROLL_STORAGE_KEY = "cc-settings-scroll";
 
@@ -190,7 +191,7 @@ export function SettingsPage({
   const toggleEditBlocksExpanded = () => {
     setEditBlocksExpanded((prev) => {
       const next = !prev;
-      localStorage.setItem(EDIT_BLOCKS_EXPANDED_KEY, String(next));
+      setLocalStorageItem(EDIT_BLOCKS_EXPANDED_KEY, String(next));
       return next;
     });
   };
@@ -449,7 +450,7 @@ export function SettingsPage({
     const onScroll = () => {
       clearTimeout(timeout);
       timeout = setTimeout(() => {
-        localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify(el.scrollTop));
+        setLocalStorageItem(SCROLL_STORAGE_KEY, JSON.stringify(el.scrollTop));
       }, 300);
     };
 
@@ -457,7 +458,7 @@ export function SettingsPage({
     return () => {
       el.removeEventListener("scroll", onScroll);
       clearTimeout(timeout);
-      localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify(el.scrollTop));
+      setLocalStorageItem(SCROLL_STORAGE_KEY, JSON.stringify(el.scrollTop));
     };
   }, [isActive]);
 

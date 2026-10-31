@@ -6,6 +6,7 @@ import { DiffViewer } from "./DiffViewer.js";
 import { QuestCommitDiffHeader } from "./QuestCommitDiffHeader.js";
 import "./QuestCommitDiffView.css";
 import { commitLookupKey, sortedCommitEntries, type QuestCommitEntry } from "./QuestCommitEvidence.js";
+import { setLocalStorageItem } from "../utils/scoped-storage.js";
 
 const EMPTY_CODE_COMMIT_SHAS: string[] = [];
 const BACKGROUND_COMMIT_METADATA_CONCURRENCY = 2;
@@ -359,7 +360,7 @@ export function QuestCommitDiffView({
   // Phones only (see QuestCommitDiffView.css): wide screens keep long lines on one row and hide the toggle.
   const [wrapLines, setWrapLines] = useState(() => localStorage.getItem(WRAP_LINES_KEY) !== "false");
   const toggleWrapLines = () => {
-    localStorage.setItem(WRAP_LINES_KEY, String(!wrapLines));
+    setLocalStorageItem(WRAP_LINES_KEY, String(!wrapLines));
     setWrapLines(!wrapLines);
   };
   const {

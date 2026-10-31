@@ -119,7 +119,7 @@ export function isDarkTheme(theme: ColorTheme): boolean {
 
 // ─── Pending Session (client-only, pre-creation) ────────────────────────────
 
-import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
+import { scopedGetItem, scopedSetItem, scopedRemoveItem, setLocalStorageItem } from "./utils/scoped-storage.js";
 import { forgetReceivedLists } from "./utils/synced-lists.js";
 import { DEFAULT_SEND_KEY_SCHEME } from "../shared/send-key-scheme.js";
 import {
@@ -354,51 +354,51 @@ export const useStore = create<AppState>((set, get) => ({
     }),
 
   setColorTheme: (theme) => {
-    localStorage.setItem("cc-color-theme", theme);
-    localStorage.setItem("cc-dark-mode", String(isDarkTheme(theme)));
+    setLocalStorageItem("cc-color-theme", theme);
+    setLocalStorageItem("cc-dark-mode", String(isDarkTheme(theme)));
     set({ colorTheme: theme, darkMode: isDarkTheme(theme) });
   },
   setDarkMode: (v) => {
     const theme = v ? "dark" : "light";
-    localStorage.setItem("cc-color-theme", theme);
-    localStorage.setItem("cc-dark-mode", String(v));
+    setLocalStorageItem("cc-color-theme", theme);
+    setLocalStorageItem("cc-dark-mode", String(v));
     set({ colorTheme: theme, darkMode: v });
   },
   toggleDarkMode: () =>
     set((s) => {
       const next = !s.darkMode;
       const theme: ColorTheme = next ? "dark" : "light";
-      localStorage.setItem("cc-color-theme", theme);
-      localStorage.setItem("cc-dark-mode", String(next));
+      setLocalStorageItem("cc-color-theme", theme);
+      setLocalStorageItem("cc-dark-mode", String(next));
       return { colorTheme: theme, darkMode: next };
     }),
   setZoomLevel: (v) => {
     const clamped = Math.round(Math.max(0.2, Math.min(4.0, v)) * 100) / 100;
-    localStorage.setItem("cc-zoom-level", String(clamped));
+    setLocalStorageItem("cc-zoom-level", String(clamped));
     set({ zoomLevel: clamped });
   },
   setNotificationSound: (v) => {
-    localStorage.setItem("cc-notification-sound", String(v));
+    setLocalStorageItem("cc-notification-sound", String(v));
     set({ notificationSound: v });
   },
   toggleNotificationSound: () =>
     set((s) => {
       const next = !s.notificationSound;
-      localStorage.setItem("cc-notification-sound", String(next));
+      setLocalStorageItem("cc-notification-sound", String(next));
       return { notificationSound: next };
     }),
   setNotificationSoundSet: (id) => {
-    localStorage.setItem("cc-notification-sound-set", id);
+    setLocalStorageItem("cc-notification-sound-set", id);
     set({ notificationSoundSet: id });
   },
   setNotificationDesktop: (v) => {
-    localStorage.setItem("cc-notification-desktop", String(v));
+    setLocalStorageItem("cc-notification-desktop", String(v));
     set({ notificationDesktop: v });
   },
   toggleNotificationDesktop: () =>
     set((s) => {
       const next = !s.notificationDesktop;
-      localStorage.setItem("cc-notification-desktop", String(next));
+      setLocalStorageItem("cc-notification-desktop", String(next));
       return { notificationDesktop: next };
     }),
   setShowUsageBars: (v) => {
@@ -412,13 +412,13 @@ export const useStore = create<AppState>((set, get) => ({
       return { showUsageBars: next };
     }),
   setCompactToolActivity: (v) => {
-    localStorage.setItem("cc-compact-tool-activity", String(v));
+    setLocalStorageItem("cc-compact-tool-activity", String(v));
     set({ compactToolActivity: v });
   },
   toggleCompactToolActivity: () =>
     set((state) => {
       const next = !state.compactToolActivity;
-      localStorage.setItem("cc-compact-tool-activity", String(next));
+      setLocalStorageItem("cc-compact-tool-activity", String(next));
       return { compactToolActivity: next };
     }),
   setChatMessageLineHeight: (lineHeight) => set({ chatMessageLineHeight: normalizeChatMessageLineHeight(lineHeight) }),
@@ -480,7 +480,7 @@ export const useStore = create<AppState>((set, get) => ({
     }),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
   setSidebarLocked: (v) => {
-    localStorage.setItem("cc-sidebar-locked", String(v));
+    setLocalStorageItem("cc-sidebar-locked", String(v));
     set({ sidebarLocked: v });
   },
   setSessionInfoOpenSessionId: (sessionId) =>
@@ -500,7 +500,7 @@ export const useStore = create<AppState>((set, get) => ({
   closeCodexSubagentInspector: () => set({ codexSubagentInspector: null }),
   setReorderMode: (v) => set({ reorderMode: v }),
   setSessionSortMode: (mode) => {
-    localStorage.setItem("cc-session-sort-mode", mode);
+    setLocalStorageItem("cc-session-sort-mode", mode);
     set({ sessionSortMode: mode });
   },
   setSidebarViewMode: (mode) => {

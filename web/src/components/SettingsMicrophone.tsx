@@ -39,13 +39,12 @@ export function SettingsMicrophone() {
           ]}
           value={headsetChoice}
           onChange={(choice) => {
-            try {
-              setHeadsetMicrophoneChoice(choice);
-              setHeadsetChoice(choice);
-              setError("");
-            } catch {
+            if (!setHeadsetMicrophoneChoice(choice)) {
               setError("Could not save the headset choice. Allow browser storage and try again.");
+              return;
             }
+            setHeadsetChoice(choice);
+            setError("");
           }}
         />
       </SettingsRow>
@@ -74,12 +73,9 @@ export function SettingsMicrophone() {
           type="button"
           disabled={!order.length}
           onClick={() => {
-            try {
-              resetMicrophoneOrder();
-              setError("");
-            } catch {
-              setError("Could not reset microphone order. Allow browser storage and try again.");
-            }
+            setError(
+              resetMicrophoneOrder() ? "" : "Could not reset microphone order. Allow browser storage and try again.",
+            );
           }}
           className="shrink-0 rounded-lg border border-cc-border px-3 py-2 text-xs text-cc-fg hover:bg-cc-hover disabled:opacity-50 cursor-pointer disabled:cursor-default"
         >

@@ -20,6 +20,7 @@ import {
   sinceFor,
   type ArtifactFilters,
 } from "./ArtifactFilters.js";
+import { setLocalStorageItem } from "../../utils/scoped-storage.js";
 
 /**
  * The Library: the gallery of everything agents made for the user, opened when wanted (from a
@@ -123,7 +124,7 @@ export function LibraryPage() {
 
   const setKind = (next: KindTab) => {
     setKindState(next);
-    localStorage.setItem(KIND_KEY, next);
+    setLocalStorageItem(KIND_KEY, next);
   };
 
   const spaces = useMemo(() => {

@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { setLocalStorageItem } from "../utils/scoped-storage.js";
 
 const collapseListeners = new Set<() => void>();
 
@@ -14,7 +15,7 @@ export function usePersistedCollapse(key: string, defaultCollapsed = false): [bo
     },
   );
   const toggle = useCallback(() => {
-    localStorage.setItem(key, value ? "0" : "1");
+    setLocalStorageItem(key, value ? "0" : "1");
     collapseListeners.forEach((listener) => listener());
   }, [key, value]);
   return [value, toggle];

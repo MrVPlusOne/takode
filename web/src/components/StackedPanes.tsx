@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { setLocalStorageItem } from "../utils/scoped-storage.js";
 
 /**
  * Groups stacked in one panel, as in VS Code's side bar: each group has a header that folds it,
@@ -47,7 +48,7 @@ function readState(stackId: string): StackState {
 function writeState(stackId: string, state: StackState): void {
   try {
     const all = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, StackState>;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...all, [stackId]: state }));
+    setLocalStorageItem(STORAGE_KEY, JSON.stringify({ ...all, [stackId]: state }));
   } catch (error) {
     console.warn("[stacked-panes] Could not save the layout:", error);
   }

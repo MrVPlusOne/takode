@@ -1,3 +1,5 @@
+import { setLocalStorageItem } from "./scoped-storage.js";
+
 /**
  * Remembers, on this device, the visuals that caused trouble here, so they show as a
  * still picture instead of running again.
@@ -32,12 +34,9 @@ function readJson<T>(key: string, valid: (value: unknown) => value is T): T[] {
   }
 }
 
+// Storage full or blocked: the guard degrades to this page load only.
 function writeJson(key: string, list: unknown[]): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(list.slice(-MAX_REMEMBERED)));
-  } catch {
-    // Storage full or blocked: the guard degrades to this page load only.
-  }
+  setLocalStorageItem(key, JSON.stringify(list.slice(-MAX_REMEMBERED)));
 }
 
 const isHash = (value: unknown): value is string => typeof value === "string";

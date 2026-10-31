@@ -6,6 +6,7 @@ import { DiffViewer } from "./DiffViewer.js";
 import { DiffStatsSummary, DiffTotalStats } from "./DiffStatsSummary.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { orderDiffFilesCodeFirst, summarizeDiffFileStats } from "../../shared/diff-file-groups.js";
+import { setLocalStorageItem } from "../utils/scoped-storage.js";
 
 const LINE_NUMBERS_KEY = "cc-diff-line-numbers";
 const DIFF_REQUEST_TIMEOUT_MS = 15000;
@@ -199,7 +200,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
   const toggleLineNumbers = useCallback(() => {
     setShowLineNumbers((prev) => {
       const next = !prev;
-      localStorage.setItem(LINE_NUMBERS_KEY, String(next));
+      setLocalStorageItem(LINE_NUMBERS_KEY, String(next));
       return next;
     });
   }, []);

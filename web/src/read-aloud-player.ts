@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { fetchReadAloudAudio, reportReadAloudTiming, type ReadAloudAudio } from "./api/read-aloud.js";
+import { setLocalStorageItem } from "./utils/scoped-storage.js";
 
 /** The voices offered in the player, in menu order. */
 export const READ_ALOUD_PLAYER_VOICES = ["marin", "cedar", "coral", "ash"] as const;
@@ -336,7 +337,7 @@ function loadPreferences(): ReadAloudPreferences {
 
 function savePreferences(next: ReadAloudPreferences): void {
   preferences = next;
-  localStorage.setItem(PREFERENCES_KEY, JSON.stringify(next));
+  setLocalStorageItem(PREFERENCES_KEY, JSON.stringify(next));
   notify();
 }
 

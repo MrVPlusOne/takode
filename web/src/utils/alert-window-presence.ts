@@ -1,3 +1,5 @@
+import { setLocalStorageItem } from "./scoped-storage.js";
+
 /**
  * Picks one Takode window of this browser to play alert sounds: the one the user
  * used most recently, so two open windows don't both ring. Windows share a small
@@ -91,9 +93,5 @@ function readRecords(): Record<string, AlertWindowRecord> {
 }
 
 function writeRecords(records: Record<string, AlertWindowRecord>): void {
-  try {
-    localStorage.setItem(ALERT_WINDOWS_STORAGE_KEY, JSON.stringify(records));
-  } catch (error) {
-    console.warn("[notification] could not record alert window presence", error);
-  }
+  setLocalStorageItem(ALERT_WINDOWS_STORAGE_KEY, JSON.stringify(records));
 }

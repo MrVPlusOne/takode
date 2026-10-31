@@ -102,3 +102,16 @@ it("chooses which mic records while a headset is connected, the phone mic by def
   fireEvent.click(phone);
   expect(getHeadsetMicrophoneChoice()).toBe("phone");
 });
+
+it("reports storage denial for the headset choice and keeps the saved one", () => {
+  // Saves go through the guarded setter, which never throws, so the choice reports its failed save itself.
+  render(<SettingsMicrophone />);
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new DOMException("Denied", "SecurityError");
+  });
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  fireEvent.click(screen.getByRole("radio", { name: "Headset mic" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("Could not save the headset choice");
+  expect(screen.getByRole("radio", { name: "Phone mic" })).toHaveAttribute("aria-checked", "true");
+  expect(getHeadsetMicrophoneChoice()).toBe("phone");
+});

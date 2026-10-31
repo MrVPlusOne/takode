@@ -157,4 +157,56 @@ describe("AppErrorBoundary", () => {
       expect(screen.getByText("A runtime error occurred")).toBeTruthy();
     });
   });
+
+  describe("resetting this browser's saved state", () => {
+    // A full localStorage quota once crashed the app on every load: the bad state lived in the
+    // browser, so Reload landed on the same crash. The crash page offers a reset that clears what
+    // the browser saved for Takode and reloads, so the user can recover without an agent.
+    const reload = vi.fn();
+    const originalLocation = window.location;
+
+    beforeEach(() => {
+      Object.defineProperty(window, "location", { configurable: true, value: { ...originalLocation, reload } });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+      localStorage.clear();
+      reload.mockReset();
+    });
+
+    it("clears localStorage and reloads", () => {
+      localStorage.setItem("server-1:cc-current-session", "s1");
+      localStorage.setItem("cc-zoom-level", "1.2");
+      render(
+        <AppErrorBoundary>
+          <Crasher />
+        </AppErrorBoundary>,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Reset this browser's saved state" }));
+
+      expect(localStorage.length).toBe(0);
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it("still reloads when the browser refuses to clear storage", () => {
+      // Storage can be blocked outright; the reset must not throw from the crash page itself.
+      vi.spyOn(Storage.prototype, "clear").mockImplementation(() => {
+        throw new DOMException("blocked", "SecurityError");
+      });
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      render(
+        <AppErrorBoundary>
+          <Crasher />
+        </AppErrorBoundary>,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Reset this browser's saved state" }));
+
+      expect(reload).toHaveBeenCalledTimes(1);
+    });
+  });
 });

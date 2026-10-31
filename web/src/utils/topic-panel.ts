@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { setLocalStorageItem } from "./scoped-storage.js";
 
 /**
  * A leader's topic panel. On desktop it is part of the layout beside the conversation, open by
@@ -37,7 +38,7 @@ export const useTopicPanel = create<TopicPanelState>(() => ({ panels: storedPane
 export function setTopicPanelOpen(leaderId: string, open: boolean): void {
   const panels = { ...useTopicPanel.getState().panels, [leaderId]: open };
   useTopicPanel.setState({ panels });
-  localStorage.setItem(PANELS_KEY, JSON.stringify(panels));
+  setLocalStorageItem(PANELS_KEY, JSON.stringify(panels));
 }
 
 /** Opens or closes the phone sheet. */

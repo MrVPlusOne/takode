@@ -1,3 +1,5 @@
+import { setLocalStorageItem } from "./scoped-storage.js";
+
 const STORAGE_EVENT_KEY_PREFIX = "takode:message-link-handoff";
 const CHANNEL_NAME_PREFIX = "takode-message-link-handoff";
 
@@ -81,7 +83,7 @@ export function createMessageLinkHandoff({
   const emit = (message: HandoffMessage) => {
     channel?.postMessage(message);
     try {
-      localStorage.setItem(storageEventKey, JSON.stringify(message));
+      setLocalStorageItem(storageEventKey, JSON.stringify(message));
       localStorage.removeItem(storageEventKey);
     } catch {
       // Ignore storage write failures so BroadcastChannel can still carry the handoff.

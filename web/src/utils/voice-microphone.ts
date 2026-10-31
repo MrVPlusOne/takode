@@ -1,3 +1,5 @@
+import { setLocalStorageItem } from "./scoped-storage.js";
+
 export interface VoiceMicrophone {
   deviceId: string;
   label: string;
@@ -37,9 +39,9 @@ export function rememberMicrophone(microphone: VoiceMicrophone): void {
   ]);
 }
 
-/** Restores system-follow and clears the old single-preference setting too. */
-export function resetMicrophoneOrder(): void {
-  saveMicrophoneOrder([]);
+/** Restores system-follow and clears the old single-preference setting too. Returns whether it was saved. */
+export function resetMicrophoneOrder(): boolean {
+  return saveMicrophoneOrder([]);
 }
 
 /** Watches saved order changes in this tab and other tabs at the same origin. */
@@ -68,9 +70,11 @@ export function getHeadsetMicrophoneChoice(): HeadsetMicrophoneChoice {
   return readStorage(HEADSET_CHOICE_KEY) === "headset" ? "headset" : "phone";
 }
 
-export function setHeadsetMicrophoneChoice(choice: HeadsetMicrophoneChoice): void {
-  localStorage.setItem(HEADSET_CHOICE_KEY, choice);
+/** Returns whether the choice was saved. */
+export function setHeadsetMicrophoneChoice(choice: HeadsetMicrophoneChoice): boolean {
+  if (!setLocalStorageItem(HEADSET_CHOICE_KEY, choice)) return false;
   window.dispatchEvent(new Event(ORDER_CHANGED));
+  return true;
 }
 
 /** The phone's or tablet's own microphone, as iOS names it ("iPhone Microphone"). */
@@ -134,10 +138,11 @@ function readStorage(key: string): string | null {
   }
 }
 
-function saveMicrophoneOrder(order: VoiceMicrophone[]): void {
-  localStorage.setItem(ORDER_KEY, JSON.stringify(order));
+function saveMicrophoneOrder(order: VoiceMicrophone[]): boolean {
+  if (!setLocalStorageItem(ORDER_KEY, JSON.stringify(order))) return false;
   localStorage.removeItem(LEGACY_PREFERENCE_KEY);
   window.dispatchEvent(new Event(ORDER_CHANGED));
+  return true;
 }
 
 /** Refreshes the available physical microphones without opening the mic or prompting for permission. */
@@ -150,11 +155,7 @@ export async function listVoiceMicrophones(): Promise<MediaDeviceInfo[]> {
   else knownInputs.delete(mediaDevices);
   const phone = inputs.find((device) => device.deviceId && isPhoneMicrophoneLabel(device.label));
   if (phone && readPhoneMicrophone()?.deviceId !== phone.deviceId) {
-    try {
-      localStorage.setItem(PHONE_MICROPHONE_KEY, JSON.stringify({ deviceId: phone.deviceId, label: phone.label }));
-    } catch (error) {
-      console.warn("Could not remember the phone microphone", error);
-    }
+    setLocalStorageItem(PHONE_MICROPHONE_KEY, JSON.stringify({ deviceId: phone.deviceId, label: phone.label }));
   }
   return inputs.filter(
     (device) => device.deviceId && device.label && !["default", "communications"].includes(device.deviceId),

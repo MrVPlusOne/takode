@@ -27,7 +27,23 @@ const UPDATE_CHECK_MS = 5_000;
 const UPDATE_RELOAD_KEY = "takode-crash-update-reload";
 
 /**
- * Catches a crash of the app and shows what happened, with Reload and Retry.
+ * Clears everything this browser saved for Takode in localStorage and reloads. That storage holds
+ * only browser-side preferences, layout and caches; sessions, drafts, quests and settings live on
+ * the server. It is the way out when a crash comes from that saved state, where Reload alone
+ * lands on the same crash (a full storage quota once broke every save).
+ */
+function resetSavedBrowserState(): void {
+  try {
+    localStorage.clear();
+  } catch (error) {
+    console.warn("[AppErrorBoundary] could not clear saved browser state:", error);
+  }
+  window.location.reload();
+}
+
+/**
+ * Catches a crash of the app and shows what happened, with Reload, Retry and a reset of what this
+ * browser saved.
  *
  * A page left open across a server update keeps running the previous frontend against the new
  * server until the user reloads, and data whose shape changed can crash it (the Oct 25 crash:
@@ -150,6 +166,20 @@ export class AppErrorBoundary extends Component<Props, State> {
                 className="inline-flex items-center rounded-md border border-cc-border px-3 py-1.5 text-sm text-cc-fg hover:bg-cc-hover cursor-pointer"
               >
                 Retry
+              </button>
+            </div>
+            <div className="mt-4 border-t border-cc-border pt-3">
+              <p className="text-xs text-cc-muted">
+                If Reload keeps landing here, reset what this browser saved for Takode: its preferences, layout and
+                caches, such as theme, zoom, panel sizes and recent folders. Sessions, drafts, quests and settings stay
+                on the server.
+              </p>
+              <button
+                type="button"
+                onClick={resetSavedBrowserState}
+                className="mt-2 inline-flex items-center rounded-md border border-cc-border px-3 py-1.5 text-sm text-cc-fg hover:bg-cc-hover cursor-pointer"
+              >
+                Reset this browser's saved state
               </button>
             </div>
             {(errorMessage || componentStack) && (

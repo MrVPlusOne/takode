@@ -6,6 +6,7 @@ import { platformIsMac } from "../shortcuts.js";
 import type { OpenInSideModifier } from "../../shared/shortcut-settings.js";
 import { openLibraryArtifact } from "./library-nav.js";
 import { isNewWindowClick, openArtifactWindow } from "./artifact-window.js";
+import { setLocalStorageItem } from "./scoped-storage.js";
 
 /**
  * What a leader's side column holds besides the topic page it follows: things the user put there
@@ -75,7 +76,7 @@ function update(leaderId: string, change: (column: LeaderColumn) => LeaderColumn
   const columns = { ...useSideColumnStore.getState().columns };
   columns[leaderId] = change(columns[leaderId] ?? EMPTY);
   useSideColumnStore.setState({ columns });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(columns));
+  setLocalStorageItem(STORAGE_KEY, JSON.stringify(columns));
 }
 
 function sameTarget(a: SideItemInput, b: SideItemInput): boolean {

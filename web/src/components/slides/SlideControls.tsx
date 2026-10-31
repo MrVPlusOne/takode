@@ -15,6 +15,7 @@ import {
 import { useStore } from "../../store.js";
 import { useComposerTarget } from "../composer-target.js";
 import type { RenderSlide } from "./SlideDeck.js";
+import { setLocalStorageItem } from "../../utils/scoped-storage.js";
 
 /** The conversation message a deck is, which its narration and its comments belong to. */
 export interface DeckMessage {
@@ -69,7 +70,7 @@ export function usePresenterNotes(): [boolean, () => void] {
   const [shown, setShown] = useState(() => localStorage.getItem(NOTES_KEY) === "1");
   const toggle = () => {
     setShown((current) => {
-      localStorage.setItem(NOTES_KEY, current ? "0" : "1");
+      setLocalStorageItem(NOTES_KEY, current ? "0" : "1");
       return !current;
     });
   };

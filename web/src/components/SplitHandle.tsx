@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useStore } from "../store.js";
 import { getEffectiveViewportWidth } from "../utils/layout.js";
+import { setLocalStorageItem } from "../utils/scoped-storage.js";
 
 /**
  * Draggable dividers for side-by-side split views. Every split view in Takode lets people drag
@@ -109,7 +110,7 @@ export function useSplitWidth(
       const widths = readStoredWidths();
       if (value === clamp(defaultWidth)) delete widths[id];
       else widths[id] = share ? Math.round((value / windowWidth) * 10_000) / 10_000 : value;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
+      setLocalStorageItem(STORAGE_KEY, JSON.stringify(widths));
       for (const follow of panes.get(id) ?? []) follow(widths[id]);
     },
     [id, clamp, defaultWidth, share, windowWidth],

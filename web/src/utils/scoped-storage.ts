@@ -79,16 +79,28 @@ export function scopedGetItem(key: string): string | null {
   return localStorage.getItem(scopedKey(key));
 }
 
-/**
- * Saves best-effort browser state. A full or unavailable localStorage is logged
- * rather than thrown: the value only fails to survive a reload, while a throw
- * from a state update takes down the whole app.
- */
+/** Saves a server-scoped value; like {@link setLocalStorageItem}, it never throws. */
 export function scopedSetItem(key: string, value: string): void {
+  setLocalStorageItem(scopedKey(key), value);
+}
+
+/**
+ * Saves best-effort browser state under the exact key given. A full or unavailable
+ * localStorage is logged rather than thrown: the value only fails to survive a
+ * reload, while a throw from a state update takes down the whole app, and Reload
+ * can't recover because the full storage is still there. Returns whether the value
+ * was saved, for the few explicit user actions that report a failed save.
+ *
+ * Every localStorage write in the app goes through this or `scopedSetItem`;
+ * `browser-storage-writes.test.ts` fails on a direct `localStorage.setItem`.
+ */
+export function setLocalStorageItem(key: string, value: string): boolean {
   try {
-    localStorage.setItem(scopedKey(key), value);
+    localStorage.setItem(key, value);
+    return true;
   } catch (error) {
     console.warn(`[scoped-storage] could not save ${key}:`, error);
+    return false;
   }
 }
 
@@ -105,7 +117,7 @@ export function bootstrapServerId(serverId: string): boolean {
   const existing = localStorage.getItem(SERVER_ID_KEY);
   if (existing === serverId) return false; // already bootstrapped
 
-  localStorage.setItem(SERVER_ID_KEY, serverId);
+  setLocalStorageItem(SERVER_ID_KEY, serverId);
 
   // First time seeing this server — migrate un-prefixed keys to prefixed copies
   if (!existing) {
@@ -121,7 +133,7 @@ function migrateKeys(serverId: string): void {
   for (const key of SCOPED_KEYS) {
     const value = localStorage.getItem(key);
     if (value !== null) {
-      localStorage.setItem(`${serverId}:${key}`, value);
+      setLocalStorageItem(`${serverId}:${key}`, value);
       // Don't delete un-prefixed keys — other server tabs may still need them
     }
   }
@@ -131,7 +143,7 @@ function migrateKeys(serverId: string): void {
     const key = `cc-model-${backend}`;
     const value = localStorage.getItem(key);
     if (value !== null) {
-      localStorage.setItem(`${serverId}:${key}`, value);
+      setLocalStorageItem(`${serverId}:${key}`, value);
     }
   }
 
@@ -141,7 +153,7 @@ function migrateKeys(serverId: string): void {
     if (key && key.startsWith("companion:last-seq:")) {
       const value = localStorage.getItem(key);
       if (value !== null) {
-        localStorage.setItem(`${serverId}:${key}`, value);
+        setLocalStorageItem(`${serverId}:${key}`, value);
       }
     }
   }
