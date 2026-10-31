@@ -79,8 +79,17 @@ export function scopedGetItem(key: string): string | null {
   return localStorage.getItem(scopedKey(key));
 }
 
+/**
+ * Saves best-effort browser state. A full or unavailable localStorage is logged
+ * rather than thrown: the value only fails to survive a reload, while a throw
+ * from a state update takes down the whole app.
+ */
 export function scopedSetItem(key: string, value: string): void {
-  localStorage.setItem(scopedKey(key), value);
+  try {
+    localStorage.setItem(scopedKey(key), value);
+  } catch (error) {
+    console.warn(`[scoped-storage] could not save ${key}:`, error);
+  }
 }
 
 export function scopedRemoveItem(key: string): void {

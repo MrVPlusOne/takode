@@ -85,6 +85,25 @@ describe("scopedSetItem", () => {
     scopedSetItem("cc-backend", "codex");
     expect(localStorage.getItem("abc123:cc-backend")).toBe("codex");
   });
+
+  it("logs instead of throwing when storage is full", () => {
+    // A full localStorage throws QuotaExceededError from setItem. Callers run
+    // inside state updates (e.g. saving the current session), where a throw
+    // crashed the whole app; the failed save must only be logged.
+    localStorage.setItem("cc-server-id", "abc123");
+    // jsdom's localStorage turns properties set on it into stored items, so spy on the prototype.
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("exceeded the quota", "QuotaExceededError");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(() => scopedSetItem("cc-current-session", "s1")).not.toThrow();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("cc-current-session"), expect.any(DOMException));
+    } finally {
+      setItem.mockRestore();
+      warn.mockRestore();
+    }
+  });
 });
 
 describe("scopedRemoveItem", () => {

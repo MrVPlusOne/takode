@@ -17,7 +17,7 @@ export function wasThumbnailLoaded(url: string): boolean {
 }
 
 export function rememberThumbnailLoaded(url: string): void {
-  if (url.startsWith("blob:")) return;
+  if (!isRememberable(url)) return;
   const urls = remembered();
   // Re-insert so the set stays ordered from least to most recently loaded.
   urls.delete(url);
@@ -37,15 +37,32 @@ export function resetThumbnailLoadMemoryForTest(): void {
   if (typeof localStorage !== "undefined") scopedRemoveItem(STORAGE_KEY);
 }
 
+/**
+ * Blob and data URLs are local: they show at once without loading, so there is
+ * nothing to remember. A data URL also holds the whole image, and a few pasted
+ * screenshots would fill the browser's storage quota.
+ */
+function isRememberable(url: string): boolean {
+  return !url.startsWith("blob:") && !url.startsWith("data:");
+}
+
 function remembered(): Set<string> {
   if (loaded) return loaded;
   loaded = new Set();
+  let dropped = false;
   try {
     const stored: unknown = JSON.parse(scopedGetItem(STORAGE_KEY) ?? "[]");
-    if (Array.isArray(stored)) for (const url of stored) if (typeof url === "string") loaded.add(url);
+    if (!Array.isArray(stored)) return loaded;
+    for (const url of stored) {
+      if (typeof url !== "string") continue;
+      if (isRememberable(url)) loaded.add(url);
+      else dropped = true;
+    }
   } catch {
     // A corrupt entry only costs one reload of each thumbnail.
   }
+  // Earlier builds stored data URLs; rewrite without them to give the space back.
+  if (dropped) scheduleSave();
   return loaded;
 }
 
