@@ -1,4 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { useStore } from "../../store.js";
+import type { BoardRowData } from "../BoardTable.js";
 import { createPortal } from "react-dom";
 import type { ThreadSummary, TopicSummary } from "../../../shared/library-topics.js";
 import { isKeyOfTopic, isTopicViewKey } from "../../../shared/topic-thread-key.js";
@@ -148,7 +150,8 @@ export function LeaderBreadcrumbNav({
           testId="place-row-all"
         />
         <div className="border-t border-cc-border/60">
-          <TopicsGroupList
+          <PlacePickerTopics
+            leaderId={leaderId}
             topicsGroup={{
               topics: topics.list,
               currentTopicId: placeTopicId,
@@ -270,6 +273,40 @@ export function LeaderBreadcrumbNav({
       {helpers && createPortal(workingOnPicker, helpers)}
     </>
   );
+}
+
+/**
+ * The place picker's topics and quests under no topic. It also lists the leader's board quests
+ * that have no tab (tabs don't close any more, but older ones may have), so every quest stays
+ * reachable here. It reads the board only while the picker is open: a board update must not
+ * re-render the navigation.
+ */
+function PlacePickerTopics({ leaderId, ...props }: { leaderId: string } & ComponentProps<typeof TopicsGroupList>) {
+  const active = useStore((state) => state.sessionBoards.get(leaderId));
+  const completed = useStore((state) => state.sessionCompletedBoards.get(leaderId));
+  const moreQuests = useMemo(
+    () => [
+      ...(active ?? []).map((row) => boardQuestChip(row, false)),
+      ...(completed ?? []).map((row) => boardQuestChip(row, true)),
+    ],
+    [active, completed],
+  );
+  return <TopicsGroupList {...props} moreQuests={moreQuests} />;
+}
+
+function boardQuestChip(row: BoardRowData, completed: boolean): PrimaryThreadChip {
+  const questId = normalizeThreadKey(row.questId);
+  return {
+    threadKey: questId,
+    questId,
+    title: row.title ?? questId,
+    needsInput: false,
+    mutedNeedsInput: false,
+    blueNudge: false,
+    canClose: false,
+    updatedAt: row.completedAt ?? row.updatedAt,
+    ...(completed ? { completed: true, stateLabel: "Done" } : {}),
+  };
 }
 
 const quietMain: PrimaryThreadChip = {

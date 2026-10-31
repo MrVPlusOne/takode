@@ -752,11 +752,43 @@ function topicTabs(topic: TopicSummary, tabs: readonly PrimaryThreadChip[]): Pri
 }
 
 /** Quest tabs under no topic, which the Topics list shows below its topics. */
-function tabsInNoTopic(
+/** Finished quests under no topic that the place picker lists before a search; older ones are searched for. */
+export const RECENT_FINISHED_NOT_IN_TOPIC = 20;
+
+/**
+ * The leader's quests filed under no topic: its quest tabs, then `moreQuests` (its board's quests,
+ * active and finished) that have no tab, so a quest stays reachable after its tab is gone. A quest
+ * is in a topic when its topic is known or a topic lists it.
+ */
+export function questsInNoTopic(
   tabs: readonly PrimaryThreadChip[],
+  moreQuests: readonly PrimaryThreadChip[],
+  topics: readonly TopicSummary[],
   topicOfQuest: Readonly<Record<string, string>>,
 ): PrimaryThreadChip[] {
-  return tabs.filter((tab) => !tab.questId || !topicOfQuest[tab.questId]);
+  const filed = new Set(topics.flatMap((topic) => topic.questIds.map(normalizeThreadKey)));
+  const inNoTopic = (tab: PrimaryThreadChip) =>
+    !tab.questId || (!topicOfQuest[tab.questId] && !filed.has(normalizeThreadKey(tab.questId)));
+  const listed = new Set(tabs.map((tab) => normalizeThreadKey(tab.threadKey)));
+  return [...tabs, ...moreQuests.filter((quest) => !listed.has(normalizeThreadKey(quest.threadKey)))].filter(inNoTopic);
+}
+
+/**
+ * What the list shows of them without a search: every unfinished one and the most recently
+ * finished (`RECENT_FINISHED_NOT_IN_TOPIC`), newest change first, and how many older ones a
+ * search reaches.
+ */
+export function recentNotInTopic(quests: readonly PrimaryThreadChip[]): {
+  shown: PrimaryThreadChip[];
+  older: number;
+} {
+  const sorted = [...quests].sort((left, right) => lastActivityAt(right) - lastActivityAt(left));
+  const finished = sorted.filter((quest) => quest.completed);
+  const kept = new Set(finished.slice(0, RECENT_FINISHED_NOT_IN_TOPIC));
+  return {
+    shown: sorted.filter((quest) => !quest.completed || kept.has(quest)),
+    older: finished.length - kept.size,
+  };
 }
 
 /** What a topic's open quest tabs say about it, for its row in the topic-first bar's list. */
@@ -830,6 +862,7 @@ export function TopicsGroupList({
   topicFirst,
   currentTopicId,
   questTabs,
+  moreQuests = [],
   rowContext,
   onLeave,
 }: {
@@ -837,13 +870,15 @@ export function TopicsGroupList({
   topicFirst: boolean;
   currentTopicId: string | null;
   questTabs: readonly PrimaryThreadChip[];
+  /** The leader's other quests (its board's), listed under no topic too when they have no tab. */
+  moreQuests?: readonly PrimaryThreadChip[];
   rowContext: RowContext;
   onLeave: () => void;
 }) {
   const [query, setQuery] = useState("");
   const topics = searchTopics(topicsGroup.topics, query);
   const unsorted = topicFirst
-    ? tabsInNoTopic(questTabs, topicsGroup.topicOfQuest).filter((tab) =>
+    ? questsInNoTopic(questTabs, moreQuests, topicsGroup.topics, topicsGroup.topicOfQuest).filter((tab) =>
         matchesSearch(`${tab.title} ${tab.questId ?? ""}`, query),
       )
     : [];
@@ -904,7 +939,10 @@ function useHeightAboveKeyboard(ref: RefObject<HTMLElement | null>, active: bool
   return height;
 }
 
-/** Below the topics: quest tabs not filed under a topic yet, as ordinary tab rows. */
+/**
+ * Below the topics: quests not filed under a topic, as ordinary tab rows. Without a search it lists
+ * the unfinished ones and the recently finished; a search reaches every one.
+ */
 function UnsortedTabs({
   tabs,
   context,
@@ -915,13 +953,20 @@ function UnsortedTabs({
   query: string;
 }) {
   if (tabs.length === 0) return null;
-  const sorted = [...tabs].sort((left, right) => lastActivityAt(right) - lastActivityAt(left));
+  const { shown, older } = query.trim()
+    ? { shown: [...tabs].sort((left, right) => lastActivityAt(right) - lastActivityAt(left)), older: 0 }
+    : recentNotInTopic(tabs);
   return (
     <div className="border-t border-cc-border/60" data-testid="topic-tab-unsorted">
-      <ListHeading label="Not in a topic" count={sorted.length} />
-      {sorted.map((tab) => (
+      <ListHeading label="Not in a topic" count={tabs.length} />
+      {shown.map((tab) => (
         <ThreadTabListRow key={tab.threadKey} tab={tab} context={context} query={query} />
       ))}
+      {older > 0 && (
+        <p className="px-4 py-2 text-[12px] text-cc-muted" data-testid="topic-tab-unsorted-older">
+          {older} older finished {older === 1 ? "quest" : "quests"}: search to find {older === 1 ? "it" : "them"}
+        </p>
+      )}
     </div>
   );
 }

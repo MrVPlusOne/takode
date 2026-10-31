@@ -197,6 +197,49 @@ describe("the place picker", () => {
     expect(onSelect).toHaveBeenCalledWith("all");
   });
 
+  it("lists every quest under no topic, also the leader's board quests that have no tab", () => {
+    // Tabs no longer close with the breadcrumb, but quests whose tab was closed before (or never
+    // opened) must stay reachable here: the board's quests join the open tabs. Without a search it
+    // lists unfinished ones and the 20 most recently finished; a search reaches the older ones.
+    const row = (questId: string, updatedAt: number) => ({ questId, title: `Board ${questId}`, updatedAt });
+    const finished = Array.from({ length: 23 }, (_, index) => ({
+      ...row(`q-${100 + index}`, 1_000 + index),
+      completedAt: 1_000 + index,
+    }));
+    useStore.setState({
+      sessionBoards: new Map([["leader", [row("q-30", 5_000)]]]),
+      // q-12 is filed under Relay; q-11 already has a tab.
+      sessionCompletedBoards: new Map([["leader", [...finished, row("q-12", 4_000), row("q-11", 3_000)]]]),
+    });
+    const { onSelect } = renderNav();
+    openPlaces();
+
+    const unsorted = screen.getByTestId("topic-tab-unsorted");
+    const listed = () =>
+      within(screen.getByTestId("topic-tab-unsorted"))
+        .getAllByTestId("thread-tab-list-row")
+        .map((row) => row.dataset.threadKey);
+    // The heading counts all 25; the three oldest finished wait for a search.
+    expect(unsorted.textContent).toContain("Not in a topic25");
+    expect(listed()).toEqual([
+      "q-30",
+      ...finished
+        .slice(3)
+        .reverse()
+        .map((quest) => quest.questId),
+      "q-11",
+    ]);
+    expect(screen.getByTestId("topic-tab-unsorted-older").textContent).toBe(
+      "3 older finished quests: search to find them",
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search topics" }), { target: { value: "q-101" } });
+    expect(listed()).toEqual(["q-101"]);
+    expect(screen.queryByTestId("topic-tab-unsorted-older")).toBeNull();
+    fireEvent.click(within(screen.getByTestId("topic-tab-unsorted")).getByTestId("thread-tab-list-row-select"));
+    expect(onSelect).toHaveBeenCalledWith("q-101");
+  });
+
   it("passes the click on, so a Shift-click on a topic can open it in the side column", () => {
     const { onOpenTopic } = renderNav();
     openPlaces();
