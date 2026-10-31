@@ -37,6 +37,20 @@ vi.mock("./NewSideChat.js", () => ({
     </div>
   ),
 }));
+// What each conversation holds now, by thread: the column colors its rows' status from it.
+const placeWork = vi.hoisted(() => ({ byKey: {} as Record<string, { needYou?: number; running?: boolean }> }));
+vi.mock("../sidebar-topics/TopicPlaceCard.js", () => ({
+  usePlaceWork: () => ({
+    ofThread: (_leaderId: string, threadKey: string) => {
+      const work = placeWork.byKey[threadKey] ?? {};
+      return {
+        needYou: Array.from({ length: work.needYou ?? 0 }, (_, index) => ({ id: `${threadKey}-${index}` })),
+        fresh: [],
+        running: work.running ? [threadKey] : [],
+      };
+    },
+  }),
+}));
 // The leaders a side chat can be with: those with topics on (l3's are off).
 const noTopicList = () => Promise.reject(new Error("No topic list in this test"));
 const topicList = vi.hoisted(() => vi.fn());
@@ -383,6 +397,29 @@ describe("SideColumn", () => {
     expect(window.location.hash).toContain("thread=q-11");
     rememberThreads("l2", []);
     useStore.setState({ sdkSessions: [] } as never);
+  });
+
+  it("shows what each quest waits on or does: amber for a question, green only while it runs", () => {
+    // Jiayi (Oct 31): a quest at a User Checkpoint showed a green dot, as if its worker were still
+    // working. Its row shows the question instead; an unfinished quest that isn't running is grey.
+    placeWork.byKey = { "q-1": { needYou: 1 }, "q-2": { running: true } };
+    try {
+      render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+      act(() => {
+        openInSide("l1", { kind: "conversation", threadKey: "q-3" });
+        openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+        openInSide("l1", { kind: "conversation", threadKey: "q-1" });
+      });
+      const tones = rows()
+        .slice(0, 3)
+        .map((row) => within(row).getByTestId("side-item-dot").dataset.tone);
+      expect(tones).toEqual(["question", "running", "none"]);
+      expect(within(rows()[0]!).getByTestId("side-item-questions").textContent).toBe("question");
+      expect(within(rows()[1]!).queryByTestId("side-item-questions")).toBeNull();
+      expect(within(rows()[2]!).getByTestId("side-item-dot").className).not.toContain("success");
+    } finally {
+      placeWork.byKey = {};
+    }
   });
 
   it("lists past side chats under Recent and opens one in the column", () => {

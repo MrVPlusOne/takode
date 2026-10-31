@@ -53,6 +53,7 @@ import {
   useLeaderOverview,
 } from "../overview/LeaderOverview.js";
 import { OverviewIcon } from "../overview/OverviewIcon.js";
+import { usePlaceWork, type PlaceWork } from "../sidebar-topics/TopicPlaceCard.js";
 
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
 const KEPT_MOUNTED = 3;
@@ -78,6 +79,8 @@ export function SideColumn({
   const { items, open } = useSideColumn(leaderId);
   const [overviewFolded, toggleOverviewFold] = useRememberedFold(`side-overview:${leaderId}`);
   const overview = useLeaderOverview(leaderId);
+  // What each conversation in the column holds now: a question for the user, new answers, a run.
+  const placeWork = usePlaceWork();
   const entries: Array<SideItem | null> = [...items, null];
   const openId = open === HOME_ITEM || open === NO_ITEM || items.some((item) => item.id === open) ? open : HOME_ITEM;
   // Recently open items stay mounted while folded, like kept conversations.
@@ -144,7 +147,16 @@ export function SideColumn({
   const row = (entry: SideItem | null) => {
     const id = entry?.id ?? HOME_ITEM;
     return (
-      <SideItemRow key={`row:${id}`} leaderId={leaderId} item={entry} open={id === openId} onOpen={() => toggle(id)} />
+      <SideItemRow
+        key={`row:${id}`}
+        leaderId={leaderId}
+        item={entry}
+        work={
+          entry?.kind === "conversation" ? placeWork.ofThread(sideItemLeader(leaderId, entry), entry.threadKey) : null
+        }
+        open={id === openId}
+        onOpen={() => toggle(id)}
+      />
     );
   };
 
@@ -271,11 +283,14 @@ function SideOverview({
 function SideItemRow({
   leaderId,
   item,
+  work,
   open,
   onOpen,
 }: {
   leaderId: string;
   item: SideItem | null;
+  /** What the conversation holds now, for its status: questions, new answers, a running quest. */
+  work: PlaceWork | null;
   open: boolean;
   onOpen: () => void;
 }) {
@@ -289,6 +304,10 @@ function SideItemRow({
     if (item && becameQuest)
       replaceSideItem(leaderId, item.id, { kind: "conversation", threadKey: becameQuest, leaderId: owner });
   }, [becameQuest, item, leaderId, owner]);
+  const questions = work?.needYou.length ?? 0;
+  // The status the row's dot shows, by the colors used everywhere: a question for the user is
+  // amber, unread answers blue, and green only while the quest runs (the work board's rule).
+  const tone: SideTone = questions > 0 ? "question" : unread > 0 ? "unread" : work?.running.length ? "running" : null;
   return (
     <div
       className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-1.5 text-[13px] ${
@@ -303,10 +322,23 @@ function SideItemRow({
         className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
         aria-expanded={open}
       >
-        {owner === leaderId ? <SideItemIcon leaderId={leaderId} item={item} /> : <LeaderIcon leaderId={owner} />}
+        {owner === leaderId ? (
+          <SideItemIcon leaderId={leaderId} item={item} tone={tone} />
+        ) : (
+          <LeaderIcon leaderId={owner} />
+        )}
         <span className={`min-w-0 truncate ${open ? "text-cc-fg" : "text-cc-fg/80"}`}>
           <SideItemTitle leaderId={owner} item={item} />
         </span>
+        {questions > 0 && (
+          // A question waits on the user here: amber, like a question anywhere else.
+          <span
+            className="shrink-0 rounded-full bg-[var(--color-cc-phase-accent-amber)]/15 px-1.5 text-[11px] tabular-nums text-[var(--color-cc-phase-accent-amber)]"
+            data-testid="side-item-questions"
+          >
+            {questions === 1 ? "question" : `${questions} questions`}
+          </span>
+        )}
         {unread > 0 && (
           <span className="shrink-0 rounded-full bg-cc-info/15 px-1.5 text-[11px] tabular-nums text-cc-info">
             {unread} new
@@ -539,7 +571,16 @@ function SideSessionTitle({ sessionId }: { sessionId: string }) {
   );
 }
 
-function SideItemIcon({ leaderId, item }: { leaderId: string; item: SideItem | null }) {
+/** What a row's status dot shows: a question for the user, unread answers, a running quest, or none. */
+type SideTone = "question" | "unread" | "running" | null;
+
+const TONE_DOT: Record<Exclude<SideTone, null>, string> = {
+  question: "bg-[var(--color-cc-phase-accent-amber)]",
+  unread: "bg-blue-500",
+  running: "bg-cc-success",
+};
+
+function SideItemIcon({ leaderId, item, tone = null }: { leaderId: string; item: SideItem | null; tone?: SideTone }) {
   const key = item?.kind === "conversation" ? item.threadKey.toLowerCase() : "";
   const thread = useKnownThreadOfKey(leaderId, isTopicViewKey(key) ? key : "");
   const quest = useQuestRecord(/^q-\d+$/.test(key) ? key : null);
@@ -550,10 +591,13 @@ function SideItemIcon({ leaderId, item }: { leaderId: string; item: SideItem | n
   if (item.kind === "quest") return <SideQuestIcon questId={item.questId} />;
   if (item.kind === "new-chat" || thread) return <NewThreadIcon className={`${className} text-cc-primary`} />;
   if (isTopicViewKey(key)) return <TopicIcon className={`${className} text-cc-primary`} />;
-  // A quest: its status color, as in the quest lists.
+  // A quest: what it waits on or does now, else its status color as in the quest lists. An
+  // unfinished quest that is neither running nor waiting on the user is not green: green means running.
+  const status = quest?.status ?? "in_progress";
+  const dot = tone ? TONE_DOT[tone] : status === "in_progress" ? "bg-cc-muted/60" : getQuestStatusTheme(status).dot;
   return (
     <span className={`${className} inline-flex items-center justify-center`}>
-      <span className={`h-2 w-2 rounded-full ${getQuestStatusTheme(quest?.status ?? "in_progress").dot}`} />
+      <span className={`h-2 w-2 rounded-full ${dot}`} data-testid="side-item-dot" data-tone={tone ?? "none"} />
     </span>
   );
 }

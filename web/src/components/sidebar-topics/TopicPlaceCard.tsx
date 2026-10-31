@@ -34,6 +34,8 @@ export interface PlaceWork {
 export function usePlaceWork(): {
   ofPlace: (place: TopicPlace) => PlaceWork;
   ofLeader: (leaderId: string) => PlaceWork;
+  /** The work in one of a leader's threads: a quest, a side chat or a topic's own thread. */
+  ofThread: (leaderId: string, threadKey: string) => PlaceWork;
   open: (item: NextAttentionItem) => void;
 } {
   const { queue, open } = useNextAttention();
@@ -66,6 +68,10 @@ export function usePlaceWork(): {
         true,
       ),
     ofLeader: (leaderId) => work(leaderId, () => true, false),
+    ofThread: (leaderId, threadKey) => {
+      const key = normalizeThreadKey(threadKey);
+      return work(leaderId, (other) => other === key, true);
+    },
     open,
   };
 }
