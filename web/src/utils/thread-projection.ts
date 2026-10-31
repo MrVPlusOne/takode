@@ -17,6 +17,11 @@ import { leaderResponseOriginalThreadKey } from "../../shared/leader-thread-resp
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
+/**
+ * What Main's messages are called where they are listed: a leader with topics has a Home instead of
+ * a Main conversation, and reads Main's messages in its leader log.
+ */
+export const LEADER_LOG_LABEL = "Leader log";
 
 export function normalizeThreadKey(threadKey: string): string {
   const normalized = threadKey.trim().toLowerCase();

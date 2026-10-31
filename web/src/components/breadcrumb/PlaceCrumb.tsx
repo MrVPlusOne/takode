@@ -3,9 +3,9 @@ import { useOutsidePress } from "../../hooks/useOutsidePress.js";
 import { TopicIcon } from "../library/library-icons.js";
 
 /**
- * The breadcrumb's first part: where the conversation on screen lives (Main, All threads, or a
- * topic). Like a VS Code breadcrumb, clicking it lists the places to switch to: Main and All first,
- * then the leader's topics. The open-in-side click (Shift by default) on a topic opens its page in the side column.
+ * The breadcrumb's first part: where the conversation on screen lives (the leader's Home, a topic,
+ * or the leader log). Like a VS Code breadcrumb, clicking it lists the places to switch to: Home
+ * first, then the leader's topics, and the leader log last. The open-in-side click (Shift by default) on a topic opens its page in the side column.
  * As in VS Code there is no ▾ (Jiayi's call): the name is the picker, marked by its hover and pressed
  * background, and the room goes to the names.
  */
@@ -15,7 +15,7 @@ export function PlaceCrumb({
   list,
 }: {
   place: { kind: "main" | "all" } | { kind: "topic"; name: string };
-  /** Main's bell (a question or an unread answer in Main), shown beside "Main" when it is on screen. */
+  /** A bell shown beside the place's name. */
   attention?: ReactNode;
   /** The list of places; it calls `close` before navigating. */
   list: (close: () => void) => ReactNode;
@@ -24,7 +24,7 @@ export function PlaceCrumb({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   useOutsidePress([listRef, triggerRef], () => setOpen(false), open);
-  const label = place.kind === "topic" ? place.name : place.kind === "main" ? "Main" : "All threads";
+  const label = place.kind === "topic" ? place.name : place.kind === "main" ? "Home" : "Leader log";
   return (
     // On a phone the list spans the strip (the nearest positioned box), not just this part.
     <span
@@ -40,13 +40,15 @@ export function PlaceCrumb({
         className={`-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[13px] text-cc-fg hover:bg-cc-hover active:bg-cc-hover ${
           open ? "bg-cc-hover" : ""
         }`}
-        title="Switch to Main, All threads or another topic"
+        title="Switch to Home, a topic, or the leader log"
         data-testid="place-crumb-button"
       >
         {place.kind === "topic" ? (
           <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
+        ) : place.kind === "all" ? (
+          <AllThreadsIcon className="h-3.5 w-3.5 shrink-0 text-cc-muted" />
         ) : (
-          <MainIcon className="h-3.5 w-3.5 shrink-0 text-cc-muted" />
+          <HomeIcon className="h-3.5 w-3.5 shrink-0 text-cc-muted" />
         )}
         <span className="min-w-0 truncate">{label}</span>
         {attention}
@@ -66,7 +68,7 @@ export function PlaceCrumb({
   );
 }
 
-/** A row of the place list for Main or All threads. */
+/** A row of the place list for Home or the leader log. */
 export function PlaceRow({
   label,
   detail,
@@ -102,7 +104,7 @@ export function PlaceRow({
   );
 }
 
-export function MainIcon({ className = "" }: { className?: string }) {
+export function HomeIcon({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <path

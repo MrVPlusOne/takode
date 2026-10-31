@@ -489,4 +489,27 @@ describe("topic routes", () => {
     const own = await (await app.request("/topics?leader=leader")).json();
     expect(own.topics[0]).toMatchObject({ name: "T7 run", threads: [{ name: "Quick question" }] });
   });
+
+  // Jiayi: a leader's proposals and questions with no home went to Main, so they showed up in
+  // whatever topic was on screen. A leader opens a thread for them instead, filed under a topic.
+  it("lets a leader open a thread of its own, filed under a topic, and leaves none behind for an unknown topic", async () => {
+    const { app, store, send, setCaller } = await setup();
+    store.setLeaderEnabled("leader", true);
+    store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    setCaller("leader");
+    const { thread } = await (
+      await send("/topics/threads", "POST", { leader: "leader", name: "Faster eval sweeps", topic: "T7 run" })
+    ).json();
+    expect(thread).toMatchObject({ name: "Faster eval sweeps", startedBy: "leader", topic: { name: "T7 run" } });
+
+    const refused = await send("/topics/threads", "POST", { leader: "leader", name: "Stray", topic: "No such topic" });
+    expect(refused.status).toBe(404);
+    const threads = (await (await app.request("/topics/threads?leader=leader")).json()).threads;
+    expect(threads.map((entry: { name: string }) => entry.name)).toEqual(["Faster eval sweeps"]);
+
+    // The user starting one (the browser, not the leader) is not the leader's.
+    setCaller(null);
+    const mine = (await (await send("/topics/threads", "POST", { leader: "leader", name: "Mine" })).json()).thread;
+    expect(mine.startedBy).toBeUndefined();
+  });
 });

@@ -18,7 +18,7 @@ import {
   type UnreadResultCount,
 } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
-import { AllThreadsIcon, MainIcon, PlaceCrumb, PlaceRow } from "./PlaceCrumb.js";
+import { AllThreadsIcon, HomeIcon, PlaceCrumb, PlaceRow } from "./PlaceCrumb.js";
 import { LeaderOverview, useLeaderOverview } from "../overview/LeaderOverview.js";
 
 export interface LeaderBreadcrumbNavProps extends RowContext {
@@ -47,7 +47,7 @@ export interface LeaderBreadcrumbNavProps extends RowContext {
 
 /**
  * A topic-first leader's navigation, on desktop and phones alike: no tab row. Where the conversation
- * lives is the breadcrumb's first part (Main, All threads or a topic, drawn at the start of the strip
+ * lives is the breadcrumb's first part (Home, a topic or the leader log, drawn at the start of the strip
  * under the top bar), and the top bar's Overview menu lists what needs the user, what runs now and
  * the topics, with the full work board at its top. Draws nothing in place; both parts go to their
  * places by portal.
@@ -74,7 +74,7 @@ export function LeaderBreadcrumbNav({
     .filter((tab) => normalizeThreadKey(tab.threadKey) !== MAIN_THREAD_KEY && !isTopicViewKey(tab.threadKey));
   const mainTab = main ?? quietMain;
   // The leader writing somewhere not on screen: Working on spins for a quest it lists, the place
-  // picker's Main row for Main (the feed's "Active here" covers writing on screen).
+  // picker's Leader log row for Main (the feed's "Active here" covers writing on screen).
   const writingKey = rows.activeOutputThreadKey ? normalizeThreadKey(rows.activeOutputThreadKey) : null;
   const writingOnScreen =
     !!writingKey &&
@@ -127,26 +127,12 @@ export function LeaderBreadcrumbNav({
     return (
       <>
         <PlaceRow
-          label={
-            <>
-              Main
-              <AttentionBell tab={mainTab} />
-              {writingElsewhere === MAIN_THREAD_KEY && <ActiveOutputSpinner />}
-            </>
-          }
-          detail="Requests and work not in a topic"
+          label="Home"
+          detail="What needs you, what runs, your threads; start a new one"
           selected={place.kind === "main"}
           onClick={() => go(MAIN_THREAD_KEY)}
-          icon={<MainIcon className="h-4 w-4" />}
+          icon={<HomeIcon className="h-4 w-4" />}
           testId="place-row-main"
-        />
-        <PlaceRow
-          label="All threads"
-          detail="Every message, in order"
-          selected={place.kind === "all"}
-          onClick={() => go(ALL_THREADS_KEY)}
-          icon={<AllThreadsIcon className="h-4 w-4" />}
-          testId="place-row-all"
         />
         <div className="border-t border-cc-border/60">
           <PlacePickerTopics
@@ -177,6 +163,23 @@ export function LeaderBreadcrumbNav({
                 : {}),
             }}
             onLeave={close}
+          />
+        </div>
+        {/* Last: what happened, for checking. Main's own messages live only here now. */}
+        <div className="border-t border-cc-border/60">
+          <PlaceRow
+            label={
+              <>
+                Leader log
+                <AttentionBell tab={mainTab} />
+                {writingElsewhere === MAIN_THREAD_KEY && <ActiveOutputSpinner />}
+              </>
+            }
+            detail="Every message, with relays and notices; for checking what happened"
+            selected={place.kind === "all"}
+            onClick={() => go(ALL_THREADS_KEY)}
+            icon={<AllThreadsIcon className="h-4 w-4" />}
+            testId="place-row-all"
           />
         </div>
       </>

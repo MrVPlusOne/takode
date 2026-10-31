@@ -76,8 +76,8 @@ export function SideChatLeaderMenu({ columnId }: { columnId: string }) {
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label="Choose the leader for a new side chat"
-        title="Start a side chat with another leader"
+        aria-label="Choose the leader for a new thread"
+        title="Start a thread with another leader"
         className={`-ml-1 inline-flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-[10px] text-cc-primary hover:bg-cc-hover ${
           open ? "bg-cc-hover" : ""
         }`}
@@ -93,7 +93,7 @@ export function SideChatLeaderMenu({ columnId }: { columnId: string }) {
           data-testid="side-new-chat-leaders"
           onKeyDown={(event) => event.key === "Escape" && setOpen(false)}
         >
-          <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium text-cc-muted">New side chat with</div>
+          <div className="px-3 pb-1 pt-1.5 text-[11px] font-medium text-cc-muted">New thread with</div>
           {!leaders && <div className="px-3 py-1.5 text-[12px] text-cc-muted">Loading…</div>}
           {leaders?.map((leaderId) => (
             <button

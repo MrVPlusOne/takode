@@ -72,7 +72,11 @@ export function ThreadsList({
   const row = (thread: ThreadSummary, quiet: boolean) => {
     const unread = menu.unread(thread.key);
     const questions = questionsIn(thread.key);
-    const meta = [thread.topic ? `in ${thread.topic.name}` : null, timeAgo(thread.activityAt)]
+    const meta = [
+      thread.startedBy === "leader" ? "the leader's" : null,
+      thread.topic ? `in ${thread.topic.name}` : null,
+      timeAgo(thread.activityAt),
+    ]
       .filter(Boolean)
       .join(" · ");
     const notSent = isUnsent(thread);
@@ -169,7 +173,7 @@ export function ThreadsList({
         </div>
       )}
       {matching.length > recent.length && <ShowMoreRow left={matching.length - recent.length} onShow={showMore} />}
-      {menu.threads.length === 0 && <div className="px-4 py-3 text-[12px] text-cc-muted">No side chats yet</div>}
+      {menu.threads.length === 0 && <div className="px-4 py-3 text-[12px] text-cc-muted">No threads yet</div>}
     </div>
   );
 }

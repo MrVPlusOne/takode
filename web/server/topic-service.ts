@@ -255,7 +255,12 @@ export class TopicService {
     let recorded = false;
     for (let index = start; index < history.length; index += 1) {
       const message = history[index];
-      if (!message || !isRootAgentHistoryMessage(message) || !isActualHumanUserMessage(message)) continue;
+      if (!message || !isRootAgentHistoryMessage(message)) continue;
+      if (!isActualHumanUserMessage(message)) {
+        // The leader writing in a thread (one it opened itself, say) is that thread's activity.
+        if (message.type === "assistant") this.noteLeaderWroteInThread(message, sessionId);
+        continue;
+      }
       const threadKey = leaderMessageThreadKey(message as Parameters<typeof leaderMessageThreadKey>[0]);
       const handle = topicIdOfViewKey(threadKey);
       const topic = threadKey.startsWith("q-")
@@ -283,6 +288,14 @@ export class TopicService {
     this.store.setCursor(sessionId, history.length);
     void this.store.flush();
     if (recorded) this.schedule(sessionId, "user");
+  }
+
+  private noteLeaderWroteInThread(message: unknown, sessionId: string): void {
+    const handle = topicIdOfViewKey(leaderMessageThreadKey(message as Parameters<typeof leaderMessageThreadKey>[0]));
+    const thread = handle ? this.store.resolveHandle(handle) : undefined;
+    if (!thread?.thread || thread.thread.leaderId !== sessionId) return;
+    const at = (message as { timestamp?: unknown }).timestamp;
+    this.store.threadWritten(thread.id, typeof at === "number" ? at : this.now());
   }
 
   /** A quest of a leader with topics on changed: finishing one is an event; a new one may need a topic. */

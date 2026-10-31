@@ -103,7 +103,8 @@ function topicTag(threadKey: string | undefined): string {
     const unnamed = topic.thread.placeholderName
       ? `; unnamed: name it after its subject with \`takode topic rename topic:${topic.thread.handle} "<name>"\``
       : "";
-    return `[user thread: "${topic.name}"${unnamed}${from}${under}] `;
+    const opened = topic.thread.byLeader ? "; you opened it" : "";
+    return `[user thread: "${topic.name}"${opened}${unnamed}${from}${under}] `;
   }
   return `[topic: "${topic.name}"${quests ? `; quests: ${quests}` : ""}] `;
 }

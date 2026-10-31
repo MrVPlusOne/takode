@@ -34,7 +34,6 @@ import type { SessionNotification } from "../types.js";
 import { createPortal } from "react-dom";
 import { WorkBoardDotsIcon, WorkBoardIcon } from "./leader-workboard-controls.js";
 import type { BoardPhaseDot } from "./leader-board-summary.js";
-import { AllThreadsIcon, MainIcon, PlaceCrumb, PlaceRow } from "./breadcrumb/PlaceCrumb.js";
 import { isOpenInSideClick, type OpenInSideEvent } from "../utils/side-column.js";
 
 export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";

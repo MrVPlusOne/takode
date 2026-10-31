@@ -7,7 +7,6 @@ import { useStore } from "../../store.js";
 import type { RecentSessionNode } from "../../utils/recent-sessions.js";
 import { sessionInteractionAt } from "../../utils/recent-sessions.js";
 import { navigateToSessionThread, threadRouteFromHash } from "../../utils/routing.js";
-import { openInSide } from "../../utils/side-column.js";
 import { normalizeThreadKey } from "../../utils/thread-projection.js";
 import { withoutQuestThreads } from "../../utils/leader-topics.js";
 import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
@@ -79,7 +78,7 @@ export function topicPlaces(leaders: readonly LeaderPlaces[]): TopicPlace[] {
         kind: "thread",
         threadKey: thread.key,
         name: thread.name,
-        line: "Side chat",
+        line: "Thread",
         at: thread.activityAt,
       });
     }
@@ -418,14 +417,14 @@ function LeaderRow({
         current ? "bg-cc-active" : "hover:bg-cc-hover"
       }`}
       aria-current={current ? "page" : undefined}
-      title={`${leader.name ?? "Leader"}: Main`}
+      title={`${leader.name ?? "Leader"}: Home`}
       data-testid="topics-mode-leader"
     >
       {leader.leaderProfilePortrait && <LeaderProfilePortraitImage portrait={leader.leaderProfilePortrait} size="lg" />}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] text-cc-fg">{leader.name ?? "Leader"}</span>
         <span className="block truncate text-[11px] text-cc-muted">
-          Main · {node.spaceName}
+          Home · {node.spaceName}
           {leader.sessionNum != null ? ` · #${leader.sessionNum}` : ""}
         </span>
       </span>
@@ -453,7 +452,7 @@ export function TopicsModeNewButton({
         type="button"
         onClick={popover.toggle}
         className="shrink-0 h-6 px-2 inline-flex items-center justify-center gap-1 rounded-md bg-cc-primary hover:bg-cc-primary-hover text-white text-[10px] font-semibold leading-none whitespace-nowrap transition-colors cursor-pointer"
-        aria-label="New side chat or session"
+        aria-label="New thread or session"
         aria-expanded={popover.isOpen}
       >
         <span aria-hidden="true" className="text-xs leading-none">
@@ -464,7 +463,7 @@ export function TopicsModeNewButton({
       {popover.render(
         <div role="menu" className="min-w-[200px] py-1">
           {leaders.length > 0 && (
-            <div className="px-2.5 pt-0.5 pb-1 text-[10px] font-medium text-cc-muted">New side chat with</div>
+            <div className="px-2.5 pt-0.5 pb-1 text-[10px] font-medium text-cc-muted">New thread with</div>
           )}
           {leaders.map((node) => (
             <button
@@ -474,8 +473,8 @@ export function TopicsModeNewButton({
               className={item}
               onClick={() => {
                 popover.close();
+                // The leader's Home, whose message box starts a new thread.
                 navigateToSessionThread(node.leader.id, "main");
-                openInSide(node.leader.id, { kind: "new-chat", startedFrom: null });
               }}
             >
               {node.leader.leaderProfilePortrait && (

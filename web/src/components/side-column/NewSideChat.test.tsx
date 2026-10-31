@@ -62,7 +62,7 @@ describe("NewSideChat", () => {
     });
     const itemId = openInSide("l1", { kind: "new-chat", startedFrom: "q-7", leaderId: "l2" });
     render(<NewSideChat columnId="l1" leaderId="l2" itemId={itemId} startedFrom="q-7" />);
-    expect(screen.getByTestId("new-side-chat-with").textContent).toBe("A side chat with leader l2");
+    expect(screen.getByTestId("new-side-chat-with").textContent).toBe("A new thread with leader l2");
     expect(composer.props!.draftKey).toBe(newSideChatDraftKey("l2"));
     expect(composer.props!.threadKey).toBe("main");
 

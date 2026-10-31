@@ -367,7 +367,7 @@ describe("collectUnreadAttention", () => {
     });
     expect(candidates).toEqual([
       // No result text known: the row falls back to its generic label.
-      { sessionId: "leader", threadKey: "main", label: "Main", timestamp: 60 },
+      { sessionId: "leader", threadKey: "main", label: "Leader log", timestamp: 60 },
       {
         sessionId: "leader",
         threadKey: "q-1",
@@ -429,7 +429,7 @@ describe("collectUnreadAttention per message", () => {
     expect(candidates.map((candidate) => [candidate.notification?.id, candidate.threadKey, candidate.label])).toEqual([
       ["a1", "q-1", "Relay"],
       ["a2", "q-1", "Relay"],
-      ["a3", "main", "Main"],
+      ["a3", "main", "Leader log"],
     ]);
   });
 });

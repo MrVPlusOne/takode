@@ -23,7 +23,9 @@ vi.mock("../../utils/leader-topics.js", () => ({
     },
   }),
   useOverviewOrder: () => known.order,
-  useTopicKeyNamer: () => () => undefined,
+  // A thread the leader opened, named by its subject.
+  useTopicKeyNamer: () => (_sessionId: string, key: string) =>
+    key === "topic:88beef00" ? { name: "Faster eval sweeps" } : undefined,
   loadLeaderNamesOnce: () => {},
 }));
 import { useStore } from "../../store.js";
@@ -227,6 +229,24 @@ describe("LeaderOverview", () => {
     expect(
       within(document.querySelector<HTMLElement>('[data-context-menu="true"]')!).getByText("Open worker #7"),
     ).toBeTruthy();
+  });
+
+  it("names a question asked in a thread by that thread", () => {
+    // Jiayi: a leader's question asked in Main showed up in whatever topic was on screen. The leader
+    // now asks in a thread it opened, and the row says which.
+    const asked = question("n-thread", "leader", "q-1") as unknown as {
+      threadKey: string;
+      entry: { notification: { questId?: string; threadKey: string } };
+    };
+    asked.threadKey = "topic:88beef00";
+    asked.entry.notification.threadKey = "topic:88beef00";
+    delete asked.entry.notification.questId;
+    attention.queue = [asked];
+    const { result } = renderHook(() => useLeaderOverview("leader"));
+    render(<LeaderOverview data={result.current} onOpenQuest={() => {}} />);
+    const row = screen.getByTestId("overview-for-you-row");
+    expect(row.textContent).toContain("Faster eval sweeps");
+    expect(row.textContent).toContain("Question about q-1");
   });
 
   it("puts a thread's unread answers on one row", () => {

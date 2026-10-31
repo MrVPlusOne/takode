@@ -111,7 +111,7 @@ describe("selection Copy menu", () => {
   });
 });
 
-describe("Ask in side chat", () => {
+describe("Ask in new thread", () => {
   it("opens a new side chat about the thread on screen, with the passage in its message box", () => {
     // Only leaders with topics on have side chats.
     topicsOn.value = true;
@@ -138,7 +138,7 @@ describe("Ask in side chat", () => {
           }}
         />,
       );
-      fireEvent.click(screen.getByRole("button", { name: "Ask in side chat" }));
+      fireEvent.click(screen.getByRole("button", { name: "Ask in new thread" }));
 
       const [item] = useSideColumnStore.getState().columns.s1!.items;
       expect(item).toEqual(expect.objectContaining({ kind: "new-chat", startedFrom: "q-7" }));
@@ -184,7 +184,7 @@ describe("Ask in side chat from another leader's chat", () => {
           }}
         />,
       );
-      fireEvent.click(screen.getByRole("button", { name: "Ask in side chat" }));
+      fireEvent.click(screen.getByRole("button", { name: "Ask in new thread" }));
       expect(useSideColumnStore.getState().columns.s2).toBeUndefined();
       expect(useSideColumnStore.getState().columns.a1!.items).toEqual([
         expect.objectContaining({ kind: "new-chat", startedFrom: null, leaderId: "s2" }),

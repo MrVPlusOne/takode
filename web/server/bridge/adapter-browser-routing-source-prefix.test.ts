@@ -65,6 +65,21 @@ describe("user message source tag", () => {
     );
   });
 
+  it("tells the leader when the user answers in a thread the leader opened itself", () => {
+    // The leader opened it for a proposal or question, so it knows the subject; its name is the
+    // leader's own, never a placeholder to rename.
+    setTopicViewSource({
+      topicOf: (handle) =>
+        handle === "88beef00" ? { id: "88beef00-4444", name: "Faster eval sweeps", thread: { byLeader: true } } : null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "yes", "topic:88beef00", "u3")).toMatch(
+      /\[user thread: "Faster eval sweeps"; you opened it\] $/,
+    );
+  });
+
   it("adds nothing for messages written in a quest tab or Main", () => {
     expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "q-3", "u8")).toMatch(
       /\[User .* id:u8\] \[thread:q-3\] $/,

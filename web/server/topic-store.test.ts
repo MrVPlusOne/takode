@@ -320,6 +320,28 @@ describe("topic store", () => {
     expect(store.threadsOf("lead")[0]?.settledAt).toBeUndefined();
   });
 
+  it("counts the leader writing in a thread as its activity without making a read thread active", async () => {
+    // A thread the leader opened has no message from the user to start it: the leader's message is
+    // its first, so it is not "not sent", and later answers move it up the list.
+    const store = await newStore();
+    const opened = store.startThread({
+      space: "MSI",
+      name: "Faster eval sweeps",
+      leaderId: "lead",
+      startedBy: "leader",
+    });
+    expect(store.threadsOf("lead")[0]).toMatchObject({ startedBy: "leader", empty: true });
+    store.threadWritten(opened.id, NOW + 1000);
+    expect(store.threadsOf("lead")[0]).toMatchObject({ activityAt: NOW + 1000 });
+    expect(store.threadsOf("lead")[0]?.empty).toBeUndefined();
+    store.settleThread(opened.key);
+    store.threadWritten(opened.id, NOW + 2000);
+    expect(store.threadsOf("lead")[0]?.settledAt).toBeDefined();
+    // An older message (a replay) never moves it back.
+    store.threadWritten(opened.id, NOW + 500);
+    expect(store.threadsOf("lead")[0]?.activityAt).toBe(NOW + 2000);
+  });
+
   it("records the quest a side chat became, once, and leaves it out of filing and topic conversations", async () => {
     // A chat whose whole request was handed off to a quest is that quest's conversation now: the
     // browser shows it as the quest, the Scribe doesn't file it, and a topic doesn't list it.
@@ -1443,6 +1465,28 @@ describe("topic service", () => {
     service.sessionSaved("leader");
     const topic = store.findByName("MSI", "T7 run")!;
     expect(store.pendingEvents(topic.id, "leader").at(-1)?.text).toContain("Okay, let's launch it once merged.");
+  });
+
+  it("counts the leader's message in a thread it opened as the thread's activity", async () => {
+    // The leader writes first in a thread it opened, so the thread must not read "not sent".
+    const { service, store, leader } = await setupService();
+    await enable(service, store, "leader");
+    const opened = store.startThread({
+      space: "MSI",
+      name: "Faster eval sweeps",
+      leaderId: "leader",
+      startedBy: "leader",
+    });
+    leader.messageHistory.push({
+      type: "assistant",
+      message: { id: "a1", role: "assistant", content: [{ type: "text", text: "Proposal" }] },
+      parent_tool_use_id: null,
+      threadKey: opened.key,
+      timestamp: NOW + 3000,
+    } as unknown as BrowserIncomingMessage);
+    service.sessionSaved("leader");
+    expect(store.threadsOf("leader")[0]).toMatchObject({ key: opened.key, activityAt: NOW + 3000 });
+    expect(store.threadsOf("leader")[0]?.empty).toBeUndefined();
   });
 
   it("checks that quoted decisions appear in the messages they link to", async () => {

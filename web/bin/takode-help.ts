@@ -286,9 +286,12 @@ Show or manually control Codex Goal state for a Codex-backed session.
 Use --text-file - with a quoted heredoc to avoid a temporary file.
 `;
 
-const THREAD_HELP = `Usage: takode thread attach <quest-id|topic:<handle>> --message <index> [more-indices...] [--json]
+const THREAD_HELP = `Usage: takode thread new "<name>" [--topic "<topic>"] [--json]
+       takode thread attach <quest-id|topic:<handle>> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id|topic:<handle>> --range <start-end> [--json]
        takode thread attach <quest-id|topic:<handle>> --turn <turn> [--json]
+
+Open a thread of your own (leaders), for a proposal or question that has no thread yet.
 
 Associate existing history entries with a quest's or a topic's thread for context only.
 Original persisted messages are preserved; attach does not transfer unfinished responsibility.

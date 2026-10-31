@@ -124,7 +124,7 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
   const items = useMemo<ContextMenuItem[]>(
     () => [
       { label: "Comment", onClick: handleComment },
-      ...(canStartThread ? [{ label: "Ask in side chat", onClick: handleAskInSideChat }] : []),
+      ...(canStartThread ? [{ label: "Ask in new thread", onClick: handleAskInSideChat }] : []),
       {
         label: "Copy",
         onClick: () => {},

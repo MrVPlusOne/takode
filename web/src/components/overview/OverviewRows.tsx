@@ -11,7 +11,7 @@ import {
 } from "../../utils/attention-item-menu.js";
 import { countNewThings, type NextAttentionItem } from "../../utils/next-attention.js";
 import { useRememberedFold } from "../../utils/remembered-folds.js";
-import { MAIN_THREAD_KEY } from "../../utils/thread-projection.js";
+import { LEADER_LOG_LABEL, MAIN_THREAD_KEY } from "../../utils/thread-projection.js";
 import { firstUnreadItem, attentionItemLabel, ItemIcon } from "../AttentionItemRows.js";
 import { AttentionKindIcon, formatRelativeTime } from "../AttentionKind.js";
 import { ContextMenu, type ContextMenuItem } from "../ContextMenu.js";
@@ -33,13 +33,18 @@ export function ItemLine({
   titles: AttentionThreadTitles;
   thread: string;
 }) {
-  const quest = /^q-\d+$/.test(thread) ? (titles.titleFor(item.sessionId, thread) ?? thread) : null;
+  // Named by where it was asked: its quest, or its thread or topic.
+  const place = /^q-\d+$/.test(thread)
+    ? (titles.titleFor(item.sessionId, thread) ?? thread)
+    : isTopicViewKey(thread)
+      ? (titles.titleFor(item.sessionId, thread) ?? null)
+      : null;
   return (
     <Line
       icon={<ItemIcon item={item} />}
-      title={quest ?? attentionItemLabel(item)}
+      title={place ?? attentionItemLabel(item)}
       status={item.timestamp > 0 ? <span className="text-cc-muted">{formatRelativeTime(item.timestamp)}</span> : null}
-      detail={quest ? attentionItemLabel(item) : data.noteFor(item)}
+      detail={place ? attentionItemLabel(item) : data.noteFor(item)}
       onOpen={() => data.open(item)}
       menu={() => attentionItemMenuItems(item)}
       testId="overview-for-you-row"
@@ -62,7 +67,7 @@ export function UnreadLine({
   const first = firstUnreadItem(items);
   const name =
     thread === MAIN_THREAD_KEY
-      ? "Main"
+      ? LEADER_LOG_LABEL
       : thread
         ? (titles.titleFor(first.sessionId, thread) ?? thread)
         : attentionItemLabel(first);

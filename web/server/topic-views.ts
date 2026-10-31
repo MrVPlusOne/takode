@@ -14,7 +14,14 @@ export interface TopicViewSource {
   topicOf(handle: string): {
     id: string;
     name: string;
-    thread?: { startedFrom?: string; topicId?: string; placeholderName?: boolean; quest?: string };
+    thread?: {
+      startedFrom?: string;
+      topicId?: string;
+      placeholderName?: boolean;
+      quest?: string;
+      /** The leader opened it itself. */
+      byLeader?: boolean;
+    };
   } | null;
   /** The handles of threads filed under a topic: their threads show in its conversation. */
   threadsUnder?(topicId: string): readonly string[];
@@ -68,7 +75,7 @@ export function topicOfViewForLeader(
   name: string;
   questIds: string[];
   more: number;
-  thread?: { handle: string; startedFrom?: string; topicName?: string; placeholderName?: boolean };
+  thread?: { handle: string; startedFrom?: string; topicName?: string; placeholderName?: boolean; byLeader?: boolean };
 } | null {
   const handle = threadKey ? topicIdOfViewKey(threadKey) : null;
   const topic = handle && source ? source.topicOf(handle) : null;
@@ -86,6 +93,7 @@ export function topicOfViewForLeader(
             ...(topic.thread.startedFrom ? { startedFrom: topic.thread.startedFrom } : {}),
             ...(under ? { topicName: under.name } : {}),
             ...(topic.thread.placeholderName ? { placeholderName: true } : {}),
+            ...(topic.thread.byLeader ? { byLeader: true } : {}),
           },
         }
       : {}),

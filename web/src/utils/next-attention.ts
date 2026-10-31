@@ -7,7 +7,7 @@ import {
   type LeaderThreadTabsProjectionSource,
 } from "./leader-thread-tabs-resolver.js";
 import { resolveNotificationOwnerThreadKey } from "./notification-thread.js";
-import { MAIN_THREAD_KEY } from "./thread-projection.js";
+import { LEADER_LOG_LABEL, MAIN_THREAD_KEY } from "./thread-projection.js";
 
 /**
  * The attention queue: everything that needs the user, in the order the
@@ -232,7 +232,7 @@ export function collectThreadReminders(
         key: `reminder:${session.sessionId}:${threadKey}`,
         sessionId: session.sessionId,
         threadKey,
-        label: threadKey === MAIN_THREAD_KEY ? "Main" : (tab?.title ?? threadKey),
+        label: threadKey === MAIN_THREAD_KEY ? LEADER_LOG_LABEL : (tab?.title ?? threadKey),
         // No age: the row shows when the thread comes back instead.
         timestamp: 0,
         remindAt: reminder.remindAt,
@@ -371,7 +371,7 @@ export function collectUnreadAttention(
       if (notifications) {
         const titleOf = (threadKey: string) =>
           threadKey === MAIN_THREAD_KEY
-            ? "Main"
+            ? LEADER_LOG_LABEL
             : (threadTabs.find((tab) => tab.threadKey === threadKey)?.title ?? threadKey);
         for (const notification of notifications) {
           if (notification.category !== "review" || notification.done) continue;
@@ -395,7 +395,7 @@ export function collectUnreadAttention(
         candidates.push({
           sessionId: session.sessionId,
           threadKey: MAIN_THREAD_KEY,
-          label: "Main",
+          label: LEADER_LOG_LABEL,
           timestamp: mainAttention.updatedAt,
           ...resultSummary(mainAttention),
         });

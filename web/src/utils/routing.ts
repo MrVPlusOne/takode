@@ -5,7 +5,7 @@ import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey, threadViewShows } from "./thread-projection.js";
 import type { QuestLinkTarget } from "./quest-link-target.js";
 import { parseArtifactWindowHash } from "./artifact-window.js";
-import { threadQuestOf } from "./leader-topics.js";
+import { threadForMessagesOf, threadQuestOf } from "./leader-topics.js";
 
 export type Route =
   | { page: "home" }
@@ -577,7 +577,8 @@ export function navigateToSessionMessageId(
   } = {},
 ): void {
   const { replace = false, routeSessionId = sessionId, preserveMainThreadRoute = false, landing } = options;
-  const newHash = sessionMessageIdHash(routeSessionId, messageId, options.threadKey, preserveMainThreadRoute);
+  const threadKey = options.threadKey && threadForMessagesOf(sessionId, options.threadKey);
+  const newHash = sessionMessageIdHash(routeSessionId, messageId, threadKey, preserveMainThreadRoute);
   if (replace) {
     history.replaceState(null, "", newHash);
     window.dispatchEvent(new HashChangeEvent("hashchange"));

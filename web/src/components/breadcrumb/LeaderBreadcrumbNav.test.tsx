@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * A topic-first leader's navigation by breadcrumb (phones and desktop alike): the place picker at
- * the start of the strip (Main, All threads, then the topics and the quests under no topic), and
+ * the start of the strip (Home, then the topics and the quests under no topic, and the leader log), and
  * the Overview menu in the top bar (what needs the user, what runs, the topics), which also opens
  * the full board.
  */
@@ -142,15 +142,16 @@ const openPlaces = () => fireEvent.click(screen.getByTestId("place-crumb-button"
 const openWorkingOn = () => fireEvent.click(screen.getByTestId("thread-tab-group-working-on"));
 
 describe("the place picker", () => {
-  it("names where the conversation on screen lives: its quest's topic, Main or All", () => {
+  it("names where the conversation on screen lives: its quest's topic, Home or the leader log", () => {
     const { crumbSlot, rerender } = renderNav();
     // Drawn at the start of the strip, not in place: no tab row at all.
     expect(within(crumbSlot).getByTestId("place-crumb-button").textContent).toContain("Relay");
     expect(screen.queryByTestId("thread-tab-group-bar")).toBeNull();
     rerender({ currentThreadKey: "q-11" });
-    expect(screen.getByTestId("place-crumb-button").textContent).toContain("Main");
+    // Main is the leader's Home (it has no conversation of its own); All threads is its log.
+    expect(screen.getByTestId("place-crumb-button").textContent).toContain("Home");
     rerender({ currentThreadKey: "all" });
-    expect(screen.getByTestId("place-crumb-button").textContent).toContain("All threads");
+    expect(screen.getByTestId("place-crumb-button").textContent).toContain("Leader log");
     // A topic's own conversation, and a thread filed under a topic, are that topic.
     rerender({
       currentThreadKey: "q-13",
@@ -170,12 +171,16 @@ describe("the place picker", () => {
     expect(screen.getByTestId("place-crumb-button").textContent).toContain("Briefing");
   });
 
-  it("lists Main and All first, then every topic and the quests under no topic", () => {
+  it("lists Home first, then every topic and the quests under no topic, and the leader log last", () => {
     const { onSelect, onOpenTopic } = renderNav();
     openPlaces();
     const list = screen.getByTestId("place-crumb-list");
-    expect(within(list).getByTestId("place-row-main")).toBeTruthy();
-    expect(within(list).getByTestId("place-row-all")).toBeTruthy();
+    const rows = [...list.querySelectorAll("[data-testid]")].map((row) => row.getAttribute("data-testid"));
+    expect(rows[0]).toBe("place-row-main");
+    expect(within(list).getByTestId("place-row-main").textContent).toContain("Home");
+    // The log is for checking what happened, so it comes after every place to read.
+    expect(rows.indexOf("place-row-all")).toBeGreaterThan(rows.lastIndexOf("topic-tab-row"));
+    expect(within(list).getByTestId("place-row-all").textContent).toContain("Leader log");
     // Each topic says what its quests are doing; the topic on screen is marked.
     const [relay, briefing] = within(list).getAllByTestId("topic-tab-row");
     expect(relay!.className).toContain("bg-cc-active");
@@ -291,7 +296,7 @@ describe("the place picker", () => {
     expect(onOpenTopic).not.toHaveBeenCalled();
   });
 
-  it("puts Main's bell beside Main, and counts unread results on topic rows", () => {
+  it("puts Main's bell beside the leader log, where Main's messages are read, and counts unread results on topic rows", () => {
     renderNav({
       topics: {
         list: TOPICS,
@@ -302,7 +307,7 @@ describe("the place picker", () => {
       },
     });
     openPlaces();
-    expect(within(screen.getByTestId("place-row-main")).getByTestId("thread-tab-bell").dataset.kind).toBe("review");
+    expect(within(screen.getByTestId("place-row-all")).getByTestId("thread-tab-bell").dataset.kind).toBe("review");
     const briefing = screen.getAllByTestId("topic-tab-row").find((row) => row.dataset.topic === "t2")!;
     expect(within(briefing).getByTestId("topic-tab-unread").textContent).toBe("1 finished");
   });
@@ -376,10 +381,10 @@ describe("the Overview menu", () => {
       topics: { list: TOPICS, currentTopicId: "t1", topicOfQuest: TOPIC_OF_QUEST, onOpen: vi.fn() },
     });
     expect(spins()).toBe(false);
-    // Writing in Main spins Main's row in the place list instead.
+    // Writing in Main spins the leader log's row in the place list instead.
     rerender({ currentThreadKey: "q-10", activeOutputThreadKey: "main" });
     expect(spins()).toBe(false);
     openPlaces();
-    expect(within(screen.getByTestId("place-row-main")).getByTestId("thread-tab-active-output-spinner")).toBeTruthy();
+    expect(within(screen.getByTestId("place-row-all")).getByTestId("thread-tab-active-output-spinner")).toBeTruthy();
   });
 });

@@ -297,15 +297,24 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       if (!space) throw new TopicStoreError("The leader has no session space.");
       if (typeof body.name !== "string") throw new TopicStoreError("Name the thread.");
       const startedFrom = typeof body.startedFrom === "string" ? body.startedFrom.trim().toLowerCase() : "";
-      return {
-        thread: svc.store.startThread({
-          space,
-          name: body.name,
-          leaderId,
-          ...(startedFrom ? { startedFrom } : {}),
-          ...(typeof body.firstMessage === "string" ? { firstMessage: body.firstMessage } : {}),
-        }),
-      };
+      // The leader opening one itself, for a proposal or question that has no thread yet.
+      const byLeader = caller(c) === leaderId;
+      const thread = svc.store.startThread({
+        space,
+        name: body.name,
+        leaderId,
+        ...(byLeader ? { startedBy: "leader" as const } : {}),
+        ...(startedFrom ? { startedFrom } : {}),
+        ...(typeof body.firstMessage === "string" ? { firstMessage: body.firstMessage } : {}),
+      });
+      if (typeof body.topic !== "string" || !body.topic.trim()) return { thread };
+      try {
+        return { thread: svc.store.fileThread(thread.id, body.topic, false) };
+      } catch (error) {
+        // An unknown topic: leave no thread behind, and say so.
+        svc.store.removeThread(thread.id);
+        throw error;
+      }
     }),
   );
 

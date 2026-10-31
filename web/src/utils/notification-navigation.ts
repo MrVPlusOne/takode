@@ -4,6 +4,7 @@ import { attentionLedgerMessageIdForNotificationId } from "./attention-records.j
 import { resolveNotificationOwnerThreadKey } from "./notification-thread.js";
 import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "./routing.js";
 import { MAIN_THREAD_KEY } from "./thread-projection.js";
+import { threadForMessagesOf } from "./leader-topics.js";
 
 /**
  * Open a notification's session on its owner thread and scroll to the card's anchor message.
@@ -37,7 +38,8 @@ export function navigateToNotification(
     return;
   }
 
-  navigateToSessionThread(sessionId, threadKey, false, routeSessionId, {
+  // Main's messages are read in the leader log of a leader with topics (its Main is a Home).
+  navigateToSessionThread(sessionId, threadForMessagesOf(sessionId, threadKey), false, routeSessionId, {
     preserveMainThreadRoute: true,
   });
 }

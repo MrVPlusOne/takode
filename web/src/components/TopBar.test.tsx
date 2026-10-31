@@ -1522,9 +1522,9 @@ describe("TopBar phone layout and Next", () => {
     expect(screen.getByRole("dialog", { name: "Everything that needs attention" })).toBeInTheDocument();
   });
 
-  it("names Main as the thread for a leader's Main prompt, keeping the session number", () => {
-    // Leaders have thread tabs, so their Main prompts name Main; sessions
-    // without tabs keep the session name (covered above).
+  it("names the leader log as the place of a leader's Main prompt, keeping the session number", () => {
+    // Leaders have thread tabs, so their Main prompts name where Main's messages are read, the
+    // leader log; sessions without tabs keep the session name (covered above).
     resetStore({
       ...twoPromptsState(),
       sdkSessions: [
@@ -1537,7 +1537,7 @@ describe("TopBar phone layout and Next", () => {
     const places = within(screen.getByRole("dialog", { name: "Everything that needs attention" }))
       .getAllByTestId("attention-item-place")
       .map((place) => place.textContent);
-    expect(places[0]).toMatch(/^Main· #102 · /);
+    expect(places[0]).toMatch(/^Leader log· #102 · /);
     expect(places[1]).toMatch(/^#101 Worker One· /);
   });
 

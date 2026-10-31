@@ -243,7 +243,7 @@ describe("SideColumn", () => {
       render(<SideColumn leaderId="l1" threadKey="q-7" variant="docked" />);
       fireEvent.click(screen.getByTestId("side-new-chat"));
       expect(within(openBodies()[0]!).getByTestId("mock-new-chat").textContent).toBe("q-7");
-      expect(rows()[0]!.textContent).toContain("New side chat");
+      expect(rows()[0]!.textContent).toContain("New thread");
     } finally {
       shown();
     }
@@ -313,7 +313,7 @@ describe("SideColumn", () => {
       const chat = within(openBodies()[0]!).getByTestId("mock-new-chat");
       expect(chat.dataset.leader).toBe("l2");
       expect(chat.textContent).toBe("q-7");
-      expect(rows()[0]!.textContent).toContain("New side chat with Takode");
+      expect(rows()[0]!.textContent).toContain("New thread with Takode");
       // A new chat with this page's leader is a separate item, as before.
       fireEvent.click(screen.getByTestId("side-new-chat"));
       expect(within(openBodies()[0]!).getByTestId("mock-new-chat").dataset.leader).toBe("l1");

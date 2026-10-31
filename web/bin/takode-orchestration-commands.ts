@@ -35,7 +35,8 @@ import { handleThreadHandoff, THREAD_HANDOFF_HELP } from "./takode-thread-handof
 import { awaitDelivery, printDelivery, type MessageDelivery } from "./takode-send.js";
 import { resolveLeaderSpawnSessionSpace, validateLeaderSpawnFlags } from "./takode-spawn-leader.js";
 
-const THREAD_HELP = `Usage: takode thread attach <quest-id|topic:<handle>> --message <index> [more-indices...] [--json]
+const THREAD_HELP = `Usage: takode thread new "<name>" [--topic "<topic>"] [--json]
+       takode thread attach <quest-id|topic:<handle>> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id> --message 174 175 --json
        takode thread attach <quest-id> --range 174-182
        takode thread attach <quest-id> --turn 3
@@ -182,6 +183,10 @@ export async function handleThread(base: string, args: string[]): Promise<void> 
   const sub = args[0];
   if (sub === "handoff") {
     await handleThreadHandoff(base, args.slice(1));
+    return;
+  }
+  if (sub === "new") {
+    await handleThreadNew(base, args.slice(1));
     return;
   }
   if (sub !== "attach") err(THREAD_HELP.trim());
@@ -1934,4 +1939,30 @@ async function resolveHostId(base: string, name: string): Promise<string | undef
     err(`Unknown host: ${name}. Machines: ${names.join(", ") || "none"}.`);
   }
   return host.id;
+}
+
+/**
+ * A leader opens a thread of its own, for something it proposes or asks that belongs to no quest or
+ * thread yet, and writes there (`[thread:topic:<handle>:…]`). Filed under a topic when given.
+ */
+async function handleThreadNew(base: string, args: string[]): Promise<void> {
+  const flags = parseFlags(args);
+  assertKnownFlags(flags, new Set(["json", "topic"]), THREAD_HELP.trim());
+  const name = args.filter((arg, index) => !arg.startsWith("--") && args[index - 1] !== "--topic")[0]?.trim();
+  if (!name) err('Usage: takode thread new "<name>" [--topic "<topic>"] [--json]');
+  if (flags.topic === true) err("--topic requires a topic name.");
+  const result = (await apiPost(base, "/topics/threads", {
+    leader: getCallerSessionId(),
+    name,
+    ...(typeof flags.topic === "string" ? { topic: flags.topic } : {}),
+  })) as { thread: { key: string; name: string; topic?: { name: string } } };
+  if (flags.json === true) {
+    console.log(JSON.stringify(result.thread, null, 2));
+    return;
+  }
+  const { key, topic } = result.thread;
+  console.log(`Started the thread "${result.thread.name}" (${key})${topic ? ` under "${topic.name}"` : ""}.`);
+  console.log(
+    `Write in it with [thread:${key}:A] or [thread:${key}:C]; ask with takode notify needs-input --thread ${key}.`,
+  );
 }

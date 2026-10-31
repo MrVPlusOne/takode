@@ -617,7 +617,7 @@ function WorkBoardBarComponent({
           data-testid="workboard-main-banner"
           data-active-view={panelView ?? ""}
         >
-          {/* The breadcrumb's place picker (Main or All) replaces it there. */}
+          {/* The breadcrumb's place picker (Home or the leader log) replaces it there. */}
           {navInTopBar ? (
             <CrumbStart sessionId={sessionId} separator={false} />
           ) : (
@@ -632,8 +632,9 @@ function WorkBoardBarComponent({
             onSelectView={handleSelectView}
           />
           <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
-            {/* Main's Notify offers "Remind me later" only: Notify Me does not track Main. */}
-            <NotifyMeControl sessionId={sessionId} threadKey="main" />
+            {/* Main's Notify offers "Remind me later" only: Notify Me does not track Main. A
+                leader's Home (where Main was, with topics on) has nothing to be reminded of. */}
+            {!navInTopBar && <NotifyMeControl sessionId={sessionId} threadKey="main" />}
             {/* The leader's own changes; nothing shows while its checkout is clean. */}
             <SessionChangesChip
               sessionId={sessionId}

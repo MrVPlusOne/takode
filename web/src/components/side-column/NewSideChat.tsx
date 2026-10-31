@@ -64,10 +64,10 @@ export function NewSideChat({
         <div className="max-w-xs text-center">
           <NewThreadIcon className="mx-auto mb-3 h-7 w-7 text-cc-muted/70" />
           {own ? (
-            <p className="text-sm text-cc-fg">A side chat with the leader</p>
+            <p className="text-sm text-cc-fg">A new thread with the leader</p>
           ) : (
             <p className="flex items-center justify-center gap-1.5 text-sm text-cc-fg" data-testid="new-side-chat-with">
-              A side chat with <LeaderName sessionId={leaderId} />
+              A new thread with <LeaderName sessionId={leaderId} />
             </p>
           )}
           <p className="mt-1 text-[13px] leading-relaxed text-cc-muted">

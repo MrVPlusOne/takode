@@ -10,6 +10,7 @@ import type {
 } from "../../shared/library-topics.js";
 import { isKeyOfTopic, isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { topicApi } from "../api/topics.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 
 /**
  * The Library topics of a leader's quests, kept in the browser for the whole tab bar: the tab bar
@@ -239,6 +240,16 @@ export function useLeaderTopics(
   }, [leaderId, key]);
   const known = useLeaderTopicsStore((state) => state.byLeader[leaderId]);
   return known?.enabled ? known : null;
+}
+
+/**
+ * Where a leader's messages of `threadKey` are read. A leader with topics on has a Home instead of a
+ * Main conversation, so Main's messages are read in its leader log (All threads); every other thread
+ * is read where it is.
+ */
+export function threadForMessagesOf(leaderId: string, threadKey: string): string {
+  const topicsOn = !!useLeaderTopicsStore.getState().byLeader[leaderId]?.enabled;
+  return topicsOn && normalizeThreadKey(threadKey) === MAIN_THREAD_KEY ? ALL_THREADS_KEY : threadKey;
 }
 
 /** Whether a leader has Library topics on, as last known (false until its tab bar has asked). */

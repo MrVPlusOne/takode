@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { useLeaderBreadcrumb } from "../utils/top-bar-slots.js";
+import { LeaderHomePage, NewThreadComposer } from "./LeaderHomePage.js";
 import { CrumbStart, CrumbStrip, ThreadCrumb } from "./breadcrumb/CrumbStart.js";
 import { ItemCrumb } from "./breadcrumb/ItemCrumb.js";
 import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
@@ -567,6 +568,11 @@ export function ChatView({
   const desktopShell = useDesktopShellLayout();
   // Desktop leaders with topics on: a breadcrumb at the start of the strip, helpers in the top bar.
   const breadcrumb = useLeaderBreadcrumb(sessionId) && !preview;
+  // A topic leader's Main is its Home: no conversation of its own (Main's messages are in the
+  // leader log), but what needs the user and a place to start a thread.
+  const homePage = breadcrumb && isLeaderSession && normalizeThreadKey(selectedThreadKey) === MAIN_THREAD_KEY;
+  // Its leader log (All threads) is for checking what happened: writing there starts a thread too.
+  const leaderLog = breadcrumb && isLeaderSession && normalizeThreadKey(selectedThreadKey) === ALL_THREADS_KEY;
   // On a phone the open topic panel starts right under the tabs: the thread's strips step aside.
   const phoneTopicsOpen = useTopicSheetOpen(sessionId) && !desktopShell && !preview;
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
@@ -977,7 +983,7 @@ export function ChatView({
     breadcrumb && isQuestThreadKey(selectedTabKey)
       ? topicConversation
         ? { run: zoomOutToTopic, label: `Back to ${topicConversation.name}` }
-        : { run: () => handleSelectThread(MAIN_THREAD_KEY), label: "Back to Main" }
+        : { run: () => handleSelectThread(MAIN_THREAD_KEY), label: "Back to Home" }
       : undefined;
 
   useEffect(() => {
@@ -1314,40 +1320,44 @@ export function ChatView({
                   )}
                   {/* Where the phone topic panel starts: just under the thread strip. */}
                   <div ref={phoneTopicTopRef} aria-hidden="true" />
-                  <div className="contents">
-                    <TopicEntryContext.Provider value={feedTopicEntry}>
-                      <ViewportHandoffThreadEntryGate
-                        key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
-                        sessionId={preview ? null : sessionId}
-                        threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-                        entryId={viewportHandoffThreadEntryRef.current.entryId}
-                        fallback={
-                          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
-                            Loading conversation...
-                          </div>
-                        }
-                      >
-                        {/* Reload fork links when the user changes threads or a new quest thread appears. */}
-                        <StartedQuestsProvider
-                          sessionId={sessionId}
-                          enabled={isLeaderSession && !preview}
-                          refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
+                  {homePage ? (
+                    <LeaderHomePage leaderId={sessionId} />
+                  ) : (
+                    <div className="contents">
+                      <TopicEntryContext.Provider value={feedTopicEntry}>
+                        <ViewportHandoffThreadEntryGate
+                          key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
+                          sessionId={preview ? null : sessionId}
+                          threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+                          entryId={viewportHandoffThreadEntryRef.current.entryId}
+                          fallback={
+                            <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
+                              Loading conversation...
+                            </div>
+                          }
                         >
-                          <TopicFeedContext.Provider value={topicFeed}>
-                            <MessageFeed
-                              sessionId={sessionId}
-                              threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
-                              projectThreadRoutes={isLeaderSession}
-                              onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-                              showCodexSubagentControl={!preview}
-                              markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
-                              unreadAboveIndicator={unreadAboveIndicator}
-                            />
-                          </TopicFeedContext.Provider>
-                        </StartedQuestsProvider>
-                      </ViewportHandoffThreadEntryGate>
-                    </TopicEntryContext.Provider>
-                  </div>
+                          {/* Reload fork links when the user changes threads or a new quest thread appears. */}
+                          <StartedQuestsProvider
+                            sessionId={sessionId}
+                            enabled={isLeaderSession && !preview}
+                            refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
+                          >
+                            <TopicFeedContext.Provider value={topicFeed}>
+                              <MessageFeed
+                                sessionId={sessionId}
+                                threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
+                                projectThreadRoutes={isLeaderSession}
+                                onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                                showCodexSubagentControl={!preview}
+                                markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                                unreadAboveIndicator={unreadAboveIndicator}
+                              />
+                            </TopicFeedContext.Provider>
+                          </StartedQuestsProvider>
+                        </ViewportHandoffThreadEntryGate>
+                      </TopicEntryContext.Provider>
+                    </div>
+                  )}
                 </div>
                 {!preview && selectedSideChat && (
                   <SideChatPanel
@@ -1438,8 +1448,9 @@ export function ChatView({
           {/* Active todo status — shows current in-progress task */}
           {!preview && <TodoStatusLine sessionId={sessionId} />}
 
-          {/* Composer */}
-          {!preview && (
+          {/* Composer (a leader's home has its own, which starts a thread) */}
+          {!preview && leaderLog && <NewThreadComposer leaderId={sessionId} />}
+          {!preview && !homePage && !leaderLog && (
             <Composer
               sessionId={sessionId}
               threadKey={composerThreadKey}

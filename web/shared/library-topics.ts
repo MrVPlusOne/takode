@@ -57,6 +57,8 @@ export interface ThreadSummary {
   key: string;
   name: string;
   leaderId: string;
+  /** The leader opened it, for something it proposes or asks; the user started every other. */
+  startedBy?: "leader";
   /** The quest or thread it was started from (`q-12`, `topic:<handle>`); none from Main. */
   startedFrom?: string;
   /** The topic it is filed under, once it is. */

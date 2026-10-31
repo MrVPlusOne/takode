@@ -164,6 +164,14 @@ vi.mock("./MessageFeed.js", () => ({
     <div data-testid="message-feed" data-session-id={sessionId} data-thread-key={threadKey} />
   ),
 }));
+// A topic leader's Main is its Home, drawn instead of a feed; it stands in for the Main view here,
+// since these tests are about which place is selected, not what the place shows.
+vi.mock("./LeaderHomePage.js", () => ({
+  LeaderHomePage: ({ leaderId }: { leaderId: string }) => (
+    <div data-testid="message-feed" data-session-id={leaderId} data-thread-key="main" data-home="true" />
+  ),
+  NewThreadComposer: () => <div data-testid="new-thread-composer" />,
+}));
 vi.mock("./WorkBoardBar.js", () => ({
   WorkBoardBar: ({
     currentThreadKey,
@@ -262,7 +270,9 @@ function navigate(hash: string) {
 }
 
 beforeEach(() => {
-  // Topics are module state: a leader whose topics an earlier test loaded would keep them.
+  // Topics are module state: a leader whose topics an earlier test loaded would keep them, and so
+  // would the topic routes an earlier test mocked (a leader with topics shows Home for Main).
+  vi.restoreAllMocks();
   resetLeaderTopicsForTest();
   mockState = createMockState();
   installChatViewLeaderProjection(mockState, LEADER_SESSION_ID, [QUEST_ID]);
@@ -497,7 +507,7 @@ describe("ChatView keeps a topic's conversation as a place of its own", () => {
 });
 
 describe("ChatView breadcrumb band ×", () => {
-  it("leaves a quest for its topic's conversation, or Main when it has no topic", async () => {
+  it("leaves a quest for its topic's conversation, or Home when it has no topic", async () => {
     // Regression (Jiayi's report): with the breadcrumb, the band's × closed the quest tab and opened
     // whichever tab came next, often another quest. It now leaves the quest for where it lives.
     const questMap = vi.spyOn(topicApi, "questMap").mockResolvedValue({
@@ -523,7 +533,7 @@ describe("ChatView breadcrumb band ×", () => {
     history.replaceState(null, "", `#/session/${LEADER_SESSION_ID}?thread=${QUEST_ID}`);
     render(<RouteAwareChatView />);
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
-    fireEvent.click(await screen.findByRole("button", { name: "Back to Main" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Back to Home" }));
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
     expect(mockSendToSession).not.toHaveBeenCalledWith(
       LEADER_SESSION_ID,
@@ -531,5 +541,29 @@ describe("ChatView breadcrumb band ×", () => {
     );
     // Nor can its menus close it: the tab bar gets no close handler with the breadcrumb.
     expect(screen.getByTestId("work-board-bar")).toHaveAttribute("data-can-close", "false");
+  });
+});
+
+describe("ChatView Home and leader log", () => {
+  it("shows a topic leader's Home for Main, and its message boxes start threads there and in the log", async () => {
+    // Jiayi (threads checkpoint, option A): Home replaces Main's conversation, Main's own messages are
+    // read only in the leader log, and writing in either starts a new thread.
+    mockLibraryTopic();
+    navigate(`#/session/${LEADER_SESSION_ID}?thread=main`);
+    render(<RouteAwareChatView />);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-home", "true"));
+    // Home brings its own message box (tested with the page); Main's is gone.
+    expect(screen.queryByTestId("composer")).toBeNull();
+
+    navigate(`#/session/${LEADER_SESSION_ID}?thread=all`);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "all"));
+    expect(screen.getByTestId("message-feed")).not.toHaveAttribute("data-home");
+    expect(screen.getByTestId("new-thread-composer")).toBeTruthy();
+    expect(screen.queryByTestId("composer")).toBeNull();
+
+    // A quest keeps its own message box.
+    navigate(`#/session/${LEADER_SESSION_ID}?thread=${QUEST_ID}`);
+    await waitFor(() => expect(screen.getByTestId("composer")).toHaveAttribute("data-thread-key", QUEST_ID));
+    expect(screen.queryByTestId("new-thread-composer")).toBeNull();
   });
 });

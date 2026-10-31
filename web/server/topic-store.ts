@@ -85,6 +85,8 @@ interface StoredTopic {
 
 interface StoredThread {
   leaderId: string;
+  /** The leader opened it itself, for something it proposes or asks; else the user did. */
+  startedBy?: "leader";
   startedFrom?: string;
   /** The topic it is filed under. */
   topicId?: string;
@@ -638,11 +640,13 @@ export class TopicStore {
     leaderId: string;
     startedFrom?: string;
     firstMessage?: string;
+    startedBy?: "leader";
   }): ThreadSummary {
     const topic = this.createTopic(input.space, cleanName(input.name), "agent");
     const firstMessage = input.firstMessage?.trim().slice(0, 400);
     topic.thread = {
       leaderId: input.leaderId,
+      ...(input.startedBy ? { startedBy: input.startedBy } : {}),
       ...(input.startedFrom ? { startedFrom: input.startedFrom } : {}),
       ...(firstMessage ? { firstMessage } : {}),
     };
@@ -651,7 +655,19 @@ export class TopicStore {
     return this.threadSummary(topic);
   }
 
-  /** The threads the user started in this leader, newest activity first. */
+  /**
+   * The leader wrote in a thread: its newest activity (a thread the leader opened has no message
+   * from the user to start it). Unlike the user writing, this doesn't make a read thread active.
+   */
+  threadWritten(threadId: string, at: number): void {
+    const thread = this.thread(threadId)?.thread;
+    if (!thread || (thread.lastMessageAt ?? 0) >= at) return;
+    thread.lastMessageAt = at;
+    this.dirty = true;
+    this.onThreadChange?.(thread.leaderId);
+  }
+
+  /** The threads of this leader (the user's and its own), newest activity first. */
   threadsOf(leaderId: string): ThreadSummary[] {
     return Object.values(this.s().topics)
       .filter((topic) => topic.thread?.leaderId === leaderId && !topic.mergedInto)
@@ -784,6 +800,7 @@ export class TopicStore {
       key: `topic:${topicHandle(topic.id)}`,
       name: topic.name,
       leaderId: thread.leaderId,
+      ...(thread.startedBy ? { startedBy: thread.startedBy } : {}),
       ...(thread.startedFrom ? { startedFrom: thread.startedFrom } : {}),
       ...(under ? { topic: { id: under.id, name: under.name } } : {}),
       createdAt: topic.createdAt,

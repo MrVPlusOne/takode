@@ -28,7 +28,7 @@ import {
 import { topicApi } from "../../api/topics.js";
 import { navigateToSession, navigateToSessionThread, openQuestOverlayRouteAware } from "../../utils/routing.js";
 import { resolveNotificationOwnerThreadKey } from "../../utils/notification-thread.js";
-import { normalizeThreadKey } from "../../utils/thread-projection.js";
+import { MAIN_THREAD_KEY, normalizeThreadKey } from "../../utils/thread-projection.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { CollapseIcon, NewThreadIcon, TopicIcon } from "../library/library-icons.js";
@@ -157,11 +157,11 @@ export function SideColumn({
             type="button"
             onClick={() => openInSide(leaderId, { kind: "new-chat", startedFrom: sideChatOrigin(leaderId) })}
             className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[13px] text-cc-primary hover:bg-cc-hover"
-            title="Start a side chat with the leader about what's on screen"
+            title="Start a thread with the leader about what's on screen"
             data-testid="side-new-chat"
           >
             <NewThreadIcon className="h-4 w-4" />
-            New side chat
+            New thread
           </button>
           <SideChatLeaderMenu columnId={leaderId} />
           <span className="flex-1" />
@@ -177,15 +177,18 @@ export function SideColumn({
           </button>
         </div>
         {items.map((entry) => [row(entry), body(entry)])}
-        <SideOverview
-          leaderId={leaderId}
-          folded={overviewFolded}
-          onToggleFold={toggleOverviewFold}
-          // Beside an open item it takes up to about half the column; alone, all of it.
-          shared={openId !== NO_ITEM}
-          variant={variant}
-          onClose={close}
-        />
+        {/* On the leader's Home the overview already fills the main view. */}
+        {normalizeThreadKey(threadKey) !== MAIN_THREAD_KEY && (
+          <SideOverview
+            leaderId={leaderId}
+            folded={overviewFolded}
+            onToggleFold={toggleOverviewFold}
+            // Beside an open item it takes up to about half the column; alone, all of it.
+            shared={openId !== NO_ITEM}
+            variant={variant}
+            onClose={close}
+          />
+        )}
         {row(null)}
         {body(null)}
       </div>
@@ -399,7 +402,7 @@ function RecentChats({ leaderId }: { leaderId: string }) {
         onClick={() => setOpen((value) => !value)}
         className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[12.5px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
         aria-expanded={open}
-        title="Side chats you had with this leader"
+        title="Threads with this leader"
         data-testid="side-recent-chats"
       >
         Recent <span className="text-[10px]">▾</span>
@@ -502,7 +505,7 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
         <ThreadOriginName leaderId={leaderId} threadKey={item.threadKey} />
       );
     case "new-chat":
-      return item.leaderId ? <NewChatWithTitle leaderId={item.leaderId} /> : <>New side chat</>;
+      return item.leaderId ? <NewChatWithTitle leaderId={item.leaderId} /> : <>New thread</>;
     case "artifact":
       return <>{item.title ?? "Artifact"}</>;
     case "quest":
@@ -514,7 +517,7 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
 
 function NewChatWithTitle({ leaderId }: { leaderId: string }) {
   const leader = useLeaderCard(leaderId);
-  return <>New side chat with {leader?.name ?? "another leader"}</>;
+  return <>New thread with {leader?.name ?? "another leader"}</>;
 }
 
 function SideQuestTitle({ questId }: { questId: string }) {
