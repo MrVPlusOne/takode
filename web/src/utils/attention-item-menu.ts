@@ -12,8 +12,7 @@ import type { NextAttentionItem } from "./next-attention.js";
 import { resolveNotificationOwnerThreadKey } from "./notification-thread.js";
 import { normalizeThreadKey } from "./thread-projection.js";
 import { absoluteUrlForHash, navigateToSession, routeSessionRefForId, sessionThreadHash } from "./routing.js";
-import { canOpenInSide, openConversationInSide, openInSide, openQuestInSide } from "./side-column.js";
-import { topicViewKey } from "../../shared/topic-thread-key.js";
+import { canOpenInSide, openConversationInSide, openQuestInSide } from "./side-column.js";
 import { writeClipboardText } from "./copy-utils.js";
 
 function logFailure(action: string) {
@@ -236,25 +235,25 @@ export function threadReminderMenuItems(sessionId: string, threadKey: string): C
 }
 
 /**
- * Actions for a quest of a leader that runs now: open it in the side column (where there is one)
- * or its worker's session, bring it back later as a reminder, or copy a link to its thread.
- * Tapping the row already opens the quest's thread. `onLeave` runs after an opening, so a
- * dropdown holding the row can close.
+ * Actions for one of a leader's threads in its status row (a quest's or another thread): open it in
+ * the side column (where there is one) or, for a quest, its worker's session; bring it back later as
+ * a reminder; copy a link to it. Tapping the row already opens the thread. `onLeave` runs after an
+ * opening, so a list holding the row can close.
  */
-export function runningQuestMenuItems(input: {
+export function threadMenuItems(input: {
   leaderId: string;
-  questId: string;
+  threadKey: string;
   workerId?: string;
   workerNum?: number;
   onLeave?: () => void;
 }): ContextMenuItem[] {
-  const { leaderId, questId, workerId, workerNum, onLeave } = input;
+  const { leaderId, threadKey, workerId, workerNum, onLeave } = input;
   const items: ContextMenuItem[] = [];
   if (canOpenInSide()) {
     items.push({
       label: "Open in side column",
       onClick: () => {
-        if (!openConversationInSide(leaderId, questId)) openQuestInSide(questId);
+        if (!openConversationInSide(leaderId, threadKey) && /^q-\d+$/.test(threadKey)) openQuestInSide(threadKey);
         onLeave?.();
       },
     });
@@ -275,30 +274,11 @@ export function runningQuestMenuItems(input: {
       children: itemRemindPresets().map((preset) => ({
         label: preset.label,
         onClick: () =>
-          void remindThreadLater(leaderId, questId, preset.durationMs).catch(logFailure("Remind me later")),
+          void remindThreadLater(leaderId, threadKey, preset.durationMs).catch(logFailure("Remind me later")),
       })),
     },
-    copyThreadLinkItem(leaderId, questId),
+    copyThreadLinkItem(leaderId, threadKey),
   );
-  return items;
-}
-
-/**
- * Actions for a topic in a leader's overview: open its page in the side column (where there is
- * one) or copy a link to its conversation. Tapping the row already opens the conversation.
- */
-export function overviewTopicMenuItems(leaderId: string, topicId: string, onLeave?: () => void): ContextMenuItem[] {
-  const items: ContextMenuItem[] = [];
-  if (canOpenInSide()) {
-    items.push({
-      label: "Open in side column",
-      onClick: () => {
-        openInSide(leaderId, { kind: "topic", topicId });
-        onLeave?.();
-      },
-    });
-  }
-  items.push(copyThreadLinkItem(leaderId, topicViewKey(topicId)));
   return items;
 }
 

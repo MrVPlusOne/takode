@@ -1,13 +1,13 @@
 /**
- * Leader thread tabs: the tab data shared with WorkBoardBar and the rail that hands them to the
- * leader's breadcrumb navigation, with the tab menu (Notify Me) behind a long-press or right-click
- * on a listed tab.
+ * A leader's threads: the thread data shared with WorkBoardBar and the rail that turns it into the
+ * status row (every thread of the leader by what it needs), with the Board button in the top bar and
+ * the row menu (Notify Me) behind a long-press or right-click on a listed thread.
  */
-import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
-import { prepareZoom } from "./topic-zoom.js";
-import { useTopicTabTopics } from "./TopicTabList.js";
-import type { TopicSummary } from "../../shared/library-topics.js";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
@@ -17,11 +17,18 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
-import { countUnreadResults } from "./ThreadTabGroups.js";
-import { LeaderBreadcrumbNav, type LeaderBreadcrumbNavProps } from "./breadcrumb/LeaderBreadcrumbNav.js";
-import { useLeaderThreads, useLeaderTopics } from "../utils/leader-topics.js";
-import { isOpenInSideClick, openInSide, type OpenInSideEvent } from "../utils/side-column.js";
+import { plainThreadChip, ThreadGroupBar } from "./ThreadTabGroups.js";
+import { useLeaderThreads } from "../utils/leader-topics.js";
+import { openInSide } from "../utils/side-column.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
+import { useGlobalNeedsInputEntries } from "../hooks/useGlobalNeedsInputEntries.js";
+import { openAttentionItem } from "../hooks/useNextAttention.js";
+import type { GlobalNeedsInputEntry } from "../utils/global-needs-input.js";
+import { questOf } from "./library/topic-questions.js";
+import type { BoardPhaseDot } from "./leader-board-summary.js";
+import { LeaderBoardButton } from "./leader-workboard-controls.js";
+import { threadMenuItems } from "../utils/attention-item-menu.js";
 
 /** Find's Messages mode lists this many of the user's latest messages. */
 
@@ -98,6 +105,11 @@ export interface PrimaryThreadChip {
   accentColor?: string;
   /** The tab's phase or state ("Work", "Done", "Led by #12"), even while it needs input. */
   stateLabel?: string;
+  /**
+   * Opens what the item is about instead of its thread: a question another session asks about the
+   * leader's quest opens that question.
+   */
+  onOpen?: () => void;
   /** Server time the tab last changed status group; the phone groups list the newest first. */
   groupChangedAt?: number;
   /** Set for a side quest: the thread ("main" or a quest ID) where its answer is given. */
@@ -131,9 +143,11 @@ function cachedQuestForId(questId: string | undefined): QuestmasterTask | undefi
 }
 
 /**
- * The leader's thread tabs as status groups. Tab titles take the done color once a
- * hydrated Questmaster record says the quest finished, unless a Thread Waiting status
- * says work continues there.
+ * The leader's threads as the status row. Tab titles take the done color once a hydrated
+ * Questmaster record says the quest finished, unless a Thread Waiting status says work continues
+ * there. Besides its quest threads (`tabs`), the row holds the leader's other threads, the leader
+ * log while something from Main still waits there, and questions other sessions ask about its
+ * quests (which open the question).
  */
 export function ThreadTabRail({
   mainState,
@@ -142,10 +156,10 @@ export function ThreadTabRail({
   currentThreadKey,
   onSelectThread,
   threadStatuses,
-  breadcrumb,
+  board,
 }: {
-  /** Leaders navigate by breadcrumb (`LeaderBreadcrumbNav`): the places it draws into. */
-  breadcrumb: Pick<LeaderBreadcrumbNavProps, "helpers" | "board" | "crumbSlot">;
+  /** The top bar's Board button: where it goes, its dots, and the board's state. */
+  board: { helpers: HTMLElement | null; dots: readonly BoardPhaseDot[]; open: boolean; onToggle: () => void };
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
   sessionId: string;
@@ -158,6 +172,7 @@ export function ThreadTabRail({
     const selected = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
     if (onSelectThread && (selected === ALL_THREADS_KEY || selected !== target)) onSelectThread(target);
   };
+  const desktop = useDesktopShellLayout();
   const sessionStatus = useStore((state) => state.sessionStatus.get(sessionId));
   const monitors = useStore(
     (state) => getSyncedProjectionValue(state, THREAD_MONITORING_PROJECTION, sessionId)?.threads,
@@ -170,9 +185,12 @@ export function ThreadTabRail({
     return titleColor === tab.titleColor ? tab : { ...tab, titleColor };
   });
 
-  // Only actions that apply to a tab are offered; a tab with none gets no menu.
+  // Only actions that apply to a thread are offered: Notify Me for a quest, then opening it beside,
+  // its worker, a reminder and a link. The leader log and a question from another session (which
+  // opens the question) get none.
   const tabMenuItems = (tab: PrimaryThreadChip): ContextMenuItem[] => {
     const threadKey = normalizeThreadKey(tab.threadKey);
+    if (tab.onOpen || threadKey === ALL_THREADS_KEY) return [];
     const items: ContextMenuItem[] = [];
     // Notify Me tracks quest threads only, and its current state comes from the server projection.
     if (monitors && /^q-\d+$/.test(threadKey)) {
@@ -192,71 +210,69 @@ export function ThreadTabRail({
         },
       });
     }
+    const boardRow = useStore
+      .getState()
+      .sessionBoards.get(sessionId)
+      ?.find((row) => row.questId === threadKey);
+    items.push(
+      ...threadMenuItems({
+        leaderId: sessionId,
+        threadKey,
+        ...(boardRow?.worker ? { workerId: boardRow.worker, workerNum: boardRow.workerNum } : {}),
+      }),
+    );
     return items;
   };
-  // Every tab's topic: the Done list groups by them, and a quest tab names its topic at once.
-  const leaderTopics = useLeaderTopics(
-    sessionId,
-    displayedTabs.flatMap((tab) => (tab.questId ? [tab.questId] : [])),
-  );
-  // The topic whose conversation is on screen (its own place, `topic:<handle>`), selected in the list.
   const currentKey = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
-  const currentTopicId = isTopicViewKey(currentKey)
-    ? (Object.keys(leaderTopics?.topics ?? {}).find((topicId) => isKeyOfTopic(currentKey, topicId)) ?? null)
-    : null;
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
-  // The leader's threads (side chats), to name the topic a thread on screen is filed under. Asked
-  // again when an answer in a thread arrives or is read: the leader names a thread with its first
-  // answer, and the Scribe may file it.
+  // The leader's other threads. Asked again when an answer in a thread arrives or is read: the
+  // leader names a thread with its first answer, and the Scribe may file or join it.
   const threadAnswers = (notifications ?? [])
     .filter((notification) => notification.category === "review" && !notification.done)
     .map((notification) => resolveNotificationOwnerThreadKey(notification))
     .filter(isTopicViewKey)
     .join(",");
-  const allThreads = useLeaderThreads(sessionId, true, `${currentKey}|${threadAnswers}`);
-  const topicList = useTopicTabTopics(sessionId, true, currentTopicId ?? "");
-  const topicOfQuest = leaderTopics
-    ? Object.fromEntries(Object.entries(leaderTopics.map).map(([questId, topic]) => [questId, topic.id]))
-    : null;
-  // Unread results in these threads, as the attention list counts them: every open review
-  // notification, finished quests included, so the Topics list marks what its bell counts.
-  const unreadIn = (threadKeys: readonly string[]) => {
-    const members = new Set(threadKeys.map(normalizeThreadKey));
-    return (notifications ?? []).filter(
-      (notification) =>
-        notification.category === "review" &&
-        !notification.done &&
-        members.has(resolveNotificationOwnerThreadKey(notification)),
-    );
-  };
-  const openTopic = (topic: TopicSummary, event?: OpenInSideEvent) => {
-    // The open-in-side click (Shift by default): the topic's page goes beside the conversation instead.
-    if (isOpenInSideClick(event)) {
-      openInSide(sessionId, { kind: "topic", topicId: topic.id });
-      return;
+  const plainThreads = useLeaderThreads(sessionId, true, `${currentKey}|${threadAnswers}`);
+  const boardQuests = useStore(useShallow((state) => leaderQuestIds(state, sessionId)));
+  const questions = useOthersQuestions(sessionId, displayedTabs, boardQuests);
+  const threads = useMemo(() => {
+    const questionOf = new Map(questions.map((question) => [question.questId, question]));
+    const members: PrimaryThreadChip[] = displayedTabs.map((tab) => {
+      const question = questionOf.get(normalizeThreadKey(tab.questId ?? tab.threadKey));
+      if (!question || tab.needsInput) return tab;
+      questionOf.delete(question.questId);
+      return { ...tab, needsInput: true, stateLabel: question.label, onOpen: question.open };
+    });
+    for (const thread of plainThreads) {
+      if (!thread.empty) members.push(plainThreadChip(thread, notifications));
     }
-    // Like any opening: where it was left if recent, else at the latest with the unread counted
-    // above. From one of its quests it zooms out to the topic.
-    const topicKey = topicViewKey(topic.id);
-    if (topic.questIds.includes(currentKey)) prepareZoom(sessionId, topicKey, "out", { feedKey: currentKey });
-    openThread(topicKey);
-  };
-  const menuTab = tabMenu ? tabs.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
+    // A question or answer still in Main (from before Home) is read in the leader log.
+    if (mainState && (mainState.needsInput || mainState.blueNudge)) {
+      members.push({ ...mainState, threadKey: ALL_THREADS_KEY, title: "Leader log", stateLabel: "Main's messages" });
+    }
+    for (const question of questionOf.values()) {
+      members.push({
+        threadKey: question.questId,
+        questId: question.questId,
+        title: question.title,
+        stateLabel: question.label,
+        needsInput: true,
+        mutedNeedsInput: false,
+        blueNudge: false,
+        canClose: false,
+        updatedAt: question.timestamp,
+        onOpen: question.open,
+      });
+    }
+    return members;
+  }, [displayedTabs, plainThreads, notifications, mainState, questions]);
+  // Home lists the same threads at full width.
+  useEffect(() => {
+    useLeaderThreadMembers.setState((state) => ({ byLeader: { ...state.byLeader, [sessionId]: threads } }));
+  }, [sessionId, threads]);
+  const menuTab = tabMenu ? threads.find((tab) => normalizeThreadKey(tab.threadKey) === tabMenu.threadKey) : undefined;
   const menuItems = menuTab ? tabMenuItems(menuTab) : [];
 
-  const rowProps = {
-    currentThreadKey,
-    activeOutputThreadKey: runningRoute?.threadKey ?? null,
-    monitors,
-    threadStatuses,
-    onSelect: openThread,
-    // The open-in-side click on a listed quest puts its conversation in the side column.
-    onOpenInSide: (threadKey: string) => openInSide(sessionId, { kind: "conversation", threadKey }),
-    onOpenMenu: (tab: PrimaryThreadChip) =>
-      tabMenuItems(tab).length > 0
-        ? (x: number, y: number) => setTabMenu({ threadKey: normalizeThreadKey(tab.threadKey), x, y })
-        : undefined,
-  };
   return (
     <div
       className="contents"
@@ -264,24 +280,99 @@ export function ThreadTabRail({
       data-session-id={sessionId}
       data-open-tab-count={tabs.length + 1}
     >
-      <LeaderBreadcrumbNav
-        {...breadcrumb}
-        {...rowProps}
-        leaderId={sessionId}
-        main={mainState}
-        tabs={displayedTabs}
-        threads={allThreads}
-        topics={{
-          list: topicList,
-          currentTopicId,
-          topicOfQuest: topicOfQuest ?? {},
-          onOpen: openTopic,
-          unreadOf: (threadKeys) => countUnreadResults(unreadIn(threadKeys)),
-        }}
+      <ThreadGroupBar
+        threads={threads}
+        currentThreadKey={currentThreadKey}
+        activeOutputThreadKey={runningRoute?.threadKey ?? null}
+        monitors={monitors}
+        threadStatuses={threadStatuses}
+        onSelect={openThread}
+        // The open-in-side click on a listed thread puts its conversation in the side column.
+        onOpenInSide={(threadKey) => openInSide(sessionId, { kind: "conversation", threadKey })}
+        onOpenMenu={(tab) =>
+          tabMenuItems(tab).length > 0
+            ? (x: number, y: number) => setTabMenu({ threadKey: normalizeThreadKey(tab.threadKey), x, y })
+            : undefined
+        }
       />
+      {board.helpers &&
+        createPortal(
+          <LeaderBoardButton dots={board.dots} open={board.open} onToggle={board.onToggle} desktop={desktop} />,
+          board.helpers,
+        )}
       {tabMenu && menuItems.length > 0 && (
         <ContextMenu x={tabMenu.x} y={tabMenu.y} items={menuItems} onClose={() => setTabMenu(null)} />
       )}
     </div>
   );
+}
+
+/** Each leader's threads as its status row last built them, for its Home. */
+export const useLeaderThreadMembers = create<{ byLeader: Record<string, readonly PrimaryThreadChip[]> }>(() => ({
+  byLeader: {},
+}));
+
+/** The leader's quests on its boards (active and completed), as one string for a stable selector. */
+function leaderQuestIds(state: ReturnType<typeof useStore.getState>, sessionId: string): string[] {
+  return [...(state.sessionBoards.get(sessionId) ?? []), ...(state.sessionCompletedBoards.get(sessionId) ?? [])].map(
+    (row) => normalizeThreadKey(row.questId),
+  );
+}
+
+interface OthersQuestion {
+  questId: string;
+  title: string;
+  label: string;
+  timestamp: number;
+  open: () => void;
+}
+
+/**
+ * Questions other sessions (a worker, a reviewer) ask the user about the leader's quests, newest
+ * first, one per quest: they belong under the leader's Needs you even though the leader didn't ask.
+ */
+function useOthersQuestions(
+  sessionId: string,
+  tabs: readonly PrimaryThreadChip[],
+  boardQuests: readonly string[],
+): OthersQuestion[] {
+  const { entries } = useGlobalNeedsInputEntries();
+  return useMemo(() => {
+    const ownQuests = new Set([
+      ...boardQuests,
+      ...tabs.flatMap((tab) => (tab.questId ? [normalizeThreadKey(tab.questId)] : [])),
+    ]);
+    const byQuest = new Map<string, OthersQuestion>();
+    for (const entry of [...entries].sort((a, b) => b.notification.timestamp - a.notification.timestamp)) {
+      if (entry.sessionId === sessionId) continue;
+      const questId = questOf(entry);
+      if (!questId || !ownQuests.has(questId) || byQuest.has(questId)) continue;
+      byQuest.set(questId, othersQuestion(entry, questId, tabs));
+    }
+    return [...byQuest.values()];
+  }, [entries, sessionId, tabs, boardQuests]);
+}
+
+function othersQuestion(entry: GlobalNeedsInputEntry, questId: string, tabs: readonly PrimaryThreadChip[]) {
+  const tab = tabs.find((candidate) => normalizeThreadKey(candidate.questId ?? candidate.threadKey) === questId);
+  const asker = entry.sessionNum !== null ? `#${entry.sessionNum}` : entry.sessionName;
+  return {
+    questId,
+    title: tab?.title ?? entry.notification.summary ?? questId,
+    label: `Question from ${asker}`,
+    timestamp: entry.notification.timestamp,
+    open: () =>
+      openAttentionItem(
+        {
+          kind: "needs-input",
+          entry,
+          key: `needs-input:${entry.sessionId}:${entry.notification.id}`,
+          sessionId: entry.sessionId,
+          threadKey: resolveNotificationOwnerThreadKey(entry.notification),
+          label: entry.notification.summary || entry.sessionName,
+          timestamp: entry.notification.timestamp,
+        },
+        useStore.getState().sdkSessions,
+      ),
+  };
 }

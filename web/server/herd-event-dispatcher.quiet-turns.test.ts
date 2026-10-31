@@ -134,4 +134,32 @@ describe("HerdEventDispatcher quiet turns", () => {
     expect(bridge.injectUserMessage).not.toHaveBeenCalled();
     dispatcher.destroy();
   });
+
+  it("adds a Scribe's waiting notes to the next delivery, and keeps them when it fails", () => {
+    // The Scribe's loose ends and joins are not urgent: they ride with the leader's next herd
+    // delivery instead of interrupting it, and wait for another when that one can't be delivered.
+    const { bridge, dispatcher } = setup();
+    let waiting: string | null = "[Library] Your Scribe joined a thread.";
+    const restore = vi.fn((_leader: string, text: string) => (waiting = text));
+    dispatcher.setRideAlongNotes({
+      take: () => {
+        const text = waiting;
+        waiting = null;
+        return text;
+      },
+      restore,
+    });
+    vi.mocked(bridge.injectUserMessage).mockReturnValueOnce("dropped");
+    triggerEvent(makeEvent({ id: 1, data: { duration_ms: 1000, reason: "result" } }));
+    vi.advanceTimersByTime(600);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][1]).toContain("[Library] Your Scribe joined a thread.");
+    expect(restore).toHaveBeenCalledWith("orch-1", "[Library] Your Scribe joined a thread.");
+
+    triggerEvent(makeEvent({ id: 2, data: { duration_ms: 1000, reason: "result" } }));
+    vi.advanceTimersByTime(5_000);
+    const delivered = vi.mocked(bridge.injectUserMessage).mock.calls.at(-1)![1];
+    expect(delivered).toContain("[Library] Your Scribe joined a thread.");
+    expect(waiting).toBeNull();
+    dispatcher.destroy();
+  });
 });

@@ -144,33 +144,9 @@ describe("settings routes", () => {
     expect(bad.status).toBe(400);
     expect(getSettings().sidebarViewMode).toBe("recent");
 
-    // Topics mode lists the leaders' topics instead of their sessions.
-    expect((await (await put("topics")).json()).sidebarViewMode).toBe("topics");
-    expect(getSettings().sidebarViewMode).toBe("topics");
-  });
-
-  it("keeps pinned topics on the server, in pin order, and rejects anything but a list of IDs", async () => {
-    // Pins follow the user to every device, unlike folds, which suit one layout.
-    const app = createApp();
-    const put = (sidebarPinnedTopics: unknown) =>
-      app.request("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sidebarPinnedTopics }),
-      });
-
-    expect((await (await app.request("/api/settings")).json()).sidebarPinnedTopics).toEqual([]);
-    const ok = await put(["topic-b", "topic-a", "topic-b"]);
-    expect(ok.status).toBe(200);
-    expect((await ok.json()).sidebarPinnedTopics).toEqual(["topic-b", "topic-a"]);
-    expect(getSettings().sidebarPinnedTopics).toEqual(["topic-b", "topic-a"]);
-
-    expect((await put("topic-a")).status).toBe(400);
-    expect((await put([1, 2])).status).toBe(400);
-    expect(getSettings().sidebarPinnedTopics).toEqual(["topic-b", "topic-a"]);
-
-    // Unpinning the last topic saves an empty list.
-    expect((await (await put([])).json()).sidebarPinnedTopics).toEqual([]);
+    // The Topics view is retired (topics became tags): a browser from before it asks in vain.
+    expect((await put("topics")).status).toBe(400);
+    expect(getSettings().sidebarViewMode).toBe("recent");
   });
 
   it("accepts centralized session defaults settings updates", async () => {

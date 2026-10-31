@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { create } from "zustand";
 import type {
-  OverviewOrder,
   QuestTopicMap,
   QuestTopicsResponse,
   ThreadSummary,
@@ -74,22 +73,6 @@ export function rememberTopicList(leaderId: string, topics: readonly TopicSummar
   });
 }
 
-/** Each leader's Scribe-written order for its overview, as last loaded with its topic list. */
-const useOverviewOrderStore = create<{ byLeader: Record<string, OverviewOrder | null> }>(() => ({ byLeader: {} }));
-
-/** Records the order that came with a leader's topic list (null when its Scribe wrote none). */
-export function rememberOverviewOrder(leaderId: string, order: OverviewOrder | undefined): void {
-  const next = order ?? null;
-  const previous = useOverviewOrderStore.getState().byLeader[leaderId];
-  if (previous === next || (previous && next && previous.writtenAt === next.writtenAt)) return;
-  useOverviewOrderStore.setState((state) => ({ byLeader: { ...state.byLeader, [leaderId]: next } }));
-}
-
-/** A leader's overview order, as last known; null without one. */
-export function useOverviewOrder(leaderId: string): OverviewOrder | null {
-  return useOverviewOrderStore((state) => state.byLeader[leaderId] ?? null);
-}
-
 /**
  * A leader's threads (New thread), as last loaded: lightweight conversations that are not topics.
  * The tab bar loads them for its Threads menu; starting one adds it at once.
@@ -112,8 +95,9 @@ export function rememberThreads(leaderId: string, threads: readonly ThreadSummar
 const EMPTY_THREADS: ThreadSummary[] = [];
 
 /**
- * A leader's threads, newest activity first; loads them (and every minute) while `enabled`. A side
- * chat that became a quest's thread is that quest now, so it is not listed (`threadQuestOf`).
+ * A leader's threads, newest activity first; loads them (and every minute) while `enabled`. A thread
+ * that became a quest's thread, or was joined onto an earlier one, is that conversation now, so it is
+ * not listed (`threadDestinationOf`).
  */
 export function useLeaderThreads(leaderId: string, enabled: boolean, refreshKey = ""): ThreadSummary[] {
   useEffect(() => {
@@ -135,25 +119,39 @@ export function useLeaderThreads(leaderId: string, enabled: boolean, refreshKey 
   return useMemo(() => withoutQuestThreads(threads), [threads]);
 }
 
-/** The side chats still side chats: those that became a quest's thread are listed as the quest. */
+/** The threads still conversations of their own: one that became another's is listed as that one. */
 export function withoutQuestThreads(threads: readonly ThreadSummary[]): ThreadSummary[] {
-  return threads.filter((thread) => !thread.quest);
+  return threads.filter((thread) => !threadDestination(thread));
 }
 
-/** The quest a side chat became (its whole request was handed off there), as last known. */
-export function threadQuestOf(leaderId: string, threadKey: string): string | null {
+/**
+ * The conversation a thread became, as last known: the quest whose thread it is (its whole request
+ * was handed off there) or the earlier thread it was joined onto.
+ */
+export function threadDestinationOf(leaderId: string, threadKey: string): string | null {
   if (!isTopicViewKey(threadKey)) return null;
   const key = threadKey.toLowerCase();
-  return useLeaderThreadsStore.getState().byLeader[leaderId]?.find((thread) => thread.key === key)?.quest ?? null;
+  const thread = useLeaderThreadsStore.getState().byLeader[leaderId]?.find((candidate) => candidate.key === key);
+  return thread ? threadDestination(thread) : null;
 }
 
-/** Each of a leader's side chats that became a quest's thread: its key, and the quest. */
-export function useThreadQuests(leaderId: string): ReadonlyMap<string, string> {
+/** Each of a leader's threads that became another conversation: its key, and that conversation's. */
+export function useThreadDestinations(leaderId: string): ReadonlyMap<string, string> {
   const threads = useLeaderThreadsStore((state) => state.byLeader[leaderId] ?? EMPTY_THREADS);
   return useMemo(
-    () => new Map(threads.flatMap((thread) => (thread.quest ? [[thread.key, thread.quest] as const] : []))),
+    () =>
+      new Map(
+        threads.flatMap((thread) => {
+          const destination = threadDestination(thread);
+          return destination ? [[thread.key, destination] as const] : [];
+        }),
+      ),
     [threads],
   );
+}
+
+function threadDestination(thread: ThreadSummary): string | null {
+  return thread.quest ?? thread.joinedInto ?? null;
 }
 
 /** A leader's threads changed on the server: reloads them when this browser has them. */

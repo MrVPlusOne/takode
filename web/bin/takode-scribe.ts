@@ -1,4 +1,4 @@
-import type { OverviewOrder, ScribeOverview, TopicRenameSuggestion } from "../shared/library-topics.js";
+import type { ScribeOverview, TopicRenameSuggestion } from "../shared/library-topics.js";
 import { formatArtifactLink } from "../shared/artifact-library.js";
 import { parseActivityTime } from "./takode-activity.js";
 import { apiDelete, apiGet, apiPatch, apiPost, err, parseFlags, readOptionTextFile } from "./takode-core.js";
@@ -29,12 +29,12 @@ For the Scribe:
                                                        one to three short lines, replacing the last
                                                        ones (an empty file clears them)
   takode scribe loose-ends --file <path>|-             Tell your leader about loose ends, one line
-                                                       each (a few messages a day at most)
-  takode scribe overview                               What your leader's overview lists now, and
-                                                       your last order for it
-  takode scribe overview set --file <path>|-           Save the order, most urgent first: one line
-                                                       per thread, "<key> | <short note>" (the note
-                                                       is optional)
+                                                       each (a few a day at most; they reach it with
+                                                       its next delivery)
+  takode scribe join <thread> <earlier>                A thread that continues an earlier
+                                                       conversation (a thread, topic:<handle>, or a
+                                                       quest's thread, q-N): join it on, so the two
+                                                       read as one
   takode scribe quests [--unsorted] [--since 30d]      Your leader's recent quests (--unsorted: those
                                                        with no topic yet)
 
@@ -76,15 +76,18 @@ export async function handleScribe(base: string, args: string[]): Promise<void> 
       );
       return;
     }
-    case "overview": {
-      if (positionals[0] === "set") {
-        if (typeof flags.file !== "string") err("Usage: takode scribe overview set --file <path>|-");
-        const entries = parseOverviewOrder(await readOptionTextFile(flags.file, "--file"));
-        const order = (await apiPost(base, `/scribe/overview${leaderQuery}`, { entries })) as OverviewOrder;
-        console.log(`Saved the overview's order (${order.entries.length} lines).`);
-        return;
-      }
-      console.log(formatOverview((await apiGet(base, `/scribe/overview${leaderQuery}`)) as ScribeOverviewResponse));
+    case "join": {
+      const usage = "takode scribe join <thread> <earlier>";
+      const thread = need(positionals[0], usage);
+      const into = need(positionals[1], usage);
+      const joined = (await apiPost(base, `/scribe/join${leaderQuery}`, { thread, into })) as {
+        thread: string;
+        into: string;
+        messages: number;
+      };
+      console.log(
+        `Joined ${joined.thread} onto ${joined.into}: its ${joined.messages} message${joined.messages === 1 ? "" : "s"} now read after that conversation.`,
+      );
       return;
     }
     case "instructions": {
@@ -277,53 +280,6 @@ function formatChanges(response: TopicChangesResponse): string {
     response.page ?? "(no page yet)",
   ];
   return lines.join("\n");
-}
-
-interface ScribeOverviewResponse {
-  items: Array<{ key: string; title?: string; questions: string[]; results: string[]; running?: string }>;
-  order: OverviewOrder | null;
-}
-
-/** The overview's threads as the Scribe ranks them, then its last order. */
-export function formatOverview(response: ScribeOverviewResponse): string {
-  const lines = [
-    "## What your leader's overview lists now",
-    ...(response.items.length
-      ? response.items.map((item) => {
-          const facts = [
-            item.running ? `running (${item.running})` : "",
-            ...item.questions.map((question) => `question: "${question}"`),
-            item.results.length ? `${item.results.length} unread: ${item.results.map((r) => `"${r}"`).join(", ")}` : "",
-          ].filter(Boolean);
-          return `- ${item.key}${item.title ? ` "${item.title}"` : ""} · ${facts.join(" · ")}`;
-        })
-      : ["- nothing: no questions, unread results or running quests"]),
-    "",
-    "## Your last order",
-    ...(response.order?.entries.length
-      ? [
-          `(saved ${new Date(response.order.writtenAt).toLocaleString()})`,
-          ...response.order.entries.map((entry) => `${entry.key}${entry.note ? ` | ${entry.note}` : ""}`),
-        ]
-      : ["none yet"]),
-    "",
-    'Save a new one with `takode scribe overview set --file -`: one line per thread, most urgent first, "<key> | <short note>".',
-  ];
-  return lines.join("\n");
-}
-
-/** Lines of "<key> | <note>" (or a bare key); blank lines and "#" comments are skipped. */
-export function parseOverviewOrder(text: string): Array<{ key: string; note?: string }> {
-  return text
-    .split("\n")
-    .map((line) => line.trim().replace(/^[-*] +/, ""))
-    .filter((line) => line && !line.startsWith("#"))
-    .map((line) => {
-      const bar = line.indexOf("|");
-      const key = (bar < 0 ? line : line.slice(0, bar)).trim();
-      const note = bar < 0 ? "" : line.slice(bar + 1).trim();
-      return note ? { key, note } : { key };
-    });
 }
 
 /** Non-empty lines of a file, without list bullets. */

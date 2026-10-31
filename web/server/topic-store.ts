@@ -3,9 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  OVERVIEW_NOTE_MAX,
   TOPIC_TENTATIVE_MS,
-  type OverviewOrder,
   type QuestTopicMap,
   type TopicChange,
   type TopicDetail,
@@ -102,6 +100,12 @@ interface StoredThread {
    * and the quest are one conversation from then on (its messages are attached to the quest).
    */
   quest?: string;
+  /** The earlier thread it was joined onto (see `ThreadSummary.joinedInto`). */
+  joinedInto?: string;
+  /** The quest or thread it was joined onto by the Scribe (for Undo; a handoff is not undone). */
+  joinedBy?: string;
+  /** When its leader's Scribe was asked whether it continues an earlier conversation. */
+  joinCheckedAt?: number;
 }
 
 interface LegacyNowEntry {
@@ -186,8 +190,6 @@ interface StoredScribe {
    * isn't asked on every update; back under the target, it is cleared.
    */
   consolidationAskedAt?: number;
-  /** The Scribe's order for the leader's overview, with a note per line. */
-  overviewOrder?: OverviewOrder;
   /** When the current Scribe session started; a day-old one is replaced by a fresh one. */
   startedAt?: number;
   /** The user's messages to other leaders up to this time were sent to the Scribe. */
@@ -206,6 +208,9 @@ export interface ScribeInstructions {
   text: string;
   updatedAt: number;
 }
+
+/** New threads younger than this are checked for continuing an earlier conversation. */
+const JOIN_CHECK_WINDOW_MS = 2 * 24 * 60 * 60_000;
 
 export class TopicStoreError extends Error {
   constructor(
@@ -260,8 +265,9 @@ export class TopicStore {
 
   /**
    * Brings a saved store from an older version up to date, so nothing reads a missing part:
-   * containers added since are created, and the opt-outs of the retired topics-off mode are
-   * dropped (every leader has topics now; leaders that had them off start them at startup).
+   * containers added since are created, and what retired features left is dropped: the opt-outs of
+   * topics-off mode (every leader has topics now; leaders that had them off start them at startup)
+   * and the Scribe's order for the leader's overview.
    */
   private upgradeState(state: TopicState): void {
     state.questTopics ??= {};
@@ -275,6 +281,12 @@ export class TopicStore {
     if (state.disabledLeaders || state.onByDefaultSince) {
       delete state.disabledLeaders;
       delete state.onByDefaultSince;
+      this.dirty = true;
+    }
+    // Retired with the leader's overview: the Scribe's order for it.
+    for (const scribe of Object.values(state.scribes ?? {}) as Array<Record<string, unknown>>) {
+      if (!("overviewOrder" in scribe)) continue;
+      delete scribe.overviewOrder;
       this.dirty = true;
     }
   }
@@ -460,43 +472,6 @@ export class TopicStore {
     this.dirty = true;
   }
 
-  overviewOrder(leaderId: string): OverviewOrder | undefined {
-    return this.s().scribes?.[leaderId]?.overviewOrder;
-  }
-
-  /**
-   * Saves the Scribe's order for its leader's overview, replacing the last one. Keys are thread
-   * keys; a note is one short line, so a longer one is refused rather than cut.
-   */
-  setOverviewOrder(leaderId: string, entries: ReadonlyArray<{ key: string; note?: string }>): OverviewOrder {
-    const seen = new Set<string>();
-    const clean: OverviewOrder["entries"] = [];
-    for (const entry of entries) {
-      const raw = entry.key.trim().toLowerCase();
-      const key = raw.startsWith("topic:") ? normalizeTopicKey(raw) : raw;
-      if (!key || !/^(q-\d+|topic:[\w-]+|main)$/.test(key)) {
-        throw new TopicStoreError(`"${entry.key}" is not a thread key (q-N, topic:<handle> or main).`);
-      }
-      // Plain words: the row itself links to its thread.
-      const note = entry.note
-        ?.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (note && note.length > OVERVIEW_NOTE_MAX) {
-        throw new TopicStoreError(
-          `The note for ${key} is ${note.length} characters; keep each to one short line (${OVERVIEW_NOTE_MAX} at most) and link to the detail.`,
-        );
-      }
-      if (seen.has(key)) continue;
-      seen.add(key);
-      clean.push(note ? { key, note } : { key });
-    }
-    const order = { writtenAt: this.now(), entries: clean };
-    this.scribeRecord(leaderId).overviewOrder = order;
-    this.dirty = true;
-    return order;
-  }
-
   scribeInstructions(leaderId: string): ScribeInstructions | undefined {
     return this.s().scribes?.[leaderId]?.instructions;
   }
@@ -654,6 +629,14 @@ export class TopicStore {
     this.onThreadChange?.(thread.leaderId);
   }
 
+  /** Every leader's threads, newest activity first. */
+  allThreads(): ThreadSummary[] {
+    return Object.values(this.s().topics)
+      .filter((topic) => topic.thread && !topic.mergedInto)
+      .map((topic) => this.threadSummary(topic))
+      .sort((a, b) => b.activityAt - a.activityAt);
+  }
+
   /** The threads of this leader (the user's and its own), newest activity first. */
   threadsOf(leaderId: string): ThreadSummary[] {
     return Object.values(this.s().topics)
@@ -725,6 +708,95 @@ export class TopicStore {
     return true;
   }
 
+  /** The threads joined onto a thread (by its ID): their messages read in its conversation. */
+  threadsJoinedInto(threadId: string): StoredTopic[] {
+    const key = `topic:${topicHandle(threadId)}`;
+    return Object.values(this.s().topics).filter((topic) => topic.thread?.joinedInto === key);
+  }
+
+  /**
+   * The leader's Scribe joined a thread onto the earlier conversation it continues: a quest's
+   * thread (the thread becomes that quest's, as after a handoff) or another thread of the same
+   * leader, which becomes active again. The thread leaves the lists; its messages read after the
+   * earlier ones. Throws when the join can't be made.
+   */
+  joinThread(threadKey: string, intoKey: string): ThreadSummary {
+    const thread = this.thread(threadKey);
+    if (!thread?.thread) throw new TopicStoreError(`${threadKey} is not a thread.`, 404);
+    const own = thread.thread;
+    if (own.quest || own.joinedInto)
+      throw new TopicStoreError(`${threadKey} is already part of ${own.quest ?? own.joinedInto}.`, 409);
+    if (/^q-\d+$/.test(intoKey)) {
+      own.quest = intoKey;
+    } else {
+      const into = this.thread(intoKey);
+      if (!into?.thread || into.id === thread.id) throw new TopicStoreError(`${intoKey} is not another thread.`, 404);
+      if (into.thread.leaderId !== own.leaderId)
+        throw new TopicStoreError("A thread joins another thread of the same leader.", 409);
+      if (into.thread.quest || into.thread.joinedInto) {
+        throw new TopicStoreError(
+          `${intoKey} is part of ${into.thread.quest ?? into.thread.joinedInto} now: join onto that instead.`,
+          409,
+        );
+      }
+      own.joinedInto = `topic:${topicHandle(into.id)}`;
+      // The earlier thread carries on: it is active again, at the newer thread's latest activity.
+      delete into.thread.settledAt;
+      into.thread.lastMessageAt = Math.max(into.thread.lastMessageAt ?? 0, own.lastMessageAt ?? this.now());
+    }
+    own.joinedBy = own.quest ?? own.joinedInto;
+    this.dirty = true;
+    this.onThreadChange?.(own.leaderId);
+    return this.threadSummary(thread);
+  }
+
+  /** Undoes a join the Scribe made; returns where the thread had been joined, or throws. */
+  unjoinThread(threadKey: string): { thread: ThreadSummary; from: string } {
+    const thread = this.thread(threadKey);
+    const own = thread?.thread;
+    if (!thread || !own?.joinedBy) throw new TopicStoreError(`${threadKey} was not joined onto another conversation.`);
+    const from = own.joinedBy;
+    delete own.quest;
+    delete own.joinedInto;
+    delete own.joinedBy;
+    this.dirty = true;
+    this.onThreadChange?.(own.leaderId);
+    return { thread: this.threadSummary(thread), from };
+  }
+
+  /**
+   * A leader's threads with a first message that its Scribe wasn't asked about yet: does each
+   * continue an earlier conversation? Recent ones only, so an old install isn't asked about all.
+   */
+  threadsToCheckForJoin(leaderId: string): Array<ThreadSummary & { firstMessage?: string }> {
+    const since = this.now() - JOIN_CHECK_WINDOW_MS;
+    return Object.values(this.s().topics)
+      .filter(
+        (topic) =>
+          topic.thread?.leaderId === leaderId &&
+          !topic.mergedInto &&
+          topic.thread.startedBy !== "leader" &&
+          !topic.thread.quest &&
+          !topic.thread.joinedInto &&
+          topic.thread.lastMessageAt !== undefined &&
+          !topic.thread.joinCheckedAt &&
+          topic.createdAt >= since,
+      )
+      .map((topic) => ({
+        ...this.threadSummary(topic),
+        ...(topic.thread?.firstMessage ? { firstMessage: topic.thread.firstMessage } : {}),
+      }));
+  }
+
+  /** Records that the Scribe was asked whether these threads continue earlier conversations. */
+  markThreadsJoinChecked(threadIds: readonly string[]): void {
+    for (const id of threadIds) {
+      const thread = this.s().topics[id]?.thread;
+      if (thread) thread.joinCheckedAt = this.now();
+    }
+    if (threadIds.length) this.dirty = true;
+  }
+
   /** A quest was filed under a topic: a thread it was started from, under no topic yet, follows it. */
   threadFollowsQuest(threadKey: string | undefined, topicId: string): ThreadSummary | null {
     const thread = threadKey ? this.thread(threadKey) : undefined;
@@ -753,6 +825,7 @@ export class TopicStore {
           topic.thread?.leaderId === leaderId &&
           !topic.mergedInto &&
           !topic.thread.quest &&
+          !topic.thread.joinedInto &&
           topic.thread.settledAt &&
           !topic.thread.topicId &&
           !topic.thread.sortAskedAt,
@@ -775,7 +848,8 @@ export class TopicStore {
   /** The threads filed under a topic. */
   threadsUnder(topicId: string): StoredTopic[] {
     return Object.values(this.s().topics).filter(
-      (topic) => topic.thread?.topicId === topicId && !topic.mergedInto && !topic.thread.quest,
+      (topic) =>
+        topic.thread?.topicId === topicId && !topic.mergedInto && !topic.thread.quest && !topic.thread.joinedInto,
     );
   }
 
@@ -795,6 +869,7 @@ export class TopicStore {
       ...(thread.settledAt ? { settledAt: thread.settledAt } : {}),
       ...(thread.lastMessageAt === undefined ? { empty: true } : {}),
       ...(thread.quest ? { quest: thread.quest } : {}),
+      ...(thread.joinedInto ? { joinedInto: thread.joinedInto } : {}),
     };
   }
 

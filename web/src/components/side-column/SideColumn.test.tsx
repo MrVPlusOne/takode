@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
  * The side column: what the user put there (side chats, other conversations, topic pages), newest
- * first, then the leader's overview, then the topic page it follows. Each section folds on its own
- * and the column scrolls when the open ones don't fit, like Logseq's sidebar. It tells the server which
- * conversations it shows, starts side chats from what's on screen and lists past ones.
+ * first, then the topic page it follows. Each section folds on its own and the column scrolls when
+ * the open ones don't fit, like Logseq's sidebar. It tells the server which conversations it shows
+ * and starts side chats from what's on screen.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -37,20 +37,6 @@ vi.mock("./NewSideChat.js", () => ({
     </div>
   ),
 }));
-// What each conversation holds now, by thread: the column colors its rows' status from it.
-const placeWork = vi.hoisted(() => ({ byKey: {} as Record<string, { needYou?: number; running?: boolean }> }));
-vi.mock("../sidebar-topics/TopicPlaceCard.js", () => ({
-  usePlaceWork: () => ({
-    ofThread: (_leaderId: string, threadKey: string) => {
-      const work = placeWork.byKey[threadKey] ?? {};
-      return {
-        needYou: Array.from({ length: work.needYou ?? 0 }, (_, index) => ({ id: `${threadKey}-${index}` })),
-        fresh: [],
-        running: work.running ? [threadKey] : [],
-      };
-    },
-  }),
-}));
 // The leaders a side chat can be with: those with topics on (l3's are off).
 const noTopicList = () => Promise.reject(new Error("No topic list in this test"));
 const topicList = vi.hoisted(() => vi.fn());
@@ -71,28 +57,6 @@ vi.mock("./SideSession.js", () => ({
 }));
 vi.mock("./thread-names.js", () => ({
   ThreadOriginName: ({ threadKey }: { threadKey: string }) => <>{`name of ${threadKey}`}</>,
-}));
-// The overview's own data is tested with LeaderOverview; here the column shows what it is given.
-vi.mock("../overview/LeaderOverview.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../overview/LeaderOverview.js")>()),
-  useLeaderOverview: () => ({
-    leaderId: "leader-1",
-    forYou: [],
-    running: [
-      {
-        questId: "q-3",
-        title: "Running quest",
-        phase: { label: "Work", accent: "green" },
-        worker: null,
-        phaseSince: null,
-        updatedAt: 0,
-        topic: null,
-      },
-    ],
-    noteFor: () => undefined,
-    countsOf: () => ({ needYou: 0, fresh: 0, running: 0 }),
-    open: () => {},
-  }),
 }));
 const threads = vi.hoisted(() => ({ list: [] as unknown[] }));
 vi.mock("../../utils/leader-topics.js", async (importOriginal) => ({
@@ -147,26 +111,17 @@ describe("SideColumn", () => {
     expect(items).toEqual([expect.objectContaining({ kind: "conversation", threadKey: "q-9" })]);
   });
 
-  it("shows the overview, then the topic page it follows, each folding on its own and remembered", () => {
+  it("shows the topic page it follows, folding on its own and remembered", () => {
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
-    // Jiayi: the leader's overview sits at the top everywhere, the current topic's page under it.
     expect(rows().map((row) => row.textContent)).toEqual(["Topics"]);
-    // What runs folds behind its heading until opened.
-    const overview = within(screen.getByTestId("side-overview"));
-    fireEvent.click(overview.getByTestId("overview-fold"));
-    expect(overview.getByTestId("overview-running-row").textContent).toContain("Running quest");
     expect(screen.getByTestId("mock-topic-page").textContent).toBe("followed");
-    // Each folds on its own, and stays as left: remembered per leader.
     const openSections = () =>
       screen
         .getAllByTestId("side-section")
         .flatMap((section) => (section.dataset.open === "true" ? [section.dataset.section] : []));
-    expect(openSections()).toEqual(["overview", "home"]);
+    expect(openSections()).toEqual(["home"]);
     fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
-    expect(openSections()).toEqual(["overview"]);
-    fireEvent.click(within(screen.getByTestId("side-overview-row")).getByRole("button", { expanded: true }));
     expect(openSections()).toEqual([]);
-    expect(isRememberedFolded("side-overview:l1")).toBe(true);
     expect(isRememberedFolded("side:l1:home")).toBe(true);
   });
 
@@ -177,7 +132,7 @@ describe("SideColumn", () => {
       openInSide("l1", { kind: "conversation", threadKey: "q-2" });
       openInSide("l1", { kind: "topic", topicId: "t9" });
     });
-    // The topic page it follows is last, under the overview.
+    // The topic page it follows is last.
     expect(rows().map((row) => row.textContent)).toEqual(["Topic", "q-2 name of q-2", "Topics"]);
     expect(rows().map((row) => row.dataset.open)).toEqual(["true", "true", "true"]);
     expect(within(openBodies()[0]!).getByTestId("mock-topic-page").textContent).toBe("t9");
@@ -423,10 +378,21 @@ describe("SideColumn", () => {
     useStore.setState({ sdkSessions: [] } as never);
   });
 
-  it("shows what each quest waits on or does: amber for a question, green only while it runs", () => {
+  it("shows what waits on the user in each conversation: amber for a question, blue for unread", () => {
     // Jiayi (Oct 31): a quest at a User Checkpoint showed a green dot, as if its worker were still
-    // working. Its row shows the question instead; an unfinished quest that isn't running is grey.
-    placeWork.byKey = { "q-1": { needYou: 1 }, "q-2": { running: true } };
+    // working. Its row shows the question instead; an unfinished quest with nothing waiting is grey.
+    const note = (id: string, threadKey: string, category: "needs-input" | "review") => ({
+      id,
+      category,
+      summary: "",
+      timestamp: 1,
+      threadKey,
+      questId: threadKey,
+      done: false,
+    });
+    useStore.setState({
+      sessionNotifications: new Map([["l1", [note("n-1", "q-1", "needs-input"), note("n-2", "q-2", "review")]]]),
+    } as never);
     try {
       render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
       act(() => {
@@ -437,32 +403,13 @@ describe("SideColumn", () => {
       const tones = rows()
         .slice(0, 3)
         .map((row) => within(row).getByTestId("side-item-dot").dataset.tone);
-      expect(tones).toEqual(["question", "running", "none"]);
+      expect(tones).toEqual(["question", "unread", "none"]);
       expect(within(rows()[0]!).getByTestId("side-item-questions").textContent).toBe("question");
       expect(within(rows()[1]!).queryByTestId("side-item-questions")).toBeNull();
       expect(within(rows()[2]!).getByTestId("side-item-dot").className).not.toContain("success");
     } finally {
-      placeWork.byKey = {};
+      useStore.setState({ sessionNotifications: new Map() } as never);
     }
-  });
-
-  it("lists past side chats under Recent and opens one in the column", () => {
-    threads.list = [
-      {
-        id: "aaaa0001",
-        key: "topic:aaaa0001",
-        name: "Why threads settle",
-        leaderId: "l1",
-        createdAt: 1,
-        activityAt: 1,
-        settledAt: 2,
-      },
-    ];
-    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
-    fireEvent.click(screen.getByTestId("side-recent-chats"));
-    fireEvent.click(screen.getByTestId("threads-menu-row"));
-    expect(within(openBodies()[0]!).getByTestId("mock-conversation").textContent).toBe("topic:aaaa0001");
-    expect(screen.queryByTestId("threads-menu")).toBeNull();
   });
 
   it("collapses on desktop and closes on a phone", () => {

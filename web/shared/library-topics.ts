@@ -77,6 +77,11 @@ export interface ThreadSummary {
    * conversation now, shown as the quest and left out of the thread lists.
    */
   quest?: string;
+  /**
+   * The earlier thread it continues (`topic:<handle>`): its leader's Scribe joined it on, so its
+   * messages read after that thread's and it is that conversation now, left out of the thread lists.
+   */
+  joinedInto?: string;
 }
 
 export interface TopicEvent {
@@ -215,21 +220,6 @@ export interface TopicListResponse {
   suggestions: TopicRenameSuggestion[];
   /** With a leader: its Scribe. */
   scribe?: ScribeOverview;
-  /** With a leader: its Scribe's order for the leader's overview, when it wrote one. */
-  overviewOrder?: OverviewOrder;
-}
-
-/** The longest note a Scribe may put on an overview line: one short line, linking to the detail. */
-export const OVERVIEW_NOTE_MAX = 90;
-
-/**
- * A Scribe's order for its leader's overview (what needs the user, what runs): thread keys (`q-N`,
- * `topic:<handle>`, `main`), what the user should handle first at the top, each with an optional
- * one-line note. Takode's data says what is listed and counted; this only orders it and adds context.
- */
-export interface OverviewOrder {
-  writtenAt: number;
-  entries: Array<{ key: string; note?: string }>;
 }
 
 /** Quests filed under a topic, for grouping the Done list: questId to topic. */

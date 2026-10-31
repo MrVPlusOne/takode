@@ -1,5 +1,5 @@
 import { recordMonitoredThreadResult } from "../thread-monitoring.js";
-import { describeClosestTopics, isUnknownTopicKey } from "../topic-views.js";
+import { describeClosestThreads, isUnknownThreadKey } from "../topic-views.js";
 import type {
   BrowserIncomingMessage,
   ContentBlock,
@@ -662,29 +662,29 @@ function findThreadRoutingErrorForCurrentTurn(session: ThreadRoutingReminderSess
 }
 
 /**
- * A topic thread this turn's leader output was routed to (by a marker, a shell comment or a Thread
- * status marker) that no topic has: most likely a mistyped handle. The output is kept where it was
+ * A `topic:<handle>` key this turn's leader output was routed to (by a marker, a shell comment or a
+ * Thread status marker) that names no thread: a mistyped handle, or a topic's. The output is kept where it was
  * routed and shows in All; the leader is told, rather than the output refused.
  */
-function findUnknownTopicKeyForCurrentTurn(session: ThreadRoutingReminderSessionLike): string | null {
+function findUnknownThreadKeyForCurrentTurn(session: ThreadRoutingReminderSessionLike): string | null {
   const startIndex = firstCurrentTurnHistoryIndex(session);
   for (let index = startIndex; index < session.messageHistory.length; index++) {
     const entry = session.messageHistory[index];
     if (entry?.type !== "assistant") continue;
     const keys = [entry.threadKey, ...(entry.threadStatusMarkers ?? []).map((marker) => marker.threadKey)];
-    const unknown = keys.find((key): key is string => !!key && isUnknownTopicKey(key));
+    const unknown = keys.find((key): key is string => !!key && isUnknownThreadKey(key));
     if (unknown) return unknown;
   }
   return null;
 }
 
-/** The warning for leader output routed to a topic thread no topic has. */
-export function buildUnknownTopicReminderContent(topicKey: string): string {
+/** The warning for leader output routed to a key that names no thread. */
+export function buildUnknownThreadReminderContent(threadKey: string): string {
   return [
     THREAD_ROUTING_REMINDER_HEADER,
-    `Unknown topic thread \`${topicKey}\`: no topic has that handle, so your output there shows in no thread view (only in All).`,
-    describeClosestTopics(topicKey),
-    "Topic handles come from the `[thread:topic:<handle>]` tag on the user's messages in that topic. If you meant another thread, post again there (`[thread:topic:<handle>:C]`, `:A:uN`, Main or a quest); answers to requests still follow the requests they name.",
+    `Unknown thread \`${threadKey}\`: no thread has that handle (a topic's handle names no thread: topics are tags), so your output there shows in no thread view (only in All).`,
+    describeClosestThreads(threadKey),
+    "Thread handles come from the `[thread:topic:<handle>]` tag on the user's messages in that thread and from `takode thread new`. Post again in the thread you meant (`[thread:topic:<handle>:C]`, `:A:uN`, Main or a quest); answers to requests still follow the requests they name.",
   ].join("\n");
 }
 
@@ -694,10 +694,10 @@ export function buildThreadRoutingReminderForCompletedTurn(
   if (wasTriggeredByThreadRoutingReminder(session)) return null;
   const error = findThreadRoutingErrorForCurrentTurn(session);
   if (!error) {
-    const unknownTopic = findUnknownTopicKeyForCurrentTurn(session);
-    return unknownTopic
+    const unknownThread = findUnknownThreadKeyForCurrentTurn(session);
+    return unknownThread
       ? {
-          content: buildUnknownTopicReminderContent(unknownTopic),
+          content: buildUnknownThreadReminderContent(unknownThread),
           route: findTriggeringTurnRoute(session),
           agentSource: {
             sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,

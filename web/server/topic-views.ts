@@ -19,18 +19,22 @@ export interface TopicViewSource {
       topicId?: string;
       placeholderName?: boolean;
       quest?: string;
+      /** The earlier thread it was joined onto. */
+      joinedInto?: string;
       /** The leader opened it itself. */
       byLeader?: boolean;
     };
   } | null;
+  /** The handles of threads joined onto a thread: their messages read in its conversation. */
+  threadsJoinedInto?(threadId: string): readonly string[];
   /** The handles of threads filed under a topic: their threads show in its conversation. */
   threadsUnder?(topicId: string): readonly string[];
   questsOf(topicId: string): readonly string[];
   /** The handles whose threads a topic's conversation shows: its own and those merged into it. */
   handlesOf(topicId: string): readonly string[];
   topicOfQuest(questId: string): string | null;
-  /** Every live topic, most recent activity first (to suggest one for an unknown handle). */
-  listTopics?(): ReadonlyArray<{ id: string; name: string }>;
+  /** Every thread, most recent activity first (to suggest one for an unknown handle). */
+  listThreads?(): ReadonlyArray<{ id: string; name: string }>;
 }
 
 let source: TopicViewSource | null = null;
@@ -53,7 +57,8 @@ export function topicViewMembers(viewKey: string): string[] | null {
     .map((other) => topicViewKey(other))
     .filter((key) => key !== own);
   const threads = (source.threadsUnder?.(topic.id) ?? []).map((handle) => topicViewKey(handle));
-  return [...merged, ...threads, ...source.questsOf(topic.id).map((questId) => questId.toLowerCase())];
+  const joined = (source.threadsJoinedInto?.(topic.id) ?? []).map((handle) => topicViewKey(handle));
+  return [...merged, ...threads, ...joined, ...source.questsOf(topic.id).map((questId) => questId.toLowerCase())];
 }
 
 /** The conversation showing a topic thread: its topic's own, or that of the topic it was merged into. */
@@ -136,34 +141,36 @@ export function viewKeysOfRoutes(routeKeys: Iterable<string>): string[] {
     const handle = topicIdOfViewKey(key);
     const thread = handle && source ? source.topicOf(handle)?.thread : undefined;
     if (thread?.topicId) keys.add(topicViewKey(thread.topicId));
-    // A side chat that became a quest's thread shows in that quest, even for a message still
-    // routed to the chat.
+    // A side chat that became a quest's thread shows in that quest, and a thread joined onto an
+    // earlier one in that thread, even for a message still routed to it.
     if (thread?.quest) keys.add(thread.quest);
+    if (thread?.joinedInto) keys.add(thread.joinedInto);
   }
   for (const key of topicViewKeysOfQuests([...keys].filter((key) => /^q-\d+$/.test(key)))) keys.add(key);
   return [...keys];
 }
 
 /**
- * Whether a thread key names a topic thread no topic has (a mistyped handle): a message routed
- * there shows in no view but All. False for other keys, and while topics are not loaded.
+ * Whether a `topic:<handle>` key names no thread: a mistyped handle, or a topic's (topics are tags,
+ * nobody writes in them). A message routed there shows in no view but All. False for other keys,
+ * and while topics are not loaded.
  */
-export function isUnknownTopicKey(threadKey: string): boolean {
+export function isUnknownThreadKey(threadKey: string): boolean {
   const handle = topicIdOfViewKey(threadKey);
-  return !!handle && !!source && !source.topicOf(handle);
+  return !!handle && !!source && !source.topicOf(handle)?.thread;
 }
 
 /**
- * The topics whose handles are closest to an unknown topic key's (fewest differing characters,
+ * The threads whose handles are closest to an unknown thread key's (fewest differing characters,
  * then most recent activity), at most `limit`, for a warning that suggests the intended one.
  */
-export function closestTopics(threadKey: string, limit = 3): Array<{ key: string; name: string }> {
+export function closestThreads(threadKey: string, limit = 3): Array<{ key: string; name: string }> {
   const handle = topicIdOfViewKey(threadKey);
-  if (!handle || !source?.listTopics) return [];
+  if (!handle || !source?.listThreads) return [];
   return source
-    .listTopics()
-    .map((topic, order) => ({ key: topicViewKey(topic.id), name: topic.name, order }))
-    .map((topic) => ({ ...topic, distance: editDistance(handle, topic.key.slice("topic:".length)) }))
+    .listThreads()
+    .map((thread, order) => ({ key: topicViewKey(thread.id), name: thread.name, order }))
+    .map((thread) => ({ ...thread, distance: editDistance(handle, thread.key.slice("topic:".length)) }))
     .sort((a, b) => a.distance - b.distance || a.order - b.order)
     .slice(0, limit)
     .map(({ key, name }) => ({ key, name }));
@@ -182,9 +189,9 @@ function editDistance(a: string, b: string): number {
   return previous[b.length]!;
 }
 
-/** The sentence naming the closest topics, for warnings and errors about an unknown topic key. */
-export function describeClosestTopics(threadKey: string): string {
-  const closest = closestTopics(threadKey);
-  if (closest.length === 0) return "No topics are known.";
-  return `Closest topics: ${closest.map((topic) => `\`${topic.key}\` "${topic.name}"`).join(", ")}.`;
+/** The sentence naming the closest threads, for warnings and errors about an unknown thread key. */
+export function describeClosestThreads(threadKey: string): string {
+  const closest = closestThreads(threadKey);
+  if (closest.length === 0) return "No threads are known.";
+  return `Closest threads: ${closest.map((thread) => `\`${thread.key}\` "${thread.name}"`).join(", ")}.`;
 }

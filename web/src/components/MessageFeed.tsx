@@ -101,12 +101,10 @@ import {
   SectionBoundaryControl,
 } from "./MessageFeedNavigationControls.js";
 import { resolveThreadResponses } from "./thread-response-presentation.js";
-import { useTopicResponsePresentations } from "./topic-feed.js";
 import { useFeedPinnedTop } from "./feed-pinned-top.js";
 import { AnswerReferencesContext, useAllThreadsAnswerReferences } from "./answer-references.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
-import { useTopicTurnPartOf } from "./topic-feed.js";
 import { useMessageFeedStatusContentBottomSync, useMessageFeedStatusLayout } from "./use-message-feed-status-layout.js";
 import { MessageFeedDayPill } from "./MessageFeedDayPill.js";
 import { cancelLatestLanding, useLatestLandingAboveStatus } from "./message-feed-latest-landing.js";
@@ -354,7 +352,6 @@ export function MessageFeed({
     () => (isCodexSession ? collectCodexTerminalEntries(messages, toolResults, toolProgress, toolStartTimestamps) : []),
     [isCodexSession, messages, toolProgress, toolResults, toolStartTimestamps],
   );
-  const topicTurnPartOf = useTopicTurnPartOf();
   const { turns } = useCodexSafeFeedModel({
     messages,
     // The canonical frozen count is indexed against the unfiltered store. Once
@@ -376,7 +373,6 @@ export function MessageFeed({
     sessionNotifications: feedMessageModel.displayNotifications,
     userBoundarySourceSessionId: herdingLeaderSessionId ?? null,
     visibleAssistantChildMessageIds,
-    turnPartOf: topicTurnPartOf,
     perf: { sessionId, threadKey: normalizedThreadKey },
   });
   const userNavigationTargets = useMessageFeedUserNavigationTargets({
@@ -585,11 +581,6 @@ export function MessageFeed({
     threadResponseState,
     normalizedThreadKey,
     isLeaderSession,
-    feedMessageModel.messagesAvailableForDerivation,
-  );
-  const topicResponsePresentations = useTopicResponsePresentations(
-    visibleSections,
-    threadResponseState,
     feedMessageModel.messagesAvailableForDerivation,
   );
   const allThreadsAnswers = useAllThreadsAnswerReferences(
@@ -1900,7 +1891,6 @@ export function MessageFeed({
                         userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
                         questLinkSurface="chat-feed"
                         threadResponsePresentation={threadResponsePresentation}
-                        topicResponsePresentations={topicResponsePresentations}
                         needsInputAnchorMessageIds={needsInputAnchorMessageIds}
                         visibleThreadStatuses={visibleThreadStatuses}
                         workerPreviewTarget={workerPreviewTarget}

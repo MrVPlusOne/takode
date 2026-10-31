@@ -3,13 +3,12 @@ import { act, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useFeedPinnedTop } from "./feed-pinned-top.js";
-import { TopicFeedContext } from "./topic-feed.js";
 
 /**
- * A topic conversation's pinned quest strip covered the Next chip at the feed's top right. The
- * feed's overlay now carries the height of what is pinned at its top: the strip
- * (`--feed-pinned-top`, topic conversations only) and a pinned report collapse bar
- * (`--feed-pinned-bar`), and the top controls start below them.
+ * A pinned quest strip covered the Next chip at the feed's top right. The feed's overlay now
+ * carries the height of what is pinned at its top: the strip (`--feed-pinned-top`, feeds with
+ * strips only, a leader's Main) and a pinned report collapse bar (`--feed-pinned-bar`), and the top
+ * controls start below them.
  */
 
 function rect(top: number, height: number): DOMRect {
@@ -28,7 +27,7 @@ function Feed({ strip, report }: { strip: boolean; report?: { cardTop: number; b
     <div data-testid="overlay" style={pinned.style} data-below-strip={String(pinned.belowPinnedStrip)}>
       <div ref={containerRef} data-testid="container">
         <div ref={rootRef}>
-          {strip && <div data-testid="topic-feed-quest-start" data-feed-quest-strip="true" />}
+          {strip && <div data-testid="main-quest-strip" data-feed-quest-strip="true" />}
           {report && (
             <div data-testid="card" ref={(el) => stubRect(el, rect(report.cardTop, 2000))}>
               <div data-feed-pinned-bar="" ref={(el) => stubRect(el, rect(report.barTop, 26))} />
@@ -40,22 +39,16 @@ function Feed({ strip, report }: { strip: boolean; report?: { cardTop: number; b
   );
 }
 
-function renderFeed(topic: boolean, report?: { cardTop: number; barTop: number }) {
+function renderFeed(strip: boolean, report?: { cardTop: number; barTop: number }) {
   // jsdom does no layout: every element is 44px tall here (a strip's wrapper; the bar reads it too).
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(44);
-  return render(
-    <TopicFeedContext.Provider
-      value={topic ? { questIds: ["q-3"], topicKey: "topic:aaaaaaaa", topicName: "Relay", openQuest: vi.fn() } : null}
-    >
-      <Feed strip={topic} report={report} />
-    </TopicFeedContext.Provider>,
-  );
+  return render(<Feed strip={strip} report={report} />);
 }
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("useFeedPinnedTop", () => {
-  it("reserves the strip's height in a topic conversation", () => {
+  it("reserves the strip's height in a feed with quest strips", () => {
     renderFeed(true);
     const overlay = screen.getByTestId("overlay");
     expect(overlay.style.getPropertyValue("--feed-pinned-top")).toBe("44px");
@@ -63,7 +56,7 @@ describe("useFeedPinnedTop", () => {
     expect(overlay.dataset.belowStrip).toBe("true");
   });
 
-  it("reserves nothing outside topic conversations while no bar is pinned", () => {
+  it("reserves nothing in a feed without strips while no bar is pinned", () => {
     // The report's bar sits at the top of its report (it scrolls with it), so it is not pinned.
     renderFeed(false, { cardTop: 200, barTop: 200 });
     const overlay = screen.getByTestId("overlay");

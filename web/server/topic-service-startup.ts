@@ -175,6 +175,7 @@ export async function startLibraryTopics(input: {
                 ...(topic.thread.startedFrom ? { startedFrom: topic.thread.startedFrom } : {}),
                 ...(topic.thread.topicId ? { topicId: topic.thread.topicId } : {}),
                 ...(topic.thread.quest ? { quest: topic.thread.quest } : {}),
+                ...(topic.thread.joinedInto ? { joinedInto: topic.thread.joinedInto } : {}),
                 ...(topic.thread.startedBy === "leader" ? { byLeader: true } : {}),
                 // Renaming keeps the old name as an alias, so none means it has its first name still.
                 // A thread the leader opened has the name it gave.
@@ -188,8 +189,10 @@ export async function startLibraryTopics(input: {
     handlesOf: (topicId) => (service.store.loaded ? service.store.handlesOf(topicId) : []),
     threadsUnder: (topicId) =>
       service.store.loaded ? service.store.threadsUnder(topicId).map((thread) => topicHandle(thread.id)) : [],
+    threadsJoinedInto: (threadId) =>
+      service.store.loaded ? service.store.threadsJoinedInto(threadId).map((thread) => topicHandle(thread.id)) : [],
     topicOfQuest: (questId) => (service.store.loaded ? (service.store.topicOfQuest(questId)?.id ?? null) : null),
-    listTopics: () => (service.store.loaded ? service.store.list() : []),
+    listThreads: () => (service.store.loaded ? service.store.allThreads() : []),
   });
   addSessionSaveListener((sessionId) => service.sessionSaved(sessionId));
   return service;

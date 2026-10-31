@@ -6,11 +6,13 @@ vi.mock("../../api.js", () => ({ api: {} }));
 
 import { topicApi } from "../../api/topics.js";
 import { resetLeaderTopicsForTest } from "../../utils/leader-topics.js";
+import { useSideColumnStore } from "../../utils/side-column.js";
 import { QuestTopicLink, useLeaderQuestTopic } from "./QuestTopicLink.js";
 
 /**
  * The quest views name a quest's topic (Jiayi rarely reads quest tags and wanted the topic
- * instead), as a link that opens the topic conversation where the quest was last discussed.
+ * instead). Topics are tags for browsing: the link opens the quest's thread with the topic's page
+ * beside it.
  */
 
 function QuestTopic({ leader, onNavigate }: { leader: string | null; onNavigate?: () => void }) {
@@ -35,28 +37,22 @@ afterEach(() => {
 });
 
 describe("QuestTopicLink", () => {
-  it("names the quest's topic and opens its conversation where the quest was last discussed", async () => {
+  it("names the quest's topic and opens the quest's thread with the topic's page beside", async () => {
     mockTopics();
-    const lastDiscussed = vi.spyOn(topicApi, "lastDiscussed").mockResolvedValue({ messageId: "u-9" });
+    useSideColumnStore.setState({ columns: {} });
     const onNavigate = vi.fn();
     render(<QuestTopic leader="l1" onNavigate={onNavigate} />);
     const link = await screen.findByTestId("quest-topic-link");
     expect(link.textContent).toBe("Relay");
-    // Without script (or copied), the link still leads to the topic conversation.
-    expect(link.getAttribute("href")).toBe("#/session/l1?thread=topic%3At1");
+    // Without script (or copied), the link still leads to the quest's thread.
+    expect(link.getAttribute("href")).toBe("#/session/l1?thread=q-7");
 
     fireEvent.click(link);
     expect(onNavigate).toHaveBeenCalledOnce();
-    expect(lastDiscussed).toHaveBeenCalledWith("l1", "q-7");
-    await waitFor(() => expect(window.location.hash).toBe("#/session/l1/msg/u-9?thread=topic%3At1"));
-  });
-
-  it("opens the topic conversation at its end when the server can't say where the quest was discussed", async () => {
-    mockTopics();
-    vi.spyOn(topicApi, "lastDiscussed").mockResolvedValue({ messageId: null });
-    render(<QuestTopic leader="l1" />);
-    fireEvent.click(await screen.findByTestId("quest-topic-link"));
-    await waitFor(() => expect(window.location.hash).toBe("#/session/l1?thread=topic%3At1"));
+    expect(window.location.hash).toBe("#/session/l1?thread=q-7");
+    expect(useSideColumnStore.getState().columns.l1?.items).toEqual([
+      expect.objectContaining({ kind: "topic", topicId: "t1" }),
+    ]);
   });
 
   it("shows nothing for a quest under no topic or without a leader, which asks nothing", async () => {

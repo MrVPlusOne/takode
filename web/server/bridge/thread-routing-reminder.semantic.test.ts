@@ -136,18 +136,18 @@ describe("leader output to a topic thread no topic has", () => {
     };
   }
 
-  it("warns the leader, naming the unknown key and the closest topics", () => {
+  it("warns the leader, naming the unknown key and the closest threads", () => {
     // A mistyped handle sends output to a thread no view shows (only All). Instructions over
     // enforcement: the output is kept, and the leader is told where it went and what it may have meant.
     setTopicViewSource({
-      topicOf: (handle) => (handle === "6fd2c4bb" ? { id: "6fd2c4bb-0000", name: "Relay testing" } : null),
+      topicOf: (handle) => (handle === "6fd2c4bb" ? { id: "6fd2c4bb-0000", name: "Relay testing", thread: {} } : null),
       questsOf: () => [],
       handlesOf: () => [],
       topicOfQuest: () => null,
-      listTopics: () => [{ id: "6fd2c4bb-0000", name: "Relay testing" }],
+      listThreads: () => [{ id: "6fd2c4bb-0000", name: "Relay testing" }],
     });
     const reminder = buildThreadRoutingReminderForCompletedTurn(turn("topic:6fd2c4bc"));
-    expect(reminder?.content).toContain("Unknown topic thread `topic:6fd2c4bc`");
+    expect(reminder?.content).toContain("Unknown thread `topic:6fd2c4bc`");
     expect(reminder?.content).toContain('`topic:6fd2c4bb` "Relay testing"');
     expect(reminder?.route.threadKey).toBe("topic:6fd2c4bb");
     expect(buildThreadRoutingReminderForCompletedTurn(turn("topic:6fd2c4bb"))).toBeNull();

@@ -118,7 +118,7 @@ After a restore, the latest indicator should only appear again when:
 
 ### 5. Session restore
 
-A conversation (a chat, a leader's tab or a topic conversation) goes back to
+A conversation (a chat or a leader's thread) goes back to
 where it was left only if it is one of the last three places left in this
 browser, or was left less than 30 minutes ago. An older one opens at its latest
 messages, as Slack does: see "Opening at the latest" below. Each saved position

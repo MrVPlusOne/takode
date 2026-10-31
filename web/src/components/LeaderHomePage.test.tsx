@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 /**
- * A topic leader's Home, where its Main conversation was (Jiayi chose it over a bare "new thread"
- * page): the leader's overview at full width and its threads, over a message box whose first
- * message starts a new thread with the leader, which then opens in the main view.
+ * A leader's Home, where its Main conversation was: its threads by what they need (the status
+ * row's groups at full width), links to the leader log and the topics, over a message box whose
+ * first message starts a new thread with the leader, which then opens in the main view.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 const startThread = vi.hoisted(() => vi.fn());
 vi.mock("../api/topics.js", () => ({ topicApi: { startThread, threads: vi.fn(() => new Promise(() => {})) } }));
 type NewThread = { start: (text: string) => Promise<string | null>; started: (threadKey: string) => void };
@@ -16,43 +16,63 @@ vi.mock("./Composer.js", () => ({
     return <div data-testid="composer" />;
   },
 }));
-vi.mock("./overview/LeaderOverview.js", () => ({
-  useLeaderOverview: () => ({}),
-  LeaderOverview: () => <div data-testid="leader-overview" />,
-}));
-vi.mock("./TopicTabList.js", () => ({ useTopicTabTopics: () => [] }));
 vi.mock("./side-column/thread-names.js", () => ({ threadNameFromMessage: (text: string) => `named: ${text}` }));
 const navigateToSessionThread = vi.hoisted(() => vi.fn());
 vi.mock("../utils/routing.js", () => ({ navigateToSessionThread }));
-import { rememberThreads } from "../utils/leader-topics.js";
+import { useSideColumnStore } from "../utils/side-column.js";
+import { useTopicPanel } from "../utils/topic-panel.js";
 import { LeaderHomePage } from "./LeaderHomePage.js";
+import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
+
+function member(threadKey: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
+  return {
+    threadKey,
+    title: `Thread ${threadKey}`,
+    needsInput: false,
+    mutedNeedsInput: false,
+    blueNudge: false,
+    canClose: false,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
 
 afterEach(() => {
   cleanup();
+  useLeaderThreadMembers.setState({ byLeader: {} });
+  useSideColumnStore.setState({ columns: {} });
   startThread.mockReset();
   navigateToSessionThread.mockReset();
 });
 
 describe("LeaderHomePage", () => {
-  it("shows the overview and the leader's threads, the leader's own marked as such", () => {
-    rememberThreads("l1", [
-      {
-        id: "a1",
-        key: "topic:aaaa0001",
-        name: "Faster eval sweeps",
-        leaderId: "l1",
-        createdAt: 1,
-        activityAt: 2,
-        startedBy: "leader",
+  it("lists the leader's threads by what they need, and opens one in the main view", () => {
+    // The same members the status row groups: quest threads and the leader's other threads alike.
+    useLeaderThreadMembers.setState({
+      byLeader: {
+        l1: [
+          member("q-4", { questId: "q-4", title: "Fix the relay", needsInput: true }),
+          member("topic:aaaa0001", { title: "Quick question", blueNudge: true }),
+          member("q-2", { questId: "q-2", title: "Old work", completed: true }),
+        ],
       },
-      { id: "a2", key: "topic:aaaa0002", name: "Quick question", leaderId: "l1", createdAt: 1, activityAt: 1 },
-    ]);
+    });
     render(<LeaderHomePage leaderId="l1" />);
-    expect(screen.getByTestId("leader-overview")).toBeTruthy();
-    const threads = screen.getByTestId("leader-home-threads");
-    expect(threads.textContent).toContain("Faster eval sweeps");
-    expect(threads.textContent).toContain("the leader's");
-    expect(threads.textContent).toContain("Quick question");
+    const sections = screen.getAllByTestId("thread-group-section");
+    expect(sections.map((section) => section.dataset.group)).toEqual(["needs-input", "new-results", "done"]);
+    expect(sections[1]!.textContent).toContain("Quick question");
+    fireEvent.click(within(sections[0]!).getByTestId("thread-tab-list-row-select"));
+    expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-4");
+  });
+
+  it("says so when the leader has no threads yet, and links to the leader log and the topics", () => {
+    render(<LeaderHomePage leaderId="l1" />);
+    expect(screen.getByTestId("leader-home-empty")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("leader-home-log"));
+    expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "all");
+    // Topics are browsed beside: the side column opens on their list.
+    fireEvent.click(screen.getByTestId("leader-home-topics"));
+    expect(useTopicPanel.getState().panels.l1).toBe(true);
   });
 
   it("starts a new thread from its message box and opens it in the main view", async () => {

@@ -3,7 +3,6 @@ import { Activity, type RefObject, useCallback, useEffect, useLayoutEffect, useR
 import type { QuestTopicMap, TopicListResponse } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 import { openLeaderLibrary } from "../../utils/library-nav.js";
-import { rememberOverviewOrder } from "../../utils/leader-topics.js";
 import {
   loadLeaderTopics,
   useKnownQuestTopic,
@@ -26,9 +25,7 @@ import { ChangeList, RenameSuggestions, TopicSettings } from "./TopicPage.js";
 import { TopicActivityList } from "./TopicActivityList.js";
 import { NoTopicMatches, searchTopics, TopicSearchBox } from "./topic-search.js";
 import { TopicView } from "./TopicView.js";
-import { openTopicConversation } from "../../utils/topic-conversation.js";
 import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../../shared/topic-thread-key.js";
-import { prepareZoom } from "../topic-zoom.js";
 import { navigateToSession, navigateToSessionThread } from "../../utils/routing.js";
 import type { ScribeActivity } from "../../../shared/library-topics.js";
 import { CollapseIcon, GalleryIcon, SettingsIcon, TopicIcon } from "./library-icons.js";
@@ -99,7 +96,6 @@ export function TopicSidePanel({
       .then((next) => {
         setData(next);
         setError(null);
-        rememberOverviewOrder(leaderId, next.overviewOrder);
       })
       .catch((reason: Error) => setError(reason.message));
   }, [leaderId]);
@@ -206,19 +202,8 @@ export function TopicSidePanel({
               onChanged={load}
               embedded
               leaderId={leaderId}
-              onReadConversation={() => {
-                // Zooms out at the quest's place when the quest on screen is in this topic.
-                prepareZoom(leaderId, topicViewKey(topicId), "out", { feedKey: tabKey });
-                // From the phone sheet the step replaces the sheet's own history entry, so back
-                // returns to the view the sheet was opened over, not to a closed sheet.
-                openTopicConversation(leaderId, topicViewKey(topicId), { replace: variant === "sheet" });
-                if (variant === "sheet") close();
-              }}
-              conversationOnScreen={isKeyOfTopic(tabKey, topicId)}
               currentQuestId={tabKey.startsWith("q-") ? tabKey : null}
               onOpenQuest={(questId) => {
-                // A quest picked from the topic opens on its own.
-                prepareZoom(leaderId, questId, "in");
                 navigateToSessionThread(leaderId, questId, variant === "sheet", leaderId);
                 if (variant === "sheet") close();
               }}

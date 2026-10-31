@@ -151,7 +151,6 @@ describe("quest tabs led by another leader", () => {
     expect(own).toHaveAttribute("data-ownership-note", "");
     expect(within(own).getByTestId("thread-tab-list-row-meta").dataset.titleColor).not.toBe("var(--color-cc-muted)");
     expect(within(own).queryByTestId("thread-tab-led-elsewhere-icon")).toBeNull();
-    expect(own).toHaveAttribute("data-closable", "false");
 
     // A handed-off quest is muted, names the leader that runs it and can be closed.
     const handed = tab("q-2");
@@ -161,7 +160,6 @@ describe("quest tabs led by another leader", () => {
       "var(--color-cc-muted)",
     );
     expect(within(handed).getByTestId("thread-tab-led-elsewhere-icon")).toBeInTheDocument();
-    expect(handed).toHaveAttribute("data-closable", "true");
 
     // An unfinished quest no board holds is muted and says so; a finished one only reads as done.
     const removed = tab("q-3");

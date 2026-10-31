@@ -90,3 +90,13 @@ export function NewThreadIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+/** A window with a column at its right edge: the side column beside the conversation. */
+export function SideColumnIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" className={className} aria-hidden="true">
+      <rect x="2.5" y="3.5" width="15" height="13" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M12 3.5v13" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}

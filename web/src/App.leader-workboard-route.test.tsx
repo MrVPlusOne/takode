@@ -292,13 +292,12 @@ beforeEach(() => {
   window.location.hash = `#/session/${SESSION_ID}?thread=q-42`;
 });
 
-/** Toggles the work board the way a leader does: Full board in the top bar's Overview menu. */
+/** Toggles the work board the way a leader does: the Board button in the top bar. */
 function toggleBoard() {
-  fireEvent.click(screen.getByTestId("thread-tab-group-working-on"));
   fireEvent.click(screen.getByTestId("thread-top-bar-board-button"));
 }
 
-it("keeps the explicit leader quest-thread route stable while the Overview menu opens the board in place", async () => {
+it("keeps the explicit leader quest-thread route stable while the Board button opens the board in place", async () => {
   render(<App />);
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));

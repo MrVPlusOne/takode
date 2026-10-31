@@ -2,12 +2,11 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
 
 /**
- * A leader navigates by breadcrumb (every leader has Library topics), on desktop and phones alike:
- * no tab row, the place and quest pickers at the start of the strip under the top bar, and the
- * Overview menu (which holds the work board) in the top bar before the attention bell. The
- * conversation on screen fills the top bar's helpers place.
+ * Whether a session is a leader, which navigates by its threads, on desktop and phones alike: the
+ * status row under the top bar (Home, then its threads by what they need), Home where Main was,
+ * and the Board button in the top bar's helpers place, which the conversation on screen fills.
  */
-export function useLeaderBreadcrumb(sessionId: string | null | undefined): boolean {
+export function useLeaderNavigation(sessionId: string | null | undefined): boolean {
   return useStore(
     (state) =>
       !!sessionId && state.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator),

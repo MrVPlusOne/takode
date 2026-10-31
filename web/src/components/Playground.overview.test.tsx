@@ -142,34 +142,26 @@ describe("Playground", { timeout: 60_000 }, () => {
       expect(needsInput).toHaveAttribute("data-blue-notification", "true");
       expect(within(needsInput).getAllByTestId("thread-tab-bell")).toHaveLength(1);
       expect(within(needsInput).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
-      expect(needsInput).toHaveAttribute("data-closable", "false");
       expect(within(needsInput).queryByTestId("thread-tab-list-row-close")).toBeNull();
       expect(needsInput).toHaveAttribute("data-title-color", "var(--color-cc-phase-thread-tab-title-work, #166534)");
 
       const completedWaiting = tab("q-9004");
-      expect(completedWaiting).toHaveAttribute("data-closable", "true");
       expect(completedWaiting).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
 
       const reviewUnread = tab("q-9003");
       expect(reviewUnread).toHaveAttribute("data-blue-notification", "true");
       expect(within(reviewUnread).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "review");
-      expect(reviewUnread).toHaveAttribute("data-closable", "true");
 
       const muted = tab("q-9005");
       expect(muted).toHaveAttribute("data-muted-needs-input", "true");
       expect(within(muted).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "muted");
-      expect(muted).toHaveAttribute("data-closable", "true");
-      expect(tab("q-9002")).toHaveAttribute("data-closable", "true");
-      expect(tab("q-9006")).toHaveAttribute("data-closable", "true");
 
-      // Quests another leader runs, or no board holds, say so and stay closable.
+      // Quests another leader runs, or no board holds, say so.
       const handed = tab("q-9010");
       expect(handed).toHaveTextContent("Led by #2851");
       expect(within(handed).getByTestId("thread-tab-led-elsewhere-icon")).toBeTruthy();
-      expect(handed).toHaveAttribute("data-closable", "true");
       const offBoard = tab("q-9011");
       expect(offBoard).toHaveTextContent("Not on board");
-      expect(offBoard).toHaveAttribute("data-closable", "true");
     }
 
     // Both widths show the same leader, so opening a tab in one opens it in the other (and shows

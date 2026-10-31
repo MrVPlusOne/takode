@@ -1,5 +1,5 @@
 import { usePendingAction } from "../hooks/usePendingAction.js";
-import { showTopBarSession, topBarHelpersRef, useLeaderBreadcrumb } from "../utils/top-bar-slots.js";
+import { showTopBarSession, topBarHelpersRef, useLeaderNavigation } from "../utils/top-bar-slots.js";
 import { useState, useMemo, useCallback, useRef, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
@@ -107,9 +107,9 @@ export function TopBar({
   // The phone shell moves Needs input, Notify Me, Search and Quests into the sessions panel.
   const compact = !useDesktopShellLayout();
   const shownSessionId = useStore((s) => s.currentSessionId);
-  const leaderBreadcrumb = useLeaderBreadcrumb(shownSessionId);
+  const leaderNav = useLeaderNavigation(shownSessionId);
   // Only the conversation on screen shows its parts of the top bar (see showTopBarSession).
-  useLayoutEffect(() => showTopBarSession(shownSessionId), [shownSessionId, leaderBreadcrumb]);
+  useLayoutEffect(() => showTopBarSession(shownSessionId), [shownSessionId, leaderNav]);
   const {
     currentSessionId,
     sidebarOpen,
@@ -336,13 +336,13 @@ export function TopBar({
     .filter(Boolean)
     .join(" ");
 
-  // A leader navigates by the breadcrumb under the bar; the bar keeps its Overview menu (see
-  // useLeaderBreadcrumb).
-  const breadcrumb = leaderBreadcrumb && isSessionView;
+  // A leader navigates by the status row under the bar; the bar keeps its Board button (see
+  // useLeaderNavigation).
+  const leaderView = leaderNav && isSessionView;
   return (
     <header
       className={`relative shrink-0 flex items-center justify-between bg-cc-card border-b border-cc-border ${
-        compact ? "gap-2 px-2 py-1.5" : breadcrumb ? "gap-3 px-4 py-1.5" : "px-2 sm:px-4 py-2 sm:py-2.5"
+        compact ? "gap-2 px-2 py-1.5" : leaderView ? "gap-3 px-4 py-1.5" : "px-2 sm:px-4 py-2 sm:py-2.5"
       }`}
     >
       <div className={`flex items-center min-w-0 ${compact ? "flex-1 gap-2" : "gap-3"}`} data-testid="topbar-identity">
@@ -507,9 +507,9 @@ export function TopBar({
 
       {/* Right side */}
       <div className={`flex items-center shrink-0 text-[12px] text-cc-muted ${compact ? "gap-1.5" : "gap-2 sm:gap-3"}`}>
-        {/* The conversation's Overview menu, which holds the work board. */}
-        {breadcrumb && <div ref={topBarHelpersRef} className="flex items-center" data-testid="topbar-thread-helpers" />}
-        {/* Phones open the topic sheet here; desktop keeps the panel beside the conversation. */}
+        {/* The conversation's Board button. */}
+        {leaderView && <div ref={topBarHelpersRef} className="flex items-center" data-testid="topbar-thread-helpers" />}
+        {/* Phones open the side column's sheet here; desktop keeps the column beside the conversation. */}
         {currentSessionId && isSessionView && isCurrentLeaderSession && compact && (
           <LeaderTopicsTopBarButton
             open={topicSheetOpen}

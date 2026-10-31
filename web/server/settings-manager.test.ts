@@ -81,7 +81,6 @@ describe("settings-manager", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       sidebarViewMode: "spaces",
-      sidebarPinnedTopics: [],
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",
@@ -520,6 +519,16 @@ describe("settings-manager", () => {
     expect(getSettings().sidebarViewMode).toBe("recent");
   });
 
+  it("reads the retired Topics sidebar view as Recent and drops pinned topics", () => {
+    // Topics became tags, so the sidebar lost its Topics view and topic pins; an older settings
+    // file opens on Recent, which listed the same sessions by recency.
+    writeFileSync(settingsPath, JSON.stringify({ sidebarViewMode: "topics", sidebarPinnedTopics: ["t-1"] }), "utf-8");
+    _resetForTest(settingsPath);
+
+    expect(getSettings().sidebarViewMode).toBe("recent");
+    expect(getSettings()).not.toHaveProperty("sidebarPinnedTopics");
+  });
+
   it("persists Questmaster compact sort across reloads", async () => {
     // Compact-table sort is server-owned so browser reloads and tabs converge.
     updateSettings({ questmasterCompactSort: { column: "feedback", direction: "desc" } });
@@ -753,7 +762,6 @@ describe("settings-manager", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       sidebarViewMode: "spaces",
-      sidebarPinnedTopics: [],
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",

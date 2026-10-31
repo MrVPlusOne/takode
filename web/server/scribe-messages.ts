@@ -23,6 +23,14 @@ export interface UpdateContent {
   unsorted: Array<{ questId: string; title: string }>;
   /** Threads the user started that just settled under no topic: file each where it plainly belongs. */
   settledThreads?: Array<{ key: string; name: string; startedFrom?: string; firstMessage?: string }>;
+  /**
+   * Threads the user just started: join each onto the earlier conversation it plainly continues.
+   * `earlier` lists the leader's other recent threads; its quests come from `takode scribe quests`.
+   */
+  joinChecks?: {
+    threads: Array<{ key: string; name: string; firstMessage?: string }>;
+    earlier: Array<{ key: string; name: string }>;
+  };
   /** The user's instructions for topics and pages, when they changed since this Scribe was last told. */
   instructions?: string;
   /** Topics the user asked to update now (Update now). */
@@ -64,10 +72,12 @@ export function updateMessage(
   const { topics, unsorted, instructions, forced, rewritePages, consolidate } = content;
   const settledThreads = content.settledThreads ?? [];
   const newTopics = content.newTopics ?? [];
+  const joinChecks = content.joinChecks?.threads.length ? content.joinChecks : undefined;
   if (
     !topics.length &&
     !unsorted.length &&
     !settledThreads.length &&
+    !joinChecks &&
     !instructions &&
     !forced.length &&
     !rewritePages &&
@@ -80,7 +90,7 @@ export function updateMessage(
   if (rewritePages) {
     lines.push(
       "",
-      "Your brief changed, and this asks for one change on each of your leader's topics (`takode topic list` lists them); change nothing else. The Now lists are retired: they went stale and asked the user to tick items off. For each topic, run `takode scribe changes <topic>`, then write where it stands with `takode scribe stands <topic>`: one to three short lines on what is open or waiting now, folding in whatever of its old Now entries (listed there) is still open and true; leave out what a quest or Takode already shows. Then remove History lines that only restate a finished quest (Takode lists finished quests in a quest log) and save the page; if its History has none, mark it `--unchanged`. Then order your leader's overview (`takode scribe overview`).",
+      "Your brief changed, and this asks for one change on each of your leader's topics (`takode topic list` lists them); change nothing else. The Now lists are retired: they went stale and asked the user to tick items off. For each topic, run `takode scribe changes <topic>`, then write where it stands with `takode scribe stands <topic>`: one to three short lines on what is open or waiting now, folding in whatever of its old Now entries (listed there) is still open and true; leave out what a quest or Takode already shows. Then remove History lines that only restate a finished quest (Takode lists finished quests in a quest log) and save the page; if its History has none, mark it `--unchanged`.",
     );
   }
   if (instructions) lines.push("", `The user's instructions changed: "${instructions}"`);
@@ -120,6 +130,20 @@ export function updateMessage(
       if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
     }
   }
+  if (joinChecks) {
+    lines.push(
+      "",
+      "Threads the user just started: does one continue an earlier conversation (the same request or problem, picked up again)? Then join it onto that conversation with `takode scribe join <thread> <earlier>`, where <earlier> is another thread or a quest whose thread it is (`takode scribe quests --since 14d` lists your leader's quests). Join only when it plainly continues one; a new subject stays a thread of its own. The user sees the join and can undo it.",
+    );
+    for (const thread of joinChecks.threads) {
+      lines.push(`- ${thread.key} "${thread.name}"`);
+      if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
+    }
+    if (joinChecks.earlier.length) {
+      lines.push("Your leader's other recent threads:");
+      for (const thread of joinChecks.earlier) lines.push(`- ${thread.key} "${thread.name}"`);
+    }
+  }
   if (newTopics.length) {
     lines.push(
       "",
@@ -145,7 +169,7 @@ export function updateMessage(
   }
   lines.push(
     "",
-    "Update what these touch: where each topic stands (`takode scribe stands`) and its page. `takode scribe changes <topic>` shows a page with everything not on it yet. Then order your leader's overview (`takode scribe overview`), and tell your leader about loose ends if there are any (`takode scribe loose-ends`).",
+    "Update what these touch: where each topic stands (`takode scribe stands`) and its page. `takode scribe changes <topic>` shows a page with everything not on it yet. Then tell your leader about loose ends if there are any (`takode scribe loose-ends`).",
   );
   return lines.join("\n");
 }
@@ -173,6 +197,21 @@ export function looseEndsNotice(scribeNum: number | null, lines: readonly string
     "",
     "Act on them or ask the user; skip any that are already handled. You need not reply to the Scribe.",
   ].join("\n");
+}
+
+/** For the leader: its Scribe joined a thread onto the earlier conversation it continues. */
+export function threadJoinedNotice(
+  scribeNum: number | null,
+  thread: { key: string; name: string },
+  into: { key: string; name?: string },
+): string {
+  const onto = into.name ? `${into.key} "${into.name}"` : into.key;
+  return `Your Scribe #${scribeNum ?? "?"} joined the thread "${thread.name}" (${thread.key}) onto ${onto}: it continues that conversation, so answer there. The user can undo it.`;
+}
+
+/** For the leader: the user undid a join, so the thread is a conversation of its own again. */
+export function threadUnjoinedNotice(thread: { key: string; name: string }, from: string): string {
+  return `The user undid joining the thread "${thread.name}" (${thread.key}) onto ${from}: it is a conversation of its own again.`;
 }
 
 /** For the leader, once, when its Scribe's turns keep failing (often its login or the model service). */

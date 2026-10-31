@@ -1,4 +1,4 @@
-import { describeClosestTopics, isUnknownTopicKey } from "../topic-views.js";
+import { describeClosestThreads, isUnknownThreadKey } from "../topic-views.js";
 import { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
@@ -1075,15 +1075,15 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
 
     const body = await c.req.json().catch(() => ({}));
-    // The thread to hand the messages off to: a quest, or a topic's own thread (`topic:<handle>`).
+    // The thread to hand the messages off to: a quest, or a thread (`topic:<handle>`).
     const target = typeof body.questId === "string" ? normalizeThreadTarget(body.questId) : null;
     if (!target || target.threadKey === "main") {
-      return c.json({ error: "Give a quest ID (q-N) or a topic thread (topic:<handle>)" }, 400);
+      return c.json({ error: "Give a quest ID (q-N) or a thread (topic:<handle>)" }, 400);
     }
     const questId = target.threadKey;
     const targetQuestId = target.questId;
-    if (isUnknownTopicKey(questId)) {
-      return c.json({ error: `No topic has the handle in ${questId}. ${describeClosestTopics(questId)}` }, 404);
+    if (isUnknownThreadKey(questId)) {
+      return c.json({ error: `No thread has the handle in ${questId}. ${describeClosestThreads(questId)}` }, 404);
     }
 
     const indices = new Set<number>();

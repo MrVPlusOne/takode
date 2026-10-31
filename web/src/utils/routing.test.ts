@@ -17,7 +17,6 @@ import {
   navigateToSessionMessageId,
   navigateToSessionThread,
   routeLeavesFeed,
-  legacyTopicViewQuestFromHash,
   navigateHome,
   navigateToMostRecentSession,
   openQuestOverlayRouteAware,
@@ -40,6 +39,7 @@ import {
 import { useStore } from "../store.js";
 import { rememberTopicViewMembers } from "./thread-projection.js";
 
+import { rememberThreads } from "./leader-topics.js";
 describe("parseHash", () => {
   it("returns home for empty string", () => {
     expect(parseHash("")).toEqual({ page: "home" });
@@ -437,15 +437,35 @@ describe("navigateToSessionThread", () => {
     expect(window.location.hash).toBe("#/session/s1/msg/m-1?thread=q-1");
   });
 
-  it("reads a route from before topic conversations had their own key as its quest's topic view", () => {
-    // `?thread=q-N&topic=1` was a quest tab zoomed out to its topic; it opens as the topic now.
-    expect(legacyTopicViewQuestFromHash("#/session/s1?thread=q-1&topic=1")).toBe("q-1");
-    expect(legacyTopicViewQuestFromHash("#/session/s1?thread=q-1")).toBeNull();
-    expect(legacyTopicViewQuestFromHash("#/session/s1?thread=topic%3At1")).toBeNull();
-    // Moving on from such a route drops the flag.
+  it("drops the flag of a route from before topic conversations had their own key", () => {
+    // `?thread=q-N&topic=1` was a quest tab zoomed out to its topic; moving on leaves it behind.
     window.location.hash = "#/session/s1?thread=q-1&topic=1";
     navigateToSessionThread("s1", "q-2");
     expect(window.location.hash).toBe("#/session/s1?thread=q-2");
+  });
+
+  it("opens the conversation a thread became: its quest, or the earlier thread it was joined onto", () => {
+    rememberThreads("s1", [
+      { id: "aa11", key: "topic:aa11", name: "Composer", leaderId: "s1", createdAt: 1, activityAt: 1, quest: "q-7" },
+      {
+        id: "bb22",
+        key: "topic:bb22",
+        name: "Again",
+        leaderId: "s1",
+        createdAt: 2,
+        activityAt: 2,
+        joinedInto: "topic:cc33",
+      },
+    ]);
+    try {
+      window.location.hash = "#/session/s1?thread=main";
+      navigateToSessionThread("s1", "topic:aa11");
+      expect(threadRouteFromHash(window.location.hash).threadKey).toBe("q-7");
+      navigateToSessionThread("s1", "topic:bb22");
+      expect(threadRouteFromHash(window.location.hash).threadKey).toBe("topic:cc33");
+    } finally {
+      rememberThreads("s1", []);
+    }
   });
 
   // A topic thread with no quest tab to host its conversation (a side chat's thread) opens on its own.

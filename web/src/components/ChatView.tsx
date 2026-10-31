@@ -1,21 +1,12 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
-import { useLeaderBreadcrumb } from "../utils/top-bar-slots.js";
+import { useLeaderNavigation } from "../utils/top-bar-slots.js";
 import { LeaderHomePage, NewThreadComposer } from "./LeaderHomePage.js";
-import { CrumbStart, CrumbStrip, ThreadCrumb } from "./breadcrumb/CrumbStart.js";
-import { ItemCrumb } from "./breadcrumb/ItemCrumb.js";
-import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
-import { isOpenInSideClick, openInSide, type OpenInSideEvent } from "../utils/side-column.js";
+import { LeaderTopicPanel, useQuestTopic } from "./library/TopicSidePanel.js";
+import { openInSide } from "../utils/side-column.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
-import {
-  TopicEntryContext,
-  useStandaloneTopicConversation,
-  useTopicConversation,
-  useTopicWindowFollowsQuests,
-} from "./library/TopicConversation.js";
-import { TopicFeedContext, type TopicFeed } from "./topic-feed.js";
-import { useKnownThreadOfKey } from "../utils/leader-topics.js";
-import { landZoom, prepareZoom } from "./topic-zoom.js";
-import { isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
+import { loadLeaderNamesOnce, useKnownThreadOfKey, useKnownTopicOfKey } from "../utils/leader-topics.js";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
+import { ThreadStrip, TopicTag } from "./ThreadStrip.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useShallow } from "zustand/react/shallow";
@@ -43,7 +34,6 @@ import { useSessionSearch } from "../hooks/useSessionSearch.js";
 import {
   hasMessageDeepLinkFromHash,
   historyEntryShowsMainThread,
-  legacyTopicViewQuestFromHash,
   markHistoryEntryShowsMainThread,
   navigateToSessionMessageId,
   navigateToSessionThread,
@@ -564,13 +554,13 @@ export function ChatView({
   );
   const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
   const desktopShell = useDesktopShellLayout();
-  // Leaders: a breadcrumb at the start of the strip, helpers in the top bar.
-  const breadcrumb = useLeaderBreadcrumb(sessionId) && !preview;
+  // Leaders: the status row under the top bar, the Board button in it.
+  const leaderNav = useLeaderNavigation(sessionId) && !preview;
   // A topic leader's Main is its Home: no conversation of its own (Main's messages are in the
   // leader log), but what needs the user and a place to start a thread.
-  const homePage = breadcrumb && isLeaderSession && normalizeThreadKey(selectedThreadKey) === MAIN_THREAD_KEY;
+  const homePage = leaderNav && isLeaderSession && normalizeThreadKey(selectedThreadKey) === MAIN_THREAD_KEY;
   // Its leader log (All threads) is for checking what happened: writing there starts a thread too.
-  const leaderLog = breadcrumb && isLeaderSession && normalizeThreadKey(selectedThreadKey) === ALL_THREADS_KEY;
+  const leaderLog = leaderNav && isLeaderSession && normalizeThreadKey(selectedThreadKey) === ALL_THREADS_KEY;
   // On a phone the open topic panel starts right under the tabs: the thread's strips step aside.
   const phoneTopicsOpen = useTopicSheetOpen(sessionId) && !desktopShell && !preview;
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
@@ -651,43 +641,51 @@ export function ChatView({
     selectedThreadKey.toLowerCase() !== MAIN_THREAD_KEY &&
     selectedThreadKey.toLowerCase() !== ALL_THREADS_KEY &&
     isQuestThreadKey(selectedThreadKey);
-  // The topic a quest on screen is filed under (for its breadcrumb and "Part of" line).
-  const questTopicConversation = useTopicConversation(
-    sessionId,
-    showQuestThreadBanner && !preview ? selectedThreadKey : "",
-  );
-  // A thread the user started (New thread): its own conversation, not a topic's.
+  // A thread the user started (New thread), or the leader opened: its own conversation.
   const selectedThread = useKnownThreadOfKey(
     sessionId,
     isLeaderSession && !preview && isTopicViewKey(selectedThreadKey) ? selectedThreadKey : "",
   );
-  // A route from before topic conversations had their own key (`?thread=q-N&topic=1`, from an old
-  // history entry or link) opens as that quest's topic conversation once the quest's topic is known.
-  const legacyTopicKey =
-    !preview && questTopicConversation && legacyTopicViewQuestFromHash(window.location.hash) === selectedThreadKey
-      ? topicViewKey(questTopicConversation.topicId)
-      : null;
+  // A `topic:<handle>` address names a thread or a topic: learn the leader's names to tell which.
+  const topicKeyOnScreen = isLeaderSession && !preview && isTopicViewKey(selectedThreadKey);
   useEffect(() => {
-    if (legacyTopicKey) navigateToSessionThread(sessionId, legacyTopicKey, true);
-  }, [legacyTopicKey, sessionId]);
-  // A topic's conversation on screen: a place of its own (`topic:<handle>`), like a quest.
-  const standaloneTopic = useStandaloneTopicConversation(
+    if (topicKeyOnScreen) loadLeaderNamesOnce(sessionId);
+  }, [topicKeyOnScreen, sessionId]);
+  // A thread that became a quest's thread, or that the Scribe joined onto an earlier one, is that
+  // conversation now: its address opens it (also when the join happens while it is on screen).
+  const selectedThreadDestination = selectedThread?.quest ?? selectedThread?.joinedInto;
+  useEffect(() => {
+    if (selectedThreadDestination) navigateToSessionThread(sessionId, selectedThreadDestination, true);
+  }, [selectedThreadDestination, sessionId]);
+  // The topic a thread on screen is filed under: a tag on its strip that opens the topic's page.
+  const selectedTopic = useQuestTopic(
     sessionId,
-    isLeaderSession && !preview && !selectedThread ? selectedThreadKey : "",
+    isLeaderSession && !preview && (showQuestThreadBanner || selectedThread) ? selectedThreadKey : "",
   );
-  const topicConversation = standaloneTopic ?? questTopicConversation;
-  const topicFeedOn = !!topicConversation && !!standaloneTopic;
-  const feedThreadKey = topicFeedOn ? topicViewKey(topicConversation.topicId) : selectedThreadKey;
-  useTopicWindowFollowsQuests(sessionId, topicFeedOn ? feedThreadKey : null, topicConversation?.questIds ?? []);
-  const feedQuestKeys = topicFeedOn ? topicConversation.questIds.map((questId) => normalizeThreadKey(questId)) : null;
+  const openSelectedTopic = useCallback(
+    () => selectedTopic && openInSide(sessionId, { kind: "topic", topicId: selectedTopic.id }),
+    [selectedTopic, sessionId],
+  );
+  // Topics are tags, not places to write: an address of a topic's former conversation (a link, an
+  // old history entry) opens the topic's page beside the leader's Home.
+  const addressedTopic = useKnownTopicOfKey(
+    sessionId,
+    isLeaderSession && !preview && isTopicViewKey(selectedThreadKey) && !selectedThread ? selectedThreadKey : "",
+  );
+  useEffect(() => {
+    if (!addressedTopic) return;
+    openInSide(sessionId, { kind: "topic", topicId: addressedTopic.id });
+    // Named in the address, so the topic's key, still the saved selection, doesn't come back.
+    navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true, sessionId, { preserveMainThreadRoute: true });
+  }, [addressedTopic, sessionId]);
+  const feedThreadKey = selectedThreadKey;
   const unreadAbove = useUnreadMessagesSeen({
     sessionId,
     feedKey: feedThreadKey,
     notifications: sessionNotifications,
     enabled: isLeaderSession && !preview,
     inFeed: (ownerThreadKey) =>
-      normalizeThreadKey(feedThreadKey) === ALL_THREADS_KEY ||
-      (feedQuestKeys ? feedQuestKeys.includes(ownerThreadKey) : ownerThreadKey === normalizeThreadKey(feedThreadKey)),
+      normalizeThreadKey(feedThreadKey) === ALL_THREADS_KEY || ownerThreadKey === normalizeThreadKey(feedThreadKey),
     onSeen: (notificationId) => void api.markNotificationDone(sessionId, notificationId, true).catch(console.error),
   });
   const unreadAboveIndicator = unreadAbove?.first.messageId ? (
@@ -701,18 +699,6 @@ export function ChatView({
       }
     />
   ) : null;
-  // Zooming between the quest and its topic keeps the reader's place and plays the zoom, once the
-  // new feed is on screen.
-  const zoomColumnRef = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => landZoom(sessionId, feedThreadKey, zoomColumnRef.current), [sessionId, feedThreadKey]);
-  // Set once handleSelectThread exists, below.
-  const selectThreadRef = useRef<(threadKey: string) => void>(() => {});
-  const zoomOutToTopic = useCallback(() => {
-    if (!topicConversation) return;
-    const topicKey = topicViewKey(topicConversation.topicId);
-    prepareZoom(sessionId, topicKey, "out", { feedKey: selectedThreadKey });
-    selectThreadRef.current(topicKey);
-  }, [sessionId, selectedThreadKey, topicConversation]);
 
   // Reconnects and handoff refetches request the window of the feed on screen, which the saved
   // selection does not always match: a topic conversation shows its topic's window, not its tab's
@@ -721,36 +707,6 @@ export function ChatView({
     if (!isLeaderSession || preview) return;
     return markLeaderThreadDisplayed(sessionId, feedThreadKey);
   }, [isLeaderSession, preview, feedThreadKey, sessionId]);
-  const feedTopicEntry = useMemo(
-    () =>
-      topicConversation && !topicFeedOn
-        ? {
-            name: topicConversation.name,
-            count: topicConversation.questIds.length,
-            // The open-in-side click puts the topic's page beside the quest instead of zooming out.
-            onOpen: (event?: OpenInSideEvent) =>
-              isOpenInSideClick(event)
-                ? openInSide(sessionId, { kind: "topic", topicId: topicConversation.topicId })
-                : zoomOutToTopic(),
-          }
-        : null,
-    [sessionId, topicConversation, topicFeedOn, zoomOutToTopic],
-  );
-  // Set once handleSelectThread exists, below.
-  const openTopicQuestRef = useRef<(questId: string, part?: HTMLElement | null) => void>(() => {});
-  const topicFeed = useMemo<TopicFeed | null>(
-    () =>
-      topicFeedOn
-        ? {
-            questIds: topicConversation.questIds,
-            topicKey: topicViewKey(topicConversation.topicId),
-            topicName: topicConversation.name,
-            ...(topicConversation.threads ? { threads: topicConversation.threads } : {}),
-            openQuest: (questId: string, part?: HTMLElement | null) => openTopicQuestRef.current(questId, part),
-          }
-        : null,
-    [topicFeedOn, topicConversation],
-  );
   const selectedSideQuestOf = useSideQuestOf(showQuestThreadBanner ? sessionId : undefined, selectedThreadKey);
   const sessionQuestBannerRow = useMemo(
     () =>
@@ -784,13 +740,7 @@ export function ChatView({
       sessionNum,
     ],
   );
-  // A topic conversation holds many quests, so its messages go to the topic's own thread; the
-  // leader answers there or hands them off to one of its quests.
-  const composerThreadKey = !isLeaderSession
-    ? MAIN_THREAD_KEY
-    : topicFeedOn
-      ? feedThreadKey
-      : composeThreadKeyForSelection(selectedThreadKey);
+  const composerThreadKey = !isLeaderSession ? MAIN_THREAD_KEY : composeThreadKeyForSelection(selectedThreadKey);
   const composerQuestId = isLeaderSession && isQuestThreadKey(composerThreadKey) ? composerThreadKey : undefined;
   const reviewAttentionRecords = useMemo(
     () =>
@@ -831,7 +781,7 @@ export function ChatView({
   // leader log shows them.
   const readThreadKey = !isLeaderSession
     ? MAIN_THREAD_KEY
-    : !breadcrumb
+    : !leaderNav
       ? selectedThreadKey
       : normalizeThreadKey(selectedThreadKey) === ALL_THREADS_KEY
         ? MAIN_THREAD_KEY
@@ -950,22 +900,14 @@ export function ChatView({
     },
     [cachedThreadWindows, isLeaderSession, openThreadTab, preview, selectedThreadKey, sessionId],
   );
-  selectThreadRef.current = handleSelectThread;
-  // Zooming into a quest from its strip in the topic: the quest opens on its own, one history step.
-  openTopicQuestRef.current = (questId, part) => {
-    prepareZoom(sessionId, questId, "in", { feedKey: feedThreadKey, part });
-    handleSelectThread(questId);
-  };
   const questStripRef = useRef<HTMLDivElement | null>(null);
   const phoneTopicTopRef = useRef<HTMLDivElement | null>(null);
   const selectedTabKey = normalizeThreadKey(selectedThreadKey);
   // Tabs don't close (every place stays in the menus): the band's × leaves the quest for where it
   // lives, its topic's conversation, else the leader's Home.
   const leaveSelectedQuest: { run: () => void; label: string } | undefined =
-    breadcrumb && isQuestThreadKey(selectedTabKey)
-      ? topicConversation
-        ? { run: zoomOutToTopic, label: `Back to ${topicConversation.name}` }
-        : { run: () => handleSelectThread(MAIN_THREAD_KEY), label: "Back to Home" }
+    leaderNav && isQuestThreadKey(selectedTabKey)
+      ? { run: () => handleSelectThread(MAIN_THREAD_KEY), label: "Back to Home" }
       : undefined;
 
   useEffect(() => {
@@ -1232,29 +1174,18 @@ export function ChatView({
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex min-h-0 flex-1">
-                <div ref={zoomColumnRef} className="flex min-w-0 flex-1 flex-col">
+                <div className="flex min-w-0 flex-1 flex-col">
                   {!preview && !phoneTopicsOpen && selectedThread && (
                     <div ref={questStripRef} className="contents">
-                      <CrumbStrip sessionId={sessionId}>
-                        <ThreadCrumb leaderId={sessionId} thread={selectedThread} onOpen={handleSelectThread} />
-                      </CrumbStrip>
+                      <ThreadStrip
+                        thread={selectedThread}
+                        topic={selectedTopic}
+                        onOpenTopic={openSelectedTopic}
+                        onLeave={() => handleSelectThread(MAIN_THREAD_KEY)}
+                      />
                     </div>
                   )}
-                  {!preview && !phoneTopicsOpen && topicFeedOn && (
-                    <div ref={questStripRef} className="contents">
-                      <CrumbStrip sessionId={sessionId}>
-                        <ItemCrumb
-                          leaderId={sessionId}
-                          topicId={topicConversation.topicId}
-                          current={{ kind: "topic" }}
-                          onOpenTopic={() => {}}
-                          onOpenQuest={(questId) => openTopicQuestRef.current(questId)}
-                          onOpenThread={handleSelectThread}
-                        />
-                      </CrumbStrip>
-                    </div>
-                  )}
-                  {!preview && !phoneTopicsOpen && showQuestThreadBanner && !topicFeedOn && (
+                  {!preview && !phoneTopicsOpen && showQuestThreadBanner && (
                     <div ref={questStripRef} className="contents">
                       <QuestThreadBanner
                         row={selectedThreadRow}
@@ -1264,24 +1195,9 @@ export function ChatView({
                         diffSessionId={sessionId}
                         onCloseTab={leaveSelectedQuest?.run}
                         closeLabel={leaveSelectedQuest?.label}
-                        singleLine={breadcrumb}
-                        // The breadcrumb: the place (Main or the quest's topic), then the quest, which
-                        // lists the topic's other quests when it is filed under one.
-                        leading={breadcrumb ? <CrumbStart sessionId={sessionId} /> : undefined}
-                        renderTitle={
-                          breadcrumb && topicConversation
-                            ? (title) => (
-                                <ItemCrumb
-                                  leaderId={sessionId}
-                                  topicId={topicConversation.topicId}
-                                  current={{ kind: "quest", questId: selectedTabKey }}
-                                  label={title ?? selectedTabKey}
-                                  onOpenTopic={zoomOutToTopic}
-                                  onOpenQuest={handleSelectThread}
-                                  onOpenThread={handleSelectThread}
-                                />
-                              )
-                            : undefined
+                        singleLine={leaderNav}
+                        topicTag={
+                          selectedTopic ? <TopicTag name={selectedTopic.name} onOpen={openSelectedTopic} /> : undefined
                         }
                       />
                     </div>
@@ -1304,38 +1220,34 @@ export function ChatView({
                     <LeaderHomePage leaderId={sessionId} />
                   ) : (
                     <div className="contents">
-                      <TopicEntryContext.Provider value={feedTopicEntry}>
-                        <ViewportHandoffThreadEntryGate
-                          key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
-                          sessionId={preview ? null : sessionId}
-                          threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-                          entryId={viewportHandoffThreadEntryRef.current.entryId}
-                          fallback={
-                            <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
-                              Loading conversation...
-                            </div>
-                          }
+                      <ViewportHandoffThreadEntryGate
+                        key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
+                        sessionId={preview ? null : sessionId}
+                        threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+                        entryId={viewportHandoffThreadEntryRef.current.entryId}
+                        fallback={
+                          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
+                            Loading conversation...
+                          </div>
+                        }
+                      >
+                        {/* Reload fork links when the user changes threads or a new quest thread appears. */}
+                        <StartedQuestsProvider
+                          sessionId={sessionId}
+                          enabled={isLeaderSession && !preview}
+                          refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
                         >
-                          {/* Reload fork links when the user changes threads or a new quest thread appears. */}
-                          <StartedQuestsProvider
+                          <MessageFeed
                             sessionId={sessionId}
-                            enabled={isLeaderSession && !preview}
-                            refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
-                          >
-                            <TopicFeedContext.Provider value={topicFeed}>
-                              <MessageFeed
-                                sessionId={sessionId}
-                                threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
-                                projectThreadRoutes={isLeaderSession}
-                                onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-                                showCodexSubagentControl={!preview}
-                                markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
-                                unreadAboveIndicator={unreadAboveIndicator}
-                              />
-                            </TopicFeedContext.Provider>
-                          </StartedQuestsProvider>
-                        </ViewportHandoffThreadEntryGate>
-                      </TopicEntryContext.Provider>
+                            threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
+                            projectThreadRoutes={isLeaderSession}
+                            onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                            showCodexSubagentControl={!preview}
+                            markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                            unreadAboveIndicator={unreadAboveIndicator}
+                          />
+                        </StartedQuestsProvider>
+                      </ViewportHandoffThreadEntryGate>
                     </div>
                   )}
                 </div>
@@ -1435,7 +1347,7 @@ export function ChatView({
               sessionId={sessionId}
               threadKey={composerThreadKey}
               questId={composerQuestId}
-              topicName={selectedThread ? selectedThread.name : topicFeedOn ? topicConversation.name : undefined}
+              topicName={selectedThread?.name}
               transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
               transcriptionThreadTitle={composerThreadTitle}
             />

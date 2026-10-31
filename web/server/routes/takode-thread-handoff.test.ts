@@ -372,28 +372,33 @@ describe("Main-to-quest responsibility handoff", () => {
   });
 });
 
-describe("handoff to a topic thread no topic has", () => {
-  it("fails with the closest topics, changing nothing", async () => {
+describe("handoff to a key that names no thread", () => {
+  it("fails with the closest threads, changing nothing, for a mistyped handle or a topic's", async () => {
     // A command can refuse: the leader gets the error at once and retries with the right handle.
+    // Topics are tags nobody writes in, so a topic's handle is refused like a typo.
     setTopicViewSource({
-      topicOf: (handle) => (handle === "6fd2c4bb" ? { id: "6fd2c4bb-0000", name: "Relay testing" } : null),
+      topicOf: (handle) =>
+        handle === "6fd2c4bb"
+          ? { id: "6fd2c4bb-0000", name: "Relay testing", thread: {} }
+          : handle === "aa11bb22"
+            ? { id: "aa11bb22-0000", name: "Relay" }
+            : null,
       questsOf: () => [],
       handlesOf: () => [],
       topicOfQuest: () => null,
-      listTopics: () => [{ id: "6fd2c4bb-0000", name: "Relay testing" }],
+      listThreads: () => [{ id: "6fd2c4bb-0000", name: "Relay testing" }],
     });
     const { session, handoff } = fixture();
     const before = structuredClone(session.messageHistory);
     const response = await handoff({ questId: "topic:6fd2c4bc", userMessageIds: ["u1"] });
     expect(response.status).toBe(404);
     expect((await response.json()).error).toBe(
-      'No topic has the handle in topic:6fd2c4bc. Closest topics: `topic:6fd2c4bb` "Relay testing".',
+      'No thread has the handle in topic:6fd2c4bc. Closest threads: `topic:6fd2c4bb` "Relay testing".',
     );
+    expect((await handoff({ questId: "topic:aa11bb22", userMessageIds: ["u1"] })).status).toBe(404);
     expect(session.messageHistory).toEqual(before);
-    // The real topic is accepted.
-    // The real topic is accepted: a Main request handed to a topic's thread, with no decision
-    // notifications (those go to quests only), now waits there. (Round 7's route rejected every
-    // handoff to a topic, through the notification check, even with no notifications.)
+    // A real thread is accepted: a Main request handed to it, with no decision notifications
+    // (those go to quests only), now waits there.
     const accepted = await handoff({ questId: "topic:6fd2c4bb", userMessageIds: ["u1"] });
     expect(await accepted.json()).toMatchObject({ ok: true, handedOffUserMessageIds: ["u1"] });
     expect(

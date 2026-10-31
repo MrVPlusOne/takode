@@ -781,6 +781,8 @@ const herdEventDispatcher = new HerdEventDispatcher(herdBridge, launcher, {
   },
 });
 wsBridge.herdEventDispatcher = herdEventDispatcher;
+// A Scribe's notes for its leader that aren't urgent ride along with the leader's next herd delivery.
+herdEventDispatcher.setRideAlongNotes(topicService.rideAlongNotes());
 const messageDeliveries = new MessageDeliveryTracker({
   probe: createMessageDeliveryProbe({
     getLauncherSession: (sessionId) => launcher.getSession(sessionId),

@@ -157,6 +157,13 @@ export function openInSide(leaderId: string, target: SideItemInput): string {
   return id;
 }
 
+/** Shows the leader's topics (the column's Topics section, below what was put there), for browsing. */
+export function openTopicsInSide(leaderId: string): void {
+  focusSideItem(leaderId, HOME_ITEM);
+  setTopicPanelOpen(leaderId, true);
+  setTopicSheetOpen(leaderId, true);
+}
+
 /** Takes an item out of the column. */
 export function closeSideItem(leaderId: string, id: string): void {
   update(leaderId, (column) => ({ ...column, items: column.items.filter((item) => item.id !== id) }));

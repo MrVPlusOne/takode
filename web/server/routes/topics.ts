@@ -1,3 +1,4 @@
+import { joinThread, unjoinThread } from "../thread-join.js";
 import { topicInteractionAt } from "../topic-interaction.js";
 import { Hono, type Context } from "hono";
 import { getQuest, listQuests } from "../quest-store.js";
@@ -7,11 +8,8 @@ import type { QuestTopicsResponse, TopicListResponse, TopicSummary } from "../..
 import { TopicStoreError } from "../topic-store.js";
 import type { TopicService } from "../topic-service.js";
 import { SCRIBE_BRIEF } from "../scribe-brief.js";
-import { findThreadLastDiscussedMessageId } from "../../shared/thread-window.js";
 import { isRootAgentHistoryMessage } from "../root-agent-feed-message.js";
 import type { RouteContext } from "./context.js";
-import { getBoard } from "../bridge/board-watchdog-controller.js";
-import { leaderOverviewItems } from "../leader-overview-items.js";
 
 let activeService: TopicService | null = null;
 
@@ -117,7 +115,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
             : leaders,
         spaces: [...new Set([...svc.store.spaces(), ...leaders.map((leader) => leader.space)])].sort(),
         suggestions: svc.store.suggestions(scoped),
-        ...(leaderId ? { scribe: await svc.overview(leaderId), overviewOrder: svc.store.overviewOrder(leaderId) } : {}),
+        ...(leaderId ? { scribe: await svc.overview(leaderId) } : {}),
       };
     }),
   );
@@ -143,38 +141,6 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
           .suggestions(space)
           .filter((suggestion) => topics.some((topic) => topic.id === suggestion.topicId)),
       };
-    }),
-  );
-
-  /**
-   * For a Scribe: what its leader's overview lists now (questions, unread results, running quests,
-   * per thread) and the order it last saved.
-   */
-  api.get("/scribe/overview", (c) =>
-    run(c, (svc) => {
-      const leaderId = leaderFor(svc, c);
-      if (!leaderId) throw new TopicStoreError("Name the leader (--leader).", 404);
-      const session = ctx.wsBridge.getSession(leaderId);
-      return {
-        items: session ? leaderOverviewItems(session.notifications, getBoard(session)) : [],
-        order: svc.store.overviewOrder(leaderId) ?? null,
-      };
-    }),
-  );
-
-  /** The Scribe saves its order for the overview, replacing the last one. */
-  api.post("/scribe/overview", (c) =>
-    run(c, async (svc) => {
-      const leaderId = leaderFor(svc, c);
-      if (!leaderId) throw new TopicStoreError("Name the leader (--leader).", 404);
-      const body = (await c.req.json().catch(() => ({}))) as { entries?: unknown };
-      if (!Array.isArray(body.entries)) throw new TopicStoreError("Send the order as entries: [{ key, note }].");
-      const entries = body.entries.map((entry) => {
-        const { key, note } = (entry ?? {}) as { key?: unknown; note?: unknown };
-        if (typeof key !== "string") throw new TopicStoreError("Each entry needs a key.");
-        return { key, ...(typeof note === "string" ? { note } : {}) };
-      });
-      return svc.store.setOverviewOrder(leaderId, entries);
     }),
   );
 
@@ -432,14 +398,6 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
    * For a quest's topic link: the message in the leader's conversation where the quest was last
    * discussed, so its topic conversation opens there (null when the leader never discussed it).
    */
-  api.get("/topics/last-discussed", (c) => {
-    const leaderId = ctx.resolveId(c.req.query("leader") ?? "");
-    const questId = c.req.query("quest") ?? "";
-    if (!leaderId || !questId) return c.json({ error: "Name the leader and the quest." }, 400);
-    const history = ctx.wsBridge.getSession(leaderId)?.messageHistory ?? [];
-    return c.json({ messageId: findThreadLastDiscussedMessageId(history, questId, isRootAgentHistoryMessage) });
-  });
-
   api.get("/topics/:id", (c) =>
     run(c, async (svc) => {
       const topicId = topicFor(svc, c, c.req.param("id")).id;
@@ -652,6 +610,41 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       } catch (error) {
         throw new TopicStoreError(error instanceof Error ? error.message : String(error));
       }
+    }),
+  );
+
+  /**
+   * A Scribe joins a thread of its leader onto the earlier conversation it continues (another
+   * thread, or a quest's thread); its leader hears of it with its next delivery.
+   */
+  api.post("/scribe/join", (c) =>
+    run(c, async (svc) => {
+      const leaderId = leaderFor(svc, c);
+      if (!leaderId) throw new TopicStoreError("Name the leader (--leader).", 404);
+      const body = await c.req.json().catch(() => ({}));
+      if (typeof body.thread !== "string" || typeof body.into !== "string") {
+        throw new TopicStoreError("Name the thread and the conversation it continues.");
+      }
+      const joined = joinThread(ctx.wsBridge, svc.store, {
+        leaderId,
+        threadKey: body.thread,
+        intoKey: body.into,
+        by: caller(c) ?? leaderId,
+      });
+      svc.noteThreadJoined(leaderId, joined);
+      return { thread: joined.thread, into: joined.into, messages: joined.messages };
+    }),
+  );
+
+  /** The user undoes a join (the marker's Undo): the thread is a conversation of its own again. */
+  api.post("/topics/threads/unjoin", (c) =>
+    run(c, async (svc) => {
+      const body = await c.req.json().catch(() => ({}));
+      const leaderId = typeof body.leader === "string" ? ctx.resolveId(body.leader) : null;
+      if (!leaderId || typeof body.thread !== "string") throw new TopicStoreError("Name the leader and the thread.");
+      const { thread, from } = unjoinThread(ctx.wsBridge, svc.store, { leaderId, threadKey: body.thread });
+      svc.noteThreadUnjoined(leaderId, { ...thread, from });
+      return { thread };
     }),
   );
 

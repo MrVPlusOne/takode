@@ -1006,9 +1006,8 @@ describe("Sidebar Recent view", { timeout: 10000 }, () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Spaces" }));
     expect(mockState.setSidebarViewMode).toHaveBeenCalledWith("spaces");
-    // The third view lists the leaders' topics (rendered in SidebarTopicsMode's own tests).
-    fireEvent.click(screen.getByRole("button", { name: "Topics" }));
-    expect(mockState.setSidebarViewMode).toHaveBeenCalledWith("topics");
+    // The Topics view is retired: topics are tags, and leaders' threads are what the user jumps to.
+    expect(screen.queryByRole("button", { name: "Topics" })).toBeNull();
   });
 
   it("shows status totals and reveals the per-space breakdown on tap", () => {

@@ -1,13 +1,11 @@
 // @vitest-environment jsdom
 /**
- * Attention, color and closing behavior of leader thread tabs listed under their status
- * groups: group counts and bells, the order inside groups, title colors for finished and
- * waiting quests, canonical titles, and lists that stay open across closes.
+ * Attention and color behavior of leader threads listed under their status groups: group counts
+ * and bells, the order inside groups, title colors for finished and waiting quests, canonical
+ * titles, and the Board button in the top bar.
  */
 import { rememberTopicList } from "../utils/leader-topics.js";
 import { showTopBarSession, topBarHelpersRef } from "../utils/top-bar-slots.js";
-import { useSideColumnStore } from "../utils/side-column.js";
-import { topicApi } from "../api/topics.js";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { Activity, type ComponentProps } from "react";
@@ -170,17 +168,21 @@ const THREAD_ROWS = Array.from({ length: 5 }, (_, index) => {
 
 const OPEN_KEYS = ["q-1", "q-2", "q-3", "q-4", "q-5"];
 
-/** Opens the place picker and returns its quest rows (the tests file no topics). */
-function pickerRows(): HTMLElement[] {
-  const first = listedThreadTab(OPEN_KEYS[0]!) ?? listedThreadTab("q-4");
-  return first ? within(screen.getByTestId("place-crumb-list")).getAllByTestId("thread-tab-list-row") : [];
+function groupChip(group: string): HTMLElement {
+  return screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === group)!;
+}
+
+/** Opens a group's list (a right-click also opens a group of one) and returns its rows. */
+function openGroup(group: string): HTMLElement[] {
+  fireEvent.contextMenu(groupChip(group));
+  return within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
 }
 
 function row(rows: HTMLElement[], threadKey: string): HTMLElement {
   return rows.find((candidate) => candidate.getAttribute("data-thread-key") === threadKey)!;
 }
 
-describe("WorkBoardBar quest rows in the place picker", () => {
+describe("WorkBoardBar tab groups", () => {
   beforeEach(() => {
     resetWorkBoardProjectionFixture();
     resetStore();
@@ -191,12 +193,47 @@ describe("WorkBoardBar quest rows in the place picker", () => {
     vi.unstubAllGlobals();
   });
 
-  it("navigates a leader with topics on by breadcrumb, with Working on in the top bar only for the conversation on screen", () => {
-    // No tab row: the place picker starts Main's strip, and Working on (the Board button merged in)
-    // sits in the top bar. Recently viewed conversations stay mounted, hidden in a React Activity, as
-    // in KeptConversationViews; switching leader A -> B -> A once left A's hidden copy in the top bar
-    // beside the one on screen. Their own leader IDs: the topics cache is module state that outlives
-    // a test.
+  it("files every open tab under its group and selects a tab from a group's list", () => {
+    // q-3 waits for input and the leader is writing in q-4, so Needs you holds q-3 and
+    // the in-progress group carries the writing marker.
+    const onSelectThread = vi.fn();
+    resetStore({
+      sessionStatus: new Map([["s1", "running"]]),
+      activeTurnRoutes: new Map([["s1", { threadKey: "q-4", questId: "q-4" }]]),
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-3", title: "Quest 3 thread", status: "WAITING", updatedAt: 3, waitForInput: ["user"] }]],
+      ]),
+    });
+
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-5"
+        openThreadKeys={OPEN_KEYS}
+        onSelectThread={onSelectThread}
+        threadRows={THREAD_ROWS}
+      />,
+    );
+
+    expect(groupChip("needs-input")).toHaveAttribute("data-count", "1");
+    expect(groupChip("in-progress")).toHaveAttribute("data-count", "4");
+    expect(groupChip("in-progress")).toHaveAttribute("data-active-output", "true");
+
+    fireEvent.click(groupChip("in-progress"));
+    const rows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
+    expect(rows.map((candidate) => candidate.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2", "q-4", "q-5"]);
+    expect(row(rows, "q-4")).toHaveAttribute("data-active-output", "true");
+
+    fireEvent.click(within(row(rows, "q-4")).getByTestId("thread-tab-list-row-select"));
+    expect(onSelectThread).toHaveBeenCalledWith("q-4");
+    expect(screen.queryByTestId("thread-tab-group-list")).not.toBeInTheDocument();
+  });
+
+  it("shows the status row and puts the Board button in the top bar only for the conversation on screen", () => {
+    // The status row sits under the top bar and the Board button in it. Recently viewed
+    // conversations stay mounted, hidden in a React Activity, as in KeptConversationViews; switching
+    // leader A -> B -> A once left A's hidden copy in the top bar beside the one on screen. Their own
+    // leader IDs: the topics cache is module state that outlives a test.
     const width = window.innerWidth;
     window.innerWidth = 1280;
     const [leaderA, leaderB] = ["topbar-leader-a", "topbar-leader-b"];
@@ -233,104 +270,25 @@ describe("WorkBoardBar quest rows in the place picker", () => {
     try {
       show(leaderA);
       const view = render(kept(leaderA, [leaderA]));
-      expect(visible(document.body, "place-crumb-button")).toHaveLength(1);
-      expect(screen.getByTestId("workboard-main-banner")).toContainElement(screen.getByTestId("place-crumb-button"));
-      // Working on carries the Board button's icon, one dot per quest at work on the board.
+      expect(visible(document.body, "thread-group-bar")).toHaveLength(1);
+      // The Board button shows one dot per quest at work on the board.
       expect(within(helpers).getAllByTestId("workboard-dot")).toHaveLength(1);
 
       show(leaderB);
       view.rerender(kept(leaderB, [leaderA, leaderB]));
-      expect(visible(document.body, "place-crumb-button")).toHaveLength(1);
+      expect(visible(document.body, "thread-group-bar")).toHaveLength(1);
       expect(visible(helpers, "workboard-dot")).toHaveLength(0);
 
       show(leaderA);
       view.rerender(kept(leaderA, [leaderA, leaderB]));
-      expect(visible(document.body, "place-crumb-button")).toHaveLength(1);
-      expect(visible(helpers, "thread-tab-group-working-on")).toHaveLength(1);
+      expect(visible(document.body, "thread-group-bar")).toHaveLength(1);
+      expect(visible(helpers, "thread-top-bar-board-button")).toHaveLength(1);
       expect(visible(helpers, "workboard-dot")).toHaveLength(1);
       view.unmount();
     } finally {
       window.innerWidth = width;
       topBarHelpersRef(null);
       helpers.remove();
-    }
-  });
-
-  it("puts a topic's page in the side column on Shift-click in the place picker", async () => {
-    // A plain click goes to the topic; Shift-click keeps the conversation on screen and opens the
-    // topic's page beside it.
-    const leader = "side-topic-leader";
-    resetStore({ sdkSessions: [{ sessionId: leader, isOrchestrator: true }] });
-    const relay = { id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never;
-    rememberTopicList(leader, [relay]);
-    const list = vi.spyOn(topicApi, "list").mockResolvedValue({ topics: [relay] } as never);
-    const hashBefore = window.location.hash;
-    try {
-      render(<WorkBoardBar sessionId={leader} currentThreadKey="main" openThreadKeys={[]} threadRows={[]} />);
-      fireEvent.click(screen.getByTestId("place-crumb-button"));
-      const row = (await screen.findAllByTestId("topic-tab-row")).find(
-        (candidate) => candidate.dataset.topic === "t1",
-      )!;
-      fireEvent.click(within(row).getByRole("menuitem"), { shiftKey: true });
-      expect(useSideColumnStore.getState().columns[leader]!.items).toEqual([
-        expect.objectContaining({ kind: "topic", topicId: "t1" }),
-      ]);
-      expect(window.location.hash).toBe(hashBefore);
-    } finally {
-      list.mockRestore();
-      useSideColumnStore.setState({ columns: {} });
-      localStorage.clear();
-    }
-  });
-
-  it("opens a topic with unread answers like any place, not at its first unread answer", async () => {
-    // Opening a topic follows the opening rule (where it was left if recent, else at the latest
-    // with the unread counted above); only Next and links land on a specific message.
-    const leader = "unread-topic-leader";
-    resetStore({
-      sdkSessions: [{ sessionId: leader, isOrchestrator: true }],
-      sessionNotifications: new Map([
-        [
-          leader,
-          [
-            {
-              id: "n-answer",
-              category: "review",
-              unreadReason: "answer",
-              messageId: "m-answer",
-              threadKey: "q-1",
-              timestamp: 10,
-              done: false,
-            },
-          ],
-        ],
-      ]),
-    });
-    const relay = { id: "t1", name: "Relay", activityAt: 1, questIds: ["q-1"] } as never;
-    rememberTopicList(leader, [relay]);
-    const list = vi.spyOn(topicApi, "list").mockResolvedValue({ topics: [relay] } as never);
-    const onSelectThread = vi.fn();
-    try {
-      render(
-        <WorkBoardBar
-          sessionId={leader}
-          currentThreadKey="main"
-          openThreadKeys={[]}
-          threadRows={[]}
-          onSelectThread={onSelectThread}
-        />,
-      );
-      fireEvent.click(screen.getByTestId("place-crumb-button"));
-      const row = (await screen.findAllByTestId("topic-tab-row")).find(
-        (candidate) => candidate.dataset.topic === "t1",
-      )!;
-      fireEvent.click(within(row).getByRole("menuitem"));
-      expect(window.location.hash).not.toContain("/msg/");
-      // The topic's conversation, a place of its own.
-      expect(onSelectThread).toHaveBeenCalledWith("topic:t1");
-    } finally {
-      list.mockRestore();
-      localStorage.clear();
     }
   });
 
@@ -348,7 +306,10 @@ describe("WorkBoardBar quest rows in the place picker", () => {
       />,
     );
 
-    const rows = pickerRows();
+    const results = groupChip("new-results");
+    expect(results).toHaveAttribute("data-count", "1");
+    expect(results).toHaveClass("text-cc-muted");
+    const rows = openGroup("new-results");
     expect(onSelectThread).not.toHaveBeenCalled();
 
     expect(row(rows, "q-4")).toHaveAttribute("data-blue-notification", "true");
@@ -358,7 +319,7 @@ describe("WorkBoardBar quest rows in the place picker", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-4");
   });
 
-  it("marks a Thread Ready unread result with a blue bell", () => {
+  it("files a Thread Ready unread result under New results with a blue bell", () => {
     render(
       <WorkBoardBar
         sessionId="s1"
@@ -369,13 +330,13 @@ describe("WorkBoardBar quest rows in the place picker", () => {
       />,
     );
 
-    const q4 = row(pickerRows(), "q-4");
+    const q4 = row(openGroup("new-results"), "q-4");
     expect(q4).toHaveAttribute("data-blue-notification", "true");
     expect(q4).toHaveAttribute("data-needs-input", "false");
     expect(within(q4).getByTestId("thread-tab-bell")).toHaveClass("text-cc-info");
   });
 
-  it("keeps an open prompt ahead of an unread result for the bell", () => {
+  it("keeps an open prompt ahead of an unread result for both the group and the bell", () => {
     resetStore({
       sessionBoards: new Map([
         ["s1", [{ questId: "q-4", title: "Quest 4 thread", status: "WAITING", updatedAt: 4, waitForInput: ["user"] }]],
@@ -392,15 +353,66 @@ describe("WorkBoardBar quest rows in the place picker", () => {
       />,
     );
 
-    // q-4 has both: one bell, in the attention color.
-    const q4 = row(pickerRows(), "q-4");
+    // q-4 has both, so it waits under Needs you and no New results group appears.
+    expect(groupChip("needs-input")).toHaveAttribute("data-count", "1");
+    expect(screen.getAllByTestId("thread-tab-group-chip").some((chip) => chip.dataset.group === "new-results")).toBe(
+      false,
+    );
+    const q4 = row(openGroup("needs-input"), "q-4");
     expect(q4).toHaveAttribute("data-needs-input", "true");
     expect(q4).toHaveAttribute("data-blue-notification", "true");
     expect(within(q4).getAllByTestId("thread-tab-bell")).toHaveLength(1);
     expect(within(q4).getByTestId("thread-tab-bell")).toHaveClass("text-cc-attention");
   });
 
-  it("still marks another tab's unread result", () => {
+  it("moves the tab on screen from In progress straight to Done when its quest finishes", () => {
+    // The server finishes a quest in two steps (completeBoardRow): it moves the board row to
+    // the completed board, then posts a "ready for review" result for that quest. The user
+    // is watching q-4, so the browser marks that result read as soon as it arrives, one
+    // round trip later. Each step below is one server update; the bar must never show the
+    // tab on screen under New results in between.
+    const onScreenGroups: Array<{ selected: string | undefined; groups: string[] }> = [];
+    const snapshot = () =>
+      onScreenGroups.push({
+        selected: screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.selected === "true")
+          ?.dataset.group,
+        groups: screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group!),
+      });
+    const workingRow = { questId: "q-4", title: "Quest 4 thread", status: "IMPLEMENTING", updatedAt: 4 };
+    const finishedRow = { ...workingRow, status: "DONE", updatedAt: 200, completedAt: 200 };
+    const bar = (attentionRecords: SessionAttentionRecord[]) => (
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-4"
+        openThreadKeys={["q-1", "q-4"]}
+        threadRows={THREAD_ROWS}
+        attentionRecords={attentionRecords}
+      />
+    );
+    const result = { ...reviewAttentionRecord("q-4"), createdAt: 201, updatedAt: 201 };
+
+    resetStore({ sessionBoards: new Map([["s1", [workingRow]]]) });
+    const { rerender } = render(bar([]));
+    snapshot();
+
+    // The board row finishes and the result arrives unread.
+    mockState.sessionBoards = new Map([["s1", []]]);
+    mockState.sessionCompletedBoards = new Map([["s1", [finishedRow]]]);
+    rerender(bar([result]));
+    snapshot();
+
+    // The browser's read lands.
+    rerender(bar([{ ...result, state: "resolved", resolvedAt: 260, updatedAt: 260 }]));
+    snapshot();
+
+    expect(onScreenGroups).toEqual([
+      { selected: "in-progress", groups: ["in-progress"] },
+      { selected: "done", groups: ["in-progress", "done"] },
+      { selected: "done", groups: ["in-progress", "done"] },
+    ]);
+  });
+
+  it("still files another tab's unread result under New results", () => {
     // Only the tab on screen counts as read: q-1 finished while the user watched q-4.
     resetStore({
       sessionCompletedBoards: new Map([
@@ -416,10 +428,10 @@ describe("WorkBoardBar quest rows in the place picker", () => {
         attentionRecords={[reviewAttentionRecord("q-1")]}
       />,
     );
-    expect(row(pickerRows(), "q-1")).toHaveAttribute("data-blue-notification", "true");
+    expect(row(openGroup("new-results"), "q-1")).toHaveAttribute("data-blue-notification", "true");
   });
 
-  it("uses the done gray for finished quests", () => {
+  it("uses the done gray for finished quests listed under Done", () => {
     resetStore({
       sessionCompletedBoards: new Map([
         [
@@ -444,7 +456,7 @@ describe("WorkBoardBar quest rows in the place picker", () => {
 
     render(<WorkBoardBar sessionId="s1" currentThreadKey="q-5" openThreadKeys={OPEN_KEYS} threadRows={THREAD_ROWS} />);
 
-    const meta = within(row(pickerRows(), "q-4")).getByTestId("thread-tab-list-row-meta");
+    const meta = within(row(openGroup("done"), "q-4")).getByTestId("thread-tab-list-row-meta");
     expect(meta).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(meta).not.toHaveStyle({ color: getPhaseColor("PORTING") });
   });
@@ -463,14 +475,14 @@ describe("WorkBoardBar quest rows in the place picker", () => {
 
     render(<WorkBoardBar sessionId="s1" currentThreadKey="q-5" openThreadKeys={OPEN_KEYS} threadRows={THREAD_ROWS} />);
 
-    const q4 = row(pickerRows(), "q-4");
-    expect(q4).toHaveAttribute("data-needs-input", "false");
-    expect(q4).toHaveAttribute("data-blue-notification", "false");
-    const meta = within(q4).getByTestId("thread-tab-list-row-meta");
+    const groups = screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group);
+    expect(groups).not.toContain("needs-input");
+    expect(groups).not.toContain("new-results");
+    const meta = within(row(openGroup("done"), "q-4")).getByTestId("thread-tab-list-row-meta");
     expect(meta).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
   });
 
-  it("keeps an unfinished off-board quest unmuted and closable", () => {
+  it("keeps an unfinished off-board quest unmuted", () => {
     render(
       <WorkBoardBar
         sessionId="s1"
@@ -489,8 +501,7 @@ describe("WorkBoardBar quest rows in the place picker", () => {
       />,
     );
 
-    const q1 = row(pickerRows(), "q-1");
-    expect(q1).toHaveAttribute("data-closable", "true");
+    const q1 = row(openGroup("in-progress"), "q-1");
     expect(within(q1).getByTestId("thread-tab-list-row-meta")).toHaveAttribute("data-title-color", "");
   });
 

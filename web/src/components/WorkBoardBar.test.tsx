@@ -126,7 +126,12 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
   };
 });
 
-import { closeAllThreadTabs, listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
+import {
+  closeAllThreadTabs,
+  groupedThreadTabKeys,
+  listedThreadTab,
+  listedThreadTabs,
+} from "../test-fixtures/thread-tab-rows.js";
 
 // Must import after mocks are set up
 const { WorkBoardBar: CurrentWorkBoardBar } = await import("./WorkBoardBar.js");
@@ -218,8 +223,9 @@ describe("WorkBoardBar", () => {
     expect(queryByTestId("workboard-completed-button")).not.toBeInTheDocument();
     expect(queryByTestId("workboard-other-button")).not.toBeInTheDocument();
     expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-open-tab-count", "1");
-    // Main's place is the leader's Home, named by the place picker on its strip.
-    expect(getByTestId("place-crumb-button")).toHaveTextContent("Home");
+    // Only Home remains when the leader has no threads.
+    expect(getByTestId("thread-group-home")).toHaveTextContent("Home");
+    expect(queryByTestId("thread-tab-group-chip")).toBeNull();
   });
 
   it("keeps the primary workboard navigator visible when no board data exists for session", () => {
@@ -335,8 +341,9 @@ describe("WorkBoardBar", () => {
       "true",
     );
     expect(queryByText("q-4 ready for review")).toBeInTheDocument();
-    // Every open tab is listed; the board's finished quest too, as a finished quest.
-    expect(tabs.map((tab) => tab.dataset.threadKey).sort()).toEqual(["q-1", "q-2", "q-3", "q-4", "q-5"]);
+    expect(queryByText("Finished work")).not.toBeInTheDocument();
+    // Listed by status group (Needs you, In progress, New results), keeping the tab order inside a group.
+    expect(groupedThreadTabKeys()).toEqual(["q-1", "q-5", "q-2", "q-4"]);
   });
 
   it("selects attention tabs without replaying notification route targets", () => {
@@ -398,8 +405,6 @@ describe("WorkBoardBar", () => {
     expect(tabs).toHaveLength(2);
     expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2"]);
     expect(tabs[0]).toHaveAttribute("data-needs-input", "true");
-    expect(tabs[0]).toHaveAttribute("data-closable", "false");
-    expect(tabs[1]).toHaveAttribute("data-closable", "true");
     expect(queryByText("Active")).not.toBeInTheDocument();
   });
 
@@ -610,6 +615,37 @@ describe("WorkBoardBar", () => {
     expect(queuedMeta).toHaveTextContent("q-2 · Queued");
   });
 
+  it("lists a question still waiting in Main as the leader log under Needs you, not on Home", () => {
+    // Home has no conversation; Main is read in the leader log, so what waits there from before
+    // Home is a member of the groups that opens the log.
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", []]]),
+    });
+    const onSelectThread = vi.fn();
+    const { getByTestId, getAllByTestId } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-9"
+        onSelectThread={onSelectThread}
+        attentionRecords={[
+          attentionRecord({
+            id: "main-needs-input",
+            threadKey: "main",
+            questId: undefined,
+            route: { threadKey: "main" },
+            title: "Main needs input",
+            dedupeKey: "main-needs-input",
+          }),
+        ]}
+      />,
+    );
+    expect(within(getByTestId("thread-group-home")).queryByTestId("thread-tab-bell")).toBeNull();
+    const needs = getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "needs-input")!;
+    fireEvent.click(needs);
+    expect(onSelectThread).toHaveBeenCalledWith("all");
+  });
+
   it("composes selected and active-output states when they are on different tabs", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
@@ -753,7 +789,6 @@ describe("WorkBoardBar", () => {
     const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-3" openThreadKeys={["q-3"]} />);
 
     const tab = listedThreadTab("q-3")!;
-    expect(tab).toHaveAttribute("data-closable", "false");
     const title = within(tab).getByTestId("thread-tab-list-row-meta");
     expect(title).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("USER_CHECKPOINTING"));
     expect(title).not.toHaveAttribute("data-title-color", "var(--color-cc-muted)");

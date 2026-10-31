@@ -528,14 +528,11 @@ export function QuestThreadBanner({
   onCloseTab,
   closeLabel,
   sideQuestOf,
-  leading,
-  renderTitle,
+  topicTag,
   singleLine = false,
 }: {
-  /** Draws the title as something else, such as the breadcrumb's quest picker. */
-  renderTitle?: (title: string | undefined) => ReactNode;
-  /** Shown before the quest ID: the quest's topic, as the way to zoom out to it. */
-  leading?: ReactNode;
+  /** After the title: the topic the quest is filed under, which opens its page. */
+  topicTag?: ReactNode;
   /**
    * Desktop with the thread navigation in the top bar: keep the strip to one line. The title
    * truncates first; in a narrow chat column the details drop words their icons already say.
@@ -645,7 +642,6 @@ export function QuestThreadBanner({
               singleLine ? "items-center sm:min-w-min sm:flex-[1_1_0%]" : "items-baseline sm:flex-[1_1_16rem]"
             }`}
           >
-            {leading}
             {isSessionBanner && (
               <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">
                 Quest
@@ -669,17 +665,16 @@ export function QuestThreadBanner({
               </span>
             )}
             <span ref={titleRef} className={singleLine ? "inline-flex min-w-0" : "contents"}>
-              {renderTitle
-                ? renderTitle(title)
-                : title && (
-                    <span
-                      className={`truncate text-xs font-medium text-cc-fg sm:text-[13px] ${singleLine ? "min-w-[6rem]" : "min-w-0"}`}
-                      title={title}
-                    >
-                      {title}
-                    </span>
-                  )}
+              {title && (
+                <span
+                  className={`truncate text-xs font-medium text-cc-fg sm:text-[13px] ${singleLine ? "min-w-[6rem]" : "min-w-0"}`}
+                  title={title}
+                >
+                  {title}
+                </span>
+              )}
             </span>
+            {topicTag}
           </div>
           {hasMobileDetails && (
             <button

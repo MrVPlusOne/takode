@@ -7,7 +7,7 @@ vi.mock("../api.js", () => ({ api: {} }));
 const topicsOn = vi.hoisted(() => ({ value: false }));
 vi.mock("../utils/top-bar-slots.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../utils/top-bar-slots.js")>()),
-  useLeaderBreadcrumb: () => topicsOn.value,
+  useLeaderNavigation: () => topicsOn.value,
 }));
 
 import { useStore } from "../store.js";

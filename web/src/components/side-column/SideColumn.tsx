@@ -1,10 +1,9 @@
-import { Activity, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Activity, useEffect, useRef, useState, type ReactNode } from "react";
 import { setSideViewsOf } from "../../utils/side-views.js";
 import { holdSessionConnection } from "../../ws.js";
 import { useRememberedFolds } from "../../utils/remembered-folds.js";
 import { SectionEdge, useSectionHeights } from "../StackedPanes.js";
 import { useStore } from "../../store.js";
-import { useOutsidePress } from "../../hooks/useOutsidePress.js";
 import {
   closeSideItem,
   HOME_ITEM,
@@ -18,22 +17,14 @@ import {
   type SideItem,
 } from "../../utils/side-column.js";
 import { setTopicPanelOpen, setTopicSheetOpen } from "../../utils/topic-panel.js";
-import {
-  loadLeaderNamesOnce,
-  reloadLeaderThreads,
-  useKnownThreadOfKey,
-  useLeaderThreads,
-  useThreadQuests,
-} from "../../utils/leader-topics.js";
-import { topicApi } from "../../api/topics.js";
+import { loadLeaderNamesOnce, useKnownThreadOfKey, useThreadDestinations } from "../../utils/leader-topics.js";
 import { navigateToSession, navigateToSessionThread, openQuestOverlayRouteAware } from "../../utils/routing.js";
 import { resolveNotificationOwnerThreadKey } from "../../utils/notification-thread.js";
-import { MAIN_THREAD_KEY, normalizeThreadKey } from "../../utils/thread-projection.js";
+import { normalizeThreadKey } from "../../utils/thread-projection.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { CollapseIcon, NewThreadIcon, TopicIcon } from "../library/library-icons.js";
 import { TopicSidePanel } from "../library/TopicSidePanel.js";
-import { ThreadsList } from "../ThreadsMenu.js";
 import { ThreadOriginName } from "./thread-names.js";
 import { useQuestRecord } from "../QuestSummaryCard.js";
 import { getQuestStatusTheme } from "../../utils/quest-status-theme.js";
@@ -46,27 +37,17 @@ import { SideSession } from "./SideSession.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { openLibraryArtifact } from "../../utils/library-nav.js";
-import {
-  LeaderOverview,
-  LeaderOverviewContext,
-  TopicCountsLine,
-  useLeaderOverview,
-} from "../overview/LeaderOverview.js";
-import { OverviewIcon } from "../overview/OverviewIcon.js";
-import { usePlaceWork, type PlaceWork } from "../sidebar-topics/TopicPlaceCard.js";
 
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
 const KEPT_MOUNTED = 3;
 
 /** How tall a section's header row is, for the default height of an open section. */
 const ROW_HEIGHT = 36;
-/** The overview's section, in folds and sizes. */
-const OVERVIEW = "overview";
 
 /**
  * A leader's side column (Logseq's right sidebar), from the top: whatever the user put beside the
- * conversation (side chats, other conversations, topic pages), newest first; the leader's overview
- * (what needs the user and what runs now, across its topics); and the topic page it follows. Each
+ * conversation (threads, other conversations, topic pages, artifacts), newest first; then the
+ * leader's topics, for browsing (the topic page of the thread on screen, else the list). Each
  * section folds on its own from its header row, any number can be open, and the column scrolls when
  * they don't fit. An open section's bottom edge drags to set its height (Jiayi's choice, Oct 31:
  * like Logseq, the panel scrolls rather than squeezing each section). Folds and heights are
@@ -84,16 +65,11 @@ export function SideColumn({
 }) {
   const { items, focus, focusAt } = useSideColumn(leaderId);
   const folds = useRememberedFolds();
-  const foldId = (id: string) => (id === OVERVIEW ? `side-overview:${leaderId}` : sideFoldId(leaderId, id));
+  const foldId = (id: string) => sideFoldId(leaderId, id);
   const isOpen = (id: string) => !folds.isFolded(foldId(id));
   const toggle = (id: string) => folds.toggle(foldId(id));
-  const overview = useLeaderOverview(leaderId);
-  // What each conversation in the column holds now: a question for the user, new answers, a run.
-  const placeWork = usePlaceWork();
   const heights = useSectionHeights(`side:${leaderId}`);
-  // On the leader's Home the overview already fills the main view.
-  const showOverview = normalizeThreadKey(threadKey) !== MAIN_THREAD_KEY;
-  const sectionIds = [...items.map((item) => item.id), ...(showOverview ? [OVERVIEW] : []), HOME_ITEM];
+  const sectionIds = [...items.map((item) => item.id), HOME_ITEM];
   const idsKey = sectionIds.join(",");
   useEffect(() => heights.keepOnly(idsKey.split(",")), [idsKey]);
   // The scrolling area's height: one open section fits it beside every header row by default.
@@ -208,17 +184,7 @@ export function SideColumn({
   const itemSection = (entry: SideItem | null) => {
     const id = entry?.id ?? HOME_ITEM;
     const conversation = entry?.kind === "conversation" || entry?.kind === "new-chat" || entry?.kind === "session";
-    const row = (
-      <SideItemRow
-        leaderId={leaderId}
-        item={entry}
-        work={
-          entry?.kind === "conversation" ? placeWork.ofThread(sideItemLeader(leaderId, entry), entry.threadKey) : null
-        }
-        open={isOpen(id)}
-        onOpen={() => toggle(id)}
-      />
-    );
+    const row = <SideItemRow leaderId={leaderId} item={entry} open={isOpen(id)} onOpen={() => toggle(id)} />;
     const body = (
       // A link clicked here opens in this pane; the open-in-side click opens it in the main view.
       <div
@@ -234,110 +200,35 @@ export function SideColumn({
   };
 
   return (
-    <LeaderOverviewContext.Provider value={overview}>
-      <div className="flex h-full min-h-0 flex-col" data-testid="side-column">
-        {/* As tall as the strip under the top bar, so their lines meet. */}
-        <div className="flex h-8 shrink-0 items-center gap-1 border-b border-cc-border/80 px-2">
-          <button
-            type="button"
-            onClick={() => openInSide(leaderId, { kind: "new-chat", startedFrom: sideChatOrigin(leaderId) })}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[13px] text-cc-primary hover:bg-cc-hover"
-            title="Start a thread with the leader about what's on screen"
-            data-testid="side-new-chat"
-          >
-            <NewThreadIcon className="h-4 w-4" />
-            New thread
-          </button>
-          <SideChatLeaderMenu columnId={leaderId} />
-          <span className="flex-1" />
-          <RecentChats leaderId={leaderId} />
-          <button
-            type="button"
-            onClick={close}
-            aria-label={variant === "sheet" ? "Close the side column" : "Collapse the side column"}
-            title={variant === "sheet" ? "Close" : "Collapse"}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-          >
-            {variant === "sheet" ? "✕" : <CollapseIcon className="h-4 w-4" />}
-          </button>
-        </div>
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
-          {items.map(itemSection)}
-          {showOverview &&
-            section(
-              OVERVIEW,
-              <SideOverviewRow open={isOpen(OVERVIEW)} onToggle={() => toggle(OVERVIEW)} />,
-              <SideOverviewBody leaderId={leaderId} variant={variant} onClose={close} />,
-              false,
-              Math.max(160, Math.round(viewport * 0.45)),
-            )}
-          {itemSection(null)}
-        </div>
+    <div className="flex h-full min-h-0 flex-col" data-testid="side-column">
+      {/* As tall as the strip under the top bar, so their lines meet. */}
+      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-cc-border/80 px-2">
+        <button
+          type="button"
+          onClick={() => openInSide(leaderId, { kind: "new-chat", startedFrom: sideChatOrigin(leaderId) })}
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[13px] text-cc-primary hover:bg-cc-hover"
+          title="Start a thread with the leader about what's on screen"
+          data-testid="side-new-chat"
+        >
+          <NewThreadIcon className="h-4 w-4" />
+          New thread
+        </button>
+        <SideChatLeaderMenu columnId={leaderId} />
+        <span className="flex-1" />
+        <button
+          type="button"
+          onClick={close}
+          aria-label={variant === "sheet" ? "Close the side column" : "Collapse the side column"}
+          title={variant === "sheet" ? "Close" : "Collapse"}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+        >
+          {variant === "sheet" ? "✕" : <CollapseIcon className="h-4 w-4" />}
+        </button>
       </div>
-    </LeaderOverviewContext.Provider>
-  );
-}
-
-/** The overview's header row: its name and the topic rows' counts; it folds the overview. */
-function SideOverviewRow({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const overview = useContext(LeaderOverviewContext)!;
-  return (
-    <div
-      className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-3 text-[13px] ${
-        open ? "bg-cc-hover/40" : "hover:bg-cc-hover/30"
-      }`}
-      data-testid="side-overview-row"
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
-        aria-expanded={open}
-      >
-        <OverviewIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
-        <span className={open ? "text-cc-fg" : "text-cc-fg/80"}>Overview</span>
-        {/* The topic rows' counts: "need you" for questions only, the rest new. */}
-        <TopicCountsLine
-          counts={{ needYou: overview.needYou, fresh: overview.fresh, running: overview.running.length }}
-          className="ml-auto shrink-0 flex-nowrap tabular-nums"
-        />
-      </button>
-    </div>
-  );
-}
-
-/**
- * The leader's overview in its column: what needs the user and what runs now, across its topics.
- * Its topics, with the same counts, are the topic list under it.
- */
-function SideOverviewBody({
-  leaderId,
-  variant,
-  onClose,
-}: {
-  leaderId: string;
-  variant: "docked" | "sheet";
-  onClose: () => void;
-}) {
-  const overview = useContext(LeaderOverviewContext)!;
-  // On a phone the sheet covers the conversation: going somewhere closes it.
-  const leave = () => variant === "sheet" && onClose();
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto border-b border-cc-border/70" data-testid="side-overview">
-      <LeaderOverview
-        data={{
-          ...overview,
-          open: (item) => {
-            leave();
-            overview.open(item);
-          },
-        }}
-        onOpenQuest={(questId) => {
-          leave();
-          navigateToSessionThread(leaderId, questId);
-        }}
-        onLeave={leave}
-      />
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
+        {items.map(itemSection)}
+        {itemSection(null)}
+      </div>
     </div>
   );
 }
@@ -346,31 +237,30 @@ function SideOverviewBody({
 function SideItemRow({
   leaderId,
   item,
-  work,
   open,
   onOpen,
 }: {
   leaderId: string;
   item: SideItem | null;
-  /** What the conversation holds now, for its status: questions, new answers, a running quest. */
-  work: PlaceWork | null;
   open: boolean;
   onOpen: () => void;
 }) {
   // A side chat with another leader reads as that leader's: its names, unread answers and portrait.
   const owner = item ? sideItemLeader(leaderId, item) : leaderId;
-  const unread = useUnreadIn(owner, item?.kind === "conversation" ? item.threadKey : null);
+  const unread = useOpenIn(owner, item?.kind === "conversation" ? item.threadKey : null, "review");
+  const questions = useOpenIn(owner, item?.kind === "conversation" ? item.threadKey : null, "needs-input");
   useEffect(() => loadLeaderNamesOnce(owner), [owner]);
-  // A side chat whose whole request became a quest's work is that quest's conversation now.
-  const becameQuest = useThreadQuests(owner).get(item?.kind === "conversation" ? item.threadKey.toLowerCase() : "");
+  // A thread whose whole request became a quest's work, or that joined an earlier one, is that conversation now.
+  const becameQuest = useThreadDestinations(owner).get(
+    item?.kind === "conversation" ? item.threadKey.toLowerCase() : "",
+  );
   useEffect(() => {
     if (item && becameQuest)
       replaceSideItem(leaderId, item.id, { kind: "conversation", threadKey: becameQuest, leaderId: owner });
   }, [becameQuest, item, leaderId, owner]);
-  const questions = work?.needYou.length ?? 0;
   // The status the row's dot shows, by the colors used everywhere: a question for the user is
-  // amber, unread answers blue, and green only while the quest runs (the work board's rule).
-  const tone: SideTone = questions > 0 ? "question" : unread > 0 ? "unread" : work?.running.length ? "running" : null;
+  // amber, unread answers blue.
+  const tone: SideTone = questions > 0 ? "question" : unread > 0 ? "unread" : null;
   return (
     <div
       className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-1.5 text-[13px] ${
@@ -470,66 +360,6 @@ function ItemActions({ leaderId, item }: { leaderId: string; item: SideItem | nu
       >
         <SmallX />
       </button>
-    </span>
-  );
-}
-
-/** The leader's side chats (threads), to open one again in the column. */
-function RecentChats({ leaderId }: { leaderId: string }) {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  useOutsidePress([listRef, triggerRef], () => setOpen(false), open);
-  const threads = useLeaderThreads(leaderId, open);
-  const notifications = useStore((state) => state.sessionNotifications.get(leaderId));
-  const count = (category: string, threadKey: string) =>
-    (notifications ?? []).filter(
-      (notification) =>
-        notification.category === category &&
-        !notification.done &&
-        resolveNotificationOwnerThreadKey(notification) === normalizeThreadKey(threadKey),
-    ).length;
-  return (
-    <span className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[12.5px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-        aria-expanded={open}
-        title="Threads with this leader"
-        data-testid="side-recent-chats"
-      >
-        Recent <span className="text-[10px]">▾</span>
-      </button>
-      {open && (
-        <div
-          ref={listRef}
-          className="absolute right-0 top-full z-40 mt-1 max-h-[60dvh] w-[22rem] overflow-y-auto rounded-xl border border-cc-border bg-cc-card py-1 shadow-xl"
-        >
-          <ThreadsList
-            menu={{
-              threads,
-              onOpen: (threadKey) => {
-                setOpen(false);
-                openInSide(leaderId, { kind: "conversation", threadKey });
-              },
-              onRemove: (threadKey) => {
-                const thread = threads.find((candidate) => candidate.key === threadKey);
-                if (!thread) return;
-                topicApi
-                  .removeThread(thread.id)
-                  .catch((error: Error) => console.warn("[side-column] Could not remove the thread:", error.message))
-                  .finally(() => reloadLeaderThreads(leaderId));
-              },
-              unread: (threadKey) => count("review", threadKey),
-              questions: (threadKey) => count("needs-input", threadKey),
-            }}
-            currentKey=""
-            writingKey={null}
-          />
-        </div>
-      )}
     </span>
   );
 }
@@ -634,13 +464,12 @@ function SideSessionTitle({ sessionId }: { sessionId: string }) {
   );
 }
 
-/** What a row's status dot shows: a question for the user, unread answers, a running quest, or none. */
-type SideTone = "question" | "unread" | "running" | null;
+/** What a row's status dot shows: a question for the user, unread answers, or none. */
+type SideTone = "question" | "unread" | null;
 
 const TONE_DOT: Record<Exclude<SideTone, null>, string> = {
   question: "bg-[var(--color-cc-phase-accent-amber)]",
   unread: "bg-blue-500",
-  running: "bg-cc-success",
 };
 
 function SideItemIcon({ leaderId, item, tone = null }: { leaderId: string; item: SideItem | null; tone?: SideTone }) {
@@ -654,8 +483,8 @@ function SideItemIcon({ leaderId, item, tone = null }: { leaderId: string; item:
   if (item.kind === "quest") return <SideQuestIcon questId={item.questId} />;
   if (item.kind === "new-chat" || thread) return <NewThreadIcon className={`${className} text-cc-primary`} />;
   if (isTopicViewKey(key)) return <TopicIcon className={`${className} text-cc-primary`} />;
-  // A quest: what it waits on or does now, else its status color as in the quest lists. An
-  // unfinished quest that is neither running nor waiting on the user is not green: green means running.
+  // A quest: what waits on the user there, else its status color as in the quest lists. An
+  // unfinished quest is not green: green means running, which the status row shows.
   const status = quest?.status ?? "in_progress";
   const dot = tone ? TONE_DOT[tone] : status === "in_progress" ? "bg-cc-muted/60" : getQuestStatusTheme(status).dot;
   return (
@@ -665,13 +494,13 @@ function SideItemIcon({ leaderId, item, tone = null }: { leaderId: string; item:
   );
 }
 
-/** Unread answers in one of the leader's threads. */
-function useUnreadIn(leaderId: string, threadKey: string | null): number {
+/** Open notifications of a kind (unread answers, questions) in one of the leader's threads. */
+function useOpenIn(leaderId: string, threadKey: string | null, category: "review" | "needs-input"): number {
   return useStore((state) =>
     threadKey
       ? (state.sessionNotifications.get(leaderId) ?? []).filter(
           (notification) =>
-            notification.category === "review" &&
+            notification.category === category &&
             !notification.done &&
             resolveNotificationOwnerThreadKey(notification) === normalizeThreadKey(threadKey),
         ).length

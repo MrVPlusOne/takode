@@ -6,8 +6,6 @@
  * is open.
  */
 import { useTopBarSlot } from "../utils/top-bar-slots.js";
-import { useCrumbSlot } from "./breadcrumb/crumb-slot.js";
-import { CrumbStart } from "./breadcrumb/CrumbStart.js";
 import { memo, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
@@ -416,13 +414,10 @@ function WorkBoardBarComponent({
   hideThreadStrip?: boolean;
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
-  // Leaders navigate by breadcrumb: the place picker at the start of the strip, the Overview menu
-  // in the top bar (each conversation in its own box there, which the top bar shows only while that
-  // conversation is on screen).
+  // The Board button goes in the top bar (each conversation in its own box there, which the top bar
+  // shows only while that conversation is on screen).
   const topBarHelpers = useTopBarSlot("helpers", sessionId);
-  // The breadcrumb: the place picker goes to the start of the strip on screen.
-  const crumbSlot = useCrumbSlot(sessionId, isOrchestrator);
-  // The Overview button's board dots, by what they show: an update that changes no dot must not
+  // The Board button's dots, by what they show: an update that changes no dot must not
   // re-render the bar.
   const boardDotsKey = useStore((state) => selectLeaderPhaseDotsKey(state, sessionId));
   const boardDots = useMemo(() => phaseDotsFromKeys(boardDotsKey ? boardDotsKey.split(",") : []), [boardDotsKey]);
@@ -516,14 +511,11 @@ function WorkBoardBarComponent({
 
   const rail = (
     <ThreadTabRail
-      breadcrumb={{
+      board={{
         helpers: topBarHelpers,
-        board: {
-          open: activeView !== null,
-          dots: boardDots,
-          onToggle: () => toggleLeaderWorkboard(sessionId),
-        },
-        crumbSlot,
+        open: activeView !== null,
+        dots: boardDots,
+        onToggle: () => toggleLeaderWorkboard(sessionId),
       }}
       mainState={mainThreadState}
       tabs={displayedThreadTabs}
@@ -543,8 +535,6 @@ function WorkBoardBarComponent({
           data-testid="workboard-main-banner"
           data-active-view={panelView ?? ""}
         >
-          {/* The breadcrumb's place picker (Home or the leader log). */}
-          <CrumbStart sessionId={sessionId} separator={false} />
           <WorkBoardIcon className="h-4 w-4 text-cc-info" />
           <MainStripSummary
             summary={projection?.activePhaseSummary ?? []}

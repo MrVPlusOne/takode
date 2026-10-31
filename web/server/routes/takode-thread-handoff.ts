@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
-import { describeClosestTopics, isUnknownTopicKey } from "../topic-views.js";
+import { describeClosestThreads, isUnknownThreadKey } from "../topic-views.js";
 import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { messageHasThreadRef, messageThreadKeys } from "../../shared/message-threads.js";
 import { getTopicService } from "./topics.js";
@@ -31,14 +31,14 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
 
     const body = await c.req.json().catch(() => null);
     if (!body || typeof body !== "object") return c.json({ error: "A handoff selection is required" }, 400);
-    // The destination: an active quest, or a topic's own thread (`topic:<handle>`).
+    // The destination: an active quest, or a thread (`topic:<handle>`).
     const destination = typeof body.questId === "string" ? normalizeThreadTarget(body.questId) : null;
     if (!destination || destination.threadKey === "main") {
-      return c.json({ error: "Give a quest ID (q-N) or a topic thread (topic:<handle>)" }, 400);
+      return c.json({ error: "Give a quest ID (q-N) or a thread (topic:<handle>)" }, 400);
     }
     const questId = destination.threadKey;
-    if (isUnknownTopicKey(questId)) {
-      return c.json({ error: `No topic has the handle in ${questId}. ${describeClosestTopics(questId)}` }, 404);
+    if (isUnknownThreadKey(questId)) {
+      return c.json({ error: `No thread has the handle in ${questId}. ${describeClosestThreads(questId)}` }, 404);
     }
     const userMessageIds = body.userMessageIds;
     const notificationIds = body.notificationIds ?? [];

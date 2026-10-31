@@ -80,8 +80,7 @@ describe("Playground", { timeout: 60_000 }, () => {
     for (const key of ["q-1932", "q-42", "q-55", "q-61", "q-77", "q-88"]) expect(tab(key)).toBeTruthy();
     expect(tab("q-1932")).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
 
-    // q-42 is active work the leader is writing in: not closable, with the writing marker.
-    expect(tab("q-42")).toHaveAttribute("data-closable", "false");
+    // q-42 is active work the leader is writing in, with the writing marker.
     expect(within(tab("q-42")).queryByTestId("thread-tab-list-row-close")).not.toBeInTheDocument();
     expect(tab("q-42")).toHaveAttribute("data-active-output", "true");
     expect(within(tab("q-42")).getByTestId("thread-tab-active-output-spinner")).toBeTruthy();

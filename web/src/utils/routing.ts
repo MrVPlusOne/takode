@@ -5,7 +5,7 @@ import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey, threadViewShows } from "./thread-projection.js";
 import type { QuestLinkTarget } from "./quest-link-target.js";
 import { parseArtifactWindowHash } from "./artifact-window.js";
-import { threadForMessagesOf, threadQuestOf } from "./leader-topics.js";
+import { threadDestinationOf, threadForMessagesOf } from "./leader-topics.js";
 
 export type Route =
   | { page: "home" }
@@ -292,23 +292,6 @@ export function threadRouteFromHash(hash: string): { hasThreadParam: boolean; th
 }
 
 /**
- * The quest a route from before topic conversations had their own key showed zoomed out to its
- * topic (`?thread=q-N&topic=1`), so such a route (an old history entry or saved link) can be
- * opened as that topic's conversation; null for any other route.
- */
-export function legacyTopicViewQuestFromHash(hash: string): string | null {
-  const { params } = splitHash(hash);
-  if (params.get(LEGACY_TOPIC_VIEW_QUERY_PARAM) !== "1") return null;
-  const threadKey = threadRouteFromHash(hash).threadKey;
-  return threadKey && QUEST_ID_PATTERN.test(threadKey) ? threadKey : null;
-}
-
-/** The route of a topic's conversation (`topic:<handle>`), a place of its own. */
-export function sessionTopicViewHash(sessionId: string | number, topicKey: string): string {
-  return withThreadKeyInHash(sessionHash(sessionId), topicKey);
-}
-
-/**
  * Return a hash string with the leader thread route query param updated.
  * Main is the canonical default and is represented by removing the param.
  */
@@ -492,8 +475,8 @@ export function navigateToSessionThread(
     preserveMainThreadRoute?: boolean;
   } = {},
 ): void {
-  // A side chat that became a quest's thread is that quest's conversation now.
-  threadKey = threadQuestOf(sessionId, threadKey) ?? threadKey;
+  // A thread that became a quest's thread, or joined an earlier one, is that conversation now.
+  threadKey = threadDestinationOf(sessionId, threadKey) ?? threadKey;
   const currentRoute = parseHash(window.location.hash);
   const sameSession = currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId);
   let currentHash = sameSession ? window.location.hash : sessionHash(routeSessionId);

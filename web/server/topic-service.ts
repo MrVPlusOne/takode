@@ -12,8 +12,10 @@ import {
   type TopicLeaderState,
   type ScribeActivity,
   type ScribeOverview,
+  type ThreadSummary,
 } from "../shared/library-topics.js";
 import type { TopicStore } from "./topic-store.js";
+import type { RideAlongNotes } from "./herd-event-dispatcher.js";
 import {
   initializationMessage,
   leaderNotice,
@@ -21,6 +23,8 @@ import {
   retryMessage,
   failureNotice,
   looseEndsNotice,
+  threadJoinedNotice,
+  threadUnjoinedNotice,
   updateMessage,
   type UpdateContent,
 } from "./scribe-messages.js";
@@ -93,6 +97,9 @@ const STALE_DELIVERY_MS = 15 * 60_000;
 const RECENT_WINDOW_MS = 30 * 24 * 60 * 60_000;
 /** Quiet topics listed for the Scribe to consider merging. */
 const MAX_CONSOLIDATION_CANDIDATES = 12;
+/** A new thread may continue one of the leader's threads active this recently (or one of its quests). */
+const JOIN_CANDIDATE_WINDOW_MS = 14 * 24 * 60 * 60_000;
+const MAX_JOIN_CANDIDATES = 15;
 const EXCERPT_CHARS = 280;
 
 /** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
@@ -156,6 +163,11 @@ const ELSEWHERE_MAX = 12;
 const LOOSE_ENDS_PER_DAY = 3;
 const LOOSE_ENDS_LINES_MAX = 5;
 const LOOSE_END_MAX = 160;
+/**
+ * A Scribe's notes for its leader (loose ends, joins) wait for the leader's next herd delivery; when
+ * none comes this long, they go on their own.
+ */
+const NOTES_WAIT_MAX_MS = 2 * 60 * 60_000;
 
 /** After a Scribe's turn fails, its next message waits this long, doubling with each failure in a row. */
 const FAILURE_BACKOFF_MS = 30_000;
@@ -189,6 +201,8 @@ export interface ScribeTurnOutcome {
 export class TopicService {
   /** Per leader: the message its Scribe is working on, until a turn of the Scribe ends. */
   private awaiting = new Map<string, Delivery>();
+  /** Notes waiting for each leader's next herd delivery, and the timer that sends them anyway. */
+  private notes = new Map<string, { blocks: string[]; timer: ReturnType<typeof setTimeout> }>();
   /** Per leader: topics the user asked to have updated now, sent with the next message. */
   private forced = new Map<string, Set<string>>();
   /**
@@ -435,11 +449,63 @@ export class TopicService {
     const long = clean.find((line) => line.length > LOOSE_END_MAX);
     if (long) throw new Error(`Keep each to one line (${LOOSE_END_MAX} characters at most): "${long.slice(0, 60)}…"`);
     if (!this.store.countLooseEnds(leaderId, LOOSE_ENDS_PER_DAY)) return false;
-    this.deps.notifyLeader(
+    this.noteForLeader(
       leaderId,
       looseEndsNotice(this.deps.sessionNum(this.store.scribeSession(leaderId) ?? ""), clean),
     );
     return true;
+  }
+
+  /** The leader's Scribe joined a thread onto an earlier conversation: the leader hears with its next delivery. */
+  noteThreadJoined(leaderId: string, joined: { thread: string; into: string; summary: ThreadSummary }): void {
+    const intoName = joined.into.startsWith("q-") ? undefined : this.store.thread(joined.into)?.name;
+    this.noteForLeader(
+      leaderId,
+      threadJoinedNotice(
+        this.deps.sessionNum(this.store.scribeSession(leaderId) ?? ""),
+        { key: joined.thread, name: joined.summary.name },
+        { key: joined.into, name: intoName },
+      ),
+    );
+  }
+
+  /** The user undid a join: the leader hears with its next delivery. */
+  noteThreadUnjoined(leaderId: string, thread: ThreadSummary & { from?: string }): void {
+    this.noteForLeader(leaderId, threadUnjoinedNotice({ key: thread.key, name: thread.name }, thread.from ?? "it"));
+  }
+
+  /**
+   * What a Scribe has for its leader that isn't urgent waits for the leader's next herd delivery and
+   * rides along with it (`rideAlongNotes`), like a worker's quiet turn; when none comes within
+   * NOTES_WAIT_MAX_MS, it goes on its own. Kept in memory: a restart drops notes still waiting.
+   */
+  private noteForLeader(leaderId: string, text: string): void {
+    const waiting = this.notes.get(leaderId);
+    if (waiting) {
+      waiting.blocks.push(text);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const blocks = this.notes.get(leaderId)?.blocks;
+      this.notes.delete(leaderId);
+      if (blocks?.length) this.deps.notifyLeader(leaderId, blocks.join("\n\n"));
+    }, NOTES_WAIT_MAX_MS);
+    timer.unref?.();
+    this.notes.set(leaderId, { blocks: [text], timer });
+  }
+
+  /** The leaders' waiting notes, for the herd dispatcher to add to their next delivery. */
+  rideAlongNotes(): RideAlongNotes {
+    return {
+      take: (leaderId) => {
+        const waiting = this.notes.get(leaderId);
+        if (!waiting) return null;
+        clearTimeout(waiting.timer);
+        this.notes.delete(leaderId);
+        return waiting.blocks.join("\n\n");
+      },
+      restore: (leaderId, text) => this.noteForLeader(leaderId, text),
+    };
   }
 
   /** The user undid a tidying change: the Scribes of the space hear about it, after a short pause. */
@@ -618,6 +684,8 @@ export class TopicService {
     );
     // Threads that settled under no topic: the Scribe files them where they belong, now.
     const settledThreads = this.store.settledUnfiledThreads(leaderId);
+    // Threads the user just started: the Scribe joins each onto an earlier conversation it continues.
+    const joinChecks = this.store.threadsToCheckForJoin(leaderId);
     // What the user told other leaders meanwhile: it may settle something this Scribe's pages say is open.
     const elsewhereSince = this.store.elsewhereSeen(leaderId) ?? this.now() - ELSEWHERE_FIRST_MS;
     const elsewhere = this.userMessagesElsewhere(leaderId, elsewhereSince);
@@ -630,6 +698,7 @@ export class TopicService {
       forcedNames.length > 0 ||
       unsorted.length > 0 ||
       settledThreads.length > 0 ||
+      joinChecks.length > 0 ||
       (rewritePages && !this.stalled.has(leaderId)) ||
       (sendInstructions && !!instructions) ||
       newTopics.length > 0 ||
@@ -649,6 +718,7 @@ export class TopicService {
           ...(thread.startedFrom ? { startedFrom: thread.startedFrom } : {}),
           ...(thread.firstMessage ? { firstMessage: thread.firstMessage } : {}),
         })),
+        ...(joinChecks.length ? { joinChecks: this.joinCheckContent(leaderId, joinChecks) } : {}),
         rewritePages,
         ...(sendInstructions && instructions ? { instructions: instructions.text } : {}),
         forced: forcedNames,
@@ -669,6 +739,7 @@ export class TopicService {
     this.store.markInstructionsSent(leaderId);
     this.store.setElsewhereSeen(leaderId, this.now());
     this.store.markThreadsSortAsked(settledThreads.map((thread) => thread.id));
+    this.store.markThreadsJoinChecked(joinChecks.map((thread) => thread.id));
     this.store.reviewed(newTopics.map((topic) => topic.id));
     if (consolidate) this.store.setConsolidationAskedAt(leaderId, consolidate.count);
     this.stalled.delete(leaderId);
@@ -804,6 +875,29 @@ export class TopicService {
   }
 
   /** Everything a message asked for is done. */
+  /** New threads to check, with the leader's other recent threads they might continue. */
+  private joinCheckContent(
+    leaderId: string,
+    threads: ReadonlyArray<ThreadSummary & { firstMessage?: string }>,
+  ): NonNullable<UpdateContent["joinChecks"]> {
+    const checking = new Set(threads.map((thread) => thread.key));
+    const since = this.now() - JOIN_CANDIDATE_WINDOW_MS;
+    const earlier = this.store
+      .threadsOf(leaderId)
+      .filter(
+        (thread) => !checking.has(thread.key) && !thread.quest && !thread.joinedInto && thread.activityAt >= since,
+      )
+      .slice(0, MAX_JOIN_CANDIDATES);
+    return {
+      threads: threads.map((thread) => ({
+        key: thread.key,
+        name: thread.name,
+        ...(thread.firstMessage ? { firstMessage: thread.firstMessage } : {}),
+      })),
+      earlier: earlier.map((thread) => ({ key: thread.key, name: thread.name })),
+    };
+  }
+
   private settled(leaderId: string, delivery: Delivery): void {
     this.stalled.delete(leaderId);
     // The pages are rewritten only once the Scribe has actually done it.

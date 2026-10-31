@@ -1,0 +1,71 @@
+import { useState } from "react";
+import { topicApi } from "../api/topics.js";
+import { isQuestThreadKey } from "../../shared/thread-routing.js";
+import { reloadLeaderThreads, useKnownThreadOfKey } from "../utils/leader-topics.js";
+import { useQuestRecord } from "./QuestSummaryCard.js";
+
+/**
+ * The marker in a leader's thread `threadKey` where the messages of `joinedFrom`, a thread the
+ * Scribe joined onto it, begin. Undo makes `joinedFrom` a thread of its own again.
+ */
+export function JoinedThreadMarker({
+  sessionId,
+  threadKey,
+  joinedFrom,
+}: {
+  sessionId: string;
+  threadKey: string;
+  joinedFrom: string;
+}) {
+  const quest = useQuestRecord(isQuestThreadKey(threadKey) ? threadKey : null);
+  const thread = useKnownThreadOfKey(sessionId, isQuestThreadKey(threadKey) ? "" : threadKey);
+  const [undoing, setUndoing] = useState(false);
+  const undo = () => {
+    setUndoing(true);
+    topicApi
+      .unjoinThread(sessionId, joinedFrom)
+      .then(() => reloadLeaderThreads(sessionId))
+      .catch((error: Error) => {
+        console.error("[threads] Could not undo the join:", error.message);
+        setUndoing(false);
+      });
+  };
+  return (
+    <ThreadJoinMarker earlierName={quest?.title ?? thread?.name ?? threadKey} onUndo={undoing ? undefined : undo} />
+  );
+}
+
+/**
+ * Where a thread the Scribe joined onto the conversation it continues begins: the earlier
+ * conversation's messages sit above, this thread's below. The line names the earlier one and who
+ * joined them, with Undo for a wrong join.
+ */
+export function ThreadJoinMarker({
+  earlierName,
+  joinedBy = "the Scribe",
+  onUndo,
+}: {
+  earlierName: string;
+  joinedBy?: string;
+  onUndo?: () => void;
+}) {
+  return (
+    <div className="my-3 flex items-center gap-3 px-2 text-[12px] text-cc-muted" data-testid="thread-join-marker">
+      <span className="h-px flex-1 bg-cc-border" />
+      <span className="flex min-w-0 items-center gap-1.5">
+        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M4 3v5a3 3 0 0 0 3 3h6M10 8l3 3-3 3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="min-w-0 truncate">
+          Continues <span className="text-cc-fg">“{earlierName}”</span> · joined by {joinedBy}
+        </span>
+        {onUndo && (
+          <button type="button" onClick={onUndo} className="shrink-0 text-cc-primary hover:underline">
+            Undo
+          </button>
+        )}
+      </span>
+      <span className="h-px flex-1 bg-cc-border" />
+    </div>
+  );
+}

@@ -97,7 +97,6 @@ async function setup() {
                 { type: "user_message", id: "u-main", content: "status?", timestamp: 1 },
                 { type: "user_message", id: "u-q1", content: "launch", timestamp: 2, threadKey: "q-1", questId: "q-1" },
               ],
-              // What its overview lists: a question in q-2, an unread answer in Main, q-2 running.
               notifications: [
                 { id: "n1", category: "needs-input", summary: "Which context lengths?", threadKey: "q-2", done: false },
                 { id: "n2", category: "review", summary: "Answer in main | Done", threadKey: "main", done: false },
@@ -107,8 +106,11 @@ async function setup() {
                 ["q-2", { questId: "q-2", title: "256K twin", status: "IMPLEMENTING", createdAt: 1, updatedAt: 1 }],
                 ["q-3", { questId: "q-3", title: "Later", status: "QUEUED", createdAt: 2, updatedAt: 2 }],
               ]),
+              pendingPermissions: new Map(),
             }
           : undefined,
+      persistSessionById: () => {},
+      broadcastToSession: () => {},
     },
   } as unknown as RouteContext;
   const app = createTopicRoutes(ctx, () => service);
@@ -118,44 +120,6 @@ async function setup() {
 }
 
 describe("topic routes", () => {
-  it("lets a leader's Scribe read its overview and save an order with short notes the panel gets", async () => {
-    // Jiayi: the Scribe orders the overview by what to handle first and adds a short line of context.
-    const { app, store, send, setCaller } = await setup();
-    store.enableLeader("leader");
-    setCaller("scribe");
-    const read = await (await app.request("/scribe/overview")).json();
-    expect(read.order).toBeNull();
-    expect(read.items).toEqual([
-      { key: "q-2", title: "256K twin", questions: ["Which context lengths?"], results: [], running: "Implement" },
-      { key: "main", questions: [], results: ["Answer in main | Done"] },
-    ]);
-
-    // One short line each: a long note is refused rather than cut, and keys must name threads.
-    const long = await send("/scribe/overview", "POST", { entries: [{ key: "q-2", note: "x".repeat(91) }] });
-    expect(long.status).toBe(400);
-    expect((await long.json()).error).toContain("one short line");
-    expect((await send("/scribe/overview", "POST", { entries: [{ key: "T7 run" }] })).status).toBe(400);
-
-    const saved = await (
-      await send("/scribe/overview", "POST", {
-        entries: [
-          { key: "Q-2", note: "Pick the buckets before Friday's draft ([q-2](quest:q-2))" },
-          { key: "main" },
-          { key: "q-2", note: "a repeat is dropped" },
-        ],
-      })
-    ).json();
-    // Plain words: the row links to its thread, so the note's links keep only their text.
-    expect(saved.entries).toEqual([
-      { key: "q-2", note: "Pick the buckets before Friday's draft (q-2)" },
-      { key: "main" },
-    ]);
-
-    setCaller(null);
-    const list = await (await app.request("/topics?leader=leader")).json();
-    expect(list.overviewOrder.entries).toEqual(saved.entries);
-  });
-
   it("files a leader's quest under a topic and tells quest create the leader's topics", async () => {
     const { app, store, send, setCaller } = await setup();
     setCaller("leader");
@@ -444,15 +408,6 @@ describe("topic routes", () => {
     expect(store.resolve(topic.id)?.page).toBe("T7.\n\n## History\n- Launched.");
   });
 
-  it("says where a leader last discussed a quest, for opening its topic conversation there", async () => {
-    const { app } = await setup();
-    const found = await (await app.request("/topics/last-discussed?leader=leader&quest=q-1")).json();
-    expect(found).toEqual({ messageId: "u-q1" });
-    const never = await (await app.request("/topics/last-discussed?leader=leader&quest=q-2")).json();
-    expect(never).toEqual({ messageId: null });
-    expect((await app.request("/topics/last-discussed?leader=leader")).status).toBe(400);
-  });
-
   it("shows a leader's panel the topics of its own quests", async () => {
     const { app, store } = await setup();
     store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
@@ -511,5 +466,25 @@ describe("topic routes", () => {
     setCaller(null);
     const mine = (await (await send("/topics/threads", "POST", { leader: "leader", name: "Mine" })).json()).thread;
     expect(mine.startedBy).toBeUndefined();
+  });
+
+  // The Scribe joins a new thread onto the earlier conversation it continues; the leader hears with
+  // its next delivery, and the user's Undo makes it a thread of its own again.
+  it("lets a leader's Scribe join a thread onto an earlier one, and the user undo it", async () => {
+    const { store, service, send, setCaller } = await setup();
+    store.enableLeader("leader");
+    const earlier = store.startThread({ space: "MSI", name: "Composer sits low", leaderId: "leader" });
+    const later = store.startThread({ space: "MSI", name: "Composer a bit high", leaderId: "leader" });
+    setCaller("scribe");
+    const joined = await send("/scribe/join", "POST", { thread: later.key, into: earlier.key });
+    expect(await joined.json()).toMatchObject({ thread: later.key, into: earlier.key });
+    expect((await send("/scribe/join", "POST", { thread: later.key, into: "q-2" })).status).toBe(409);
+    expect(service.rideAlongNotes().take("leader")).toContain("Composer a bit high");
+
+    setCaller(null);
+    const undone = await send("/topics/threads/unjoin", "POST", { leader: "leader", thread: later.key });
+    expect((await undone.json()).thread.joinedInto).toBeUndefined();
+    expect(service.rideAlongNotes().take("leader")).toContain("undid");
+    expect((await send("/topics/threads/unjoin", "POST", { leader: "leader" })).status).toBe(400);
   });
 });

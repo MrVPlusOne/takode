@@ -43,6 +43,9 @@ export const topicApi = {
   /** A leader's threads, newest activity first. */
   threads: (leader: string) =>
     request<{ threads: ThreadSummary[] }>(`/topics/threads?leader=${encodeURIComponent(leader)}`),
+  /** Undoes the Scribe's join of a thread onto an earlier conversation: it is its own thread again. */
+  unjoinThread: (leader: string, thread: string) =>
+    request<{ thread: ThreadSummary }>("/topics/threads/unjoin", { method: "POST", body: { leader, thread } }),
   /** Removes a thread whose first message never arrived. */
   removeThread: (id: string) =>
     request<{ ok: true }>(`/topics/threads/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -78,10 +81,5 @@ export const topicApi = {
   questMap: (leaderSessionId: string, questIds: readonly string[]) =>
     request<QuestTopicsResponse>(
       `/topics/quest-map?leader=${encodeURIComponent(leaderSessionId)}&quests=${encodeURIComponent(questIds.join(","))}`,
-    ),
-  /** The message where a leader last discussed a quest, for opening its topic conversation there. */
-  lastDiscussed: (leaderSessionId: string, questId: string) =>
-    request<{ messageId: string | null }>(
-      `/topics/last-discussed?leader=${encodeURIComponent(leaderSessionId)}&quest=${encodeURIComponent(questId)}`,
     ),
 };

@@ -407,6 +407,11 @@ export interface ThreadRef {
   source: ThreadRefSource;
   attachedAt?: number;
   attachedBy?: string;
+  /**
+   * The thread this message was written in, when a join brought it to `threadKey`: that thread
+   * continues the conversation `threadKey` names (see `server/thread-join.ts`).
+   */
+  joinedFrom?: string;
 }
 
 export interface ThreadAttachmentMarker {

@@ -231,15 +231,11 @@ export interface AppState {
   sessionSortMode: "created" | "activity";
   setSessionSortMode: (mode: "created" | "activity") => void;
   /** Sidebar layout: sessions grouped by Session Space, or one list by the user's recent interaction. */
-  sidebarViewMode: "spaces" | "recent" | "topics";
+  sidebarViewMode: "spaces" | "recent";
   /** Saves the choice on the server, which keeps one view for every browser. */
-  setSidebarViewMode: (mode: "spaces" | "recent" | "topics") => void;
+  setSidebarViewMode: (mode: "spaces" | "recent") => void;
   /** Portrait pools collapsed in the leader portrait picker; loaded from the server's settings. */
   leaderProfileCollapsedPools: import("../shared/leader-profile-portraits.js").LeaderProfilePoolId[];
-  /** Topics pinned to the top of the sessions panel's Topics mode, in pin order (a server setting). */
-  sidebarPinnedTopics: string[];
-  /** Pins or unpins a topic; a new pin goes after the earlier ones. */
-  setTopicPinned: (topicId: string, pinned: boolean) => void;
   /** Collapses or expands one pool and saves the choice on the server, so every device shows the same. */
   setLeaderProfilePoolCollapsed: (
     poolId: import("../shared/leader-profile-portraits.js").LeaderProfilePoolId,

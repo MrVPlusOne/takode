@@ -334,6 +334,15 @@ interface HerdInbox {
 
 // ─── Dispatcher ─────────────────────────────────────────────────────────────────
 
+/**
+ * Notes for a leader that wait for its next herd delivery instead of waking it: `take` hands over
+ * what waits (as one block of text, or null) and `restore` puts it back when that delivery failed.
+ */
+export interface RideAlongNotes {
+  take(leaderId: string): string | null;
+  restore(leaderId: string, text: string): void;
+}
+
 export class HerdEventDispatcher {
   private inboxes = new Map<string, HerdInbox>();
   private takodeSubscribers = new Set<TakodeEventSubscriber>();
@@ -342,6 +351,8 @@ export class HerdEventDispatcher {
   private static readonly TAKODE_EVENT_LOG_LIMIT = 1000;
   private leaderGroupIdleStates: LeaderIdleStateLike["leaderGroupIdleStates"] = new Map();
   private restartPrepOperations = new Map<string, RestartPrepOperation>();
+  /** Notes for a leader that ride along with its next herd delivery (its Scribe's, say). */
+  private rideAlongNotes: RideAlongNotes | null = null;
 
   constructor(
     private wsBridge: WsBridgeHandle,
@@ -356,6 +367,11 @@ export class HerdEventDispatcher {
       isHostOffline?: (sessionId: string) => boolean;
     },
   ) {}
+
+  /** Where notes that wait for a leader's next herd delivery come from. */
+  setRideAlongNotes(source: RideAlongNotes | null): void {
+    this.rideAlongNotes = source;
+  }
 
   emitTakodeEvent<E extends TakodeEventType>(
     sessionId: string,
@@ -936,6 +952,8 @@ export class HerdEventDispatcher {
     pending: InboxEntry[],
   ): { status: "sent" | "retry" | "dropped"; deliveredCount: number } {
     const groups = groupPendingEntriesByThread(pending);
+    // Notes waiting for this leader (nothing urgent) ride along with the first batch.
+    let notes = this.rideAlongNotes?.take(orchId) ?? null;
     const deliveredEvents: TakodeEvent[] = [];
     const acceptedEntries: Array<{
       entry: InboxEntry;
@@ -957,11 +975,17 @@ export class HerdEventDispatcher {
       const ownerSnapshot = snapshotHerdDeliveryOwners(this.wsBridge.getSession(orchId));
       const delivery = this.wsBridge.injectUserMessage(
         orchId,
-        renderedBatch.content,
+        notes ? `${renderedBatch.content}\n\n${notes}` : renderedBatch.content,
         HERD_AGENT_SOURCE,
         herdBatch,
         group.route,
       );
+      if (notes) {
+        if (delivery !== "sent" && delivery !== "queued" && delivery !== "paused_queued") {
+          this.rideAlongNotes?.restore(orchId, notes);
+        }
+        notes = null;
+      }
       const ownerId = findHerdDeliveryOwnerId(
         this.wsBridge.getSession(orchId),
         herdBatch?.eventKeys ?? [],

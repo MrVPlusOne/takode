@@ -6,9 +6,9 @@ import { ThreadTabRail, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js"
 import { useStore } from "../store.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 
-// Tab menu tests: on a tab listed under its status group, long-press on touch and
-// right-click on desktop open one menu whose actions (Close tab, Notify Me) depend on
-// what applies to the tab.
+// Thread menu tests: on a thread listed under its status group, long-press on touch and
+// right-click on desktop open one menu: Notify Me (quest threads, once the server's state is
+// known), then Remind me later and Copy link.
 
 let sessionCounter = 0;
 
@@ -61,20 +61,19 @@ function renderRail({
   const sessionId = `tab-menu-session-${++sessionCounter}`;
   if (monitoring) publishMonitoring(sessionId, monitoring);
   const onSelectThread = vi.fn();
-  // The strip's crumb place, where the place picker listing the tabs (quests under no topic) draws.
-  const crumbSlot = document.createElement("span");
-  document.body.appendChild(crumbSlot);
   render(
     <ThreadTabRail
       tabs={tabs}
       sessionId={sessionId}
       currentThreadKey="main"
       onSelectThread={onSelectThread}
-      breadcrumb={{ helpers: null, board: { open: false, dots: [], onToggle: () => {} }, crumbSlot }}
+      board={{ helpers: null, open: false, dots: [], onToggle: () => {} }}
     />,
   );
+  // The threads are in progress: right-click on their group opens its list, even for one thread.
   const tab = (threadKey: string) => {
-    if (!screen.queryByTestId("place-crumb-list")) fireEvent.click(screen.getByTestId("place-crumb-button"));
+    if (!screen.queryByTestId("thread-tab-group-list"))
+      fireEvent.contextMenu(screen.getByTestId("thread-tab-group-chip"), { clientX: 5, clientY: 5 });
     return screen.getAllByTestId("thread-tab-list-row").find((element) => element.dataset.threadKey === threadKey)!;
   };
   return { sessionId, onSelectThread, tab };
@@ -97,8 +96,8 @@ describe("thread tab context menu", () => {
     fireEvent(tab("q-7"), contextMenu);
     // The browser's own menu must not appear on top of ours.
     expect(contextMenu.defaultPrevented).toBe(true);
-    // Tabs don't close any more (every place stays in the menus), so Notify Me is all it offers.
-    expect(menuLabels()).toEqual(["Notify Me"]);
+    // Threads don't close (every one stays in its group), so there is no Close tab.
+    expect(menuLabels()).toEqual(["Notify Me", "Remind me later", "Copy link"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Notify Me" }));
     expect(fetch).toHaveBeenCalledWith(
@@ -153,7 +152,7 @@ describe("thread tab context menu", () => {
     act(() => vi.advanceTimersByTime(499));
     expect(menuLabels()).toEqual([]);
     act(() => vi.advanceTimersByTime(1));
-    expect(menuLabels()).toEqual(["Notify Me"]);
+    expect(menuLabels()).toEqual(["Notify Me", "Remind me later", "Copy link"]);
     expect(tab("q-7").style.scale).toBe("");
     // Haptic tick where the platform supports it (Android); iOS has no API.
     expect(vibrate).toHaveBeenCalledWith(10);
@@ -171,7 +170,7 @@ describe("thread tab context menu", () => {
     fireEvent.mouseDown(closeButton);
     fireEvent.click(closeButton);
     expect(onSelectThread).not.toHaveBeenCalled();
-    expect(menuLabels()).toEqual(["Notify Me"]);
+    expect(menuLabels()).toEqual(["Notify Me", "Remind me later", "Copy link"]);
 
     // A real tap elsewhere still dismisses the menu, and the next ordinary
     // tap on the tab works.
@@ -210,15 +209,9 @@ describe("thread tab context menu", () => {
     expect(menuLabels()).toEqual([]);
   });
 
-  it("omits Notify Me until the server monitoring state has loaded, leaving such tabs to the browser", () => {
-    const { tab } = renderRail({
-      tabs: [chip("q-7"), chip("q-8", { canClose: false })],
-    });
-
-    // A tab with no applicable action gets no custom menu at all.
-    const contextMenu = createEvent.contextMenu(tab("q-8"));
-    fireEvent(tab("q-8"), contextMenu);
-    expect(contextMenu.defaultPrevented).toBe(false);
-    expect(menuLabels()).toEqual([]);
+  it("omits Notify Me until the server monitoring state has loaded", () => {
+    const { tab } = renderRail({ tabs: [chip("q-7")] });
+    fireEvent.contextMenu(tab("q-7"));
+    expect(menuLabels()).toEqual(["Remind me later", "Copy link"]);
   });
 });

@@ -1,18 +1,17 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { ContextMenu, useMenuButton } from "./ContextMenu.js";
 
-export type SidebarViewMode = "spaces" | "recent" | "topics";
+export type SidebarViewMode = "spaces" | "recent";
 
-const LABELS = { spaces: "Spaces", recent: "Recent", topics: "Topics" } as const;
+const LABELS = { spaces: "Spaces", recent: "Recent" } as const;
 const TITLES = {
   spaces: "Group sessions by Session Space",
   recent: "List sessions by recent interaction",
-  topics: "List the topics of your leaders, then the leaders and other sessions",
 } as const;
-const MODES = ["spaces", "recent", "topics"] as const;
+const MODES = ["spaces", "recent"] as const;
 
 /**
- * The sessions panel's Spaces / Recent / Topics switch. Where the panel is wide enough it is a
+ * The sessions panel's Spaces / Recent switch. Where the panel is wide enough it is a
  * segmented control; where it isn't (`compact`), a dropdown naming the current view, so the New
  * button beside it is never pushed off the edge (Jiayi, Oct 31: New is the panel's most important
  * button).

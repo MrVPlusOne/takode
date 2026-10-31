@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { useStore } from "../store.js";
-import { TopicIcon } from "./library/library-icons.js";
+import { SideColumnIcon } from "./library/library-icons.js";
 import type { LeaderWorkboardView } from "../store-types.js";
-import { type BoardPhaseDot, type BoardSummarySegment } from "./leader-board-summary.js";
+import { describeBoardPhaseDots, type BoardPhaseDot, type BoardSummarySegment } from "./leader-board-summary.js";
 import { getQuestPhaseAccentValue } from "../utils/quest-phase-theme.js";
 
 /**
@@ -95,6 +95,44 @@ export function LeaderWorkboardControlButton({
   );
 }
 
+/**
+ * The top bar's Board button for a leader: its board icon with one dot per quest in a Journey phase,
+ * "Board" beside it on desktop. It opens the full work board in place, and closes it.
+ */
+export function LeaderBoardButton({
+  dots,
+  open,
+  onToggle,
+  desktop,
+}: {
+  dots: readonly BoardPhaseDot[];
+  open: boolean;
+  onToggle: () => void;
+  desktop: boolean;
+}) {
+  const label = `${open ? "Close" : "Open"} work board: ${describeBoardPhaseDots(dots)}`;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 ${
+        desktop ? "h-7" : "h-9"
+      } ${
+        open
+          ? "border-cc-primary/50 bg-cc-primary/12 text-cc-fg"
+          : "border-cc-border bg-cc-hover/40 text-cc-fg hover:bg-cc-hover"
+      }`}
+      aria-pressed={open}
+      aria-label={label}
+      title={label}
+      data-testid="thread-top-bar-board-button"
+    >
+      <WorkBoardDotsIcon dots={dots} large={!desktop} />
+      {desktop && <span>Board</span>}
+    </button>
+  );
+}
+
 const MAX_BOARD_DOTS = 5;
 /** Past five dots, three dots plus "+N" fit the same square. */
 const OVERFLOW_SHOWN_DOTS = 3;
@@ -151,9 +189,9 @@ export function WorkBoardDotsIcon({ dots, large }: { dots: readonly BoardPhaseDo
 }
 
 /**
- * On phones, a leader's side column next to Working on: opens and closes it as a sheet over the
- * conversation (the topic page it follows, side chats and whatever else was put there). Same 36 px
- * square as the Working on button. Desktop shows the column, or its rail, beside the conversation.
+ * On phones, a leader's side column beside the Board button: opens and closes it as a sheet over the
+ * conversation (whatever was put there, then the leader's topics). Same 36 px square as the Board
+ * button. Desktop shows the column, or its rail, beside the conversation.
  */
 export function LeaderTopicsTopBarButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const label = open ? "Close the side column" : "Open the side column";
@@ -170,7 +208,7 @@ export function LeaderTopicsTopBarButton({ open, onToggle }: { open: boolean; on
       aria-label={label}
       title={label}
     >
-      <TopicIcon className="h-[18px] w-[18px]" />
+      <SideColumnIcon className="h-[18px] w-[18px]" />
     </button>
   );
 }

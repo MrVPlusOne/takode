@@ -1,19 +1,14 @@
-/** The sessions panel's view: sessions by Session Space, by recency, or the topics leaders work in. */
-export type SidebarViewMode = "spaces" | "recent" | "topics";
+/** The sessions panel's view: sessions by Session Space, or by recency. */
+export type SidebarViewMode = "spaces" | "recent";
 
 export function isSidebarViewMode(value: unknown): value is SidebarViewMode {
-  return value === "spaces" || value === "recent" || value === "topics";
+  return value === "spaces" || value === "recent";
 }
 
-/** The most topics the sessions panel keeps pinned. */
-export const MAX_PINNED_TOPICS = 50;
-
 /**
- * The topics the user pinned to the top of the sessions panel's Topics mode, by topic ID in the
- * order they were pinned: strings only, each once, at most {@link MAX_PINNED_TOPICS}.
+ * A saved view as the panel shows it now. The retired Topics view (topic rows; topics became tags)
+ * reads as Recent, which listed its sessions the same way; anything else is Spaces.
  */
-export function normalizePinnedTopicIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const ids = value.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 200);
-  return [...new Set(ids)].slice(0, MAX_PINNED_TOPICS);
+export function normalizeSidebarViewMode(value: unknown): SidebarViewMode {
+  return value === "recent" || value === "topics" ? "recent" : "spaces";
 }

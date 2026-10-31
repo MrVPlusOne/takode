@@ -136,7 +136,8 @@ describe("leader thread tabs projected component behavior", () => {
     );
 
     const tabs = listedThreadTabs();
-    expect(tabs.map((tab) => tab.getAttribute("data-thread-key")).sort()).toEqual(["q-1", "q-2"]);
+    // Main's waiting question lists as the leader log ("all"), with the projected quest tabs.
+    expect(tabs.map((tab) => tab.getAttribute("data-thread-key")).sort()).toEqual(["all", "q-1", "q-2"]);
     const q1 = listedThreadTab("q-1")!;
     expect(q1).toHaveAttribute("data-needs-input", "true");
     expect(within(q1).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
@@ -271,9 +272,7 @@ describe("leader thread tabs projected component behavior", () => {
     // A finished quest with Thread Waiting reads in the normal foreground; the active Work
     // quest keeps its phase color although a stale hydrated record says it is done.
     expect(completedRow).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
-    expect(completedRow).toHaveAttribute("data-closable", "true");
     expect(activeWorkRow).toHaveAttribute("data-title-color", "var(--color-cc-phase-thread-tab-title-work, #166534)");
-    expect(activeWorkRow).toHaveAttribute("data-closable", "false");
   });
 
   it("does not rebuild leader tabs from raw board rows when the current projection is unavailable", () => {
@@ -362,7 +361,6 @@ describe("leader thread tabs projected component behavior", () => {
     render(<WorkBoardBar sessionId="leader" currentThreadKey="main" />);
 
     const tab = () => listedThreadTab("q-700")!;
-    expect(tab()).toHaveAttribute("data-closable", "false");
     expect(tab()).toHaveAttribute("data-title-color", "var(--color-cc-phase-thread-tab-title-work, #166534)");
     act(() => {
       useStore.getState().upsertQuestDetail({
@@ -380,7 +378,6 @@ describe("leader thread tabs projected component behavior", () => {
       });
     });
     expect(tab()).toHaveAttribute("data-title-color", "var(--color-cc-phase-thread-tab-title-work, #166534)");
-    expect(tab()).toHaveAttribute("data-closable", "false");
 
     act(() => {
       useStore.getState().applySyncedProjectionUpdate(
@@ -430,7 +427,6 @@ describe("leader thread tabs projected component behavior", () => {
     });
 
     await waitFor(() => {
-      expect(tab()).toHaveAttribute("data-closable", "true");
       expect(tab()).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     });
   });
@@ -621,8 +617,7 @@ describe("leader thread tabs projected component behavior", () => {
 
     expect(commitsAfterMount).toBeGreaterThan(0);
     expect(commits.slice(commitsAfterCompleted)).toEqual([]);
-    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1"]);
-    expect(listedThreadTab("q-1")).toHaveAttribute("data-closable", "true");
+    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["all", "q-1"]);
   });
 
   it("measures zero additional WorkBoardBar commits across repeated equal projection updates", () => {

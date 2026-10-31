@@ -5,13 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../api.js", () => ({ api: {} }));
 vi.mock("../MarkdownContent.js", () => ({ MarkdownContent: ({ text }: { text: string }) => <div>{text}</div> }));
-const openTopicConversation = vi.hoisted(() => vi.fn());
 const navigateToNotification = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/notification-navigation.js", () => ({ navigateToNotification }));
-vi.mock("../../utils/topic-conversation.js", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  openTopicConversation,
-}));
 const navigateToSessionThread = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/routing.js", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -208,20 +203,17 @@ describe("TopicSidePanel", () => {
     );
   });
 
-  it("lists topics and undoes the Scribe's tidying, with no way to turn topics off", async () => {
+  it("lists topics to browse and undoes the Scribe's tidying, with no way to turn topics off", async () => {
     const api = mockApi();
-    // q-2713 (T7 run) has an open question; an answered one and a muted one don't count.
-    const [question] = askQuestions(
-      { questId: "q-2713", summary: "Pick the grading?" },
-      { questId: "q-2713", done: true },
-      { questId: "q-2713", muted: true },
-    );
+    // Topics are tags: the list is for browsing, so a quest's open question shows in the leader's
+    // threads, not on its topic's row.
+    askQuestions({ questId: "q-2713", summary: "Pick the grading?" });
     render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
     // Every leader has topics: even one the server lists as not started has no off notice.
     await screen.findAllByTestId("library-topic-row");
     expect(screen.queryByTestId("topic-hint")).toBeNull();
 
-    // Each topic shows its newest update (else its description) and its open questions to the user.
+    // Each topic shows its newest update (else its description).
     const rows = screen.getAllByTestId("library-topic-row");
     expect(rows.map((row) => row.textContent)).toEqual([
       expect.stringContaining("T7 run"),
@@ -229,11 +221,8 @@ describe("TopicSidePanel", () => {
     ]);
     expect(rows[0]).toHaveTextContent("Twin caught up at step 200.");
     expect(rows[0]).not.toHaveTextContent("Oct 24 ·");
-    expect(rows[0]).toHaveTextContent("1 question for you");
-    expect(rows[1]).not.toHaveTextContent("for you");
-    // The badge opens the question where it was asked; the 🔔 list stays the place to answer.
-    fireEvent.click(within(rows[0]!).getByTestId("topic-questions-badge"));
-    expect(navigateToNotification).toHaveBeenCalledWith("l1", question, expect.any(Array));
+    expect(rows[0]).not.toHaveTextContent("for you");
+    expect(screen.queryByTestId("topic-questions-badge")).toBeNull();
     // Recent changes to the topics fold into one line, so they don't crowd the list: Show lists
     // them with Undo, Dismiss puts them away without undoing them.
     const changes = screen.getByTestId("topic-changes");
@@ -333,26 +322,6 @@ describe("TopicSidePanel", () => {
     expect(screen.queryByTestId("topic-questions")).toBeNull();
   });
 
-  it("offers a View topic tab button, which reads Viewing topic tab while the topic is on screen", async () => {
-    // Jiayi: the "Read all N quests" link was too subtle for how often she jumps to the topic's
-    // conversation, so it is a button; once that conversation is on screen it says so instead.
-    mockApi();
-    vi.mocked(topicApi.get).mockResolvedValue({ ...DETAIL, questIds: ["q-2713", "q-2797"] });
-    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
-    const view = await screen.findByTestId("topic-read-conversation");
-    expect(view.tagName).toBe("BUTTON");
-    expect(view).toHaveTextContent("View topic tab");
-    fireEvent.click(view);
-    // The topic's conversation is a place of its own.
-    expect(openTopicConversation).toHaveBeenCalledWith("l1", "topic:t7", { replace: false });
-    cleanup();
-
-    // With the topic's conversation on screen, the page says so.
-    render(<TopicSidePanel leaderId="l1" threadKey="topic:t7" variant="docked" />);
-    expect(await screen.findByTestId("topic-viewing-conversation")).toHaveTextContent("Viewing topic tab");
-    expect(screen.queryByTestId("topic-read-conversation")).toBeNull();
-  });
-
   it("turns the quest count into a picker of the topic's quests, most recent first", async () => {
     mockApi();
     vi.mocked(topicApi.get).mockResolvedValue({
@@ -430,15 +399,6 @@ describe("TopicSidePanel", () => {
     const again = await screen.findByTestId("topic-view");
     expect(within(again).getByRole("button", { name: "History" })).toHaveAttribute("aria-expanded", "false");
     expect(within(again).getByTestId("topic-quest-log")).not.toHaveTextContent("Launch T7");
-  });
-
-  it("offers the topic view for a topic of one quest too", async () => {
-    // A quest tab is always a zoomed-in view of its topic, also while the topic holds one quest.
-    mockApi();
-    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
-    const view = await screen.findByTestId("topic-view");
-    expect(within(view).getByTestId("topic-read-conversation")).toHaveTextContent("View topic tab");
-    expect(view).toHaveTextContent(/1 quest\s*▾\s*· page updated/);
   });
 
   it("shows where the topic stands as plain lines, nothing to tick, the panel leader's first", async () => {

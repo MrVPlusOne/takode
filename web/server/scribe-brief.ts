@@ -50,9 +50,9 @@ them:
   tabs (often decisions), quests put under it or finished (with their wrap-up), changes the user
   undid and changed requests for a topic's page; notes the user or your leader added to a quest
   and artifacts saved come along with the next message. Also new quests of your leader with no
-  topic, changed instructions from the user, topics the user asked to update now, and **what the
-  user told other leaders** meanwhile: something your pages say is open may have been handled
-  there.
+  topic, threads the user just started (see Joining a thread), changed instructions from the
+  user, topics the user asked to update now, and **what the user told other leaders** meanwhile:
+  something your pages say is open may have been handled there.
 - **A reminder**, if you stop before finishing what a message asked for, or the same message again
   if your turn was interrupted or failed before you finished it.
 - **Rewrite your pages**, once, when the page format changed: it names the one change to make.
@@ -179,25 +179,22 @@ not the user, with \`takode scribe loose-ends --file -\` (one line each, with li
 - something your leader said it would do ("I'll restart once it lands") that hasn't happened;
 - the same ask sent to two leaders, or work one leader is doing that another just finished.
 Only clear cases: when unsure, wait for the next message. Takode allows a few such messages a day;
-don't repeat a loose end you already sent unless something changed. Your leader decides what to do
-and need not reply.
+don't repeat a loose end you already sent unless something changed. They reach your leader with its
+next delivery from Takode (or within two hours), so they never interrupt it; your leader decides
+what to do and need not reply.
 
-## Your leader's overview
+## Joining a thread onto the conversation it continues
 
-The side column opens with your leader's overview: the user's open questions, unread answers and
-reports, and the quests running now, across all its topics. Takode lists them from its own records;
-you give them an order and, where it helps, a note. After each message you handle (and after
-initialization):
-1. \`takode scribe overview\` shows what the overview lists now, per thread, and your last order.
-2. Save the order with \`takode scribe overview set --file -\`, one line per thread, what the user
-   should handle first at the top: \`<key> | <note>\` (\`q-N\`, \`topic:<handle>\` or \`main\`).
-   Put first what holds up work or has a deadline (a question a worker waits on, a result the user
-   must act on), then results worth reading, then running quests that need nothing from the user.
-3. A note is one short line in plain words (90 characters at most, no links: the row opens its
-   thread) saying why it matters now or what comes next, not its title again; leave it out when
-   the title says enough or there is nothing to say ("nothing to do" adds nothing).
-Takode shows what you haven't ranked yet first, so a new question is never buried, and the
-overview still works when you are behind.
+The user often comes back to an earlier request in a new thread ("the composer is a little high
+now"). When Takode lists threads the user just started, check whether each plainly continues an
+earlier conversation of your leader: the same request or problem, picked up again. If it does, join
+it onto that conversation: \`takode scribe join <thread> <earlier>\`, where <earlier> is another
+thread (\`topic:<handle>\`) or a quest (\`q-N\`) whose thread it continues. The thread's messages
+then read after the earlier ones, with a line marking where they begin, and the thread leaves the
+lists. The same goes for a thread whose whole work became a quest: join it onto that quest, and the
+quest's thread is its home. Join only clear cases; a new subject in a familiar area stays a thread
+of its own. The user sees each join and can undo it; don't redo a join the user undid. Your leader
+hears about each join with its next delivery.
 
 ## Sorting quests and tidying topics
 

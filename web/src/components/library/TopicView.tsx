@@ -38,8 +38,6 @@ export function TopicView({
   embedded = false,
   leaderId,
   bottomRoom = 0,
-  onReadConversation,
-  conversationOnScreen = false,
   currentQuestId = null,
   onOpenQuest,
 }: {
@@ -53,10 +51,6 @@ export function TopicView({
   leaderId?: string;
   /** Extra room at the bottom, so an expanded composer covering the panel's lower part hides nothing. */
   bottomRoom?: number;
-  /** Opens the topic's conversation (its quests read as one) in the leader's feed. */
-  onReadConversation?: () => void;
-  /** Whether the topic's conversation is what the leader's feed shows. */
-  conversationOnScreen?: boolean;
   /** The quest whose tab is on screen. */
   currentQuestId?: string | null;
   /** Opens one of the topic's quests in its tab. */
@@ -145,29 +139,6 @@ export function TopicView({
           </p>
         )}
         <div className="relative mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12px] text-cc-muted">
-          {onReadConversation &&
-            detail.questIds.length > 0 &&
-            (conversationOnScreen ? (
-              <span
-                className="inline-flex items-center gap-1.5 rounded-md bg-cc-hover px-2.5 py-1 text-[13px] text-cc-muted"
-                data-testid="topic-viewing-conversation"
-              >
-                <ConversationIcon className="h-3.5 w-3.5" />
-                Viewing topic tab
-              </span>
-            ) : (
-              // How Jiayi jumps to the topic's conversation most of the time, so a button, not a link.
-              <button
-                type="button"
-                onClick={() => onReadConversation()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-cc-primary/40 bg-cc-primary/10 px-2.5 py-1 text-[13px] font-medium text-cc-primary hover:bg-cc-primary/15"
-                title="Read the topic's quests as one conversation"
-                data-testid="topic-read-conversation"
-              >
-                <ConversationIcon className="h-3.5 w-3.5" />
-                View topic tab
-              </button>
-            ))}
           <span className="inline-flex flex-wrap items-center gap-x-1">
             {onOpenQuest ? (
               <TopicQuestPicker
@@ -705,21 +676,6 @@ function clock(at: number): string {
   return sameDay
     ? new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
     : new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
-function ConversationIcon({ className }: { className: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      aria-hidden="true"
-    >
-      <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" strokeLinejoin="round" />
-    </svg>
-  );
 }
 
 /** The page's picture times, the same object while they don't change, so the page doesn't re-render. */

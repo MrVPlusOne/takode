@@ -960,29 +960,82 @@ describe("topic service", () => {
     expect(store.stands(topic.id).map((stand) => stand.leaderId)).toEqual(["other"]);
   });
 
-  it("passes a Scribe's loose ends to its leader, a few times a day at most", async () => {
+  it("passes a Scribe's loose ends to its leader with its next delivery, a few times a day at most", async () => {
     // The Scribe works for the leader: requests with no answer or promises not kept reach the
-    // leader as one short message, never the user, and can't flood it.
+    // leader, never the user, and can't flood it. They wait for the leader's next herd delivery
+    // and ride along with it, so they never interrupt it on their own.
     const { service, notices, store } = await setupService();
     await enable(service, store, "leader");
+    const notes = service.rideAlongNotes();
     expect(() => service.tellLeader("leader", ["x".repeat(161)])).toThrow(/one line/);
     expect(() => service.tellLeader("leader", ["a", "b", "c", "d", "e", "f"])).toThrow(/At most 5/);
     expect(service.tellLeader("leader", ["- The restart you promised after q-12 landed hasn't happened"])).toBe(true);
-    expect(notices.at(-1)).toEqual({
-      leaderId: "leader",
-      text: expect.stringContaining(
-        "noticed loose ends:\n- The restart you promised after q-12 landed hasn't happened",
-      ),
-    });
     expect(service.tellLeader("leader", ["two"])).toBe(true);
+    expect(notices).toEqual([]);
+    // The herd dispatcher takes them for the next delivery: both, as one block of text, once.
+    const taken = notes.take("leader")!;
+    expect(taken).toContain("noticed loose ends:\n- The restart you promised after q-12 landed hasn't happened");
+    expect(taken).toContain("two");
+    expect(notes.take("leader")).toBeNull();
     expect(service.tellLeader("leader", ["three"])).toBe(true);
     expect(service.tellLeader("leader", ["four"])).toBe(false);
-    expect(notices).toHaveLength(3);
     // A new day starts the count again.
     now = NOW + DAY;
     vi.setSystemTime(NOW + DAY);
     expect(service.tellLeader("leader", ["next day"])).toBe(true);
   });
+
+  it("sends the Scribe's notes on their own when no delivery takes them, and keeps a failed one", async () => {
+    // A leader with no herd events for two hours still hears; a delivery that failed puts its
+    // notes back for the next one.
+    const { service, notices, store } = await setupService();
+    await enable(service, store, "leader");
+    const notes = service.rideAlongNotes();
+    service.tellLeader("leader", ["The draft for q-4 is still unsent"]);
+    notes.restore("leader", notes.take("leader")!);
+    expect(notices).toEqual([]);
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60_000);
+    expect(notices).toEqual([
+      { leaderId: "leader", text: expect.stringContaining("The draft for q-4 is still unsent") },
+    ]);
+    expect(notes.take("leader")).toBeNull();
+  });
+
+  it("asks the Scribe once whether each thread the user just started continues an earlier one", async () => {
+    // A user often picks a request up again in a new thread; the Scribe joins it onto the earlier
+    // conversation. It is asked with the leader's other recent threads to choose from.
+    const { service, injected, store } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    const earlier = store.startThread({ space: "MSI", name: "Collapsed composer sits low", leaderId: "leader" });
+    store.threadWritten(earlier.id, Date.now());
+    store.markThreadsJoinChecked([earlier.id]);
+    const opened = store.startThread({ space: "MSI", name: "Status digest", leaderId: "leader", startedBy: "leader" });
+    store.threadWritten(opened.id, Date.now());
+    const fresh = store.startThread({
+      space: "MSI",
+      name: "The composer is a little high",
+      leaderId: "leader",
+      firstMessage: "The composer is a little high now when the keyboard is closed.",
+    });
+    store.threadWritten(fresh.id, Date.now() + 1);
+    injected.length = 0;
+    expect(await service.deliver("leader")).toBe("sent");
+    const text = injected.at(-1)!.text;
+    expect(text).toContain("Threads the user just started");
+    expect(text).toContain(`- ${fresh.key} "The composer is a little high"`);
+    expect(text).toContain('It began: "The composer is a little high now when the keyboard is closed."');
+    // Asked about: only the new thread. A thread the leader opened is its own subject, and the
+    // earlier one was asked about before; both are among the threads it may continue.
+    const [asked, candidates] = text.split("Your leader's other recent threads:");
+    expect(asked).not.toContain(opened.key);
+    expect(asked).not.toContain(earlier.key);
+    expect(candidates).toContain(`- ${earlier.key} "Collapsed composer sits low"`);
+    expect(candidates).toContain(opened.key);
+    await service.scribeTurnEnded(scribe);
+    injected.length = 0;
+    expect(await service.deliver("leader")).toBe("nothing");
+  });
+
   it("tells the Scribe what the user told other leaders since its last message, once", async () => {
     // Jiayi handled a follow-up through another leader and the page kept listing it: the Scribe saw
     // only its own leader. Each message now brings the user's messages to the other leaders.

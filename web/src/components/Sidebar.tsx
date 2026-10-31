@@ -19,7 +19,7 @@ import {
 import { api } from "../api.js";
 import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
 import { normalizeLeaderProfileCollapsedPools } from "../../shared/leader-profile-portraits.js";
-import { normalizePinnedTopicIds } from "../../shared/sidebar-view-mode.js";
+import { normalizeSidebarViewMode } from "../../shared/sidebar-view-mode.js";
 import { connectSession, syncedProjectionsLive } from "../ws.js";
 import { navigateToSession, navigateToSessionThread, secondaryPageFromHash } from "../utils/routing.js";
 import { openSecondaryPage, toggleSecondaryPage } from "../utils/secondary-view.js";
@@ -43,7 +43,6 @@ import { SidebarLockToggle } from "./SidebarFold.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { RecentNewSessionMenuButton, RecentSessionList, RecentSpacesStatus } from "./RecentSessionList.js";
-import { SidebarTopicsMode, TopicsModeNewButton, useTopicsModeData } from "./sidebar-topics/SidebarTopicsMode.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import type { SdkSessionInfo } from "../types.js";
 import {
@@ -119,9 +118,7 @@ export function Sidebar({
   const viewRowRef = useRef<HTMLDivElement>(null);
   const viewSwitchCompact = useCompactWhenCrowded(viewRowRef);
   const setSidebarViewMode = useStore((s) => s.setSidebarViewMode);
-  const topicsView = sidebarViewMode === "topics";
-  // Topics mode lists the leaders' topics, and the other sessions as Recent does.
-  const recentView = sidebarViewMode === "recent" || topicsView;
+  const recentView = sidebarViewMode === "recent";
   const treeGroups = useStore((s) => s.treeGroups);
   const treeAssignments = useStore((s) => s.treeAssignments);
   const collapsedTreeGroups = useStore((s) => s.collapsedTreeGroups);
@@ -282,10 +279,8 @@ export function Sidebar({
         hydrateChatDisplaySettingsFromServer(s);
         useStore.setState({
           sendKeyScheme: normalizeSendKeyScheme(s.sendKeyScheme),
-          sidebarViewMode:
-            s.sidebarViewMode === "recent" || s.sidebarViewMode === "topics" ? s.sidebarViewMode : "spaces",
+          sidebarViewMode: normalizeSidebarViewMode(s.sidebarViewMode),
           leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(s.leaderProfileCollapsedPools),
-          sidebarPinnedTopics: normalizePinnedTopicIds(s.sidebarPinnedTopics),
         });
       })
       .catch(() => {});
@@ -497,7 +492,7 @@ export function Sidebar({
     window.setTimeout(() => void refreshSessionListNow(true), 1500);
   }
 
-  function switchSidebarView(mode: "spaces" | "recent" | "topics") {
+  function switchSidebarView(mode: "spaces" | "recent") {
     if (mode !== "spaces") {
       cancelBulkSelection();
       setBulkSourceMenuOpen(false);
@@ -546,7 +541,6 @@ export function Sidebar({
       sidebarViewMode,
     ],
   );
-  const topicsData = useTopicsModeData(recentNodes, topicsView);
 
   useEffect(() => {
     const sessionById = new Map(allSessionList.map((session) => [session.id, session] as const));
@@ -838,12 +832,7 @@ export function Sidebar({
         ref={sessionScrollerRef}
         data-testid="sidebar-session-scroller"
         className={`flex-1 px-2 pb-2 overflow-x-hidden ${
-          // Topics mode's groups scroll on their own, so the panel itself doesn't.
-          topicsView
-            ? "flex min-h-0 flex-col overflow-y-hidden"
-            : mobileReorderHandleActive
-              ? "overflow-y-hidden overscroll-none"
-              : "overflow-y-auto"
+          mobileReorderHandleActive ? "overflow-y-hidden overscroll-none" : "overflow-y-auto"
         }`}
         style={{
           touchAction: mobileReorderHandleActive ? "none" : "pan-y",
@@ -854,15 +843,8 @@ export function Sidebar({
           <div ref={viewRowRef} className="px-2 pt-2 pb-1.5 flex shrink-0 items-center gap-1">
             <SidebarViewSwitch mode={sidebarViewMode} compact={viewSwitchCompact} onSwitch={switchSidebarView} />
             {recentView && <RecentSpacesStatus spaces={treeViewGroups} />}
-            {recentView && !topicsView && (
+            {recentView && (
               <RecentNewSessionMenuButton spaces={treeViewGroups} onCreateSession={handleCreateSessionInTreeGroup} />
-            )}
-            {topicsView && (
-              <TopicsModeNewButton
-                leaders={topicsData.places.map((place) => place.node)}
-                spaces={treeViewGroups}
-                onCreateSession={handleCreateSessionInTreeGroup}
-              />
             )}
             {!recentView && bulkSourceGroups.length > 0 && (
               <button
@@ -954,36 +936,7 @@ export function Sidebar({
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">No sessions yet.</p>
         ) : (
           <>
-            {topicsView ? (
-              <SidebarTopicsMode
-                data={topicsData}
-                currentSessionId={currentSessionId}
-                onOpen={(leaderId, threadKey) => {
-                  setContextMenu(null);
-                  navigateToSessionThread(leaderId, threadKey);
-                  if (!isDesktopLayout) useStore.getState().setSidebarOpen(false);
-                }}
-                onOpened={() => {
-                  setContextMenu(null);
-                  if (!isDesktopLayout) useStore.getState().setSidebarOpen(false);
-                }}
-                otherSessions={(others) => (
-                  <>
-                    {pendingList}
-                    <RecentSessionList
-                      nodes={others}
-                      currentSessionId={currentSessionId}
-                      recentlyRenamed={recentlyRenamed}
-                      sessionAttention={sessionSetAttention}
-                      herdGroupBadgeThemes={herdGroupBadgeThemes}
-                      rowProps={{ ...sessionItemProps, reorderMode: false, isDraggable: false }}
-                    />
-                    {cronSection}
-                    {archivedSection}
-                  </>
-                )}
-              />
-            ) : recentView ? (
+            {recentView ? (
               <>
                 {pendingList}
                 <RecentSessionList

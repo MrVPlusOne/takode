@@ -3,8 +3,8 @@ import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useStat
 /**
  * What pins at the top of the feed, so the controls floating there (the Next chip, the day pill,
  * live terminals and subagents) start below it instead of covering it:
- * - the quest strip of the quest being read, in a topic conversation (`TopicFeedQuestStart`) or in
- *   a leader's Main (`MainQuestStrip`), pinned whenever the feed is scrolled past the first one;
+ * - the quest strip of the quest being read in a leader's Main (`MainQuestStrip`), pinned whenever
+ *   the feed is scrolled past the first one;
  * - an expanded report's collapse bar while its report is in view (`ReportCard`), which pins under
  *   the strip.
  *
@@ -18,7 +18,7 @@ export function useFeedPinnedTop(
   contentRootRef: RefObject<HTMLElement | null>,
   layoutSignature: string,
 ): { style: CSSProperties; belowPinnedStrip: boolean } {
-  const strip = useTopicStripHeight(contentRootRef, layoutSignature);
+  const strip = useStripHeight(contentRootRef, layoutSignature);
   const bar = usePinnedBarHeight(containerRef, strip ?? 0, layoutSignature);
   return {
     style: {
@@ -29,11 +29,11 @@ export function useFeedPinnedTop(
   };
 }
 
-/** Quest strips of either kind (topic conversations and Main). */
+/** Main's quest strips. */
 const STRIP_SELECTOR = '[data-feed-quest-strip="true"]';
 
 /** The height of the feed's quest strips; null in a feed without strips. */
-function useTopicStripHeight(contentRootRef: RefObject<HTMLElement | null>, layoutSignature: string): number | null {
+function useStripHeight(contentRootRef: RefObject<HTMLElement | null>, layoutSignature: string): number | null {
   const [height, setHeight] = useState<number | null>(null);
   useLayoutEffect(() => {
     const root = contentRootRef.current;
