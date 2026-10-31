@@ -1,5 +1,6 @@
 import { createContext, useMemo, type ReactNode } from "react";
 import type { OverviewOrder, TopicSummary } from "../../../shared/library-topics.js";
+import { isRunningBoardRow } from "../../../shared/leader-thread-tab-priority.js";
 import { getQuestJourneyPhase, getQuestJourneyPhaseForState } from "../../../shared/quest-journey.js";
 import { isKeyOfTopic } from "../../../shared/topic-thread-key.js";
 import type { BoardParticipantStatus, BoardRowSessionStatus } from "../../../server/session-types.js";
@@ -89,7 +90,7 @@ export function useLeaderOverview(leaderId: string): LeaderOverviewData {
     const noted = new Set(forYou.map(threadOf));
     const running = rankBy(
       board
-        .filter((row) => !isQueued(row))
+        .filter((row) => isRunningBoardRow(row))
         .map((row) => runningQuest(row, statuses[row.questId], topics?.map[normalizeThreadKey(row.questId)]))
         .sort((a, b) => b.updatedAt - a.updatedAt),
       (quest) => quest.questId,
@@ -346,10 +347,6 @@ function rankForYou(
     if (note) notes.set(item.key, note);
   }
   return { items: [...items].sort((a, b) => placeRank(a) - placeRank(b)), notes };
-}
-
-function isQueued(row: BoardRowData): boolean {
-  return (row.status ?? "").trim().toUpperCase() === "QUEUED";
 }
 
 /** How long since, without "ago": "12m", "3h", "2d". */

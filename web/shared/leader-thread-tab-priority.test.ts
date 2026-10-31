@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isInMotionLeaderThreadTabRow,
   isNeverStartedScheduledLeaderThreadTabRow,
+  isRunningBoardRow,
   isScheduledLeaderThreadTabStatus,
   promoteInMotionLeaderThreadTabsBeforeScheduled,
 } from "./leader-thread-tab-priority.js";
@@ -29,6 +30,18 @@ describe("leader thread tab priority", () => {
     expect(isScheduledLeaderThreadTabStatus("working")).toBe(false);
     expect(isNeverStartedScheduledLeaderThreadTabRow({ status: "QUEUED" })).toBe(true);
     expect(isNeverStartedScheduledLeaderThreadTabRow({ status: "QUEUED", threadTabActivatedAt: 50 })).toBe(false);
+  });
+
+  it("counts quests moving on their own as running, never one waiting at a User Checkpoint", () => {
+    // The green running dots follow the work board: a checkpointed quest waits on the user, so it
+    // counts only as a question, even while its tab stays in motion for tab ordering.
+    expect(isRunningBoardRow({ status: "WORKING" })).toBe(true);
+    expect(isRunningBoardRow({ status: "MEMORY" })).toBe(true);
+    expect(isRunningBoardRow({ status: "LANDING" })).toBe(true);
+    expect(isRunningBoardRow({ status: "USER_CHECKPOINTING", waitForInput: ["n-1"] })).toBe(false);
+    expect(isRunningBoardRow({ status: "QUEUED" })).toBe(false);
+    expect(isRunningBoardRow({ status: "PROPOSED" })).toBe(false);
+    expect(isRunningBoardRow({ status: "WORKING" }, { completed: true })).toBe(false);
   });
 
   it("promotes only in-motion tabs across scheduled tabs while preserving peer order", () => {

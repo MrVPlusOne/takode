@@ -623,6 +623,9 @@ describe("leader thread tabs projection parity regressions", () => {
       active: false,
       canClose: true,
     });
+    // The running count (the sessions panel's green dots) leaves out checkpoints, even the one whose
+    // tab stays active: a quest waiting on the user counts only as a question.
+    expect([...(value.runningQuestIds ?? [])].sort()).toEqual(["q-memory", "q-work"]);
     expect(value.tabs.find((tab) => tab.threadKey === "q-requeued")).toMatchObject({
       queued: true,
       neverStartedScheduled: false,

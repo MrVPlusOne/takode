@@ -54,6 +54,21 @@ export function isInMotionLeaderThreadTabRow(
 }
 
 /**
+ * Whether a board row counts as running wherever Takode shows how many quests run (the green dots,
+ * the Overview's Running now): in a Journey phase that moves on its own, such as Work, Memory or
+ * Landing. A quest at a User Checkpoint waits on the user, so it counts only as a question, even
+ * while its tab stays in motion.
+ */
+export function isRunningBoardRow(
+  row: LeaderThreadTabPriorityRow | undefined,
+  options: { completed?: boolean } = {},
+): boolean {
+  return (
+    isInMotionLeaderThreadTabRow(row, options) && (row?.status ?? "").trim().toLowerCase() !== "user_checkpointing"
+  );
+}
+
+/**
  * Apply the scheduled-tab precedence rule without globally sorting the rail.
  * Only in-motion tabs that are currently behind the first scheduled tab move
  * forward; every peer class keeps its existing relative order.

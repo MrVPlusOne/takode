@@ -32,6 +32,7 @@ import {
 import {
   isInMotionLeaderThreadTabRow,
   isNeverStartedScheduledLeaderThreadTabRow,
+  isRunningBoardRow,
   type LeaderThreadTabMutationPolicy,
 } from "../shared/leader-thread-tab-priority.js";
 import { threadStatusKey, threadStatusMessageIdHash, type LeaderThreadStatus } from "../shared/thread-status-marker.js";
@@ -949,7 +950,8 @@ export function buildLeaderThreadTabsProjectionValue(
     threadStatuses,
     activePhaseSummary: compactActivePhaseSummary(activeBoard),
     runningQuestIds: activeBoard
-      .filter(isInMotionBoardCandidate)
+      .filter((row) => isRunningBoardRow(row, { completed: isCompletedRow(row) }))
+      .filter((row) => normalizeProjectionThreadKey(row.questId) !== null)
       .map((row) => normalizeProjectionThreadKey(row.questId)!)
       .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS),
     threadReminders: projectThreadReminders(session),

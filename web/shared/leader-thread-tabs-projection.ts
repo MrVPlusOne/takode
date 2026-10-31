@@ -110,8 +110,9 @@ export interface LeaderThreadTabsProjectionValue {
   threadStatuses: Record<string, LeaderThreadStatus>;
   activePhaseSummary: LeaderActivePhaseSummarySegment[];
   /**
-   * The leader's quests in motion on its board (in a Journey phase, not queued or proposed), for
-   * running counts outside its tabs (the sessions panel's Topics mode). Absent from older servers.
+   * The leader's running quests on its board (`isRunningBoardRow`: in a Journey phase, not queued,
+   * proposed or at a User Checkpoint), for running counts outside its tabs (the sessions panel's
+   * Topics mode). Absent from older servers.
    */
   runningQuestIds?: string[];
   /** "Remind me later" wake times by thread key ("main" or a quest ID), including closed tabs. */

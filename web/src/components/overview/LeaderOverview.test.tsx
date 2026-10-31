@@ -79,8 +79,16 @@ function seed() {
         [
           { questId: "q-1", title: "Relay fix", status: "IMPLEMENTING", updatedAt: 10 },
           { questId: "q-3", title: "Eval sweep", status: "IMPLEMENTING", updatedAt: 20 },
-          // Queued rows are not running.
+          // Queued, proposed and checkpointed rows are not running: a checkpoint waits on the user.
           { questId: "q-4", title: "Later", status: "QUEUED", updatedAt: 30 },
+          { questId: "q-5", title: "Idea", status: "PROPOSED", updatedAt: 40 },
+          {
+            questId: "q-2",
+            title: "Relay layout",
+            status: "USER_CHECKPOINTING",
+            waitForInput: ["n-9"],
+            updatedAt: 50,
+          },
         ],
       ],
     ]),
