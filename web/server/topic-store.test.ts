@@ -320,6 +320,24 @@ describe("topic store", () => {
     expect(store.threadsOf("lead")[0]?.settledAt).toBeUndefined();
   });
 
+  it("records the quest a side chat became, once, and leaves it out of filing and topic conversations", async () => {
+    // A chat whose whole request was handed off to a quest is that quest's conversation now: the
+    // browser shows it as the quest, the Scribe doesn't file it, and a topic doesn't list it.
+    const store = await newStore();
+    const changes: string[] = [];
+    store.onThreadChange = (leaderId) => changes.push(leaderId);
+    const t7 = store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false }).topic;
+    const chat = store.startThread({ space: "MSI", name: "Fix the eval stall", leaderId: "lead" });
+    store.fileThread(chat.key, "T7 run", false);
+    expect(store.threadBecomesQuest(chat.key, "q-9")).toBe(true);
+    expect(store.threadBecomesQuest(chat.key, "q-10")).toBe(false);
+    expect(store.threadsOf("lead")[0]).toMatchObject({ key: chat.key, quest: "q-9" });
+    expect(store.threadsUnder(t7.id)).toEqual([]);
+    store.settleThread(chat.key);
+    expect(store.settledUnfiledThreads("lead")).toEqual([]);
+    expect(changes).toContain("lead");
+  });
+
   it("removes only a thread whose first message never arrived, and reports each thread change", async () => {
     // A failed first send leaves a thread with nothing in it; the user can remove it. A thread
     // anyone wrote in is a conversation and stays. Every change is reported so open Threads menus

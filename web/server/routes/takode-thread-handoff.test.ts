@@ -11,6 +11,7 @@ import { setTopicViewSource } from "../topic-views.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { _resetThreadAttachmentBroadcastsForTest } from "./takode-thread-attachment-broadcast.js";
 import type { RouteContext } from "./context.js";
+import { setTopicService } from "./topics.js";
 
 type Human = Extract<BrowserIncomingMessage, { type: "user_message" }>;
 type Assistant = Extract<BrowserIncomingMessage, { type: "assistant" }>;
@@ -402,5 +403,54 @@ describe("handoff to a topic thread no topic has", () => {
     ).toEqual(["u1"]);
     const withDecision = await handoff({ questId: "topic:6fd2c4bb", userMessageIds: ["u2"], notificationIds: ["n-1"] });
     expect((await withDecision.json()).error).toBe("Decision notifications can be handed off to a quest only");
+  });
+});
+
+describe("handoff from a side chat", () => {
+  afterEach(() => setTopicService(null));
+
+  it("makes the whole chat the quest's thread: its other messages join the quest", async () => {
+    // Jiayi (Oct 31): a side chat whose request became a quest's whole work should be that quest's
+    // conversation, as if the quest's thread had been opened in the side pane, not a side quest.
+    const chatKey = "topic:aaaa0001";
+    const becomes = vi.fn(() => true);
+    setTopicService({
+      store: { thread: () => ({ thread: { leaderId: "leader" } }), threadBecomesQuest: becomes },
+    } as never);
+    setTopicViewSource({
+      topicOf: (handle) => (handle === "aaaa0001" ? { id: "aaaa0001-0000", name: "Slides", thread: {} } : null),
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    const earlier = { ...prompt("leader-reply", "Looking at the slides first."), threadKey: chatKey };
+    const request = { ...human("u1"), threadKey: chatKey };
+    const elsewhere = human("u2");
+    const { session, handoff } = fixture([request, earlier, elsewhere]);
+    const response = await handoff({ questId: "q-42", userMessageIds: ["u1"] });
+    expect(await response.json()).toMatchObject({ ok: true, chatBecameQuestThread: chatKey });
+    expect(becomes).toHaveBeenCalledWith(chatKey, "q-42");
+    // The leader's reply in the chat now also belongs to the quest; Main's request doesn't.
+    expect(session.messageHistory[1]!.threadRefs).toEqual([
+      expect.objectContaining({ threadKey: "q-42", source: "backfill" }),
+    ]);
+    expect(session.messageHistory[2]!.threadRefs).toBeUndefined();
+    const window = buildThreadWindowSync({
+      messageHistory: session.messageHistory,
+      threadKey: "q-42",
+      fromItem: -1,
+      itemCount: 10,
+      sectionItemCount: 10,
+      visibleItemCount: 10,
+    });
+    expect(window.entries.map((entry) => entry.history_index)).toEqual(expect.arrayContaining([0, 1]));
+  });
+
+  it("leaves a request from Main as it was", async () => {
+    const becomes = vi.fn(() => true);
+    setTopicService({ store: { thread: () => undefined, threadBecomesQuest: becomes } } as never);
+    const { handoff } = fixture();
+    expect(await (await handoff()).json()).not.toHaveProperty("chatBecameQuestThread");
+    expect(becomes).not.toHaveBeenCalled();
   });
 });

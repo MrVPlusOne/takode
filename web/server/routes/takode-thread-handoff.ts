@@ -1,6 +1,9 @@
 import type { Hono } from "hono";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { describeClosestTopics, isUnknownTopicKey } from "../topic-views.js";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
+import { messageHasThreadRef, messageThreadKeys } from "../../shared/message-threads.js";
+import { getTopicService } from "./topics.js";
 import { handoffThreadRef, prepareLeaderThreadHandoff } from "../leader-thread-handoff.js";
 import { broadcastNotificationRefresh } from "../bridge/session-notification-controller.js";
 import { clearLeaderThreadStatusForActivity } from "../bridge/thread-routing-reminder.js";
@@ -13,6 +16,7 @@ import {
   pendingThreadAttachmentChangedCount,
   scheduleThreadAttachmentUpdateBroadcast,
   THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
+  THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
 } from "./takode-thread-attachment-broadcast.js";
 
 /** Transfer exact unfinished Main requests without answering them or changing raw history. */
@@ -69,6 +73,20 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
     const changedEntries = new Map<number, BrowserIncomingMessage>();
     for (const request of requestPlan.requests) changedEntries.set(request.historyIndex, request.message);
     for (const anchor of notificationPlan.anchors) changedEntries.set(anchor.historyIndex, anchor.message);
+    // A side chat whose request moves into a quest becomes that quest's thread: the rest of the
+    // chat is attached to the quest, so the two read as one conversation from its start.
+    const chatKey =
+      destination.questId && requestPlan.requests.length ? sideChatKey(requestPlan.sourceThreadKey) : null;
+    const chatIndices = chatKey
+      ? chatMessageIndices(
+          session.messageHistory,
+          chatKey,
+          questId,
+          changedEntries,
+          THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES - changedEntries.size - pendingThreadAttachmentChangedCount(id),
+        )
+      : [];
+    for (const index of chatIndices) changedEntries.set(index, session.messageHistory[index]!);
     const changedIndices = [...changedEntries.keys()].sort((a, b) => a - b);
     const boundError = buildThreadAttachmentBoundError({
       questId,
@@ -107,6 +125,10 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
     const ref: ThreadRef = handoffThreadRef(questId, timestamp, id);
     for (const request of requestPlan.requests) {
       request.message.threadRefs = [...(request.message.threadRefs ?? []), ref];
+    }
+    for (const index of chatIndices) {
+      const message = session.messageHistory[index]!;
+      message.threadRefs = [...(message.threadRefs ?? []), { ...ref, source: "backfill" }];
     }
     for (const notification of notificationPlan.notifications) {
       Object.assign(notification, target, { threadRefs: [...(notification.threadRefs ?? []), ref] });
@@ -179,6 +201,37 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
     } else {
       wsBridge.persistSessionById(id, changedIndices);
     }
+    if (chatKey && getTopicService()?.store.threadBecomesQuest(chatKey, questId)) {
+      return c.json({ ...result, chatBecameQuestThread: chatKey });
+    }
     return c.json(result);
   });
+}
+
+/** The source thread when it is a side chat (a thread the user started) not yet any quest's thread. */
+function sideChatKey(threadKey: string): string | null {
+  if (!isTopicViewKey(threadKey)) return null;
+  const thread = getTopicService()?.store.thread(threadKey)?.thread;
+  return thread && !thread.quest ? threadKey : null;
+}
+
+/**
+ * The chat's other messages that the quest doesn't hold yet, oldest first. A chat longer than the
+ * room an attachment has keeps its newest messages, which carry the request's context.
+ */
+function chatMessageIndices(
+  history: readonly BrowserIncomingMessage[],
+  chatKey: string,
+  questId: string,
+  taken: ReadonlyMap<number, BrowserIncomingMessage>,
+  room: number,
+): number[] {
+  const indices: number[] = [];
+  // An attachment reaches only recent history; a chat that started earlier joins from there.
+  const first = Math.max(0, history.length - THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT);
+  history.forEach((message, index) => {
+    if (index < first || taken.has(index) || messageHasThreadRef(message, questId)) return;
+    if (messageThreadKeys(message)?.includes(chatKey)) indices.push(index);
+  });
+  return room > 0 ? indices.slice(-room) : [];
 }

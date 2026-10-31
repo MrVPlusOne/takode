@@ -6,15 +6,23 @@ import {
   closeSideItem,
   HOME_ITEM,
   NO_ITEM,
+  notePaneClick,
   openInSide,
   openSideItem,
+  replaceSideItem,
   setSideOverviewFolded,
   sideChatOrigin,
   useSideColumn,
   type SideItem,
 } from "../../utils/side-column.js";
 import { setTopicPanelOpen, setTopicSheetOpen } from "../../utils/topic-panel.js";
-import { reloadLeaderThreads, useKnownThreadOfKey, useLeaderThreads } from "../../utils/leader-topics.js";
+import {
+  loadLeaderNamesOnce,
+  reloadLeaderThreads,
+  useKnownThreadOfKey,
+  useLeaderThreads,
+  useThreadQuests,
+} from "../../utils/leader-topics.js";
 import { topicApi } from "../../api/topics.js";
 import { navigateToSession, navigateToSessionThread, openQuestOverlayRouteAware } from "../../utils/routing.js";
 import { resolveNotificationOwnerThreadKey } from "../../utils/notification-thread.js";
@@ -76,6 +84,15 @@ export function SideColumn({
   const close = () => (variant === "sheet" ? setTopicSheetOpen(leaderId, false) : setTopicPanelOpen(leaderId, false));
   // A row toggles its item: opening it folds the one open before, and the open one folds.
   const toggle = (id: string) => openSideItem(leaderId, id === openId ? NO_ITEM : id);
+  // A side chat whose whole request became a quest's work is that quest's conversation now.
+  const becameQuest = useThreadQuests(leaderId);
+  useEffect(() => loadLeaderNamesOnce(leaderId), [leaderId]);
+  useEffect(() => {
+    for (const item of items) {
+      const quest = item.kind === "conversation" ? becameQuest.get(item.threadKey.toLowerCase()) : undefined;
+      if (quest) replaceSideItem(leaderId, item.id, { kind: "conversation", threadKey: quest });
+    }
+  }, [becameQuest, items, leaderId]);
   // The server sends this browser the live messages of the conversations in the column too.
   const conversationKeys = items
     .flatMap((item) => (item.kind === "conversation" ? [item.threadKey.toLowerCase()] : []))
@@ -91,7 +108,13 @@ export function SideColumn({
     if (!kept.includes(id)) return null;
     return (
       <Activity key={`body:${id}`} mode={id === openId ? "visible" : "hidden"}>
-        <div className="flex min-h-0 flex-1 flex-col" data-testid="side-item-body" data-item={id}>
+        {/* A link clicked here opens in this pane; the open-in-side click opens it in the main view. */}
+        <div
+          className="flex min-h-0 flex-1 flex-col"
+          data-testid="side-item-body"
+          data-item={id}
+          onClickCapture={(event) => notePaneClick(leaderId, entry?.id ?? null, event)}
+        >
           <SideItemBody leaderId={leaderId} threadKey={threadKey} item={entry} variant={variant} />
         </div>
       </Activity>

@@ -5,6 +5,7 @@ import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey, threadViewShows } from "./thread-projection.js";
 import type { QuestLinkTarget } from "./quest-link-target.js";
 import { parseArtifactWindowHash } from "./artifact-window.js";
+import { threadQuestOf } from "./leader-topics.js";
 
 export type Route =
   | { page: "home" }
@@ -491,6 +492,8 @@ export function navigateToSessionThread(
     preserveMainThreadRoute?: boolean;
   } = {},
 ): void {
+  // A side chat that became a quest's thread is that quest's conversation now.
+  threadKey = threadQuestOf(sessionId, threadKey) ?? threadKey;
   const currentRoute = parseHash(window.location.hash);
   const sameSession = currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId);
   let currentHash = sameSession ? window.location.hash : sessionHash(routeSessionId);

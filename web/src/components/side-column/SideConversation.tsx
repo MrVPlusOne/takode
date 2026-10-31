@@ -14,6 +14,7 @@ import { ComposerTargetContext } from "../composer-target.js";
 import { TopicFeedContext, type TopicFeed } from "../topic-feed.js";
 import { StartedQuestsProvider } from "../QuestForkLinks.js";
 import { navigateToSessionThread } from "../../utils/routing.js";
+import { openInSide, wantsSideClick } from "../../utils/side-column.js";
 
 /**
  * One of the leader's conversations in the side column: a side chat (a thread the user started),
@@ -32,7 +33,12 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
     enabled: true,
     onSeen: (notificationId) => void api.markNotificationDone(leaderId, notificationId, true).catch(console.error),
   });
-  // A topic's conversation stitches its quests' threads; opening a quest from it opens it in the main view.
+  // A topic's conversation stitches its quests' threads. A thread opened from this pane opens in it,
+  // in place of this conversation; the open-in-side click opens it in the main view.
+  const openThread = (next: string) =>
+    wantsSideClick()
+      ? openInSide(leaderId, { kind: "conversation", threadKey: next })
+      : navigateToSessionThread(leaderId, next);
   const topicFeed = useMemo<TopicFeed | null>(
     () =>
       topic
@@ -41,7 +47,7 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
             topicKey: topicViewKey(topic.topicId),
             topicName: topic.name,
             ...(topic.threads ? { threads: topic.threads } : {}),
-            openQuest: (questId: string) => navigateToSessionThread(leaderId, questId),
+            openQuest: openThread,
           }
         : null,
     [leaderId, topic],
@@ -57,12 +63,7 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
             {/* A request here that moved into a quest says where it continues, as in the main view. */}
             <StartedQuestsProvider sessionId={leaderId} enabled refreshKey={key}>
               <TopicFeedContext.Provider value={topicFeed}>
-                <MessageFeed
-                  sessionId={leaderId}
-                  threadKey={key}
-                  projectThreadRoutes
-                  onSelectThread={(next) => navigateToSessionThread(leaderId, next)}
-                />
+                <MessageFeed sessionId={leaderId} threadKey={key} projectThreadRoutes onSelectThread={openThread} />
               </TopicFeedContext.Provider>
             </StartedQuestsProvider>
           </div>

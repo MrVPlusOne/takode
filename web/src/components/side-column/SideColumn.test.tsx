@@ -64,6 +64,7 @@ vi.mock("../../utils/leader-topics.js", async (importOriginal) => ({
   useLeaderThreads: () => threads.list,
 }));
 import { closeSideItem, HOME_ITEM, openInSide, useSideColumnStore } from "../../utils/side-column.js";
+import { rememberThreads } from "../../utils/leader-topics.js";
 import { useLibraryNav } from "../../utils/library-nav.js";
 import { markLeaderThreadDisplayed } from "../../utils/thread-viewport.js";
 import { useTopicPanel } from "../../utils/topic-panel.js";
@@ -77,6 +78,7 @@ afterEach(() => {
   useTopicPanel.setState({ panels: {}, sheets: [], focus: null });
   localStorage.clear();
   threads.list = [];
+  rememberThreads("l1", []);
 });
 
 const rows = () => screen.queryAllByTestId("side-item-row");
@@ -84,6 +86,26 @@ const openBodies = () =>
   screen.getAllByTestId("side-item-body").filter((body) => body.closest("[style*='display: none']") === null);
 
 describe("SideColumn", () => {
+  it("shows a side chat that became a quest's thread as that quest", () => {
+    // Jiayi (Oct 31): once the chat's whole request is a quest's work, the chat and the quest are
+    // one conversation; the column shows the quest instead of the chat.
+    openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0001" });
+    rememberThreads("l1", [
+      {
+        id: "aaaa0001-0000",
+        key: "topic:aaaa0001",
+        name: "Fix the eval stall",
+        leaderId: "l1",
+        createdAt: 1,
+        activityAt: 1,
+        quest: "q-9",
+      },
+    ]);
+    render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+    const items = useSideColumnStore.getState().columns.l1!.items;
+    expect(items).toEqual([expect.objectContaining({ kind: "conversation", threadKey: "q-9" })]);
+  });
+
   it("shows the overview, then the topic page it follows, each folding on its own and remembered", () => {
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     // Jiayi: the leader's overview sits at the top everywhere, the current topic's page under it.

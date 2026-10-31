@@ -70,6 +70,11 @@ export interface ThreadSummary {
   settledAt?: number;
   /** No message has arrived in it yet; if its first send failed it stays so, and can be removed. */
   empty?: true;
+  /**
+   * The quest whose thread it became (its whole request was handed off there): it is that quest's
+   * conversation now, shown as the quest and left out of the thread lists.
+   */
+  quest?: string;
 }
 
 export interface TopicEvent {

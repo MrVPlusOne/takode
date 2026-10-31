@@ -19,7 +19,8 @@ import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import { useStore } from "../store.js";
 import {
   handleOpenInSideClick,
-  isOpenInSideClick,
+  isPaneClick,
+  wantsSideClick,
   openConversationInSide,
   openQuestInSide,
 } from "../utils/side-column.js";
@@ -868,7 +869,8 @@ export function QuestFeedInlineLink({
       const leaderSessionId = selectQuestThreadLeaderId(state, normalizedQuestId);
       // The open-in-side click shows what a plain click shows, the quest's conversation, in its
       // leader's side column; with another leader on screen, the quest's details in that one's.
-      if (isOpenInSideClick(event)) {
+      // In a side pane the roles swap: a plain click opens it there, the other click in the main view.
+      if (wantsSideClick(event)) {
         closeAllRef.current(false);
         if (leaderSessionId && openConversationInSide(leaderSessionId, normalizedQuestId)) return;
         if (openQuestInSide(normalizedQuestId)) return;
@@ -911,7 +913,13 @@ export function QuestFeedInlineLink({
       // The open-in-side click shows what a plain click shows, the quest's details, in the side column.
       if (event.button === 0) {
         closeAllRef.current(false);
-        if (handleOpenInSideClick(event, () => openQuestInSide(normalizedQuestId), openQuestView)) return;
+        // In a side pane a plain click replaces the pane: with the quest's conversation when it is
+        // the pane's leader's, else with its details.
+        const inSide = () => {
+          const leader = isPaneClick() ? selectQuestThreadLeaderId(useStore.getState(), normalizedQuestId) : null;
+          return (!!leader && openConversationInSide(leader, normalizedQuestId)) || openQuestInSide(normalizedQuestId);
+        };
+        if (handleOpenInSideClick(event, inSide, openQuestView)) return;
       }
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       event.preventDefault();

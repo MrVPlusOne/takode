@@ -102,6 +102,13 @@ function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
  * opens it and shows the column (on phones, its sheet).
  */
 export function openInSide(leaderId: string, input: SideItemInput): string {
+  // A link clicked in one of the column's panes opens in that pane, in place of what it showed.
+  const pane = paneClick?.leaderId === leaderId ? paneClick.itemId : null;
+  if (pane && useSideColumnStore.getState().columns[leaderId]?.items.some((item) => item.id === pane)) {
+    replaceSideItem(leaderId, pane, input);
+    openSideItem(leaderId, pane);
+    return pane;
+  }
   let id = "";
   update(leaderId, (column) => {
     const existing = column.items.find((item) => sameTarget(item, input));
@@ -139,12 +146,21 @@ export function closeSideItem(leaderId: string, id: string): void {
   });
 }
 
-/** Turns an item into another in place, such as a new side chat into its thread once it started. */
+/**
+ * Turns an item into another in place, such as a new side chat into its thread once it started.
+ * Another item showing the same thing goes, so the column never holds it twice.
+ */
 export function replaceSideItem(leaderId: string, id: string, input: SideItemInput): void {
-  update(leaderId, (column) => ({
-    ...column,
-    items: column.items.map((item) => (item.id === id ? ({ ...input, id } as SideItem) : item)),
-  }));
+  update(leaderId, (column) => {
+    const twin = column.items.find((item) => item.id !== id && sameTarget(item, input));
+    return {
+      ...column,
+      items: column.items
+        .filter((item) => item !== twin)
+        .map((item) => (item.id === id ? ({ ...input, id } as SideItem) : item)),
+      open: twin && column.open === twin.id ? id : column.open,
+    };
+  });
 }
 
 export function useSideColumn(leaderId: string): LeaderColumn {
@@ -170,6 +186,40 @@ export interface OpenInSideEvent {
   altKey: boolean;
   metaKey: boolean;
   ctrlKey: boolean;
+}
+
+/** A click being dispatched inside one of a side column's panes (`notePaneClick`). */
+let paneClick: { leaderId: string; itemId: string | null; event: OpenInSideEvent } | null = null;
+
+/**
+ * Records that a click is happening in a side column's pane (its item, or null for the topic page
+ * it follows), for the click's own handlers: a link there opens in that pane, and the open-in-side
+ * click opens it in the main view instead. Called in the capture phase; forgotten once the click
+ * is handled.
+ */
+export function notePaneClick(leaderId: string, itemId: string | null, event: OpenInSideEvent): void {
+  const click = { leaderId, itemId, event: { ...pickModifiers(event) } };
+  paneClick = click;
+  setTimeout(() => {
+    if (paneClick === click) paneClick = null;
+  }, 0);
+}
+
+/**
+ * Whether a click should land in the side column: in the main view, the open-in-side click; in a
+ * side pane, a plain click (a click opens in the view it was made in, the other click in the other).
+ */
+export function wantsSideClick(event: OpenInSideEvent | undefined = paneClick?.event): boolean {
+  return paneClick ? !isOpenInSideClick(event) : isOpenInSideClick(event);
+}
+
+/** Whether the click being handled was made in a side column's pane. */
+export function isPaneClick(): boolean {
+  return paneClick !== null;
+}
+
+function pickModifiers(event: OpenInSideEvent): OpenInSideEvent {
+  return { shiftKey: event.shiftKey, altKey: event.altKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey };
 }
 
 /**
@@ -203,18 +253,26 @@ function currentPlatform(): string | undefined {
 }
 
 /**
- * For an in-app link's click: the open-in-side click opens what `openInSideColumn` names in the
- * side column, and the browser never gets it (Chrome opens Shift-clicked links in a new window).
- * When there is no side column to open it in (no leader's
- * conversation on screen), the click does what a plain click does (`plainClick`). Returns whether
- * it was the open-in-side click, handled here; any other click is the caller's.
+ * For an in-app link's click: a click that should land in the side column (`wantsSideClick`)
+ * opens what `openInSideColumn` names there, in place of the pane it was made in, and the browser
+ * never gets it (Chrome opens Shift-clicked links in a new window). When there is no side column
+ * to open it in (no leader's conversation on screen), the click does what a plain click does
+ * (`plainClick`); so does the open-in-side click made in a side pane. Returns whether it was handled
+ * here; a plain click in the main view is the caller's.
  */
 export function handleOpenInSideClick(
   event: OpenInSideEvent & { preventDefault?: () => void },
   openInSideColumn: () => boolean,
   plainClick: () => void,
 ): boolean {
-  if (!isOpenInSideClick(event)) return false;
+  const inPane = paneClick !== null;
+  if (!wantsSideClick(event)) {
+    // The open-in-side click in a side pane opens in the main view; the browser never gets it.
+    if (!inPane) return false;
+    event.preventDefault?.();
+    plainClick();
+    return true;
+  }
   event.preventDefault?.();
   if (!openInSideColumn()) plainClick();
   return true;

@@ -20,6 +20,8 @@ interface ThreadHandoffResult {
   alreadyHandedOffUserMessageIds: string[];
   notificationIds: string[];
   alreadyHandedOffNotificationIds: string[];
+  /** The side chat that became the quest's thread with this handoff. */
+  chatBecameQuestThread?: string;
 }
 
 /** Transfer explicitly selected Main obligations using the caller's authenticated session. */
@@ -44,6 +46,7 @@ export async function handleThreadHandoff(base: string, args: string[]): Promise
           alreadyHandedOffUserMessageIds: result.alreadyHandedOffUserMessageIds,
           notificationIds: result.notificationIds,
           alreadyHandedOffNotificationIds: result.alreadyHandedOffNotificationIds,
+          ...(result.chatBecameQuestThread ? { chatBecameQuestThread: result.chatBecameQuestThread } : {}),
         },
         null,
         2,
@@ -55,7 +58,10 @@ export async function handleThreadHandoff(base: string, args: string[]): Promise
   const changed = formatHandoffIds(result.handedOffUserMessageIds, result.notificationIds);
   const unchanged = formatHandoffIds(result.alreadyHandedOffUserMessageIds, result.alreadyHandedOffNotificationIds);
   const summary = changed ? `Handed off to ${result.questId}: ${changed}.` : `No changes for ${result.questId}.`;
-  console.log(`${summary}${unchanged ? ` Already handed off: ${unchanged}.` : ""}`);
+  const chat = result.chatBecameQuestThread
+    ? ` The side chat ${result.chatBecameQuestThread} is now ${result.questId}'s thread: answer in ${result.questId}.`
+    : "";
+  console.log(`${summary}${unchanged ? ` Already handed off: ${unchanged}.` : ""}${chat}`);
 }
 
 function parseHandoffArgs(args: string[]): {

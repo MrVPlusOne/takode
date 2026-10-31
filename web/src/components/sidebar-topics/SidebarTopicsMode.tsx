@@ -9,6 +9,7 @@ import { sessionInteractionAt } from "../../utils/recent-sessions.js";
 import { navigateToSessionThread, threadRouteFromHash } from "../../utils/routing.js";
 import { openInSide } from "../../utils/side-column.js";
 import { normalizeThreadKey } from "../../utils/thread-projection.js";
+import { withoutQuestThreads } from "../../utils/leader-topics.js";
 import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
 import { TOUCH_MENU_ITEM_CLASS } from "../ContextMenu.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
@@ -137,7 +138,10 @@ export function useTopicsModeData(nodes: readonly RecentSessionNode[], active: b
       Promise.all([topicApi.list("", leaderId), topicApi.threads(leaderId)])
         .then(([list, threads]) => {
           if (!cancelled)
-            setLoaded((previous) => ({ ...previous, [leaderId]: { topics: list.topics, threads: threads.threads } }));
+            setLoaded((previous) => ({
+              ...previous,
+              [leaderId]: { topics: list.topics, threads: withoutQuestThreads(threads.threads) },
+            }));
         })
         .catch((error: Error) => console.warn("[topics-mode] Could not load a leader's topics:", error.message));
     }

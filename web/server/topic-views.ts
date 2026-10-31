@@ -14,7 +14,7 @@ export interface TopicViewSource {
   topicOf(handle: string): {
     id: string;
     name: string;
-    thread?: { startedFrom?: string; topicId?: string; placeholderName?: boolean };
+    thread?: { startedFrom?: string; topicId?: string; placeholderName?: boolean; quest?: string };
   } | null;
   /** The handles of threads filed under a topic: their threads show in its conversation. */
   threadsUnder?(topicId: string): readonly string[];
@@ -126,8 +126,11 @@ export function viewKeysOfRoutes(routeKeys: Iterable<string>): string[] {
     if (live) keys.add(live);
     // A thread filed under a topic shows in that topic's conversation too.
     const handle = topicIdOfViewKey(key);
-    const filedUnder = handle && source ? source.topicOf(handle)?.thread?.topicId : undefined;
-    if (filedUnder) keys.add(topicViewKey(filedUnder));
+    const thread = handle && source ? source.topicOf(handle)?.thread : undefined;
+    if (thread?.topicId) keys.add(topicViewKey(thread.topicId));
+    // A side chat that became a quest's thread shows in that quest, even for a message still
+    // routed to the chat.
+    if (thread?.quest) keys.add(thread.quest);
   }
   for (const key of topicViewKeysOfQuests([...keys].filter((key) => /^q-\d+$/.test(key)))) keys.add(key);
   return [...keys];

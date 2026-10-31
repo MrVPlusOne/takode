@@ -95,6 +95,11 @@ interface StoredThread {
   firstMessage?: string;
   /** When its leader's Scribe was asked to file it, after it settled under no topic. */
   sortAskedAt?: number;
+  /**
+   * The quest whose thread it became: its whole request was handed off to that quest, so the chat
+   * and the quest are one conversation from then on (its messages are attached to the quest).
+   */
+  quest?: string;
 }
 
 interface LegacyNowEntry {
@@ -703,6 +708,20 @@ export class TopicStore {
     this.onThreadChange?.(thread.thread.leaderId);
   }
 
+  /**
+   * A side chat whose whole request was handed off to a quest becomes that quest's thread: it
+   * leaves the thread lists, and its views show the quest. Returns false when it isn't a thread or
+   * already became one quest's thread (a chat is one quest's conversation, not several).
+   */
+  threadBecomesQuest(threadKey: string, questId: string): boolean {
+    const thread = this.thread(threadKey);
+    if (!thread?.thread || thread.thread.quest) return false;
+    thread.thread.quest = questId;
+    this.dirty = true;
+    this.onThreadChange?.(thread.thread.leaderId);
+    return true;
+  }
+
   /** A quest was filed under a topic: a thread it was started from, under no topic yet, follows it. */
   threadFollowsQuest(threadKey: string | undefined, topicId: string): ThreadSummary | null {
     const thread = threadKey ? this.thread(threadKey) : undefined;
@@ -730,6 +749,7 @@ export class TopicStore {
         (topic) =>
           topic.thread?.leaderId === leaderId &&
           !topic.mergedInto &&
+          !topic.thread.quest &&
           topic.thread.settledAt &&
           !topic.thread.topicId &&
           !topic.thread.sortAskedAt,
@@ -751,7 +771,9 @@ export class TopicStore {
 
   /** The threads filed under a topic. */
   threadsUnder(topicId: string): StoredTopic[] {
-    return Object.values(this.s().topics).filter((topic) => topic.thread?.topicId === topicId && !topic.mergedInto);
+    return Object.values(this.s().topics).filter(
+      (topic) => topic.thread?.topicId === topicId && !topic.mergedInto && !topic.thread.quest,
+    );
   }
 
   private threadSummary(topic: StoredTopic): ThreadSummary {
@@ -768,6 +790,7 @@ export class TopicStore {
       activityAt: thread.lastMessageAt ?? topic.createdAt,
       ...(thread.settledAt ? { settledAt: thread.settledAt } : {}),
       ...(thread.lastMessageAt === undefined ? { empty: true } : {}),
+      ...(thread.quest ? { quest: thread.quest } : {}),
     };
   }
 

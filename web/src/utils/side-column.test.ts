@@ -6,6 +6,7 @@ import {
   HOME_ITEM,
   handleOpenInSideClick,
   isOpenInSideClick,
+  notePaneClick,
   openConversationInSide,
   openInSideClickLabel,
   openQuestInSide,
@@ -15,6 +16,7 @@ import {
   replaceSideItem,
   sideChatOrigin,
   useSideColumnStore,
+  wantsSideClick,
 } from "./side-column.js";
 import { useTopicPanel } from "./topic-panel.js";
 import { markLeaderThreadDisplayed } from "./thread-viewport.js";
@@ -128,6 +130,44 @@ describe("opening in the side", () => {
     expect(handleOpenInSideClick(noSide, () => false, plain)).toBe(true);
     expect(noSide.preventDefault).toHaveBeenCalled();
     expect(plain).toHaveBeenCalledOnce();
+  });
+
+  it("opens a link clicked in a side pane in that pane, and the open-in-side click in the main view", () => {
+    // Jiayi: a click opens in the view it was made in; the open-in-side click in the other one.
+    // A link in a side chat used to open in the main view.
+    vi.useFakeTimers();
+    try {
+      const chat = openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0001" });
+      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+      const click = (shiftKey: boolean) => ({ shiftKey, altKey: false, metaKey: false, ctrlKey: false });
+      // A plain click on a link in the chat replaces the chat with what it opens.
+      notePaneClick("l1", chat, click(false));
+      expect(wantsSideClick()).toBe(true);
+      const main = vi.fn();
+      expect(
+        handleOpenInSideClick(
+          { ...click(false), preventDefault: vi.fn() },
+          () => {
+            openInSide("l1", { kind: "conversation", threadKey: "q-9" });
+            return true;
+          },
+          main,
+        ),
+      ).toBe(true);
+      expect(keys("l1")).toEqual(["q-2", "q-9"]);
+      expect(column("l1")?.open).toBe(chat);
+      expect(main).not.toHaveBeenCalled();
+      // The open-in-side click there opens in the main view instead.
+      notePaneClick("l1", chat, click(true));
+      expect(wantsSideClick()).toBe(false);
+      expect(handleOpenInSideClick({ ...click(true), preventDefault: vi.fn() }, () => true, main)).toBe(true);
+      expect(main).toHaveBeenCalledOnce();
+      // Once the click is handled, clicks are the main view's again.
+      vi.runAllTimers();
+      expect(wantsSideClick(click(false))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("opens a quest's details or a session's conversation in the side column of the leader on screen", () => {

@@ -109,7 +109,10 @@ export function rememberThreads(leaderId: string, threads: readonly ThreadSummar
 
 const EMPTY_THREADS: ThreadSummary[] = [];
 
-/** A leader's threads, newest activity first; loads them (and every minute) while `enabled`. */
+/**
+ * A leader's threads, newest activity first; loads them (and every minute) while `enabled`. A side
+ * chat that became a quest's thread is that quest now, so it is not listed (`threadQuestOf`).
+ */
 export function useLeaderThreads(leaderId: string, enabled: boolean, refreshKey = ""): ThreadSummary[] {
   useEffect(() => {
     if (!enabled || !leaderId) return;
@@ -126,7 +129,29 @@ export function useLeaderThreads(leaderId: string, enabled: boolean, refreshKey 
       clearInterval(timer);
     };
   }, [leaderId, enabled, refreshKey]);
-  return useLeaderThreadsStore((state) => state.byLeader[leaderId] ?? EMPTY_THREADS);
+  const threads = useLeaderThreadsStore((state) => state.byLeader[leaderId] ?? EMPTY_THREADS);
+  return useMemo(() => withoutQuestThreads(threads), [threads]);
+}
+
+/** The side chats still side chats: those that became a quest's thread are listed as the quest. */
+export function withoutQuestThreads(threads: readonly ThreadSummary[]): ThreadSummary[] {
+  return threads.filter((thread) => !thread.quest);
+}
+
+/** The quest a side chat became (its whole request was handed off there), as last known. */
+export function threadQuestOf(leaderId: string, threadKey: string): string | null {
+  if (!isTopicViewKey(threadKey)) return null;
+  const key = threadKey.toLowerCase();
+  return useLeaderThreadsStore.getState().byLeader[leaderId]?.find((thread) => thread.key === key)?.quest ?? null;
+}
+
+/** Each of a leader's side chats that became a quest's thread: its key, and the quest. */
+export function useThreadQuests(leaderId: string): ReadonlyMap<string, string> {
+  const threads = useLeaderThreadsStore((state) => state.byLeader[leaderId] ?? EMPTY_THREADS);
+  return useMemo(
+    () => new Map(threads.flatMap((thread) => (thread.quest ? [[thread.key, thread.quest] as const] : []))),
+    [threads],
+  );
 }
 
 /** A leader's threads changed on the server: reloads them when this browser has them. */
