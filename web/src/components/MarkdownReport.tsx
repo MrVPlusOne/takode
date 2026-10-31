@@ -114,12 +114,13 @@ function MarkdownReportBody({
           selection={readOnly ? undefined : { sessionId: feedSessionId ?? source.sessionId, messageId: message.id }}
           onClose={() => setFullScreen(false)}
         >
+          {/* A long report (one with a jump list) reads in a wider column. */}
           <article
-            className="mx-auto min-w-0 max-w-4xl"
+            className="mx-auto min-w-0 max-w-4xl has-[[data-section-jump-list]]:max-w-6xl"
             data-markdown-report-source={JSON.stringify(source)}
             data-testid="markdown-report-full-screen"
           >
-            <ReportContent message={message} readOnly={readOnly} />
+            <ReportContent message={message} readOnly={readOnly} sectionJumpList />
           </article>
         </FullScreenPanel>
       )}
@@ -192,10 +193,13 @@ function ReportContent({
   readOnly,
   className = "",
   contentRef: givenRef,
+  sectionJumpList = false,
 }: {
   message: ChatMessage;
   readOnly: boolean;
   className?: string;
+  /** List a long report's sections before the first one. */
+  sectionJumpList?: boolean;
   /** Receives the element showing the report, for exports. */
   contentRef?: RefObject<HTMLDivElement | null>;
 }) {
@@ -211,6 +215,7 @@ function ReportContent({
         fileLinkMode={readOnly ? "text-only" : "interactive"}
         fileBasePath={source.sourcePath}
         questLinkSurface="chat-feed"
+        sectionJumpList={sectionJumpList}
       />
       {!readOnly && (
         <AnnotationSourceMarkers sessionId={source.sessionId} messageId={message.id} contentRef={contentRef} />

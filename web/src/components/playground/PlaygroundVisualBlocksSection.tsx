@@ -20,6 +20,25 @@ const KIT_MESSAGE: ChatMessage = {
   )}\n\nA failure bounces only the change that caused it.`,
 };
 
+/** Roles, a zone and a caption: one colour per actor, the way design walkthroughs draw architecture. */
+const ROLES_MESSAGE: ChatMessage = {
+  id: "playground-visual-roles",
+  role: "assistant",
+  timestamp: 0,
+  content: fence(
+    [
+      "title: Who runs where",
+      "alt: You use the browser on your laptop; on the DevBox the leader dispatches workers, and workers write memory notes.",
+      "caption: Figure 1. One colour per actor, the same in every figure: you purple, leaders blue, workers orange, files teal.",
+      "---",
+      '<div class="tk-legend"><span data-role="purple">you</span><span data-role="blue">leader</span><span data-role="orange">workers</span><span data-role="teal">files</span></div>',
+      '<div class="tk-flow"><div class="tk-zone" data-role="grey"><h4>Laptop</h4><div class="tk-box" data-role="purple"><h3>You</h3><div class="tk-sub">browser</div></div></div>',
+      '<div class="tk-zone"><h4>DevBox</h4><div class="tk-flow tk-down"><div class="tk-box" data-role="blue"><h3>Leader</h3></div><div class="tk-box" data-role="orange"><span class="tk-in">dispatch</span><h3>Workers</h3></div></div></div>',
+      '<div class="tk-box" data-role="teal"><span class="tk-in">writes</span><h3>Memory</h3><div class="tk-sub">git notes</div></div></div>',
+    ].join("\n"),
+  ),
+};
+
 /** A source over the size limit: shown as its plain-text version, never drawn. */
 const TOO_LARGE_MESSAGE: ChatMessage = {
   id: "playground-visual-too-large",
@@ -39,6 +58,11 @@ export function PlaygroundVisualBlocksSection() {
       <Card label="Kit visual in an answer (no scripts)">
         <div className="max-w-[640px]" data-testid="playground-visual-kit">
           <MessageBubble message={KIT_MESSAGE} sessionId="playground-visuals" />
+        </div>
+      </Card>
+      <Card label="Roles, a zone and a caption">
+        <div className="max-w-[640px]" data-testid="playground-visual-roles">
+          <MessageBubble message={ROLES_MESSAGE} sessionId="playground-visuals" />
         </div>
       </Card>
       <Card label="Too large to show: its plain-text version instead">

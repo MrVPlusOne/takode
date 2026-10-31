@@ -1,5 +1,4 @@
 import {
-  useRef,
   useCallback,
   useMemo,
   memo,
@@ -11,7 +10,6 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import Markdown, { type Options as MarkdownOptions } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkBreaks from "remark-breaks";
@@ -27,7 +25,8 @@ import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CodeBlock } from "./MarkdownCodeBlock.js";
 import { VisualBlock } from "./VisualBlock.js";
-import { MarkdownTableCopyButton } from "./MarkdownTableCopyButton.js";
+import { MarkdownTableWithViewer } from "./MarkdownTable.js";
+import { SectionJumpList, jumpListSections, remarkSectionJumpList } from "./SectionJumpList.js";
 import { showEditorOpenError } from "../utils/vscode-bridge.js";
 import { editorOpenFor } from "../utils/editor-open.js";
 import { useFileMachine } from "../remote-hosts.js";
@@ -72,7 +71,6 @@ import {
 } from "../api/file-link-actions.js";
 import { wrapSpacedFileLinkDestinations } from "../utils/markdown-file-link-destinations.js";
 import { REMARK_GFM_OPTIONS } from "../utils/markdown-syntax.js";
-import { backdropClickProps } from "../utils/backdrop-click.js";
 import {
   ARTIFACT_PLACEHOLDER_LANGUAGE,
   parseArtifactLinkHref,
@@ -366,6 +364,8 @@ interface MarkdownContentProps {
   stopLinkPropagation?: boolean;
   fileLinkMode?: "interactive" | "text-only";
   questLinkSurface?: QuestLinkSurface;
+  /** A long report: list its `##` sections before the first one, to jump between them. */
+  sectionJumpList?: boolean;
 }
 
 function isAbsoluteFilePath(path: string): boolean {
@@ -646,108 +646,6 @@ function transformMarkdownUrl(url: string): string {
   return url;
 }
 
-function MarkdownTable({ children, compact = false }: { children: ReactNode; compact?: boolean }) {
-  return (
-    <table
-      className={
-        compact
-          ? "min-w-full text-sm border border-cc-border rounded-lg overflow-hidden"
-          : "min-w-full text-sm border border-cc-border rounded-xl overflow-hidden bg-cc-card shadow-[0_0_0_1px_rgba(255,255,255,0.03)]"
-      }
-    >
-      {children}
-    </table>
-  );
-}
-
-function MarkdownTableDialog({ children, onClose }: { children: ReactNode; onClose: () => void }) {
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = prev;
-    };
-  }, [handleKeyDown]);
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-4 sm:px-6"
-      {...backdropClickProps(onClose)}
-      data-testid="markdown-table-backdrop"
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Expanded table view"
-        className="h-[calc(100vh-2rem)] w-[calc(100vw-1.5rem)] max-w-none rounded-2xl border border-cc-border bg-cc-bg shadow-2xl overflow-hidden flex flex-col sm:h-[calc(100vh-3rem)] sm:w-[calc(100vw-3rem)]"
-        onClick={(e) => e.stopPropagation()}
-        data-testid="markdown-table-dialog"
-      >
-        <div className="flex items-center justify-between gap-3 border-b border-cc-border bg-cc-card px-4 py-3">
-          <div>
-            <div className="text-sm font-semibold text-cc-fg">Table View</div>
-            <div className="text-xs text-cc-muted">Expanded to use the full page width.</div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-cc-muted hover:bg-cc-hover hover:text-cc-fg transition-colors cursor-pointer"
-            aria-label="Close table view"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto px-3 py-3 sm:px-4">
-          <MarkdownTable>{children}</MarkdownTable>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-function MarkdownTableWithViewer({ children }: { children: ReactNode }) {
-  const [expanded, setExpanded] = useState(false);
-  const blockRef = useRef<HTMLDivElement>(null);
-
-  return (
-    <>
-      <div className="my-2" ref={blockRef} data-markdown-table="">
-        {/* Controls, not content: kept out of selections and copies. */}
-        <div className="mb-1.5 flex select-none items-center justify-end gap-1.5" data-copy-exclude="">
-          <MarkdownTableCopyButton tableRef={blockRef} />
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-cc-border bg-cc-card px-2.5 py-1 text-[11px] font-medium text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-            data-testid="markdown-table-expand"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
-              <path d="M6 2H3.5A1.5 1.5 0 002 3.5V6M10 2h2.5A1.5 1.5 0 0114 3.5V6M14 10v2.5A1.5 1.5 0 0112.5 14H10M6 14H3.5A1.5 1.5 0 012 12.5V10" />
-            </svg>
-            <span>View table</span>
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <MarkdownTable compact>{children}</MarkdownTable>
-        </div>
-      </div>
-      {expanded && <MarkdownTableDialog onClose={() => setExpanded(false)}>{children}</MarkdownTableDialog>}
-    </>
-  );
-}
-
 function TextOnlyFileMarkdownLink({ children, wrapLongContent }: { children: ReactNode; wrapLongContent: boolean }) {
   return (
     <span
@@ -777,6 +675,7 @@ export const MarkdownContent = memo(function MarkdownContent({
   stopLinkPropagation = false,
   fileLinkMode = "interactive",
   questLinkSurface = "legacy",
+  sectionJumpList = false,
 }: MarkdownContentProps) {
   const sizeClass =
     size === "sm"
@@ -887,6 +786,7 @@ export const MarkdownContent = memo(function MarkdownContent({
           remarkPlainTakodeReferences,
           ...imagePathLinksPlugin,
           [remarkMathSourceCompatibility, preparedMath],
+          ...(sectionJumpList ? [remarkSectionJumpList] : []),
         ]}
         rehypePlugins={[
           rehypeCommitGroups,
@@ -918,7 +818,7 @@ export const MarkdownContent = memo(function MarkdownContent({
             <h1 className="text-xl font-bold text-cc-fg mt-4 mb-2">{highlightChildren(children)}</h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-lg font-bold text-cc-fg mt-3 mb-2">{highlightChildren(children)}</h2>
+            <h2 className="text-lg font-bold text-cc-fg mt-3 mb-2 scroll-mt-4">{highlightChildren(children)}</h2>
           ),
           h3: ({ children }) => (
             <h3 className="text-base font-semibold text-cc-fg mt-3 mb-1">{highlightChildren(children)}</h3>
@@ -1174,6 +1074,10 @@ export const MarkdownContent = memo(function MarkdownContent({
             );
           },
           pre: ({ children }) => <>{children}</>,
+          nav: ({ node: _node, ...props }) => {
+            const sections = jumpListSections((props as Record<string, unknown>)["data-sections"]);
+            return sections ? <SectionJumpList sections={sections} /> : <nav {...props} />;
+          },
           table: ({ children }) => <MarkdownTableWithViewer>{children}</MarkdownTableWithViewer>,
           thead: ({ children }) => <thead className="bg-cc-code-bg/50">{children}</thead>,
           th: ({ children }) => (
@@ -1209,6 +1113,7 @@ function areMarkdownContentPropsEqual(prev: MarkdownContentProps, next: Markdown
     prev.stopLinkPropagation === next.stopLinkPropagation &&
     prev.fileLinkMode === next.fileLinkMode &&
     prev.questLinkSurface === next.questLinkSurface &&
+    prev.sectionJumpList === next.sectionJumpList &&
     searchHighlightEqual(prev.searchHighlight, next.searchHighlight)
   );
 }

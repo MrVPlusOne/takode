@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { replaceVisualFences, visualFallbackText } from "../../shared/visual-block.js";
+import { replaceVisualFences, visualPlainText } from "../../shared/visual-block.js";
 import { createHash } from "node:crypto";
 import type { WsBridge } from "../ws-bridge.js";
 import { getSettings } from "../settings-manager.js";
@@ -83,7 +83,7 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
     const linkDetails = await describeLinks(text);
     // A visual is heard as its plain-text version, never as its HTML.
     const plain = (markdown: string) =>
-      replaceVisualFences(markdown, (block) => `(A visual on screen: ${visualFallbackText(block)})`);
+      replaceVisualFences(markdown, (block) => `(A visual on screen: ${visualPlainText(block)})`);
     const spokenSource = plain(text);
     // A slide without notes is narrated from its own text, which then needs no second copy.
     const onScreen = slide && slide.shown.trim() && slide.shown.trim() !== text ? plain(slide.shown) : undefined;

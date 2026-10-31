@@ -5,6 +5,7 @@ import {
   parseVisualBlock,
   visualFallbackText,
   visualIsInteractive,
+  visualPlainText,
   visualUsesScripts,
 } from "./visual-block.js";
 import { markdownToPlainText } from "./markdown-plain-text.js";
@@ -13,6 +14,11 @@ describe("parseVisualBlock", () => {
   it("reads the title and alt header above the --- line", () => {
     const block = parseVisualBlock('title: Pipeline\nalt: Three stages.\n---\n<div class="tk-flow"></div>');
     expect(block).toEqual({ title: "Pipeline", alt: "Three stages.", html: '<div class="tk-flow"></div>' });
+  });
+
+  it("reads an optional caption, the line shown under the visual", () => {
+    const block = parseVisualBlock("title: T\nalt: A\ncaption: Figure 1. Each stage narrows.\n---\n<div></div>");
+    expect(block.caption).toBe("Figure 1. Each stage narrows.");
   });
 
   it("treats a body without a header as plain HTML, even when it contains ---", () => {
@@ -31,6 +37,13 @@ describe("visual fallbacks", () => {
     expect(visualFallbackText({ html: "<style>.x{}</style><div>Bake &amp; publish</div><script>1</script>" })).toBe(
       "Bake & publish",
     );
+  });
+
+  it("adds the caption to plain-text surfaces, since readers see it under the visual", () => {
+    // Read aloud, Copy for Slack and search use this text; a takeaway caption must not be lost there.
+    expect(visualPlainText({ title: "T", alt: "A", caption: "C.", html: "" })).toBe("T: A C.");
+    expect(visualPlainText({ title: "T", alt: "A", html: "" })).toBe("T: A");
+    expect(markdownWithVisualFallbacks("```visual\nalt: A\ncaption: C.\n---\n<div></div>\n```")).toBe("[Visual] A C.");
   });
 
   it("replaces each visual fence in Markdown and leaves other fences alone", () => {
@@ -63,6 +76,14 @@ describe("buildVisualDocument", () => {
     expect(live).toContain("https://t.example/visual-kit/lib/mermaid.min.js");
     expect(snapshot).not.toContain("mermaid.min.js");
     expect(live).toContain('<html class="dark" data-tk-mode="live">');
+  });
+
+  it("gives every frame the kit's arrowhead, so SVG arrows need no definitions of their own", () => {
+    // `.tk-edge` lines end in `url(#tk-arrow)`, which must exist in live and still frames alike.
+    for (const mode of ["live", "static"] as const) {
+      const doc = buildVisualDocument({ html: "<svg></svg>", theme: "light", mode, assetBase: "", frameId: "v" });
+      expect(doc).toContain('<marker id="tk-arrow"');
+    }
   });
 
   it("tells diagrams, which look the same as their still picture, from interactive visuals", () => {

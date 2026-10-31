@@ -233,7 +233,12 @@ export function ArtifactViewer({
               void artifactApi.markCopied(detail.id, version.n, parts).then(update).catch(console.error)
             }
             renderMarkdown={(markdown, options) => (
-              <MarkdownContent text={markdown} sessionId={source.sessionId} fileBasePath={options?.fileBasePath} />
+              <MarkdownContent
+                text={markdown}
+                sessionId={source.sessionId}
+                fileBasePath={options?.fileBasePath}
+                sectionJumpList={options?.sectionJumpList}
+              />
             )}
           />
         ) : (
@@ -260,7 +265,11 @@ function NewWindowIcon() {
 
 function ViewerFrame({ onBack, children }: { onBack?: () => void; children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col" data-testid="artifact-viewer">
+    // A long report (one with a jump list) reads in a wider column.
+    <div
+      className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col has-[[data-section-jump-list]]:max-w-6xl"
+      data-testid="artifact-viewer"
+    >
       {onBack && (
         <button
           type="button"

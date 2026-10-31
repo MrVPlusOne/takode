@@ -285,6 +285,11 @@ export function VisualBlock({ source }: { source: string }) {
           ) : null}
         </div>
       )}
+      {block.caption ? (
+        <p className="mt-1.5 text-[13px] leading-snug text-cc-muted" data-visual-caption="">
+          {block.caption}
+        </p>
+      ) : null}
       {!problem && !tooLarge && fallback ? (
         // The frame holds no copyable text: copies, selections and screen readers get the plain-text version.
         <p className="sr-only" data-visual-fallback="">

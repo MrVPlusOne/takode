@@ -13,7 +13,7 @@ Draw when the reader needs to see **order** (three or more steps, a pipeline, a 
 
 - Lead with the one-sentence answer in prose, then the visual, then only what the picture can't say.
 - One visual per point. Keep it small: about 12 boxes, a dozen rows.
-- Never pick colours. Use tones: `data-tone="decide|look|checked|good|bad|warn|muted|primary"`.
+- Never pick colours. Use tones for status: `data-tone="decide|look|checked|good|bad|warn|muted|primary"`. For actors (you, agents, the server, files), give each one role and keep it in every visual of the page, with a `tk-legend` once: `data-role="purple|blue|green|orange|pink|teal|grey"`. Roles work on every shape and as Mermaid classes.
 
 ## Format
 
@@ -21,6 +21,7 @@ Draw when the reader needs to see **order** (three or more steps, a pipeline, a 
 ```visual
 title: Short title shown above the visual
 alt: Plain-text version of everything the visual says. Read aloud, Copy for Slack and search use it, so make it complete.
+caption: Optional. One muted line under the visual stating its takeaway.
 ---
 <div class="tk-flow tk-numbered">...</div>
 ```
@@ -44,6 +45,8 @@ alt: Plain-text version of everything the visual says. Read aloud, Copy for Slac
 | Callout | `<div class="tk-note" data-tone="warn"><b>Note:</b> …</div>` |
 | Small labels | `.tk-section` (uppercase heading), `.tk-lead`, `.tk-caption`, `.tk-legend > span[data-tone]`, `.tk-badge[data-tone]`, `code` |
 | Cards grid | `<div class="tk-grid"><div class="tk-card">…</div></div>` |
+| Zone (a machine, layer or team holding boxes) | `<div class="tk-zone" data-role="grey"><h4>DevBox</h4>…boxes or a tk-flow…</div>`; zones can be `tk-flow` children |
+| Hand-laid SVG diagram | `<svg viewBox="…">` with `rect.tk-node` (tinted box), `rect.tk-zone` (dashed region), `path.tk-edge` (arrow; add `tk-dashed`, `tk-both`), `text.tk-label`, `text.tk-small`, `text.tk-zone-label`; colour any of them with `data-role` or `data-tone` |
 
 ## Helpers
 

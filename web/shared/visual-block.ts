@@ -6,6 +6,7 @@
  *     ```visual
  *     title: How the landing queue works
  *     alt: Plain-text version, used by read aloud, Copy for Slack and search.
+ *     caption: Optional muted line under the visual saying what it shows.
  *     ---
  *     <div class="tk-flow">...</div>
  *     ```
@@ -14,12 +15,14 @@
  * holds what the browser, the server renderer and the CLI share: parsing, the
  * plain-text fallback and the frame document.
  */
-import { VISUAL_KIT_BOOTSTRAP, VISUAL_KIT_CSS } from "./visual-kit.js";
+import { VISUAL_KIT_BOOTSTRAP, VISUAL_KIT_CSS, VISUAL_KIT_DEFS } from "./visual-kit.js";
 
 export interface VisualBlock {
   title?: string;
   /** Plain-text version written by the agent; the fallback wherever HTML can't go. */
   alt?: string;
+  /** A line Takode shows muted under the visual, stating what it shows. */
+  caption?: string;
   html: string;
 }
 
@@ -44,7 +47,7 @@ export const VISUAL_MAX_SNAPSHOT_BYTES = 1024 * 1024;
 /** Fence language that marks a visual block. */
 export const VISUAL_FENCE_LANG = "visual";
 
-const HEADER_KEYS = new Set(["title", "alt"]);
+const HEADER_KEYS = new Set(["title", "alt", "caption"]);
 
 /** Split a fence body into its optional `key: value` header and the HTML below `---`. */
 export function parseVisualBlock(source: string): VisualBlock {
@@ -64,6 +67,7 @@ export function parseVisualBlock(source: string): VisualBlock {
       return {
         title: fields.get("title") || undefined,
         alt: fields.get("alt") || undefined,
+        caption: fields.get("caption") || undefined,
         html: lines.slice(separator + 1).join("\n"),
       };
     }
@@ -109,6 +113,13 @@ export function visualFallbackText(block: VisualBlock): string {
   return [block.title, text].filter(Boolean).join(": ");
 }
 
+/** A visual as text for plain-text surfaces: its fallback text, then its caption. */
+export function visualPlainText(block: VisualBlock): string {
+  const text = visualFallbackText(block);
+  if (!block.caption) return text;
+  return text ? `${text} ${block.caption}` : block.caption;
+}
+
 const VISUAL_FENCE_PATTERN = /^([ \t]*)(`{3,}|~{3,})[ \t]*visual[ \t]*\n([\s\S]*?)\n\1\2[ \t]*$/gm;
 
 /** Replace every visual fence in Markdown with `render(block)`; used for plain-text surfaces. */
@@ -121,7 +132,7 @@ export function replaceVisualFences(markdown: string, render: (block: VisualBloc
 
 /** Markdown with each visual replaced by its plain-text fallback, as an italic-free paragraph. */
 export function markdownWithVisualFallbacks(markdown: string): string {
-  return replaceVisualFences(markdown, (block) => `[Visual] ${visualFallbackText(block)}`);
+  return replaceVisualFences(markdown, (block) => `[Visual] ${visualPlainText(block)}`);
 }
 
 export interface VisualDocumentOptions {
@@ -158,7 +169,7 @@ export function buildVisualDocument(options: VisualDocumentOptions): string {
     `<script id="tk-frame">window.__tkVisualConfig=${config};${VISUAL_KIT_BOOTSTRAP}</script>`,
     helperScripts,
     "</head>",
-    `<body>${html}</body>`,
+    `<body>${VISUAL_KIT_DEFS}${html}</body>`,
     "</html>",
   ].join("");
 }

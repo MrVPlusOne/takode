@@ -52,9 +52,10 @@ export function MarkdownTableCopyButton({ tableRef }: { tableRef: RefObject<HTML
       <button
         type="button"
         onClick={toggle}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-cc-border bg-cc-card px-2.5 py-1 text-[11px] font-medium text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-cc-border bg-cc-card text-cc-muted shadow-sm hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
         data-testid="markdown-table-copy"
         aria-label="Copy table"
+        title={copied ? "Copied" : "Copy table"}
       >
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-3 h-3">
           {copied ? (
@@ -66,7 +67,6 @@ export function MarkdownTableCopyButton({ tableRef }: { tableRef: RefObject<HTML
             </>
           )}
         </svg>
-        <span>{copied ? "Copied" : "Copy"}</span>
       </button>
       {menu && <ContextMenu {...menu} items={items} onClose={close} />}
     </>

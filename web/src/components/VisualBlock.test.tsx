@@ -75,6 +75,20 @@ describe("VisualBlock", () => {
     expect(copy.plain).toBe("Two stages: Bake, then filter.");
   });
 
+  it("shows the caption muted under the visual, as real text that copies with it", async () => {
+    const { container } = render(
+      <VisualBlock source={KIT_VISUAL.replace("---", "caption: Figure 1. Bake first.\n---")} />,
+    );
+    await act(async () => {});
+    const caption = screen.getByText("Figure 1. Bake first.");
+    expect(caption.hasAttribute("data-visual-caption")).toBe(true);
+    // Below the picture, not in the title row above it.
+    expect(screen.getByTestId("visual-block-body").compareDocumentPosition(caption)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(messageCopyForSlack(container as HTMLElement).plain).toContain("Figure 1. Bake first.");
+  });
+
   it("shows a visual stopped on this device as a still picture with Run, and runs it on Run", async () => {
     const hash = visualSourceHash(CHART_VISUAL);
     localStorage.setItem("takode:visual-failed-v2", JSON.stringify([{ hash, reason: "it slowed Takode down" }]));

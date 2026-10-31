@@ -3,9 +3,11 @@
  *
  * The kit gives agents ready-made shapes in Takode's own look (pipelines and flows,
  * steps, timelines, before/after, stat cards, rows with chips, nested sets, bars,
- * notes), in both themes and narrowing to phone widths, so most visuals need no
- * layout of their own. Tones (`data-tone="decide|look|checked|good|bad|warn|muted|primary"`)
- * pick Takode's colours; agents never choose colours themselves.
+ * notes, zones and diagram shapes for hand-laid SVG), in both themes and narrowing to phone
+ * widths, so most visuals need no layout of their own. Tones
+ * (`data-tone="decide|look|checked|good|bad|warn|muted|primary"`) colour by status; roles
+ * (`data-role="purple|blue|green|orange|pink|teal|grey"`) give each actor in a picture (you,
+ * agents, the server, files) one colour that means nothing else. Agents never choose colour values.
  *
  * The frame script reports the frame's height (and, live, a heartbeat and a still copy) to the page, forwards
  * link taps, and in live mode renders the diagram (`.tk-mermaid`) and chart
@@ -20,6 +22,8 @@ export const VISUAL_KIT_CSS = String.raw`
   --tk-code: #ECE9DF; --tk-arrow: #b3ada2; --tk-primary: #ae5630;
   --tk-decide: #a35a1c; --tk-look: #1f6aa5; --tk-checked: #2f8a52; --tk-good: #2d7d46; --tk-bad: #c53030;
   --tk-warn: #8a4b00; --tk-tone-muted: #8f897e;
+  --tk-role-purple: #7048c0; --tk-role-blue: #2563c4; --tk-role-green: #2a7d4a; --tk-role-orange: #b85a14;
+  --tk-role-pink: #b8407a; --tk-role-teal: #13807e; --tk-role-grey: #736e65;
   --tk-tint: 10%;
   color-scheme: light;
   font: 14.5px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -29,6 +33,8 @@ html.dark {
   --tk-code: #111111; --tk-arrow: #5f5f5f; --tk-primary: #d98a5f;
   --tk-decide: #e0924f; --tk-look: #5ea8e6; --tk-checked: #5cc488; --tk-good: #48bb78; --tk-bad: #fc8181;
   --tk-warn: #f6d365; --tk-tone-muted: #8a8a8a;
+  --tk-role-purple: #b197f2; --tk-role-blue: #6aa6ef; --tk-role-green: #5cc488; --tk-role-orange: #eb9a55;
+  --tk-role-pink: #ee8bbd; --tk-role-teal: #4cc3bd; --tk-role-grey: #9b9b9b;
   --tk-tint: 13%;
   /* Scrollbars and form controls inside the visual follow its theme. */
   color-scheme: dark;
@@ -56,6 +62,14 @@ svg { max-width: 100%; }
 [data-tone="bad"] { --tone: var(--tk-bad); }
 [data-tone="warn"] { --tone: var(--tk-warn); }
 [data-tone="primary"] { --tone: var(--tk-primary); }
+/* Roles: one colour per actor, the same in every shape and every visual of a page. */
+[data-role="purple"] { --tone: var(--tk-role-purple); }
+[data-role="blue"] { --tone: var(--tk-role-blue); }
+[data-role="green"] { --tone: var(--tk-role-green); }
+[data-role="orange"] { --tone: var(--tk-role-orange); }
+[data-role="pink"] { --tone: var(--tk-role-pink); }
+[data-role="teal"] { --tone: var(--tk-role-teal); }
+[data-role="grey"] { --tone: var(--tk-role-grey); }
 
 .tk-lead { font-size: 16px; margin: 0 0 12px; }
 .tk-section { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--tk-muted); margin: 14px 0 8px; font-weight: 600; }
@@ -67,13 +81,13 @@ svg { max-width: 100%; }
 .tk-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; margin: 0 0 12px; }
 .tk-stat { background: var(--tk-card); border: 1px solid var(--tk-border); border-radius: 10px; padding: 7px 12px; min-width: 0; }
 .tk-stat b { display: block; font-size: 21px; font-weight: 650; line-height: 1.25; }
-.tk-stat[data-tone] b::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); margin-right: 7px; vertical-align: middle; }
+.tk-stat:is([data-tone], [data-role]) b::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); margin-right: 7px; vertical-align: middle; }
 .tk-stat span { display: block; font-size: 12.5px; color: var(--tk-muted); }
 
 /* Boxes */
 .tk-box, .tk-stage, .tk-card { background: var(--tk-card); border: 1px solid var(--tk-border); border-radius: 12px; padding: 10px 13px; min-width: 0; }
 .tk-box { border-radius: 9px; padding: 7px 11px; }
-.tk-box[data-tone], .tk-card[data-tone] { border-color: color-mix(in srgb, var(--tone) 55%, transparent); background: color-mix(in srgb, var(--tone) var(--tk-tint), var(--tk-card)); }
+.tk-box:is([data-tone], [data-role]), .tk-card:is([data-tone], [data-role]) { border-color: color-mix(in srgb, var(--tone) 55%, transparent); background: color-mix(in srgb, var(--tone) var(--tk-tint), var(--tk-card)); }
 .tk-stage > h3, .tk-card > h3 { counter-increment: tk-stage; }
 .tk-flow { counter-reset: tk-stage; }
 .tk-flow.tk-numbered > .tk-stage > h3::before { content: counter(tk-stage); display: inline-flex; width: 20px; height: 20px; border-radius: 50%; background: var(--tk-fg); color: var(--tk-bg); font-size: 12px; align-items: center; justify-content: center; margin-right: 7px; vertical-align: 1px; }
@@ -98,7 +112,7 @@ svg { max-width: 100%; }
 .tk-step + .tk-step { margin-top: 14px; }
 .tk-step + .tk-step::before { content: ""; position: absolute; left: 50%; top: -15px; width: 2px; height: 14px; background: var(--tk-arrow); }
 .tk-step small { display: block; }
-.tk-step[data-tone] { border-color: color-mix(in srgb, var(--tone) 55%, transparent); }
+.tk-step:is([data-tone], [data-role]) { border-color: color-mix(in srgb, var(--tone) 55%, transparent); }
 .tk-out { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
 .tk-out > * { font-size: 12.5px; border: 1px dashed var(--tk-arrow); border-radius: 6px; padding: 2px 8px; color: var(--tk-muted); }
 .tk-aside { margin-top: 10px; border: 1.5px dashed var(--tk-arrow); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--tk-muted); }
@@ -113,7 +127,7 @@ svg { max-width: 100%; }
 .tk-chip { font-size: 12px; border: 1px solid var(--tk-border); border-radius: 6px; padding: 1px 7px; background: var(--tk-bg); white-space: nowrap; }
 .tk-chip.tk-wide { border-style: dashed; white-space: normal; }
 .tk-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--tk-muted); margin: 0 0 8px; }
-.tk-legend > [data-tone]::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); margin-right: 6px; }
+.tk-legend > :is([data-tone], [data-role])::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); margin-right: 6px; }
 
 /* Rows: one finding per row, a tone mark, text and chips */
 .tk-rows { background: var(--tk-card); border: 1px solid var(--tk-border); border-radius: 12px; overflow: hidden; margin: 0 0 10px; }
@@ -139,16 +153,16 @@ svg { max-width: 100%; }
 .tk-event { position: relative; padding: 0 0 12px; font-size: 13.5px; }
 .tk-event:last-child { padding-bottom: 0; }
 .tk-event::before { content: ""; position: absolute; left: -21px; top: 5px; width: 10px; height: 10px; border-radius: 50%; background: var(--tk-card); border: 2px solid var(--tone, var(--tk-arrow)); }
-.tk-event[data-tone]::before { background: var(--tone); }
+.tk-event:is([data-tone], [data-role])::before { background: var(--tone); }
 .tk-event time { display: block; font-size: 12px; color: var(--tk-muted); }
-.tk-event[data-tone] > b { color: var(--tone); }
+.tk-event:is([data-tone], [data-role]) > b { color: var(--tone); }
 
 /* Before / after and other side-by-side comparisons */
 .tk-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); grid-auto-flow: column; gap: 10px; margin: 0 0 10px; }
 .tk-side { background: var(--tk-card); border: 1px solid var(--tk-border); border-radius: 12px; padding: 10px 13px; min-width: 0; }
 .tk-side > h4 { margin-bottom: 6px; }
-.tk-side[data-tone] { border-top: 3px solid var(--tone); }
-.tk-side[data-tone] > h4 { color: var(--tone); }
+.tk-side:is([data-tone], [data-role]) { border-top: 3px solid var(--tone); }
+.tk-side:is([data-tone], [data-role]) > h4 { color: var(--tone); }
 .tk-side ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
 
 /* Nested sets: 1,600 tasks > 100 tested > 10 picked */
@@ -167,6 +181,24 @@ svg { max-width: 100%; }
 /* Notes */
 .tk-note { border-left: 3px solid var(--tone, var(--tk-primary)); background: color-mix(in srgb, var(--tone, var(--tk-primary)) 8%, transparent); padding: 7px 12px; border-radius: 0 8px 8px 0; font-size: 13.5px; margin: 0 0 10px; }
 
+/* Zones: a dashed region (a machine, a layer, a team) holding boxes or a flow; its h4 names it */
+.tk-zone { border: 1.5px dashed color-mix(in srgb, var(--tone, var(--tk-arrow)) 70%, transparent); border-radius: 12px; padding: 8px 12px 12px; background: color-mix(in srgb, var(--tone, var(--tk-arrow)) 5%, transparent); min-width: 0; margin: 0 0 10px; }
+.tk-zone > h4 { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--tone, var(--tk-muted)); margin: 0 0 8px; }
+.tk-zone > :last-child { margin-bottom: 0; }
+.tk-flow > .tk-zone { margin: 0; }
+
+/* Hand-laid SVG diagrams: tinted boxes, dashed zones, arrows and labels in tones or roles.
+   Arrows end in the kit's arrowhead; set text-anchor on labels yourself. */
+svg .tk-node { fill: color-mix(in srgb, var(--tone, var(--tk-arrow)) var(--tk-tint), var(--tk-card)); stroke: color-mix(in srgb, var(--tone, var(--tk-arrow)) 60%, transparent); stroke-width: 1.2px; rx: 8px; }
+svg .tk-zone { fill: color-mix(in srgb, var(--tone, var(--tk-arrow)) 5%, transparent); stroke: color-mix(in srgb, var(--tone, var(--tk-arrow)) 70%, transparent); stroke-width: 1.5px; stroke-dasharray: 6 4; rx: 12px; }
+svg .tk-edge { fill: none; stroke: var(--tone, var(--tk-arrow)); stroke-width: 1.5px; marker-end: url(#tk-arrow); }
+svg .tk-edge.tk-dashed { stroke-dasharray: 5 4; }
+svg .tk-edge.tk-both { marker-start: url(#tk-arrow); }
+#tk-arrow path { fill: var(--tk-arrow); fill: context-stroke; }
+svg .tk-label { fill: var(--tk-fg); font: 600 13px system-ui, -apple-system, "Segoe UI", sans-serif; }
+svg .tk-small { fill: var(--tk-muted); font: 11.5px system-ui, -apple-system, "Segoe UI", sans-serif; }
+svg .tk-zone-label { fill: var(--tone, var(--tk-muted)); font: 600 11px system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .06em; text-transform: uppercase; }
+
 .tk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 0 0 10px; }
 
 /* Helpers */
@@ -174,6 +206,7 @@ svg { max-width: 100%; }
 html[data-tk-mode="live"] .tk-mermaid:not([data-processed]) { visibility: hidden; font-size: 12px; }
 .tk-mermaid svg { max-width: none; height: auto; }
 .tk-mermaid .node rect, .tk-mermaid .cluster rect { rx: 8px; ry: 8px; }
+.tk-mermaid .cluster rect { stroke-dasharray: 6 4; }
 .tk-chart-box { width: 100%; }
 .tk-chart-box .vega-embed { width: 100%; }
 .tk-chart-box .vega-bindings { font-size: 13px; color: var(--tk-muted); margin-bottom: 6px; }
@@ -193,6 +226,15 @@ html[data-tk-mode="live"] .tk-mermaid:not([data-processed]) { visibility: hidden
   .tk-lead { font-size: 15px; }
 }
 `;
+
+/**
+ * Shared SVG definitions every frame gets ahead of the visual: the arrowhead `.tk-edge` lines end
+ * in. It takes the line's own colour where the browser supports `context-stroke`.
+ */
+export const VISUAL_KIT_DEFS =
+  '<svg id="tk-defs" width="0" height="0" aria-hidden="true" style="position:absolute"><defs>' +
+  '<marker id="tk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">' +
+  '<path d="M0,0 L10,5 L0,10 z"/></marker></defs></svg>';
 
 /** Runs first inside every visual frame. Plain ES2017 so every browser runs it as is. */
 export const VISUAL_KIT_BOOTSTRAP = String.raw`(function () {
@@ -231,7 +273,7 @@ export const VISUAL_KIT_BOOTSTRAP = String.raw`(function () {
       img.style.cssText = source.style.cssText;
       canvas.replaceWith(img);
     });
-    clone.querySelectorAll("script, iframe, object, embed").forEach(function (node) { node.remove(); });
+    clone.querySelectorAll("script, iframe, object, embed, #tk-defs").forEach(function (node) { node.remove(); });
     clone.querySelectorAll("*").forEach(function (node) {
       node.getAttributeNames().forEach(function (name) { if (/^on/i.test(name)) node.removeAttribute(name); });
     });
@@ -296,8 +338,9 @@ export const VISUAL_KIT_BOOTSTRAP = String.raw`(function () {
       timeline: { useMaxWidth: false },
       state: { useMaxWidth: false }
     });
-    // Tones work in diagrams too: "class nodeA decide" and friends.
+    // Tones and roles work in diagrams too: "class nodeA decide", "class nodeB blue".
     var tones = ["decide", "look", "checked", "good", "bad", "warn", "primary"];
+    var roles = ["purple", "blue", "green", "orange", "pink", "teal", "grey"];
     blocks.forEach(function (block) {
       // The page parsed tags written in the diagram (like <br/> in a label) as elements;
       // put them back as text so the diagram source is what the agent wrote.
@@ -306,10 +349,12 @@ export const VISUAL_KIT_BOOTSTRAP = String.raw`(function () {
       });
       var text = block.textContent || "";
       if (/^\s*(flowchart|graph)\b/.test(text)) {
-        text += "\n" + tones.map(function (tone) {
-          var color = css("--tk-" + tone);
-          return "classDef " + tone + " fill:" + tint(color) + ",stroke:" + color + ",color:" + css("--tk-fg");
-        }).join("\n");
+        var classDef = function (name, color) {
+          return "classDef " + name + " fill:" + tint(color) + ",stroke:" + color + ",color:" + css("--tk-fg");
+        };
+        text += "\n" + tones.map(function (tone) { return classDef(tone, css("--tk-" + tone)); })
+          .concat(roles.map(function (role) { return classDef(role, css("--tk-role-" + role)); }))
+          .join("\n");
       }
       block.textContent = text;
     });

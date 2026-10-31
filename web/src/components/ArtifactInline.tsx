@@ -27,7 +27,11 @@ import { SlideDeckCard } from "./slides/SlideDeckCard.js";
 
 /** Renders Markdown with the caller's settings; passed in so these components don't import MarkdownContent. */
 /** Renders a version's Markdown; a report passes its file's path so its relative file links resolve. */
-export type RenderMarkdown = (text: string, options?: { fileBasePath?: string }) => ReactNode;
+/** Renders Markdown for a saved version; `sectionJumpList` asks for a long report's list of sections. */
+export type RenderMarkdown = (
+  text: string,
+  options?: { fileBasePath?: string; sectionJumpList?: boolean },
+) => ReactNode;
 
 /**
  * A version a newer one replaced, collapsed to one line in the conversation. Its content was not
@@ -215,7 +219,7 @@ export function ArtifactVersionContentView({
           />
         );
       }
-      return <div>{renderMarkdown(content.markdown, { fileBasePath: content.sourcePath })}</div>;
+      return <div>{renderMarkdown(content.markdown, { fileBasePath: content.sourcePath, sectionJumpList: true })}</div>;
     case "table":
       return <div>{renderMarkdown(content.markdown)}</div>;
     case "visual":
