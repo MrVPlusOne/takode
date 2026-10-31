@@ -1193,11 +1193,6 @@ export const api = {
 
   markSessionUnread: (sessionId: string) => patch<{ ok: boolean }>(`/sessions/${encodeURIComponent(sessionId)}/unread`),
 
-  closeLeaderThreadTab: (sessionId: string, threadKey: string) =>
-    post<{ ok: boolean; closed: boolean }>(
-      `/sessions/${encodeURIComponent(sessionId)}/leader-thread-tabs/${encodeURIComponent(threadKey)}/close`,
-    ),
-
   markAllSessionsRead: () => post<{ ok: boolean }>("/sessions/mark-all-read"),
 
   ...notificationApi,

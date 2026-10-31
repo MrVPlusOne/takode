@@ -7,7 +7,7 @@ import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../shared/topic-t
 import { prepareZoom } from "./topic-zoom.js";
 import { useTopicTabTopics } from "./TopicTabList.js";
 import type { TopicSummary } from "../../shared/library-topics.js";
-import { useLayoutEffect, useState, type MutableRefObject } from "react";
+import { useState } from "react";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
@@ -17,7 +17,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
-import { countUnreadResults, ThreadTabGroupBar, topicFirstTabOrder } from "./ThreadTabGroups.js";
+import { countUnreadResults, ThreadTabGroupBar } from "./ThreadTabGroups.js";
 import { LeaderBreadcrumbNav, type LeaderBreadcrumbNavProps } from "./breadcrumb/LeaderBreadcrumbNav.js";
 import { useLeaderThreads, useLeaderTopics } from "../utils/leader-topics.js";
 import { isOpenInSideClick, openInSide, type OpenInSideEvent } from "../utils/side-column.js";
@@ -143,7 +143,6 @@ export function ThreadTabRail({
   onSelectThread,
   onCloseThreadTab,
   threadStatuses,
-  tabOrderRef,
   breadcrumb,
 }: {
   /**
@@ -158,8 +157,6 @@ export function ThreadTabRail({
   onSelectThread?: (threadKey: string) => void;
   onCloseThreadTab?: (threadKey: string) => void;
   threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
-  /** Filled with the topic-first bar's tab order (null for the status groups), for picking the tab after a close. */
-  tabOrderRef?: MutableRefObject<readonly string[] | null>;
 }) {
   const openThread = (threadKey: string) => {
     const target = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
@@ -232,12 +229,6 @@ export function ThreadTabRail({
   const topicOfQuest = leaderTopics
     ? Object.fromEntries(Object.entries(leaderTopics.map).map(([questId, topic]) => [questId, topic.id]))
     : null;
-  useLayoutEffect(() => {
-    if (!tabOrderRef) return;
-    tabOrderRef.current = topicOfQuest
-      ? topicFirstTabOrder(displayedTabs, topicList, topicOfQuest, currentThreadKey)
-      : null;
-  });
   // Unread results in these threads, as the attention list counts them: every open review
   // notification, finished quests included, so the Topics list marks what its bell counts.
   const unreadIn = (threadKeys: readonly string[]) => {

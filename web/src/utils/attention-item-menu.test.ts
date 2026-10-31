@@ -14,20 +14,13 @@ const mockApi = vi.hoisted(() => ({
   getSessionNotifications: vi.fn(),
   setNotificationMuted: vi.fn(),
   snoozeNotification: vi.fn(),
-  closeLeaderThreadTab: vi.fn().mockResolvedValue({ ok: true, closed: true }),
 }));
 const mockUpdateThreadMonitoring = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock("../api.js", () => ({ api: mockApi }));
 vi.mock("../api/thread-monitoring.js", () => ({ updateThreadMonitoring: mockUpdateThreadMonitoring }));
 
 import { useStore } from "../store.js";
-import {
-  CLOSE_THREAD_TAB_EVENT,
-  attentionItemMenuItems,
-  closeThreadTab,
-  markThreadRead,
-  needsInputMenuItems,
-} from "./attention-item-menu.js";
+import { attentionItemMenuItems, markThreadRead, needsInputMenuItems } from "./attention-item-menu.js";
 import type { NextAttentionItem } from "./next-attention.js";
 
 const prompt = (overrides: Partial<SessionNotification> = {}) =>
@@ -117,47 +110,12 @@ describe("attentionItemMenuItems", () => {
     expect(mockUpdateThreadMonitoring).toHaveBeenCalledWith("other", "q-9", "acknowledge", "7");
   });
 
-  it("offers Close tab for a closable tab of any leader whose tabs the browser knows", () => {
-    // Close tab follows the server's closability from the tab projection, for
-    // the session on screen and for other leaders alike; Main never closes, and
-    // a leader without a projection in this browser gets no Close tab.
-    expect(labels(attentionItemMenuItems(unread("q-1")))).toEqual(["Mark as read", "Close tab"]);
-    expect(labels(attentionItemMenuItems(unread("q-2")))).toEqual(["Mark as read"]);
-    expect(labels(attentionItemMenuItems(unread("main")))).toEqual(["Mark as read"]);
-    expect(labels(attentionItemMenuItems(unread("q-1", "other-leader")))).toEqual(["Mark as read", "Close tab"]);
-    expect(labels(attentionItemMenuItems(unread("q-1", "unknown")))).toEqual(["Mark as read"]);
-  });
-
-  it("closes another leader's tab through the server", () => {
-    attentionItemMenuItems(unread("q-1", "other-leader"))[1]!.onClick();
-    expect(mockApi.closeLeaderThreadTab).toHaveBeenCalledWith("other-leader", "q-1");
-  });
-
-  it("closes the on-screen session's tab in its own view, and through the server when no view takes it", () => {
-    // The view's close path also moves off the tab when it is selected.
-    const handled = vi.fn((event: Event) => event.preventDefault());
-    window.addEventListener(CLOSE_THREAD_TAB_EVENT, handled);
-    attentionItemMenuItems(unread("q-1"))[1]!.onClick();
-    window.removeEventListener(CLOSE_THREAD_TAB_EVENT, handled);
-    expect((handled.mock.calls[0]![0] as CustomEvent).detail).toEqual({ sessionId: "leader", threadKey: "q-1" });
-    expect(mockApi.closeLeaderThreadTab).not.toHaveBeenCalled();
-
-    attentionItemMenuItems(unread("q-1"))[1]!.onClick();
-    expect(mockApi.closeLeaderThreadTab).toHaveBeenCalledWith("leader", "q-1");
-  });
-
-  it("tells the on-screen view which thread to move to after closing the selected tab", () => {
-    // The feed chip's "Close tab and go to next" moves straight to the next
-    // item's thread instead of passing through Main.
-    const handled = vi.fn((event: Event) => event.preventDefault());
-    window.addEventListener(CLOSE_THREAD_TAB_EVENT, handled);
-    closeThreadTab("leader", "q-1", "q-7");
-    window.removeEventListener(CLOSE_THREAD_TAB_EVENT, handled);
-    expect((handled.mock.calls[0]![0] as CustomEvent).detail).toEqual({
-      sessionId: "leader",
-      threadKey: "q-1",
-      nextThreadKey: "q-7",
-    });
+  it("offers no Close tab, even for a tab its leader could close", () => {
+    // Tabs are no longer closed from attention lists: with the breadcrumb every place stays in the
+    // menus, and leaders with topics off close tabs from their own tab row. q-1 is closable in the
+    // seeded projections of both leaders.
+    expect(labels(attentionItemMenuItems(unread("q-1")))).toEqual(["Mark as read"]);
+    expect(labels(attentionItemMenuItems(unread("q-1", "other-leader")))).toEqual(["Mark as read"]);
   });
 
   it("reads a session-level unread result through the session read route", () => {

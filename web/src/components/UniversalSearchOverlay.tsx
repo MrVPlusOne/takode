@@ -287,7 +287,7 @@ function getQuestResultActions(quest: QuestListPreview, sessions: SdkSessionInfo
   if (leaderSessionId) {
     actions.push({
       id: "leader",
-      label: `Open its tab in leader${leaderSessionNum != null ? ` #${leaderSessionNum}` : ""}`,
+      label: `Open thread in leader${leaderSessionNum != null ? ` #${leaderSessionNum}` : ""}`,
       sessionId: leaderSessionId,
       sessionNum: leaderSessionNum,
     });
@@ -1526,19 +1526,19 @@ function QuestResultRow({
         <span className="truncate text-[14px] text-cc-fg">{quest.title}</span>
       </SearchRowContent>
       {leaderAction && (
-        // A quest has one tab in its leader: this opens it, while the row opens the quest's details.
+        // A quest has one thread in its leader: this opens it, while the row opens the quest's details.
         <button
           type="button"
           className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
-          aria-label={`Open the tab of ${quest.questId} in leader #${leaderSessionNum ?? "?"}`}
-          title={`Open its tab in leader #${leaderSessionNum ?? "?"}`}
+          aria-label={`Open the thread of ${quest.questId} in leader #${leaderSessionNum ?? "?"}`}
+          title={`Open its thread in leader #${leaderSessionNum ?? "?"}`}
           onKeyDown={handleInteractiveKeyDown}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
             onActivateAction(quest, leaderAction);
           }}
-          data-testid="universal-search-quest-tab"
+          data-testid="universal-search-quest-thread"
         >
           <svg
             viewBox="0 0 16 16"
@@ -1554,7 +1554,7 @@ function QuestResultRow({
             <path d="M4.5 8h6.5" />
             <path d="M8 5l3 3-3 3" />
           </svg>
-          <span>Tab</span>
+          <span>Open thread</span>
         </button>
       )}
       <button

@@ -49,7 +49,6 @@ import {
   parseHash,
   threadRouteFromHash,
 } from "../utils/routing.js";
-import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 import { ModelProvenanceMigrationBanner } from "./ModelProvenanceMigrationBanner.js";
@@ -960,43 +959,26 @@ export function ChatView({
     },
     [handleSelectThread, selectedThreadKey, sendLeaderThreadTabUpdate],
   );
-  // The quest strip closes the tab on screen the way its listed row's close button does:
-  // only while the server lets it close, and through the tab bar, which picks the next tab
-  // in the same status group.
+  // Leaders with topics off close tabs: the quest strip closes the tab on screen the way its listed
+  // row's close button does, only while the server lets it close, and through the tab bar, which
+  // picks the next tab in the same status group.
   const selectedTabKey = normalizeThreadKey(selectedThreadKey);
   const selectedTabCanClose =
-    isLeaderSession && !!leaderTabsProjection?.tabs.some((tab) => tab.threadKey === selectedTabKey && tab.canClose);
+    isLeaderSession &&
+    !breadcrumb &&
+    !!leaderTabsProjection?.tabs.some((tab) => tab.threadKey === selectedTabKey && tab.canClose);
   const workBoardCloseTabRef = useRef<((threadKey: string) => void) | null>(null);
   const closeSelectedThreadTab = selectedTabCanClose
     ? () => (workBoardCloseTabRef.current ?? handleCloseThreadTab)(selectedTabKey)
     : undefined;
-  // With the breadcrumb the band's × leaves the quest for where it lives: its topic's conversation
-  // (the tab stays, since that conversation is shown in it), else Main, closing the tab when it may
-  // close. Closing it instead opened whichever tab came next, often another quest (Jiayi's report).
+  // With the breadcrumb, tabs don't close (every place stays in the menus): the band's × leaves the
+  // quest for where it lives, its topic's conversation, else Main.
   const leaveSelectedQuest: { run: () => void; label: string } | undefined =
     breadcrumb && isQuestThreadKey(selectedTabKey)
       ? topicConversation
         ? { run: zoomOutToTopic, label: `Back to ${topicConversation.name}` }
-        : {
-            run: () =>
-              selectedTabCanClose
-                ? handleCloseThreadTab(selectedTabKey, MAIN_THREAD_KEY)
-                : handleSelectThread(MAIN_THREAD_KEY),
-            label: "Back to Main",
-          }
+        : { run: () => handleSelectThread(MAIN_THREAD_KEY), label: "Back to Main" }
       : undefined;
-  // Attention lists close this session's tabs through the same path as the tab's own close button.
-  useEffect(() => {
-    if (!isLeaderSession || preview) return;
-    const onClose = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId?: string; threadKey?: string; nextThreadKey?: string }>).detail;
-      if (detail?.sessionId !== sessionId || !detail.threadKey) return;
-      event.preventDefault();
-      handleCloseThreadTab(detail.threadKey, detail.nextThreadKey);
-    };
-    window.addEventListener(CLOSE_THREAD_TAB_EVENT, onClose);
-    return () => window.removeEventListener(CLOSE_THREAD_TAB_EVENT, onClose);
-  }, [handleCloseThreadTab, isLeaderSession, preview, sessionId]);
 
   useEffect(() => {
     locallySelectedRouteThreadKeyRef.current = null;
@@ -1251,7 +1233,7 @@ export function ChatView({
               currentThreadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
               onSelectThread={isLeaderSession ? handleSelectThread : undefined}
               openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
-              onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}
+              onCloseThreadTab={isLeaderSession && !breadcrumb ? handleCloseThreadTab : undefined}
               threadRows={isLeaderSession ? workBoardThreadRows : undefined}
               closeTabRef={workBoardCloseTabRef}
               hideThreadStrip={phoneTopicsOpen}

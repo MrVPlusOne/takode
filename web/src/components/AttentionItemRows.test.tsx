@@ -54,6 +54,45 @@ describe("AttentionItemSections", () => {
     expect(within(rows[1]!).getByTestId("attention-place-summary").textContent).toContain("1 new answer");
   });
 
+  it("names a row's topic before its thread when asked, once when the thread is the topic itself", () => {
+    // A session's own list names each row's topic in place of the session ("Topic › q-7 Title"),
+    // like the breadcrumb. A topic's own conversation is named by the topic already, so no repeat.
+    const queue = buildNextAttentionQueue({
+      needsInput: ["q-7", "topic:relay"].map((threadKey, index) => ({
+        sessionId: "leader",
+        sessionName: "Leader",
+        sessionNum: 1,
+        notification: {
+          id: `ask-${index}`,
+          category: "needs-input",
+          summary: `Ask ${index}`,
+          timestamp: 10 - index,
+          threadKey,
+          done: false,
+        } as SessionNotification,
+      })),
+      notifyMe: [],
+      unread: [],
+    });
+    const threads = {
+      titleFor: (_sessionId: string, threadKey: string) => (threadKey === "q-7" ? "Offline hosts" : "Relay"),
+      hasThreadTabs: () => true,
+    };
+    render(
+      <AttentionItemSections
+        items={queue}
+        kinds={["needs-input"]}
+        onOpen={vi.fn()}
+        threads={threads}
+        topicFor={() => "Relay"}
+      />,
+    );
+    const [quest, topic] = screen.getAllByTestId("attention-item-place");
+    expect(quest!.textContent).toMatch(/^Relay›q-7 Offline hosts/);
+    expect(within(topic!).queryByTestId("attention-item-topic")).toBeNull();
+    expect(topic!.textContent).toMatch(/^Relay·/);
+  });
+
   it("names a user thread's place by the thread's name, not its key", () => {
     // Threads the user started have keys like topic:55badbba; the row read "topic:55badbba
     // topic:55badbba" until it took the thread's name.

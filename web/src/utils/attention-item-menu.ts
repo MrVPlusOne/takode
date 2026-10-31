@@ -8,18 +8,9 @@ import { applyServerNotification } from "../notification-status.js";
 import { useStore } from "../store.js";
 import type { SessionNotification } from "../types.js";
 import { parseQuestIdsFromReviewSummary } from "./attention-records.js";
-import { resolveLeaderThreadTabsProjection } from "./leader-thread-tabs-resolver.js";
 import type { NextAttentionItem } from "./next-attention.js";
 import { resolveNotificationOwnerThreadKey } from "./notification-thread.js";
-import { MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
-
-/**
- * Asks the session's open ChatView to close one of its thread tabs, through the
- * same path as the tab's own close button (which also leaves the tab if it is
- * selected, for `nextThreadKey` or else Main). The view cancels the event when
- * it handled it. Detail: `{ sessionId, threadKey, nextThreadKey? }`.
- */
-export const CLOSE_THREAD_TAB_EVENT = "takode:close-thread-tab";
+import { normalizeThreadKey } from "./thread-projection.js";
 
 function logFailure(action: string) {
   return (error: unknown) => console.error(`[attention-menu] ${action} failed:`, error);
@@ -58,9 +49,8 @@ export function needsInputMenuItems(sessionId: string, notification: SessionNoti
 
 /**
  * The actions an attention list offers for one item, by kind: prompt actions,
- * Acknowledge and Stop tracking for Notify Me results, Mark as read for unread
- * results, and Close tab for a leader thread tab in the session on screen
- * (only its view can close tabs). Opening stays on the row's Go to.
+ * Acknowledge and Stop tracking for Notify Me results, and Remind me later and
+ * Mark as read for unread results. Opening stays on the row's Go to.
  */
 export function attentionItemMenuItems(item: NextAttentionItem): ContextMenuItem[] {
   if (item.kind === "needs-input") return needsInputMenuItems(item.sessionId, item.entry.notification);
@@ -113,13 +103,6 @@ export function attentionItemMenuItems(item: NextAttentionItem): ContextMenuItem
         ).catch(logFailure("Mark as read")),
     });
   }
-  if (item.threadKey && canCloseThreadTab(item.sessionId, item.threadKey)) {
-    const { sessionId, threadKey } = item;
-    items.push({
-      label: "Close tab",
-      onClick: () => closeThreadTab(sessionId, threadKey),
-    });
-  }
   return items;
 }
 
@@ -164,34 +147,6 @@ export function attentionPlaceMenuItems(
     onClick: () => void markAllRead().catch(logFailure("Mark as read")),
   });
   return menu;
-}
-
-/**
- * Offered for an open, closable thread tab of any leader whose tab projection
- * this browser holds. The projection carries the server's closability, and
- * the server checks it again when closing.
- */
-export function canCloseThreadTab(sessionId: string, threadKey: string): boolean {
-  if (normalizeThreadKey(threadKey) === MAIN_THREAD_KEY) return false;
-  const tabs = resolveLeaderThreadTabsProjection(useStore.getState(), sessionId);
-  return (
-    tabs.projectionState === "accepted" &&
-    tabs.value.tabs.some((tab) => tab.threadKey === normalizeThreadKey(threadKey) && tab.canClose)
-  );
-}
-
-/**
- * The session on screen closes the tab in its own view, which moves to
- * `nextThreadKey` (default Main) if the tab was selected; any other leader's
- * tab is closed by the server, which then updates every browser's tabs.
- */
-export function closeThreadTab(sessionId: string, threadKey: string, nextThreadKey?: string) {
-  if (useStore.getState().currentSessionId === sessionId) {
-    const detail = { sessionId, threadKey, nextThreadKey };
-    const event = new CustomEvent(CLOSE_THREAD_TAB_EVENT, { cancelable: true, detail });
-    if (!window.dispatchEvent(event)) return;
-  }
-  api.closeLeaderThreadTab(sessionId, threadKey).catch(logFailure("Close tab"));
 }
 
 /**

@@ -126,6 +126,7 @@ export function AttentionItemRow({
   threads,
   isNext = false,
   note,
+  topic,
 }: {
   item: NextAttentionItem;
   onOpen: (item: NextAttentionItem) => void;
@@ -135,6 +136,8 @@ export function AttentionItemRow({
   isNext?: boolean;
   /** A one-line note on it, such as why it matters now (the Scribe's, in a leader's overview). */
   note?: string;
+  /** The Library topic its thread is filed under, named before the thread (a session's own list). */
+  topic?: string | null;
 }) {
   const label = itemLabel(item);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
@@ -178,6 +181,7 @@ export function AttentionItemRow({
             sessionLabel={sessionLabel}
             sessionTag={sessionTag}
             timestamp={item.timestamp}
+            topic={topic}
           />
           {note && <AttentionNote note={note} />}
         </div>
@@ -188,25 +192,42 @@ export function AttentionItemRow({
   );
 }
 
-/** The row's second line: thread tab (or session) first, then the short session tag and age, which never truncate. */
+/**
+ * The row's second line: the topic and thread tab (or session) first, then the short session tag
+ * and age, which never truncate. Like the breadcrumb, a topic comes before its thread ("Topic ›
+ * q-12 Title"); a thread named like its topic (the topic's own conversation) shows the name once.
+ */
 export function AttentionItemPlace({
   place,
   sessionLabel,
   sessionTag,
   timestamp,
+  topic,
 }: {
   place: AttentionThreadPlace | null;
   sessionLabel?: string;
   sessionTag?: string;
   timestamp: number;
+  topic?: string | null;
 }) {
   const tail = [place ? sessionTag : null, timestamp > 0 ? formatRelativeTime(timestamp) : null].filter(Boolean);
   const lead = place ? null : sessionLabel;
+  const topicName = topic && place && topic !== place.thread ? topic : null;
   return (
     <p
       className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-cc-muted"
       data-testid="attention-item-place"
     >
+      {topicName && (
+        <span
+          className="inline-flex min-w-0 max-w-[45%] shrink-0 items-baseline gap-1"
+          data-testid="attention-item-topic"
+        >
+          <TopicIcon className="h-3 w-3 shrink-0 self-center text-cc-primary" />
+          <span className="truncate font-medium text-cc-fg/70">{topicName}</span>
+          <span aria-hidden="true">›</span>
+        </span>
+      )}
       {place ? (
         <span className="min-w-0 truncate">
           <span className="font-medium text-cc-fg/70">{place.thread}</span>
@@ -239,6 +260,7 @@ export function AttentionItemSections({
   threads,
   nextKey,
   noteFor,
+  topicFor,
 }: {
   items: readonly NextAttentionItem[];
   kinds: readonly AttentionSection[];
@@ -249,6 +271,8 @@ export function AttentionItemSections({
   nextKey?: string | null;
   /** A one-line note per item (a place takes its first item's). */
   noteFor?: (item: NextAttentionItem) => string | undefined;
+  /** The topic to name on a row's second line (unread places are already named by theirs). */
+  topicFor?: (item: NextAttentionItem) => string | null | undefined;
 }) {
   const row = (item: NextAttentionItem) => (
     <AttentionItemRow
@@ -260,6 +284,7 @@ export function AttentionItemSections({
       threads={threads}
       isNext={item.key === nextKey}
       note={noteFor?.(item)}
+      topic={topicFor?.(item)}
     />
   );
   return (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { createPortal } from "react-dom";
 import { useGlobalNeedsInputEntries } from "../hooks/useGlobalNeedsInputEntries.js";
@@ -112,7 +112,7 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
         />
       )}
       {open && (
-        <GlobalAttentionPanel
+        <AttentionListPanel
           items={queue}
           nextKey={next?.item.key ?? null}
           nextPosition={next ? attentionPlaceIndex(queue, next.item) + 1 : null}
@@ -193,8 +193,12 @@ export function AttentionListPill({
   );
 }
 
-/** The list itself. `inline` renders in place for the Playground. */
-export function GlobalAttentionPanel({
+/**
+ * The list itself: the top bar's, across sessions, and the feed's Next chip's, for one session
+ * (`session` set: no session numbers, each row names its topic, placed by the chip). `inline`
+ * renders in place for the Playground.
+ */
+export function AttentionListPanel({
   items,
   nextKey,
   nextPosition,
@@ -204,6 +208,7 @@ export function GlobalAttentionPanel({
   onOpen,
   backlog,
   trackedCount = backlog?.tracked.length ?? 0,
+  session,
   sessionsOverride,
   threadsOverride,
   inline = false,
@@ -218,6 +223,11 @@ export function GlobalAttentionPanel({
   onClose: () => void;
   onNext: () => void;
   onOpen: (item: NextAttentionItem) => void;
+  /** One session's list: the topic each row names, and where the panel goes (beside its chip). */
+  session?: {
+    topicFor: (item: NextAttentionItem) => string | null | undefined;
+    position: { className: string; style: CSSProperties };
+  };
   /** Session numbers and names, and thread titles, for the Playground, which has no real sessions or quests. */
   sessionsOverride?: ReadonlyArray<{ sessionId: string; sessionNum?: number | null; name?: string }>;
   threadsOverride?: AttentionThreadTitles;
@@ -240,11 +250,14 @@ export function GlobalAttentionPanel({
   }, [sdkSessions, sessionsOverride]);
 
   const threads = threadsOverride ?? storeThreads;
-  const rowProps: BacklogRowProps = {
-    sessionLabelFor: (item) => sessionInfo.get(item.sessionId)?.label,
-    sessionTagFor: (item) => sessionInfo.get(item.sessionId)?.tag,
-    threads,
-  };
+  // In one session's list every row is that session: naming it would only repeat it.
+  const rowProps: BacklogRowProps = session
+    ? { sessionLabelFor: () => undefined, sessionTagFor: () => undefined, topicFor: session.topicFor, threads }
+    : {
+        sessionLabelFor: (item) => sessionInfo.get(item.sessionId)?.label,
+        sessionTagFor: (item) => sessionInfo.get(item.sessionId)?.tag,
+        threads,
+      };
 
   // A row's context menu lives in a portal; using it must not close the list.
   useOutsidePress([panelRef, trigger, "[data-context-menu]"], onClose, !inline);
@@ -263,12 +276,15 @@ export function GlobalAttentionPanel({
     <div
       ref={panelRef}
       role="dialog"
-      aria-label="Everything that needs attention"
+      aria-label={session ? "What needs attention here" : "Everything that needs attention"}
       data-testid="attention-list-panel"
+      data-scope={session ? "session" : "global"}
+      style={inline ? undefined : session?.position.style}
       className={`flex flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl font-sans-ui ${
         inline
           ? "w-full max-h-[32rem]"
-          : "fixed right-3 top-14 z-50 w-[min(28rem,calc(100vw-1.5rem))] max-h-[min(70dvh,36rem)]"
+          : (session?.position.className ??
+            "fixed right-3 top-14 z-50 w-[min(28rem,calc(100vw-1.5rem))] max-h-[min(70dvh,36rem)]")
       }`}
     >
       <div className="flex items-center justify-between gap-2 border-b border-cc-border/50 px-3 py-2.5">
@@ -320,6 +336,7 @@ export function GlobalAttentionPanel({
           nextKey={nextKey}
           sessionLabelFor={rowProps.sessionLabelFor}
           sessionTagFor={rowProps.sessionTagFor}
+          topicFor={rowProps.topicFor}
           threads={rowProps.threads}
         />
         {backlog && (
@@ -346,6 +363,7 @@ const QUIET_TONE = { text: "text-cc-muted", border: "border-cc-border", bg: "bg-
 interface BacklogRowProps {
   sessionLabelFor: (item: NextAttentionItem) => string | undefined;
   sessionTagFor: (item: NextAttentionItem) => string | undefined;
+  topicFor?: (item: NextAttentionItem) => string | null | undefined;
   threads: AttentionThreadTitles;
 }
 
@@ -389,6 +407,7 @@ function BacklogSection({
                 onOpen={onOpen}
                 sessionLabel={rowProps.sessionLabelFor(item)}
                 sessionTag={rowProps.sessionTagFor(item)}
+                topic={rowProps.topicFor?.(item)}
                 threads={rowProps.threads}
               />
             ))}

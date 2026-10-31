@@ -168,15 +168,21 @@ vi.mock("./WorkBoardBar.js", () => ({
   WorkBoardBar: ({
     currentThreadKey,
     onSelectThread,
+    onCloseThreadTab,
     openThreadKeys = [],
     threadRows = [],
   }: {
     currentThreadKey?: string;
     onSelectThread?: (threadKey: string) => void;
+    onCloseThreadTab?: (threadKey: string) => void;
     openThreadKeys?: string[];
     threadRows?: Array<{ threadKey: string; title: string }>;
   }) => (
-    <div data-testid="work-board-bar" data-current-thread-key={currentThreadKey}>
+    <div
+      data-testid="work-board-bar"
+      data-current-thread-key={currentThreadKey}
+      data-can-close={onCloseThreadTab ? "true" : "false"}
+    >
       <button type="button" onClick={() => onSelectThread?.("main")}>
         Main
       </button>
@@ -507,7 +513,8 @@ describe("ChatView breadcrumb band ×", () => {
     );
     view.unmount();
 
-    // A quest under no topic goes back to Main.
+    // A quest under no topic goes back to Main, and its tab stays: tabs don't close with the
+    // breadcrumb (q-1944 is closable here, so before, leaving closed it).
     questMap.mockResolvedValue({
       enabled: true,
       map: {},
@@ -518,5 +525,11 @@ describe("ChatView breadcrumb band ×", () => {
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
     fireEvent.click(await screen.findByRole("button", { name: "Back to Main" }));
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      LEADER_SESSION_ID,
+      expect.objectContaining({ operation: expect.objectContaining({ type: "close" }) }),
+    );
+    // Nor can its menus close it: the tab bar gets no close handler with the breadcrumb.
+    expect(screen.getByTestId("work-board-bar")).toHaveAttribute("data-can-close", "false");
   });
 });

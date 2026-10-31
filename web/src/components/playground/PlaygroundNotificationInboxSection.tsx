@@ -1,16 +1,10 @@
-import { useEffect } from "react";
-import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
-import {
-  createLeaderThreadTabsProjectionEnvelope,
-  createLeaderThreadTabsProjectionTab,
-  createLeaderThreadTabsProjectionValue,
-} from "../../test-fixtures/leader-thread-tabs-projection.js";
 import { NotificationChip } from "../NotificationChip.js";
 import { PlaygroundNotifyMe } from "./PlaygroundNotifyMe.js";
 import { GlobalAttentionMenu } from "../GlobalAttentionMenu.js";
 import { MessageFeed } from "../MessageFeed.js";
 import { WaitingChip } from "../WaitingChip.js";
 import { useStore } from "../../store.js";
+import { seedLeaderTopics } from "../../utils/leader-topics.js";
 import type { ChatMessage, LeaderThreadResponseProjection } from "../../types.js";
 import type { SessionAttentionPreview } from "../../hooks/useSessionAttention.js";
 import { Card, Section } from "./shared.js";
@@ -46,6 +40,11 @@ const ATTENTION_PREVIEW: SessionAttentionPreview = {
 
 function seedNotificationData() {
   const now = Date.now();
+  // The session list names each row's topic, as the leader's Library has filed its quests.
+  seedLeaderTopics("playground-notifs", {
+    "q-2416": { id: "host-links", name: "Host links and remote machines" },
+    "q-2419": { id: "leader-threads", name: "Leader threads, tabs and search" },
+  });
   useStore.setState({
     sessionNotifications: new Map([
       [
@@ -79,6 +78,8 @@ function seedNotificationData() {
             ],
             timestamp: now - 120_000,
             messageId: "mock-msg-87",
+            threadKey: "q-2416",
+            questId: "q-2416",
             done: false,
           },
           {
@@ -512,41 +513,6 @@ function seedOwnerThreadNeedsInputPanel() {
   });
 }
 
-const CLOSE_TAB_SESSION_ID = "playground-attention-close-tab";
-
-/**
- * The chip on a closable quest tab: its long-press or right-click offers
- * "Close tab and go to next" before the list. The tab state is seeded so the
- * chip sees q-2419 as closable; choosing Close asks the server, which has no
- * such session here.
- */
-function ClosableTabChip() {
-  useEffect(() => {
-    const store = useStore.getState();
-    store.applySyncedProjectionSnapshot(
-      createLeaderThreadTabsProjectionEnvelope({
-        key: CLOSE_TAB_SESSION_ID,
-        generation: "playground-attention-close-tab",
-        value: createLeaderThreadTabsProjectionValue({
-          tabState: { version: 1, orderedOpenThreadKeys: ["q-2419"], closedThreadTombstones: [], updatedAt: 1 },
-          tabs: [createLeaderThreadTabsProjectionTab("q-2419", { canClose: true })],
-        }),
-      }),
-    );
-    return () => store.clearSyncedProjectionKey(LEADER_THREAD_TABS_PROJECTION, CLOSE_TAB_SESSION_ID);
-  }, []);
-  return (
-    <NotificationChip
-      sessionId={CLOSE_TAB_SESSION_ID}
-      currentThreadKey="q-2419"
-      attentionPreview={{
-        notifyMe: ATTENTION_PREVIEW.notifyMe.map((entry) => ({ ...entry, sessionId: CLOSE_TAB_SESSION_ID })),
-        unread: ATTENTION_PREVIEW.unread.map((item) => ({ ...item, sessionId: CLOSE_TAB_SESSION_ID })),
-      }}
-    />
-  );
-}
-
 export function PlaygroundNotificationInboxSection() {
   return (
     <Section
@@ -577,11 +543,10 @@ export function PlaygroundNotificationInboxSection() {
               </div>
             </div>
             <p className="text-[10px] text-cc-muted">
-              Click &quot;Seed notification data&quot; first. The lower-right inbox shows needs-input rows with one
-              prompt title, Go to as the only inline row action (right-click or long-press the row header for Mute or
-              Unmute, Remind me later and Cancel snooze), expandable source context, direct Send Response controls,
-              voice-enabled long-answer fields, a muted backlog, and a collapsible Done section. Active review
-              notifications stay out of this panel because blue review status is represented on thread tabs.
+              Click &quot;Seed notification data&quot; first. Right-click or long-press the chip for this session&apos;s
+              list: the top bar&apos;s Needs attention list for one session, with Questions first and the muted one in
+              the collapsed Muted questions section. Rows keep only Go to; right-click or long-press a row for Mute,
+              Remind me later and the like. Answering happens at the question itself.
             </p>
           </div>
         </Card>
@@ -593,38 +558,31 @@ export function PlaygroundNotificationInboxSection() {
               each tap opens the next item that needs attention (needs-input prompts, then Notify Me results, then
               unread results, newest first in each kind) and wraps at the end, and its label shows the next item&apos;s
               position, like &quot;1/4 · Next&quot;, with the icon tinted by its kind. Right-click or long-press opens
-              the inbox, which lists Notify Me and Unread sections after the prompts and marks the next row. On a
-              closable quest tab it first offers &quot;Close tab and go to next&quot; (skipping items in that tab) or
-              &quot;Show list&quot;. Rows keep only Go to; right-click or long-press a row (not the chip) for its own
-              menu: Acknowledge and Stop tracking for Notify Me, Mark as read and Close tab for unread threads. Here
-              steps only move the position; in a session they jump to each item, as does the Next Item in This Session
-              shortcut. On desktop the chip floats at the feed&apos;s top right, near the top bar&apos;s attention
-              controls, and its inbox opens below it; phones keep it at the bottom right.
+              the session&apos;s list right away: the same sections and rows as the top bar&apos;s Needs attention list
+              (Questions, Urgent, Reminders, Unread by topic, Notify Me), without the session number, each row naming
+              its topic, and the next row marked. It opens above the chip inside the feed, never wider than the feed.
+              Rows keep only Go to; right-click or long-press a row (not the chip) for its own menu. Here steps only
+              move the position; in a session they jump to each item, as does the Next Item in This Session shortcut.
             </p>
             <div className="flex flex-wrap gap-4">
-              <div className="relative h-40 w-full max-w-xl rounded-lg border border-cc-border bg-cc-bg">
-                <span className="absolute left-2 top-2 text-[10px] text-cc-muted">Desktop</span>
-                <div className="pointer-events-none absolute right-3 top-3 flex">
-                  <NotificationChip
-                    sessionId="playground-notifs"
-                    attentionPreview={ATTENTION_PREVIEW}
-                    placement="top"
-                  />
-                </div>
-                <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5">
+              {/* Feed-shaped boxes: the list opens above the chip and stays inside the box. */}
+              <div className="relative h-[26rem] w-full max-w-xl rounded-lg border border-cc-border bg-cc-bg">
+                <span className="absolute left-2 top-2 text-[10px] text-cc-muted">Desktop feed</span>
+                <div
+                  data-feed-floating-stack="right"
+                  className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5"
+                >
                   <WaitingChip sessionId="playground-timers" />
-                </div>
-              </div>
-              <div className="relative h-40 w-[390px] rounded-lg border border-cc-border bg-cc-bg">
-                <span className="absolute left-2 top-2 text-[10px] text-cc-muted">Phone width</span>
-                <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5">
                   <NotificationChip sessionId="playground-notifs" attentionPreview={ATTENTION_PREVIEW} />
                 </div>
               </div>
-              <div className="relative h-24 w-[390px] rounded-lg border border-cc-border bg-cc-bg">
-                <span className="absolute left-2 top-2 text-[10px] text-cc-muted">On closable tab q-2419</span>
-                <div className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5">
-                  <ClosableTabChip />
+              <div className="relative h-[26rem] w-[390px] rounded-lg border border-cc-border bg-cc-bg">
+                <span className="absolute left-2 top-2 text-[10px] text-cc-muted">Phone width</span>
+                <div
+                  data-feed-floating-stack="right"
+                  className="pointer-events-none absolute bottom-2 right-2 flex flex-row items-end gap-1.5"
+                >
+                  <NotificationChip sessionId="playground-notifs" attentionPreview={ATTENTION_PREVIEW} />
                 </div>
               </div>
               <div className="relative h-24 w-[390px] rounded-lg border border-cc-border bg-cc-bg">

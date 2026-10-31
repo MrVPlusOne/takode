@@ -8,7 +8,7 @@
 import { useLeaderBreadcrumb, useTopBarSlot } from "../utils/top-bar-slots.js";
 import { useCrumbSlot } from "./breadcrumb/crumb-slot.js";
 import { CrumbStart } from "./breadcrumb/CrumbStart.js";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useState, type MutableRefObject } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import {
@@ -567,17 +567,11 @@ function WorkBoardBarComponent({
         ? null
         : activeView;
 
-  // The topic-first bar's order, which the rail fills in: closing follows Working on, then Topics.
-  const tabOrderRef = useRef<readonly string[] | null>(null);
+  // Only leaders with topics off close tabs (their status-group row); with the breadcrumb every
+  // place stays in the menus.
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);
-    const nextThreadKey = threadKeyToSelectAfterClosing(
-      normalized,
-      displayedThreadTabs,
-      currentThreadKey,
-      tabOrderRef.current,
-    );
-    onCloseThreadTab?.(normalized, nextThreadKey);
+    onCloseThreadTab?.(normalized, threadKeyToSelectAfterClosing(normalized, displayedThreadTabs, currentThreadKey));
   };
   // The quest strip's close button closes through here too, so every close picks the next
   // tab by the same rule.
@@ -611,7 +605,6 @@ function WorkBoardBarComponent({
       onSelectThread={onSelectThread}
       onCloseThreadTab={onCloseThreadTab ? handleCloseThreadTab : undefined}
       threadStatuses={threadStatuses}
-      tabOrderRef={tabOrderRef}
     />
   );
   return (

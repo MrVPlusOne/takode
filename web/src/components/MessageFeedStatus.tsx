@@ -648,9 +648,7 @@ export function FeedStatusPill({
         {/* Session-wide chips belong to the main feed, not a conversation in the side column. */}
         {!secondary && <WaitingChip sessionId={sessionId} />}
         {/* The session's Next chip, at the feed's lower right on phones and desktop alike. */}
-        {!secondary && (
-          <NotificationChip sessionId={sessionId} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
-        )}
+        {!secondary && <NotificationChip sessionId={sessionId} />}
       </div>
     </>
   );

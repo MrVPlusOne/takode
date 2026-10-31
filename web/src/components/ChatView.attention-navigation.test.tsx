@@ -47,7 +47,6 @@ vi.mock("./WorkBoardBar.js", () => ({ WorkBoardBar: () => null }));
 import { useStore } from "../store.js";
 import { openAttentionItem } from "../hooks/useNextAttention.js";
 import { threadRouteFromHash } from "../utils/routing.js";
-import { CLOSE_THREAD_TAB_EVENT } from "../utils/attention-item-menu.js";
 import { ChatView } from "./ChatView.js";
 import { THREAD_READ_DWELL_MS } from "../hooks/use-thread-read-on-screen.js";
 
@@ -236,79 +235,6 @@ describe("ChatView attention navigation", () => {
     await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-main", true), {
       timeout: THREAD_READ_DWELL_MS + 1_000,
     });
-    view.unmount();
-  });
-
-  it("closes one of its tabs when an attention list asks, through the tab close path", async () => {
-    // Attention-row menus offer Close tab for the session on screen; ChatView
-    // handles it like the tab's own close button.
-    const view = render(<ChatView sessionId="leader" {...routeProps()} />);
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1"));
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent(CLOSE_THREAD_TAB_EVENT, { detail: { sessionId: "leader", threadKey: "q-1" } }),
-      );
-    });
-    expect(mockSendToSession).toHaveBeenCalledWith(
-      "leader",
-      expect.objectContaining({
-        type: "leader_thread_tabs_update",
-        operation: expect.objectContaining({ type: "close", threadKey: "q-1" }),
-      }),
-    );
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    view.unmount();
-  });
-
-  it("moves straight to the next item's thread when the chip closes the selected tab and goes on", async () => {
-    // The feed chip's "Close tab and go to next" closes the tab with the next
-    // item's thread, then opens the item there. The view must end on that
-    // thread, not on Main (the default after closing the selected tab).
-    const view = render(<ChatView sessionId="leader" {...routeProps()} />);
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1"));
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent(CLOSE_THREAD_TAB_EVENT, {
-          detail: { sessionId: "leader", threadKey: "q-1", nextThreadKey: "q-2" },
-        }),
-      );
-      openAttentionItem(
-        {
-          kind: "needs-input",
-          entry: {
-            sessionId: "leader",
-            sessionName: "Leader",
-            sessionNum: 1,
-            notification: {
-              id: "n-2",
-              category: "needs-input",
-              summary: "Pick one",
-              timestamp: 30,
-              messageId: "m-2",
-              threadKey: "q-2",
-              questId: "q-2",
-              done: false,
-            },
-          },
-          key: "needs-input:leader:n-2",
-          sessionId: "leader",
-          threadKey: "q-2",
-          label: "Pick one",
-          timestamp: 30,
-        },
-        useStore.getState().sdkSessions,
-      );
-    });
-    expect(mockSendToSession).toHaveBeenCalledWith(
-      "leader",
-      expect.objectContaining({ operation: expect.objectContaining({ type: "close", threadKey: "q-1" }) }),
-    );
-    expect(window.location.hash).toContain("thread=q-2");
-    view.rerender(<ChatView sessionId="leader" {...routeProps()} />);
-
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-2"));
     view.unmount();
   });
 });

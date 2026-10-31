@@ -336,12 +336,14 @@ export function buildSessionAttentionQueue(input: {
   needsInput: readonly SessionNotification[];
   notifyMe: readonly ThreadMonitoringEntry[];
   unread: readonly UnreadAttentionCandidate[];
+  topicOf?: AttentionTopicOf;
 }): NextAttentionItem[] {
   const { sessionId, sessionName, sessionNum } = input;
   return buildNextAttentionQueue({
     needsInput: input.needsInput.map((notification) => ({ sessionId, sessionName, sessionNum, notification })),
     notifyMe: input.notifyMe.filter((entry) => entry.sessionId === sessionId),
     unread: input.unread.filter((candidate) => candidate.sessionId === sessionId),
+    ...(input.topicOf ? { topicOf: input.topicOf } : {}),
   });
 }
 

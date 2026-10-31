@@ -1,16 +1,8 @@
-import { useEffect } from "react";
-import { useStore } from "../../store.js";
-import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
-import {
-  createLeaderThreadTabsProjectionEnvelope,
-  createLeaderThreadTabsProjectionTab,
-  createLeaderThreadTabsProjectionValue,
-} from "../../test-fixtures/leader-thread-tabs-projection.js";
 import type { ThreadMonitoringEntry } from "../../../shared/thread-monitoring.js";
 import { useAttentionNavigator } from "../../hooks/useAttentionNavigator.js";
 import type { ChatMessage, SessionNotification } from "../../types.js";
 import { attentionPlaceIndex, buildAttentionBacklog, buildNextAttentionQueue } from "../../utils/next-attention.js";
-import { AttentionListPill, GlobalAttentionPanel } from "../GlobalAttentionMenu.js";
+import { AttentionListPill, AttentionListPanel } from "../GlobalAttentionMenu.js";
 import { MessageBubble } from "../MessageBubble.js";
 import { NavigationButtons, NavigationHistoryPanel } from "../NavigationButtons.js";
 import { SidebarLockToggle } from "../SidebarFold.js";
@@ -176,30 +168,11 @@ const VIEWED_TABS = [
 ];
 
 /** The list with a working Next: the "Next" marker and position move through the whole list. */
-/** The leader's tab state, so its unread quest row offers Close tab like a real one. */
-function useSeedLeaderTabs() {
-  useEffect(() => {
-    const store = useStore.getState();
-    store.applySyncedProjectionSnapshot(
-      createLeaderThreadTabsProjectionEnvelope({
-        key: "playground-attention-leader",
-        generation: "playground-attention-list",
-        value: createLeaderThreadTabsProjectionValue({
-          tabState: { version: 1, orderedOpenThreadKeys: ["q-2415"], closedThreadTombstones: [], updatedAt: 1 },
-          tabs: [createLeaderThreadTabsProjectionTab("q-2415", { canClose: true })],
-        }),
-      }),
-    );
-    return () => store.clearSyncedProjectionKey(LEADER_THREAD_TABS_PROJECTION, "playground-attention-leader");
-  }, []);
-}
-
 function InteractiveAttentionList() {
-  useSeedLeaderTabs();
   const { next, goNext, open } = useAttentionNavigator("playground:global-attention", QUEUE, { navigate: false });
   return (
     <div className="max-w-md space-y-2">
-      <GlobalAttentionPanel
+      <AttentionListPanel
         inline
         items={QUEUE}
         nextKey={next?.item.key ?? null}
@@ -243,7 +216,7 @@ export function PlaygroundNextAttentionSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Attention List, Phone Top Bar and Desktop Navigation"
-        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names the thread tab it belongs to (quest ID and tab title, or Main, then the session number and age) and otherwise its session; Notify Me rows lead with the result, unread rows with the unread result itself (the answer, report or finished quest), never a later Thread Ready summary. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, Mark as read, and Close tab for any closable quest tab, which the server closes and keeps open while its quest is active). Next in the list (and the Next Item Across Sessions shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked. No banner says where a step went: the session and tab it opens show that. Answers a leader marks urgent ([thread:q-N:A!]) get their own Urgent section right after the questions, one row each with a red exclamation mark, and turn the pill red when they lead the list. The pill takes the color of the most urgent kind waiting; while a prompt is open it counts only the open prompts, otherwise everything in the list. Below the list, collapsed and skipped by Next, sit Muted questions and tracked Notify Me threads with no result yet; with only those, the pill is a quiet bell without a count. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip. On desktop the sidebar header carries Back and Forward, which walk browser history and fade when there is no step, and Recently viewed, which lists the sessions and leader tabs viewed in this browser, newest first."
+        description="The top-bar count opens everything across sessions that needs the user, grouped as needs-input prompts, then Notify Me results, then unread results (newest first in each group), each with Go to. A row's second line names the thread tab it belongs to (quest ID and tab title, or Main, then the session number and age) and otherwise its session; Notify Me rows lead with the result, unread rows with the unread result itself (the answer, report or finished quest), never a later Thread Ready summary. Rows keep only Go to; right-click or long-press a row for the actions that fit its kind (Mute and Remind me later for prompts, Acknowledge and Stop tracking for Notify Me, and Mark as read). Next in the list (and the Next Item Across Sessions shortcut) walks the whole list into the lower groups and wraps; the row it opens next is marked. No banner says where a step went: the session and tab it opens show that. Answers a leader marks urgent ([thread:q-N:A!]) get their own Urgent section right after the questions, one row each with a red exclamation mark, and turn the pill red when they lead the list. The pill takes the color of the most urgent kind waiting; while a prompt is open it counts only the open prompts, otherwise everything in the list. Below the list, collapsed and skipped by Next, sit Muted questions and tracked Notify Me threads with no result yet; with only those, the pill is a quiet bell without a count. The top bar keeps only ≡, the title and this list (leaders also get the Board button); diffs open from the quest banner chip. On desktop the sidebar header carries Back and Forward, which walk browser history and fade when there is no step, and Recently viewed, which lists the sessions and leader tabs viewed in this browser, newest first."
       >
         <div className="grid gap-4" data-testid="playground-next-attention">
           <Card label="Attention list pill (desktop and phone; amber counts only open questions, red leads with an urgent answer, blue counts everything waiting, quiet bell when only muted or tracked items remain)">

@@ -1350,7 +1350,7 @@ describe("UniversalSearchOverlay", () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Copy quest number", "Open its tab in leader #11", "Go to worker session #12"]);
+    ).toEqual(["Copy quest number", "Open thread in leader #11", "Go to worker session #12"]);
   });
 
   it("omits unavailable session actions and exposes the chevron options hint", async () => {
@@ -1373,7 +1373,7 @@ describe("UniversalSearchOverlay", () => {
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
     ).toEqual(["Copy quest number"]);
-    expect(within(menu).queryByText(/Open its tab in leader/)).not.toBeInTheDocument();
+    expect(within(menu).queryByText(/Open thread in leader/)).not.toBeInTheDocument();
     expect(within(menu).queryByText(/Go to worker session/)).not.toBeInTheDocument();
   });
 
@@ -1411,7 +1411,7 @@ describe("UniversalSearchOverlay", () => {
     mockQuestResults([quest({ questId: "q-410", title: "Quest with a tab", leaderSessionId: "s-new" })]);
     const callbacks = renderOverlay();
     fireEvent.click(screen.getByRole("radio", { name: "Quests" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open the tab of q-410 in leader #11" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open the thread of q-410 in leader #11" }));
     expect(window.location.hash).toBe("#/session/11?thread=q-410");
     expect(callbacks.onOpenQuest).not.toHaveBeenCalled();
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);

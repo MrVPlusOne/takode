@@ -1,13 +1,9 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import type { BrowserIncomingMessage } from "../types.js";
-import { buildThreadWindowSync } from "../../shared/thread-window.js";
-import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
 
 const mockMarkNotificationDone = vi.fn(async (_sessionId: string, _notifId: string, _done = true) => ({ ok: true }));
-const mockMarkAllNotificationsDone = vi.fn(async (_sessionId: string, _done = true) => ({ ok: true, count: 0 }));
 // Like the server, answers with the changed notification.
 const mockSetNotificationMuted = vi.fn(async (sessionId: string, notifId: string, muted: boolean) => ({
   ok: true,
@@ -24,37 +20,16 @@ const mockSnoozeNotification = vi.fn(async (sessionId: string, notifId: string, 
     snoozedUntil: Date.now() + durationMs,
   },
 }));
-const mockSendNeedsInputResponse = vi.fn(async (_sessionId: string, _notifId: string, _response: any) => ({
-  ok: true,
-  sessionId: _sessionId,
-  notificationId: _notifId,
-  delivery: "sent",
-}));
 const mockRequestScrollToMessage = vi.fn();
 const mockMarkSessionRead = vi.fn(async (_sessionId: string, _options?: any) => ({ ok: true }));
 const mockSetExpandAllInTurn = vi.fn();
-const mockOpenQuestOverlay = vi.fn();
 const mockNotifications = new Map<string, Array<any>>();
-const mockComposerDrafts = new Map<string, any>();
-const mockReplyContexts = new Map<string, any>();
-const mockSetComposerDraft = vi.fn((sessionId: string, draft: any) => {
-  mockComposerDrafts.set(sessionId, draft);
-});
-const mockSetReplyContext = vi.fn((sessionId: string, context: any) => {
-  if (context) mockReplyContexts.set(sessionId, context);
-  else mockReplyContexts.delete(sessionId);
-});
-const mockFocusComposer = vi.fn();
-const mockRequestBottomAlignOnNextUserMessage = vi.fn();
-const mockSendToSession = vi.fn((_sessionId: string, _msg: any) => true);
 const mockSetSessionNotifications = vi.fn((sessionId: string, notifications: Array<any>) => {
   mockNotifications.set(sessionId, notifications);
 });
 
 const mockStoreState: Record<string, any> = {
   sessionNotifications: mockNotifications,
-  composerDrafts: mockComposerDrafts,
-  replyContexts: mockReplyContexts,
   messages: new Map(),
   threadWindowMessages: new Map(),
   quests: [],
@@ -65,11 +40,6 @@ const mockStoreState: Record<string, any> = {
   zoomLevel: 1,
   requestScrollToMessage: mockRequestScrollToMessage,
   setExpandAllInTurn: mockSetExpandAllInTurn,
-  openQuestOverlay: mockOpenQuestOverlay,
-  setComposerDraft: mockSetComposerDraft,
-  setReplyContext: mockSetReplyContext,
-  focusComposer: mockFocusComposer,
-  requestBottomAlignOnNextUserMessage: mockRequestBottomAlignOnNextUserMessage,
   setSessionNotifications: mockSetSessionNotifications,
 };
 
@@ -87,42 +57,20 @@ vi.mock("../api.js", () => ({
   api: {
     markNotificationDone: (sessionId: string, notifId: string, done = true) =>
       mockMarkNotificationDone(sessionId, notifId, done),
-    markAllNotificationsDone: (sessionId: string, done = true) => mockMarkAllNotificationsDone(sessionId, done),
     setNotificationMuted: (sessionId: string, notifId: string, muted: boolean) =>
       mockSetNotificationMuted(sessionId, notifId, muted),
     snoozeNotification: (sessionId: string, notifId: string, durationMs: number) =>
       mockSnoozeNotification(sessionId, notifId, durationMs),
-    sendNeedsInputResponse: (sessionId: string, notifId: string, response: any) =>
-      mockSendNeedsInputResponse(sessionId, notifId, response),
     markSessionRead: (sessionId: string, options?: any) => mockMarkSessionRead(sessionId, options),
   },
 }));
 
-vi.mock("../ws.js", () => ({
-  sendToSession: (sessionId: string, msg: any) => mockSendToSession(sessionId, msg),
-}));
-
-vi.mock("./MarkdownContent.js", () => ({
-  MarkdownContent: (props: { text: string; id?: string; className?: string; "data-testid"?: string }) => (
-    <div id={props.id} className={props.className} data-testid={props["data-testid"]}>
-      {props.text}
-    </div>
-  ),
-}));
-
-// Tab closability comes from the leader's tab projection, and closing goes
-// through ChatView; both are covered in attention-item-menu and ChatView tests.
-const mockCanCloseThreadTab = vi.fn((_sessionId: string, _threadKey: string) => false);
-const mockCloseThreadTab = vi.fn((_sessionId: string, _threadKey: string, _nextThreadKey?: string) => {});
-vi.mock("../utils/attention-item-menu.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../utils/attention-item-menu.js")>()),
-  canCloseThreadTab: (sessionId: string, threadKey: string) => mockCanCloseThreadTab(sessionId, threadKey),
-  closeThreadTab: (sessionId: string, threadKey: string, nextThreadKey?: string) =>
-    mockCloseThreadTab(sessionId, threadKey, nextThreadKey),
-}));
-
 import { ATTENTION_NEXT_IN_SESSION_EVENT, NotificationChip } from "./NotificationChip.js";
 import { resetAttentionCursorsForTest } from "../hooks/useAttentionNavigator.js";
+import { resetLeaderTopicsForTest, seedLeaderTopics } from "../utils/leader-topics.js";
+
+/** The chip's list, named for one session (the top bar's list is "Everything that needs attention"). */
+const LIST_NAME = "What needs attention here";
 
 /** The chip's button: a next step while items are listed, otherwise the inbox toggle. */
 function chipButton() {
@@ -161,87 +109,9 @@ function setNotificationSummary(
   ];
 }
 
-function setQuests(quests: Array<any>) {
-  mockStoreState.quests = quests;
-}
-
-function selectedThreadWindowMessagesForStaleTurnEnd(threadKey: string) {
-  const history: BrowserIncomingMessage[] = [
-    {
-      type: "user_message",
-      id: "herd-turn-end",
-      content: "1 event from 1 session\n\n#1590 | turn_end | ✓ 2m 54s | tools: 30",
-      timestamp: Date.now(),
-      agentSource: { sessionId: "herd-events" },
-      threadKey,
-      questId: threadKey,
-      threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }],
-    },
-  ];
-  const sync = buildThreadWindowSync({
-    messageHistory: history,
-    threadKey,
-    fromItem: 0,
-    itemCount: 10,
-    sectionItemCount: 10,
-    visibleItemCount: 3,
-  });
-  return sync.entries.flatMap((entry) => normalizeHistoryMessageToChatMessages(entry.message, entry.history_index));
-}
-
-function installIntersectionObserverMock() {
-  let callback: IntersectionObserverCallback | null = null;
-  let observedTarget: Element | null = null;
-  const observe = vi.fn((target: Element) => {
-    observedTarget = target;
-  });
-
-  vi.stubGlobal(
-    "IntersectionObserver",
-    class IntersectionObserver {
-      readonly root = null;
-      readonly rootMargin = "";
-      readonly thresholds = [0];
-
-      constructor(cb: IntersectionObserverCallback) {
-        callback = cb;
-      }
-
-      observe(target: Element) {
-        observe(target);
-      }
-
-      unobserve() {}
-      disconnect() {}
-      takeRecords(): IntersectionObserverEntry[] {
-        return [];
-      }
-    },
-  );
-
-  return {
-    observe,
-    trigger(isIntersecting: boolean) {
-      if (!callback || !observedTarget) return;
-      callback(
-        [
-          {
-            isIntersecting,
-            intersectionRatio: isIntersecting ? 1 : 0,
-            target: observedTarget,
-          } as IntersectionObserverEntry,
-        ],
-        {} as IntersectionObserver,
-      );
-    },
-  };
-}
-
 describe("NotificationChip", () => {
   beforeEach(() => {
     mockNotifications.clear();
-    mockComposerDrafts.clear();
-    mockReplyContexts.clear();
     mockStoreState.sessionNotifications = mockNotifications;
     mockStoreState.messages = new Map();
     mockStoreState.threadWindowMessages = new Map();
@@ -252,28 +122,11 @@ describe("NotificationChip", () => {
     resetAttentionCursorsForTest();
     mockMarkSessionRead.mockClear();
     mockMarkNotificationDone.mockClear();
-    mockMarkAllNotificationsDone.mockClear();
     mockSetNotificationMuted.mockClear();
-    mockSendNeedsInputResponse.mockClear();
-    mockSendNeedsInputResponse.mockResolvedValue({
-      ok: true,
-      sessionId: "s1",
-      notificationId: "n-1",
-      delivery: "sent",
-    });
     mockRequestScrollToMessage.mockClear();
     mockSetExpandAllInTurn.mockClear();
-    mockOpenQuestOverlay.mockClear();
-    mockSetComposerDraft.mockClear();
-    mockSetReplyContext.mockClear();
-    mockFocusComposer.mockClear();
-    mockRequestBottomAlignOnNextUserMessage.mockClear();
-    mockSendToSession.mockClear();
-    mockSendToSession.mockReturnValue(true);
     mockSetSessionNotifications.mockClear();
-    mockCanCloseThreadTab.mockReset();
-    mockCanCloseThreadTab.mockReturnValue(false);
-    mockCloseThreadTab.mockClear();
+    resetLeaderTopicsForTest();
   });
 
   afterEach(() => {
@@ -300,9 +153,9 @@ describe("NotificationChip", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("filters waiting status markers out of mixed notification chips and popovers", () => {
+  it("filters waiting status markers out of mixed notification chips and lists", () => {
     // A legacy/live waiting payload may arrive beside actionable notifications,
-    // but it must not add count text or a popover row.
+    // but it must not add count text or a list row.
     setNotifications("s1", [
       { id: "waiting-1", category: "waiting", summary: "Waiting on reviewer", timestamp: Date.now(), done: false },
       { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
@@ -314,9 +167,10 @@ describe("NotificationChip", () => {
     expect(chip).not.toHaveTextContent("Waiting");
 
     openInbox();
-    expect(screen.getAllByTestId("notification-inbox-row")).toHaveLength(1);
-    expect(screen.getAllByText("Need answer").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Waiting on reviewer")).not.toBeInTheDocument();
+    const list = screen.getByRole("dialog", { name: LIST_NAME });
+    expect(within(list).getAllByTestId("attention-item-row")).toHaveLength(1);
+    expect(list).toHaveTextContent("Need answer");
+    expect(list).not.toHaveTextContent("Waiting on reviewer");
   });
 
   it("renders no lower-right chip for review-only notifications", () => {
@@ -425,10 +279,10 @@ describe("NotificationChip", () => {
     expect(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" })).toBeInTheDocument();
   });
 
-  it("closes the inbox when the chip is tapped again", () => {
-    // With nothing to step to, a tap toggles the inbox. The inbox closes on
+  it("closes the list when the chip is tapped again", () => {
+    // With nothing to step to, a tap toggles the list. The list closes on
     // presses outside it and a tap sends the press before the click, so the
-    // chip must count as inside or its click would reopen the inbox.
+    // chip must count as inside or its click would reopen the list.
     setNotificationSummary("s1", {
       notificationUrgency: "needs-input",
       activeNotificationCount: 1,
@@ -442,927 +296,151 @@ describe("NotificationChip", () => {
 
       fingerTap(chip);
       act(() => vi.runAllTimers());
-      expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: LIST_NAME })).toBeInTheDocument();
 
       fingerTap(chip);
-      expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: LIST_NAME })).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("preserves popover behavior while using urgency color", () => {
-    // Coloring the bell should not change the existing click-to-open inbox flow.
-    setNotifications("s1", [
-      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
-    ]);
-    render(<NotificationChip sessionId="s1" />);
-
-    openInbox();
-    expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
-    expect(screen.getByText("Need answer")).toBeInTheDocument();
-  });
-
-  it("uses fully readable muted text for notification timestamps", () => {
-    // Light-theme Execute caught timestamp metadata rendered as text-cc-muted/60,
-    // which falls below AA on the notification popover card.
-    setNotifications("s1", [
-      {
-        id: "needs-input-1",
-        category: "needs-input",
-        summary: "Choose rollout mode",
-        timestamp: Date.now() - 120_000,
-        done: false,
-      },
-    ]);
-    render(<NotificationChip sessionId="s1" />);
-
-    openInbox();
-
-    const timestamp = screen.getByText(/m ago/);
-    expect(timestamp).toHaveClass("text-cc-muted");
-    expect(timestamp.className).not.toContain("text-cc-muted/60");
-  });
-
-  it("uses theme-readable muted text for the source context expand action", () => {
-    // Execute caught the visible source-context controls when they resolved
-    // through low-contrast muted utilities on light and dark notification popovers.
-    mockStoreState.messages = new Map([
-      [
-        "s1",
-        [
-          {
-            id: "msg-123",
-            role: "assistant",
-            content: "The deployment is staged and the smoke test is green.\n\nRollback is ready if the canary fails.",
-            timestamp: Date.now() - 10,
-          },
-        ],
-      ],
-    ]);
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Deploy now?",
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    const moreButton = screen.getByRole("button", { name: "Show more" });
-    expect(moreButton).toHaveClass("cc-muted-readable");
-    expect(moreButton).not.toHaveClass("text-cc-muted");
-    expect(moreButton.className).not.toContain("text-cc-muted/80");
-    expect(screen.queryByRole("button", { name: "Preview source message" })).not.toBeInTheDocument();
-  });
-
-  it("sends a paused-session notification answer through the response API", async () => {
-    mockComposerDrafts.set("s1", {
-      text: "old draft",
-      images: [{ id: "img-1", name: "keep.png", base64: "abc", mediaType: "image/png", status: "ready" }],
+  it("lists this session's items like the top bar's list, naming each row's topic and not the session", () => {
+    // Jiayi found the old list hard to read next to the top bar's Needs attention list. It now has
+    // the same sections and rows; every row is this leader's, so none names the session number,
+    // and each names the Library topic it belongs to instead (unread answers are grouped by it).
+    setNotificationSummary("s1", {
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      notificationStatusVersion: 1,
     });
-    mockStoreState.sdkSessions = [
-      {
-        sessionId: "s1",
-        state: "connected",
-        cwd: "/repo",
-        createdAt: 1,
-        archived: false,
-        pause: { pausedAt: 1234, pausedBy: "test" },
-        pausedInputQueueCount: 1,
-      },
-    ];
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Deploy now?",
-        suggestedAnswers: ["yes", "no"],
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-    expect(screen.getByTestId("notification-answer-actions")).toContainElement(
-      screen.getByRole("button", { name: "Use suggested answer: yes" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
-    expect(screen.getByLabelText("Answer for Deploy now?")).toHaveValue("yes");
-    // Send Response sits last in a right-aligned row, after Use composer, for right-thumb reach on phones.
-    const sendResponseButton = screen.getByRole("button", { name: "Send Response" });
-    expect(sendResponseButton.parentElement?.className).toContain("justify-end");
-    expect(sendResponseButton.parentElement?.lastElementChild).toBe(sendResponseButton);
-    fireEvent.click(sendResponseButton);
-
-    await waitFor(() =>
-      expect(mockSendNeedsInputResponse).toHaveBeenCalledWith("s1", "n-1", {
-        content: "Deploy now?\n\nAnswer: yes",
-        threadKey: "main",
-      }),
-    );
-    expect(mockSendToSession).not.toHaveBeenCalled();
-    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
-    expect(mockRequestBottomAlignOnNextUserMessage).toHaveBeenCalledWith("s1");
-    expect(mockSetComposerDraft).not.toHaveBeenCalled();
-    expect(mockFocusComposer).not.toHaveBeenCalled();
-  });
-
-  it("shows expandable source context on needs-input rows without duplicating the prompt", () => {
-    mockStoreState.messages = new Map([
-      [
-        "s1",
-        [
-          {
-            id: "msg-123",
-            role: "assistant",
-            content: "The deployment is staged and the smoke test is green.\n\nRollback is ready if the canary fails.",
-            timestamp: Date.now() - 10,
-          },
-        ],
-      ],
-    ]);
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Deploy now?",
-        suggestedAnswers: ["yes", "no"],
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    expect(screen.getAllByText("Deploy now?")).toHaveLength(1);
-    const context = screen.getByTestId("notification-source-context");
-    expect(context).toHaveTextContent("Rollback is ready");
-    expect(context.className).toContain("line-clamp-3");
-    expect(screen.queryByText("Jump")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Preview source message" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
-    expect(screen.getByTestId("notification-source-context").className).not.toContain("line-clamp-3");
-    expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Go to source for Deploy now?" }));
-    expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-123");
-    expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-123");
-  });
-
-  it("falls back to a title-only needs-input row when source context is unavailable", () => {
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Confirm scope",
-        suggestedAnswers: ["yes"],
-        timestamp: Date.now(),
-        messageId: null,
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    expect(screen.queryByTestId("notification-source-context")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
-    expect(screen.getAllByText("Confirm scope")).toHaveLength(1);
-  });
-
-  it("keeps only Go to inline and mutes from the row's context menu without treating mute as resolution", async () => {
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Deploy now?",
-        suggestedAnswers: ["yes", "no"],
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    expect(screen.queryByRole("button", { name: "Open source message for Deploy now?" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Go to source for Deploy now?" })).toBeInTheDocument();
-    // Mute and Remind me later moved into the row's context menu (right-click or long-press).
-    expect(screen.queryByRole("button", { name: "Mute Deploy now?" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Remind me later/ })).toBeNull();
-    expect(screen.getByRole("button", { name: "Use composer" })).toBeInTheDocument();
-
-    fireEvent.contextMenu(screen.getByTestId("notification-row-header"));
-    expect(screen.getByRole("button", { name: "Remind me later" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Mute" }));
-
-    await waitFor(() => expect(mockSetNotificationMuted).toHaveBeenCalledWith("s1", "n-1", true));
-    // The server's answer is stored, so the row moves to Muted.
-    await waitFor(() =>
-      expect(mockStoreState.sessionNotifications.get("s1")).toEqual(
-        expect.arrayContaining([expect.objectContaining({ id: "n-1", muted: true })]),
-      ),
-    );
-    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "n-1", true);
-    expect(mockSendNeedsInputResponse).not.toHaveBeenCalled();
-  });
-
-  it("keeps muted needs-input rows discoverable and answerable in the per-session panel", () => {
-    setNotifications("s1", [
-      {
-        id: "n-muted",
-        category: "needs-input",
-        summary: "Choose deferred rollout",
-        questions: [{ prompt: "Use canary or hold?", suggestedAnswers: ["canary", "hold"] }],
-        timestamp: Date.now(),
-        messageId: "msg-muted",
-        done: false,
-        muted: true,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    const mutedSection = screen.getByLabelText("Muted needs-input notifications");
-    const mutedRow = within(mutedSection).getByTestId("notification-inbox-row");
-    expect(screen.getByRole("dialog", { name: "Notification inbox" })).toHaveTextContent("Notifications(0)");
-    expect(within(mutedSection).getAllByText("Muted").length).toBeGreaterThanOrEqual(1);
-    fireEvent.contextMenu(within(mutedRow).getByTestId("notification-row-header"));
-    expect(screen.getByRole("button", { name: "Unmute" })).toBeInTheDocument();
-    // Using the menu must not close the inbox it was opened from.
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Unmute" }));
-    expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
-    expect(
-      within(mutedRow).getByRole("button", { name: "Go to source for Choose deferred rollout" }),
-    ).toBeInTheDocument();
-    expect(within(mutedRow).getByRole("button", { name: "Use suggested answer: canary" })).toBeInTheDocument();
-    expect(within(mutedRow).getByLabelText("Answer for Use canary or hold?")).toBeInTheDocument();
-    expect(within(mutedRow).getByRole("button", { name: "Send Response" })).toBeDisabled();
-    expect(within(mutedRow).getByRole("button", { name: "Use composer" })).toBeInTheDocument();
-  });
-
-  it("does not clear muted unresolved needs-input rows with Read All", () => {
-    setNotifications("s1", [
-      { id: "input-active", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
-      {
-        id: "input-muted",
-        category: "needs-input",
-        summary: "Deferred approval",
-        timestamp: Date.now(),
-        done: false,
-        muted: true,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-    fireEvent.click(screen.getByRole("button", { name: "Read All" }));
-
-    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "input-active", true);
-    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "input-muted", true);
-  });
-
-  it("switches to the needs-input owner thread before jumping to the message", () => {
-    const onSelectThread = vi.fn();
-    vi.useFakeTimers();
-    setNotifications("s1", [
-      {
-        id: "input-1",
-        category: "needs-input",
-        summary: "Answer q-977",
-        timestamp: Date.now(),
-        messageId: "msg-977",
-        threadKey: "q-977",
-        questId: "q-977",
-        done: false,
-      },
-    ]);
-
-    try {
-      render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
-      openInbox();
-      fireEvent.click(screen.getByRole("button", { name: "Go to source for Answer q-977" }));
-
-      expect(onSelectThread).toHaveBeenCalledWith("q-977");
-      expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
-
-      act(() => {
-        vi.runOnlyPendingTimers();
-      });
-
-      expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-977");
-      expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-977");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("switches to an owner thread and targets the synthetic chip for unanchored needs-input notifications", () => {
-    const onSelectThread = vi.fn();
-    vi.useFakeTimers();
-    setNotifications("s1", [
-      {
-        id: "n-q977",
-        category: "needs-input",
-        summary: "Approve q-977 dispatch?",
-        timestamp: Date.now(),
-        messageId: null,
-        threadKey: "q-977",
-        questId: "q-977",
-        done: false,
-      },
-    ]);
-
-    try {
-      render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
-      openInbox();
-      fireEvent.click(screen.getByRole("button", { name: "Go to source for Approve q-977 dispatch?" }));
-
-      expect(onSelectThread).toHaveBeenCalledWith("q-977");
-      expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
-
-      act(() => {
-        vi.runOnlyPendingTimers();
-      });
-
-      expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
-      expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("uses the needs-input decision row instead of unrelated herd turn_end anchors", () => {
-    const onSelectThread = vi.fn();
-    vi.useFakeTimers();
-    mockStoreState.messages = new Map([
-      [
-        "s1",
-        [
-          {
-            id: "herd-turn-end",
-            role: "user",
-            content: "1 event from 1 session\n\n#1590 | turn_end | ✓ 2m 54s | tools: 30",
-            timestamp: Date.now(),
-            agentSource: { sessionId: "herd-events" },
-          },
-        ],
-      ],
-    ]);
-    setNotifications("s1", [
-      {
-        id: "n-q977",
-        category: "needs-input",
-        summary: "Approve q-977 dispatch?",
-        timestamp: Date.now(),
-        messageId: "herd-turn-end",
-        threadKey: "q-977",
-        questId: "q-977",
-        done: false,
-      },
-    ]);
-
-    try {
-      render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
-      openInbox();
-      fireEvent.click(screen.getByRole("button", { name: "Go to source for Approve q-977 dispatch?" }));
-
-      expect(onSelectThread).toHaveBeenCalledWith("q-977");
-      expect(mockRequestScrollToMessage).not.toHaveBeenCalledWith("s1", "herd-turn-end");
-
-      act(() => {
-        vi.runOnlyPendingTimers();
-      });
-
-      expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
-      expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("uses selected thread-window evidence when rejecting stale needs-input anchors", () => {
-    const onSelectThread = vi.fn();
-    vi.useFakeTimers();
-    mockStoreState.messages = new Map();
-    mockStoreState.threadWindowMessages = new Map([
-      ["s1", new Map([["q-977", selectedThreadWindowMessagesForStaleTurnEnd("q-977")]])],
-    ]);
-    setNotifications("s1", [
-      {
-        id: "n-q977",
-        category: "needs-input",
-        summary: "Approve q-977 dispatch?",
-        timestamp: Date.now(),
-        messageId: "herd-turn-end",
-        threadKey: "q-977",
-        questId: "q-977",
-        done: false,
-      },
-    ]);
-
-    try {
-      render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
-      openInbox();
-      fireEvent.click(screen.getByRole("button", { name: "Go to source for Approve q-977 dispatch?" }));
-
-      expect(onSelectThread).toHaveBeenCalledWith("q-977");
-      expect(mockRequestScrollToMessage).not.toHaveBeenCalledWith("s1", "herd-turn-end");
-
-      act(() => {
-        vi.runOnlyPendingTimers();
-      });
-
-      expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
-      expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("switches out of All Threads before sending a direct response", () => {
-    const onSelectThread = vi.fn();
-    vi.useFakeTimers();
-    mockComposerDrafts.set("s1", { text: "old draft", images: [] });
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Deploy q-977?",
-        suggestedAnswers: ["yes", "no"],
-        timestamp: Date.now(),
-        messageId: "msg-977",
-        threadKey: "q-977",
-        questId: "q-977",
-        done: false,
-      },
-    ]);
-
-    try {
-      render(<NotificationChip sessionId="s1" currentThreadKey="all" onSelectThread={onSelectThread} />);
-      openInbox();
-      fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
-      fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
-
-      expect(onSelectThread).toHaveBeenCalledWith("q-977");
-      expect(mockSendToSession).not.toHaveBeenCalled();
-
-      act(() => {
-        vi.runOnlyPendingTimers();
-      });
-
-      expect(mockSendNeedsInputResponse).toHaveBeenCalledWith("s1", "n-1", {
-        content: "Deploy q-977?\n\nAnswer: yes",
-        threadKey: "q-977",
-        questId: "q-977",
-      });
-      expect(mockSendToSession).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("keeps a composer reply path without replacing draft text", () => {
-    mockComposerDrafts.set("s1", { text: "keep my draft", images: [] });
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Choose rollout mode",
-        suggestedAnswers: ["fast", "slow"],
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-    const useComposerButton = screen.getByRole("button", { name: "Use composer" });
-    expect(useComposerButton).toHaveClass("cc-muted-readable");
-    expect(useComposerButton).not.toHaveClass("text-cc-muted");
-    fireEvent.click(useComposerButton);
-
-    expect(mockSetReplyContext).toHaveBeenCalledWith("s1", {
-      messageId: "msg-123",
-      notificationId: "n-1",
-      previewText: "Choose rollout mode",
+    mockStoreState.sdkSessions[0].sessionNum = 2851;
+    seedLeaderTopics("s1", {
+      "q-7": { id: "hosts", name: "Host links" },
+      "q-5": { id: "release", name: "Releases" },
+      "q-6": { id: "review", name: "Code review" },
     });
-    expect(mockSetComposerDraft).not.toHaveBeenCalled();
-    expect(mockComposerDrafts.get("s1")?.text).toBe("keep my draft");
-    expect(mockFocusComposer).toHaveBeenCalledTimes(1);
-  });
-
-  it("hides answer actions for addressed needs-input notifications in the done section", () => {
     setNotifications("s1", [
       {
-        id: "active-input",
+        id: "ask",
         category: "needs-input",
-        summary: "Confirm release?",
-        timestamp: Date.now(),
-        done: false,
-      },
-      {
-        id: "done-input",
-        category: "needs-input",
-        summary: "Deploy now?",
-        suggestedAnswers: ["yes", "no"],
-        timestamp: Date.now(),
-        done: true,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-    fireEvent.click(screen.getByRole("button", { name: "Done (1)" }));
-
-    const doneRow = screen
-      .getAllByTestId("notification-inbox-row")
-      .find((row) => within(row).queryByText("Deploy now?"))!;
-    expect(doneRow).not.toBeNull();
-    expect(within(doneRow).queryByTestId("notification-answer-actions")).toBeNull();
-    expect(within(doneRow).queryByRole("button", { name: "Use suggested answer: yes" })).toBeNull();
-    expect(within(doneRow).queryByRole("button", { name: "Use composer" })).toBeNull();
-  });
-
-  it("renders multiple question blocks and keeps suggestions scoped to the chosen question", () => {
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Need rollout choices",
-        questions: [
-          { prompt: "Which rollout?", suggestedAnswers: ["staged", "full", "pause", "rollback"] },
-          { prompt: "When should it start?", suggestedAnswers: ["now", "after review"] },
-        ],
-        timestamp: Date.now(),
-        messageId: "msg-123",
+        summary: "Pick a chip style",
+        timestamp: 100,
+        messageId: "m-1",
+        threadKey: "q-7",
+        questId: "q-7",
         done: false,
       },
     ]);
+    render(
+      <NotificationChip
+        sessionId="s1"
+        attentionPreview={{
+          notifyMe: [
+            {
+              sessionId: "s1",
+              sessionName: "Leader",
+              sessionNum: 2851,
+              threadKey: "q-5",
+              title: "q-5 Ship it",
+              trackedAt: 0,
+              pending: { id: "9", messageId: "m-9", timestamp: 90, summary: "Landed" },
+            },
+          ],
+          unread: [{ sessionId: "s1", threadKey: "q-6", label: "q-6 Review", timestamp: 80 }],
+        }}
+      />,
+    );
+    openInbox();
 
+    const list = screen.getByRole("dialog", { name: LIST_NAME });
+    expect(list).toHaveTextContent(/^Needs attention\(3\)Next1\/3/);
+    expect(list).not.toHaveTextContent("#2851");
+    const sections = [...list.querySelectorAll("[data-attention-section]")].map((section) =>
+      section.getAttribute("data-attention-section"),
+    );
+    expect(sections).toEqual(["needs-input", "unread", "notify-me"]);
+
+    const question = within(list).getByRole("region", { name: "Questions for you" });
+    expect(within(question).getByTestId("attention-item-row")).toHaveAttribute("data-attention-next", "true");
+    expect(within(question).getByTestId("attention-item-topic")).toHaveTextContent("Host links");
+    expect(within(question).getByTestId("attention-item-place")).toHaveTextContent(/^Host links›q-7/);
+    // Unread answers are one row per topic, named by it.
+    const unread = within(list).getByRole("region", { name: "Unread results" });
+    expect(within(unread).getByTestId("attention-place-row")).toHaveTextContent(/^Code review/);
+    const notifyMe = within(list).getByRole("region", { name: "Notify Me results" });
+    expect(within(notifyMe).getByTestId("attention-item-topic")).toHaveTextContent("Releases");
+  });
+
+  it("keeps muted questions in the collapsed Muted questions section, which Next skips", () => {
+    setNotifications("s1", [
+      { id: "open", category: "needs-input", summary: "Open ask", timestamp: 200, messageId: "m-1", done: false },
+      { id: "quiet", category: "needs-input", summary: "Muted ask", timestamp: 100, done: false, muted: true },
+    ]);
+    render(<NotificationChip sessionId="s1" />);
+    expect(chipButton()).toHaveTextContent("1/1·Next");
+
+    openInbox();
+    const list = screen.getByRole("dialog", { name: LIST_NAME });
+    expect(within(list).getByRole("region", { name: "Questions for you" })).toHaveTextContent("Open ask");
+    expect(list).not.toHaveTextContent("Muted ask");
+    fireEvent.click(within(list).getByRole("button", { name: /Muted questions/ }));
+    expect(within(list).getByRole("region", { name: "Muted questions" })).toHaveTextContent("Muted ask");
+  });
+
+  it("opens an item from its Go to and closes the list", () => {
+    setNotifications("s1", [
+      { id: "ask", category: "needs-input", summary: "Pick one", timestamp: 100, messageId: "m-1", done: false },
+    ]);
     render(<NotificationChip sessionId="s1" />);
     openInbox();
 
-    expect(screen.getAllByTestId("notification-question-block")).toHaveLength(2);
-    const firstQuestion = screen.getAllByTestId("notification-question-block")[0]!;
-    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: staged" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: full" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: pause" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: rollback" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByLabelText("Answer for Which rollout?")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: staged" }));
-    expect(screen.getByLabelText("Answer for Which rollout?")).toHaveValue("staged");
-    expect(screen.getByLabelText("Answer for When should it start?")).toHaveValue("");
-    fireEvent.change(screen.getByLabelText("Answer for When should it start?"), {
-      target: { value: "after the smoke test" },
+    fireEvent.click(screen.getByRole("button", { name: "Go to Pick one" }));
+    expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-1");
+    expect(screen.queryByRole("dialog", { name: LIST_NAME })).not.toBeInTheDocument();
+  });
+
+  it("opens inside the chat feed, above the chip and never wider or taller than the feed", () => {
+    // Jiayi's preference: the list belongs to the chat, so it opens over the feed, right-aligned
+    // with the chip, and stops at the feed's left edge instead of covering the side column.
+    setNotifications("s1", [
+      { id: "ask", category: "needs-input", summary: "Pick one", timestamp: 100, messageId: "m-1", done: false },
+    ]);
+    vi.stubGlobal("innerWidth", 1400);
+    vi.stubGlobal("innerHeight", 900);
+    let feedLeft = 300;
+    const rect = (left: number, top: number, right: number, bottom: number) =>
+      ({ left, top, right, bottom, x: left, y: top, width: right - left, height: bottom - top }) as DOMRect;
+    const boxes = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.testid === "feed-box") return rect(feedLeft, 50, 1000, 850);
+      if (this.dataset.testid === "session-attention-chip") return rect(900, 800, 990, 830);
+      return rect(0, 0, 0, 0);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
-
-    expect(mockSendNeedsInputResponse).toHaveBeenCalledWith(
-      "s1",
-      "n-1",
-      expect.objectContaining({
-        content:
-          "Answers for: Need rollout choices\n\n1. Which rollout?\n   Answer: staged\n\n2. When should it start?\n   Answer: after the smoke test",
-        threadKey: "main",
-      }),
-    );
-    expect(mockSendToSession).not.toHaveBeenCalled();
-  });
-
-  it("sends pending comments with the panel's response when the user checks Include", () => {
-    // The panel answers the same questions as the feed card, so it offers the same opt-in for the
-    // composer's unsent comments.
-    const pending = { id: "c-1", selectedText: "passage", comment: "why?" };
-    mockComposerDrafts.set("s1", { text: "", images: [], annotations: [pending] });
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Ship it?",
-        questions: [{ prompt: "Ship it?", suggestedAnswers: ["yes"] }],
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Include my comment" }));
-    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
-
-    expect(mockSendNeedsInputResponse).toHaveBeenCalledWith(
-      "s1",
-      "n-1",
-      expect.objectContaining({ annotations: [pending] }),
-    );
-  });
-
-  it("sends the panel's additional comments after the answers", () => {
-    // The panel answers the same questions as the feed card, so it offers the same place for anything
-    // beyond the answers; the box stays hidden until asked for.
-    setNotifications("s1", [
-      {
-        id: "n-1",
-        category: "needs-input",
-        summary: "Ship it?",
-        questions: [{ prompt: "Ship it?", suggestedAnswers: ["yes"] }],
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-    expect(screen.queryByRole("textbox", { name: "Additional comments" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
-    fireEvent.click(screen.getByRole("button", { name: "Additional comments" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Additional comments" }), {
-      target: { value: "Also tag the release." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
-
-    expect(mockSendNeedsInputResponse).toHaveBeenCalledWith(
-      "s1",
-      "n-1",
-      expect.objectContaining({ content: "Ship it?\n\nAnswer: yes\n\nAdditional comments:\nAlso tag the release." }),
-    );
-  });
-
-  it("does not surface active review rows or clear them from the lower-right panel", () => {
-    const observer = installIntersectionObserverMock();
-    setNotifications("s1", [
-      {
-        id: "review-1",
-        category: "review",
-        summary: "q-345 ready for review: Compress herd events",
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-      {
-        id: "input-1",
-        category: "needs-input",
-        summary: "Confirm launch window",
-        timestamp: Date.now(),
-        messageId: "msg-124",
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    expect(screen.getAllByTestId("notification-inbox-row")).toHaveLength(1);
-    expect(screen.getByText("Confirm launch window")).toBeInTheDocument();
-    expect(screen.queryByText(/q-345/)).not.toBeInTheDocument();
-    expect(observer.observe).not.toHaveBeenCalled();
-    act(() => observer.trigger(true));
-    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "review-1", true);
-  });
-
-  it("does not surface multi-quest review summaries in the lower-right panel", () => {
-    setNotifications("s1", [
-      {
-        id: "review-batch-1",
-        category: "review",
-        summary: "2 quests ready for review: q-345, q-346",
-        timestamp: Date.now(),
-        done: false,
-      },
-      {
-        id: "input-1",
-        category: "needs-input",
-        summary: "Choose validation path",
-        timestamp: Date.now(),
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    expect(screen.queryByText("q-345, q-346")).not.toBeInTheDocument();
-    expect(screen.queryByText(/2 quests ready for review/i)).toBeNull();
-  });
-
-  it("uses a full-width mobile popover shell while staying anchored above the feed chip", () => {
-    setNotifications("s1", [
-      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
-    expect(dialog.className).toContain("inset-x-3");
-    expect(dialog.className).toContain("bottom-[var(--notification-popover-bottom)]");
-    expect(dialog.className).toContain("max-h-[min(60vh,28rem,var(--notification-popover-available-height))]");
-    expect(dialog.className).toContain("sm:w-[36rem]");
-    expect(dialog.className).toContain("md:w-[39rem]");
-    expect(dialog.className).toContain("sm:max-h-[min(60vh,34rem,var(--notification-popover-available-height))]");
-    expect(dialog.style.getPropertyValue("--notification-popover-bottom")).toBe("56px");
-  });
-
-  it("raises the popover above the chip when the composer pushes the feed controls higher", () => {
-    // The notification chip sits inside the feed, above the composer. Anchoring
-    // the panel above that chip keeps the composer and send controls usable on
-    // narrow layouts with taller composer surfaces.
-    const originalInnerHeight = window.innerHeight;
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
-    setNotifications("s1", [
-      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
-    ]);
-
     try {
-      render(<NotificationChip sessionId="s1" />);
-      // The popover anchors to the chip's container.
-      Object.defineProperty(screen.getByTestId("session-attention-chip"), "getBoundingClientRect", {
-        configurable: true,
-        value: () => ({
-          x: 640,
-          y: 620,
-          top: 620,
-          right: 780,
-          bottom: 644,
-          left: 640,
-          width: 140,
-          height: 24,
-          toJSON: () => ({}),
-        }),
-      });
-
-      openInbox();
-
-      const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
-      expect(dialog.style.getPropertyValue("--notification-popover-bottom")).toBe("188px");
-      expect(dialog.style.getPropertyValue("--notification-popover-available-height")).toBe(
-        "calc(100dvh - 188px - 12px)",
+      const feed = (
+        <div data-testid="feed-box">
+          <div data-feed-floating-stack="right">
+            <NotificationChip sessionId="s1" />
+          </div>
+        </div>
       );
+      const view = render(feed);
+      openInbox();
+      let style = screen.getByRole("dialog", { name: LIST_NAME }).style;
+      expect([style.right, style.bottom, style.width, style.maxHeight]).toEqual(["410px", "108px", "448px", "576px"]);
+
+      // A narrow feed (a wide side column beside it) gets a narrower list.
+      fireEvent.keyDown(document, { key: "Escape" });
+      feedLeft = 700;
+      view.rerender(feed);
+      openInbox();
+      style = screen.getByRole("dialog", { name: LIST_NAME }).style;
+      expect(style.width).toBe("282px");
     } finally {
-      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+      boxes.mockRestore();
     }
-  });
-
-  it("opens its list below a chip at the feed's top", () => {
-    // Desktop places the chip at the feed's top right, just under the top bar.
-    // Opening upward there would push the list off screen, so the list drops
-    // from the chip's bottom edge.
-    setNotifications("s1", [
-      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: 1, messageId: "m-1", done: false },
-    ]);
-
-    render(<NotificationChip sessionId="s1" placement="top" />);
-    Object.defineProperty(screen.getByTestId("session-attention-chip"), "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({ x: 900, y: 60, top: 60, right: 1000, bottom: 84, left: 900, width: 100, height: 24 }),
-    });
-
-    openInbox();
-    const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
-    expect(dialog.className).toContain("top-[var(--notification-popover-top)]");
-    expect(dialog.className).not.toContain("bottom-[var(--notification-popover-bottom)]");
-    expect(dialog.style.getPropertyValue("--notification-popover-top")).toBe("92px");
-    expect(dialog.style.getPropertyValue("--notification-popover-available-height")).toBe("calc(100dvh - 92px - 12px)");
-  });
-
-  it("does not show a hover card when hovering a needs-input notification row", () => {
-    mockStoreState.messages = new Map([
-      [
-        "s1",
-        [
-          {
-            id: "msg-123",
-            role: "assistant",
-            content: "Hidden hover preview body",
-          },
-        ],
-      ],
-    ]);
-    setNotifications("s1", [
-      {
-        id: "input-1",
-        category: "needs-input",
-        summary: "Confirm scope",
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-    fireEvent.mouseEnter(screen.getByText("Confirm scope"));
-
-    expect(screen.getByTestId("notification-source-context")).toHaveTextContent("Hidden hover preview body");
-    expect(screen.queryByTestId("message-link-hover-card")).toBeNull();
-  });
-
-  it("keeps review quest hover cards out of the needs-input-only panel", () => {
-    setQuests([
-      {
-        id: "q-345-v1",
-        questId: "q-345",
-        title: "Compress herd events more aggressively",
-        status: "done",
-        tags: ["ui", "notifications"],
-      },
-    ]);
-    setNotifications("s1", [
-      {
-        id: "review-1",
-        category: "review",
-        summary: "q-345 ready for review",
-        timestamp: Date.now(),
-        messageId: "msg-123",
-        done: false,
-      },
-    ]);
-
-    const { container } = render(<NotificationChip sessionId="s1" />);
-
-    expect(container).toBeEmptyDOMElement();
-    expect(screen.queryByRole("link", { name: "q-345" })).not.toBeInTheDocument();
-  });
-
-  it("does not auto-resolve review notifications from the lower-right popover", () => {
-    const observer = installIntersectionObserverMock();
-    setNotifications("s1", [
-      {
-        id: "review-visible",
-        category: "review",
-        summary: "q-345 ready for review",
-        timestamp: Date.now(),
-        done: false,
-      },
-      {
-        id: "needs-input-visible",
-        category: "needs-input",
-        summary: "Deploy now?",
-        timestamp: Date.now(),
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    expect(observer.observe).not.toHaveBeenCalled();
-    act(() => observer.trigger(true));
-    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "review-visible", true);
-  });
-
-  it("does not auto-resolve visible needs-input rows in the notification popover", () => {
-    const observer = installIntersectionObserverMock();
-    setNotifications("s1", [
-      {
-        id: "needs-input-visible",
-        category: "needs-input",
-        summary: "Deploy now?",
-        timestamp: Date.now(),
-        done: false,
-      },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-
-    act(() => observer.trigger(true));
-    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
-  });
-
-  it("shows a Read All control and marks all active notifications done", () => {
-    setNotifications("s1", [
-      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
-      { id: "input-2", category: "needs-input", summary: "Need another answer", timestamp: Date.now(), done: false },
-      { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
-    ]);
-
-    render(<NotificationChip sessionId="s1" />);
-    openInbox();
-    fireEvent.click(screen.getByRole("button", { name: "Read All" }));
-
-    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "input-1", true);
-    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "input-2", true);
-    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "review-1", true);
-    expect(mockMarkAllNotificationsDone).not.toHaveBeenCalled();
   });
 
   describe("session attention navigator", () => {
@@ -1385,7 +463,7 @@ describe("NotificationChip", () => {
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-old");
       fireEvent.click(chipButton());
       expect(mockRequestScrollToMessage).toHaveBeenLastCalledWith("s1", "m-new");
-      expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: LIST_NAME })).not.toBeInTheDocument();
     });
 
     it("steps on the Next Item in This Session shortcut for its own session only", () => {
@@ -1424,7 +502,7 @@ describe("NotificationChip", () => {
         window.dispatchEvent(new CustomEvent(ATTENTION_NEXT_IN_SESSION_EVENT, { detail: { sessionId: "s1" } }));
       });
       expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
-      expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: LIST_NAME })).not.toBeInTheDocument();
     });
 
     it("walks from the prompts into unread and Notify Me results and lists them after the prompts", () => {
@@ -1466,9 +544,9 @@ describe("NotificationChip", () => {
       expect(chipButton().getAttribute("aria-label")).toContain("of 3");
 
       openInbox();
-      const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
-      expect(dialog).toHaveTextContent("Notifications(3)");
-      const prompt = within(dialog).getByTestId("notification-inbox-row");
+      const dialog = screen.getByRole("dialog", { name: LIST_NAME });
+      expect(dialog).toHaveTextContent(/^Needs attention\(3\)/);
+      const prompt = within(dialog).getByRole("region", { name: "Questions for you" });
       const notifyMe = within(dialog).getByRole("region", { name: "Notify Me results" });
       const unread = within(dialog).getByRole("region", { name: "Unread results" });
       expect(notifyMe).toHaveTextContent("q-5 Ship it");
@@ -1517,8 +595,9 @@ describe("NotificationChip", () => {
       );
       openInbox();
 
-      const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
-      expect(within(dialog).getByTestId("notification-thread-place")).toHaveTextContent("q-7 Offline hosts");
+      const dialog = screen.getByRole("dialog", { name: LIST_NAME });
+      const question = within(dialog).getByRole("region", { name: "Questions for you" });
+      expect(within(question).getByTestId("attention-item-place")).toHaveTextContent(/^q-7 Offline hosts/);
       const notifyMe = within(dialog).getByRole("region", { name: "Notify Me results" });
       expect(within(notifyMe).getByRole("button", { name: "Go to Landed" })).toBeInTheDocument();
       expect(within(notifyMe).getByTestId("attention-item-place")).toHaveTextContent(/^q-5 Ship it· /);
@@ -1552,7 +631,7 @@ describe("NotificationChip", () => {
           />,
         );
         openInbox();
-        const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
+        const dialog = screen.getByRole("dialog", { name: LIST_NAME });
         // Unread results show one row per place; the Notify Me result is its own row.
         const unreadRow = within(dialog).getByTestId("attention-place-row");
         const notifyRow = within(dialog).getByTestId("attention-item-row");
@@ -1567,8 +646,10 @@ describe("NotificationChip", () => {
         fireEvent.contextMenu(notifyRow!);
         fireEvent.pointerDown(screen.getByRole("button", { name: "Acknowledge" }));
         fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
-        expect(fetchMock.mock.calls[0]![0]).toContain("/thread-monitoring/q-5");
-        expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
+        expect(fetchMock.mock.calls.map(([url]) => String(url))).toContainEqual(
+          expect.stringContaining("/thread-monitoring/q-5"),
+        );
+        expect(screen.getByRole("dialog", { name: LIST_NAME })).toBeInTheDocument();
 
         fireEvent.touchStart(unreadRow!, { touches: [{ clientX: 5, clientY: 5 }] });
         act(() => {
@@ -1607,7 +688,7 @@ describe("NotificationChip", () => {
         />,
       );
       openInbox();
-      const [ready, noSummary] = within(screen.getByRole("dialog", { name: "Notification inbox" })).getAllByTestId(
+      const [ready, noSummary] = within(screen.getByRole("dialog", { name: LIST_NAME })).getAllByTestId(
         "attention-place-row",
       );
       expect(ready).toHaveTextContent(/^q-6 Review the gate/);
@@ -1660,129 +741,26 @@ describe("NotificationChip", () => {
         fireEvent.touchEnd(chipButton());
         fireEvent.click(chipButton());
 
-        expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
+        expect(screen.getByRole("dialog", { name: LIST_NAME })).toBeInTheDocument();
         expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
       }
     });
 
-    describe("close tab and go to next", () => {
-      // Long-press or right-click on a closable thread tab offers to close it
-      // and move on, for reviewing tabs one by one; the list stays one tap away.
-      function setPrompts() {
-        setNotifications("s1", [
-          { id: "here", category: "needs-input", summary: "Here", timestamp: 300, threadKey: "q-1", done: false },
-          { id: "next", category: "needs-input", summary: "Next", timestamp: 200, threadKey: "q-2", done: false },
-        ]);
-      }
+    it("opens the list right away on right-click, with no close-tab menu", () => {
+      // Tabs no longer close: the gesture that once offered "Close tab and go to next" and
+      // "Show list" now always opens the list.
+      setNotifications("s1", [
+        { id: "here", category: "needs-input", summary: "Here", timestamp: 300, threadKey: "q-1", done: false },
+        { id: "next", category: "needs-input", summary: "Next", timestamp: 200, threadKey: "q-2", done: false },
+      ]);
+      render(<NotificationChip sessionId="s1" />);
 
-      it("closes the current tab, skips its own items and opens the next item", () => {
-        setPrompts();
-        mockCanCloseThreadTab.mockReturnValue(true);
-        render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
-
-        fireEvent.contextMenu(chipButton());
-        expect(mockCanCloseThreadTab).toHaveBeenCalledWith("s1", "q-1");
-        expect(screen.queryByRole("dialog", { name: "Notification inbox" })).not.toBeInTheDocument();
-        fireEvent.click(screen.getByRole("button", { name: "Close tab and go to next" }));
-
-        // The prompt in the closed tab comes first in the queue but is skipped;
-        // the view is told to move straight to the next item's thread.
-        expect(mockCloseThreadTab).toHaveBeenCalledWith("s1", "q-1", "q-2");
-        expect(window.location.hash).toContain("thread=q-2");
-      });
-
-      it("only closes the tab when nothing else needs attention", () => {
-        setNotifications("s1", [
-          { id: "here", category: "needs-input", summary: "Here", timestamp: 300, threadKey: "q-1", done: false },
-        ]);
-        mockCanCloseThreadTab.mockReturnValue(true);
-        render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
-
-        fireEvent.contextMenu(chipButton());
-        fireEvent.click(screen.getByRole("button", { name: "Close tab" }));
-        expect(mockCloseThreadTab).toHaveBeenCalledWith("s1", "q-1", undefined);
-      });
-
-      it("keeps the list one choice away", () => {
-        setPrompts();
-        mockCanCloseThreadTab.mockReturnValue(true);
-        render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
-
-        fireEvent.contextMenu(chipButton());
-        fireEvent.click(screen.getByRole("button", { name: "Show list" }));
-        expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
-        expect(mockCloseThreadTab).not.toHaveBeenCalled();
-      });
-
-      it("opens the list directly on a tab that cannot close, like Main or active work", () => {
-        setPrompts();
-        render(<NotificationChip sessionId="s1" currentThreadKey="main" />);
-
-        fireEvent.contextMenu(chipButton());
-        expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Close tab and go to next" })).not.toBeInTheDocument();
-      });
-
-      it("offers the choice on a phone long-press without stepping on lift", () => {
-        vi.useFakeTimers();
-        window.location.hash = "#/session/s1?thread=q-1";
-        try {
-          setPrompts();
-          mockCanCloseThreadTab.mockReturnValue(true);
-          render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
-          fireEvent.touchStart(chipButton(), { touches: [{ clientX: 5, clientY: 5 }] });
-          act(() => {
-            vi.advanceTimersByTime(600);
-          });
-          fireEvent.touchEnd(chipButton());
-          // iOS can emulate mouse events on lift; they must neither step the
-          // chip nor dismiss the menu.
-          fireEvent.mouseDown(chipButton());
-          fireEvent.click(chipButton());
-
-          expect(screen.getByRole("button", { name: "Close tab and go to next" })).toBeInTheDocument();
-          expect(window.location.hash).toBe("#/session/s1?thread=q-1");
-        } finally {
-          vi.useRealTimers();
-        }
-      });
-
-      it("does not close and move on when the finger lifts over the menu", () => {
-        // Reported on a real iPhone: the chip sits near the bottom of the
-        // screen, so its menu is moved up over the finger, and the click iOS
-        // emulates on lift landed on "Close tab and go to next" and jumped to
-        // the next tab. Only a real tap on the item may choose it.
-        vi.useFakeTimers();
-        window.location.hash = "#/session/s1?thread=q-1";
-        try {
-          setPrompts();
-          mockCanCloseThreadTab.mockReturnValue(true);
-          render(<NotificationChip sessionId="s1" currentThreadKey="q-1" />);
-          fireEvent.touchStart(chipButton(), { touches: [{ clientX: 5, clientY: 5 }] });
-          act(() => {
-            vi.advanceTimersByTime(600);
-          });
-          fireEvent.touchEnd(chipButton());
-          const closeAndNext = screen.getByRole("button", { name: "Close tab and go to next" });
-          fireEvent.mouseDown(closeAndNext);
-          fireEvent.mouseUp(closeAndNext);
-          fireEvent.click(closeAndNext);
-
-          expect(mockCloseThreadTab).not.toHaveBeenCalled();
-          expect(window.location.hash).not.toContain("thread=q-2");
-          expect(screen.getByRole("button", { name: "Close tab and go to next" })).toBeInTheDocument();
-
-          // A real tap on the item still closes and moves on.
-          fireEvent.touchStart(closeAndNext, { touches: [{ clientX: 5, clientY: 5 }] });
-          fireEvent.touchEnd(closeAndNext);
-          fireEvent.click(closeAndNext);
-          expect(mockCloseThreadTab).toHaveBeenCalledWith("s1", "q-1", "q-2");
-        } finally {
-          vi.useRealTimers();
-        }
-      });
+      fireEvent.contextMenu(chipButton());
+      expect(screen.getByRole("dialog", { name: LIST_NAME })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Close tab/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Show list" })).not.toBeInTheDocument();
     });
 
     it("opens the inbox on a tap when only muted prompts remain", () => {
@@ -1792,7 +770,7 @@ describe("NotificationChip", () => {
       ]);
       render(<NotificationChip sessionId="s1" />);
       fireEvent.click(chipButton());
-      expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
+      expect(screen.getByRole("dialog", { name: LIST_NAME })).toBeInTheDocument();
     });
   });
 });

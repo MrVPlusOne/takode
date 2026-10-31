@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { ThreadMonitoringEntry } from "../../shared/thread-monitoring.js";
 import { fetchThreadMonitoring } from "../api/thread-monitoring.js";
 import { useNotifyMeSummary } from "../components/NotifyMe.js";
 import { useGlobalNeedsInputEntries } from "./useGlobalNeedsInputEntries.js";
 import { useStore } from "../store.js";
-import { buildNextAttentionQueue, collectUnreadAttention, type NextAttentionItem } from "../utils/next-attention.js";
+import {
+  buildNextAttentionQueue,
+  collectUnreadAttention,
+  type AttentionTopicOf,
+  type NextAttentionItem,
+} from "../utils/next-attention.js";
 import { useAttentionNavigator, type AttentionNavigator } from "./useAttentionNavigator.js";
 import { useQuestTopicsOf } from "../utils/leader-topics.js";
 import { isQuestThreadKey, isTopicThreadKey } from "../../shared/thread-routing.js";
@@ -31,28 +36,34 @@ export function useNextAttention(): AttentionNavigator & { queue: NextAttentionI
     })),
   );
   const unread = useMemo(() => collectUnreadAttention(unreadSource), [unreadSource]);
-  // Unread answers group by their quest's Library topic, looked up per leader.
-  const topicOfQuest = useQuestTopicsOf(
-    unread.flatMap((candidate) =>
-      candidate.threadKey && isQuestThreadKey(candidate.threadKey)
-        ? [{ leaderId: candidate.sessionId, questId: candidate.threadKey }]
-        : [],
-    ),
-  );
+  const topicOf = useAttentionTopicOf(unread);
   const queue = useMemo(
-    () =>
-      buildNextAttentionQueue({
-        needsInput,
-        notifyMe,
-        unread,
-        topicOf: (sessionId, threadKey) =>
-          threadKey && (isQuestThreadKey(threadKey) || isTopicThreadKey(threadKey))
-            ? (topicOfQuest(sessionId, threadKey) ?? null)
-            : null,
-      }),
-    [needsInput, notifyMe, unread, topicOfQuest],
+    () => buildNextAttentionQueue({ needsInput, notifyMe, unread, topicOf }),
+    [needsInput, notifyMe, unread, topicOf],
   );
   return { queue, ...useAttentionNavigator("global", queue) };
+}
+
+/**
+ * The Library topic of attention items' threads, looked up per leader for the quests of `items`
+ * (unread answers group by it; the session list also names it on every row). Null for Main,
+ * a thread outside topics, or a topic not known yet.
+ */
+export function useAttentionTopicOf(
+  items: ReadonlyArray<{ sessionId: string; threadKey: string | null }>,
+): AttentionTopicOf {
+  const topicOfQuest = useQuestTopicsOf(
+    items.flatMap((item) =>
+      item.threadKey && isQuestThreadKey(item.threadKey) ? [{ leaderId: item.sessionId, questId: item.threadKey }] : [],
+    ),
+  );
+  return useCallback(
+    (sessionId, threadKey) =>
+      threadKey && (isQuestThreadKey(threadKey) || isTopicThreadKey(threadKey))
+        ? (topicOfQuest(sessionId, threadKey) ?? null)
+        : null,
+    [topicOfQuest],
+  );
 }
 
 /**
