@@ -340,6 +340,8 @@ export interface AppState {
     responseState?: LeaderThreadResponseProjection | null,
   ) => void;
   setPendingThreadWindowRequest: (sessionId: string, threadKey: string | null) => void;
+  /** Every thread window this session's feeds hold may be out of date: each open feed asks for its window again. */
+  markThreadWindowsStale: (sessionId: string) => void;
   setPendingCodexInputs: (sessionId: string, inputs: PendingCodexInput[]) => void;
   updateMessage: (sessionId: string, msgId: string, updates: Partial<ChatMessage>) => void;
   attachCodexSubagentToolResults: (

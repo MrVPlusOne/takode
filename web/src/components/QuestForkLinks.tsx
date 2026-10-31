@@ -7,7 +7,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { QuestStartedFrom } from "../../server/quest-types.js";
 import { leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
-import { fetchStartedQuests, type StartedQuest } from "../api/started-quests.js";
+import { fetchStartedQuests, onStartedQuestsChanged, type StartedQuest } from "../api/started-quests.js";
 import { useStore } from "../store.js";
 import type { ChatMessage } from "../types.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
@@ -53,7 +53,8 @@ export const StartedQuestsContext = createContext<ReadonlyMap<string, StartedQue
 
 /**
  * Loads the quests started from this leader's messages for the feed below. `refreshKey`
- * reloads them; pass something that changes when new quest threads appear.
+ * reloads them; pass something that changes when new quest threads appear. A handoff (which
+ * moves a request into a quest that may already have a thread) reloads them too.
  */
 export function StartedQuestsProvider({
   sessionId,
@@ -67,6 +68,14 @@ export function StartedQuestsProvider({
   children: ReactNode;
 }) {
   const [quests, setQuests] = useState<StartedQuest[]>([]);
+  const [changes, setChanges] = useState(0);
+  useEffect(
+    () =>
+      onStartedQuestsChanged((changed) => {
+        if (changed === sessionId) setChanges((count) => count + 1);
+      }),
+    [sessionId],
+  );
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
@@ -79,7 +88,7 @@ export function StartedQuestsProvider({
         if (!controller.signal.aborted) console.error("[quest-forks] Started quests failed to load:", error);
       });
     return () => controller.abort();
-  }, [enabled, sessionId, refreshKey]);
+  }, [enabled, sessionId, refreshKey, changes]);
   const byMessageId = useMemo(() => {
     const map = new Map<string, StartedQuest[]>();
     for (const quest of enabled ? quests : []) {

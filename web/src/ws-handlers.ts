@@ -42,6 +42,7 @@ import { isTerminalResultInterrupted } from "../shared/result-interruption.js";
 import { SESSION_DEFAULTS_UPDATED_EVENT } from "../shared/session-defaults.js";
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.js";
+import { noteStartedQuestsChanged } from "./api/started-quests.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
@@ -991,6 +992,7 @@ function handleParsedMessage(
 
     case "thread_attachment_update": {
       applyThreadAttachmentUpdate(sessionId, data, deps, { messageContext: context });
+      noteStartedQuestsChanged(sessionId);
       break;
     }
 

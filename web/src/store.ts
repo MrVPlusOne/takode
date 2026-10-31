@@ -742,6 +742,13 @@ export const useStore = create<AppState>((set, get) => ({
       return { pendingThreadWindowRequests };
     }),
 
+  markThreadWindowsStale: (sessionId) =>
+    set((s) => {
+      const threadWindowRefreshRevisions = new Map(s.threadWindowRefreshRevisions);
+      threadWindowRefreshRevisions.set(sessionId, (threadWindowRefreshRevisions.get(sessionId) ?? 0) + 1);
+      return { threadWindowRefreshRevisions };
+    }),
+
   setPendingCodexInputs: (sessionId, inputs) =>
     set((s) => {
       const pendingCodexInputs = new Map(s.pendingCodexInputs);

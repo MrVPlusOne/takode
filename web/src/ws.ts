@@ -28,6 +28,7 @@ import {
 import { syncedProjectionEntryId, type SyncedProjectionSubscription } from "../shared/synced-projection.js";
 import { announceBackendConnectionOpen } from "./build-compatibility.js";
 import { getSideViews } from "./utils/side-views.js";
+import { noteStartedQuestsChanged } from "./api/started-quests.js";
 import {
   projectedLeaderOpenThreadTabs,
   resolveLeaderThreadTabsProjection,
@@ -204,7 +205,13 @@ const transport = createWsTransport({
     store.setConnectionStatus(sessionId, "connecting");
   },
   onConnected: (sessionId) => {
-    useStore.getState().setConnectionStatus(sessionId, "connected");
+    const store = useStore.getState();
+    // Messages sent while disconnected are not replayed to windowed feeds: the subscribe brings
+    // the main view's window only. Every other open feed (a side chat, a side quest) asks again,
+    // and so do lists of where requests continue, since a handoff may have moved one meanwhile.
+    store.markThreadWindowsStale(sessionId);
+    noteStartedQuestsChanged(sessionId);
+    store.setConnectionStatus(sessionId, "connected");
     announceBackendConnectionOpen();
     if (pendingVsCodeSelectionUpdate) {
       const delivered = transport.sendGlobalMessage(pendingVsCodeSelectionUpdate, sessionId);

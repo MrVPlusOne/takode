@@ -242,6 +242,50 @@ describe("connectSession", () => {
     expect(subscribe.side_views).toEqual(["q-7", "topic:aaaa0001"]);
   });
 
+  it("has every held thread window and started-quest list asked for again after a reconnect", async () => {
+    // A leader's subscribe replays nothing to windowed feeds and brings only the main view's window.
+    // A side chat holding its window from before a phone lock must load it again, or the leader's
+    // replies written meanwhile never show there (they reached no browser while it was away;
+    // Jiayi's side chat, Oct 30).
+    const window = {
+      thread_key: "topic:aaaa0001",
+      from_item: 0,
+      item_count: 3,
+      total_items: 3,
+      section_item_count: 3,
+      visible_item_count: 1,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: 10,
+      window_hash: "held",
+    } as never;
+    useStore.setState({ sdkSessions: [{ sessionId: "s1", isOrchestrator: true, archived: false } as never] });
+    wsModule.connectSession("s1");
+    const first = lastWs;
+    first.onopen?.(new Event("open"));
+    useStore.getState().setThreadWindow("s1", "topic:aaaa0001", window, []);
+    const stale = () => {
+      const state = useStore.getState();
+      const applied = state.threadWindowAppliedRevisions.get("s1")?.get("topic:aaaa0001") ?? 0;
+      return applied < (state.threadWindowRefreshRevisions.get("s1") ?? 0);
+    };
+    expect(stale()).toBe(false);
+
+    // Where a request continues is loaded separately; a handoff made meanwhile must show too.
+    const { onStartedQuestsChanged } = await import("./api/started-quests.js");
+    const reloaded: string[] = [];
+    const stop = onStartedQuestsChanged((sessionId) => reloaded.push(sessionId));
+
+    // The phone locks, the socket drops, and the page reconnects when it is back on screen.
+    first.onclose?.();
+    vi.advanceTimersByTime(2_000);
+    expect(lastWs).not.toBe(first);
+    lastWs.onopen?.(new Event("open"));
+    expect(stale()).toBe(true);
+    expect(reloaded).toEqual(["s1"]);
+    stop();
+  });
+
   it("keeps a session shown in a side column connected while the main view moves on", () => {
     // A worker's conversation in the side column must keep its socket when the main view, which
     // disconnects the session it leaves, was on that worker; the last holder lets it go.

@@ -309,6 +309,83 @@ describe("Quest fork links under the source message", () => {
   });
 });
 
+describe("Handoffs from a side chat", () => {
+  it("says where a side chat's request continues once the leader hands it off to an existing quest", async () => {
+    // Jiayi's report (Oct 30): a request asked in a side chat was handed off to a reopened quest,
+    // and the side chat never said where it went. The started quests had loaded before the handoff,
+    // and a handoff to a quest that already has a thread changes nothing else that reloads them.
+    const SIDE_CHAT = "topic:aaaa0001";
+    const handedOff = { questId: QUEST_ID, title: "Slides", startedFrom: STARTED_FROM, sideQuest: false };
+    let handed = false;
+    const fetchMock = vi.fn(async () => Response.json({ quests: handed ? [handedOff] : [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    installThread(SIDE_CHAT, [
+      {
+        type: "user_message",
+        id: "main-ask",
+        content: "Speaker notes for slides?",
+        timestamp: SENT_AT,
+        threadKey: SIDE_CHAT,
+      },
+    ]);
+    render(
+      <StartedQuestsProvider sessionId={SESSION_ID} enabled refreshKey={SIDE_CHAT}>
+        <MessageFeed sessionId={SESSION_ID} threadKey={SIDE_CHAT} projectThreadRoutes onSelectThread={vi.fn()} />
+      </StartedQuestsProvider>,
+    );
+    await screen.findByText("Speaker notes for slides?");
+    expect(screen.queryByTestId("quest-fork-link")).toBeNull();
+
+    handed = true;
+    act(() => {
+      handleMessage(SESSION_ID, {
+        type: "thread_attachment_update",
+        version: 1,
+        updateId: "handoff-side-ask",
+        timestamp: SENT_AT + 1,
+        attachedAt: SENT_AT + 1,
+        attachedBy: SESSION_ID,
+        historyLength: 2,
+        affectedThreadKeys: [SIDE_CHAT, QUEST_ID],
+        maxDistanceFromTail: 300,
+        maxChangedMessages: 100,
+        updates: [
+          {
+            target: { threadKey: QUEST_ID, questId: QUEST_ID },
+            markers: [],
+            markerHistoryIndices: [],
+            changedMessages: [
+              {
+                historyIndex: 0,
+                messageId: "main-ask",
+                threadRefs: [{ threadKey: QUEST_ID, questId: QUEST_ID, source: "explicit" }],
+              },
+            ],
+            ranges: ["0"],
+            count: 1,
+          },
+        ],
+      } as never);
+    });
+
+    // The handoff asks for the side chat's window again; the server sends it with the moved request.
+    installThread(SIDE_CHAT, [
+      {
+        type: "user_message",
+        id: "main-ask",
+        content: "Speaker notes for slides?",
+        timestamp: SENT_AT,
+        threadKey: SIDE_CHAT,
+        threadRefs: [
+          { threadKey: SIDE_CHAT, source: "explicit", attachedAt: SENT_AT },
+          { threadKey: QUEST_ID, questId: QUEST_ID, source: "explicit", attachedAt: SENT_AT + 1 },
+        ],
+      },
+    ]);
+    await waitFor(() => expect(forkRow(QUEST_ID)).toHaveAttribute("data-mode", "continued"));
+  });
+});
+
 describe("First appearance of a fork row", () => {
   it("cues only quests filed after the page listed the session's forks, once", async () => {
     // The first list is what the user already had; a quest that appears in a later list is

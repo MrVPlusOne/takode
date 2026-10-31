@@ -12,6 +12,7 @@ import { MessageFeed } from "../MessageFeed.js";
 import { SecondaryFeedContext } from "../secondary-feed.js";
 import { ComposerTargetContext } from "../composer-target.js";
 import { TopicFeedContext, type TopicFeed } from "../topic-feed.js";
+import { StartedQuestsProvider } from "../QuestForkLinks.js";
 import { navigateToSessionThread } from "../../utils/routing.js";
 
 /**
@@ -53,14 +54,17 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
       <ComposerTargetContext.Provider value={draftKey}>
         <ComposerFeedLayout>
           <div className="flex min-h-0 flex-1 flex-col" data-testid="side-conversation" data-thread-key={key}>
-            <TopicFeedContext.Provider value={topicFeed}>
-              <MessageFeed
-                sessionId={leaderId}
-                threadKey={key}
-                projectThreadRoutes
-                onSelectThread={(next) => navigateToSessionThread(leaderId, next)}
-              />
-            </TopicFeedContext.Provider>
+            {/* A request here that moved into a quest says where it continues, as in the main view. */}
+            <StartedQuestsProvider sessionId={leaderId} enabled refreshKey={key}>
+              <TopicFeedContext.Provider value={topicFeed}>
+                <MessageFeed
+                  sessionId={leaderId}
+                  threadKey={key}
+                  projectThreadRoutes
+                  onSelectThread={(next) => navigateToSessionThread(leaderId, next)}
+                />
+              </TopicFeedContext.Provider>
+            </StartedQuestsProvider>
           </div>
           <Composer
             sessionId={leaderId}
