@@ -89,6 +89,7 @@ vi.mock("../store.js", () => {
       expandAllInTurn: mockStoreValues.expandAllInTurn ?? new Map(),
       clearExpandAllInTurn: vi.fn(),
       bottomAlignNextUserMessage: mockStoreValues.bottomAlignNextUserMessage ?? new Set(),
+      composerDrafts: new Map(),
       sessionTaskHistory: mockStoreValues.sessionTaskHistory ?? new Map(),
       pendingUserUploads: mockStoreValues.pendingUserUploads ?? new Map(),
       pendingUserUploadRestorations: mockStoreValues.pendingUserUploadRestorations ?? new Map(),

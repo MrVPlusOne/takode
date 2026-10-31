@@ -1420,6 +1420,8 @@ describe("MessageFeed - scroll behavior", () => {
       if (messageId === "u2") {
         return makeRect(1500 - scrollTopValue, 40);
       }
+      // The u1 turn (question and answer) fills the content above u2, so it is on screen.
+      if ((this as HTMLElement).dataset.turnId === "u1") return makeRect(-scrollTopValue, 1500);
       return originalGetBoundingClientRect.call(this);
     };
 
@@ -1429,7 +1431,9 @@ describe("MessageFeed - scroll behavior", () => {
         scrollTopValue = 400;
         fireEvent.scroll(scrollContainer);
       }
+      // The send request reaches the feed before the server echoes the sent message.
       setStoreBottomAlignNextUserMessage(sid);
+      rerender(<MessageFeed sessionId={sid} />);
       setStoreMessages(sid, [
         makeMessage({ id: "u1", role: "user", content: "Question" }),
         makeMessage({ id: "a1", role: "assistant", content: "Answer" }),
@@ -1449,6 +1453,8 @@ describe("MessageFeed - scroll behavior", () => {
     const sid = "test-bottom-align-next-user-message";
     expect(await sendFollowUpFrom(sid, 1188, false)).toBe(940);
     expect(mockClearBottomAlignOnNextUserMessage).toHaveBeenCalledWith(sid);
+    // A following reader is moved to the new turn anyway, so the turn above may fold as usual.
+    expect(mockKeepTurnExpanded).not.toHaveBeenCalled();
   });
 
   it("keeps the reading position when a message is sent while scrolled up", async () => {
@@ -1458,6 +1464,9 @@ describe("MessageFeed - scroll behavior", () => {
     const sid = "test-send-while-reading-older";
     expect(await sendFollowUpFrom(sid, 1188, true)).toBe(400);
     expect(mockClearBottomAlignOnNextUserMessage).toHaveBeenCalledWith(sid);
+    // The turn on screen stays open: u2 starts a new turn, which used to fold u1's turn into its
+    // summary under the reader and move what they were reading.
+    expect(mockKeepTurnExpanded).toHaveBeenCalledWith(sid, "u1");
   });
 
   it("keeps the real bottom visible when an older turn collapses at the bottom", () => {

@@ -26,6 +26,9 @@ interface JumpTargetPin {
  * user touches or scrolls the feed (`release`, also wired to deliberate
  * navigation), when the feed's session or thread changes, or after
  * {@link JUMP_TARGET_PIN_MS}.
+ *
+ * `pin(target, offsetTop)` holds the target at an offset recorded before the
+ * DOM changed (the reading place kept across a send) and corrects at once.
  */
 export function useJumpTargetPin({
   containerRef,
@@ -48,7 +51,7 @@ export function useJumpTargetPin({
   }, []);
 
   const pin = useCallback(
-    (target: HTMLElement) => {
+    (target: HTMLElement, offsetTop?: number) => {
       release();
       const container = containerRef.current;
       const attribute = STABLE_TARGET_ATTRIBUTES.find((name) => target.hasAttribute(name));
@@ -74,13 +77,14 @@ export function useJumpTargetPin({
       const timeout = setTimeout(release, JUMP_TARGET_PIN_MS);
       pinRef.current = {
         selector,
-        offsetTop: target.getBoundingClientRect().top - container.getBoundingClientRect().top,
+        offsetTop: offsetTop ?? target.getBoundingClientRect().top - container.getBoundingClientRect().top,
         stop: () => {
           observer.disconnect();
           container.removeEventListener("pointerdown", release, true);
           clearTimeout(timeout);
         },
       };
+      if (offsetTop !== undefined) keepInPlace();
     },
     [containerRef, contentRootRef, lastScrollTopRef, programmaticScrollTargetRef, release],
   );

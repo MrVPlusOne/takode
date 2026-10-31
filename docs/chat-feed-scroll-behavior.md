@@ -27,6 +27,21 @@ to questions), in Main and in leader quest threads. People often send while
 scrolled up to comment on what they are reading, so the send must not pull them
 away; the Go to bottom button and latest pill show that newer content exists.
 
+A scrolled-up reader stays exactly where they are, not just roughly: a send
+changes the feed around them, and each change used to move them a little,
+in Safari (no CSS scroll anchoring) and often in Chrome too:
+
+- Saving or sending comments adds or removes "Include my comments" on every
+  open question card.
+- The sent message starts a new turn, which folds the turn before into its
+  summary. When that turn is on screen it now stays open instead.
+- The message lands and the thread window is refreshed.
+
+So the feed records the reader's place just before a send or a comment change
+reaches the page (the message their comments are on, else the message at the
+middle of the feed) and holds it there for a few seconds, the way a jump to a
+message is held (section 6). Touching or scrolling the feed lets go.
+
 There is no dedicated "scroll the new user message to the top" path.
 
 ### 2. Bottom-follow rule

@@ -92,6 +92,7 @@ import {
 import { planMessageFeedJump, scrollMessageFeedTargetIntoView } from "./message-feed-target-scroll.js";
 import { useMessageFeedManualScrollHandlers } from "./message-feed-manual-scroll.js";
 import { useJumpTargetPin } from "./message-feed-jump-target-pin.js";
+import { KeepReadingPlace } from "./message-feed-reading-place.js";
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import {
@@ -1868,6 +1869,13 @@ export function MessageFeed({
                   className="max-w-3xl mx-auto space-y-3 sm:space-y-5"
                   data-feed-content-root="true"
                 >
+                  <KeepReadingPlace
+                    sessionId={sessionId}
+                    containerRef={containerRef}
+                    followingRef={autoFollowEnabledRef}
+                    turnStatesRef={turnStatesRef}
+                    hold={pinJumpTarget}
+                  />
                   {hasOlderSections && (
                     <SectionBoundaryControl
                       direction="older"
