@@ -175,7 +175,11 @@ describe("LeaderOverview", () => {
     ] as never;
     render(<LeaderOverview data={result.current} topics={topics} onOpenQuest={() => {}} onOpenTopic={() => {}} />);
     const rows = screen.getAllByTestId("overview-for-you-row");
-    expect(rows).toHaveLength(result.current.needYou);
+    expect(rows).toHaveLength(result.current.needYou + result.current.fresh);
+    // Questions alone are under "Needs you"; unread answers are new (Jiayi: amber means questions).
+    expect(result.current.needYou).toBe(2);
+    expect(within(screen.getByTestId("overview-for-you")).getAllByTestId("overview-for-you-row")).toHaveLength(2);
+    expect(within(screen.getByTestId("overview-new")).getAllByTestId("overview-for-you-row")).toHaveLength(2);
     const own = rows.find((row) => row.textContent?.includes("Question about q-1"))!;
     expect(own.textContent).toContain("Relay fix");
     const layout = rows.find((row) => row.textContent?.includes("Relay layout"))!;
@@ -199,8 +203,9 @@ describe("LeaderOverview", () => {
   it("puts a thread's unread answers on one row", () => {
     attention.queue = [unread("u-1", "q-2", null), unread("u-2", "q-2", null), unread("u-3", "q-3", null)];
     const { result } = renderHook(() => useLeaderOverview("leader"));
-    expect(result.current.needYou).toBe(2);
+    expect(result.current).toMatchObject({ needYou: 0, fresh: 2 });
     render(<LeaderOverview data={result.current} onOpenQuest={() => {}} />);
+    expect(screen.queryByTestId("overview-for-you")).toBeNull();
     expect(screen.getAllByTestId("overview-for-you-row")).toHaveLength(2);
   });
 });

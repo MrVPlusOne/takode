@@ -200,7 +200,7 @@ export function LeaderBreadcrumbNav({
             ? "border-cc-primary/50 bg-cc-primary/12 text-cc-fg"
             : "border-cc-border bg-cc-hover/40 text-cc-fg hover:bg-cc-hover"
         }`}
-        aria-label={`Overview: ${needYou} need you, ${overview.running.length} running`}
+        aria-label={`Overview: ${needYou} need you, ${overview.fresh} new, ${overview.running.length} running`}
         aria-expanded={workingOnOpen}
         aria-haspopup="menu"
         title="What needs you and what runs now"
@@ -211,12 +211,21 @@ export function LeaderBreadcrumbNav({
         <WorkBoardDotsIcon dots={board.dots} large={false} />
         {/* A phone's top bar has room for the count only; the list is headed "Overview". */}
         {desktop && <span>Overview</span>}
+        {/* Questions in the attention color, anything new in blue, as in the notification lists. */}
         {needYou > 0 && (
           <span
             className="rounded-full bg-[var(--color-cc-phase-accent-amber)]/20 px-1.5 text-[11px] tabular-nums text-[var(--color-cc-phase-accent-amber)]"
             data-testid="overview-need-you-count"
           >
             {needYou}
+          </span>
+        )}
+        {overview.fresh > 0 && (
+          <span
+            className="rounded-full bg-cc-info/15 px-1.5 text-[11px] tabular-nums text-cc-info"
+            data-testid="overview-new-count"
+          >
+            {overview.fresh}
           </span>
         )}
         <Chevron />

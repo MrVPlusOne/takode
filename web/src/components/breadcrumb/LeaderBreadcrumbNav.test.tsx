@@ -56,7 +56,8 @@ function overviewData(forYou: NextAttentionItem[] = [question]): LeaderOverviewD
   return {
     forYou,
     running: [running("q-10", "Fix the relay proxy")],
-    needYou: forYou.length,
+    needYou: forYou.filter((item) => item.kind === "needs-input").length,
+    fresh: forYou.filter((item) => item.kind !== "needs-input").length,
     noteFor: () => undefined,
     countsOf: (topic) => ({ needYou: 0, fresh: 0, running: topic.id === "t1" ? 1 : 0 }),
     open: vi.fn(),
@@ -329,6 +330,15 @@ describe("the Overview menu", () => {
     fireEvent.click(within(list).getByTestId("overview-running-row"));
     expect(onSelect).toHaveBeenCalledWith("q-10");
     expect(within(helpers).queryByTestId("thread-tab-group-list")).toBeNull();
+  });
+
+  it("counts questions in the attention color and anything new in blue", () => {
+    // Jiayi: amber is only for questions; unread answers are blue, as in the notification lists.
+    overview.data = overviewData([{ ...question, kind: "unread", key: "unread:leader:a1" } as NextAttentionItem]);
+    const { helpers } = renderNav();
+    const button = within(helpers).getByTestId("thread-tab-group-working-on");
+    expect(within(button).queryByTestId("overview-need-you-count")).toBeNull();
+    expect(within(button).getByTestId("overview-new-count").textContent).toBe("1");
   });
 
   it("shows no count while nothing needs the user", () => {

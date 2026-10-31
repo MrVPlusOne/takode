@@ -34,7 +34,12 @@ import { SideSession } from "./SideSession.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { openLibraryArtifact } from "../../utils/library-nav.js";
-import { LeaderOverview, LeaderOverviewContext, useLeaderOverview } from "../overview/LeaderOverview.js";
+import {
+  LeaderOverview,
+  LeaderOverviewContext,
+  TopicCountsLine,
+  useLeaderOverview,
+} from "../overview/LeaderOverview.js";
 import { OverviewIcon } from "../overview/OverviewIcon.js";
 
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
@@ -162,7 +167,6 @@ function SideOverview({
   onClose: () => void;
 }) {
   const overview = useContext(LeaderOverviewContext)!;
-  const needYou = overview.needYou;
   // On a phone the sheet covers the conversation: going somewhere closes it.
   const leave = () => variant === "sheet" && onClose();
   return (
@@ -181,10 +185,11 @@ function SideOverview({
         >
           <OverviewIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
           <span className={folded ? "text-cc-fg/80" : "text-cc-fg"}>Overview</span>
-          <span className="ml-auto flex shrink-0 gap-2 text-[11.5px] tabular-nums">
-            {needYou > 0 && <span className="text-[var(--color-cc-phase-accent-amber)]">{needYou} need you</span>}
-            {overview.running.length > 0 && <span className="text-cc-success">{overview.running.length} running</span>}
-          </span>
+          {/* The topic rows' counts: "need you" for questions only, the rest new. */}
+          <TopicCountsLine
+            counts={{ needYou: overview.needYou, fresh: overview.fresh, running: overview.running.length }}
+            className="ml-auto shrink-0 flex-nowrap tabular-nums"
+          />
         </button>
       </div>
       {!folded && (

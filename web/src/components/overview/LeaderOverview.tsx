@@ -1,4 +1,4 @@
-import { createContext, useMemo } from "react";
+import { createContext, useMemo, type ReactNode } from "react";
 import type { OverviewOrder, TopicSummary } from "../../../shared/library-topics.js";
 import { isRunningBoardRow } from "../../../shared/leader-thread-tab-priority.js";
 import { getQuestJourneyPhase, getQuestJourneyPhaseForState } from "../../../shared/quest-journey.js";
@@ -47,8 +47,10 @@ export interface LeaderOverviewData {
   /** The leader's open questions and unread answers, reports and finished quests, in Next order. */
   forYou: NextAttentionItem[];
   running: RunningQuest[];
-  /** How many rows need the user: each question or reminder, and each thread with unread answers. */
+  /** How many questions wait on the user: the only items shown in the attention color. */
   needYou: number;
+  /** How many rows hold something new (unread answers by thread, reminders, tracked results): blue. */
+  fresh: number;
   /** The Scribe's note for an item of `forYou`: its thread's. */
   noteFor: (item: NextAttentionItem) => string | undefined;
   countsOf: (topic: Pick<TopicSummary, "id" | "questIds">) => TopicCounts;
@@ -111,7 +113,8 @@ export function useLeaderOverview(leaderId: string): LeaderOverviewData {
     return {
       forYou,
       running,
-      needYou: forYouGroups(forYou).length,
+      needYou: forYouGroups(forYou).filter(isQuestion).length,
+      fresh: forYouGroups(forYou).filter((group) => !isQuestion(group)).length,
       noteFor: (item) => ranked.notes.get(item.key),
       countsOf,
       open,
@@ -140,22 +143,31 @@ export function LeaderOverview({
     const counts = data.countsOf(topic);
     return counts.needYou + counts.fresh + counts.running === 0;
   });
+  // Questions alone take the attention color, as in the notification lists; the rest is new.
+  const groups = forYouGroups(data.forYou);
+  const row = (items: NextAttentionItem[]) =>
+    items.length === 1 && attentionSection(items[0]!) !== "unread" ? (
+      <ItemLine key={items[0]!.key} item={items[0]!} data={data} titles={titles} thread={threadOf(items[0]!)} />
+    ) : (
+      <UnreadLine key={items[0]!.key} items={items} data={data} titles={titles} thread={threadOf(items[0]!)} />
+    );
   return (
     <div className="flex flex-col pb-1" data-testid="leader-overview">
-      <section data-testid="overview-for-you">
-        <OverviewHeading title="Needs you" count={data.needYou} />
-        {data.forYou.length === 0 ? (
+      {data.forYou.length === 0 ? (
+        <section data-testid="overview-for-you">
+          <OverviewHeading title="Needs you" count={0} />
           <OverviewEmpty>Nothing waits for you.</OverviewEmpty>
-        ) : (
-          forYouGroups(data.forYou).map((items) =>
-            items.length === 1 && attentionSection(items[0]!) !== "unread" ? (
-              <ItemLine key={items[0]!.key} item={items[0]!} data={data} titles={titles} thread={threadOf(items[0]!)} />
-            ) : (
-              <UnreadLine key={items[0]!.key} items={items} data={data} titles={titles} thread={threadOf(items[0]!)} />
-            ),
-          )
-        )}
-      </section>
+        </section>
+      ) : (
+        <>
+          <ForYouSection title="Needs you" groups={groups.filter(isQuestion)} testId="overview-for-you">
+            {row}
+          </ForYouSection>
+          <ForYouSection title="New" groups={groups.filter((group) => !isQuestion(group))} testId="overview-new">
+            {row}
+          </ForYouSection>
+        </>
+      )}
       <OverviewFold name="running" title="Running now" count={data.running.length} testId="overview-running">
         {data.running.map((quest) => (
           <RunningLine key={quest.questId} quest={quest} onOpen={() => onOpenQuest(quest.questId)} />
@@ -188,9 +200,33 @@ export function TopicCountsLine({ counts, className = "" }: { counts: TopicCount
   );
 }
 
+function ForYouSection({
+  title,
+  groups,
+  testId,
+  children,
+}: {
+  title: string;
+  groups: NextAttentionItem[][];
+  testId: string;
+  children: (items: NextAttentionItem[]) => ReactNode;
+}) {
+  if (groups.length === 0) return null;
+  return (
+    <section className="border-t border-cc-border/60 first:border-t-0" data-testid={testId}>
+      <OverviewHeading title={title} count={groups.length} />
+      {groups.map(children)}
+    </section>
+  );
+}
+
+function isQuestion(group: readonly NextAttentionItem[]): boolean {
+  return group[0]?.kind === "needs-input";
+}
+
 /**
  * The rows of what needs the user, in order: each question, reminder or tracked result alone, and a
- * thread's unread answers together. Their number is what "Needs you" counts.
+ * thread's unread answers together. Questions count under "Needs you", the rest under "New".
  */
 function forYouGroups(items: readonly NextAttentionItem[]): NextAttentionItem[][] {
   const groups: NextAttentionItem[][] = [];
