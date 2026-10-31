@@ -9,6 +9,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 const setSideViewsOf = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/side-views.js", () => ({ setSideViewsOf, getSideViews: () => [] }));
+const held = vi.hoisted(() => ({ count: new Map<string, number>(), holds: 0 }));
+vi.mock("../../ws.js", () => ({
+  holdSessionConnection: (sessionId: string) => {
+    held.holds++;
+    held.count.set(sessionId, (held.count.get(sessionId) ?? 0) + 1);
+    return () => held.count.set(sessionId, held.count.get(sessionId)! - 1);
+  },
+}));
 vi.mock("../library/TopicSidePanel.js", () => ({
   TopicSidePanel: ({ pinnedTopicId }: { pinnedTopicId?: string }) => (
     <div data-testid="mock-topic-page">{pinnedTopicId ?? "followed"}</div>
@@ -16,13 +24,26 @@ vi.mock("../library/TopicSidePanel.js", () => ({
   useQuestTopic: () => ({ id: "t1", name: "Relay" }),
 }));
 vi.mock("./SideConversation.js", () => ({
-  SideConversation: ({ threadKey }: { threadKey: string }) => <div data-testid="mock-conversation">{threadKey}</div>,
-}));
-vi.mock("./NewSideChat.js", () => ({
-  NewSideChat: ({ startedFrom }: { startedFrom: string | null }) => (
-    <div data-testid="mock-new-chat">{startedFrom ?? "none"}</div>
+  SideConversation: ({ threadKey, leaderId }: { threadKey: string; leaderId: string }) => (
+    <div data-testid="mock-conversation" data-leader={leaderId}>
+      {threadKey}
+    </div>
   ),
 }));
+vi.mock("./NewSideChat.js", () => ({
+  NewSideChat: ({ startedFrom, leaderId }: { startedFrom: string | null; leaderId: string }) => (
+    <div data-testid="mock-new-chat" data-leader={leaderId}>
+      {startedFrom ?? "none"}
+    </div>
+  ),
+}));
+// The leaders a side chat can be with: those with topics on (l3's are off).
+const noTopicList = () => Promise.reject(new Error("No topic list in this test"));
+const topicList = vi.hoisted(() => vi.fn());
+vi.mock("../../api/topics.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/topics.js")>();
+  return { ...actual, topicApi: { ...actual.topicApi, list: topicList } };
+});
 vi.mock("../library/ArtifactViewer.js", () => ({
   ArtifactViewer: ({ id, version }: { id: string; version?: number }) => (
     <div data-testid="mock-artifact">{`${id} v${version ?? "latest"}`}</div>
@@ -64,7 +85,7 @@ vi.mock("../../utils/leader-topics.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../utils/leader-topics.js")>()),
   useLeaderThreads: () => threads.list,
 }));
-import { closeSideItem, HOME_ITEM, openInSide, useSideColumnStore } from "../../utils/side-column.js";
+import { closeSideItem, HOME_ITEM, openInSide, replaceSideItem, useSideColumnStore } from "../../utils/side-column.js";
 import { rememberThreads } from "../../utils/leader-topics.js";
 import { useLibraryNav } from "../../utils/library-nav.js";
 import { markLeaderThreadDisplayed } from "../../utils/thread-viewport.js";
@@ -80,7 +101,11 @@ afterEach(() => {
   localStorage.clear();
   threads.list = [];
   rememberThreads("l1", []);
+  topicList.mockReset();
+  topicList.mockImplementation(noTopicList);
 });
+
+topicList.mockImplementation(noTopicList);
 
 const rows = () => screen.queryAllByTestId("side-item-row");
 const openBodies = () =>
@@ -223,6 +248,142 @@ describe("SideColumn", () => {
     } finally {
       shown();
     }
+  });
+
+  it("starts a side chat with another leader, chosen beside New side chat", async () => {
+    // Jiayi (Oct 31): reading Daily Leader's page, they wanted a side chat with the Takode leader.
+    // The plain button still starts one with this page's leader; the menu beside it picks another.
+    topicList.mockResolvedValue({
+      leaders: [
+        { sessionId: "l1", enabled: true },
+        { sessionId: "l2", enabled: true },
+        { sessionId: "l3", enabled: false },
+      ],
+    });
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "l1",
+          sessionNum: 1,
+          name: "Daily",
+          isOrchestrator: true,
+          state: "connected",
+          cwd: "/",
+          createdAt: 1,
+        },
+        {
+          sessionId: "l2",
+          sessionNum: 2,
+          name: "Takode",
+          isOrchestrator: true,
+          state: "connected",
+          cwd: "/",
+          createdAt: 1,
+        },
+        {
+          sessionId: "l3",
+          sessionNum: 3,
+          name: "Off",
+          isOrchestrator: true,
+          state: "connected",
+          cwd: "/",
+          createdAt: 1,
+        },
+        {
+          sessionId: "l4",
+          sessionNum: 4,
+          name: "Gone",
+          isOrchestrator: true,
+          archived: true,
+          state: "exited",
+          cwd: "/",
+          createdAt: 1,
+        },
+        { sessionId: "w5", sessionNum: 5, name: "Worker", state: "connected", cwd: "/", createdAt: 1 },
+      ],
+    } as never);
+    const shown = markLeaderThreadDisplayed("l1", "q-7");
+    try {
+      render(<SideColumn leaderId="l1" threadKey="q-7" variant="docked" />);
+      fireEvent.click(screen.getByTestId("side-new-chat-leader"));
+      const choices = await screen.findAllByTestId("side-new-chat-leader-row");
+      // This page's leader first; leaders with topics off, archived leaders and workers are not offered.
+      expect(choices.map((row) => row.textContent)).toEqual(["#1 Dailythis page", "#2 Takode"]);
+      fireEvent.click(choices[1]!);
+      expect(screen.queryByTestId("side-new-chat-leaders")).toBeNull();
+      const chat = within(openBodies()[0]!).getByTestId("mock-new-chat");
+      expect(chat.dataset.leader).toBe("l2");
+      expect(chat.textContent).toBe("q-7");
+      expect(rows()[0]!.textContent).toContain("New side chat with Takode");
+      // A new chat with this page's leader is a separate item, as before.
+      fireEvent.click(screen.getByTestId("side-new-chat"));
+      expect(within(openBodies()[0]!).getByTestId("mock-new-chat").dataset.leader).toBe("l1");
+      expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+        expect.objectContaining({ kind: "new-chat", startedFrom: "q-7" }),
+        expect.objectContaining({ kind: "new-chat", startedFrom: "q-7", leaderId: "l2" }),
+      ]);
+      expect(useSideColumnStore.getState().columns.l1!.items[0]).not.toHaveProperty("leaderId");
+      // The chat with l2 keeps l2's connection open, through the same hold once it starts: dropping
+      // it in between lost the live messages of the chat's first turn.
+      expect(held.count.get("l2")).toBe(1);
+      const holds = held.holds;
+      const chatId = useSideColumnStore.getState().columns.l1!.items[1]!.id;
+      act(() => replaceSideItem("l1", chatId, { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" }));
+      expect(held.holds).toBe(holds);
+      expect(held.count.get("l2")).toBe(1);
+    } finally {
+      shown();
+      useStore.setState({ sdkSessions: [] } as never);
+    }
+  });
+
+  it("shows another leader's side chat as that leader's, over its connection, until it becomes a quest", () => {
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "l2",
+          sessionNum: 2,
+          name: "Takode",
+          isOrchestrator: true,
+          state: "connected",
+          cwd: "/",
+          createdAt: 1,
+        },
+      ],
+    } as never);
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide("l1", { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" });
+    });
+    expect(within(openBodies()[0]!).getByTestId("mock-conversation").dataset.leader).toBe("l2");
+    expect(within(rows()[0]!).getByTestId("side-item-leader").getAttribute("title")).toBe("With #2 Takode");
+    // The server sends its live messages over l2's connection, as one of l2's side views.
+    expect(setSideViewsOf).toHaveBeenCalledWith("l2", expect.any(Object), ["topic:bbbb0001"]);
+    expect(setSideViewsOf).toHaveBeenCalledWith("l1", expect.any(Object), []);
+    // It reads over l2's connection, which the column keeps open while it holds an l2 item.
+    expect(held.count.get("l2")).toBe(1);
+    // Moving it out opens it in l2's own view.
+    act(() => {
+      rememberThreads("l2", [
+        {
+          id: "bbbb0001",
+          key: "topic:bbbb0001",
+          name: "Side ask",
+          leaderId: "l2",
+          createdAt: 1,
+          activityAt: 1,
+          quest: "q-11",
+        },
+      ]);
+    });
+    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+      expect.objectContaining({ kind: "conversation", threadKey: "q-11", leaderId: "l2" }),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Open in the main view" }));
+    expect(window.location.hash).toContain("session/l2");
+    expect(window.location.hash).toContain("thread=q-11");
+    rememberThreads("l2", []);
+    useStore.setState({ sdkSessions: [] } as never);
   });
 
   it("lists past side chats under Recent and opens one in the column", () => {

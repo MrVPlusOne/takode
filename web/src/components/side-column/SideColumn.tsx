@@ -1,5 +1,6 @@
 import { Activity, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { setSideViewsOf } from "../../utils/side-views.js";
+import { holdSessionConnection } from "../../ws.js";
 import { useStore } from "../../store.js";
 import { useOutsidePress } from "../../hooks/useOutsidePress.js";
 import {
@@ -12,6 +13,7 @@ import {
   replaceSideItem,
   setSideOverviewFolded,
   sideChatOrigin,
+  sideItemLeader,
   useSideColumn,
   type SideItem,
 } from "../../utils/side-column.js";
@@ -37,6 +39,8 @@ import { useQuestRecord } from "../QuestSummaryCard.js";
 import { getQuestStatusTheme } from "../../utils/quest-status-theme.js";
 import { SideConversation } from "./SideConversation.js";
 import { NewSideChat } from "./NewSideChat.js";
+import { SideChatLeaderMenu, useLeaderCard } from "./SideChatLeaders.js";
+import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { SideQuest } from "./SideQuest.js";
 import { SideSession } from "./SideSession.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
@@ -84,24 +88,39 @@ export function SideColumn({
   const close = () => (variant === "sheet" ? setTopicSheetOpen(leaderId, false) : setTopicPanelOpen(leaderId, false));
   // A row toggles its item: opening it folds the one open before, and the open one folds.
   const toggle = (id: string) => openSideItem(leaderId, id === openId ? NO_ITEM : id);
-  // A side chat whose whole request became a quest's work is that quest's conversation now.
-  const becameQuest = useThreadQuests(leaderId);
   useEffect(() => loadLeaderNamesOnce(leaderId), [leaderId]);
+  // Side chats with other leaders read and send over those leaders' connections, which the main
+  // view doesn't keep open. Held per leader, so a new chat turning into its thread keeps the same
+  // connection: dropping it in between loses the live messages of the chat's first turn.
+  const otherLeaders = [...new Set(items.map((item) => sideItemLeader(leaderId, item)))]
+    .filter((other) => other !== leaderId)
+    .sort()
+    .join(",");
   useEffect(() => {
-    for (const item of items) {
-      const quest = item.kind === "conversation" ? becameQuest.get(item.threadKey.toLowerCase()) : undefined;
-      if (quest) replaceSideItem(leaderId, item.id, { kind: "conversation", threadKey: quest });
-    }
-  }, [becameQuest, items, leaderId]);
-  // The server sends this browser the live messages of the conversations in the column too.
-  const conversationKeys = items
-    .flatMap((item) => (item.kind === "conversation" ? [item.threadKey.toLowerCase()] : []))
+    const releases = otherLeaders ? otherLeaders.split(",").map((other) => holdSessionConnection(other)) : [];
+    return () => {
+      for (const release of releases) release();
+    };
+  }, [otherLeaders]);
+  // The server sends this browser the live messages of the conversations in the column too, each
+  // over its leader's connection (a side chat with another leader is that leader's conversation).
+  const conversationViews = items
+    .flatMap((item) =>
+      item.kind === "conversation" ? [`${sideItemLeader(leaderId, item)} ${item.threadKey.toLowerCase()}`] : [],
+    )
     .join(",");
   useEffect(() => {
     const owner = {};
-    setSideViewsOf(leaderId, owner, conversationKeys ? conversationKeys.split(",") : []);
-    return () => setSideViewsOf(leaderId, owner, []);
-  }, [conversationKeys, leaderId]);
+    const byLeader = new Map<string, string[]>([[leaderId, []]]);
+    for (const view of conversationViews ? conversationViews.split(",") : []) {
+      const [viewLeader, key] = view.split(" ");
+      byLeader.set(viewLeader!, [...(byLeader.get(viewLeader!) ?? []), key!]);
+    }
+    for (const [viewLeader, keys] of byLeader) setSideViewsOf(viewLeader, owner, keys);
+    return () => {
+      for (const viewLeader of byLeader.keys()) setSideViewsOf(viewLeader, owner, []);
+    };
+  }, [conversationViews, leaderId]);
 
   const body = (entry: SideItem | null) => {
     const id = entry?.id ?? HOME_ITEM;
@@ -143,6 +162,7 @@ export function SideColumn({
             <NewThreadIcon className="h-4 w-4" />
             New side chat
           </button>
+          <SideChatLeaderMenu columnId={leaderId} />
           <span className="flex-1" />
           <RecentChats leaderId={leaderId} />
           <button
@@ -252,7 +272,16 @@ function SideItemRow({
   open: boolean;
   onOpen: () => void;
 }) {
-  const unread = useUnreadIn(leaderId, item?.kind === "conversation" ? item.threadKey : null);
+  // A side chat with another leader reads as that leader's: its names, unread answers and portrait.
+  const owner = item ? sideItemLeader(leaderId, item) : leaderId;
+  const unread = useUnreadIn(owner, item?.kind === "conversation" ? item.threadKey : null);
+  useEffect(() => loadLeaderNamesOnce(owner), [owner]);
+  // A side chat whose whole request became a quest's work is that quest's conversation now.
+  const becameQuest = useThreadQuests(owner).get(item?.kind === "conversation" ? item.threadKey.toLowerCase() : "");
+  useEffect(() => {
+    if (item && becameQuest)
+      replaceSideItem(leaderId, item.id, { kind: "conversation", threadKey: becameQuest, leaderId: owner });
+  }, [becameQuest, item, leaderId, owner]);
   return (
     <div
       className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-1.5 text-[13px] ${
@@ -267,9 +296,9 @@ function SideItemRow({
         className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
         aria-expanded={open}
       >
-        <SideItemIcon leaderId={leaderId} item={item} />
+        {owner === leaderId ? <SideItemIcon leaderId={leaderId} item={item} /> : <LeaderIcon leaderId={owner} />}
         <span className={`min-w-0 truncate ${open ? "text-cc-fg" : "text-cc-fg/80"}`}>
-          <SideItemTitle leaderId={leaderId} item={item} />
+          <SideItemTitle leaderId={owner} item={item} />
         </span>
         {unread > 0 && (
           <span className="shrink-0 rounded-full bg-cc-info/15 px-1.5 text-[11px] tabular-nums text-cc-info">
@@ -282,12 +311,30 @@ function SideItemRow({
   );
 }
 
+/** The portrait of the leader a side item talks to, when it is not the column's own. */
+function LeaderIcon({ leaderId }: { leaderId: string }) {
+  const leader = useLeaderCard(leaderId);
+  const name = `With #${leader?.sessionNum ?? "?"} ${leader?.name ?? "another leader"}`;
+  return (
+    <span className="inline-flex shrink-0" title={name} aria-label={name} data-testid="side-item-leader">
+      {leader?.leaderProfilePortrait ? (
+        <LeaderProfilePortraitImage portrait={leader.leaderProfilePortrait} />
+      ) : (
+        <NewThreadIcon className="h-3.5 w-3.5 text-cc-primary" />
+      )}
+    </span>
+  );
+}
+
 function ItemActions({ leaderId, item }: { leaderId: string; item: SideItem | null }) {
   if (!item) return null;
   // A conversation moves to the main view, an artifact to the Library; either leaves the column.
   const moveOut =
     item.kind === "conversation"
-      ? { label: "Open in the main view", go: () => navigateToSessionThread(leaderId, item.threadKey) }
+      ? {
+          label: "Open in the main view",
+          go: () => navigateToSessionThread(sideItemLeader(leaderId, item), item.threadKey),
+        }
       : item.kind === "session"
         ? { label: "Open in the main view", go: () => navigateToSession(item.sessionId) }
         : item.kind === "quest"
@@ -409,9 +456,18 @@ function SideItemBody({
         />
       );
     case "conversation":
-      return <SideConversation leaderId={leaderId} threadKey={item.threadKey} />;
+      return (
+        <SideConversation leaderId={sideItemLeader(leaderId, item)} columnId={leaderId} threadKey={item.threadKey} />
+      );
     case "new-chat":
-      return <NewSideChat leaderId={leaderId} itemId={item.id} startedFrom={item.startedFrom} />;
+      return (
+        <NewSideChat
+          columnId={leaderId}
+          leaderId={sideItemLeader(leaderId, item)}
+          itemId={item.id}
+          startedFrom={item.startedFrom}
+        />
+      );
     case "artifact":
       return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -442,7 +498,7 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
         <ThreadOriginName leaderId={leaderId} threadKey={item.threadKey} />
       );
     case "new-chat":
-      return <>New side chat</>;
+      return item.leaderId ? <NewChatWithTitle leaderId={item.leaderId} /> : <>New side chat</>;
     case "artifact":
       return <>{item.title ?? "Artifact"}</>;
     case "quest":
@@ -450,6 +506,11 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
     case "session":
       return <SideSessionTitle sessionId={item.sessionId} />;
   }
+}
+
+function NewChatWithTitle({ leaderId }: { leaderId: string }) {
+  const leader = useLeaderCard(leaderId);
+  return <>New side chat with {leader?.name ?? "another leader"}</>;
 }
 
 function SideQuestTitle({ questId }: { questId: string }) {

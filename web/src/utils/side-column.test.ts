@@ -69,6 +69,23 @@ describe("side column items", () => {
     expect(column("l1")!.items).toEqual([{ id: chat, kind: "conversation", threadKey: "topic:aaaa0002" }]);
     expect(column("l1")!.open).toBe(chat);
   });
+
+  it("keeps a side chat with another leader apart from one with the column's own", () => {
+    // A chat with the column's leader names no leader, however it was asked for, so it stays the
+    // same item; a chat with another leader is its own item, and its thread stays that leader's.
+    const own = openInSide("l1", { kind: "new-chat", startedFrom: null });
+    expect(openInSide("l1", { kind: "new-chat", startedFrom: null, leaderId: "l1" })).toBe(own);
+    const other = openInSide("l1", { kind: "new-chat", startedFrom: null, leaderId: "l2" });
+    expect(other).not.toBe(own);
+    replaceSideItem("l1", other, { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" });
+    expect(openInSide("l1", { kind: "conversation", threadKey: "topic:bbbb0001" })).not.toBe(other);
+    expect(openInSide("l1", { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" })).toBe(other);
+    expect(column("l1")!.items.find((item) => item.id === own)).toEqual({
+      id: own,
+      kind: "new-chat",
+      startedFrom: null,
+    });
+  });
 });
 
 describe("opening in the side", () => {

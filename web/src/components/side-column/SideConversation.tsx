@@ -20,8 +20,19 @@ import { openInSide, wantsSideClick } from "../../utils/side-column.js";
  * One of the leader's conversations in the side column: a side chat (a thread the user started),
  * a quest, or a topic's whole conversation, with its own message box under it. It reads and sends
  * like the main view, and what is read there on screen counts as read.
+ *
+ * It may be another leader's (a side chat the user started with that leader from this column,
+ * `columnId`): it then reads and sends over that leader's connection, which the column holds open.
  */
-export function SideConversation({ leaderId, threadKey }: { leaderId: string; threadKey: string }) {
+export function SideConversation({
+  leaderId,
+  threadKey,
+  columnId = leaderId,
+}: {
+  leaderId: string;
+  threadKey: string;
+  columnId?: string;
+}) {
   const key = threadKey.toLowerCase();
   const thread = useKnownThreadOfKey(leaderId, isTopicViewKey(key) ? key : "");
   const topic = useStandaloneTopicConversation(leaderId, isTopicViewKey(key) && !thread ? key : "");
@@ -37,7 +48,7 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
   // in place of this conversation; the open-in-side click opens it in the main view.
   const openThread = (next: string) =>
     wantsSideClick()
-      ? openInSide(leaderId, { kind: "conversation", threadKey: next })
+      ? openInSide(columnId, { kind: "conversation", threadKey: next, leaderId })
       : navigateToSessionThread(leaderId, next);
   const topicFeed = useMemo<TopicFeed | null>(
     () =>
@@ -50,7 +61,7 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
             openQuest: openThread,
           }
         : null,
-    [leaderId, topic],
+    [columnId, leaderId, topic],
   );
   const questId = /^q-\d+$/.test(key) ? key : undefined;
   const draftKey = sideComposerDraftKey(leaderId, key);

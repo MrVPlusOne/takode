@@ -157,6 +157,50 @@ describe("Ask in side chat", () => {
   });
 });
 
+describe("Ask in side chat from another leader's chat", () => {
+  it("opens the new chat in the column on screen, with the passage's leader", () => {
+    // A passage in another leader's side chat, shown in this leader's column: the new chat is with
+    // that other leader, and it opens where the user is, not in a column they can't see.
+    topicsOn.value = true;
+    useStore.setState({ currentSessionId: "a1" } as never);
+    const shown = markLeaderThreadDisplayed("a1", "main");
+    const message = document.createElement("p");
+    message.textContent = "A passage";
+    document.body.appendChild(message);
+    const range = document.createRange();
+    range.selectNodeContents(message);
+    try {
+      render(
+        <SelectionContextMenu
+          sessionId="s2"
+          onClose={vi.fn()}
+          selection={{
+            isActive: true,
+            plainText: "A passage",
+            range,
+            position: { x: 10, y: 10 },
+            clear: vi.fn(),
+            dismiss: vi.fn(),
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Ask in side chat" }));
+      expect(useSideColumnStore.getState().columns.s2).toBeUndefined();
+      expect(useSideColumnStore.getState().columns.a1!.items).toEqual([
+        expect.objectContaining({ kind: "new-chat", startedFrom: null, leaderId: "s2" }),
+      ]);
+      const draft = useStore.getState().composerDrafts.get(newSideChatDraftKey("s2"));
+      expect(draft?.annotations).toEqual([expect.objectContaining({ selectedText: "A passage" })]);
+    } finally {
+      shown();
+      message.remove();
+      useStore.setState({ currentSessionId: null } as never);
+      useSideColumnStore.setState({ columns: {} });
+      localStorage.clear();
+    }
+  });
+});
+
 describe("Comment", () => {
   it("opens the editor for the composer of the conversation the passage is in", () => {
     // A passage in a side chat's feed comments into the side chat's composer; one in the main feed

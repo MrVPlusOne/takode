@@ -16,10 +16,16 @@ import { setLocalStorageItem } from "./scoped-storage.js";
  */
 export type SideItem =
   | { id: string; kind: "topic"; topicId: string }
-  /** A conversation of the leader: a quest, a topic's conversation, or a side chat (a thread). */
-  | { id: string; kind: "conversation"; threadKey: string }
-  /** A side chat being started: its first message starts the thread, from `startedFrom`. */
-  | { id: string; kind: "new-chat"; startedFrom: string | null }
+  /**
+   * A conversation of the leader: a quest, a topic's conversation, or a side chat (a thread). With
+   * `leaderId`, another leader's: a side chat the user started with that leader from this column.
+   */
+  | { id: string; kind: "conversation"; threadKey: string; leaderId?: string }
+  /**
+   * A side chat being started: its first message starts the thread, from `startedFrom`, with the
+   * column's leader or, with `leaderId`, the leader the user chose.
+   */
+  | { id: string; kind: "new-chat"; startedFrom: string | null; leaderId?: string }
   /** A Library artifact (a report, post, figure...), at a version when one was linked. */
   | {
       id: string;
@@ -79,15 +85,31 @@ function update(leaderId: string, change: (column: LeaderColumn) => LeaderColumn
   setLocalStorageItem(STORAGE_KEY, JSON.stringify(columns));
 }
 
+/** The leader an item talks to: its own `leaderId` (another leader's chat), else the column's. */
+export function sideItemLeader(columnId: string, item: SideItemInput): string {
+  return (item.kind === "conversation" || item.kind === "new-chat") && item.leaderId ? item.leaderId : columnId;
+}
+
+/** An item as the column keeps it: a chat with the column's own leader names no `leaderId`. */
+function ownItem(columnId: string, input: SideItemInput): SideItemInput {
+  if ((input.kind !== "conversation" && input.kind !== "new-chat") || input.leaderId !== columnId) return input;
+  const { leaderId: _own, ...rest } = input;
+  return rest;
+}
+
 function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
   if (a.kind !== b.kind) return false;
   switch (a.kind) {
     case "topic":
       return a.topicId === (b as typeof a).topicId;
     case "conversation":
-      return a.threadKey.toLowerCase() === (b as typeof a).threadKey.toLowerCase();
+      return (
+        a.threadKey.toLowerCase() === (b as typeof a).threadKey.toLowerCase() &&
+        (a.leaderId ?? "") === ((b as typeof a).leaderId ?? "")
+      );
     case "new-chat":
-      return true;
+      // One side chat being started per leader it is with.
+      return (a.leaderId ?? "") === ((b as typeof a).leaderId ?? "");
     case "artifact":
       return a.artifactId === (b as typeof a).artifactId;
     case "quest":
@@ -101,7 +123,8 @@ function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
  * Puts something in a leader's side column, or brings it back to the top if it is there already,
  * opens it and shows the column (on phones, its sheet).
  */
-export function openInSide(leaderId: string, input: SideItemInput): string {
+export function openInSide(leaderId: string, target: SideItemInput): string {
+  const input = ownItem(leaderId, target);
   // A link clicked in one of the column's panes opens in that pane, in place of what it showed.
   const pane = paneClick?.leaderId === leaderId ? paneClick.itemId : null;
   if (pane && useSideColumnStore.getState().columns[leaderId]?.items.some((item) => item.id === pane)) {
@@ -150,7 +173,8 @@ export function closeSideItem(leaderId: string, id: string): void {
  * Turns an item into another in place, such as a new side chat into its thread once it started.
  * Another item showing the same thing goes, so the column never holds it twice.
  */
-export function replaceSideItem(leaderId: string, id: string, input: SideItemInput): void {
+export function replaceSideItem(leaderId: string, id: string, target: SideItemInput): void {
+  const input = ownItem(leaderId, target);
   update(leaderId, (column) => {
     const twin = column.items.find((item) => item.id !== id && sameTarget(item, input));
     return {

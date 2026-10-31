@@ -21,6 +21,9 @@ vi.mock("./thread-names.js", () => ({
   ThreadOriginName: ({ threadKey }: { threadKey: string }) => <>{`name of ${threadKey}`}</>,
   threadNameFromMessage: (text: string) => `named: ${text}`,
 }));
+vi.mock("./SideChatLeaders.js", () => ({
+  LeaderName: ({ sessionId }: { sessionId: string }) => <>{`leader ${sessionId}`}</>,
+}));
 import { openInSide, useSideColumnStore } from "../../utils/side-column.js";
 import { NewSideChat, newSideChatDraftKey } from "./NewSideChat.js";
 
@@ -37,7 +40,7 @@ describe("NewSideChat", () => {
       thread: { id: "aaaa0001", key: "topic:aaaa0001", name: "named", leaderId: "l1", createdAt: 1, activityAt: 1 },
     });
     const itemId = openInSide("l1", { kind: "new-chat", startedFrom: "q-7" });
-    render(<NewSideChat leaderId="l1" itemId={itemId} startedFrom="q-7" />);
+    render(<NewSideChat columnId="l1" leaderId="l1" itemId={itemId} startedFrom="q-7" />);
     expect(screen.getByTestId("new-side-chat").textContent).toContain("About name of q-7");
     expect(composer.props!.draftKey).toBe(newSideChatDraftKey("l1"));
     expect(composer.props!.threadKey).toBe("q-7");
@@ -49,5 +52,37 @@ describe("NewSideChat", () => {
       items: [{ id: itemId, kind: "conversation", threadKey: "topic:aaaa0001" }],
       open: itemId,
     });
+  });
+
+  it("starts a chat with another leader as that leader's, kept in this column", async () => {
+    // Jiayi (Oct 31): from Daily Leader's page, a side chat with the Takode leader. The thread is
+    // the Takode leader's (it answers it and lists it); this column keeps showing it.
+    startThread.mockResolvedValue({
+      thread: { id: "bbbb0001", key: "topic:bbbb0001", name: "named", leaderId: "l2", createdAt: 1, activityAt: 1 },
+    });
+    const itemId = openInSide("l1", { kind: "new-chat", startedFrom: "q-7", leaderId: "l2" });
+    render(<NewSideChat columnId="l1" leaderId="l2" itemId={itemId} startedFrom="q-7" />);
+    expect(screen.getByTestId("new-side-chat-with").textContent).toBe("A side chat with leader l2");
+    expect(composer.props!.draftKey).toBe(newSideChatDraftKey("l2"));
+    expect(composer.props!.threadKey).toBe("main");
+
+    await composer.props!.newThread.start("Tweak the breadcrumb");
+    // A quest is a place any leader can look up, so l2 is told the chat started there.
+    expect(startThread).toHaveBeenCalledWith("l2", "named: Tweak the breadcrumb", "q-7", "Tweak the breadcrumb");
+    composer.props!.newThread.started("topic:bbbb0001");
+    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+      { id: itemId, kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" },
+    ]);
+  });
+
+  it("doesn't tell another leader about a place only this leader knows", async () => {
+    startThread.mockResolvedValue({
+      thread: { id: "bbbb0002", key: "topic:bbbb0002", name: "named", leaderId: "l2", createdAt: 1, activityAt: 1 },
+    });
+    const itemId = openInSide("l1", { kind: "new-chat", startedFrom: "topic:aaaa0009", leaderId: "l2" });
+    render(<NewSideChat columnId="l1" leaderId="l2" itemId={itemId} startedFrom="topic:aaaa0009" />);
+    expect(screen.getByTestId("new-side-chat").textContent).toContain("The conversation on the left stays as it is.");
+    await composer.props!.newThread.start("Hello");
+    expect(startThread).toHaveBeenCalledWith("l2", "named: Hello", undefined, "Hello");
   });
 });
