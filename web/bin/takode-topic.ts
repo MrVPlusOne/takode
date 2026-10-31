@@ -1,5 +1,4 @@
 import type { TopicDetail, TopicListResponse, TopicRenameSuggestion, TopicSummary } from "../shared/library-topics.js";
-import { nowGroupLabel } from "../shared/topic-now-items.js";
 import { apiGet, apiPatch, apiPost, err, formatRelativeTime, parseFlags } from "./takode-core.js";
 
 export const TOPIC_HELP = `Usage: takode topic <command> ...
@@ -165,11 +164,13 @@ function formatTopicDetail(detail: TopicDetail): string {
       ? `Page up to date as of ${new Date(detail.upToDateAt).toLocaleString()}${detail.pendingEvents ? `; ${detail.pendingEvents} newer events` : ""}:`
       : "No page yet.",
     "",
-    ...(detail.now?.length
+    ...(detail.stands?.length
       ? [
-          "## Now",
-          ...detail.now.map(
-            (entry) => `- ${nowGroupLabel(entry)}: ${entry.text}${entry.doneAt ? " (marked done)" : ""}`,
+          "## Where it stands",
+          ...detail.stands.flatMap((stand) =>
+            stand.lines.map(
+              (line) => `- ${line}${detail.stands!.length > 1 ? ` (leader #${stand.leaderNum ?? "?"})` : ""}`,
+            ),
           ),
           "",
         ]

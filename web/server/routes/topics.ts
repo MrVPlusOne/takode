@@ -4,7 +4,6 @@ import { getQuest, listQuests } from "../quest-store.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { getArtifactLibrary } from "../artifact-library.js";
 import type { QuestTopicsResponse, TopicListResponse, TopicSummary } from "../../shared/library-topics.js";
-import { type NowGroup, nowGroupOf, takeLegacyNow } from "../../shared/topic-now-items.js";
 import { TopicStoreError } from "../topic-store.js";
 import type { TopicService } from "../topic-service.js";
 import { SCRIBE_BRIEF } from "../scribe-brief.js";
@@ -442,16 +441,10 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         ...detail,
         pictures,
         picturesNewerThanText: svc.store.picturesNewerThanText(topicId),
-        now: svc.store
-          .nowEntries(detail.id)
-          .map((entry) =>
-            entry.leaderId ? { ...entry, leaderNum: ctx.launcher.getSessionNum(entry.leaderId) ?? null } : entry,
-          ),
-        quests: quests.flatMap((quest) =>
-          quest
-            ? [{ questId: quest.questId, title: quest.title, status: quest.status, changedAt: questChangedAt(quest) }]
-            : [],
-        ),
+        stands: svc.store
+          .stands(detail.id, leaderFor(svc, c))
+          .map((stand) => ({ ...stand, leaderNum: ctx.launcher.getSessionNum(stand.leaderId) ?? null })),
+        quests: quests.flatMap((quest) => (quest ? [questForPage(quest)] : [])),
       };
     }),
   );
@@ -487,11 +480,14 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         // Shown with every page so the user's lasting requests hold after compaction or a restart.
         instructions: (leaderId && svc.store.scribeInstructions(leaderId)?.text) || undefined,
         pageRequests: detail.instructions || undefined,
-        now: svc.store.nowEntries(detail.id).map((entry) => ({
-          ...entry,
-          ...(entry.leaderId ? { leaderNum: ctx.launcher.getSessionNum(entry.leaderId) ?? null } : {}),
-          yours: !entry.leaderId || entry.leaderId === leaderId,
+        stands: svc.store.stands(detail.id, leaderId).map((stand) => ({
+          lines: stand.lines,
+          at: stand.at,
+          leaderNum: ctx.launcher.getSessionNum(stand.leaderId) ?? null,
+          yours: stand.leaderId === leaderId,
         })),
+        // The retired Now entries of this Scribe's leader, folded into its first "where it stands".
+        oldNow: leaderId ? svc.store.legacyNow(detail.id, leaderId) : [],
         events: pending.map(({ leaderId: _leaderId, ...event }) => ({
           ...event,
           ...(event.sessionId ? { sessionNum: ctx.launcher.getSessionNum(event.sessionId) ?? null } : {}),
@@ -531,9 +527,8 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         return { ...svc.store.detail(topic.id), warnings: [] };
       }
       if (typeof body.markdown !== "string") throw new TopicStoreError("Send the page as markdown.");
-      // Now lives in entries; a Now section written into the page would show twice.
-      const legacy = takeLegacyNow(body.markdown);
-      const markdown = legacy ? legacy.page : body.markdown;
+      // Where it stands is kept apart from the page (and Now is retired): such a section would show twice.
+      const { page: markdown, removed } = withoutSections(body.markdown, /^(now|where it stands)$/i);
       const detail = svc.store.writePage(topic.id, markdown, read?.through ?? Date.now(), {
         ...(leaderId ? { leaderId } : {}),
         ...(read ? { revision: read.revision } : {}),
@@ -543,11 +538,10 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       return {
         ...detail,
         warnings: [
-          ...(legacy
-            ? [
-                "The page's Now section was left out: Now is kept as entries. Add, edit or remove them with `takode scribe now`.",
-              ]
-            : []),
+          ...removed.map(
+            (title) =>
+              `The page's "${title}" section was left out: write where the topic stands with \`takode scribe stands\`.`,
+          ),
           ...svc.checkQuotes(markdown).map((problem) => `${problem}: fix the quote or its link`),
         ],
       };
@@ -609,48 +603,42 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
-  /** The user marked a Now entry done on the page: the panel's leader's Scribe hears about it. */
-  api.post("/topics/:id/now-done", (c) =>
+  /**
+   * A Scribe writes where a topic stands for its leader's work: one to three short lines, replacing
+   * what it wrote before. Like a page save, it covers the events the Scribe read through `changes`.
+   */
+  api.post("/scribe/topics/:id/stands", (c) =>
     run(c, async (svc) => {
       const topic = topicFor(svc, c, c.req.param("id"));
       const body = await c.req.json().catch(() => ({}));
-      if (typeof body.id !== "string") throw new TopicStoreError("Name the entry.");
-      const leaderId = leaderFor(svc, c, typeof body.leader === "string" ? body.leader : undefined);
-      if (!leaderId) throw new TopicStoreError("Name the leader whose Scribe should hear about it.");
-      svc.nowDone(topic.id, leaderId, body.id, body.done !== false);
-      return { ok: true };
+      const leaderId = leaderFor(svc, c);
+      if (!leaderId) throw new TopicStoreError("Only a leader's Scribe writes where a topic stands.");
+      if (!Array.isArray(body.lines) || body.lines.some((line: unknown) => typeof line !== "string")) {
+        throw new TopicStoreError("Send the lines.");
+      }
+      const lines = svc.store.setStands(topic.id, leaderId, body.lines as string[]);
+      const key = `${topic.id}|${caller(c) ?? ""}`;
+      const read = served.get(key);
+      if (read) svc.store.markCovered(topic.id, read.through, leaderId);
+      svc.pageSaved();
+      return { lines };
     }),
   );
 
-  /**
-   * A Scribe's Now commands: add an entry for its leader's work, edit or remove one. The page
-   * shows the change at once; it needs no page save.
-   */
-  api.post("/scribe/topics/:id/now", (c) =>
+  /** A Scribe tells its leader about loose ends, a few times a day at most. */
+  api.post("/scribe/loose-ends", (c) =>
     run(c, async (svc) => {
-      const topic = topicFor(svc, c, c.req.param("id"));
+      const leaderId = leaderFor(svc, c);
+      if (!leaderId) throw new TopicStoreError("Name the leader (--leader).", 404);
       const body = await c.req.json().catch(() => ({}));
-      const entry = svc.store.addNow(topic.id, { ...nowInput(body), leaderId: leaderFor(svc, c) });
-      svc.pageSaved();
-      return entry;
-    }),
-  );
-  api.patch("/scribe/topics/:id/now/:entry", (c) =>
-    run(c, async (svc) => {
-      const topic = topicFor(svc, c, c.req.param("id"));
-      const body = await c.req.json().catch(() => ({}));
-      const patch = Object.fromEntries(Object.entries(nowInput(body, true)).filter(([, value]) => value !== undefined));
-      const entry = svc.store.editNow(topic.id, c.req.param("entry"), patch);
-      svc.pageSaved();
-      return entry;
-    }),
-  );
-  api.delete("/scribe/topics/:id/now/:entry", (c) =>
-    run(c, async (svc) => {
-      const topic = topicFor(svc, c, c.req.param("id"));
-      const text = svc.store.removeNow(topic.id, c.req.param("entry"));
-      svc.pageSaved();
-      return { removed: text };
+      if (!Array.isArray(body.lines) || body.lines.some((line: unknown) => typeof line !== "string")) {
+        throw new TopicStoreError("Send the lines.");
+      }
+      try {
+        return { sent: svc.tellLeader(leaderId, body.lines as string[]) };
+      } catch (error) {
+        throw new TopicStoreError(error instanceof Error ? error.message : String(error));
+      }
     }),
   );
 
@@ -685,44 +673,69 @@ function questChangedAt(quest: QuestmasterTask): number {
   return (quest as { statusChangedAt?: number }).statusChangedAt ?? quest.createdAt;
 }
 
-/** A Now entry from a command's body; with `partial`, fields may be left out. */
-function nowInput(body: Record<string, unknown>, partial = false) {
-  const text = typeof body.text === "string" ? body.text : undefined;
-  const group = typeof body.group === "string" ? nowGroupOf(body.group) : null;
-  if (typeof body.group === "string" && !group) {
-    throw new TopicStoreError(`Unknown group "${body.group}"; use waiting, progress, next, followup or try.`);
+/** Markdown without its `## ` sections whose titles match, and the titles it left out. */
+export function withoutSections(markdown: string, title: RegExp): { page: string; removed: string[] } {
+  const removed: string[] = [];
+  const kept: string[] = [];
+  let skipping = false;
+  for (const line of markdown.split("\n")) {
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      skipping = title.test(heading[1]!);
+      if (skipping) {
+        removed.push(heading[1]!);
+        continue;
+      }
+    } else if (/^#\s/.test(line)) skipping = false;
+    if (!skipping) kept.push(line);
   }
-  if (!partial && (!group || text === undefined)) throw new TopicStoreError("Send the group and the text.");
   return {
-    group: group?.group as NowGroup,
-    who: typeof body.who === "string" ? body.who : group?.who,
-    text: text as string,
-    due: typeof body.due === "string" ? body.due : undefined,
+    page: kept
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+    removed,
   };
 }
 
-/** A wrap-up older than this is history (Recent), not a source of what is left (Now). */
+/**
+ * A topic's quest as its page shows it: when it finished and, then, its one-line wrap-up (the
+ * first line of its debrief TLDR), which the page's quest log lists.
+ */
+function questForPage(quest: QuestmasterTask) {
+  const done = quest as QuestmasterTask & { completedAt?: number; debriefTldr?: string };
+  const wrapUp =
+    done.status === "done"
+      ? done.debriefTldr
+          ?.trim()
+          .split("\n")[0]
+          ?.replace(/^[-*]\s+/, "")
+      : undefined;
+  return {
+    questId: quest.questId,
+    title: quest.title,
+    status: quest.status,
+    changedAt: questChangedAt(quest),
+    ...(done.completedAt ? { completedAt: done.completedAt } : {}),
+    ...(wrapUp ? { wrapUp: wrapUp.length > 220 ? `${wrapUp.slice(0, 219).trimEnd()}…` : wrapUp } : {}),
+  };
+}
+
+/** A wrap-up older than this is history, not a source of where a topic stands. */
 const RECENT_WRAP_UP_MS = 14 * 24 * 3600_000;
 
 /**
- * A topic's quest as its Scribe needs it for Now: status, when it finished, the checks it left for
- * the user that are still unticked, and for a quest finished in the last two weeks its wrap-up
- * summary, where limits and follow-ups usually are.
+ * A topic's quest as its Scribe needs it: status, when it finished, and for a quest finished in the
+ * last two weeks its wrap-up summary. The checks it left for the user stay with the quest.
  */
 function questForScribe(quest: QuestmasterTask) {
-  const done = quest as QuestmasterTask & {
-    completedAt?: number;
-    debriefTldr?: string;
-    verificationItems?: Array<{ text: string; checked: boolean }>;
-  };
+  const done = quest as QuestmasterTask & { completedAt?: number; debriefTldr?: string };
   const recent = !!done.completedAt && Date.now() - done.completedAt < RECENT_WRAP_UP_MS;
-  const checks = (done.verificationItems ?? []).filter((item) => !item.checked).map((item) => item.text);
   return {
     questId: quest.questId,
     title: quest.title,
     status: quest.status,
     ...(done.completedAt ? { completedAt: done.completedAt } : {}),
-    ...(checks.length ? { checksLeft: checks } : {}),
     ...(recent && done.debriefTldr ? { wrapUp: done.debriefTldr.slice(0, 800) } : {}),
   };
 }

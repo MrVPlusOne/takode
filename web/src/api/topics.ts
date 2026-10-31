@@ -58,9 +58,6 @@ export const topicApi = {
   /** Asks the Scribe of the leader whose panel this is to update the page now. */
   updateNow: (id: string, leader?: string | null) =>
     request<{ result: string }>(`${topicPath(id)}/update`, { method: "POST", body: leader ? { leader } : {} }),
-  /** Marks a Now entry done (or takes it back); the panel's leader's Scribe hears it. */
-  nowDone: (id: string, entry: string, leader: string, done = true) =>
-    request<{ ok: boolean }>(`${topicPath(id)}/now-done`, { method: "POST", body: { id: entry, leader, done } }),
   /** The user's lasting requests for a topic's page; the panel's leader's Scribe hears about them. */
   setPageRequests: (id: string, text: string, leader: string) =>
     request<{ instructions: string }>(`${topicPath(id)}/instructions`, { method: "POST", body: { text, leader } }),

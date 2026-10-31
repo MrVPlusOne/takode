@@ -2,7 +2,6 @@ import { normalizeTopicKey, topicHandle } from "../shared/topic-thread-key.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type NowEntry, type NowGroup, NOW_GROUPS, questLinksOf, takeLegacyNow } from "../shared/topic-now-items.js";
 import {
   OVERVIEW_NOTE_MAX,
   TOPIC_TENTATIVE_MS,
@@ -29,7 +28,9 @@ import {
 const MAX_EVENTS_PER_TOPIC = 200;
 const MAX_CHANGES = 300;
 const MAX_QUESTS_TOLD = 500;
-const DONE_KEPT_MS = 24 * 60 * 60 * 1000;
+/** Where a topic stands: at most this many lines, each at most this long (links count as their text). */
+const STANDS_LINES_MAX = 3;
+const STANDS_LINE_MAX = 110;
 /** How long the panel offers a change to undo before it goes away on its own. */
 export const CHANGE_SHOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -52,10 +53,16 @@ interface StoredTopic {
   /** Bumped by each page write, so a Scribe that read an older page cannot overwrite a newer one. */
   pageRevision?: number;
   events: TopicEvent[];
-  /** The topic's Now: open items, added and removed by Scribes, marked done by the user. */
-  now?: StoredNowEntry[];
-  /** Retired: dates of Now items read from the page text; moved into `now` at load. */
-  nowItems?: Record<string, { since: number; changedAt: number; text: string }>;
+  /**
+   * Per leader: where the topic stands, in one to three short lines its Scribe rewrites on every
+   * update (it replaced the Now lists, which went stale and asked the user to tick them off).
+   */
+  stands?: Record<string, { lines: string[]; at: number }>;
+  /**
+   * Retired: the Now entries Scribes kept before. Each leader's Scribe reads its own once to fold
+   * what is still open into its first "where it stands", which drops them.
+   */
+  now?: LegacyNowEntry[];
   /** The user's lasting requests for this page (sections to keep, what to show). */
   instructions?: { text: string; updatedAt: number };
   /** Set when merged or folded into another topic; such a topic is hidden. */
@@ -90,15 +97,11 @@ interface StoredThread {
   sortAskedAt?: number;
 }
 
-interface StoredNowEntry {
-  id: string;
-  group: NowGroup;
+interface LegacyNowEntry {
+  group: string;
   who?: string;
   text: string;
   leaderId?: string;
-  since: number;
-  changedAt: number;
-  due?: string;
   doneAt?: number;
 }
 
@@ -173,6 +176,12 @@ interface StoredScribe {
   consolidationAskedAt?: number;
   /** The Scribe's order for the leader's overview, with a note per line. */
   overviewOrder?: OverviewOrder;
+  /** When the current Scribe session started; a day-old one is replaced by a fresh one. */
+  startedAt?: number;
+  /** The user's messages to other leaders up to this time were sent to the Scribe. */
+  elsewhereSeen?: number;
+  /** Loose-ends messages to the leader today, so a Scribe can't flood it. */
+  looseEnds?: { day: string; count: number };
 }
 
 /** What of a quest was already reported to Scribes: ticked checks (by text) and feedback count. */
@@ -214,8 +223,6 @@ export class TopicStore {
       if (parsed?.version !== 1 || typeof parsed.topics !== "object") throw new Error("unknown topics format");
       this.state = parsed;
       for (const topic of Object.values(parsed.topics)) {
-        this.moveNowOffPage(topic);
-        this.retireWaitingOnYou(topic);
       }
       this.coverMergedEvents();
     } catch (error) {
@@ -318,8 +325,46 @@ export class TopicStore {
     const scribe = this.scribeRecord(leaderId);
     if (scribe.sessionId === sessionId) return;
     scribe.sessionId = sessionId;
+    scribe.startedAt = sessionId ? this.now() : undefined;
     scribe.instructionsSentAt = undefined;
     this.dirty = true;
+  }
+
+  /** When the leader's current Scribe session started (unknown for Scribes started before this was kept). */
+  scribeStartedAt(leaderId: string): number | undefined {
+    return this.s().scribes?.[leaderId]?.startedAt;
+  }
+
+  /** Records when a running Scribe started, for one started before this was kept: from now. */
+  noteScribeRunning(leaderId: string): void {
+    const scribe = this.scribeRecord(leaderId);
+    if (scribe.startedAt !== undefined || !scribe.sessionId) return;
+    scribe.startedAt = this.now();
+    this.dirty = true;
+  }
+
+  /** The user's messages to other leaders up to this time were sent to the leader's Scribe. */
+  elsewhereSeen(leaderId: string): number | undefined {
+    return this.s().scribes?.[leaderId]?.elsewhereSeen;
+  }
+
+  setElsewhereSeen(leaderId: string, at: number): void {
+    this.scribeRecord(leaderId).elsewhereSeen = at;
+    this.dirty = true;
+  }
+
+  /**
+   * Counts a loose-ends message from the leader's Scribe to the leader, at most `max` a day (local
+   * day of the server); false when today's are used up.
+   */
+  countLooseEnds(leaderId: string, max: number): boolean {
+    const scribe = this.scribeRecord(leaderId);
+    const day = new Date(this.now()).toDateString();
+    const sent = scribe.looseEnds?.day === day ? scribe.looseEnds.count : 0;
+    if (sent >= max) return false;
+    scribe.looseEnds = { day, count: sent + 1 };
+    this.dirty = true;
+    return true;
   }
 
   /** Events up to this sequence number were sent to the leader's Scribe. */
@@ -833,7 +878,6 @@ export class TopicStore {
     const waiting = new Set(pendingOf(from));
     const moved = from.events.map((event) => (waiting.has(event) ? event : { ...event, covered: true }));
     into.events = [...into.events, ...moved].sort((a, b) => a.at - b.at).slice(-MAX_EVENTS_PER_TOPIC);
-    if (from.now?.length) into.now = [...(into.now ?? []), ...from.now];
     into.updatedAt = this.now();
     from.mergedInto = into.id;
     this.addEvent(into.id, {
@@ -882,8 +926,6 @@ export class TopicStore {
         into.aliases = undo.intoAliases;
         const fromEventKeys = new Set(undo.from.events.map(eventKey));
         into.events = into.events.filter((event) => !fromEventKeys.has(eventKey(event)));
-        const fromNow = new Set((undo.from.now ?? []).map((entry) => entry.id));
-        if (into.now) into.now = into.now.filter((entry) => !fromNow.has(entry.id));
       }
     } else {
       const movedTo = this.s().questTopics[undo.questId];
@@ -1037,84 +1079,59 @@ export class TopicStore {
     return this.detail(topic.id);
   }
 
+  /** Where the topic stands, per leader that wrote it: the given leader's first, then the newest. */
+  stands(topicId: string, leaderId?: string): Array<{ leaderId: string; lines: string[]; at: number }> {
+    return Object.entries(this.require(topicId).stands ?? {})
+      .map(([id, stand]) => ({ leaderId: id, ...stand }))
+      .sort((a, b) => Number(b.leaderId === leaderId) - Number(a.leaderId === leaderId) || b.at - a.at);
+  }
+
   /**
-   * The topic's Now entries, oldest first, with their latest news (an edit, or an event of a quest
-   * they link). Entries the user marked done stay a day, so Undo works.
+   * A Scribe writes where the topic stands for its leader's work, replacing what it wrote before:
+   * one to three lines, each one short line (links count as their text). No lines clears it. Its
+   * leader's retired Now entries are taken in by this, so they go.
    */
-  nowEntries(topicId: string): NowEntry[] {
+  setStands(topicId: string, leaderId: string, lines: readonly string[]): string[] {
     const topic = this.require(topicId);
-    return (topic.now ?? [])
-      .filter((entry) => entry.doneAt === undefined || this.now() - entry.doneAt <= DONE_KEPT_MS)
-      .map((entry) => {
-        const questIds = questLinksOf(entry.text);
-        const questNews = topic.events
-          .filter((event) => event.questId && questIds.includes(event.questId))
-          .reduce((latest, event) => Math.max(latest, event.at), 0);
-        const { changedAt, ...rest } = entry;
-        return { ...rest, questIds, lastNews: Math.max(changedAt, questNews) };
-      });
-  }
-
-  /** A Scribe adds a Now entry for its leader's work. */
-  addNow(topicId: string, input: NowInput & { leaderId?: string }): NowEntry {
-    const topic = this.require(topicId);
-    const entry: StoredNowEntry = {
-      id: randomUUID().replace(/-/g, "").slice(0, 6),
-      ...checkNow(input),
-      ...(input.leaderId ? { leaderId: input.leaderId } : {}),
-      since: this.now(),
-      changedAt: this.now(),
-    };
-    topic.now = [...this.prunedNow(topic), entry];
-    this.nowChanged(topic);
-    return this.nowEntries(topic.id).find((candidate) => candidate.id === entry.id)!;
-  }
-
-  /** A Scribe rewords or regroups a Now entry; it keeps its date. */
-  editNow(topicId: string, id: string, patch: Partial<NowInput>): NowEntry {
-    const topic = this.require(topicId);
-    const entry = this.nowEntry(topic, id);
-    const next = checkNow({ group: entry.group, who: entry.who, text: entry.text, due: entry.due, ...patch });
-    for (const field of ["who", "due"] as const) if (!next[field]) delete entry[field];
-    Object.assign(entry, next, { changedAt: this.now() });
-    this.nowChanged(topic);
-    return this.nowEntries(topic.id).find((candidate) => candidate.id === id)!;
-  }
-
-  /** A Scribe removes a Now entry that is done or no longer matters; returns its text. */
-  removeNow(topicId: string, id: string): string {
-    const topic = this.require(topicId);
-    const entry = this.nowEntry(topic, id);
-    topic.now = (topic.now ?? []).filter((candidate) => candidate.id !== id);
-    this.nowChanged(topic);
-    return entry.text;
-  }
-
-  /** The user marked a Now entry done on the page, or took that back; returns its text. */
-  markNowDone(topicId: string, id: string, done = true): string {
-    const topic = this.require(topicId);
-    const entry = this.nowEntry(topic, id);
-    if (done) entry.doneAt = this.now();
-    else delete entry.doneAt;
-    this.nowChanged(topic);
-    return entry.text;
-  }
-
-  private nowEntry(topic: StoredTopic, id: string): StoredNowEntry {
-    const entry = topic.now?.find((candidate) => candidate.id === id);
-    if (!entry)
-      throw new TopicStoreError(`No Now entry ${id} on "${topic.name}"; \`takode scribe changes\` lists them.`, 404);
-    return entry;
-  }
-
-  /** Entries marked done more than a day ago are dropped. */
-  private prunedNow(topic: StoredTopic): StoredNowEntry[] {
-    return (topic.now ?? []).filter((entry) => entry.doneAt === undefined || this.now() - entry.doneAt <= DONE_KEPT_MS);
-  }
-
-  private nowChanged(topic: StoredTopic): void {
+    const clean = lines
+      .map((line) =>
+        line
+          .replace(/^\s*[-*]\s+/, "")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .filter(Boolean);
+    if (clean.length > STANDS_LINES_MAX) {
+      throw new TopicStoreError(
+        `Where it stands takes at most ${STANDS_LINES_MAX} lines; keep what matters most now and fold the rest.`,
+      );
+    }
+    for (const line of clean) {
+      const length = line.replace(/\]\([^)]*\)/g, "]").length;
+      if (length > STANDS_LINE_MAX) {
+        throw new TopicStoreError(
+          `A line reads ${length} characters; keep each to one short line (${STANDS_LINE_MAX} at most) and link to the detail: "${line.slice(0, 60)}…"`,
+        );
+      }
+    }
+    const stands = { ...topic.stands };
+    if (clean.length) stands[leaderId] = { lines: clean, at: this.now() };
+    else delete stands[leaderId];
+    topic.stands = Object.keys(stands).length ? stands : undefined;
+    if (topic.now) {
+      topic.now = topic.now.filter((entry) => entry.leaderId !== leaderId);
+      if (!topic.now.length) delete topic.now;
+    }
     topic.updatedAt = this.now();
     this.dirty = true;
+    return clean;
+  }
+
+  /** A leader's retired Now entries still open, which its Scribe folds into where the topic stands. */
+  legacyNow(topicId: string, leaderId: string): string[] {
+    return (this.require(topicId).now ?? [])
+      .filter((entry) => !entry.doneAt && (!entry.leaderId || entry.leaderId === leaderId))
+      .map((entry) => entry.text);
   }
 
   /**
@@ -1139,45 +1156,6 @@ export class TopicStore {
         });
       }
       if (changed) this.dirty = true;
-    }
-  }
-
-  /**
-   * Pages written before Now was kept as entries: their Now bullets become entries (dated as the
-   * page tracked them, else from its save, and credited to the one leader whose Scribe wrote the
-   * page, if only one did), and the section leaves the page.
-   */
-  private moveNowOffPage(topic: StoredTopic): void {
-    if (topic.now) return;
-    const legacy = takeLegacyNow(topic.page);
-    if (!legacy) return;
-    const leaders = Object.keys(topic.coveredThrough ?? {});
-    const tracked = Object.values(topic.nowItems ?? {});
-    const at = topic.writtenAt ?? topic.updatedAt;
-    topic.now = legacy.items.map((item) => {
-      const dated = tracked.find((stored) => stored.text.endsWith(item.text));
-      return {
-        id: randomUUID().replace(/-/g, "").slice(0, 6),
-        ...item,
-        ...(leaders.length === 1 ? { leaderId: leaders[0] } : {}),
-        since: dated?.since ?? at,
-        changedAt: dated?.changedAt ?? at,
-      };
-    });
-    topic.page = legacy.page;
-    delete topic.nowItems;
-    this.dirty = true;
-  }
-
-  /**
-   * The retired "Waiting on you" group: open questions to the user now come from the notifications
-   * of the topic's quests, and what Scribes kept there are optional follow-ups.
-   */
-  private retireWaitingOnYou(topic: StoredTopic): void {
-    for (const entry of topic.now ?? []) {
-      if ((entry.group as string) !== "you") continue;
-      entry.group = "followup";
-      this.dirty = true;
     }
   }
 
@@ -1302,7 +1280,6 @@ export class TopicStore {
       pendingEvents: pendingOf(topic).filter((event) => event.kind !== "now_done").length,
       ...activityOf(topic),
       ...(latestHistoryLine(topic.page) ? { latestUpdate: latestHistoryLine(topic.page) } : {}),
-      openNow: this.prunedNow(topic).filter((entry) => entry.doneAt === undefined).length,
       ...(this.threadRefs(topic.id).length ? { threads: this.threadRefs(topic.id) } : {}),
     };
   }
@@ -1435,33 +1412,6 @@ function normalizeName(name: string): string {
 
 function eventKey(event: TopicEvent): string {
   return `${event.at}|${event.kind}|${event.questId ?? ""}|${event.messageIndex ?? ""}`;
-}
-
-/** A Now entry as a command gives it. */
-interface NowInput {
-  group: NowGroup;
-  who?: string;
-  text: string;
-  /** "YYYY-MM-DD". */
-  due?: string;
-}
-
-function checkNow(input: NowInput): NowInput {
-  if (!NOW_GROUPS.includes(input.group)) {
-    throw new TopicStoreError(`Unknown group "${input.group}"; use one of ${NOW_GROUPS.join(", ")}.`);
-  }
-  const text = input.text.trim();
-  if (!text) throw new TopicStoreError("Say what the item is.");
-  const who = input.who?.trim();
-  if (input.group === "waiting" && !who) throw new TopicStoreError("Say whom it waits on (--who).");
-  if (input.due && !/^\d{4}-\d{2}-\d{2}$/.test(input.due))
-    throw new TopicStoreError("Give the due date as YYYY-MM-DD.");
-  return {
-    group: input.group,
-    text,
-    ...(input.group === "waiting" && who ? { who } : {}),
-    ...(input.due ? { due: input.due } : {}),
-  };
 }
 
 function publicChange(change: StoredChange): TopicChange {

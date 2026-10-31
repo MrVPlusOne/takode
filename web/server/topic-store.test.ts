@@ -215,15 +215,12 @@ describe("topic store", () => {
       "QA data.\n\n## History\n- **Oct 24** · Mix tuned ([q-2](quest:q-2)).\n- **Oct 23** · Older.",
       now,
     );
-    store.addNow(t7.id, { group: "followup", text: "pick the **SBV** grading ([q-1](quest:q-1))." });
-    store.addNow(t7.id, { group: "next", text: "the verdict." });
 
     const [first, second] = store.list("MSI");
     expect(first).toMatchObject({
       name: "T7 run",
       activityAt: NOW + 2000,
       latestActivity: { text: "q-1 finished", questId: "q-1" },
-      openNow: 2,
     });
     expect(second).toMatchObject({
       name: "Seeded QA",
@@ -580,7 +577,8 @@ describe("topic service", () => {
       },
     });
     service.topicCreated(topic.id, "leader");
-    await vi.advanceTimersByTimeAsync(0);
+    // Like the leader's other activity, it waits a few minutes for a burst to settle.
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(injected.at(-1)?.text).toContain("Your leader started new topics");
     expect(injected.at(-1)?.text).toContain('- "Eval stalls"');
     expect(store.topicsToReview("leader")).toEqual([]);
@@ -680,14 +678,14 @@ describe("topic service", () => {
     injected.length = 0;
     vi.advanceTimersByTime(1000);
 
-    // The user's messages in the quest's tab go out after a short pause (a burst becomes one
+    // The user's messages in the quest's tab go out after a few minutes' pause (a burst becomes one
     // message), with links to the messages.
     leader.messageHistory.push(userMessage("Keep 0.02, launch now", "q-2713", Date.now()));
     leader.messageHistory.push(userMessage("unrelated", "main", Date.now()));
     service.sessionSaved("leader");
     await vi.advanceTimersByTimeAsync(0);
     expect(injected).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(injected).toHaveLength(1);
     expect(injected[0]).toMatchObject({ sessionId: scribe });
     expect(injected[0].text).toContain('the user wrote in q-2713 ([message](session:7:0)): "Keep 0.02, launch now"');
@@ -697,7 +695,7 @@ describe("topic service", () => {
     busy.add(scribe);
     leader.messageHistory.push(userMessage("Also redo the plots by data", "q-2713", Date.now()));
     service.sessionSaved("leader");
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(injected).toHaveLength(1);
     vi.advanceTimersByTime(10);
     writePage(store, "T7 run");
@@ -822,10 +820,11 @@ describe("topic service", () => {
     expect(injected.at(-1)?.text).toContain("none of 1 recent quests is under a topic yet");
   });
 
-  it("hears about checks ticked and notes the user or leader adds to a quest, not workers' write-ups", async () => {
-    // Something the user resolves elsewhere reaches the topic as a ticked check or a leader's note
-    // on the quest; the first look at a quest only records where it stands.
-    const { service, injected, store } = await setupService();
+  it("hears about notes the user or leader adds to a quest with its next message, not ticked checks or write-ups", async () => {
+    // Something the user resolves elsewhere reaches the topic as a leader's note on the quest. A
+    // note doesn't wake the Scribe (it goes with the next message), one that repeats a message of
+    // the user's it already has is skipped, and ticked review checks stay with the quest.
+    const { service, injected, store, leader } = await setupService();
     const scribe = await enable(service, store, "leader");
     const topic = store.assign({
       questId: "q-1",
@@ -851,153 +850,165 @@ describe("topic service", () => {
     expect(store.detail(topic.topic.id).events.filter((event) => event.kind === "note")).toHaveLength(0);
 
     injected.length = 0;
+    leader.messageHistory.push(userMessage("Drop the old CSV export, nobody uses it anymore", "q-1", Date.now()));
+    service.sessionSaved("leader");
     service.questChanged(
       quest(true, [
         userNote,
         { author: "agent", text: "Work done", ts: NOW, authorSessionId: "worker", kind: "phase_summary" },
         { author: "agent", text: "Worker comment", ts: NOW, authorSessionId: "worker" },
         { author: "agent", text: "The user says the old export no longer matters", ts: NOW, authorSessionId: "leader" },
+        {
+          author: "human",
+          text: "Jiayi (Oct 30), verbatim: Drop the old CSV export, nobody uses it anymore",
+          ts: NOW,
+          authorSessionId: "leader",
+        },
       ]),
     );
-    await vi.advanceTimersByTimeAsync(0);
     const events = store.detail(topic.topic.id).events;
-    expect(events.filter((event) => event.kind === "check").map((event) => event.text)).toEqual([
-      "Try it on the phone",
-    ]);
+    expect(events.some((event) => event.kind === "check")).toBe(false);
     expect(events.filter((event) => event.kind === "note").map((event) => event.text)).toEqual([
       "The user says the old export no longer matters",
     ]);
-    expect(injected[0]!.text).toContain('in q-1, a check for the user was ticked: "Try it on the phone"');
-  });
-
-  it("keeps Now as entries a Scribe adds, edits and removes, and passes a done mark to the Scribe", async () => {
-    const { service, injected, store } = await setupService();
-    const scribe = await enable(service, store, "leader");
-    const { topic } = store.assign({
-      questId: "q-1",
-      space: "MSI",
-      name: "T7 run",
-      by: "agent",
-      byAgent: true,
-      leaderId: "leader",
-    });
-    await service.scribeTurnEnded(scribe);
-    now = NOW;
-    store.writePage(topic.id, "T7.\n\n## History\n- Oct 23", NOW, { leaderId: "leader" });
-    const twin = store.addNow(topic.id, {
-      group: "next",
-      text: "compare with the twin ([q-1](quest:q-1)).",
-      leaderId: "leader",
-    });
-    expect(twin).toMatchObject({ group: "next", leaderId: "leader", questIds: ["q-1"], since: NOW });
-    expect(() => store.addNow(topic.id, { group: "waiting", text: "images" })).toThrow(/whom it waits on/);
-
-    // Editing keeps the date; an event of a linked quest is news about it.
-    now = NOW + 3 * DAY;
-    store.editNow(topic.id, twin.id, { text: "compare with the 256K twin ([q-1](quest:q-1)).", due: "2026-11-06" });
-    expect(store.nowEntries(topic.id)[0]).toMatchObject({ since: NOW, lastNews: NOW + 3 * DAY, due: "2026-11-06" });
-    now = NOW + 4 * DAY;
-    store.addEvent(topic.id, { at: now, kind: "artifact", questId: "q-1", text: "report" });
-    expect(store.nowEntries(topic.id)[0]!.lastNews).toBe(NOW + 4 * DAY);
-
-    // A done tap needs no Scribe round: the event waits to ride along with the next message, the
-    // entry stays struck through for a day (Undo), and then it is gone.
-    const budgets = store.addNow(topic.id, { group: "next", text: "ask about budgets.", leaderId: "leader" });
-    injected.length = 0;
-    service.nowDone(topic.id, "leader", budgets.id);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(injected).toHaveLength(0);
-    expect(store.nowEntries(topic.id).find((entry) => entry.id === budgets.id)!.doneAt).toBe(now);
-    expect(store.list("MSI").find((t) => t.id === topic.id)!.pendingEvents).toBe(1); // the artifact, not the tap
-    service.nowDone(topic.id, "leader", budgets.id, false);
-    expect(store.nowEntries(topic.id).find((entry) => entry.id === budgets.id)!.doneAt).toBeUndefined();
-    service.nowDone(topic.id, "leader", budgets.id);
-    service.artifactSaved({ sessionId: "leader", threadKey: "q-1", title: "Plots", kind: "figure", version: 1 });
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(injected).toHaveLength(1);
-    expect(injected[0]!.text).toContain(`the user marked Now entry ${budgets.id} done on the page`);
-    expect(injected[0]!.text).toContain('figure "Plots" was saved in q-1');
-    now = NOW + 6 * DAY;
-    expect(store.nowEntries(topic.id).map((entry) => entry.id)).toEqual([twin.id]);
+    expect(injected[0]!.text).toContain('note on q-1: "The user says the old export no longer matters"');
+    expect(injected[0]!.text).not.toContain("Try it on the phone");
+  });
+  it("keeps where a topic stands per leader: a few short lines a Scribe rewrites, folding in its old Now", async () => {
+    // The Now lists went stale and asked the user to tick items off. Where it stands is rewritten
+    // whole on every update: at most three lines, each one short line.
+    const store = await newStore();
+    const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true });
+    const raw = store as unknown as { s(): { topics: Record<string, { now?: object[] }> } };
+    raw.s().topics[topic.id]!.now = [
+      { group: "next", text: "compare with the twin", leaderId: "leader" },
+      { group: "try", text: "the panel on the phone", leaderId: "other" },
+      { group: "next", text: "done long ago", leaderId: "leader", doneAt: NOW },
+    ];
+    expect(store.legacyNow(topic.id, "leader")).toEqual(["compare with the twin"]);
 
-    expect(store.removeNow(topic.id, twin.id)).toContain("256K twin");
-    expect(store.nowEntries(topic.id)).toEqual([]);
+    expect(() => store.setStands(topic.id, "leader", ["a", "b", "c", "d"])).toThrow(/at most 3 lines/);
+    expect(() => store.setStands(topic.id, "leader", ["x".repeat(111)])).toThrow(/one short line/);
+    // Links count as their text, and list bullets are dropped.
+    const linked = `Waits on the twin's evals ([q-1](quest:q-1)) ${"·".repeat(60)}`;
+    expect(store.setStands(topic.id, "leader", [`- ${linked}`, "  "])).toEqual([linked]);
+    // Writing it takes in that leader's old Now entries; the other leader's stay for its Scribe.
+    expect(store.legacyNow(topic.id, "leader")).toEqual([]);
+    expect(store.legacyNow(topic.id, "other")).toEqual(["the panel on the phone"]);
+
+    now = NOW + 1000;
+    store.setStands(topic.id, "other", ["Twin evals running"]);
+    expect(store.stands(topic.id, "other").map((stand) => stand.leaderId)).toEqual(["other", "leader"]);
+    expect(store.stands(topic.id, "leader")[0]).toEqual({ leaderId: "leader", lines: [linked], at: NOW });
+    // A rewrite replaces it whole; no lines clear it.
+    store.setStands(topic.id, "leader", []);
+    expect(store.stands(topic.id).map((stand) => stand.leaderId)).toEqual(["other"]);
   });
 
-  it("moves the Now section of pages written before entries into entries, once, at load", async () => {
-    // Pages saved before Now was kept as entries carry it as text; at load it becomes entries
-    // credited to the one leader whose Scribe wrote the page, and leaves the page.
-    const root = await mkdtemp(join(tmpdir(), "topics-now-"));
-    const first = new TopicStore(root, () => NOW);
-    await first.load();
-    const { topic } = first.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true });
-    first.writePage(
-      topic.id,
-      "T7.\n\n## Now\n- **Waiting on Parsewave:** images ([q-1](quest:q-1)).\n- **Not tried on your iPhone:** the panel.\n- **Asked:** track formal methods.\n\n## History\n- Oct 23",
-      NOW,
-      { leaderId: "leader" },
+  it("passes a Scribe's loose ends to its leader, a few times a day at most", async () => {
+    // The Scribe works for the leader: requests with no answer or promises not kept reach the
+    // leader as one short message, never the user, and can't flood it.
+    const { service, notices, store } = await setupService();
+    await enable(service, store, "leader");
+    expect(() => service.tellLeader("leader", ["x".repeat(161)])).toThrow(/one line/);
+    expect(() => service.tellLeader("leader", ["a", "b", "c", "d", "e", "f"])).toThrow(/At most 5/);
+    expect(service.tellLeader("leader", ["- The restart you promised after q-12 landed hasn't happened"])).toBe(true);
+    expect(notices.at(-1)).toEqual({
+      leaderId: "leader",
+      text: expect.stringContaining(
+        "noticed loose ends:\n- The restart you promised after q-12 landed hasn't happened",
+      ),
+    });
+    expect(service.tellLeader("leader", ["two"])).toBe(true);
+    expect(service.tellLeader("leader", ["three"])).toBe(true);
+    expect(service.tellLeader("leader", ["four"])).toBe(false);
+    expect(notices).toHaveLength(3);
+    // A new day starts the count again.
+    now = NOW + DAY;
+    vi.setSystemTime(NOW + DAY);
+    expect(service.tellLeader("leader", ["next day"])).toBe(true);
+  });
+  it("tells the Scribe what the user told other leaders since its last message, once", async () => {
+    // Jiayi handled a follow-up through another leader and the page kept listing it: the Scribe saw
+    // only its own leader. Each message now brings the user's messages to the other leaders.
+    const { service, injected, store, leader, sessions } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    await service.scribeTurnEnded(scribe);
+    const other = sessions.get("other")!;
+    other.messageHistory.push(userMessage("Republish the Lean tutorial with slides: true", "q-9", Date.now() - 1000));
+    injected.length = 0;
+    leader.messageHistory.push(userMessage("Keep 0.02", "q-1", Date.now()));
+    service.sessionSaved("leader");
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain("What the user told other leaders meanwhile");
+    expect(injected[0]!.text).toContain(
+      'to #9 in q-9 ([message](session:9:0)): "Republish the Lean tutorial with slides: true"',
     );
-    await first.flush();
-    const raw = JSON.parse(await readFile(join(root, "topics.json"), "utf-8"));
-    delete raw.topics[topic.id].now;
-    await writeFile(join(root, "topics.json"), JSON.stringify(raw));
+    writePage(store, "T7 run");
+    await service.scribeTurnEnded(scribe);
 
-    const second = new TopicStore(root, () => NOW + DAY);
-    await second.load();
-    expect(second.detail(topic.id).page).toBe("T7.\n\n## History\n- Oct 23");
-    expect(
-      second.nowEntries(topic.id).map(({ group, who, text, leaderId }) => ({ group, who, text, leaderId })),
-    ).toEqual([
-      { group: "waiting", who: "Parsewave", text: "images ([q-1](quest:q-1)).", leaderId: "leader" },
-      { group: "try", who: undefined, text: "the panel.", leaderId: "leader" },
-      { group: "next", who: undefined, text: "Asked: track formal methods.", leaderId: "leader" },
-    ]);
-    await rm(root, { recursive: true, force: true });
+    // Already told: the next message doesn't repeat it, and such messages never wake the Scribe alone.
+    other.messageHistory.push(userMessage("Thanks", "main", Date.now() + 10));
+    expect(await service.deliver("leader")).toBe("nothing");
+    vi.advanceTimersByTime(60_000);
+    leader.messageHistory.push(userMessage("Launch now", "q-1", Date.now()));
+    service.sessionSaved("leader");
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(injected).toHaveLength(2);
+    expect(injected[1]!.text).toContain('"Thanks"');
+    expect(injected[1]!.text).not.toContain("Republish");
   });
+  it("starts a fresh Scribe once its conversation is a day old, at its next message", async () => {
+    // Its state lives in the topics, and every turn of a long conversation carries all of it again.
+    const { service, injected, store, created, retired, leader } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    await service.scribeTurnEnded(scribe);
+    const say = async (text: string) => {
+      leader.messageHistory.push(userMessage(text, "q-1", Date.now()));
+      service.sessionSaved("leader");
+      await vi.advanceTimersByTimeAsync(3 * 60_000);
+    };
+    await say("Keep 0.02");
+    expect(created).toEqual(["scribe-leader-1"]);
+    writePage(store, "T7 run");
+    await service.scribeTurnEnded(scribe);
 
-  it("turns stored Waiting on you entries into Follow-ups at load, and saves that", async () => {
-    // Open questions to the user now come from notifications; what Scribes kept under the retired
-    // "you" group are optional follow-ups. Each entry keeps its ID, text and dates.
-    const root = await mkdtemp(join(tmpdir(), "topics-followups-"));
-    const first = new TopicStore(root, () => NOW);
-    await first.load();
-    const { topic } = first.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true });
-    const entry = first.addNow(topic.id, { group: "next", text: "set up the hosts." });
-    first.addNow(topic.id, { group: "next", text: "the verdict." });
-    await first.flush();
-    const raw = JSON.parse(await readFile(join(root, "topics.json"), "utf-8"));
-    raw.topics[topic.id].now[0].group = "you";
-    await writeFile(join(root, "topics.json"), JSON.stringify(raw));
-
-    const second = new TopicStore(root, () => NOW);
-    await second.load();
-    expect(second.nowEntries(topic.id).map(({ id, group }) => ({ id, group }))).toEqual([
-      { id: entry.id, group: "followup" },
-      { id: expect.any(String), group: "next" },
-    ]);
-    await second.flush();
-    const saved = JSON.parse(await readFile(join(root, "topics.json"), "utf-8"));
-    expect(saved.topics[topic.id].now[0].group).toBe("followup");
-    await rm(root, { recursive: true, force: true });
+    vi.advanceTimersByTime(21 * 60 * 60_000);
+    now = Date.now();
+    await say("Launch now");
+    // Lets the delivery the timer started finish (it saves the store on the way).
+    await service.deliver("leader");
+    expect(created).toEqual(["scribe-leader-1", "scribe-leader-2"]);
+    expect(retired).toEqual(["scribe-leader-1"]);
+    expect(injected.at(-1)).toMatchObject({
+      sessionId: "scribe-leader-2",
+      text: expect.stringContaining("Launch now"),
+    });
   });
-
   it("starts a Scribe on its leader's machine and moves one started elsewhere at its next message", async () => {
     // A leader on a remote host gets its Scribe there. A Scribe started on another machine (before
     // Scribes followed their leader) is replaced at its next message; the old one is archived only
     // after the new one starts, so a machine that can't start one leaves the old Scribe working.
-    const { service, injected, store, created, retired, leaderHosts, unstartable } = await setupService();
+    const { service, injected, store, created, retired, leaderHosts, unstartable, leader } = await setupService();
     const scribe = await enable(service, store, "leader");
     expect(scribe).toBe("scribe-leader-1");
     store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
     await service.scribeTurnEnded(scribe);
-    const artifact = (title: string) =>
-      service.artifactSaved({ sessionId: "leader", threadKey: "q-1", title, kind: "figure", version: 1 });
+    const artifact = (title: string) => {
+      leader.messageHistory.push(userMessage(title, "q-1", Date.now()));
+      service.sessionSaved("leader");
+    };
 
     // The leader's laptop can't start one now: the old Scribe keeps working.
     leaderHosts.set("leader", "laptop");
     unstartable.add("laptop");
     artifact("First");
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(created).toEqual(["scribe-leader-1"]);
     expect(retired).toEqual([]);
     expect(injected.at(-1)).toMatchObject({ sessionId: "scribe-leader-1", text: expect.stringContaining("First") });
@@ -1024,10 +1035,10 @@ describe("topic service", () => {
     expect(injected.at(-1)).toMatchObject({ sessionId: "scribe-leader-2", text: expect.stringContaining("Third") });
   });
 
-  it("sends the leader's first event at once, debounces a burst, and debounces the user's own", async () => {
-    // A Scribe round per event wastes work: a burst becomes one message after a 30-second pause,
-    // the leader's first event after a quiet spell goes at once, and nothing waits over 2 minutes.
-    const { service, injected, store } = await setupService();
+  it("batches events over a few minutes, and lets saved artifacts ride along with the next message", async () => {
+    // A Scribe round per event wastes work: a burst becomes one message after a 3-minute pause, and
+    // nothing waits over 10 minutes. An artifact rarely changes a page, so it never wakes the Scribe.
+    const { service, injected, store, leader } = await setupService();
     const scribe = await enable(service, store, "leader");
     const { topic } = store.assign({
       questId: "q-1",
@@ -1039,28 +1050,36 @@ describe("topic service", () => {
     });
     await service.scribeTurnEnded(scribe);
     injected.length = 0;
-    const artifact = (title: string) =>
-      service.artifactSaved({ sessionId: "leader", threadKey: "q-1", title, kind: "figure", version: 1 });
+    const say = (text: string) => {
+      leader.messageHistory.push(userMessage(text, "q-1", Date.now()));
+      service.sessionSaved("leader");
+    };
 
-    artifact("First");
-    await vi.advanceTimersByTimeAsync(0);
+    service.artifactSaved({ sessionId: "leader", threadKey: "q-1", title: "Plots", kind: "figure", version: 1 });
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+    expect(injected).toHaveLength(0);
+
+    say("First");
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    say("Second");
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(injected).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain('"First"');
+    expect(injected[0]!.text).toContain('"Second"');
+    expect(injected[0]!.text).toContain('figure "Plots" was saved in q-1');
     writePage(store, "T7 run");
     await service.scribeTurnEnded(scribe);
 
-    // A burst right after: one message once the burst pauses.
-    artifact("Second");
-    await vi.advanceTimersByTimeAsync(20_000);
-    artifact("Third");
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(injected).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(10_000);
+    // A steady trickle still goes within 10 minutes.
+    for (let minute = 0; minute < 12; minute += 2) {
+      say(`Trickle ${minute}`);
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+    }
     expect(injected).toHaveLength(2);
-    expect(injected[1]!.text).toContain('figure "Second"');
-    expect(injected[1]!.text).toContain('figure "Third"');
-    expect(store.detail(topic.id).events.at(-1)?.kind).toBe("artifact");
+    expect(store.detail(topic.id).events.at(-1)?.kind).toBe("message");
   });
-
   it("tells the Scribe every time a reopened quest finishes again, with its wrap-up", async () => {
     // Each landing completes a reopened quest; only the first completion used to reach the Scribe,
     // so pages kept saying work was waiting to land after it was live.
@@ -1103,11 +1122,11 @@ describe("topic service", () => {
       byAgent: true,
       leaderId: "leader",
     });
-    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
     injected.length = 0;
 
     service.setPageRequests(topic.id, "leader", "  Keep links to the two newest reports at the top. ");
-    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(store.detail(topic.id).instructions).toBe("Keep links to the two newest reports at the top.");
     expect(injected.at(-1)?.text).toContain(
       `the user's requests for this page are now: "Keep links to the two newest reports at the top."`,
@@ -1115,13 +1134,14 @@ describe("topic service", () => {
 
     injected.length = 0;
     service.setPageRequests(topic.id, "leader", "Also a status table.", true);
-    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(store.detail(topic.id).instructions).toBe("Also a status table.");
     expect(injected).toEqual([]);
   });
 
-  it("tells the Scribe which checks a finished quest left for the user", async () => {
-    // Unticked checks are often what Now needs ("try it on the phone", "send the guide").
+  it("leaves the checks a finished quest left for the user with the quest", async () => {
+    // Copied into the page they became chores; the quest keeps them, and the page's quest log
+    // shows its wrap-up.
     const { service, injected, store } = await setupService();
     await enable(service, store, "leader");
     store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
@@ -1131,18 +1151,13 @@ describe("topic service", () => {
       title: "Launch T7",
       status: "done",
       leaderSessionId: "leader",
-      verificationItems: [
-        { text: "Check the dashboard on the phone", checked: false },
-        { text: "Restart the server", checked: true },
-      ],
+      debriefTldr: "Launched.",
+      verificationItems: [{ text: "Check the dashboard on the phone", checked: false }],
     } as unknown as QuestmasterTask);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(injected[0]!.text).toContain(
-      "q-1 finished: Launch T7 · left for the user: Check the dashboard on the phone",
-    );
-    expect(injected[0]!.text).not.toContain("Restart the server");
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(injected[0]!.text).toContain("q-1 finished: Launch T7 · Launched.");
+    expect(injected[0]!.text).not.toContain("Check the dashboard");
   });
-
   it("asks a Scribe once to rewrite pages written in an older format", async () => {
     // Pages from before the current page format stay as written until the Scribe is asked; it is
     // asked once (at startup), and a Scribe that initializes writes the current format already.
@@ -1155,8 +1170,8 @@ describe("topic service", () => {
     service.askOutdatedScribes();
     await vi.advanceTimersByTimeAsync(0);
     expect(injected).toHaveLength(1);
-    expect(injected[0]!.text).toContain("Rewrite each page of your leader's topics");
-    expect(injected[0]!.text).toContain("bring its Now entries in line with what its quests left open");
+    expect(injected[0]!.text).toContain("this asks for one change on each of your leader's topics");
+    expect(injected[0]!.text).toContain("write where it stands with `takode scribe stands <topic>`");
 
     // A turn that rewrote nothing gets a reminder naming the pages left; the request stands.
     vi.advanceTimersByTime(10);

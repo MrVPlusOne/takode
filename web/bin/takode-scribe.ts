@@ -1,5 +1,4 @@
 import type { OverviewOrder, ScribeOverview, TopicRenameSuggestion } from "../shared/library-topics.js";
-import { type NowEntry, nowGroupLabel } from "../shared/topic-now-items.js";
 import { formatArtifactLink } from "../shared/artifact-library.js";
 import { parseActivityTime } from "./takode-activity.js";
 import { apiDelete, apiGet, apiPatch, apiPost, err, parseFlags, readOptionTextFile } from "./takode-core.js";
@@ -26,11 +25,11 @@ For the Scribe:
   takode scribe write-page <topic> --file <path>|-     Save the whole page
   takode scribe write-page <topic> --unchanged         Nothing on the page needs to change: mark
                                                        what changes showed as read
-  takode scribe now add <topic> --group <group> [--who "<who>"] [--due YYYY-MM-DD] "<text>"
-                                                       Add a Now entry for your leader's work; groups:
-                                                       waiting (needs --who), progress, next, followup, try
-  takode scribe now edit <topic> <id> [--group <group>] [--who "<who>"] [--due YYYY-MM-DD] ["<text>"]
-  takode scribe now remove <topic> <id>                It is done or no longer matters
+  takode scribe stands <topic> --file <path>|-        Where the topic stands for your leader's work:
+                                                       one to three short lines, replacing the last
+                                                       ones (an empty file clears them)
+  takode scribe loose-ends --file <path>|-             Tell your leader about loose ends, one line
+                                                       each (a few messages a day at most)
   takode scribe overview                               What your leader's overview lists now, and
                                                        your last order for it
   takode scribe overview set --file <path>|-           Save the order, most urgent first: one line
@@ -55,8 +54,26 @@ export async function handleScribe(base: string, args: string[]): Promise<void> 
       else console.log(formatScribeStatus(status));
       return;
     }
-    case "now": {
-      console.log(await handleNow(base, positionals, flags, pagePath));
+    case "stands": {
+      const usage = "takode scribe stands <topic> --file <path>|-";
+      const ref = need(positionals[0], usage);
+      if (typeof flags.file !== "string") err(`Usage: ${usage}`);
+      const lines = lineList(await readOptionTextFile(flags.file, "--file"));
+      const saved = (await apiPost(base, `${pagePath(ref)}/stands`, { lines })) as { lines: string[] };
+      console.log(
+        saved.lines.length ? `Saved where it stands (${saved.lines.length} lines).` : "Cleared where it stands.",
+      );
+      return;
+    }
+    case "loose-ends": {
+      if (typeof flags.file !== "string") err("Usage: takode scribe loose-ends --file <path>|-");
+      const lines = lineList(await readOptionTextFile(flags.file, "--file"));
+      const { sent } = (await apiPost(base, `/scribe/loose-ends${leaderQuery}`, { lines })) as { sent: boolean };
+      console.log(
+        sent
+          ? `Told your leader about ${lines.length} loose end${lines.length === 1 ? "" : "s"}.`
+          : "Not sent: today's loose-ends messages are used up. Keep the rest for tomorrow if they still matter.",
+      );
       return;
     }
     case "overview": {
@@ -183,7 +200,9 @@ interface TopicChangesResponse {
   instructions?: string;
   /** The user's lasting requests for this topic's page. */
   pageRequests?: string;
-  now: Array<NowEntry & { yours: boolean }>;
+  stands: Array<{ lines: string[]; at: number; leaderNum: number | null; yours: boolean }>;
+  /** Your leader's retired Now entries, to fold into where the topic stands. */
+  oldNow: string[];
   events: Array<{
     at: number;
     kind: string;
@@ -212,7 +231,7 @@ function formatChanges(response: TopicChangesResponse): string {
     ...(response.instructions
       ? ["## The user's instructions for all topics (follow them)", response.instructions, ""]
       : []),
-    "## Quests (what each left open is the source for Now)",
+    "## Quests",
     ...response.quests.flatMap((quest) => [
       `- [${quest.questId}](quest:${quest.questId}) ${quest.completedAt ? `done ${new Date(quest.completedAt).toLocaleDateString()}` : quest.status}: ${quest.title}`,
       ...(quest.checksLeft ?? []).map((check) => `  - Left for the user (unticked): ${check}`),
@@ -237,8 +256,22 @@ function formatChanges(response: TopicChangesResponse): string {
         )
       : ["- none"]),
     "",
-    "## Now (entries; change them with `takode scribe now`)",
-    ...(response.now.length ? response.now.map(formatNowEntry) : ["- none"]),
+    "## Where it stands (yours; replace it with `takode scribe stands`)",
+    ...(response.stands.find((stand) => stand.yours)?.lines.map((line) => `- ${line}`) ?? ["- not written yet"]),
+    ...response.stands
+      .filter((stand) => !stand.yours)
+      .flatMap((stand) => [
+        ``,
+        `Leader #${stand.leaderNum ?? "?"}'s Scribe wrote:`,
+        ...stand.lines.map((line) => `- ${line}`),
+      ]),
+    ...(response.oldNow.length
+      ? [
+          "",
+          "## Your old Now entries (retired: fold what is still open and true into where it stands; they go once you write it)",
+          ...response.oldNow.map((text) => `- ${text}`),
+        ]
+      : []),
     "",
     "## Current page",
     response.page ?? "(no page yet)",
@@ -293,58 +326,10 @@ export function parseOverviewOrder(text: string): Array<{ key: string; note?: st
     });
 }
 
-function formatNowEntry(entry: TopicChangesResponse["now"][number]): string {
-  const facts = [
-    entry.yours ? "" : `from leader #${entry.leaderNum ?? "?"}`,
-    entry.due ? `due ${entry.due}` : "",
-    entry.doneAt ? "the user marked it done" : "",
-    `since ${new Date(entry.since).toLocaleDateString()}`,
-  ].filter(Boolean);
-  return `- ${entry.id} · ${nowGroupLabel(entry)}: ${entry.text} (${facts.join(", ")})`;
-}
-
-/** A Now entry past one short line reads as a wall of text in the side column. */
-const NOW_ENTRY_SHORT = 100;
-
-function longNowWarning(text: string): string {
-  const length = text.replace(/\]\([^)]*\)/g, "]").length;
-  return length > NOW_ENTRY_SHORT
-    ? `\nWarning: this entry reads ${length} characters. Keep each to one short line (about ${NOW_ENTRY_SHORT}) and link to the detail: edit it with \`takode scribe now edit\`.`
-    : "";
-}
-
-/** `takode scribe now add|edit|remove`: one line saying what changed. */
-async function handleNow(
-  base: string,
-  positionals: string[],
-  flags: Record<string, string | boolean>,
-  pagePath: (ref: string) => string,
-): Promise<string> {
-  const [action, topic, ...more] = positionals;
-  const usage = "takode scribe now add|edit|remove <topic> ... (see takode scribe --help)";
-  if (!topic) err(`Usage: ${usage}`);
-  const fields = {
-    ...(typeof flags.group === "string" ? { group: flags.group } : {}),
-    ...(typeof flags.who === "string" ? { who: flags.who } : {}),
-    ...(typeof flags.due === "string" ? { due: flags.due } : {}),
-  };
-  if (action === "add") {
-    const entry = (await apiPost(base, `${pagePath(topic)}/now`, { ...fields, text: more.join(" ") })) as NowEntry;
-    return `Added ${entry.id} under ${nowGroupLabel(entry)}.${longNowWarning(entry.text)}`;
-  }
-  const id = more[0];
-  if (!id) err(`Usage: ${usage}`);
-  if (action === "edit") {
-    const text = more.slice(1).join(" ");
-    const entry = (await apiPatch(base, `${pagePath(topic)}/now/${encodeURIComponent(id)}`, {
-      ...fields,
-      ...(text ? { text } : {}),
-    })) as NowEntry;
-    return `Updated ${entry.id} (${nowGroupLabel(entry)}).${longNowWarning(entry.text)}`;
-  }
-  if (action === "remove") {
-    await apiDelete(base, `${pagePath(topic)}/now/${encodeURIComponent(id)}`);
-    return `Removed ${id}.`;
-  }
-  return err(`Usage: ${usage}`);
+/** Non-empty lines of a file, without list bullets. */
+export function lineList(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-*] +/, ""))
+    .filter(Boolean);
 }

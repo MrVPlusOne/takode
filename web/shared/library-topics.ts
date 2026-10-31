@@ -4,7 +4,6 @@
  * leader, a worker in its herd). Topics and their pages are opt-in per leader.
  * Shared by the server, the browser and the `takode topic` and `takode scribe` commands.
  */
-import type { NowEntry } from "./topic-now-items.js";
 
 /** Who named a topic: names the user chose are never changed automatically. */
 export type TopicNameSource = "user" | "agent";
@@ -31,8 +30,6 @@ export interface TopicSummary {
   latestActivity?: { at: number; text: string; questId?: string };
   /** The newest line of the page's History, as plain text. */
   latestUpdate?: string;
-  /** How many Now entries are open. */
-  openNow: number;
   /**
    * In a list for one leader: when the user and the topic last dealt with each other there (the user
    * wrote in it, or the leader answered or asked them in it, or one of its quests finished), the rule
@@ -79,7 +76,8 @@ export interface TopicEvent {
   at: number;
   /**
    * check: a User review check of a quest was ticked; note: the user's or leader's note on a
-   * quest; now_done: the user marked a Now item done on the page; page_request: the user's requests
+   * quest; now_done (retired, kept in older records): the user marked a Now item done on the page;
+   * page_request: the user's requests
    * for the topic's page changed; picture: an image the page shows was redrawn, or a new image
    * appeared beside it.
    */
@@ -127,13 +125,25 @@ export interface TopicDetail extends TopicSummary {
     status: string;
     /** When the quest last changed status, for listing the most recent first. */
     changedAt?: number;
+    /** When it finished, for the quest log. */
+    completedAt?: number;
+    /** A finished quest's one-line wrap-up (its debrief TLDR's first line), for the quest log. */
+    wrapUp?: string;
   }>;
-  /** The topic's Now entries, when the server includes them. */
-  now?: NowEntry[];
+  /** Where the topic stands, per leader whose Scribe wrote it, the asking leader's first. */
+  stands?: TopicStands[];
   /** When each local image the page shows was last modified, by the path the page uses. */
   pictures?: Record<string, number>;
   /** Some of those images were redrawn after the page's text was last brought up to date with them. */
   picturesNewerThanText?: boolean;
+}
+
+/** Where a topic stands for one leader's work: one to three short lines its Scribe rewrites on every update. */
+export interface TopicStands {
+  leaderId: string;
+  leaderNum?: number | null;
+  lines: string[];
+  at: number;
 }
 
 /** One line in the Library's change list; every change can be undone. */

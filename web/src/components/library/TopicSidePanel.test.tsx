@@ -20,7 +20,6 @@ vi.mock("../../utils/routing.js", async (importOriginal) => ({
 
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicListResponse, TopicSummary } from "../../../shared/library-topics.js";
-import type { NowEntry } from "../../../shared/topic-now-items.js";
 import { topicApi } from "../../api/topics.js";
 import { useStore } from "../../store.js";
 import type { SdkSessionInfo, SessionNotification } from "../../types.js";
@@ -58,7 +57,6 @@ function topic(overrides: Partial<TopicSummary>): TopicSummary {
     upToDateAt: NOW,
     pendingEvents: 2,
     activityAt: NOW,
-    openNow: 0,
     ...overrides,
   };
 }
@@ -133,18 +131,19 @@ const DETAIL: TopicDetail = {
   writtenAt: NOW,
   instructions: "",
   page: ["T7 is the 12B coding run with 384K context.", "## History\n- **Oct 23** · Step ~165."].join("\n"),
-  now: [entry({ id: "n1", text: "compare with the 256K twin at step 200." })],
+  stands: [{ leaderId: "l1", leaderNum: 2957, lines: ["Compare with the 256K twin at step 200."], at: NOW }],
   events: [],
   quests: [
-    { questId: "q-2713", title: "Launch T7", status: "done" },
+    {
+      questId: "q-2713",
+      title: "Launch T7",
+      status: "done",
+      completedAt: NOW,
+      wrapUp: "Launched; not tried on an iPhone.",
+    },
     { questId: "q-2797", title: "Twin evals", status: "in_progress" },
   ],
 };
-
-/** A Now entry of the panel's leader, added at NOW unless said otherwise. */
-function entry(fields: Partial<NowEntry> & { id: string; text: string }): NowEntry {
-  return { group: "next", leaderId: "l1", questIds: [], since: NOW, lastNews: NOW, ...fields };
-}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -269,7 +268,7 @@ describe("TopicSidePanel", () => {
     expect(screen.queryByRole("textbox", { name: "Search topics" })).toBeNull();
   });
 
-  it("follows the quest tab on screen to its topic's page: summary, open quests, Now before History", async () => {
+  it("follows the quest tab on screen to its topic's page: summary, where it stands, open quests, History", async () => {
     const api = mockApi();
     vi.mocked(artifactApi.list).mockResolvedValue({
       artifacts: [{ ...ARTIFACT, id: "a1" }],
@@ -287,9 +286,12 @@ describe("TopicSidePanel", () => {
     fireEvent.click(within(open).getByTestId("topic-section-toggle"));
     expect(open).toHaveTextContent("Twin evals · in progress");
     expect(open).not.toHaveTextContent("Launch T7");
-    const page = within(view).getByTestId("topic-page");
-    expect(page.textContent!.indexOf("compare with the 256K twin")).toBeLessThan(
-      page.textContent!.indexOf("Step ~165."),
+    // Where it stands comes first, above the page; finished quests are in the quest log.
+    expect(view.textContent!.indexOf("Compare with the 256K twin")).toBeLessThan(
+      view.textContent!.indexOf("Step ~165."),
+    );
+    expect(within(view).getByTestId("topic-quest-log")).toHaveTextContent(
+      "Launch T7: Launched; not tried on an iPhone.",
     );
     // No per-quest move menus or fix box: actions sit in the menu, fixes go through the leader.
     expect(within(view).queryByLabelText(/Move q-/)).toBeNull();
@@ -397,10 +399,9 @@ describe("TopicSidePanel", () => {
     expect(within(view).queryByTestId("topic-history-older")).toBeNull();
   });
 
-  it("folds sections at their headings, remembered per topic, and lists all quests folded at the end", async () => {
+  it("folds sections at their headings, remembered per topic, including the quest log", async () => {
     // Every section folds (a long History can be put away to reach what follows); the topic keeps
-    // what the user folded across reloads. The full quest list comes from the topic's records, not
-    // the Scribe, and starts folded since it is rarely needed.
+    // what the user folded across reloads. The quest log comes from the topic's records, not the Scribe.
     mockApi();
     vi.mocked(topicApi.get).mockResolvedValue({
       ...DETAIL,
@@ -419,20 +420,19 @@ describe("TopicSidePanel", () => {
     expect(within(view).queryByText("- Oct 23 step 165")).toBeNull();
     expect(within(view).getByText("As of Oct 24: step 215.")).toBeInTheDocument();
 
-    const all = within(view).getByTestId("topic-all-quests");
-    expect(all).toHaveTextContent("All quests · 2");
-    expect(all).not.toHaveTextContent("Launch T7");
-    fireEvent.click(within(all).getByTestId("topic-section-toggle"));
-    expect(all.textContent!.indexOf("Twin evals · in progress")).toBeLessThan(
-      all.textContent!.indexOf("Launch T7 · done"),
-    );
+    const log = within(view).getByTestId("topic-quest-log");
+    expect(log).toHaveTextContent("Quest log · 1");
+    expect(log).toHaveTextContent("Launch T7");
+    expect(log).not.toHaveTextContent("Twin evals");
+    fireEvent.click(within(log).getByTestId("topic-section-toggle"));
+    expect(log).not.toHaveTextContent("Launch T7");
 
-    // Reopened later: History stays folded and the quest list stays open, as the user left them.
+    // Reopened later: History and the quest log stay folded, as the user left them.
     unmount();
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
     const again = await screen.findByTestId("topic-view");
     expect(within(again).getByRole("button", { name: "History" })).toHaveAttribute("aria-expanded", "false");
-    expect(within(again).getByTestId("topic-all-quests")).toHaveTextContent("Launch T7 · done");
+    expect(within(again).getByTestId("topic-quest-log")).not.toHaveTextContent("Launch T7");
   });
 
   it("offers the topic view for a topic of one quest too", async () => {
@@ -444,27 +444,24 @@ describe("TopicSidePanel", () => {
     expect(view).toHaveTextContent(/1 quest\s*▾\s*· page updated/);
   });
 
-  it("dates each Now entry, mutes one with no news for a week, and marks one done for the Scribe", async () => {
-    // The page shows when each entry was added, mutes one quiet for over a week, and a done tap
-    // goes to the panel leader's Scribe.
+  it("shows where the topic stands as plain lines, nothing to tick, the panel leader's first", async () => {
+    // Jiayi: Next, Follow-ups and To try went stale and their tick buttons made chores. Where it
+    // stands is a few lines the Scribe rewrites; other leaders' lines fold below.
     mockApi();
-    const day = 24 * 60 * 60 * 1000;
     vi.mocked(topicApi.get).mockResolvedValue({
       ...DETAIL,
-      now: [
-        entry({ id: "n1", text: "compare with the twin.", since: NOW - day, lastNews: NOW - day, due: "2026-11-06" }),
-        entry({ id: "n2", text: "the QA seeds.", since: NOW - 10 * day, lastNews: NOW - 10 * day }),
+      stands: [
+        { leaderId: "l1", leaderNum: 2957, lines: ["Eval v2 waits on budget numbers"], at: NOW },
+        { leaderId: "l2", leaderNum: 2763, lines: ["Hosts check pending"], at: NOW - 1 },
       ],
     });
-    const done = vi.spyOn(topicApi, "nowDone").mockResolvedValue({ ok: true });
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
-    const items = await screen.findAllByTestId("topic-now-item");
-    expect(items[0]).toHaveTextContent("Due Nov 6 · Since");
-    expect(items[0]).not.toHaveAttribute("data-stale");
-    expect(items[1]).toHaveTextContent("No news since");
-    expect(items[1]).toHaveAttribute("data-stale", "true");
-    fireEvent.click(within(items[1]!).getByRole("button", { name: "Mark done" }));
-    expect(done).toHaveBeenCalledWith("t7", "n2", "l1", true);
+    const stands = await screen.findByTestId("topic-stands");
+    expect(stands).toHaveTextContent("Eval v2 waits on budget numbers");
+    expect(within(stands).queryByRole("button", { name: "Mark done" })).toBeNull();
+    expect(stands).not.toHaveTextContent("Hosts check pending");
+    fireEvent.click(within(stands).getByTestId("topic-stands-others"));
+    expect(stands).toHaveTextContent("#2763 · Hosts check pending");
   });
 
   it("edits the user's requests for this page from the topic menu, for the panel leader's Scribe", async () => {
@@ -481,54 +478,33 @@ describe("TopicSidePanel", () => {
     expect(save).toHaveBeenCalledWith("t7", "Keep the two newest reports at the top.", "l1");
   });
 
-  it("shows Now after a leading Status section, in fixed groups, the panel leader's first", async () => {
-    // Now is kept as entries and placed by the page: after Status (or a Latest section), grouped
-    // in a fixed order, newest first; a shared topic's other leaders' entries fold below.
-    // Nothing in Now waits on the user (open questions come from notifications).
+  it("folds the quest log after its five newest quests", async () => {
     mockApi();
-    const day = 24 * 60 * 60 * 1000;
-    vi.mocked(topicApi.get).mockResolvedValue({
-      ...DETAIL,
-      page: "T7.\n## Status\nAs of Oct 24: step 215.\n## History\n- Oct 23",
-      now: [
-        entry({ id: "a", text: "old step.", since: NOW - 2 * day }),
-        entry({ id: "b", group: "progress", text: "the run.", since: NOW - day }),
-        entry({ id: "c", text: "new step." }),
-        entry({ id: "d", group: "waiting", who: "Parsewave", text: "images." }),
-        entry({ id: "g", group: "followup", text: "set up Open in VS Code." }),
-        entry({ id: "e", text: "send the guide.", doneAt: NOW }),
-        entry({ id: "f", text: "a hosts check.", leaderId: "l2", leaderNum: 2763 }),
-      ],
-    });
+    const quests = Array.from({ length: 7 }, (_, index) => ({
+      questId: `q-${index + 1}`,
+      title: `Quest ${index + 1}`,
+      status: "done",
+      completedAt: NOW - index * 1000,
+      wrapUp: `Wrap-up ${index + 1}`,
+    }));
+    vi.mocked(topicApi.get).mockResolvedValue({ ...DETAIL, questIds: quests.map((quest) => quest.questId), quests });
     render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
-    const now = await screen.findByTestId("topic-now");
-    const page = screen.getByTestId("topic-page").textContent!;
-    expect(page.indexOf("step 215")).toBeLessThan(page.indexOf("old step."));
-    expect(page.indexOf("old step.")).toBeLessThan(page.indexOf("Oct 23"));
-    const groups = within(now).getAllByTestId("topic-now-group");
-    expect(groups.map((group) => group.firstElementChild?.textContent)).toEqual([
-      "Waiting on Parsewave",
-      "In progress",
-      "Next",
-      "Follow-ups",
-    ]);
-    // Follow-ups are optional: shown quietly (grey), and they keep their done button.
-    const followUp = within(groups[3]!).getByTestId("topic-now-item");
-    expect(followUp).toHaveAttribute("data-quiet", "true");
-    expect(within(followUp).getByTestId("topic-now-done")).toBeInTheDocument();
-    expect(
-      within(groups[2]!)
-        .getAllByTestId("topic-now-item")
-        .map((item) => item.textContent),
-    ).toEqual([expect.stringContaining("new step."), expect.stringContaining("old step.")]);
-    const done = within(now).getAllByTestId("topic-now-item").at(-1)!;
-    expect(done).toHaveTextContent("send the guide.");
-    expect(within(done).getByText("Undo")).toBeInTheDocument();
+    const log = await screen.findByTestId("topic-quest-log");
+    expect(log).toHaveTextContent("Quest log · 7");
+    expect(log).toHaveTextContent("Quest 5: Wrap-up 5");
+    expect(log).not.toHaveTextContent("Quest 6");
+    fireEvent.click(within(log).getByTestId("topic-quest-log-older"));
+    expect(log).toHaveTextContent("Quest 7: Wrap-up 7");
+  });
 
-    expect(within(now).queryByText("a hosts check.")).toBeNull();
-    fireEvent.click(within(now).getByTestId("topic-now-others"));
-    expect(within(now).getByTestId("topic-now-others")).toHaveTextContent("From other leaders (1)");
-    expect(within(now).getByText("a hosts check.").closest("li")).toHaveTextContent("#2763 · Since");
+  it("shows a written page that is only its summary as written, not as being written", async () => {
+    // History holds only events outside quests, so a topic whose news is all finished quests has a
+    // page of just its summary sentence, with the quest log below it.
+    mockApi();
+    vi.mocked(topicApi.get).mockResolvedValue({ ...DETAIL, page: "How changes land on the shared branch." });
+    render(<TopicSidePanel leaderId="l1" threadKey="q-2713" variant="docked" />);
+    expect(await screen.findByTestId("topic-quest-log")).toHaveTextContent("Launch T7");
+    expect(screen.queryByText("The page is being written.")).toBeNull();
   });
 
   it("shows the Scribe's live status, rename suggestions to answer, and the instructions box", async () => {

@@ -271,7 +271,7 @@ describe("topic routes", () => {
     expect(listed.activityAt).toBeGreaterThan(Date.now());
   });
 
-  it("lets a Scribe add, edit and remove Now entries for its leader, and keeps Now out of the page text", async () => {
+  it("lets a Scribe write where a topic stands, and keeps it and Now out of the page text", async () => {
     const { app, store, send, setCaller } = await setup();
     const { topic } = store.assign({
       questId: "q-1",
@@ -282,34 +282,54 @@ describe("topic routes", () => {
       leaderId: "leader",
     });
     setCaller("scribe");
-    const added = await (
-      await send(`/scribe/topics/${topic.id}/now`, "POST", { group: "waiting", who: "Parsewave", text: "images" })
-    ).json();
-    expect(added).toMatchObject({ group: "waiting", who: "Parsewave", leaderId: "leader" });
-    expect((await send(`/scribe/topics/${topic.id}/now`, "POST", { group: "soon", text: "x" })).status).toBe(400);
-    const edited = await (await send(`/scribe/topics/${topic.id}/now/${added.id}`, "PATCH", { group: "next" })).json();
-    expect(edited).toMatchObject({ group: "next", text: "images" });
-
-    // The panel gets the entries with the page; the Scribe sees them, marked as its leader's.
-    setCaller("leader");
-    expect((await (await app.request(`/topics/${topic.id}`)).json()).now).toHaveLength(1);
-    setCaller("scribe");
     const read = await (await app.request(`/scribe/topics/${topic.id}/changes`)).json();
-    expect(read.now).toMatchObject([{ id: added.id, yours: true }]);
-
-    // A Now section written into the page would show twice: it is left out, with a warning.
+    expect(read.stands).toEqual([]);
     const saved = await (
+      await send(`/scribe/topics/${topic.id}/stands`, "POST", { lines: ["Waits on Parsewave's images"] })
+    ).json();
+    expect(saved).toEqual({ lines: ["Waits on Parsewave's images"] });
+    // Writing it covers what the Scribe read, like a page save.
+    expect(store.pendingEvents(topic.id, "leader")).toEqual([]);
+    expect((await send(`/scribe/topics/${topic.id}/stands`, "POST", { lines: ["a", "b", "c", "d"] })).status).toBe(400);
+    expect((await send(`/scribe/topics/${topic.id}/stands`, "POST", { text: "x" })).status).toBe(400);
+
+    // The panel gets it with the page, with its leader's number; the Scribe sees it as its own.
+    setCaller("leader");
+    expect((await (await app.request(`/topics/${topic.id}`)).json()).stands).toMatchObject([
+      { leaderId: "leader", leaderNum: 7, lines: ["Waits on Parsewave's images"] },
+    ]);
+    setCaller("scribe");
+    expect((await (await app.request(`/scribe/topics/${topic.id}/changes`)).json()).stands).toMatchObject([
+      { lines: ["Waits on Parsewave's images"], yours: true },
+    ]);
+
+    // A Now or Where it stands section written into the page would show twice: it is left out.
+    const page = await (
       await send(`/scribe/topics/${topic.id}/page`, "POST", {
-        markdown: "T7.\n\n## Now\n- **Next:** x\n\n## History\n- Oct 23",
+        markdown: "T7.\n\n## Now\n- **Next:** x\n\n## Where it stands\n- y\n\n## History\n- Oct 23",
       })
     ).json();
-    expect(saved.page).toBe("T7.\n\n## History\n- Oct 23");
-    expect(saved.warnings[0]).toContain("takode scribe now");
-
-    expect((await send(`/scribe/topics/${topic.id}/now/${added.id}`, "DELETE", {})).status).toBe(200);
-    expect(store.nowEntries(topic.id)).toEqual([]);
+    expect(page.page).toBe("T7.\n\n## History\n- Oct 23");
+    expect(page.warnings).toEqual([
+      expect.stringContaining('"Now" section was left out'),
+      expect.stringContaining('"Where it stands" section was left out'),
+    ]);
   });
 
+  it("gives the page each finished quest's one-line wrap-up for its quest log", async () => {
+    const { app, store, setCaller } = await setup();
+    const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    setCaller("leader");
+    const detail = await (await app.request(`/topics/${topic.id}`)).json();
+    expect(detail.quests).toEqual([
+      expect.objectContaining({
+        questId: "q-1",
+        status: "done",
+        completedAt: expect.any(Number),
+        wrapUp: "Launched; not tried on an iPhone.",
+      }),
+    ]);
+  });
   it("keeps the user's requests for one page, which the Scribe sees with every read of it", async () => {
     const { app, store, send, setCaller } = await setup();
     const { topic } = store.assign({
@@ -367,7 +387,6 @@ describe("topic routes", () => {
         title: "Launch T7",
         status: "done",
         completedAt: expect.any(Number),
-        checksLeft: ["Check the T7 dashboard on the phone"],
         wrapUp: "Launched; not tried on an iPhone.",
       },
     ]);
@@ -381,7 +400,7 @@ describe("topic routes", () => {
       text: "Launch T7",
     });
     const written = await send(`/scribe/topics/${topic.id}/page`, "POST", {
-      markdown: "## Where it stands\nLaunched.",
+      markdown: "T7.\n\n## History\n- Launched.",
     });
     expect(written.status).toBe(200);
     expect(store.pendingEvents(topic.id, "leader").map((event) => event.kind)).toEqual(["quest_done"]);
@@ -392,7 +411,7 @@ describe("topic routes", () => {
     const unchanged = await send(`/scribe/topics/${topic.id}/page`, "POST", { unchanged: true });
     expect(unchanged.status).toBe(200);
     expect(store.pendingEvents(topic.id, "leader")).toEqual([]);
-    expect(store.resolve(topic.id)?.page).toBe("## Where it stands\nLaunched.");
+    expect(store.resolve(topic.id)?.page).toBe("T7.\n\n## History\n- Launched.");
   });
 
   it("says where a leader last discussed a quest, for opening its topic conversation there", async () => {

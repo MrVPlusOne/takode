@@ -27,6 +27,11 @@ export interface UpdateContent {
   instructions?: string;
   /** Topics the user asked to update now (Update now). */
   forced: string[];
+  /**
+   * The user's messages to other leaders since the last message: something a page says is open
+   * may have been handled there. They don't make a message go by themselves.
+   */
+  elsewhere?: Array<{ sessionNum: number | null; at: number; index: number; threadKey: string; text: string }>;
   /** The page format changed since the Scribe wrote its pages: rewrite them all, once. */
   rewritePages?: boolean;
   /** Topics the leader started since the last message: check each is distinct enough. */
@@ -75,11 +80,30 @@ export function updateMessage(
   if (rewritePages) {
     lines.push(
       "",
-      "Your brief's page guidance changed. Rewrite each page of your leader's topics (`takode topic list` lists them) in the current format. For each one, run `takode scribe changes <topic>` first, then bring its Now entries in line with what its quests left open (unticked checks, wrap-ups) and with recent messages, using `takode scribe now`. Latest change: the side column is read at a glance. Tighten every Now entry and History line to one short line (about 100 characters) with its link instead of an explanation, fold related entries together and drop ones that no longer help the user decide. Then order your leader's overview (`takode scribe overview`). Pages stay dashboards of the topic's current state, not explanations: remove sections that explain or collect background unless the user asked for them on that page.",
+      "Your brief changed, and this asks for one change on each of your leader's topics (`takode topic list` lists them); change nothing else. The Now lists are retired: they went stale and asked the user to tick items off. For each topic, run `takode scribe changes <topic>`, then write where it stands with `takode scribe stands <topic>`: one to three short lines on what is open or waiting now, folding in whatever of its old Now entries (listed there) is still open and true; leave out what a quest or Takode already shows. Then remove History lines that only restate a finished quest (Takode lists finished quests in a quest log) and save the page; if its History has none, mark it `--unchanged`. Then order your leader's overview (`takode scribe overview`).",
     );
   }
   if (instructions) lines.push("", `The user's instructions changed: "${instructions}"`);
   if (forced.length) lines.push("", `The user asked to update now: ${forced.map((name) => `"${name}"`).join(", ")}`);
+  const elsewhere = content.elsewhere ?? [];
+  if (elsewhere.length) {
+    lines.push(
+      "",
+      "What the user told other leaders meanwhile (it may settle something a page says is open: then rewrite that line):",
+    );
+    for (const message of elsewhere) {
+      const time = new Date(message.at).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      const num = message.sessionNum ?? "?";
+      lines.push(
+        `- ${time} · to #${num} in ${message.threadKey} ([message](session:${num}:${message.index})): "${message.text}"`,
+      );
+    }
+  }
   for (const topic of topics) {
     lines.push("", `"${topic.name}" (${topic.id.slice(0, 8)}):`);
     for (const event of topic.events.slice(-MAX_EVENTS_PER_TOPIC)) lines.push(`- ${describeEvent(event, sessionNum)}`);
@@ -121,7 +145,7 @@ export function updateMessage(
   }
   lines.push(
     "",
-    "Update what these touch. `takode scribe changes <topic>` shows a page with everything not on it yet. Then order your leader's overview (`takode scribe overview`).",
+    "Update what these touch: where each topic stands (`takode scribe stands`) and its page. `takode scribe changes <topic>` shows a page with everything not on it yet. Then order your leader's overview (`takode scribe overview`), and tell your leader about loose ends if there are any (`takode scribe loose-ends`).",
   );
   return lines.join("\n");
 }
@@ -139,6 +163,16 @@ export function reminderMessage(left: string[]): string {
 /** The last message again, after the turn that took it was interrupted or failed. */
 export function retryMessage(text: string): string {
   return `Your last turn was interrupted or failed before you finished, so here is my last message again:\n\n${text}`;
+}
+
+/** For the leader: loose ends its Scribe noticed, one line each, for the leader to act on or ask about. */
+export function looseEndsNotice(scribeNum: number | null, lines: readonly string[]): string {
+  return [
+    `Your Scribe #${scribeNum ?? "?"} noticed loose ends:`,
+    ...lines.map((line) => `- ${line}`),
+    "",
+    "Act on them or ask the user; skip any that are already handled. You need not reply to the Scribe.",
+  ].join("\n");
 }
 
 /** For the leader, once, when its Scribe's turns keep failing (often its login or the model service). */

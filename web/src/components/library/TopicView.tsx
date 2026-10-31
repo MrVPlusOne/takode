@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
-import type { TopicDetail, TopicSummary } from "../../../shared/library-topics.js";
-import { NOW_ENTRY_STALE_MS, NOW_GROUPS, type NowEntry, nowGroupLabel } from "../../../shared/topic-now-items.js";
+import type { TopicDetail, TopicStands, TopicSummary } from "../../../shared/library-topics.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { topicApi } from "../../api/topics.js";
 import { openTopicLibrary } from "../../utils/library-nav.js";
@@ -10,15 +9,16 @@ import { MarkdownContent } from "../MarkdownContent.js";
 import { InlineLocalImagesContext } from "../inline-local-images.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
 import { TopicQuestPicker } from "./TopicQuestPicker.js";
-import { isLeadingSection, pageSections, TopicSection, useCollapsedSections } from "./topic-page-sections.js";
+import { pageSections, TopicSection, useCollapsedSections } from "./topic-page-sections.js";
 import { questOf, questionText, useTopicQuestions } from "./topic-questions.js";
 
 /**
  * A topic's page, for deciding what to do next and seeing what happened lately. From the top: the
- * name with its one-sentence summary, the user's open questions in its quests and the quests still
- * open (both live), the Scribe's page (Now and History, with the sections that fit the topic), then
- * two lists Takode keeps from the topic's records: the newest artifacts with a link to all of them in
- * the gallery, and every quest of the topic (folded until opened). Every section but the questions
+ * name with its one-sentence summary, where it stands (a few lines the Scribe rewrites on every
+ * update, so nothing on it needs ticking off), the user's open questions in its quests and the
+ * quests still open (both live), the Scribe's page (History, with the sections that fit the topic),
+ * then two lists Takode keeps from the topic's records: the newest artifacts with a link to all of
+ * them in the gallery, and the quest log of its finished quests. Every section but the questions
  * folds at its heading. Rename, merge and the user's requests for the page sit in a menu;
  * corrections go through the leader.
  */
@@ -27,6 +27,7 @@ const REFRESH_MS = 20_000;
 const IMAGE_REFRESH_MS = 60_000;
 const ARTIFACTS_SHOWN = 3;
 const HISTORY_SHOWN = 5;
+const QUEST_LOG_SHOWN = 5;
 
 export function TopicView({
   id,
@@ -120,6 +121,9 @@ export function TopicView({
   const { lead, body } = splitPage(detail.page);
   const quests = [...(detail.quests ?? [])].sort((a, b) => (b.changedAt ?? 0) - (a.changedAt ?? 0));
   const open = quests.filter((quest) => quest.status !== "done");
+  const finished = quests
+    .filter((quest) => quest.status === "done")
+    .sort((a, b) => (b.completedAt ?? b.changedAt ?? 0) - (a.completedAt ?? a.changedAt ?? 0));
   const questions = questionsOf(detail.questIds);
   return (
     <TopicFrame onBack={onBack} embedded={embedded}>
@@ -190,6 +194,7 @@ export function TopicView({
           )}
         </div>
         {notice && <div className="mt-1 text-[13px] text-cc-muted">{notice}</div>}
+        <WhereItStands stands={detail.stands ?? []} />
         {error && <div className="mt-1 text-[13px] text-cc-error">{error}</div>}
 
         {questions.length > 0 && (
@@ -253,16 +258,15 @@ export function TopicView({
             <InlineLocalImagesContext.Provider value={inlineImages}>
               <TopicPageBody
                 body={body}
-                entries={detail.now ?? []}
-                leaderId={leaderId}
                 sections={sections}
                 // The side column keeps the page short: the newest History lines, the rest folded.
                 historyShown={embedded ? HISTORY_SHOWN : undefined}
-                onDone={leaderId ? (id, done) => act(topicApi.nowDone(detail.id, id, leaderId, done)) : undefined}
               />
             </InlineLocalImagesContext.Provider>
           ) : (
-            <p className="text-[14px] text-cc-muted">The page is being written.</p>
+            // A written page may be just its summary: History holds only events outside quests, which
+            // the quest log below covers.
+            !detail.writtenAt && <p className="text-[14px] text-cc-muted">The page is being written.</p>
           )}
         </div>
 
@@ -301,17 +305,18 @@ export function TopicView({
           </div>
         )}
 
-        {quests.length > 0 && (
-          // Every quest of the topic, most recent first, for the rare time it's needed: folded until opened.
+        {finished.length > 0 && (
+          // The finished quests with their one-line wrap-ups, from the quests themselves: the Scribe
+          // doesn't restate them in History.
           <div className="mt-5">
             <TopicSection
-              title={`All quests · ${quests.length}`}
+              title={`Quest log · ${finished.length}`}
               size="meta"
-              collapsed={sections.isCollapsed("All quests", true)}
-              onToggle={() => sections.toggle("All quests", true)}
-              testId="topic-all-quests"
+              collapsed={sections.isCollapsed("Quest log")}
+              onToggle={() => sections.toggle("Quest log")}
+              testId="topic-quest-log"
             >
-              <QuestList quests={quests} />
+              <QuestLog quests={finished} shown={QUEST_LOG_SHOWN} />
             </TopicSection>
           </div>
         )}
@@ -324,34 +329,18 @@ export function TopicView({
   );
 }
 
-/**
- * The page, with Now from the topic's entries: after a leading Status or "Latest …" section, else
- * first. The panel's leader's entries come first in fixed groups; other leaders' entries of a shared
- * topic are folded below them.
- */
+/** The page's sections: a leading Status or "Latest …" section first, as the Scribe wrote them. */
 function TopicPageBody({
   body,
-  entries,
-  leaderId,
   sections,
   historyShown,
-  onDone,
 }: {
   body: string;
-  entries: NowEntry[];
-  leaderId?: string;
   sections: ReturnType<typeof useCollapsedSections>;
   /** How many History lines show before the older ones fold; all when unset. */
   historyShown?: number;
-  onDone?: (id: string, done: boolean) => void;
 }) {
-  const [othersOpen, setOthersOpen] = useState(false);
-  const all = pageSections(body);
-  let leading = 0;
-  while (leading < all.length && isLeadingSection(all[leading]!)) leading += 1;
-  const mine = entries.filter((entry) => !leaderId || !entry.leaderId || entry.leaderId === leaderId);
-  const others = entries.filter((entry) => !mine.includes(entry));
-  const section = (part: (typeof all)[number], index: number) =>
+  const section = (part: ReturnType<typeof pageSections>[number], index: number) =>
     part.title === null ? (
       <MarkdownContent key={index} text={part.text} questLinkSurface="chat-feed" />
     ) : (
@@ -368,31 +357,83 @@ function TopicPageBody({
         )}
       </TopicSection>
     );
+  return <>{pageSections(body).map(section)}</>;
+}
+
+/**
+ * Where the topic stands: the panel's leader's lines (its Scribe rewrites them on every update), and
+ * other leaders' folded below. Plain lines, nothing to tick: an outdated line is simply rewritten.
+ */
+function WhereItStands({ stands }: { stands: TopicStands[] }) {
+  const [othersOpen, setOthersOpen] = useState(false);
+  if (!stands.length) return null;
+  const [mine, ...others] = stands;
   return (
-    <>
-      {all.slice(0, leading).map(section)}
-      {entries.length > 0 && (
-        <div className={sections.isCollapsed("Now") ? "" : "mb-3"} data-testid="topic-now">
-          <TopicSection title="Now" collapsed={sections.isCollapsed("Now")} onToggle={() => sections.toggle("Now")}>
-            <NowGroups entries={mine} onDone={onDone} />
-            {others.length > 0 && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => setOthersOpen((open) => !open)}
-                  aria-expanded={othersOpen}
-                  className="text-[13px] text-cc-muted hover:text-cc-fg"
-                  data-testid="topic-now-others"
-                >
-                  {othersOpen ? "▾" : "›"} From other leaders ({others.length})
-                </button>
-                {othersOpen && <NowGroups entries={others} onDone={onDone} showLeader />}
-              </div>
-            )}
-          </TopicSection>
+    <section className="mt-3 rounded-lg bg-cc-hover/40 px-3 py-2" data-testid="topic-stands">
+      <ul className="flex flex-col gap-1 text-[14px] text-cc-fg">
+        {mine!.lines.map((line, index) => (
+          <li key={index} className="flex items-start gap-2">
+            <span aria-hidden="true" className="mt-[0.6em] h-[5px] w-[5px] shrink-0 rounded-full bg-cc-fg/70" />
+            <span className="min-w-0 flex-1">
+              <MarkdownContent text={line} questLinkSurface="chat-feed" />
+            </span>
+          </li>
+        ))}
+      </ul>
+      {others.length > 0 && (
+        <div className="mt-1">
+          <button
+            type="button"
+            onClick={() => setOthersOpen((open) => !open)}
+            aria-expanded={othersOpen}
+            className="text-[12.5px] text-cc-muted hover:text-cc-fg"
+            data-testid="topic-stands-others"
+          >
+            {othersOpen ? "▾" : "›"} From other leaders ({others.length})
+          </button>
+          {othersOpen &&
+            others.map((stand) => (
+              <ul key={stand.leaderId} className="mt-1 flex flex-col gap-1 text-[13px] text-cc-muted">
+                {stand.lines.map((line, index) => (
+                  <li key={index}>
+                    <MarkdownContent text={`#${stand.leaderNum ?? "?"} · ${line}`} questLinkSurface="chat-feed" />
+                  </li>
+                ))}
+              </ul>
+            ))}
         </div>
       )}
-      {all.slice(leading).map((part, index) => section(part, leading + index))}
+    </section>
+  );
+}
+
+/** Finished quests, newest first, each with its date and one-line wrap-up; older ones folded. */
+function QuestLog({ quests, shown }: { quests: NonNullable<TopicDetail["quests"]>; shown: number }) {
+  const [all, setAll] = useState(false);
+  const visible = all ? quests : quests.slice(0, shown);
+  const day = (at?: number) =>
+    at ? new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+  return (
+    <>
+      <MarkdownContent
+        text={visible
+          .map(
+            (quest) =>
+              `- **${day(quest.completedAt ?? quest.changedAt)}** · [${quest.questId}](quest:${quest.questId}) ${quest.title}${quest.wrapUp ? `: ${quest.wrapUp}` : ""}`,
+          )
+          .join("\n")}
+        questLinkSurface="chat-feed"
+      />
+      {!all && quests.length > shown && (
+        <button
+          type="button"
+          onClick={() => setAll(true)}
+          className="mt-1 text-[13px] text-cc-muted hover:text-cc-fg"
+          data-testid="topic-quest-log-older"
+        >
+          › {quests.length - shown} older
+        </button>
+      )}
     </>
   );
 }
@@ -446,138 +487,6 @@ function QuestList({ quests }: { quests: NonNullable<TopicDetail["quests"]> }) {
       questLinkSurface="chat-feed"
     />
   );
-}
-
-/** Entries in the fixed groups, newest first within each; entries marked done follow, struck through. */
-function NowGroups({
-  entries,
-  onDone,
-  showLeader = false,
-}: {
-  entries: NowEntry[];
-  onDone?: (id: string, done: boolean) => void;
-  showLeader?: boolean;
-}) {
-  const open = entries.filter((entry) => entry.doneAt === undefined);
-  const done = entries.filter((entry) => entry.doneAt !== undefined);
-  const groups = new Map<string, NowEntry[]>();
-  for (const group of NOW_GROUPS) {
-    for (const entry of open.filter((candidate) => candidate.group === group).sort((a, b) => b.since - a.since)) {
-      const label = nowGroupLabel(entry);
-      groups.set(label, [...(groups.get(label) ?? []), entry]);
-    }
-  }
-  return (
-    <div className="mt-1 flex flex-col gap-2" data-testid="topic-now-items">
-      {[...groups.entries()].map(([label, group]) => (
-        <div key={label} data-testid="topic-now-group">
-          <div className="text-[12.5px] font-medium text-cc-muted">{label}</div>
-          <ul className="mt-0.5 flex flex-col gap-1.5">
-            {group.map((entry) => (
-              <NowItemRow key={entry.id} entry={entry} onDone={onDone} showLeader={showLeader} />
-            ))}
-          </ul>
-        </div>
-      ))}
-      {done.length > 0 && (
-        <ul className="flex flex-col gap-1.5">
-          {done.map((entry) => (
-            <NowItemRow key={entry.id} entry={entry} onDone={onDone} showLeader={showLeader} />
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function NowItemRow({
-  entry,
-  onDone,
-  showLeader,
-}: {
-  entry: NowEntry;
-  onDone?: (id: string, done: boolean) => void;
-  showLeader: boolean;
-}) {
-  const done = entry.doneAt !== undefined;
-  const stale = !done && Date.now() - entry.lastNews > NOW_ENTRY_STALE_MS;
-  // Follow-ups are optional: shown quietly, never as something waiting on the user.
-  const quiet = entry.group === "followup";
-  const facts = [
-    ...(showLeader && entry.leaderNum != null ? [`#${entry.leaderNum}`] : []),
-    ...(entry.due ? [`Due ${dueDay(entry.due)}`] : []),
-    stale ? `No news since ${when(entry.lastNews)}` : `Since ${when(entry.since)}`,
-  ];
-  return (
-    <li
-      className="flex items-start gap-2"
-      data-testid="topic-now-item"
-      data-stale={stale || undefined}
-      data-quiet={quiet || undefined}
-    >
-      <span
-        aria-hidden="true"
-        className={`mt-[0.6em] h-[6px] w-[6px] shrink-0 rounded-full ${quiet ? "bg-cc-muted" : "bg-cc-fg/80"}`}
-      />
-      <div className="min-w-0 flex-1">
-        <div
-          className={`${done ? "line-through opacity-50" : stale ? "opacity-60" : ""} ${quiet ? "text-cc-muted" : ""}`}
-        >
-          <MarkdownContent text={entry.text} questLinkSurface="chat-feed" />
-        </div>
-        <div className="text-[12px] text-cc-muted">
-          {done ? (
-            <>
-              Marked done {when(entry.doneAt!)}.{" "}
-              {onDone && (
-                <button
-                  type="button"
-                  onClick={() => onDone(entry.id, false)}
-                  className="text-cc-primary hover:underline"
-                >
-                  Undo
-                </button>
-              )}
-            </>
-          ) : (
-            facts.join(" · ")
-          )}
-        </div>
-      </div>
-      {onDone && !done && (
-        <button
-          type="button"
-          onClick={() => onDone(entry.id, true)}
-          aria-label="Mark done"
-          title="Mark done"
-          className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-          data-testid="topic-now-done"
-        >
-          <svg
-            viewBox="0 0 20 20"
-            className="h-[18px] w-[18px]"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            aria-hidden="true"
-          >
-            <circle cx="10" cy="10" r="7.25" />
-            <path d="m7 10.2 2 2 4-4.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      )}
-    </li>
-  );
-}
-
-/** "Nov 6", for a due date given as "YYYY-MM-DD". */
-function dueDay(due: string): string {
-  return new Date(`${due}T00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-/** "Oct 24, 3:22 PM". */
-function when(at: number): string {
-  return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 /**

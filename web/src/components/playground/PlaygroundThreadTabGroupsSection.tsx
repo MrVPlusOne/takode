@@ -110,7 +110,6 @@ function playgroundTopic(
     pendingEvents: 0,
     activityAt: at,
     latestUpdate: update,
-    openNow: 0,
   };
 }
 

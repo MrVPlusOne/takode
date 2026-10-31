@@ -20,6 +20,7 @@ import {
   reminderMessage,
   retryMessage,
   failureNotice,
+  looseEndsNotice,
   updateMessage,
   type UpdateContent,
 } from "./scribe-messages.js";
@@ -97,7 +98,7 @@ const MAX_CONSOLIDATION_CANDIDATES = 12;
 const EXCERPT_CHARS = 280;
 
 /** The page format the brief describes; Scribes whose pages are older are asked once to rewrite them. */
-export const PAGE_FORMAT = 8;
+export const PAGE_FORMAT = 9;
 
 export type DeliveryResult = "sent" | "nothing" | "waiting" | "paused" | "busy" | "off";
 
@@ -136,17 +137,27 @@ function clockOf(ms: number): string {
 }
 
 function eventTiming(kind: TopicEvent["kind"]): EventTiming {
-  if (kind === "now_done") return "ride";
+  // A saved artifact or a note on a quest rarely changes a page by itself: they go with the next
+  // message rather than waking the Scribe (a note often repeats a message of the user's anyway).
+  if (kind === "now_done" || kind === "artifact" || kind === "note") return "ride";
   if (kind === "message" || kind === "undone") return "user";
   return "leader";
 }
 
-/** A burst of events waits for a pause this long before it goes. */
-const DEBOUNCE_MS = 30_000;
-/** The leader's activity goes at once when none came for this long. */
-const QUIET_MS = 2 * 60_000;
+/** A burst of events waits for a pause this long before it goes, so a burst is one message. */
+const DEBOUNCE_MS = 3 * 60_000;
 /** No waiting event waits longer than this. */
-const MAX_WAIT_MS = 2 * 60_000;
+const MAX_WAIT_MS = 10 * 60_000;
+/** A Scribe older than this is replaced by a fresh one at its next message: its state lives in the store. */
+const SCRIBE_FRESH_MS = 20 * 60 * 60_000;
+/** The user's messages to other leaders go to a Scribe from this far back, the first time. */
+const ELSEWHERE_FIRST_MS = 24 * 60 * 60_000;
+/** At most this many of them go with one message, newest kept. */
+const ELSEWHERE_MAX = 12;
+/** A Scribe's loose-ends messages to its leader: messages a day, lines each, characters a line. */
+const LOOSE_ENDS_PER_DAY = 3;
+const LOOSE_ENDS_LINES_MAX = 5;
+const LOOSE_END_MAX = 160;
 
 /** After a Scribe's turn fails, its next message waits this long, doubling with each failure in a row. */
 const FAILURE_BACKOFF_MS = 30_000;
@@ -198,8 +209,6 @@ export class TopicService {
   private dueAt = new Map<string, number>();
   private firstPendingAt = new Map<string, number>();
   private dueTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Per leader: its latest activity event, to tell a burst from the first event after a quiet spell. */
-  private lastLeaderEventAt = new Map<string, number>();
   /** Per leader: deliveries run one at a time, so two events never send two messages. */
   private chains = new Map<string, Promise<unknown>>();
   private readonly now: () => number;
@@ -296,31 +305,21 @@ export class TopicService {
     );
     if (already) return;
     const wrapUp = (quest as { debriefTldr?: string }).debriefTldr?.trim();
-    // Checks the quest left for the user are often what the page's Now needs.
-    const checks = (
-      (quest as { verificationItems?: Array<{ text: string; checked: boolean }> }).verificationItems ?? []
-    )
-      .filter((item) => !item.checked)
-      .map((item) => item.text);
     this.event(topic.id, leaderId, {
       at: this.now(),
       kind: "quest_done",
       questId: quest.questId,
-      // The wrap-up says what changed and whether it is live; open checks are often Now's material.
-      text: excerpt(
-        [quest.title, wrapUp, checks.length ? `left for the user: ${checks.join("; ")}` : ""]
-          .filter(Boolean)
-          .join(" · "),
-        900,
-      ),
+      // The wrap-up says what changed and whether it is live. The page's quest log lists it by
+      // itself; what it settles or leaves open is the Scribe's.
+      text: excerpt([quest.title, wrapUp].filter(Boolean).join(" · "), 900),
     });
   }
 
   /**
-   * A check for the user ticked, or a note the user or the leader added to the quest, is news for
-   * the topic's Now: it is how the Scribe hears that something was resolved wherever the user said
-   * so. Phase write-ups by workers are not (finishing the quest reports its wrap-up). The first
-   * look at a quest only records where it stands.
+   * A note the user or the leader added to the quest is news for where the topic stands: it is how
+   * the Scribe hears that something was resolved wherever the user said so. Phase write-ups by
+   * workers are not (finishing the quest reports its wrap-up), and neither are ticked review
+   * checks, which stay with the quest. The first look at a quest only records where it stands.
    */
   private noteResolutions(topicId: string, leaderId: string, quest: QuestmasterTask): void {
     const checks = (quest as { verificationItems?: Array<{ text: string; checked: boolean }> }).verificationItems ?? [];
@@ -329,21 +328,35 @@ export class TopicService {
     const mark = this.store.questMark(quest.questId);
     this.store.setQuestMark(quest.questId, { checked, feedback: feedback.length });
     if (!mark) return;
-    const at = this.now();
-    for (const text of checked.filter((item) => !mark.checked.includes(item))) {
-      this.event(topicId, leaderId, { at, kind: "check", questId: quest.questId, text: excerpt(text, 400) });
-    }
     for (const entry of feedback.slice(mark.feedback)) {
       const byLeader = entry.author === "human" || entry.authorSessionId === leaderId;
       const plainNote = !entry.kind || entry.kind === "comment";
       if (!byLeader || !plainNote || entry.deletedAt) continue;
+      // The leader often records the user's words on the quest: the Scribe has them as a message.
+      if (this.repeatsMessage(topicId, entry.text)) continue;
       this.event(topicId, leaderId, {
-        at: entry.ts ?? at,
+        at: entry.ts ?? this.now(),
         kind: "note",
         questId: quest.questId,
         text: excerpt(entry.text),
       });
     }
+  }
+
+  /** A note that quotes a message of the user's the topic already has as an event (its start, in a recent message). */
+  private repeatsMessage(topicId: string, note: string): boolean {
+    const since = this.now() - 24 * 60 * 60_000;
+    const text = normalizeQuote(note);
+    return this.store
+      .detail(topicId)
+      .events.some(
+        (event) =>
+          event.kind === "message" &&
+          event.at >= since &&
+          !!event.text &&
+          normalizeQuote(event.text).length >= 20 &&
+          text.includes(normalizeQuote(event.text).slice(0, 80)),
+      );
   }
 
   /** A new artifact version saved in a quest's tab or a topic's thread is an event for that topic. */
@@ -364,15 +377,6 @@ export class TopicService {
       sessionId: input.sessionId,
       text: `${input.kind} "${input.title}"${input.version > 1 ? ` v${input.version}` : ""}`,
     });
-  }
-
-  /** The user marked a Now entry done on the page (or took it back): the Scribe hears about it. */
-  nowDone(topicId: string, leaderId: string, id: string, done = true): void {
-    const item = excerpt(this.store.markNowDone(topicId, id, done), 400);
-    const text = done
-      ? `the user marked Now entry ${id} done on the page: "${item}"`
-      : `the user took back marking Now entry ${id} done: "${item}"`;
-    this.event(topicId, leaderId, { at: this.now(), kind: "now_done", text });
   }
 
   /**
@@ -398,6 +402,33 @@ export class TopicService {
     forced.add(topicId);
     this.forced.set(leaderId, forced);
     return this.deliver(leaderId);
+  }
+
+  /**
+   * The Scribe tells its leader about loose ends it noticed: requests with no answer or quest,
+   * promises not followed through, the same ask sent to two leaders. One short line each, a few
+   * messages a day at most; the leader decides what to do. Returns false when today's are used up.
+   */
+  tellLeader(leaderId: string, lines: readonly string[]): boolean {
+    const clean = lines
+      .map((line) =>
+        line
+          .replace(/^\s*[-*]\s+/, "")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .filter(Boolean);
+    if (!clean.length) throw new Error("Say what the loose ends are, one per line.");
+    if (clean.length > LOOSE_ENDS_LINES_MAX)
+      throw new Error(`At most ${LOOSE_ENDS_LINES_MAX} loose ends at a time: send the ones that matter most.`);
+    const long = clean.find((line) => line.length > LOOSE_END_MAX);
+    if (long) throw new Error(`Keep each to one line (${LOOSE_END_MAX} characters at most): "${long.slice(0, 60)}…"`);
+    if (!this.store.countLooseEnds(leaderId, LOOSE_ENDS_PER_DAY)) return false;
+    this.deps.notifyLeader(
+      leaderId,
+      looseEndsNotice(this.deps.sessionNum(this.store.scribeSession(leaderId) ?? ""), clean),
+    );
+    return true;
   }
 
   /** The user undid a tidying change: the Scribes of the space hear about it, after a short pause. */
@@ -436,10 +467,9 @@ export class TopicService {
   }
 
   /**
-   * When new events go to the Scribe. The user's own page actions ("ride") wait for the next
-   * message. The user's other actions ("user") wait for a pause of DEBOUNCE_MS, so a burst becomes
-   * one message. The leader's activity ("leader") goes at once after a quiet spell, and a burst
-   * that follows waits for a pause too. No event waits longer than MAX_WAIT_MS.
+   * When new events go to the Scribe. Events that rarely change a page ("ride") wait for the next
+   * message. The others, the user's and the leader's alike, wait for a pause of DEBOUNCE_MS, so a
+   * burst becomes one message; none waits longer than MAX_WAIT_MS.
    */
   private schedule(leaderId: string, timing: EventTiming): void {
     if (timing === "ride" || !this.store.isLeaderEnabled(leaderId)) return;
@@ -447,17 +477,11 @@ export class TopicService {
     // Already due (its delivery is underway or waits for the Scribe's turn to end): keep it due.
     const existing = this.dueAt.get(leaderId);
     if (existing !== undefined && existing <= now) {
-      if (timing === "leader") this.lastLeaderEventAt.set(leaderId, now);
       this.changed(leaderId);
       return;
     }
     const first = this.firstPendingAt.get(leaderId) ?? now;
-    const quiet = now - (this.lastLeaderEventAt.get(leaderId) ?? Number.NEGATIVE_INFINITY) >= QUIET_MS;
-    if (timing === "leader") this.lastLeaderEventAt.set(leaderId, now);
-    const due =
-      timing === "leader" && quiet && !this.dueAt.has(leaderId)
-        ? now
-        : Math.min(now + DEBOUNCE_MS, first + MAX_WAIT_MS);
+    const due = Math.min(now + DEBOUNCE_MS, first + MAX_WAIT_MS);
     this.firstPendingAt.set(leaderId, first);
     this.dueAt.set(leaderId, due);
     if (due <= now) {
@@ -576,6 +600,9 @@ export class TopicService {
     );
     // Threads that settled under no topic: the Scribe files them where they belong, now.
     const settledThreads = this.store.settledUnfiledThreads(leaderId);
+    // What the user told other leaders meanwhile: it may settle something this Scribe's pages say is open.
+    const elsewhereSince = this.store.elsewhereSeen(leaderId) ?? this.now() - ELSEWHERE_FIRST_MS;
+    const elsewhere = this.userMessagesElsewhere(leaderId, elsewhereSince);
     const rewritePages = this.store.pageFormat(leaderId) < PAGE_FORMAT;
     const newTopics = this.store.topicsToReview(leaderId);
     const consolidate = await this.consolidation(leaderId, leader.space, ownQuests);
@@ -607,6 +634,7 @@ export class TopicService {
         rewritePages,
         ...(sendInstructions && instructions ? { instructions: instructions.text } : {}),
         forced: forcedNames,
+        elsewhere,
         newTopics: newTopics.map((topic) => ({ id: topic.id, name: topic.name, questIds: topic.questIds })),
         ...(consolidate ? { consolidate } : {}),
       },
@@ -621,6 +649,7 @@ export class TopicService {
       unsorted.map((quest) => quest.questId),
     );
     this.store.markInstructionsSent(leaderId);
+    this.store.setElsewhereSeen(leaderId, this.now());
     this.store.markThreadsSortAsked(settledThreads.map((thread) => thread.id));
     this.store.reviewed(newTopics.map((topic) => topic.id));
     if (consolidate) this.store.setConsolidationAskedAt(leaderId, consolidate.count);
@@ -978,10 +1007,52 @@ export class TopicService {
    * its next message: a conversation cannot resume on another machine. The new one starts first,
    * so a leader whose machine can't start one keeps its old Scribe. Null when none can run.
    */
+  /**
+   * The user's own messages to the other leaders since a time, newest last (the newest few):
+   * something a page says is open may have been handled there (Jiayi asked another leader to do
+   * a follow-up one page still listed).
+   */
+  private userMessagesElsewhere(
+    leaderId: string,
+    since: number,
+  ): Array<{ sessionNum: number | null; at: number; index: number; threadKey: string; text: string }> {
+    const found: Array<{ sessionNum: number | null; at: number; index: number; threadKey: string; text: string }> = [];
+    for (const leader of this.deps.listLeaders()) {
+      if (leader.sessionId === leaderId || leader.archived) continue;
+      const history = this.deps.getSession(leader.sessionId)?.messageHistory ?? [];
+      for (let index = history.length - 1; index >= 0; index -= 1) {
+        const message = history[index];
+        const stamp = (message as { timestamp?: unknown } | undefined)?.timestamp;
+        const at = typeof stamp === "number" ? stamp : 0;
+        if (!message || at <= since) {
+          if (message && at && at <= since) break;
+          continue;
+        }
+        if (!isRootAgentHistoryMessage(message) || !isActualHumanUserMessage(message)) continue;
+        const text = formatAnnotatedMessage(
+          typeof message.content === "string" ? message.content : "",
+          "annotations" in message ? message.annotations : undefined,
+        );
+        found.push({
+          sessionNum: leader.sessionNum,
+          at,
+          index,
+          threadKey: leaderMessageThreadKey(message as Parameters<typeof leaderMessageThreadKey>[0]),
+          text: excerpt(text, 200),
+        });
+      }
+    }
+    return found.sort((a, b) => a.at - b.at).slice(-ELSEWHERE_MAX);
+  }
+
   private async ensureScribe(leader: TopicLeaderInfo): Promise<string | null> {
     const existing = this.store.scribeSession(leader.sessionId);
     const alive = !!existing && this.deps.isScribeAlive(existing);
-    if (alive && this.deps.hostOf(existing) === leader.hostId) return existing;
+    if (alive) this.store.noteScribeRunning(leader.sessionId);
+    // A day-old Scribe is replaced by a fresh one: its state is in the store, and every turn of a
+    // long conversation carries all of it again.
+    const fresh = this.now() - (this.store.scribeStartedAt(leader.sessionId) ?? this.now()) < SCRIBE_FRESH_MS;
+    if (alive && fresh && this.deps.hostOf(existing) === leader.hostId) return existing;
     let sessionId: string;
     try {
       sessionId = await this.deps.createScribe(leader);
