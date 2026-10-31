@@ -12,6 +12,7 @@ import { ThreadsList, type ThreadsMenu } from "../ThreadsMenu.js";
 import { LeaderBreadcrumbNav } from "../breadcrumb/LeaderBreadcrumbNav.js";
 import { CrumbStart, CrumbStrip, ThreadCrumb } from "../breadcrumb/CrumbStart.js";
 import { useCrumbSlot } from "../breadcrumb/crumb-slot.js";
+import { ItemCrumb } from "../breadcrumb/ItemCrumb.js";
 import { ThreadTabGroupBar } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
@@ -227,7 +228,22 @@ function BreadcrumbFrame({ width, sessionId }: { width: number; sessionId: strin
         <div ref={setHelpers} className="flex items-center" />
       </div>
       {boardOpen && <div className="border-b border-cc-border px-4 py-2 text-[12px] text-cc-muted">(work board)</div>}
-      {thread ? (
+      {topicOpen ? (
+        // A topic's own conversation: the place picker, then the whole topic (not a quest).
+        <CrumbStrip sessionId={sessionId}>
+          <ItemCrumb
+            leaderId={sessionId}
+            topicId={topicOpen}
+            current={{ kind: "topic" }}
+            onOpenTopic={() => {}}
+            onOpenQuest={(questId) => {
+              setCurrent(questId);
+              setTopicOpen(null);
+            }}
+            onOpenThread={setCurrent}
+          />
+        </CrumbStrip>
+      ) : thread ? (
         <CrumbStrip sessionId={sessionId}>
           <ThreadCrumb leaderId={sessionId} thread={thread} onOpen={setCurrent} />
         </CrumbStrip>

@@ -66,6 +66,29 @@ describe("ItemCrumb", () => {
     expect(onOpenTopic).toHaveBeenCalled();
   });
 
+  it("names the whole topic as a scope, drawn quieter than a quest, and still lists its quests", async () => {
+    // On a topic's own conversation the crumb once read "55 quests", which looked like a quest of that
+    // name. It now matches the list's "Whole topic" row and drops the quest title's weight and colour.
+    get.mockResolvedValue({ quests: [{ questId: "q-1", title: "Older quest", status: "done", changedAt: 1 }] });
+    render(
+      <ItemCrumb
+        leaderId="l1"
+        topicId="t1"
+        current={{ kind: "topic" }}
+        onOpenTopic={vi.fn()}
+        onOpenQuest={vi.fn()}
+        onOpenThread={vi.fn()}
+      />,
+    );
+    const trigger = screen.getByTestId("item-crumb-button");
+    expect(trigger.textContent).toBe("Whole topic");
+    expect(trigger.className).toContain("text-cc-muted");
+    expect(trigger.className).not.toContain("font-medium");
+    fireEvent.click(trigger);
+    await screen.findByText("Older quest");
+    expect(screen.getAllByTestId("item-crumb-row")[0]!.getAttribute("aria-current")).toBe("true");
+  });
+
   it("puts a quest in the side column on Shift-click instead of opening it", async () => {
     const shown = markLeaderThreadDisplayed("l1", "q-1");
     try {

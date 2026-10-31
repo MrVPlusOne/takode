@@ -1261,7 +1261,6 @@ export function ChatView({
                           leaderId={sessionId}
                           topicId={topicConversation.topicId}
                           current={{ kind: "topic" }}
-                          label={`${topicConversation.questIds.length} quests`}
                           onOpenTopic={() => {}}
                           onOpenQuest={(questId) => openTopicQuestRef.current(questId)}
                           onOpenThread={handleSelectThread}

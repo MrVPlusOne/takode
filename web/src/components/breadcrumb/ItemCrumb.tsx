@@ -29,8 +29,8 @@ export function ItemCrumb({
   topicId: string;
   /** What is on screen: one quest, one thread, or the whole topic. */
   current: { kind: "quest"; questId: string } | { kind: "thread"; threadKey: string } | { kind: "topic" };
-  /** The trigger's text: the quest's title, the thread's name, or "N quests". */
-  label: ReactNode;
+  /** The quest's title or the thread's name. The whole topic's crumb always reads "Whole topic". */
+  label?: ReactNode;
   onOpenTopic: () => void;
   onOpenQuest: (questId: string) => void;
   onOpenThread: (threadKey: string) => void;
@@ -54,6 +54,9 @@ export function ItemCrumb({
   }, [open, topicId]);
   const sorted = [...(quests ?? [])].sort((a, b) => (b.changedAt ?? 0) - (a.changedAt ?? 0));
   const count = brief?.questIds.length ?? quests?.length ?? 0;
+  // The whole topic is a scope, not a quest: named like its row in the list and drawn quieter than a
+  // quest's title, so "Topic > 55 quests" no longer reads as a quest called "55 quests".
+  const wholeTopic = current.kind === "topic";
   const go = (action: () => void) => {
     setOpen(false);
     action();
@@ -76,13 +79,13 @@ export function ItemCrumb({
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className={`-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[13px] font-medium text-cc-fg hover:bg-cc-hover active:bg-cc-hover ${
-          open ? "bg-cc-hover" : ""
-        }`}
+        className={`-mx-1 inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[13px] hover:bg-cc-hover active:bg-cc-hover ${
+          wholeTopic ? "text-cc-muted hover:text-cc-fg" : "font-medium text-cc-fg"
+        } ${open ? "bg-cc-hover" : ""}`}
         title="Switch to another quest or thread of this topic"
         data-testid="item-crumb-button"
       >
-        <span className="min-w-0 truncate">{label}</span>
+        <span className="min-w-0 truncate">{wholeTopic ? "Whole topic" : label}</span>
       </button>
       {open && (
         <div
