@@ -36,8 +36,8 @@ import {
 } from "./MessageThreadHeader.js";
 import { MessageTopicLabel } from "./MessageTopicLabel.js";
 import { MainQuestStripsContext, useContinuedQuest } from "./MainQuestStrip.js";
-import { isMainThreadKey, normalizeThreadKey } from "../utils/thread-projection.js";
-import { TopicFeedContext, topicFeedParts } from "./topic-feed.js";
+import { isMainThreadKey } from "../utils/thread-projection.js";
+import { TopicFeedContext } from "./topic-feed.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 import { getDisplayReplyContext } from "../utils/reply-context.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
@@ -920,7 +920,8 @@ function UserMessage({
   const namedByStrip =
     !!continued &&
     ((mainStrips && isMainThreadKey(currentThreadKey ?? "")) ||
-      (!!topicFeed && topicFeedParts(topicFeed).includes(normalizeThreadKey(continued.questId))));
+      // In a topic conversation the strip names it whether it is this topic's quest or another's.
+      !!topicFeed);
   // A pending message keeps its future time's space invisibly, so landing changes no line breaks.
   const timeLabel =
     showTimestamp && isValidMessageTimestamp(message.timestamp) ? (

@@ -230,6 +230,18 @@ export function useKnownQuestTopic(leaderId: string, questId: string): QuestTopi
   });
 }
 
+/** The topic a quest is filed under, asking the server once when it isn't known; null for none (or empty ID). */
+export function useQuestTopic(leaderId: string, questId: string): QuestTopicMap[string] | null {
+  const topic = useKnownQuestTopic(leaderId, questId);
+  useEffect(() => {
+    if (!questId || topic !== undefined) return;
+    loadLeaderTopics(leaderId, [questId]).catch((error: Error) =>
+      console.warn("[library] Could not look up a quest's topic:", error.message),
+    );
+  }, [leaderId, questId, topic]);
+  return topic ?? null;
+}
+
 /** A topic in brief (name, quests, last activity), as last known for a leader. */
 export function useKnownTopicBrief(leaderId: string, topicId: string | undefined): TopicBrief | undefined {
   return useLeaderTopicsStore((state) => (topicId ? state.byLeader[leaderId]?.topics[topicId] : undefined));

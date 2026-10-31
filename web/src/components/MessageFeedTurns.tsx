@@ -609,7 +609,7 @@ export const TurnEntries = memo(function TurnEntries({
                   label={dividerAboveStrip.get(turnIndex)!.label}
                 />
               )}
-              {topicMark === "strip" && <TopicFeedQuestStart questId={turnQuest!} />}
+              {topicMark === "strip" && <TopicFeedQuestStart questId={turnQuest!} sessionId={sessionId} />}
               {topicMark === "label" && <TopicFeedQuestLabel questId={turnQuest!} />}
               {mainStrips?.[turnIndex] && sessionId && (
                 <MainQuestStrip sessionId={sessionId} quest={mainStrips[turnIndex]!.quest} />

@@ -1,8 +1,8 @@
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext } from "react";
 import type { StartedQuest } from "../api/started-quests.js";
 import type { ChatMessage } from "../types.js";
 import { isUserBoundaryEntry, type Turn } from "../hooks/use-feed-model.js";
-import { loadLeaderTopics, useKnownQuestTopic } from "../utils/leader-topics.js";
+import { useQuestTopic } from "../utils/leader-topics.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { TopicIcon } from "./library/library-icons.js";
@@ -57,7 +57,7 @@ export function mainQuestStrips(
 
 /** The strip: the quest a request went to, with its topic, or "Main" where Main's conversation resumes. */
 export function MainQuestStrip({ sessionId, quest }: { sessionId: string; quest: StartedQuest | null }) {
-  const topic = useTopicOfQuest(sessionId, quest?.questId ?? "");
+  const topic = useQuestTopic(sessionId, quest?.questId ?? "");
   const record = useQuestRecord(quest?.questId ?? null);
   const status = record ? (record.status === "done" ? "Done" : record.status.replace("_", " ")) : "";
   return (
@@ -106,15 +106,4 @@ export function MainQuestStrip({ sessionId, quest }: { sessionId: string; quest:
       </div>
     </div>
   );
-}
-
-function useTopicOfQuest(sessionId: string, questId: string) {
-  const topic = useKnownQuestTopic(sessionId, questId);
-  useEffect(() => {
-    if (!questId || topic !== undefined) return;
-    loadLeaderTopics(sessionId, [questId]).catch((error: Error) =>
-      console.warn("[library] Could not look up a quest's topic:", error.message),
-    );
-  }, [sessionId, questId, topic]);
-  return topic ?? null;
 }

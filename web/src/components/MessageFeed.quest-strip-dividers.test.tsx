@@ -28,7 +28,7 @@ beforeAll(() => {
   });
 });
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 
 // Mock react-markdown to avoid ESM issues in tests
@@ -139,6 +139,7 @@ vi.mock("../store.js", () => {
 import { MessageFeed } from "./MessageFeed.js";
 import { QuestRecordFetchContext } from "./QuestSummaryCard.js";
 import { TopicFeedContext } from "./topic-feed.js";
+import { seedLeaderTopics } from "../utils/leader-topics.js";
 
 function resetStore() {
   mockToggleTurnActivity.mockReset();
@@ -310,6 +311,60 @@ describe("a request in a topic that continued in a quest", () => {
     );
     expect(order).toEqual(["divider", "strip topic", "message earlier", "divider", "strip q-12", "message ask"]);
     expect(screen.queryByTestId("continued-in-links")).toBeNull();
+  });
+});
+
+describe("a request in a topic moved to a quest of another topic", () => {
+  it("gets that quest's strip, naming the other topic, with the leader's note folded in", () => {
+    // Jiayi (Chat feed topic): a request handed off to a quest filed under another topic still sat
+    // under this topic's strip, with only a small label naming the other topic.
+    const sid = "topic-request-elsewhere";
+    const at = new Date("2026-02-25T12:00:00.000Z").getTime();
+    const topic = "topic:aaaaaaaa";
+    seedLeaderTopics(sid, { "q-99": { id: "bbbbbbbb-0000", name: "Library" } });
+    mockStoreValues.messages = new Map([
+      [
+        sid,
+        [
+          {
+            id: "ask",
+            role: "user",
+            content: "ask",
+            timestamp: at,
+            metadata: {
+              leaderResponseCoverageVersion: 1,
+              threadKey: topic,
+              threadRefs: [
+                { threadKey: topic, source: "explicit", attachedAt: at },
+                { threadKey: "q-99", questId: "q-99", source: "explicit", attachedAt: at + 30_000 },
+              ],
+              viewKeys: [topic, "q-99"],
+            },
+          },
+          {
+            id: "moved",
+            role: "assistant",
+            content: "Moved to q-99",
+            timestamp: at + 40_000,
+            metadata: { leaderThreadRole: "commentary", threadKey: topic, viewKeys: [topic] },
+          },
+        ] as ChatMessage[],
+      ],
+    ]);
+    render(
+      <QuestRecordFetchContext.Provider value={false}>
+        <TopicFeedContext.Provider
+          value={{ questIds: ["q-12"], topicKey: topic, topicName: "Chat feed", openQuest: vi.fn() }}
+        >
+          <MessageFeed sessionId={sid} threadKey={topic} projectThreadRoutes />
+        </TopicFeedContext.Provider>
+      </QuestRecordFetchContext.Provider>,
+    );
+    const strips = screen.getAllByTestId("topic-feed-quest-start");
+    expect(strips.map((strip) => strip.dataset.quest)).toEqual(["q-99"]);
+    expect(within(strips[0]!).getByTestId("topic-feed-quest-topic").textContent).toContain("Library");
+    expect(screen.queryAllByTestId("topic-feed-quest-label")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-turn-id]")).toHaveLength(1);
   });
 });
 

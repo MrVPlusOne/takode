@@ -5,6 +5,8 @@ import type { FeedSection } from "./message-feed-sections.js";
 import { resolveThreadResponses, type ThreadResponsePresentation } from "./thread-response-presentation.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import { normalizeThreadKey, topicMemberOfMessage } from "../utils/thread-projection.js";
+import { useQuestTopic } from "../utils/leader-topics.js";
+import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import { continuedQuestOf, StartedQuestsContext } from "./QuestForkLinks.js";
 import { leaderResponseOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
@@ -147,6 +149,8 @@ export function TopicFeedQuestLabel({ questId }: { questId: string }) {
  * the request sat under the topic's strip, with the quest's strip only after the filing note). The
  * leader's replies in the request's own thread during that turn (the filing note) join the quest
  * too, so the request and what the leader did with it read as one part, as under a strip in Main.
+ * A request moved to a quest of another topic gets that quest's strip as well, naming its topic
+ * (Jiayi: under this topic's strip it read as if it still belonged here).
  */
 export function useTopicTurnPartOf(): ((message: ChatMessage, request: ChatMessage | null) => string | null) | null {
   const topicFeed = useContext(TopicFeedContext);
@@ -160,7 +164,8 @@ export function useTopicTurnPartOf(): ((message: ChatMessage, request: ChatMessa
       const owner = leaderResponseOwnerThreadKey(request.metadata ?? {});
       const filed = continuedQuestOf(request, started?.get(request.id) ?? null);
       for (const quest of [owner, filed && normalizeThreadKey(filed.questId)]) {
-        if (quest && parts.includes(quest)) return quest;
+        // A quest of this topic, or of another topic (its strip then names that topic too).
+        if (quest && (parts.includes(quest) || isQuestThreadKey(quest))) return quest;
       }
       return null;
     };
@@ -182,7 +187,7 @@ function isUserRequest(message: ChatMessage): boolean {
  * The strip naming `questId` where the conversation moves to it: the ID is a quest link like any in
  * the feed, and tapping the rest of the strip zooms into the quest.
  */
-export function TopicFeedQuestStart({ questId }: { questId: string }) {
+export function TopicFeedQuestStart({ questId, sessionId }: { questId: string; sessionId?: string }) {
   const topicFeed = useContext(TopicFeedContext);
   if (topicFeed && questId === topicFeed.topicKey) return <TopicFeedOwnStart name={topicFeed.topicName} />;
   // A thread filed under the topic: its own strip, under its name.
@@ -197,7 +202,7 @@ export function TopicFeedQuestStart({ questId }: { questId: string }) {
       />
     );
   }
-  return <QuestStart questId={questId} />;
+  return <QuestStart questId={questId} sessionId={sessionId} />;
 }
 
 /**
@@ -244,9 +249,12 @@ function TopicFeedOwnStart({
   );
 }
 
-function QuestStart({ questId }: { questId: string }) {
+function QuestStart({ questId, sessionId }: { questId: string; sessionId?: string }) {
   const topicFeed = useContext(TopicFeedContext);
   const quest = useQuestRecord(questId);
+  // A quest of another topic (a request moved there) names that topic first, as Main's strips do.
+  const foreign = !!topicFeed && !topicFeed.questIds.includes(questId);
+  const otherTopic = useQuestTopic(foreign ? (sessionId ?? "") : "", foreign ? questId : "");
   const status = quest ? (quest.status === "done" ? "Done" : quest.status.replace("_", " ")) : "";
   return (
     <div
@@ -257,6 +265,18 @@ function QuestStart({ questId }: { questId: string }) {
     >
       {/* The quest ID is a real quest link (hover preview, jump icon); the rest of the strip zooms. */}
       <div className="flex w-full min-w-0 items-baseline gap-1.5 rounded-lg border border-cc-border bg-cc-card/95 pl-3 text-xs shadow-sm backdrop-blur-sm sm:text-[13px]">
+        {otherTopic && (
+          <span
+            className="flex min-w-0 max-w-[35%] shrink items-baseline gap-1.5 py-1.5"
+            data-testid="topic-feed-quest-topic"
+          >
+            <TopicIcon className="h-3.5 w-3.5 shrink-0 self-center text-cc-primary" />
+            <span className="min-w-0 truncate text-cc-muted">{otherTopic.name}</span>
+            <span aria-hidden="true" className="shrink-0 text-cc-muted">
+              ›
+            </span>
+          </span>
+        )}
         <span className="shrink-0 py-1.5 font-mono-code font-medium">
           <QuestInlineLink questId={questId} surface="chat-feed" />
         </span>
