@@ -1366,3 +1366,15 @@ it.each([false, true])("starts with only the populated input visible (touch=%s)"
   expect(screen.getByTestId("composer-footer-toolbar")).toBeTruthy();
   expect(screen.queryByLabelText("Minimize composer")).toBeNull();
 });
+
+// The lift itself is a phone-width, non-mouse media rule in index.css; this checks which composer
+// state carries it. Only the collapsed composer is lifted; opening it restores the usual padding.
+it("lifts only the collapsed composer off the bottom edge", () => {
+  setupMockStore({});
+  render(<Composer sessionId="s1" />);
+  fireEvent.pointerDown(document.body); // a press outside collapses the composer
+  const textarea = screen.getByRole("textbox");
+  expect(textarea.closest(".composer-collapsed-lift")).not.toBeNull();
+  fireEvent.click(textarea);
+  expect(screen.getByRole("textbox").closest(".composer-collapsed-lift")).toBeNull();
+});

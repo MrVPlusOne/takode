@@ -1435,6 +1435,15 @@ select {
   }
 }
 
+/* On a phone the collapsed composer sits a little above the screen's bottom edge, where it is
+   easier to tap. Touch layouts keep the composer in flow, so the feed and its floating buttons
+   end above it; the expanded composer, mouse layouts and wider screens are unchanged. */
+@media (max-width: 639px) and (not (pointer: fine)) {
+  .composer-collapsed-lift {
+    padding-bottom: 1rem;
+  }
+}
+
 /* Reserve the compact input's 24px viewport, vertical padding (4px each side in the card,
    6px each side around it) and borders.
    Desktop expansion covers the feed instead of resizing its scroll container. */
