@@ -327,7 +327,8 @@ describe("ChatView leader thread tabs projection", () => {
 
       await waitFor(() => {
         expect(screen.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-2,q-1");
-        expect(screen.getByText("Refreshed projected q-1")).toBeTruthy();
+        // The quest's banner shows the refreshed title (the side column's overview names the quest too).
+        expect(within(screen.getByTestId("quest-thread-banner")).getByText("Refreshed projected q-1")).toBeTruthy();
       });
 
       act(() => {
