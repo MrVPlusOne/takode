@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicStands, TopicSummary } from "../../../shared/library-topics.js";
+import { useRememberedFold } from "../../utils/remembered-folds.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { topicApi } from "../../api/topics.js";
 import { openTopicLibrary } from "../../utils/library-nav.js";
@@ -365,7 +366,8 @@ function TopicPageBody({
  * other leaders' folded below. Plain lines, nothing to tick: an outdated line is simply rewritten.
  */
 function WhereItStands({ stands }: { stands: TopicStands[] }) {
-  const [othersOpen, setOthersOpen] = useState(false);
+  const [othersFolded, toggleOthers] = useRememberedFold("topic:stands-others", true);
+  const othersOpen = !othersFolded;
   if (!stands.length) return null;
   const [mine, ...others] = stands;
   return (
@@ -384,7 +386,7 @@ function WhereItStands({ stands }: { stands: TopicStands[] }) {
         <div className="mt-1">
           <button
             type="button"
-            onClick={() => setOthersOpen((open) => !open)}
+            onClick={toggleOthers}
             aria-expanded={othersOpen}
             className="text-[12.5px] text-cc-muted hover:text-cc-fg"
             data-testid="topic-stands-others"

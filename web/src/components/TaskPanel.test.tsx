@@ -8,6 +8,7 @@ import {
 } from "../../shared/session-navigation-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
+import { setRememberedFolded } from "../utils/remembered-folds.js";
 
 const { mockApi } = vi.hoisted(() => ({
   mockApi: {
@@ -593,7 +594,7 @@ describe("TaskPanel", () => {
   });
 
   it("shows the exact Codex-loaded instruction snapshot with global provenance", async () => {
-    localStorage.setItem("cc-collapse-codex-instructions", "0");
+    setRememberedFolded("cc-collapse-codex-instructions", false);
     mockApi.getSessionInfo.mockResolvedValue({
       sessionId: "s1",
       state: "connected",
@@ -629,7 +630,7 @@ describe("TaskPanel", () => {
   });
 
   it("refreshes the snapshot when the Codex launch identity changes without painting stale sources", async () => {
-    localStorage.setItem("cc-collapse-codex-instructions", "0");
+    setRememberedFolded("cc-collapse-codex-instructions", false);
     mockApi.getSessionInfo.mockResolvedValueOnce({
       sessionId: "s1",
       state: "connected",
@@ -675,7 +676,7 @@ describe("TaskPanel", () => {
   });
 
   it("renders unknown instruction origins without calling them repository files", () => {
-    localStorage.setItem("cc-collapse-codex-instructions", "0");
+    setRememberedFolded("cc-collapse-codex-instructions", false);
     render(
       <CodexInstructionsCollapsible
         sessionId="s1"
@@ -697,7 +698,7 @@ describe("TaskPanel", () => {
   });
 
   it("does not retry a failed instruction-detail request in a render loop", async () => {
-    localStorage.setItem("cc-collapse-codex-instructions", "0");
+    setRememberedFolded("cc-collapse-codex-instructions", false);
     mockApi.getSessionInfo.mockRejectedValue(new Error("unavailable"));
 
     render(<CodexInstructionsCollapsible sessionId="s1" />);
@@ -708,7 +709,7 @@ describe("TaskPanel", () => {
   });
 
   it("does not fetch Codex instruction details until the collapsed section is opened", async () => {
-    localStorage.setItem("cc-collapse-codex-instructions", "1");
+    setRememberedFolded("cc-collapse-codex-instructions", true);
     render(<CodexInstructionsCollapsible sessionId="s1" />);
     expect(mockApi.getSessionInfo).not.toHaveBeenCalled();
 
@@ -718,7 +719,7 @@ describe("TaskPanel", () => {
 
   it("keeps generated instruction content lazy after the shared section opens", async () => {
     // Opening metadata is not permission to download any captured body.
-    localStorage.setItem("cc-collapse-codex-instructions", "1");
+    setRememberedFolded("cc-collapse-codex-instructions", true);
     mockApi.getSessionInfo.mockResolvedValue({
       sessionId: "s1",
       codexInstructionSnapshot: instructionSnapshot("thread-one"),
@@ -773,7 +774,7 @@ describe("TaskPanel", () => {
   });
 
   it("keeps Claude files out of the Codex task panel", async () => {
-    localStorage.setItem("cc-collapse-codex-instructions", "1");
+    setRememberedFolded("cc-collapse-codex-instructions", true);
     resetStore({
       sessions: new Map([["s1", { backend_type: "codex", cwd: "/repo" }]]),
       sdkSessions: [{ sessionId: "s1", backendType: "codex", cwd: "/repo" }],
@@ -802,7 +803,7 @@ describe("TaskPanel", () => {
   it("does not poll herd diagnostics while the section is collapsed", async () => {
     vi.useFakeTimers();
     try {
-      localStorage.setItem("cc-collapse-herd-diag", "1");
+      setRememberedFolded("cc-collapse-herd-diag", true);
       resetStore({
         sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       });
@@ -817,7 +818,7 @@ describe("TaskPanel", () => {
   });
 
   it("keeps the herd diagnostics header visible when first mounted collapsed", () => {
-    localStorage.setItem("cc-collapse-herd-diag", "1");
+    setRememberedFolded("cc-collapse-herd-diag", true);
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
     });
@@ -833,7 +834,7 @@ describe("TaskPanel", () => {
   it("polls herd diagnostics only when the section is visible", async () => {
     vi.useFakeTimers();
     try {
-      localStorage.setItem("cc-collapse-herd-diag", "0");
+      setRememberedFolded("cc-collapse-herd-diag", false);
       resetStore({
         sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       });

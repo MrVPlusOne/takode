@@ -1,4 +1,4 @@
-import { scopedGetItem, scopedRemoveItem, scopedSetItem } from "./scoped-storage.js";
+import { scopedGetItem, scopedRemoveItem, scopedSetItem, setLocalStorageItem } from "./scoped-storage.js";
 
 const STORAGE_KEY = "cc-loaded-image-thumbnails";
 const MAX_REMEMBERED = 500;
@@ -28,6 +28,34 @@ export function rememberThumbnailLoaded(url: string): void {
 
 export function forgetThumbnailLoaded(url: string): void {
   if (remembered().delete(url)) scheduleSave();
+}
+
+/**
+ * Earlier builds remembered pasted images' data URLs here, which filled the browser's storage, and
+ * while it is full no other preference (such as a folded section) can be saved. Drops them from
+ * every server's entry once at startup, before anything else needs the space; the rest of the list
+ * stays.
+ */
+export function purgeStoredDataThumbnails(): void {
+  if (typeof localStorage === "undefined") return;
+  const keys: string[] = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (key === STORAGE_KEY || key?.endsWith(`:${STORAGE_KEY}`)) keys.push(key);
+  }
+  for (const key of keys) {
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+      const urls = Array.isArray(stored) ? stored : [];
+      const kept = urls.filter((url): url is string => typeof url === "string" && isRememberable(url));
+      if (kept.length === urls.length && Array.isArray(stored)) continue;
+      // Remove first, so the smaller list fits even when storage is full.
+      localStorage.removeItem(key);
+      if (kept.length) setLocalStorageItem(key, JSON.stringify(kept));
+    } catch (error) {
+      console.warn(`[thumbnails] Could not clean ${key}:`, error);
+    }
+  }
 }
 
 export function resetThumbnailLoadMemoryForTest(): void {

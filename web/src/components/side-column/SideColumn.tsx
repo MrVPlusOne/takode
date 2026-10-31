@@ -1,6 +1,7 @@
 import { Activity, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { setSideViewsOf } from "../../utils/side-views.js";
 import { holdSessionConnection } from "../../ws.js";
+import { useRememberedFold } from "../../utils/remembered-folds.js";
 import { useStore } from "../../store.js";
 import { useOutsidePress } from "../../hooks/useOutsidePress.js";
 import {
@@ -11,7 +12,6 @@ import {
   openInSide,
   openSideItem,
   replaceSideItem,
-  setSideOverviewFolded,
   sideChatOrigin,
   sideItemLeader,
   useSideColumn,
@@ -75,7 +75,8 @@ export function SideColumn({
   threadKey: string;
   variant: "docked" | "sheet";
 }) {
-  const { items, open, overviewFolded = false } = useSideColumn(leaderId);
+  const { items, open } = useSideColumn(leaderId);
+  const [overviewFolded, toggleOverviewFold] = useRememberedFold(`side-overview:${leaderId}`);
   const overview = useLeaderOverview(leaderId);
   const entries: Array<SideItem | null> = [...items, null];
   const openId = open === HOME_ITEM || open === NO_ITEM || items.some((item) => item.id === open) ? open : HOME_ITEM;
@@ -179,6 +180,7 @@ export function SideColumn({
         <SideOverview
           leaderId={leaderId}
           folded={overviewFolded}
+          onToggleFold={toggleOverviewFold}
           // Beside an open item it takes up to about half the column; alone, all of it.
           shared={openId !== NO_ITEM}
           variant={variant}
@@ -199,12 +201,14 @@ export function SideColumn({
 function SideOverview({
   leaderId,
   folded,
+  onToggleFold,
   shared,
   variant,
   onClose,
 }: {
   leaderId: string;
   folded: boolean;
+  onToggleFold: () => void;
   shared: boolean;
   variant: "docked" | "sheet";
   onClose: () => void;
@@ -222,7 +226,7 @@ function SideOverview({
       >
         <button
           type="button"
-          onClick={() => setSideOverviewFolded(leaderId, !folded)}
+          onClick={onToggleFold}
           className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
           aria-expanded={!folded}
         >

@@ -26,8 +26,7 @@ const GLOBAL_KEYS = new Set([
   "cc-edit-blocks-expanded",
   "cc-compact-tool-activity",
 
-  "cc-collapse-usage",
-  "cc-collapse-mcp",
+  "cc-folds",
   "cc-settings-collapsed",
   "cc-settings-scroll",
   "cc-session-sort-mode",
@@ -58,9 +57,6 @@ const SCOPED_KEYS = [
   "cc-universal-search-message-settings",
   "cc-sidebar-group-visible-limits",
   "cc-last-session-creation-context",
-  "cc-collapsed-tree-groups",
-  "cc-collapsed-tree-nodes",
-  "cc-expanded-herd-nodes",
 ];
 
 function getServerIdPrefix(): string {

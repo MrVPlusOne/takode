@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { setRememberedFolded, useRememberedFolds } from "../utils/remembered-folds.js";
 import { SplitHandle, useSplitWidth } from "./SplitHandle.js";
 import {
   api,
@@ -902,10 +903,11 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedUpdateSha, setSelectedUpdateSha] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  // Folders start collapsed so the list reads as a table of contents. While a filter is active,
-  // matching folders show expanded instead (tracked separately, so clearing the filter restores
-  // the user's own expand state). Both are local UI state and reset when the space changes.
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  // Folders start collapsed so the list reads as a table of contents; the ones the user opens stay
+  // open (remembered folds, per space). While a filter is active, matching folders show expanded
+  // instead (tracked separately for this page, so clearing the filter restores the user's own state).
+  const folds = useRememberedFolds();
+  const folderFold = (folder: string) => `memory-folder:${selectedRoot ?? ""}:${folder}`;
   const [filterCollapsedFolders, setFilterCollapsedFolders] = useState<Set<string>>(new Set());
   const filtering = query.trim().length > 0;
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
@@ -1051,10 +1053,10 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     () =>
       new Set(
         [...entriesByFolder.keys()].filter((folder) =>
-          filtering ? filterCollapsedFolders.has(folder) : !expandedFolders.has(folder),
+          filtering ? filterCollapsedFolders.has(folder) : folds.isFolded(folderFold(folder), true),
         ),
       ),
-    [entriesByFolder, expandedFolders, filterCollapsedFolders, filtering],
+    [entriesByFolder, folds.isFolded, filterCollapsedFolders, filtering, selectedRoot],
   );
 
   useEffect(() => {
@@ -1087,7 +1089,6 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     setSelectedUpdateSha(null);
     setMobileDetailOpen(false);
     setRecentLimit(INITIAL_RECENT_LIMIT);
-    setExpandedFolders(new Set());
     setFilterCollapsedFolders(new Set());
   }
 
@@ -1111,13 +1112,13 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
       return next;
     };
     if (filtering) setFilterCollapsedFolders(toggle);
-    else setExpandedFolders(toggle);
+    else folds.toggle(folderFold(folder), true);
   }
 
   /** Previous/Next can land in a collapsed folder; open it so the selected row stays visible. */
   function revealFolder(entry: MemoryCatalogEntry): void {
     const folder = folderOf(entry);
-    setExpandedFolders((current) => (current.has(folder) ? current : new Set(current).add(folder)));
+    setRememberedFolded(folderFold(folder), false);
     setFilterCollapsedFolders((current) => {
       if (!current.has(folder)) return current;
       const next = new Set(current);

@@ -375,6 +375,8 @@ function updateDiffResponse(commit = recentCommit()): MemoryUpdateDiffResponse {
 describe("MemoryPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Opened folders are remembered in this browser; each test starts with them collapsed.
+    localStorage.clear();
     useStore.getState().reset();
     mockListMemorySpaces.mockResolvedValue(spacesResponse());
     mockGetMemoryCatalog.mockImplementation((opts?: { root?: string }) => {
@@ -690,6 +692,18 @@ describe("MemoryPage", () => {
     fireEvent.change(screen.getByLabelText("Filter memory"), { target: { value: "" } });
     expect(screen.getByRole("button", { name: /procedures.*1/i })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: /knowledge.*1/i })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps a folder the user opened open after the page reloads", async () => {
+    // Folders used to collapse again on every visit; the user's open folders are remembered.
+    const first = render(<MemoryPage embedded />);
+    await screen.findByRole("region", { name: "knowledge memory records" });
+    fireEvent.click(screen.getByRole("button", { name: /knowledge.*1/i }));
+    first.unmount();
+
+    render(<MemoryPage embedded />);
+    const knowledgeGroup = await screen.findByRole("region", { name: "knowledge memory records" });
+    await waitFor(() => expect(within(knowledgeGroup).getByText("service-x.md")).toBeInTheDocument());
   });
 
   it("opens mobile drill-in detail and supports next/previous record navigation", async () => {

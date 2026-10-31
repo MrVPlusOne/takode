@@ -1,5 +1,5 @@
-import { type ReactNode, useCallback, useState } from "react";
-import { scopedGetItem, scopedSetItem } from "../../utils/scoped-storage.js";
+import type { ReactNode } from "react";
+import { useRememberedFolds } from "../../utils/remembered-folds.js";
 
 /**
  * Collapsible sections of a topic page. Every section heading folds its section, so a long History
@@ -7,8 +7,6 @@ import { scopedGetItem, scopedSetItem } from "../../utils/scoped-storage.js";
  * or opened, on this device: a section stays as the user left it on that topic and other topics
  * keep their own defaults (open, except the full quest list).
  */
-
-const COLLAPSED_KEY = "cc-topic-collapsed-sections";
 
 /** A `## ` section of the Scribe's page: its heading and its text without the heading line. */
 export interface PageSection {
@@ -35,45 +33,20 @@ export function isLeadingSection(section: PageSection): boolean {
   return section.title !== null && /^(Status|Latest\b.*)$/.test(section.title);
 }
 
-type SectionStates = Record<string, Record<string, boolean>>;
-
-function readStates(): SectionStates {
-  try {
-    const parsed = JSON.parse(scopedGetItem(COLLAPSED_KEY) ?? "{}") as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as SectionStates) : {};
-  } catch {
-    return {};
-  }
-}
-
 /**
- * Which of a topic's sections are folded. Only choices that differ from a section's default are
- * stored, so the record stays small and a section the user put back as it was carries no entry.
+ * Which of a topic's sections are folded, as remembered folds (`topic:<topicId>:<section>`), so a
+ * choice made on one page holds on every other open page of the topic too.
  */
 export function useCollapsedSections(topicId: string): {
   isCollapsed: (name: string, byDefault?: boolean) => boolean;
   toggle: (name: string, byDefault?: boolean) => void;
 } {
-  const [states, setStates] = useState(readStates);
-  const own = states[topicId] ?? {};
-  const isCollapsed = (name: string, byDefault = false) => own[name.toLowerCase()] ?? byDefault;
-  const toggle = useCallback(
-    (name: string, byDefault = false) => {
-      const key = name.toLowerCase();
-      // Re-read, so another open page's choices since this one loaded aren't overwritten.
-      const all = readStates();
-      const mine = { ...all[topicId] };
-      const next = !(mine[key] ?? byDefault);
-      if (next === byDefault) delete mine[key];
-      else mine[key] = next;
-      if (Object.keys(mine).length) all[topicId] = mine;
-      else delete all[topicId];
-      scopedSetItem(COLLAPSED_KEY, JSON.stringify(all));
-      setStates(all);
-    },
-    [topicId],
-  );
-  return { isCollapsed, toggle };
+  const folds = useRememberedFolds();
+  const id = (name: string) => `topic:${topicId}:${name.toLowerCase()}`;
+  return {
+    isCollapsed: (name, byDefault = false) => folds.isFolded(id(name), byDefault),
+    toggle: (name, byDefault = false) => folds.toggle(id(name), byDefault),
+  };
 }
 
 /**

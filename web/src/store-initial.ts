@@ -77,12 +77,3 @@ export function getInitialZoomLevel(): number {
   }
   return 0.9;
 }
-
-export function getInitialCollapsedSet(key: string): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    return new Set(JSON.parse(scopedGetItem(key) || "[]"));
-  } catch {
-    return new Set();
-  }
-}

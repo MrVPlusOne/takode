@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  purgeStoredDataThumbnails,
   rememberThumbnailLoaded,
   resetThumbnailLoadMemoryForTest,
   wasThumbnailLoaded,
@@ -56,5 +57,18 @@ describe("image thumbnail load memory", () => {
     expect(wasThumbnailLoaded("/api/images/s1/a/thumb")).toBe(true);
     vi.advanceTimersByTime(1_000);
     expect(stored()).toEqual(["/api/images/s1/a/thumb"]);
+  });
+
+  it("drops stored data URLs from every server's entry at startup, freeing a full storage", () => {
+    // A full storage (pasted images remembered by earlier builds) makes every other save fail, such as
+    // a folded section. Entries kept for other servers are never read again, so nothing else frees them.
+    const pasted = `data:image/png;base64,${"A".repeat(1000)}`;
+    localStorage.setItem(STORED_KEY, JSON.stringify(["/api/images/s1/a/thumb", pasted]));
+    localStorage.setItem("old-srv:cc-loaded-image-thumbnails", JSON.stringify([pasted]));
+    localStorage.setItem("other:cc-loaded-image-thumbnails", JSON.stringify(["/api/images/s2/b/thumb"]));
+    purgeStoredDataThumbnails();
+    expect(stored()).toEqual(["/api/images/s1/a/thumb"]);
+    expect(localStorage.getItem("old-srv:cc-loaded-image-thumbnails")).toBeNull();
+    expect(localStorage.getItem("other:cc-loaded-image-thumbnails")).toBe(JSON.stringify(["/api/images/s2/b/thumb"]));
   });
 });

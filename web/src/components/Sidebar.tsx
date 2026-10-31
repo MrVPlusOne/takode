@@ -25,6 +25,7 @@ import { openSecondaryPage, toggleSecondaryPage } from "../utils/secondary-view.
 import { cancelPendingCreation } from "../utils/pending-creation.js";
 import { getTreeGroupNewSessionDefaultsKey } from "../utils/new-session-defaults.js";
 import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
+import { useRememberedFold } from "../utils/remembered-folds.js";
 import { TreeViewGroup } from "./TreeViewGroup.js";
 import { SortableTreeGroup } from "./SortableTreeGroup.js";
 import { SessionItem } from "./SessionItem.js";
@@ -99,7 +100,9 @@ export function Sidebar({
 } = {}) {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
+  // Folded by default; opened, it stays open across reloads (and loads its first page then).
+  const [archivedFolded, toggleArchivedFold] = useRememberedFold("sidebar:archived", true);
+  const showArchived = !archivedFolded;
   const [mobileReorderHandleActive, setMobileReorderHandleActive] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
   const [hoveredSession, setHoveredSession] = useState<{ sessionId: string; rect: DOMRect } | null>(null);
@@ -505,11 +508,10 @@ export function Sidebar({
     setSidebarViewMode(mode);
   }
 
-  const toggleArchivedSessions = useCallback(() => {
-    const nextShowArchived = !showArchived;
-    setShowArchived(nextShowArchived);
-    if (nextShowArchived && !archivedSessionPage.loaded) void loadArchivedSessionsPage({ reset: true });
-  }, [archivedSessionPage.loaded, loadArchivedSessionsPage, showArchived]);
+  useEffect(() => {
+    if (showArchived && !archivedSessionPage.loaded && !archivedSessionPage.loading)
+      void loadArchivedSessionsPage({ reset: true });
+  }, [archivedSessionPage.loaded, archivedSessionPage.loading, loadArchivedSessionsPage, showArchived]);
 
   const {
     allSessionList,
@@ -566,7 +568,8 @@ export function Sidebar({
       .map((sessionId) => archivedById.get(sessionId))
       .filter((session): session is SidebarSessionItem => !!session);
   }, [archivedSessionPage.ids, archivedSessions]);
-  const [showCronSessions, setShowCronSessions] = useState(true);
+  const [cronFolded, toggleCronFold] = useRememberedFold("sidebar:scheduled");
+  const showCronSessions = !cronFolded;
   const treeGroupIds = useMemo(() => treeViewGroups.map((g) => g.id), [treeViewGroups]);
   const treePointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
   const treeSensors = useSensors(treePointerSensor);
@@ -756,7 +759,7 @@ export function Sidebar({
   const cronSection = cronSessions.length > 0 && (
     <div className="mt-2 pt-2 border-t border-cc-border">
       <button
-        onClick={() => setShowCronSessions(!showCronSessions)}
+        onClick={toggleCronFold}
         className="w-full px-3 py-1.5 text-[11px] font-medium text-violet-400 uppercase tracking-wider flex items-center gap-1.5 hover:text-violet-300 transition-colors cursor-pointer"
       >
         <svg
@@ -812,7 +815,7 @@ export function Sidebar({
       herdHoverHighlights={herdHoverHighlights}
       reviewerByParent={reviewerByParent}
       sessionItemProps={sessionItemProps}
-      onToggle={toggleArchivedSessions}
+      onToggle={toggleArchivedFold}
       onLoadMore={() => void loadArchivedSessionsPage()}
     />
   );

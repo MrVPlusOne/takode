@@ -1,26 +1,3 @@
-import { useCallback, useSyncExternalStore } from "react";
-import { setLocalStorageItem } from "../utils/scoped-storage.js";
-
-const collapseListeners = new Set<() => void>();
-
-export function usePersistedCollapse(key: string, defaultCollapsed = false): [boolean, () => void] {
-  const value = useSyncExternalStore(
-    (cb) => {
-      collapseListeners.add(cb);
-      return () => collapseListeners.delete(cb);
-    },
-    () => {
-      const stored = localStorage.getItem(key);
-      return stored === null ? defaultCollapsed : stored === "1";
-    },
-  );
-  const toggle = useCallback(() => {
-    setLocalStorageItem(key, value ? "0" : "1");
-    collapseListeners.forEach((listener) => listener());
-  }, [key, value]);
-  return [value, toggle];
-}
-
 export function SectionHeader({
   title,
   collapsed,

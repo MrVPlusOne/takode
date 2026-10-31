@@ -321,10 +321,6 @@ vi.mock("./TaskPanel.js", async () => {
         {title}
       </button>
     ),
-    usePersistedCollapse: (_key: string, defaultCollapsed = false) => {
-      const [collapsed, setCollapsed] = React.useState(defaultCollapsed);
-      return [collapsed, () => setCollapsed((value) => !value)] as const;
-    },
   };
 });
 
@@ -367,6 +363,8 @@ const TAKO_PORTRAIT = {
 describe("SessionInfoPopover", () => {
   beforeEach(() => {
     window.location.hash = "#/session/s1";
+    // Sections remember their folds in this browser; each test starts from the defaults.
+    localStorage.clear();
     // The settings menu at the top of the panel loads the model catalogs.
     vi.mocked(api.getSettings).mockResolvedValue({} as Awaited<ReturnType<typeof api.getSettings>>);
     vi.mocked(api.getBackendModels).mockResolvedValue([]);

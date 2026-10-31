@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useRememberedFolds } from "../utils/remembered-folds.js";
 import { setLocalStorageItem } from "../utils/scoped-storage.js";
 
 /**
  * Groups stacked in one panel, as in VS Code's side bar: each group has a header that folds it,
  * open groups share the panel's height and scroll on their own, and the line between two open
  * groups can be dragged to set their proportions (see the `takode-desktop-ui-design` skill). Folded
- * groups and sizes are a local preference, kept per stack in this browser.
+ * groups (as remembered folds, `stack:<stackId>:<paneId>`) and sizes are a local preference, kept in
+ * this browser.
  */
 
 const STORAGE_KEY = "cc-stacked-panes";
@@ -26,7 +28,6 @@ export interface StackedPane {
 }
 
 interface StackState {
-  folded: string[];
   /** Heights of open groups as relative weights. */
   weights: Record<string, number>;
 }
@@ -35,13 +36,10 @@ function readState(stackId: string): StackState {
   try {
     const all = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, Partial<StackState>>;
     const saved = all[stackId];
-    return {
-      folded: Array.isArray(saved?.folded) ? saved.folded.filter((id) => typeof id === "string") : [],
-      weights: saved?.weights && typeof saved.weights === "object" ? saved.weights : {},
-    };
+    return { weights: saved?.weights && typeof saved.weights === "object" ? saved.weights : {} };
   } catch (error) {
     console.warn("[stacked-panes] Ignoring unreadable saved layout:", error);
-    return { folded: [], weights: {} };
+    return { weights: {} };
   }
 }
 
@@ -57,18 +55,13 @@ function writeState(stackId: string, state: StackState): void {
 export function StackedPanes({ stackId, panes }: { stackId: string; panes: StackedPane[] }) {
   const [state, setState] = useState(() => readState(stackId));
   useEffect(() => writeState(stackId, state), [stackId, state]);
+  const remembered = useRememberedFolds();
+  const isFolded = (id: string) => remembered.isFolded(`stack:${stackId}:${id}`);
   // Open groups' elements, whose heights the divider moves between.
   const bodies = useRef(new Map<string, HTMLDivElement>());
   const weightOf = (pane: StackedPane) => state.weights[pane.id] ?? pane.defaultWeight ?? 1;
-  const open = panes.filter((pane) => !state.folded.includes(pane.id));
-
-  const toggle = (id: string) =>
-    setState((previous) => ({
-      ...previous,
-      folded: previous.folded.includes(id)
-        ? previous.folded.filter((folded) => folded !== id)
-        : [...previous.folded, id],
-    }));
+  const open = panes.filter((pane) => !isFolded(pane.id));
+  const toggle = (id: string) => remembered.toggle(`stack:${stackId}:${id}`);
 
   /** Moves the line above `below` by `delta` px, between it and the nearest open group above. */
   const resize = useCallback((above: string, below: string, delta: number, start: { above: number; below: number }) => {
@@ -87,8 +80,8 @@ export function StackedPanes({ stackId, panes }: { stackId: string; panes: Stack
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="stacked-panes">
       {panes.map((pane, index) => {
-        const folded = state.folded.includes(pane.id);
-        const previousOpen = [...panes.slice(0, index)].reverse().find((other) => !state.folded.includes(other.id));
+        const folded = isFolded(pane.id);
+        const previousOpen = [...panes.slice(0, index)].reverse().find((other) => !isFolded(other.id));
         return (
           <div
             key={pane.id}
@@ -110,7 +103,7 @@ export function StackedPanes({ stackId, panes }: { stackId: string; panes: Stack
                   above: (previousOpen && bodies.current.get(previousOpen.id)?.getBoundingClientRect().height) || 0,
                   below: bodies.current.get(pane.id)?.getBoundingClientRect().height || 0,
                 })}
-                onReset={() => setState((previous) => ({ ...previous, weights: {} }))}
+                onReset={() => setState({ weights: {} })}
               />
             )}
             <div className="flex h-7 shrink-0 items-center gap-1 px-1">

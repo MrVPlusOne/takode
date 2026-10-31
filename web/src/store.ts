@@ -47,7 +47,6 @@ import {
   type SessionSearchState,
 } from "./store-session-search.js";
 import {
-  getInitialCollapsedSet,
   getInitialColorTheme,
   systemPrefersDark,
   watchSystemDarkMode,
@@ -66,7 +65,8 @@ import {
   getInitialChatMessageLineHeight,
   normalizeChatMessageLineHeight,
 } from "./store-chat-display.js";
-import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from "./store-map-utils.js";
+import { withMapEntry, withOptionalMapEntry } from "./store-map-utils.js";
+import { rememberedFoldIds, subscribeRememberedFolds, toggleRememberedFold } from "./utils/remembered-folds.js";
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
 import { createNeedsInputDraftStoreSlice } from "./store-needs-input-drafts.js";
 import { composerDraftOwner, notifyLocalDraftChange } from "./draft-sync-bridge.js";
@@ -142,6 +142,20 @@ const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 
 function setShortcutSettingsFromServer(settings: ShortcutSettings): void {
   useStore.setState({ shortcutSettings: normalizeShortcutSettings(settings) });
+}
+
+const SPACE_FOLD = "space:";
+const TREE_NODE_FOLD = "tree-node:";
+const WORKERS_FOLD = "workers:";
+
+/** The sessions panel's folded spaces and leader cards, and leaders whose workers are shown. */
+function rememberedTreeFolds(): Pick<AppState, "collapsedTreeGroups" | "collapsedTreeNodes" | "expandedHerdNodes"> {
+  return {
+    collapsedTreeGroups: new Set(rememberedFoldIds(SPACE_FOLD)),
+    collapsedTreeNodes: new Set(rememberedFoldIds(TREE_NODE_FOLD)),
+    // Workers are folded under their leader unless the user opened them.
+    expandedHerdNodes: new Set(rememberedFoldIds(WORKERS_FOLD, false)),
+  };
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -240,9 +254,7 @@ export const useStore = create<AppState>((set, get) => ({
   treeGroups: [],
   treeAssignments: new Map(),
   treeNodeOrder: new Map(),
-  collapsedTreeGroups: getInitialCollapsedSet("cc-collapsed-tree-groups"),
-  collapsedTreeNodes: getInitialCollapsedSet("cc-collapsed-tree-nodes"),
-  expandedHerdNodes: getInitialCollapsedSet("cc-expanded-herd-nodes"),
+  ...rememberedTreeFolds(),
   ...createQuestStoreSlice(set, get),
   pendingSessions: new Map(),
   serverName: "",
@@ -1380,41 +1392,10 @@ export const useStore = create<AppState>((set, get) => ({
       treeNodeOrder: new Map(Object.entries(nodeOrder)),
     })),
 
-  toggleTreeGroupCollapse: (groupId) =>
-    set((s) => {
-      const collapsedTreeGroups = new Set(s.collapsedTreeGroups);
-      if (collapsedTreeGroups.has(groupId)) {
-        collapsedTreeGroups.delete(groupId);
-      } else {
-        collapsedTreeGroups.add(groupId);
-      }
-      persistSidePanelStringSet("cc-collapsed-tree-groups", collapsedTreeGroups);
-      return { collapsedTreeGroups };
-    }),
-
-  toggleTreeNodeCollapse: (sessionId) =>
-    set((s) => {
-      const collapsedTreeNodes = new Set(s.collapsedTreeNodes);
-      if (collapsedTreeNodes.has(sessionId)) {
-        collapsedTreeNodes.delete(sessionId);
-      } else {
-        collapsedTreeNodes.add(sessionId);
-      }
-      persistSidePanelStringSet("cc-collapsed-tree-nodes", collapsedTreeNodes);
-      return { collapsedTreeNodes };
-    }),
-
-  toggleHerdNodeExpand: (sessionId) =>
-    set((s) => {
-      const expandedHerdNodes = new Set(s.expandedHerdNodes);
-      if (expandedHerdNodes.has(sessionId)) {
-        expandedHerdNodes.delete(sessionId);
-      } else {
-        expandedHerdNodes.add(sessionId);
-      }
-      persistSidePanelStringSet("cc-expanded-herd-nodes", expandedHerdNodes);
-      return { expandedHerdNodes };
-    }),
+  // The sets follow the remembered folds (see the subscription below the store), in every tab.
+  toggleTreeGroupCollapse: (groupId) => toggleRememberedFold(`${SPACE_FOLD}${groupId}`),
+  toggleTreeNodeCollapse: (sessionId) => toggleRememberedFold(`${TREE_NODE_FOLD}${sessionId}`),
+  toggleHerdNodeExpand: (sessionId) => toggleRememberedFold(`${WORKERS_FOLD}${sessionId}`, true),
 
   setPreviousPermissionMode: (sessionId, mode) =>
     set((s) => {
@@ -1846,4 +1827,14 @@ export const hydrateChatDisplaySettingsFromServer = createChatDisplaySettingsHyd
 // The System theme follows the device live, such as iOS switching to dark at sunset.
 watchSystemDarkMode((dark) => {
   if (useStore.getState().colorTheme === "system") useStore.setState({ darkMode: dark });
+});
+
+// Folding a space, a leader card or its workers here or in another tab updates the panel.
+subscribeRememberedFolds(() => {
+  const next = rememberedTreeFolds();
+  const current = useStore.getState();
+  const changed = (Object.keys(next) as (keyof typeof next)[]).filter(
+    (key) => next[key].size !== current[key].size || [...next[key]].some((id) => !current[key].has(id)),
+  );
+  if (changed.length) useStore.setState(Object.fromEntries(changed.map((key) => [key, next[key]])));
 });

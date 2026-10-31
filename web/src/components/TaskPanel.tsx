@@ -25,10 +25,11 @@ import { resolveSessionNavigation } from "../utils/session-navigation-resolver.j
 import { navigateToSession } from "../utils/navigation.js";
 import { beginActiveSessionListRequest, hydrateSessionList } from "../session-list-hydration.js";
 import { CodexInstructionsCollapsible } from "./CodexInstructionsCollapsible.js";
-import { SectionHeader, usePersistedCollapse } from "./PanelSection.js";
+import { SectionHeader } from "./PanelSection.js";
+import { useRememberedFold } from "../utils/remembered-folds.js";
 
 export { CodexInstructionsCollapsible } from "./CodexInstructionsCollapsible.js";
-export { SectionHeader, usePersistedCollapse } from "./PanelSection.js";
+export { SectionHeader } from "./PanelSection.js";
 
 const EMPTY_TASKS: TaskItem[] = [];
 
@@ -473,7 +474,7 @@ export function GitHubPRSection({ sessionId }: { sessionId: string }) {
 // ─── Collapsible wrappers ────────────────────────────────────────────────────
 
 function UsageCollapsible({ sessionId, isCodex }: { sessionId: string; isCodex: boolean }) {
-  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-usage");
+  const [collapsed, toggle] = useRememberedFold("cc-collapse-usage");
   return (
     <>
       <SectionHeader title="Usage" collapsed={collapsed} onToggle={toggle} />
@@ -494,12 +495,12 @@ function UsageCollapsible({ sessionId, isCodex }: { sessionId: string; isCodex: 
 }
 
 export function McpCollapsible({ sessionId }: { sessionId: string }) {
-  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-mcp");
+  const [collapsed, toggle] = useRememberedFold("cc-collapse-mcp");
   return <McpSection sessionId={sessionId} collapsed={collapsed} onToggle={toggle} />;
 }
 
 export function ClaudeMdCollapsible({ cwd }: { cwd: string }) {
-  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-claudemd");
+  const [collapsed, toggle] = useRememberedFold("cc-collapse-claudemd");
   const [files, setFiles] = useState<{ path: string; content: string; writable?: boolean }[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -591,7 +592,7 @@ export function SystemPromptCollapsible({
   collapseKey?: string;
   defaultCollapsed?: boolean;
 }) {
-  const [collapsed, toggle] = usePersistedCollapse(collapseKey, defaultCollapsed);
+  const [collapsed, toggle] = useRememberedFold(collapseKey, defaultCollapsed);
   const [fetchState, setFetchState] = useState<SystemPromptFetchState | null>(null);
   const [modalSessionId, setModalSessionId] = useState<string | null>(null);
   const currentFetchState = fetchState?.sessionId === sessionId ? fetchState : null;
@@ -730,7 +731,7 @@ export { CodexRateLimitsSection, CodexTokenDetailsSection };
 function SessionTasksSection({ sessionId }: { sessionId: string }) {
   const taskHistory = useStore((s) => s.sessionTaskHistory.get(sessionId));
   const requestScrollToTurn = useStore((s) => s.requestScrollToTurn);
-  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-session-tasks");
+  const [collapsed, toggle] = useRememberedFold("cc-collapse-session-tasks");
 
   if (!taskHistory || taskHistory.length === 0) return null;
 
@@ -763,7 +764,7 @@ function SessionTasksSection({ sessionId }: { sessionId: string }) {
 // ─── Herded sessions (leader panel) ──────────────────────────────────────────
 
 function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
-  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-herded");
+  const [collapsed, toggle] = useRememberedFold("cc-collapse-herded");
   const [pendingModeChange, setPendingModeChange] = useState<{
     workerId: string;
     mode: CodexPermissionMode;
@@ -947,7 +948,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
 // ─── Herd diagnostics (leader debug panel) ───────────────────────────────────
 
 export function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
-  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-herd-diag");
+  const [collapsed, toggle] = useRememberedFold("cc-collapse-herd-diag");
   const [diag, setDiag] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {

@@ -11,8 +11,8 @@ import {
   HerdDiagnosticsSection,
   SectionHeader,
   SystemPromptCollapsible,
-  usePersistedCollapse,
 } from "./TaskPanel.js";
+import { useRememberedFold } from "../utils/remembered-folds.js";
 import type { SessionViewModel } from "../utils/session-view-model.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { SessionInfoQuests, sessionInfoQuests } from "./SessionInfoQuests.js";
@@ -158,10 +158,7 @@ export function SessionInfoPopover({
       codexLeaderRecycleLineage &&
       (codexLeaderRecycleLineage.cliSessionIds.length > 0 || codexLeaderRecycleLineage.recycleEvents.length > 0)
     );
-  const [lifecycleCollapsed, toggleLifecycleCollapsed] = usePersistedCollapse(
-    "cc-collapse-session-lifecycle-debug",
-    true,
-  );
+  const [lifecycleCollapsed, toggleLifecycleCollapsed] = useRememberedFold("cc-collapse-session-lifecycle-debug", true);
   const isOrchestrator = resolvedNavigation?.sidebarItem.isOrchestrator ?? effectiveSdkSession?.isOrchestrator ?? false;
   const herdedBy = resolvedNavigation?.sidebarItem.herdedBy ?? effectiveSdkSession?.herdedBy;
   const herdedSessions = useMemo(() => {

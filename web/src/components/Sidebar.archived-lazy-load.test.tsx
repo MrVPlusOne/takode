@@ -254,6 +254,8 @@ import { Sidebar } from "./Sidebar.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The archive remembers being opened; each test starts with it folded.
+  localStorage.clear();
   intersectionObservers = [];
   vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
   mockState = createMockState();
@@ -585,4 +587,26 @@ it("reconciles archived worktree retry state from the retry response without rel
   } finally {
     setTimeoutSpy?.mockRestore();
   }
+});
+
+it("keeps the archive open across reloads and loads its first page when it opens that way", async () => {
+  // The archive used to fold again on every reload; the user's choice is now remembered.
+  const archived = makeSdkSession("archived-1", { archived: true, name: "Old work", model: "codex" });
+  mockApi.listArchivedSessionsPage.mockResolvedValue({
+    sessions: [archived],
+    total: 1,
+    offset: 0,
+    limit: 25,
+    hasMore: false,
+    nextOffset: 1,
+  });
+  const first = render(<Sidebar />);
+  fireEvent.click(screen.getByText("Archived"));
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledTimes(1));
+  first.unmount();
+
+  // A fresh page: the archive opens by itself and loads, without a click.
+  mockApi.listArchivedSessionsPage.mockClear();
+  render(<Sidebar />);
+  await waitFor(() => expect(mockApi.listArchivedSessionsPage).toHaveBeenCalledWith({ offset: 0, limit: 25 }));
 });

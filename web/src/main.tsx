@@ -11,8 +11,10 @@ import { installPressFeedback } from "./utils/press-feedback.js";
 import { resumeWebPushOnThisDevice } from "./utils/web-push.js";
 import { installUserActivityReporter } from "./utils/user-activity.js";
 import { installPortableSelectionCopy } from "./utils/copy-utils.js";
+import { purgeStoredDataThumbnails } from "./utils/image-thumbnail-load-memory.js";
 import "./index.css";
 
+purgeStoredDataThumbnails();
 installUiCrashDebugHooks();
 installLoginRequiredWatcher();
 installPressFeedback();

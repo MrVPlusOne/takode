@@ -76,6 +76,7 @@ import {
   reconcileQuestList,
   useStore,
 } from "./store.js";
+import { REMEMBERED_FOLDS_KEY, resetRememberedFoldsForTest } from "./utils/remembered-folds.js";
 import { setSdkSessionsWithNotificationFreshness } from "./notification-status.js";
 import { getMatchingShortcutAction } from "./shortcuts.js";
 import type {
@@ -832,19 +833,16 @@ describe("Session management", () => {
 });
 
 describe("Side panel collapse storage", () => {
-  it("keeps collapse and expand state in memory when scoped localStorage writes fail", () => {
-    // Side-panel collapse state is a tiny UI restore hint. Quota/full/blocked
-    // storage must not break sidebar navigation or discard the in-memory toggle.
+  // A failed save keeps folds in this page's memory; each test starts as a fresh page.
+  beforeEach(() => resetRememberedFoldsForTest());
+
+  it("keeps collapse and expand state in memory when the browser storage is full", () => {
+    // Folds are remembered in the browser; a full storage (QuotaExceededError) must not break
+    // sidebar navigation or lose the toggle for the rest of the page's life.
     const originalSetItem = Storage.prototype.setItem;
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
-      if (
-        key.includes("cc-collapsed-tree-groups") ||
-        key.includes("cc-collapsed-tree-nodes") ||
-        key.includes("cc-expanded-herd-nodes")
-      ) {
-        throw new DOMException("Storage quota exceeded", "QuotaExceededError");
-      }
+      if (key === REMEMBERED_FOLDS_KEY) throw new DOMException("Storage quota exceeded", "QuotaExceededError");
       return originalSetItem.call(this, key, value);
     });
 
@@ -855,29 +853,25 @@ describe("Side panel collapse storage", () => {
     expect(useStore.getState().collapsedTreeGroups.has("group-a")).toBe(true);
     expect(useStore.getState().collapsedTreeNodes.has("session-a")).toBe(true);
     expect(useStore.getState().expandedHerdNodes.has("leader-a")).toBe(true);
-    expect(localStorage.getItem("test-server:cc-collapsed-tree-groups")).toBeNull();
-    expect(localStorage.getItem("test-server:cc-collapsed-tree-nodes")).toBeNull();
-    expect(localStorage.getItem("test-server:cc-expanded-herd-nodes")).toBeNull();
-    expect(warnSpy).toHaveBeenCalledTimes(3);
+    expect(localStorage.getItem(REMEMBERED_FOLDS_KEY)).toBeNull();
 
     setItemSpy.mockRestore();
     warnSpy.mockRestore();
   });
 
-  it("bounds persisted side-panel restore hints while preserving full in-memory state", () => {
-    // Persisted collapse/expand IDs are only restore hints. The current page can
-    // keep the full set in memory, but localStorage should stay bounded.
-    useStore.setState({ expandedHerdNodes: new Set() });
+  it("remembers the panel's folds and follows a fold made in another tab", () => {
+    useStore.getState().toggleTreeGroupCollapse("group-a");
+    useStore.getState().toggleHerdNodeExpand("leader-a");
+    expect(JSON.parse(localStorage.getItem(REMEMBERED_FOLDS_KEY)!)).toEqual({
+      "space:group-a": true,
+      "workers:leader-a": false,
+    });
 
-    for (let index = 0; index < 505; index += 1) {
-      useStore.getState().toggleHerdNodeExpand(`leader-${index}`);
-    }
-
-    const stored = JSON.parse(localStorage.getItem("test-server:cc-expanded-herd-nodes") || "[]") as string[];
-    expect(useStore.getState().expandedHerdNodes.size).toBe(505);
-    expect(stored).toHaveLength(500);
-    expect(stored[0]).toBe("leader-5");
-    expect(stored[stored.length - 1]).toBe("leader-504");
+    // Another tab folds the leader's workers again and opens the space.
+    localStorage.setItem(REMEMBERED_FOLDS_KEY, JSON.stringify({ "space:group-a": false, "workers:leader-a": true }));
+    window.dispatchEvent(new StorageEvent("storage", { key: REMEMBERED_FOLDS_KEY }));
+    expect(useStore.getState().collapsedTreeGroups.has("group-a")).toBe(false);
+    expect(useStore.getState().expandedHerdNodes.has("leader-a")).toBe(false);
   });
 });
 

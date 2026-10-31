@@ -21,7 +21,7 @@ import {
 } from "../../shared/todo-types.js";
 import { api } from "../api.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
-import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
+import { useRememberedFolds } from "../utils/remembered-folds.js";
 import { celebrationAnchor, playCompletionCelebration } from "./completion-celebration.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { TodoComposer } from "./TodoComposer.js";
@@ -38,17 +38,6 @@ import {
   groupDoneItemsByLocalDate,
   type TodoStatusFilter,
 } from "./todo-ui-utils.js";
-
-const COLLAPSED_CATEGORIES_KEY = "cc-todo-collapsed-categories";
-
-function readCollapsedCategories(): Set<string> {
-  try {
-    const parsed: unknown = JSON.parse(scopedGetItem(COLLAPSED_CATEGORIES_KEY) ?? "[]");
-    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
 
 function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
@@ -467,7 +456,7 @@ export function TodoListPanel() {
   const [completionUndo, setCompletionUndo] = useState<CompletionUndoNotice | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const [sheetItemId, setSheetItemId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsedCategories);
+  const { isFolded: isFoldRemembered, toggle: toggleFold } = useRememberedFolds();
 
   const [linkedQuests, setLinkedQuests] = useState<ReadonlyMap<string, TodoLinkedQuest>>(() => new Map());
   const activeDues = useMemo(
@@ -512,14 +501,7 @@ export function TodoListPanel() {
     return () => window.clearTimeout(timeout);
   }, [completionUndo]);
 
-  const toggleCollapsed = useCallback((categoryId: string) => {
-    setCollapsed((current) => {
-      const next = new Set(current);
-      if (!next.delete(categoryId)) next.add(categoryId);
-      scopedSetItem(COLLAPSED_CATEGORIES_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  }, []);
+  const toggleCollapsed = useCallback((categoryId: string) => toggleFold(`todo-category:${categoryId}`), [toggleFold]);
 
   const counts = useMemo(() => {
     const current = state?.items.filter((item) => !item.archivedAt) ?? [];
@@ -619,7 +601,8 @@ export function TodoListPanel() {
   );
   const showActiveOutline = statusFilter === "all" || statusFilter === "todo" || statusFilter === "doing";
   // A search or status filter shows every match; collapsing is for browsing the whole list.
-  const isCollapsed = (categoryId: string) => !searching && statusFilter === "all" && collapsed.has(categoryId);
+  const isCollapsed = (categoryId: string) =>
+    !searching && statusFilter === "all" && isFoldRemembered(`todo-category:${categoryId}`);
   const doneCount = doneGroups.reduce((total, group) => total + group.items.length, 0);
 
   const renderComposer = (target: ComposerTarget) => (

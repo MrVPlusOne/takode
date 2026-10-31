@@ -91,6 +91,7 @@ import { useLibraryNav } from "../../utils/library-nav.js";
 import { markLeaderThreadDisplayed } from "../../utils/thread-viewport.js";
 import { useTopicPanel } from "../../utils/topic-panel.js";
 import { useStore } from "../../store.js";
+import { isRememberedFolded } from "../../utils/remembered-folds.js";
 import { SideColumn } from "./SideColumn.js";
 
 afterEach(() => {
@@ -149,10 +150,8 @@ describe("SideColumn", () => {
     fireEvent.click(within(screen.getByTestId("side-overview-row")).getByRole("button", { expanded: true }));
     expect(screen.queryByTestId("side-overview")).toBeNull();
     // Both stay as left: they are remembered per leader.
-    expect(useSideColumnStore.getState().columns.l1).toEqual(
-      expect.objectContaining({ open: "", overviewFolded: true }),
-    );
-    expect(JSON.parse(localStorage.getItem("cc-side-columns")!).l1.overviewFolded).toBe(true);
+    expect(useSideColumnStore.getState().columns.l1).toEqual(expect.objectContaining({ open: "" }));
+    expect(isRememberedFolded("side-overview:l1")).toBe(true);
   });
 
   it("stacks items newest first with the topic page last, one open, and opens another by its row", () => {

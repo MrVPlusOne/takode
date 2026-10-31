@@ -10,7 +10,7 @@ import {
   runningQuestMenuItems,
 } from "../../utils/attention-item-menu.js";
 import { countNewThings, type NextAttentionItem } from "../../utils/next-attention.js";
-import { scopedGetItem, scopedSetItem } from "../../utils/scoped-storage.js";
+import { useRememberedFold } from "../../utils/remembered-folds.js";
 import { MAIN_THREAD_KEY } from "../../utils/thread-projection.js";
 import { firstUnreadItem, attentionItemLabel, ItemIcon } from "../AttentionItemRows.js";
 import { AttentionKindIcon, formatRelativeTime } from "../AttentionKind.js";
@@ -158,11 +158,10 @@ export function OverviewEmpty({ children }: { children: ReactNode }) {
   return <div className="px-3 py-1.5 text-[12.5px] text-cc-muted">{children}</div>;
 }
 
-const OPEN_KEY = "cc-overview-open";
-
 /**
- * A list folded behind its heading until opened. Opening it is remembered on this device, for every
- * leader's overview, since what the user wants to see there doesn't depend on the leader.
+ * A list folded behind its heading until opened. Opening it is remembered in this browser (as the
+ * remembered fold `overview:<name>`) for every leader's overview, since what the user wants to see
+ * there doesn't depend on the leader.
  */
 export function OverviewFold({
   name,
@@ -177,14 +176,9 @@ export function OverviewFold({
   testId: string;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(() => readOpen().includes(name));
+  const [folded, toggle] = useRememberedFold(`overview:${name}`, true);
+  const open = !folded;
   if (count === 0) return null;
-  const toggle = () => {
-    const next = !open;
-    setOpen(next);
-    const others = readOpen().filter((other) => other !== name);
-    scopedSetItem(OPEN_KEY, JSON.stringify(next ? [...others, name] : others));
-  };
   return (
     <section className="border-t border-cc-border/60" data-testid={testId}>
       <button
@@ -210,16 +204,6 @@ export function OverviewFold({
       {open && children}
     </section>
   );
-}
-
-function readOpen(): string[] {
-  try {
-    const value = JSON.parse(scopedGetItem(OPEN_KEY) ?? "[]");
-    return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
-  } catch (error) {
-    console.warn("[overview] Ignoring unreadable folded sections:", error);
-    return [];
-  }
 }
 
 /**

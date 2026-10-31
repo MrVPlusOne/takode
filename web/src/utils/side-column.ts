@@ -51,8 +51,6 @@ interface LeaderColumn {
   items: SideItem[];
   /** The item shown open: an item's ID, HOME_ITEM, or NO_ITEM when the user folded the open one. */
   open: string;
-  /** The user folded the leader's overview at the column's top. */
-  overviewFolded?: boolean;
 }
 
 interface SideColumnState {
@@ -151,11 +149,6 @@ export function openInSide(leaderId: string, target: SideItemInput): string {
 /** Opens one of the column's items (or HOME_ITEM), folding the one open before; NO_ITEM folds it. */
 export function openSideItem(leaderId: string, id: string): void {
   update(leaderId, (column) => ({ ...column, open: id }));
-}
-
-/** Folds or unfolds the leader's overview at the column's top. */
-export function setSideOverviewFolded(leaderId: string, folded: boolean): void {
-  update(leaderId, (column) => ({ ...column, overviewFolded: folded }));
 }
 
 /** Takes an item out of the column; the one after it opens if it was open. */

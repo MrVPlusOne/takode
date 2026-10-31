@@ -2,7 +2,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import type { SdkSessionInfo } from "../types.js";
-import { SectionHeader, usePersistedCollapse } from "./PanelSection.js";
+import { SectionHeader } from "./PanelSection.js";
+import { useRememberedFold } from "../utils/remembered-folds.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
 
 type InstructionSnapshot = NonNullable<SdkSessionInfo["codexInstructionSnapshot"]>;
@@ -36,7 +37,7 @@ export function CodexInstructionsCollapsible({
   snapshotLoading?: boolean;
   snapshotFailed?: boolean;
 }) {
-  const [collapsed, toggle] = usePersistedCollapse("cc-collapse-codex-instructions");
+  const [collapsed, toggle] = useRememberedFold("cc-collapse-codex-instructions");
   const detailKey = `${sessionId}\u0000${refreshKey}`;
   const [fetchState, setFetchState] = useState<InstructionFetchState | null>(null);
   const [selection, setSelection] = useState<SelectedInstruction | null>(null);

@@ -1,6 +1,6 @@
 ---
 name: takode-desktop-ui-design
-description: "Use before designing, building or reviewing Takode UI for wide screens: side-by-side split views, list-and-detail panes, side panels, sidebars, several groups stacked in one panel, and resizable dividers (every split view and stack of groups gets a draggable divider)."
+description: "Use before designing, building or reviewing Takode UI for wide screens: side-by-side split views, list-and-detail panes, side panels, sidebars, several groups stacked in one panel, collapsible sections and groups (every fold is remembered), and resizable dividers (every split view and stack of groups gets a draggable divider)."
 ---
 
 # Takode Desktop UI Design
@@ -31,5 +31,17 @@ When one panel shows two or more groups one above the other (the sessions panel'
 
 **How:**
 - Use `StackedPanes` from `web/src/components/StackedPanes.tsx`; do not hand-roll another stack. Give each stack its own ID and each group an ID, a title and a `defaultWeight` for its share of the height before the user drags.
-- Folded groups and sizes are remembered per stack in the browser (`cc-stacked-panes`), as a local preference. A divider drags with a mouse or finger, moves with the arrow keys when focused, and resets all sizes on double-click. A divider shows only between two open groups.
+- Folded groups are remembered folds (see below) and sizes are remembered per stack in the browser (`cc-stacked-panes`), both as local preferences. A divider drags with a mouse or finger, moves with the arrow keys when focused, and resets all sizes on double-click. A divider shows only between two open groups.
 - The panel holding the stack must not scroll itself (give it `min-h-0` and `overflow-hidden`), or the groups can't take their share of its height.
+
+## Every fold stays as the user left it
+
+A section or group that folds (sidebar groups and the archive, Overview and topic-page sections, Session Info sections, Memory folders, to-do categories, workers under a leader card) keeps the user's open or closed choice across reloads, view and session switches and reconnects, on phones and desktops alike.
+
+**Why:** the user found themselves folding the same groups again and again (October 31, 2026). Each fold had its own storage, some didn't remember at all, and while the browser's storage was full nothing could be saved.
+
+**How:**
+- Use `useRememberedFold(id, foldedByDefault)` (or `useRememberedFolds()` when the IDs come from a list) from `web/src/utils/remembered-folds.ts`; do not keep a fold in component state or its own storage key. Name the ID by surface, such as `sidebar:archived` or `topic:<topicId>:<section>`.
+- Folds are per browser, not synced through the server: phones and desktops lay sections out differently. They follow changes made in other tabs.
+- The one exception: the leader portrait picker's pool groups are a server setting (`leaderProfileCollapsedPools`), because the user wanted them to match on every device. Leave them on the server.
+- Disclosures that belong to one item and reset on purpose (a message's details, a quest's Journey section, a list of pending changes to act on) are not sections and stay in component state.
