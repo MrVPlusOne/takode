@@ -1,18 +1,18 @@
 import { Activity, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { setSideViewsOf } from "../../utils/side-views.js";
 import { holdSessionConnection } from "../../ws.js";
-import { useRememberedFold } from "../../utils/remembered-folds.js";
+import { useRememberedFolds } from "../../utils/remembered-folds.js";
+import { SectionEdge, useSectionHeights } from "../StackedPanes.js";
 import { useStore } from "../../store.js";
 import { useOutsidePress } from "../../hooks/useOutsidePress.js";
 import {
   closeSideItem,
   HOME_ITEM,
-  NO_ITEM,
   notePaneClick,
   openInSide,
-  openSideItem,
   replaceSideItem,
   sideChatOrigin,
+  sideFoldId,
   sideItemLeader,
   useSideColumn,
   type SideItem,
@@ -58,13 +58,19 @@ import { usePlaceWork, type PlaceWork } from "../sidebar-topics/TopicPlaceCard.j
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
 const KEPT_MOUNTED = 3;
 
+/** How tall a section's header row is, for the default height of an open section. */
+const ROW_HEIGHT = 36;
+/** The overview's section, in folds and sizes. */
+const OVERVIEW = "overview";
+
 /**
  * A leader's side column (Logseq's right sidebar), from the top: whatever the user put beside the
  * conversation (side chats, other conversations, topic pages), newest first; the leader's overview
- * (what needs the user and what runs now, across its topics); and the topic page it follows. The
- * items and the topic page are a stack: one open, filling the column, the others as one-line rows.
- * The overview folds on its own, and stays open beside whatever is. On a phone it is the same
- * column in a sheet.
+ * (what needs the user and what runs now, across its topics); and the topic page it follows. Each
+ * section folds on its own from its header row, any number can be open, and the column scrolls when
+ * they don't fit. An open section's bottom edge drags to set its height (Jiayi's choice, Oct 31:
+ * like Logseq, the panel scrolls rather than squeezing each section). Folds and heights are
+ * remembered in this browser. On a phone it is the same column in a sheet.
  */
 export function SideColumn({
   leaderId,
@@ -76,22 +82,50 @@ export function SideColumn({
   threadKey: string;
   variant: "docked" | "sheet";
 }) {
-  const { items, open } = useSideColumn(leaderId);
-  const [overviewFolded, toggleOverviewFold] = useRememberedFold(`side-overview:${leaderId}`);
+  const { items, focus, focusAt } = useSideColumn(leaderId);
+  const folds = useRememberedFolds();
+  const foldId = (id: string) => (id === OVERVIEW ? `side-overview:${leaderId}` : sideFoldId(leaderId, id));
+  const isOpen = (id: string) => !folds.isFolded(foldId(id));
+  const toggle = (id: string) => folds.toggle(foldId(id));
   const overview = useLeaderOverview(leaderId);
   // What each conversation in the column holds now: a question for the user, new answers, a run.
   const placeWork = usePlaceWork();
-  const entries: Array<SideItem | null> = [...items, null];
-  const openId = open === HOME_ITEM || open === NO_ITEM || items.some((item) => item.id === open) ? open : HOME_ITEM;
-  // Recently open items stay mounted while folded, like kept conversations.
+  const heights = useSectionHeights(`side:${leaderId}`);
+  // On the leader's Home the overview already fills the main view.
+  const showOverview = normalizeThreadKey(threadKey) !== MAIN_THREAD_KEY;
+  const sectionIds = [...items.map((item) => item.id), ...(showOverview ? [OVERVIEW] : []), HOME_ITEM];
+  const idsKey = sectionIds.join(",");
+  useEffect(() => heights.keepOnly(idsKey.split(",")), [idsKey]);
+  // The scrolling area's height: one open section fits it beside every header row by default.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState(0);
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const measure = () => setViewport(element.clientHeight);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => observer?.disconnect();
+  }, []);
+  const fill = Math.max(160, viewport - ROW_HEIGHT * sectionIds.length);
+  // Something just opened in the column scrolls into view (not on mount: the column stays as left).
+  const sectionElements = useRef(new Map<string, HTMLElement>());
+  const bodyElements = useRef(new Map<string, HTMLElement>());
+  const shownFocus = useRef(focusAt);
+  useEffect(() => {
+    if (!focus || focusAt === shownFocus.current) return;
+    shownFocus.current = focusAt;
+    sectionElements.current.get(focus)?.scrollIntoView?.({ block: "nearest" });
+  }, [focus, focusAt]);
+  // Open sections stay mounted, and so do the last few folded ones, like kept conversations.
   const keptRef = useRef<string[]>([]);
-  keptRef.current = [openId, ...keptRef.current.filter((id) => id !== openId)]
-    .filter((id) => id === HOME_ITEM || items.some((item) => item.id === id))
-    .slice(0, KEPT_MOUNTED);
+  const openIds = sectionIds.filter(isOpen);
+  keptRef.current = [...openIds, ...keptRef.current.filter((id) => !openIds.includes(id))]
+    .filter((id) => sectionIds.includes(id))
+    .slice(0, openIds.length + KEPT_MOUNTED);
   const kept = keptRef.current;
   const close = () => (variant === "sheet" ? setTopicSheetOpen(leaderId, false) : setTopicPanelOpen(leaderId, false));
-  // A row toggles its item: opening it folds the one open before, and the open one folds.
-  const toggle = (id: string) => openSideItem(leaderId, id === openId ? NO_ITEM : id);
   useEffect(() => loadLeaderNamesOnce(leaderId), [leaderId]);
   // Side chats with other leaders read and send over those leaders' connections, which the main
   // view doesn't keep open. Held per leader, so a new chat turning into its thread keeps the same
@@ -126,38 +160,77 @@ export function SideColumn({
     };
   }, [conversationViews, leaderId]);
 
-  const body = (entry: SideItem | null) => {
-    const id = entry?.id ?? HOME_ITEM;
-    if (!kept.includes(id)) return null;
+  /**
+   * One section: its header row (sticky while its body scrolls past), then, while open, its body at
+   * its height and the edge that sets it. A conversation keeps a fixed height (its feed scrolls
+   * inside); a page is as tall as its content, up to that height.
+   */
+  const section = (id: string, row: ReactNode, body: ReactNode, fixed: boolean, defaultHeight: number) => {
+    const open = isOpen(id);
+    const dragged = heights.heightOf(id);
+    const size = dragged ?? defaultHeight;
     return (
-      <Activity key={`body:${id}`} mode={id === openId ? "visible" : "hidden"}>
-        {/* A link clicked here opens in this pane; the open-in-side click opens it in the main view. */}
-        <div
-          className="flex min-h-0 flex-1 flex-col"
-          data-testid="side-item-body"
-          data-item={id}
-          onClickCapture={(event) => notePaneClick(leaderId, entry?.id ?? null, event)}
-        >
-          <SideItemBody leaderId={leaderId} threadKey={threadKey} item={entry} variant={variant} />
-        </div>
-      </Activity>
+      <section
+        key={id}
+        ref={(element) => {
+          if (element) sectionElements.current.set(id, element);
+          else sectionElements.current.delete(id);
+        }}
+        data-section={id}
+        data-open={open}
+        data-testid="side-section"
+      >
+        <div className="sticky top-0 z-10 bg-cc-bg">{row}</div>
+        {kept.includes(id) && (
+          <Activity mode={open ? "visible" : "hidden"}>
+            <div
+              ref={(element) => {
+                if (element) bodyElements.current.set(id, element);
+                else bodyElements.current.delete(id);
+              }}
+              className="isolate flex min-h-0 flex-col overflow-hidden"
+              style={fixed || dragged !== undefined ? { height: size } : { maxHeight: size }}
+              data-testid="side-section-body"
+            >
+              {body}
+            </div>
+            <SectionEdge
+              measure={() => bodyElements.current.get(id)?.getBoundingClientRect().height || size}
+              onResize={(start, delta) => heights.resize(id, start, delta)}
+              onReset={() => heights.reset(id)}
+            />
+          </Activity>
+        )}
+      </section>
     );
   };
 
-  const row = (entry: SideItem | null) => {
+  const itemSection = (entry: SideItem | null) => {
     const id = entry?.id ?? HOME_ITEM;
-    return (
+    const conversation = entry?.kind === "conversation" || entry?.kind === "new-chat" || entry?.kind === "session";
+    const row = (
       <SideItemRow
-        key={`row:${id}`}
         leaderId={leaderId}
         item={entry}
         work={
           entry?.kind === "conversation" ? placeWork.ofThread(sideItemLeader(leaderId, entry), entry.threadKey) : null
         }
-        open={id === openId}
+        open={isOpen(id)}
         onOpen={() => toggle(id)}
       />
     );
+    const body = (
+      // A link clicked here opens in this pane; the open-in-side click opens it in the main view.
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        data-testid="side-item-body"
+        data-item={id}
+        onClickCapture={(event) => notePaneClick(leaderId, entry?.id ?? null, event)}
+      >
+        <SideItemBody leaderId={leaderId} threadKey={threadKey} item={entry} variant={variant} />
+      </div>
+    );
+    return section(id, row, body, conversation, fill);
   };
 
   return (
@@ -188,43 +261,61 @@ export function SideColumn({
             {variant === "sheet" ? "✕" : <CollapseIcon className="h-4 w-4" />}
           </button>
         </div>
-        {items.map((entry) => [row(entry), body(entry)])}
-        {/* On the leader's Home the overview already fills the main view. */}
-        {normalizeThreadKey(threadKey) !== MAIN_THREAD_KEY && (
-          <SideOverview
-            leaderId={leaderId}
-            folded={overviewFolded}
-            onToggleFold={toggleOverviewFold}
-            // Beside an open item it takes up to about half the column; alone, all of it.
-            shared={openId !== NO_ITEM}
-            variant={variant}
-            onClose={close}
-          />
-        )}
-        {row(null)}
-        {body(null)}
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
+          {items.map(itemSection)}
+          {showOverview &&
+            section(
+              OVERVIEW,
+              <SideOverviewRow open={isOpen(OVERVIEW)} onToggle={() => toggle(OVERVIEW)} />,
+              <SideOverviewBody leaderId={leaderId} variant={variant} onClose={close} />,
+              false,
+              Math.max(160, Math.round(viewport * 0.45)),
+            )}
+          {itemSection(null)}
+        </div>
       </div>
     </LeaderOverviewContext.Provider>
   );
 }
 
+/** The overview's header row: its name and the topic rows' counts; it folds the overview. */
+function SideOverviewRow({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const overview = useContext(LeaderOverviewContext)!;
+  return (
+    <div
+      className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-3 text-[13px] ${
+        open ? "bg-cc-hover/40" : "hover:bg-cc-hover/30"
+      }`}
+      data-testid="side-overview-row"
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
+        aria-expanded={open}
+      >
+        <OverviewIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
+        <span className={open ? "text-cc-fg" : "text-cc-fg/80"}>Overview</span>
+        {/* The topic rows' counts: "need you" for questions only, the rest new. */}
+        <TopicCountsLine
+          counts={{ needYou: overview.needYou, fresh: overview.fresh, running: overview.running.length }}
+          className="ml-auto shrink-0 flex-nowrap tabular-nums"
+        />
+      </button>
+    </div>
+  );
+}
+
 /**
- * The leader's overview in its column: what needs the user and what runs now, across its topics,
- * under a row that folds it (remembered per leader). Its topics, with the same counts, are the
- * topic list under it.
+ * The leader's overview in its column: what needs the user and what runs now, across its topics.
+ * Its topics, with the same counts, are the topic list under it.
  */
-function SideOverview({
+function SideOverviewBody({
   leaderId,
-  folded,
-  onToggleFold,
-  shared,
   variant,
   onClose,
 }: {
   leaderId: string;
-  folded: boolean;
-  onToggleFold: () => void;
-  shared: boolean;
   variant: "docked" | "sheet";
   onClose: () => void;
 }) {
@@ -232,50 +323,22 @@ function SideOverview({
   // On a phone the sheet covers the conversation: going somewhere closes it.
   const leave = () => variant === "sheet" && onClose();
   return (
-    <>
-      <div
-        className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-3 text-[13px] ${
-          folded ? "hover:bg-cc-hover/30" : "bg-cc-hover/40"
-        }`}
-        data-testid="side-overview-row"
-      >
-        <button
-          type="button"
-          onClick={onToggleFold}
-          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
-          aria-expanded={!folded}
-        >
-          <OverviewIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
-          <span className={folded ? "text-cc-fg/80" : "text-cc-fg"}>Overview</span>
-          {/* The topic rows' counts: "need you" for questions only, the rest new. */}
-          <TopicCountsLine
-            counts={{ needYou: overview.needYou, fresh: overview.fresh, running: overview.running.length }}
-            className="ml-auto shrink-0 flex-nowrap tabular-nums"
-          />
-        </button>
-      </div>
-      {!folded && (
-        <div
-          className={`overflow-y-auto border-b border-cc-border/70 ${shared ? "max-h-[45%] shrink-0" : "min-h-0 flex-1"}`}
-          data-testid="side-overview"
-        >
-          <LeaderOverview
-            data={{
-              ...overview,
-              open: (item) => {
-                leave();
-                overview.open(item);
-              },
-            }}
-            onOpenQuest={(questId) => {
-              leave();
-              navigateToSessionThread(leaderId, questId);
-            }}
-            onLeave={leave}
-          />
-        </div>
-      )}
-    </>
+    <div className="min-h-0 flex-1 overflow-y-auto border-b border-cc-border/70" data-testid="side-overview">
+      <LeaderOverview
+        data={{
+          ...overview,
+          open: (item) => {
+            leave();
+            overview.open(item);
+          },
+        }}
+        onOpenQuest={(questId) => {
+          leave();
+          navigateToSessionThread(leaderId, questId);
+        }}
+        onLeave={leave}
+      />
+    </div>
   );
 }
 

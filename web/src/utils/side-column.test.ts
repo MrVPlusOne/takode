@@ -12,13 +12,14 @@ import {
   openQuestInSide,
   openSessionInSide,
   openInSide,
-  openSideItem,
   replaceSideItem,
   sideChatOrigin,
+  sideFoldId,
   useSideColumnStore,
   wantsSideClick,
 } from "./side-column.js";
 import { useTopicPanel } from "./topic-panel.js";
+import { isRememberedFolded, resetRememberedFoldsForTest, setRememberedFolded } from "./remembered-folds.js";
 import { markLeaderThreadDisplayed } from "./thread-viewport.js";
 
 const column = (leaderId: string) => useSideColumnStore.getState().columns[leaderId];
@@ -29,22 +30,28 @@ afterEach(() => {
   useSideColumnStore.setState({ columns: {} });
   useTopicPanel.setState({ panels: {}, sheets: [], focus: null });
   localStorage.clear();
+  resetRememberedFoldsForTest();
 });
 
 /**
  * A leader's side column (Logseq's right sidebar): what the user put beside the conversation,
- * newest first, one item open, remembered per leader in this browser.
+ * newest first, each folding on its own, remembered per leader in this browser.
  */
 describe("side column items", () => {
   it("puts things at the top and opens them, bringing back what is already there", () => {
     openInSide("l1", { kind: "conversation", threadKey: "q-1" });
     const second = openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0001" });
     expect(keys("l1")).toEqual(["topic:aaaa0001", "q-1"]);
-    expect(column("l1")!.open).toBe(second);
+    expect(column("l1")!.focus).toBe(second);
     // The same conversation again (any case) moves up and opens rather than being added twice.
+    // It unfolds if the user had folded it; the column scrolls to it (its focus).
+    const first = column("l1")!.items[1]!.id;
+    setRememberedFolded(sideFoldId("l1", first), true);
     const again = openInSide("l1", { kind: "conversation", threadKey: "Q-1" });
+    expect(again).toBe(first);
     expect(keys("l1")).toEqual(["Q-1", "topic:aaaa0001"]);
-    expect(column("l1")!.open).toBe(again);
+    expect(column("l1")!.focus).toBe(again);
+    expect(isRememberedFolded(sideFoldId("l1", again))).toBe(false);
     // Opening something shows the column, collapsed on desktop or closed on a phone.
     expect(useTopicPanel.getState().panels.l1).toBe(true);
     expect(useTopicPanel.getState().sheets).toContain("l1");
@@ -52,14 +59,14 @@ describe("side column items", () => {
     expect(JSON.parse(localStorage.getItem("cc-side-columns")!).l1.items).toHaveLength(2);
   });
 
-  it("opens the next item when the open one is removed, and the topic page when none is left", () => {
+  it("removes items freely, leaving the others as they were", () => {
     const first = openInSide("l1", { kind: "conversation", threadKey: "q-1" });
     const second = openInSide("l1", { kind: "topic", topicId: "t1" });
     closeSideItem("l1", second);
-    expect(column("l1")!.open).toBe(first);
-    openSideItem("l1", HOME_ITEM);
+    expect(column("l1")!.items.map((item) => item.id)).toEqual([first]);
     closeSideItem("l1", first);
-    expect(column("l1")).toEqual({ items: [], open: HOME_ITEM });
+    expect(column("l1")!.items).toEqual([]);
+    expect(HOME_ITEM).toBe("home");
   });
 
   it("keeps one new side chat, turning it into its thread once started", () => {
@@ -67,7 +74,7 @@ describe("side column items", () => {
     expect(openInSide("l1", { kind: "new-chat", startedFrom: null })).toBe(chat);
     replaceSideItem("l1", chat, { kind: "conversation", threadKey: "topic:aaaa0002" });
     expect(column("l1")!.items).toEqual([{ id: chat, kind: "conversation", threadKey: "topic:aaaa0002" }]);
-    expect(column("l1")!.open).toBe(chat);
+    expect(column("l1")!.focus).toBe(chat);
   });
 
   it("keeps a side chat with another leader apart from one with the column's own", () => {
@@ -172,7 +179,7 @@ describe("opening in the side", () => {
         ),
       ).toBe(true);
       expect(keys("l1")).toEqual(["q-2", "q-9"]);
-      expect(column("l1")?.open).toBe(chat);
+      expect(column("l1")?.focus).toBe(chat);
       expect(main).not.toHaveBeenCalled();
       // The open-in-side click there opens in the main view instead.
       notePaneClick("l1", chat, click(true));

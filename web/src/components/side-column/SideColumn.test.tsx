@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
  * The side column: what the user put there (side chats, other conversations, topic pages), newest
- * first, then the leader's overview, then the topic page it follows. The items and the topic page are
- * a stack (one open, the others as rows); the overview folds on its own. It tells the server which
+ * first, then the leader's overview, then the topic page it follows. Each section folds on its own
+ * and the column scrolls when the open ones don't fit, like Logseq's sidebar. It tells the server which
  * conversations it shows, starts side chats from what's on screen and lists past ones.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -99,7 +99,7 @@ vi.mock("../../utils/leader-topics.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../utils/leader-topics.js")>()),
   useLeaderThreads: () => threads.list,
 }));
-import { closeSideItem, HOME_ITEM, openInSide, replaceSideItem, useSideColumnStore } from "../../utils/side-column.js";
+import { closeSideItem, openInSide, replaceSideItem, useSideColumnStore } from "../../utils/side-column.js";
 import { rememberThreads } from "../../utils/leader-topics.js";
 import { useLibraryNav } from "../../utils/library-nav.js";
 import { markLeaderThreadDisplayed } from "../../utils/thread-viewport.js";
@@ -156,19 +156,22 @@ describe("SideColumn", () => {
     fireEvent.click(overview.getByTestId("overview-fold"));
     expect(overview.getByTestId("overview-running-row").textContent).toContain("Running quest");
     expect(screen.getByTestId("mock-topic-page").textContent).toBe("followed");
-    // Beside the open topic page, the overview takes part of the column; alone, all of it.
-    expect(screen.getByTestId("side-overview").className).toContain("max-h-[45%]");
+    // Each folds on its own, and stays as left: remembered per leader.
+    const openSections = () =>
+      screen
+        .getAllByTestId("side-section")
+        .flatMap((section) => (section.dataset.open === "true" ? [section.dataset.section] : []));
+    expect(openSections()).toEqual(["overview", "home"]);
     fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
-    expect(openBodies()).toHaveLength(0);
-    expect(screen.getByTestId("side-overview").className).toContain("flex-1");
+    expect(openSections()).toEqual(["overview"]);
     fireEvent.click(within(screen.getByTestId("side-overview-row")).getByRole("button", { expanded: true }));
-    expect(screen.queryByTestId("side-overview")).toBeNull();
-    // Both stay as left: they are remembered per leader.
-    expect(useSideColumnStore.getState().columns.l1).toEqual(expect.objectContaining({ open: "" }));
+    expect(openSections()).toEqual([]);
     expect(isRememberedFolded("side-overview:l1")).toBe(true);
+    expect(isRememberedFolded("side:l1:home")).toBe(true);
   });
 
-  it("stacks items newest first with the topic page last, one open, and opens another by its row", () => {
+  it("stacks items newest first with the topic page last, each folding on its own", () => {
+    // Jiayi (Oct 31): like Logseq, any number can be open; the column scrolls when they don't fit.
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
       openInSide("l1", { kind: "conversation", threadKey: "q-2" });
@@ -176,13 +179,35 @@ describe("SideColumn", () => {
     });
     // The topic page it follows is last, under the overview.
     expect(rows().map((row) => row.textContent)).toEqual(["Topic", "q-2 name of q-2", "Topics"]);
-    expect(rows().map((row) => row.dataset.open)).toEqual(["true", "false", "false"]);
-    expect(openBodies()).toHaveLength(1);
+    expect(rows().map((row) => row.dataset.open)).toEqual(["true", "true", "true"]);
     expect(within(openBodies()[0]!).getByTestId("mock-topic-page").textContent).toBe("t9");
+    expect(within(openBodies()[1]!).getByTestId("mock-conversation").textContent).toBe("q-2");
+    expect(screen.getByTestId("side-scroll").className).toContain("overflow-y-auto");
 
-    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: false }));
-    expect(rows()[1]!.dataset.open).toBe("true");
-    expect(within(openBodies()[0]!).getByTestId("mock-conversation").textContent).toBe("q-2");
+    // Folding one leaves the others open; opening it again from elsewhere unfolds it.
+    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: true }));
+    expect(rows().map((row) => row.dataset.open)).toEqual(["true", "false", "true"]);
+    act(() => {
+      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+    });
+    expect(rows().map((row) => row.dataset.open)).toEqual(["true", "true", "true"]);
+  });
+
+  it("sets an open section's height from its bottom edge, remembered, and back with a double-click", () => {
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+    });
+    const id = useSideColumnStore.getState().columns.l1!.items[0]!.id;
+    const section = screen.getAllByTestId("side-section")[0]!;
+    const body = within(section).getByTestId("side-section-body");
+    body.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+    const edge = within(section).getByRole("separator");
+    fireEvent.keyDown(edge, { key: "ArrowDown" });
+    expect(body.style.height).toBe("324px");
+    expect(JSON.parse(localStorage.getItem("cc-stacked-panes")!)["side:l1"].heights).toEqual({ [id]: 324 });
+    fireEvent.doubleClick(edge);
+    expect(JSON.parse(localStorage.getItem("cc-stacked-panes")!)["side:l1"].heights).toEqual({});
   });
 
   it("removes an item with its ×, and moves a conversation to the main view", () => {
@@ -198,7 +223,7 @@ describe("SideColumn", () => {
       openInSide("l1", { kind: "topic", topicId: "t9" });
     });
     fireEvent.click(within(rows()[0]!).getByTestId("side-item-close"));
-    expect(useSideColumnStore.getState().columns.l1).toEqual({ items: [], open: HOME_ITEM });
+    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([]);
   });
 
   it("shows an artifact at its version, and moves it to the Library from its row", () => {
@@ -227,8 +252,7 @@ describe("SideColumn", () => {
     });
     expect(within(openBodies()[0]!).getByTestId("mock-quest").textContent).toBe("q-7");
     expect(rows()[1]!.textContent).toContain("#9 Probe");
-    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: false }));
-    expect(within(openBodies()[0]!).getByTestId("mock-session").textContent).toBe("worker-9");
+    expect(within(openBodies()[1]!).getByTestId("mock-session").textContent).toBe("worker-9");
     fireEvent.click(within(rows()[1]!).getByRole("button", { name: "Open in the main view" }));
     expect(window.location.hash).toContain("session/worker-9");
     useStore.setState({ sdkSessions: [] } as never);

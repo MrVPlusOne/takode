@@ -7,12 +7,13 @@ import type { OpenInSideModifier } from "../../shared/shortcut-settings.js";
 import { openLibraryArtifact } from "./library-nav.js";
 import { isNewWindowClick, openArtifactWindow } from "./artifact-window.js";
 import { setLocalStorageItem } from "./scoped-storage.js";
+import { setRememberedFolded } from "./remembered-folds.js";
 
 /**
  * What a leader's side column holds besides the topic page it follows: things the user put there
- * to keep beside the main conversation (Logseq's right sidebar). Newest first; one of them, or the
- * topic page ("home"), is open. Remembered per leader in this browser: local UI state, like the
- * column's width.
+ * to keep beside the main conversation (Logseq's right sidebar). Newest first; each folds and
+ * unfolds on its own (remembered folds, `sideFoldId`), and the column scrolls when the open ones
+ * don't fit. Remembered per leader in this browser: local UI state, like the column's width.
  */
 export type SideItem =
   | { id: string; kind: "topic"; topicId: string }
@@ -44,13 +45,12 @@ export type SideItemInput = SideItem extends infer Item ? (Item extends SideItem
 /** The topic page the column follows (the tab's topic, or the leader's topic list). */
 export const HOME_ITEM = "home";
 
-/** No item open: the user folded the one that was. */
-export const NO_ITEM = "";
-
 interface LeaderColumn {
   items: SideItem[];
-  /** The item shown open: an item's ID, HOME_ITEM, or NO_ITEM when the user folded the open one. */
-  open: string;
+  /** The item opened last (an item's ID or HOME_ITEM), which the column scrolls into view. */
+  focus?: string;
+  /** When it was opened, so opening it again scrolls to it again. */
+  focusAt?: number;
 }
 
 interface SideColumnState {
@@ -59,7 +59,7 @@ interface SideColumnState {
 
 const STORAGE_KEY = "cc-side-columns";
 const MAX_ITEMS = 12;
-const EMPTY: LeaderColumn = { items: [], open: HOME_ITEM };
+const EMPTY: LeaderColumn = { items: [] };
 
 function stored(): Record<string, LeaderColumn> {
   const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(STORAGE_KEY);
@@ -117,9 +117,20 @@ function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
   }
 }
 
+/** The remembered fold of an item of a leader's column, or of the topic page it follows (HOME_ITEM). */
+export function sideFoldId(leaderId: string, itemId: string): string {
+  return `side:${leaderId}:${itemId}`;
+}
+
+/** Unfolds an item and scrolls the column to it. */
+function focusSideItem(leaderId: string, id: string): void {
+  setRememberedFolded(sideFoldId(leaderId, id), false);
+  update(leaderId, (column) => ({ ...column, focus: id, focusAt: Date.now() }));
+}
+
 /**
  * Puts something in a leader's side column, or brings it back to the top if it is there already,
- * opens it and shows the column (on phones, its sheet).
+ * unfolds it, scrolls the column to it and shows the column (on phones, its sheet).
  */
 export function openInSide(leaderId: string, target: SideItemInput): string {
   const input = ownItem(leaderId, target);
@@ -127,7 +138,7 @@ export function openInSide(leaderId: string, target: SideItemInput): string {
   const pane = paneClick?.leaderId === leaderId ? paneClick.itemId : null;
   if (pane && useSideColumnStore.getState().columns[leaderId]?.items.some((item) => item.id === pane)) {
     replaceSideItem(leaderId, pane, input);
-    openSideItem(leaderId, pane);
+    focusSideItem(leaderId, pane);
     return pane;
   }
   let id = "";
@@ -138,28 +149,17 @@ export function openInSide(leaderId: string, target: SideItemInput): string {
     return {
       ...column,
       items: [item, ...column.items.filter((other) => other.id !== item.id)].slice(0, MAX_ITEMS),
-      open: item.id,
     };
   });
+  focusSideItem(leaderId, id);
   setTopicPanelOpen(leaderId, true);
   setTopicSheetOpen(leaderId, true);
   return id;
 }
 
-/** Opens one of the column's items (or HOME_ITEM), folding the one open before; NO_ITEM folds it. */
-export function openSideItem(leaderId: string, id: string): void {
-  update(leaderId, (column) => ({ ...column, open: id }));
-}
-
-/** Takes an item out of the column; the one after it opens if it was open. */
+/** Takes an item out of the column. */
 export function closeSideItem(leaderId: string, id: string): void {
-  update(leaderId, (column) => {
-    const index = column.items.findIndex((item) => item.id === id);
-    const items = column.items.filter((item) => item.id !== id);
-    if (column.open !== id) return { ...column, items };
-    const next = items[Math.min(index, items.length - 1)];
-    return { ...column, items, open: next?.id ?? HOME_ITEM };
-  });
+  update(leaderId, (column) => ({ ...column, items: column.items.filter((item) => item.id !== id) }));
 }
 
 /**
@@ -175,7 +175,7 @@ export function replaceSideItem(leaderId: string, id: string, target: SideItemIn
       items: column.items
         .filter((item) => item !== twin)
         .map((item) => (item.id === id ? ({ ...input, id } as SideItem) : item)),
-      open: twin && column.open === twin.id ? id : column.open,
+      ...(twin && column.focus === twin.id ? { focus: id } : {}),
     };
   });
 }

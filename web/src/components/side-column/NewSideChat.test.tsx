@@ -48,10 +48,12 @@ describe("NewSideChat", () => {
     await expect(composer.props!.newThread.start("Why does it settle?")).resolves.toBe("topic:aaaa0001");
     expect(startThread).toHaveBeenCalledWith("l1", "named: Why does it settle?", "q-7", "Why does it settle?");
     composer.props!.newThread.started("topic:aaaa0001");
-    expect(useSideColumnStore.getState().columns.l1).toEqual({
-      items: [{ id: itemId, kind: "conversation", threadKey: "topic:aaaa0001" }],
-      open: itemId,
-    });
+    expect(useSideColumnStore.getState().columns.l1).toEqual(
+      expect.objectContaining({
+        items: [{ id: itemId, kind: "conversation", threadKey: "topic:aaaa0001" }],
+        focus: itemId,
+      }),
+    );
   });
 
   it("starts a chat with another leader as that leader's, kept in this column", async () => {

@@ -30,13 +30,18 @@ export interface StackedPane {
 interface StackState {
   /** Heights of open groups as relative weights. */
   weights: Record<string, number>;
+  /** Heights in px of sections in a scrolling stack (`useSectionHeights`). */
+  heights?: Record<string, number>;
 }
 
 function readState(stackId: string): StackState {
   try {
     const all = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, Partial<StackState>>;
     const saved = all[stackId];
-    return { weights: saved?.weights && typeof saved.weights === "object" ? saved.weights : {} };
+    return {
+      weights: saved?.weights && typeof saved.weights === "object" ? saved.weights : {},
+      ...(saved?.heights && typeof saved.heights === "object" ? { heights: saved.heights } : {}),
+    };
   } catch (error) {
     console.warn("[stacked-panes] Ignoring unreadable saved layout:", error);
     return { weights: {} };
@@ -50,6 +55,68 @@ function writeState(stackId: string, state: StackState): void {
   } catch (error) {
     console.warn("[stacked-panes] Could not save the layout:", error);
   }
+}
+
+/** The least height a section of a scrolling stack keeps while its edge is dragged. */
+const MIN_SECTION_HEIGHT = 120;
+
+/**
+ * Heights of the sections of a stack that scrolls as a whole (the side column, Logseq-style): each
+ * open section is as tall as the user dragged its bottom edge (`SectionEdge`), else as its own
+ * default, and the panel scrolls when they don't fit. Remembered per stack in this browser, with
+ * `StackedPanes`' sizes.
+ */
+export function useSectionHeights(stackId: string) {
+  const [heights, setHeights] = useState(() => readState(stackId).heights ?? {});
+  useEffect(() => {
+    const saved = readState(stackId);
+    writeState(stackId, { ...saved, heights });
+  }, [stackId, heights]);
+  return {
+    /** The height the user gave a section, if they dragged it. */
+    heightOf: (id: string): number | undefined => heights[id],
+    /** Sets a section's height from a drag that started at `start` px. */
+    resize: (id: string, start: number, delta: number) =>
+      setHeights((previous) => ({ ...previous, [id]: Math.max(MIN_SECTION_HEIGHT, Math.round(start + delta)) })),
+    /** Back to the section's default height. */
+    reset: (id: string) =>
+      setHeights((previous) => {
+        const { [id]: _dropped, ...rest } = previous;
+        return rest;
+      }),
+    /** Forgets the sections that are gone. */
+    keepOnly: (ids: readonly string[]) =>
+      setHeights((previous) => {
+        const kept = Object.fromEntries(Object.entries(previous).filter(([id]) => ids.includes(id)));
+        return Object.keys(kept).length === Object.keys(previous).length ? previous : kept;
+      }),
+  };
+}
+
+/**
+ * The bottom edge of a section in a scrolling stack: dragging it sets the section's height (the
+ * panel scrolls rather than squeezing the others), double-click goes back to its default height,
+ * and the arrow keys move it when focused.
+ */
+export function SectionEdge({
+  measure,
+  onResize,
+  onReset,
+}: {
+  /** The section's height now, where a drag starts. */
+  measure: () => number;
+  onResize: (start: number, delta: number) => void;
+  onReset: () => void;
+}) {
+  return (
+    <PaneDivider
+      enabled
+      label="Resize this section"
+      measure={() => ({ above: measure(), below: 0 })}
+      onDrag={(delta, start) => onResize(start.above, delta)}
+      onReset={onReset}
+    />
+  );
 }
 
 export function StackedPanes({ stackId, panes }: { stackId: string; panes: StackedPane[] }) {
@@ -143,11 +210,13 @@ export function StackedPanes({ stackId, panes }: { stackId: string; panes: Stack
 /** The line above a group's header; dragging it moves height between the open groups around it. */
 function PaneDivider({
   enabled,
+  label = "Resize the groups",
   onDrag,
   measure,
   onReset,
 }: {
   enabled: boolean;
+  label?: string;
   onDrag: (delta: number, start: { above: number; below: number }) => void;
   measure: () => { above: number; below: number };
   onReset: () => void;
@@ -158,9 +227,9 @@ function PaneDivider({
     <div
       role="separator"
       aria-orientation="horizontal"
-      aria-label="Resize the groups"
+      aria-label={label}
       tabIndex={0}
-      className="group relative h-px shrink-0 cursor-row-resize bg-cc-border/70 outline-none focus-visible:bg-cc-primary"
+      className="group relative z-20 h-px shrink-0 cursor-row-resize bg-cc-border/70 outline-none focus-visible:bg-cc-primary"
       onPointerDown={(event: PointerEvent<HTMLDivElement>) => {
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
