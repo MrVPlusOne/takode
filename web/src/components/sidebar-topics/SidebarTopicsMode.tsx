@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ThreadSummary, TopicSummary } from "../../../shared/library-topics.js";
-import { isKeyOfTopic, topicViewKey } from "../../../shared/topic-thread-key.js";
+import { topicViewKey } from "../../../shared/topic-thread-key.js";
 import { topicApi } from "../../api/topics.js";
-import { useNextAttention } from "../../hooks/useNextAttention.js";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../../hooks/useLongPress.js";
 import { useStore } from "../../store.js";
-import type { NextAttentionItem } from "../../utils/next-attention.js";
 import type { RecentSessionNode } from "../../utils/recent-sessions.js";
 import { sessionInteractionAt } from "../../utils/recent-sessions.js";
-import { resolveLeaderThreadTabsProjection } from "../../utils/leader-thread-tabs-resolver.js";
 import { navigateToSessionThread, threadRouteFromHash } from "../../utils/routing.js";
 import { openInSide } from "../../utils/side-column.js";
 import { normalizeThreadKey } from "../../utils/thread-projection.js";
@@ -15,11 +13,11 @@ import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
 import { TOUCH_MENU_ITEM_CLASS } from "../ContextMenu.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { NewThreadIcon, TopicIcon } from "../library/library-icons.js";
-import { questOf } from "../library/topic-questions.js";
 import { topicRowLine } from "../library/topic-search.js";
 import { listedSpaces, useAnchoredPopover } from "../RecentSessionList.js";
 import { StatusCountDots } from "../SessionItem.js";
 import { StackedPanes } from "../StackedPanes.js";
+import { countsOf, TopicPlaceCard, usePlaceWork } from "./TopicPlaceCard.js";
 
 /**
  * The sessions panel's Topics mode: for someone who works with one or two leaders and moves between
@@ -47,7 +45,7 @@ interface LeaderPlaces {
   threads: ThreadSummary[];
 }
 
-type Counts = { running: number; permission: number; unread: number };
+type Counts = ReturnType<typeof countsOf>;
 
 /**
  * The rows of the Topics list, newest interaction first. A topic holding quests of several leaders
@@ -171,118 +169,138 @@ function useRouteThread(): string {
   return normalizeThreadKey(threadRouteFromHash(hash).threadKey ?? "main");
 }
 
-function threadOfItem(item: NextAttentionItem): string {
-  return normalizeThreadKey((item.kind === "needs-input" ? questOf(item.entry) : null) ?? item.threadKey ?? "");
-}
-
-/**
- * Counts in the panel's usual dots: questions waiting on the user (amber), new answers and finished
- * quests (blue), quests running (green). They come from the top bar's attention list and from the
- * running quests each leader's synced tab state carries, so every leader has them, not only the one open.
- */
-function useCounts(): { ofPlace: (place: TopicPlace) => Counts; ofLeader: (leaderId: string) => Counts } {
-  const { queue } = useNextAttention();
-  const projections = useStore((state) => state.syncedProjectionValues);
-  const projectionKeys = useStore((state) => state.syncedProjectionKeys);
-  const runningOf = (leaderId: string) =>
-    resolveLeaderThreadTabsProjection(
-      { syncedProjectionValues: projections, syncedProjectionKeys: projectionKeys },
-      leaderId,
-    ).value?.runningQuestIds ?? [];
-  const count = (leaderId: string, inPlace: (threadKey: string) => boolean, anyAsker: boolean): Counts => {
-    let permission = 0;
-    let unread = 0;
-    for (const item of queue) {
-      if (!inPlace(threadOfItem(item))) continue;
-      // A quest's question can come from its worker; everything else is the leader's own.
-      if (item.kind === "needs-input" && (anyAsker || item.sessionId === leaderId)) permission += 1;
-      else if (item.kind !== "needs-input" && item.sessionId === leaderId) unread += 1;
-    }
-    return { running: runningOf(leaderId).filter(inPlace).length, permission, unread };
-  };
-  return {
-    ofPlace: (place) =>
-      count(
-        place.leader.leader.id,
-        (key) =>
-          place.topic
-            ? place.topic.questIds.includes(key) || isKeyOfTopic(key, place.topic.id)
-            : key === place.threadKey,
-        true,
-      ),
-    ofLeader: (leaderId) => count(leaderId, () => true, false),
-  };
-}
-
 export function SidebarTopicsMode({
   data: { places, others },
   currentSessionId,
   onOpen,
+  onOpened,
   otherSessions,
 }: {
   data: TopicsModeData;
   currentSessionId: string | null;
   /** Opens a place of a leader (closing the panel on phones, as opening a session does). */
   onOpen: (leaderId: string, threadKey: string) => void;
+  /** Called after a topic's card opened a question or result itself (closes the panel on phones). */
+  onOpened: () => void;
   /** Today's cards for the sessions that are not leaders with topics (and the archive). */
   otherSessions: (nodes: RecentSessionNode[]) => ReactNode;
 }) {
   const rows = useMemo(() => topicPlaces(places), [places]);
   const routeThread = useRouteThread();
-  const counts = useCounts();
+  const work = usePlaceWork();
+  const card = usePlaceCard();
+  const cardPlace = card.state ? rows.find((place) => place.key === card.state!.key) : undefined;
   // A quest of a topic is in that topic's place, as the breadcrumb shows it.
   const isCurrent = (place: TopicPlace) =>
     place.leader.leader.id === currentSessionId &&
     (routeThread === place.threadKey || !!place.topic?.questIds.includes(routeThread));
   return (
-    <StackedPanes
-      stackId="sidebar-topics"
-      panes={[
-        {
-          id: "topics",
-          title: "Topics",
-          defaultWeight: 3,
-          children: (
-            <div className="space-y-0.5" data-testid="topics-mode-topics">
-              {rows.map((place) => (
-                <PlaceRow
-                  key={place.key}
-                  place={place}
-                  current={isCurrent(place)}
-                  counts={counts.ofPlace(place)}
-                  onOpen={() => onOpen(place.leader.leader.id, place.threadKey)}
-                />
-              ))}
-            </div>
-          ),
-        },
-        {
-          id: "leaders",
-          title: "Leaders",
-          defaultWeight: 1,
-          children: (
-            <div className="space-y-0.5" data-testid="topics-mode-leaders">
-              {places.map(({ node }) => (
-                <LeaderRow
-                  key={node.leader.id}
-                  node={node}
-                  current={node.leader.id === currentSessionId && routeThread === "main"}
-                  counts={counts.ofLeader(node.leader.id)}
-                  onOpen={() => onOpen(node.leader.id, "main")}
-                />
-              ))}
-            </div>
-          ),
-        },
-        {
-          id: "sessions",
-          title: "Other sessions",
-          defaultWeight: 2,
-          children: otherSessions(others),
-        },
-      ]}
-    />
+    <>
+      <StackedPanes
+        stackId="sidebar-topics"
+        panes={[
+          {
+            id: "topics",
+            title: "Topics",
+            defaultWeight: 3,
+            children: (
+              <div className="space-y-0.5" data-testid="topics-mode-topics">
+                {rows.map((place) => (
+                  <PlaceRow
+                    key={place.key}
+                    place={place}
+                    current={isCurrent(place)}
+                    counts={countsOf(work.ofPlace(place))}
+                    onOpen={() => {
+                      card.close();
+                      onOpen(place.leader.leader.id, place.threadKey);
+                    }}
+                    onShowCard={(rect, pinned) => card.show(place.key, rect, pinned)}
+                    onHideCard={card.leave}
+                  />
+                ))}
+              </div>
+            ),
+          },
+          {
+            id: "leaders",
+            title: "Leaders",
+            defaultWeight: 1,
+            children: (
+              <div className="space-y-0.5" data-testid="topics-mode-leaders">
+                {places.map(({ node }) => (
+                  <LeaderRow
+                    key={node.leader.id}
+                    node={node}
+                    current={node.leader.id === currentSessionId && routeThread === "main"}
+                    counts={countsOf(work.ofLeader(node.leader.id))}
+                    onOpen={() => onOpen(node.leader.id, "main")}
+                  />
+                ))}
+              </div>
+            ),
+          },
+          {
+            id: "sessions",
+            title: "Other sessions",
+            defaultWeight: 2,
+            children: otherSessions(others),
+          },
+        ]}
+      />
+      {card.state && cardPlace && (
+        <TopicPlaceCard
+          place={cardPlace}
+          work={work.ofPlace(cardPlace)}
+          anchorRect={card.state.rect}
+          pinned={card.state.pinned}
+          onOpenItem={(item) => {
+            card.close();
+            work.open(item);
+            onOpened();
+          }}
+          onOpenQuest={(questId) => {
+            card.close();
+            onOpen(cardPlace.leader.leader.id, questId);
+          }}
+          onClose={card.close}
+          onMouseEnter={card.keep}
+          onMouseLeave={card.leave}
+        />
+      )}
+    </>
   );
+}
+
+/**
+ * Which topic row's card is open, and where. A mouse hovering a row opens it, and it stays while the
+ * mouse moves onto it; a long-press or right-click pins it until a press outside.
+ */
+function usePlaceCard() {
+  const [state, setState] = useState<{ key: string; rect: DOMRect; pinned: boolean } | null>(null);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keep = () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    leaveTimer.current = null;
+  };
+  useEffect(() => keep, []);
+  return {
+    state,
+    show: (key: string, rect: DOMRect, pinned: boolean) => {
+      keep();
+      // A pinned card is not replaced by hovering another row on the way to it.
+      setState((current) => (current?.pinned && !pinned ? current : { key, rect, pinned }));
+    },
+    keep,
+    leave: () => {
+      keep();
+      leaveTimer.current = setTimeout(() => setState((current) => (current?.pinned ? current : null)), 100);
+    },
+    close: () => {
+      keep();
+      setState(null);
+    },
+  };
 }
 
 function PlaceRow({
@@ -290,18 +308,38 @@ function PlaceRow({
   current,
   counts,
   onOpen,
+  onShowCard,
+  onHideCard,
 }: {
   place: TopicPlace;
   current: boolean;
   counts: Counts;
   onOpen: () => void;
+  /** Shows the row's card: on hover with a mouse, pinned after a long-press or right-click. */
+  onShowCard: (rect: DOMRect, pinned: boolean) => void;
+  onHideCard: () => void;
 }) {
   const leader = place.leader.leader;
+  const rowRef = useRef<HTMLButtonElement>(null);
+  const showCard = (pinned: boolean) => {
+    if (rowRef.current) onShowCard(rowRef.current.getBoundingClientRect(), pinned);
+  };
+  const longPress = useLongPress(() => showCard(true));
   return (
     <button
+      ref={rowRef}
       type="button"
       onClick={onOpen}
-      className={`w-full rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${
+      {...longPress.handlers}
+      // Only a real mouse hovers: a tap's emulated hover must not open the card over the topic it opens.
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse" && !longPress.isSuppressingMouse()) showCard(false);
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === "mouse") onHideCard();
+      }}
+      style={longPress.pressStyle}
+      className={`w-full rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${LONG_PRESS_TARGET_CLASS} ${
         current ? "bg-cc-active" : "hover:bg-cc-hover"
       }`}
       aria-current={current ? "page" : undefined}

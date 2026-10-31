@@ -40,7 +40,7 @@ const GROUP_ARIA_LABEL: Record<AttentionSection, string> = {
  * line. A tracked thread without a result has nothing new to say, so its first
  * line is its title, which the second line then leaves out.
  */
-function itemLabel(item: NextAttentionItem): string {
+export function attentionItemLabel(item: NextAttentionItem): string {
   if (item.kind === "unread" && item.remindAt !== undefined) return `Reminder ${formatSnoozeUntil(item.remindAt)}`;
   if (item.kind === "unread" && item.notification) return unreadMessageLabel(item.summary);
   if (item.kind === "unread") return item.threadKey === null ? "Latest result" : item.summary || "New result";
@@ -139,7 +139,7 @@ export function AttentionItemRow({
   /** The Library topic its thread is filed under, named before the thread (a session's own list). */
   topic?: string | null;
 }) {
-  const label = itemLabel(item);
+  const label = attentionItemLabel(item);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const longPress = useLongPress((x, y) => {
     // Built when opened, so actions reflect the current state (such as which session is on screen).
@@ -411,7 +411,7 @@ function AttentionPlaceRow({
             data-testid="attention-place-summary"
           >
             <span className="shrink-0 text-cc-info">{newThingsText(items)}</span>
-            <span className="min-w-0 truncate">· {itemLabel(newest)}</span>
+            <span className="min-w-0 truncate">· {attentionItemLabel(newest)}</span>
             <span className="shrink-0">
               {[sessionTag, newest.timestamp > 0 ? formatRelativeTime(newest.timestamp) : null]
                 .filter(Boolean)

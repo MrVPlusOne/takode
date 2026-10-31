@@ -981,6 +981,10 @@ export function Sidebar({
                   navigateToSessionThread(leaderId, threadKey);
                   if (!isDesktopLayout) useStore.getState().setSidebarOpen(false);
                 }}
+                onOpened={() => {
+                  setContextMenu(null);
+                  if (!isDesktopLayout) useStore.getState().setSidebarOpen(false);
+                }}
                 otherSessions={(others) => (
                   <>
                     {pendingList}

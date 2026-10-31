@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fingerTap } from "../../test-fixtures/finger-tap.js";
 import type { RecentSessionNode } from "../../utils/recent-sessions.js";
 
 /**
@@ -62,21 +63,49 @@ vi.mock("../../api/topics.js", () => ({
     threads: vi.fn(async () => ({ threads: [] })),
   },
 }));
+const openItem = vi.fn();
 vi.mock("../../hooks/useNextAttention.js", () => ({
   useNextAttention: () => ({
     queue: [
-      { kind: "needs-input", sessionId: "worker", entry: { questId: "q-1" }, threadKey: "q-1" },
-      { kind: "unread", sessionId: "takode", threadKey: "q-1" },
+      {
+        kind: "needs-input",
+        key: "n-1",
+        sessionId: "worker",
+        entry: { questId: "q-1" },
+        threadKey: "q-1",
+        label: "Which layout?",
+      },
+      { kind: "unread", key: "u-1", sessionId: "takode", threadKey: "q-1", label: "q-1", summary: "Pages are live" },
     ],
+    open: openItem,
+  }),
+}));
+// Quests are named by their titles in a topic's card.
+vi.mock("../../hooks/useAttentionThreadTitles.js", () => ({
+  useAttentionThreadTitles: () => ({
+    titleFor: (_sessionId: string, key: string) => ({ "q-1": "Library pages", "q-3": "T7 eval sweep" })[key],
+    hasThreadTabs: () => true,
   }),
 }));
 vi.mock("../library/topic-questions.js", () => ({ questOf: (entry: { questId?: string }) => entry.questId ?? null }));
+// Stable per leader, as the store's projections are (a store selector must not see a new value each call).
+const tabProjections = Object.fromEntries(
+  ["takode", "msi"].map((leaderId) => [
+    leaderId,
+    {
+      projectionState: "accepted",
+      value: {
+        runningQuestIds: leaderId === "msi" ? ["q-3"] : [],
+        tabs: [{ threadKey: "q-3", journey: { currentPhaseId: "work" } }],
+      },
+    },
+  ]),
+);
 vi.mock("../../utils/leader-thread-tabs-resolver.js", () => ({
-  resolveLeaderThreadTabsProjection: (_source: unknown, leaderId: string) => ({
-    value: { runningQuestIds: leaderId === "msi" ? ["q-3"] : [] },
-  }),
+  resolveLeaderThreadTabsProjection: (_source: unknown, leaderId: string) => tabProjections[leaderId],
 }));
 const navigate = vi.fn();
+const opened = vi.fn();
 vi.mock("../../utils/routing.js", () => ({
   navigateToSessionThread: (...args: unknown[]) => navigate(...args),
   threadRouteFromHash: () => ({ hasThreadParam: true, threadKey: "q-1" }),
@@ -100,6 +129,7 @@ function Harness({ nodes }: { nodes: RecentSessionNode[] }) {
       data={data}
       currentSessionId="takode"
       onOpen={(leaderId, threadKey) => navigate(leaderId, threadKey)}
+      onOpened={opened}
       otherSessions={(others) => <div data-testid="others">{others.map((other) => other.leader.id).join(",")}</div>}
     />
   );
@@ -109,6 +139,8 @@ describe("SidebarTopicsMode", () => {
   beforeEach(() => {
     localStorage.clear();
     navigate.mockReset();
+    opened.mockReset();
+    openItem.mockReset();
   });
 
   it("lists every leader's topics, the leaders and the other sessions", async () => {
@@ -146,6 +178,51 @@ describe("SidebarTopicsMode", () => {
     expect(navigate).toHaveBeenCalledWith("msi", "topic:cccccccc");
     fireEvent.click(screen.getAllByTestId("topics-mode-leader")[0]!);
     expect(navigate).toHaveBeenCalledWith("takode", "main");
+  });
+
+  it("shows a topic's questions, new results and running quests by quest title on hover, each one click away", async () => {
+    render(<Harness nodes={[node("takode", "DevBox", 500), node("msi", "Daily", 400)]} />);
+    await waitFor(() => expect(screen.getAllByTestId("topics-mode-row")).toHaveLength(3));
+    const [library, t7] = screen.getAllByTestId("topics-mode-row");
+
+    fireEvent.pointerOver(library!, { pointerType: "mouse" });
+    const card = screen.getByTestId("topic-place-card");
+    const items = within(card).getAllByTestId("topic-place-card-item");
+    // The question (asked by the quest's worker) and the new answer, each under its quest's title.
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Library pagesWhich layout?",
+      "Library pagesPages are live",
+    ]);
+    fireEvent.click(items[0]!);
+    expect(openItem).toHaveBeenCalledWith(expect.objectContaining({ key: "n-1" }));
+    expect(opened).toHaveBeenCalled();
+    expect(screen.queryByTestId("topic-place-card")).toBeNull();
+
+    // A running quest opens its thread in its leader.
+    fireEvent.pointerOver(t7!, { pointerType: "mouse" });
+    const running = within(screen.getByTestId("topic-place-card")).getByTestId("topic-place-card-running");
+    expect(running.textContent).toBe("T7 eval sweepWork");
+    fireEvent.click(running);
+    expect(navigate).toHaveBeenCalledWith("msi", "q-3");
+  });
+
+  it("opens the card on touch only by long-press (or right-click), not with a tap's emulated hover", async () => {
+    render(<Harness nodes={[node("takode", "DevBox", 500)]} />);
+    await waitFor(() => expect(screen.getAllByTestId("topics-mode-row")).toHaveLength(2));
+    const library = screen.getAllByTestId("topics-mode-row")[0]!;
+    // A tap opens the topic, and no card is left over it.
+    fingerTap(library);
+    expect(navigate).toHaveBeenCalledWith("takode", "topic:aaaaaaaa");
+    expect(screen.queryByTestId("topic-place-card")).toBeNull();
+
+    // Pinned: it stays when the mouse leaves the row, and a press outside closes it.
+    fireEvent.contextMenu(library);
+    expect(screen.getByTestId("topic-place-card")).toBeTruthy();
+    fireEvent.pointerOut(library, { pointerType: "mouse" });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(screen.getByTestId("topic-place-card")).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId("topic-place-card")).toBeNull();
   });
 
   it("folds a group from its header", async () => {
