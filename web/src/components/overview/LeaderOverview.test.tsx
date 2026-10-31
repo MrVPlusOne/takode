@@ -5,7 +5,7 @@
  * Takode's own data decides what is listed.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, renderHook, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import type { OverviewOrder } from "../../../shared/library-topics.js";
 import type { NextAttentionItem } from "../../utils/next-attention.js";
 
@@ -23,6 +23,8 @@ vi.mock("../../utils/leader-topics.js", () => ({
     },
   }),
   useOverviewOrder: () => known.order,
+  useTopicKeyNamer: () => () => undefined,
+  loadLeaderNamesOnce: () => {},
 }));
 import { useStore } from "../../store.js";
 import { LeaderOverview, useLeaderOverview } from "./LeaderOverview.js";
@@ -100,6 +102,7 @@ function seed() {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   known.order = null;
   useStore.getState().reset();
 });
@@ -152,21 +155,52 @@ describe("useLeaderOverview", () => {
 });
 
 describe("LeaderOverview", () => {
-  it("shows what needs the user, what runs with its worker, and the topics with their counts", () => {
+  it("shows one row per question and per thread with news, named by its quest, the rest folded", () => {
+    // Jiayi (phone): the overview was a wall of text. Each row is now one line, named by the quest
+    // it is about rather than only its topic, with the question's words or the Scribe's note under
+    // it; what runs and the quiet topics wait behind their headings.
     seed();
+    useStore.setState({
+      quests: [
+        { questId: "q-1", title: "Relay fix", status: "in_progress" },
+        { questId: "q-2", title: "Relay layout", status: "done" },
+      ],
+    } as never);
+    known.order = { writtenAt: 1, entries: [{ key: "q-2", note: "Layout landed; try it on the phone" }] };
     const { result } = renderHook(() => useLeaderOverview("leader"));
     const topics = [
       { id: "t1", name: "Relay", questIds: ["q-1", "q-2"], activityAt: 1 },
       { id: "t2", name: "Evals", questIds: ["q-3", "q-9"], activityAt: 1 },
+      { id: "t3", name: "Quiet", questIds: [], activityAt: 1 },
     ] as never;
     render(<LeaderOverview data={result.current} topics={topics} onOpenQuest={() => {}} onOpenTopic={() => {}} />);
-    expect(screen.getByTestId("overview-for-you").textContent).toContain("Question about q-1");
-    const rows = screen.getAllByTestId("overview-running-row");
-    expect(rows[0]!.textContent).toContain("Eval sweep");
-    expect(within(rows[0]!).getByTestId("overview-worker").dataset.status).toBe("running");
-    expect(screen.getAllByTestId("topic-counts").map((line) => line.textContent)).toEqual([
-      "1 needs you1 new1 running",
-      "1 needs you1 new1 running",
+    const rows = screen.getAllByTestId("overview-for-you-row");
+    expect(rows).toHaveLength(result.current.needYou);
+    const own = rows.find((row) => row.textContent?.includes("Question about q-1"))!;
+    expect(own.textContent).toContain("Relay fix");
+    const layout = rows.find((row) => row.textContent?.includes("Relay layout"))!;
+    expect(layout.textContent).toContain("1 new");
+    expect(within(layout).getByTestId("overview-note").textContent).toBe("Layout landed; try it on the phone");
+
+    // Folded until opened, and remembered on this device.
+    expect(screen.queryByTestId("overview-running-row")).toBeNull();
+    fireEvent.click(within(screen.getByTestId("overview-running")).getByTestId("overview-fold"));
+    expect(screen.getAllByTestId("overview-running-row")[0]!.textContent).toContain("Eval sweep");
+    // Only topics with nothing above are listed among the other topics.
+    fireEvent.click(within(screen.getByTestId("overview-topics")).getByTestId("overview-fold"));
+    expect(screen.getAllByTestId("overview-topic-row").map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Quiet"),
     ]);
+    cleanup();
+    render(<LeaderOverview data={result.current} topics={topics} onOpenQuest={() => {}} onOpenTopic={() => {}} />);
+    expect(screen.getAllByTestId("overview-running-row")).toHaveLength(2);
+  });
+
+  it("puts a thread's unread answers on one row", () => {
+    attention.queue = [unread("u-1", "q-2", null), unread("u-2", "q-2", null), unread("u-3", "q-3", null)];
+    const { result } = renderHook(() => useLeaderOverview("leader"));
+    expect(result.current.needYou).toBe(2);
+    render(<LeaderOverview data={result.current} onOpenQuest={() => {}} />);
+    expect(screen.getAllByTestId("overview-for-you-row")).toHaveLength(2);
   });
 });

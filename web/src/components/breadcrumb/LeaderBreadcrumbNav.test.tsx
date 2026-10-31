@@ -27,8 +27,6 @@ const running = (questId: string, title: string): RunningQuest => ({
   questId,
   title,
   phase: { label: "Work", accent: "green" },
-  worker: { sessionId: "w", sessionNum: 7, status: "running" },
-  phaseSince: null,
   updatedAt: 0,
   topic: { id: "t1", name: "Relay" },
 });
@@ -58,6 +56,7 @@ function overviewData(forYou: NextAttentionItem[] = [question]): LeaderOverviewD
   return {
     forYou,
     running: [running("q-10", "Fix the relay proxy")],
+    needYou: forYou.length,
     noteFor: () => undefined,
     countsOf: (topic) => ({ needYou: 0, fresh: 0, running: topic.id === "t1" ? 1 : 0 }),
     open: vi.fn(),
@@ -308,8 +307,9 @@ describe("the place picker", () => {
 });
 
 describe("the Overview menu", () => {
-  it("counts what needs the user on its button, and lists what needs them, what runs and the topics", () => {
-    // Jiayi: the top bar's picker became an easy way into what needs them and what is going on.
+  it("counts what needs the user on its button, and lists what needs them, what runs and the other topics", () => {
+    // Jiayi: the top bar's picker became an easy way into what needs them and what is going on;
+    // what runs and the topics with nothing going on wait behind their headings.
     const { helpers, onSelect } = renderNav();
     const button = within(helpers).getByTestId("thread-tab-group-working-on");
     // jsdom has the desktop shell's width: the label is spelled out (phones show the count only).
@@ -318,12 +318,14 @@ describe("the Overview menu", () => {
     openWorkingOn();
     const list = within(helpers).getByTestId("thread-tab-group-list");
     expect(within(list).getByTestId("overview-for-you").textContent).toContain("Which fix should be built?");
+    // Relay has a running quest, so only Briefing is among the other topics.
+    fireEvent.click(within(within(list).getByTestId("overview-topics")).getByTestId("overview-fold"));
     expect(
       within(list)
         .getAllByTestId("overview-topic-row")
         .map((row) => row.textContent),
-    ).toEqual([expect.stringContaining("Relay"), expect.stringContaining("Briefing")]);
-    expect(within(list).getAllByTestId("overview-topic-row")[0]!.textContent).toContain("1 running");
+    ).toEqual([expect.stringContaining("Briefing")]);
+    fireEvent.click(within(within(list).getByTestId("overview-running")).getByTestId("overview-fold"));
     fireEvent.click(within(list).getByTestId("overview-running-row"));
     expect(onSelect).toHaveBeenCalledWith("q-10");
     expect(within(helpers).queryByTestId("thread-tab-group-list")).toBeNull();

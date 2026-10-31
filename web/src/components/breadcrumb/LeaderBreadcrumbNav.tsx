@@ -20,7 +20,6 @@ import {
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { AllThreadsIcon, MainIcon, PlaceCrumb, PlaceRow } from "./PlaceCrumb.js";
 import { LeaderOverview, useLeaderOverview } from "../overview/LeaderOverview.js";
-import { countAttentionPlaces } from "../../utils/next-attention.js";
 
 export interface LeaderBreadcrumbNavProps extends RowContext {
   main?: PrimaryThreadChip;
@@ -65,7 +64,7 @@ export function LeaderBreadcrumbNav({
   ...rows
 }: LeaderBreadcrumbNavProps) {
   const overview = useLeaderOverview(leaderId);
-  const needYou = countAttentionPlaces(overview.forYou);
+  const needYou = overview.needYou;
   const [workingOnOpen, setWorkingOnOpen] = useState(false);
   const desktop = useDesktopShellLayout();
   const currentKey = normalizeThreadKey(rows.currentThreadKey);

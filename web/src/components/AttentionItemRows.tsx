@@ -64,7 +64,7 @@ export function unreadMessageLabel(summary: string | undefined): string {
 }
 
 /** Muted prompts and tracked threads without a result take quiet icons, so they never read as waiting. */
-function ItemIcon({ item }: { item: NextAttentionItem }) {
+export function ItemIcon({ item }: { item: NextAttentionItem }) {
   if (item.kind === "unread" && item.remindAt !== undefined)
     return (
       <span className="inline-flex text-cc-muted">
@@ -450,7 +450,7 @@ export function newThingsText(items: readonly NextAttentionItem[]): string {
 }
 
 /** The place's first unread, where opening it lands: answers and reports oldest first, then finished quests. */
-function firstUnreadItem(items: readonly NextAttentionItem[]): NextAttentionItem {
+export function firstUnreadItem(items: readonly NextAttentionItem[]): NextAttentionItem {
   const withNotification = items.filter((item) => item.kind === "unread" && item.notification);
   const notifications = withNotification.flatMap((item) =>
     item.kind === "unread" && item.notification ? [item.notification] : [],

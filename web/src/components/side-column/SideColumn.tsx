@@ -34,7 +34,6 @@ import { SideSession } from "./SideSession.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { openLibraryArtifact } from "../../utils/library-nav.js";
-import { countAttentionPlaces } from "../../utils/next-attention.js";
 import { LeaderOverview, LeaderOverviewContext, useLeaderOverview } from "../overview/LeaderOverview.js";
 import { OverviewIcon } from "../overview/OverviewIcon.js";
 
@@ -163,7 +162,7 @@ function SideOverview({
   onClose: () => void;
 }) {
   const overview = useContext(LeaderOverviewContext)!;
-  const needYou = countAttentionPlaces(overview.forYou);
+  const needYou = overview.needYou;
   // On a phone the sheet covers the conversation: going somewhere closes it.
   const leave = () => variant === "sheet" && onClose();
   return (

@@ -88,9 +88,10 @@ describe("SideColumn", () => {
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     // Jiayi: the leader's overview sits at the top everywhere, the current topic's page under it.
     expect(rows().map((row) => row.textContent)).toEqual(["Topics"]);
-    expect(within(screen.getByTestId("side-overview")).getByTestId("overview-running-row").textContent).toContain(
-      "Running quest",
-    );
+    // What runs folds behind its heading until opened.
+    const overview = within(screen.getByTestId("side-overview"));
+    fireEvent.click(overview.getByTestId("overview-fold"));
+    expect(overview.getByTestId("overview-running-row").textContent).toContain("Running quest");
     expect(screen.getByTestId("mock-topic-page").textContent).toBe("followed");
     // Beside the open topic page, the overview takes part of the column; alone, all of it.
     expect(screen.getByTestId("side-overview").className).toContain("max-h-[45%]");
