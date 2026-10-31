@@ -1,5 +1,5 @@
 import { dividersAboveStrips } from "./feed-strip-dividers.js";
-import { useTopicProgress } from "./topic-progress-card.js";
+import { TopicFeedTurns } from "./topic-feed-turns.js";
 import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 import { MainQuestStrip, MainQuestStripsContext, mainQuestStrips } from "./MainQuestStrip.js";
 import { StartedQuestsContext } from "./QuestForkLinks.js";
@@ -47,13 +47,7 @@ import { AnswerReferencesContext, answerChromeFor, type AnswerReferenceData } fr
 import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
 import { useQuestRecord } from "./QuestSummaryCard.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
-import {
-  TopicFeedContext,
-  TopicFeedQuestLabel,
-  TopicFeedQuestStart,
-  useTopicTurnPartOf,
-  topicQuestsOfTurns,
-} from "./topic-feed.js";
+import { TopicFeedContext, useTopicTurnPartOf, topicQuestsOfTurns } from "./topic-feed.js";
 import { TopicFeedEntry } from "./library/TopicConversation.js";
 
 function entryHasModelActivity(entry: FeedEntry): boolean {
@@ -288,8 +282,6 @@ function groupTurnActivity(
   return runs;
 }
 
-const NO_TURN_QUESTS: ReadonlyArray<string | null> = [];
-
 export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   turn,
   threadStatusFooter,
@@ -417,14 +409,6 @@ export const TurnEntries = memo(function TurnEntries({
     () => (topicTurnPartOf ? topicQuestsOfTurns(turns, topicTurnPartOf) : null),
     [topicTurnPartOf, turns],
   );
-  // Quests running together fold their interleaved progress into cards; without parts, nothing folds.
-  const topicProgress = useTopicProgress({
-    sessionId,
-    topicKey: topicFeed?.topicKey ?? "",
-    turns,
-    turnQuests: turnQuests ?? NO_TURN_QUESTS,
-  });
-  const turnMarks = turnQuests ? topicProgress.marks : null;
   // A leader's Main names the quest each request went to with a strip, as topic conversations do.
   const startedQuests = useContext(StartedQuestsContext);
   const mainStrips = useMemo(
@@ -486,14 +470,8 @@ export const TurnEntries = memo(function TurnEntries({
     };
   }, [readyThreadResponsePresentation, turns, turnStates]);
   const { entryBoundaryLabels, dividerAboveStrip } = useMemo(
-    () =>
-      dividersAboveStrips(
-        turns,
-        (index) => turnMarks?.[index] === "strip" || !!mainStrips?.[index],
-        firstTimedMessageIds,
-        minuteBoundaryLabels,
-      ),
-    [minuteBoundaryLabels, firstTimedMessageIds, turns, turnMarks, mainStrips],
+    () => dividersAboveStrips(turns, (index) => !!mainStrips?.[index], firstTimedMessageIds, minuteBoundaryLabels),
+    [minuteBoundaryLabels, firstTimedMessageIds, turns, mainStrips],
   );
   return (
     <InlineMessageTimingVisibilityContext.Provider value={showInlineMessageTiming}>
@@ -510,220 +488,225 @@ export const TurnEntries = memo(function TurnEntries({
         {/* One flat list keyed by turn: section boundaries move whenever the latest
           window slides, and a turn re-parented into another section wrapper would
           remount, reloading every visible message and image. */}
-        {turns.map((turn, turnIndex) => {
-          const turnState = turnStates[turnIndex];
-          const isActivityExpanded = turnState?.isActivityExpanded ?? false;
-          const preserveHostQuestQuiz = turnIndex === turns.length - 1 && turnState?.defaultExpanded === false;
-          const turnQuest = turnQuests?.[turnIndex] ?? null;
-          const answers = topicResponsePresentations
-            ? turnQuest
-              ? (topicResponsePresentations.get(turnQuest) ?? null)
-              : null
-            : threadResponsePresentation;
-          const turnResponsePresentation = answers && readyThreadResponseAppliesToTurn(turn, answers) ? answers : null;
-          const collapsedThreadResponsePresentation =
-            turnResponsePresentation &&
-            (readyThreadResponsePresentation || threadResponsePresentationTouchesTurn(turn, turnResponsePresentation))
-              ? turnResponsePresentation
-              : null;
-          const collapsedShowsMessage = collapsedThreadResponsePresentation
-            ? readyThreadResponseTurnHasMessage(turn, collapsedThreadResponsePresentation, needsInputAnchorMessageIds)
-            : turn.subConclusions.length > 0 ||
-              (turn.collapsedEntries?.some(
-                (row) => row.kind === "entry" && row.entry.kind === "message" && row.entry.msg.role === "assistant",
-              ) ??
-                false);
-          // Display only: a handed-off or dispatch-only turn keeps its last note
-          // visible, while answer coverage and Ready state stay unchanged.
-          const unansweredMessageEntry =
-            leaderSession && !isActivityExpanded && !collapsedShowsMessage && turn.lastMessageEntry
-              ? collapsedResponseEntry(turn.lastMessageEntry)
-              : null;
-          const hasCollapsedContent =
-            unansweredMessageEntry !== null ||
-            (collapsedThreadResponsePresentation
-              ? readyThreadResponseTurnHasContent(turn, collapsedThreadResponsePresentation, needsInputAnchorMessageIds)
-              : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) ||
-                turn.subConclusions.length > 0);
-          const hasCollapsedCurrentAnswer =
-            collapsedThreadResponsePresentation?.currentResponses.some((item) => item.sourceTurnId === turn.id) ??
-            false;
-          const turnSummaryDuration = getTurnSummaryDurationMs(turn);
-          const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
-          const completionCard: TimedCard | null =
-            threadQuestId && completedAt !== null && completionSummaryHostTurnId === turn.id
-              ? {
-                  at: completedAt,
-                  blockId: getQuestCompletionFeedBlockId(threadQuestId),
-                  node: (
-                    <QuestCompletionSummaryCard
-                      questId={threadQuestId}
-                      sessionId={sessionId}
-                      questLinkSurface={questLinkSurface}
+        {topicFeed && turnQuests ? (
+          // A topic conversation shows what the user reads, one quest at a time.
+          <TopicFeedTurns
+            turns={turns}
+            turnQuests={turnQuests}
+            topicKey={topicFeed?.topicKey ?? ""}
+            sectionStartTurnIds={sectionStartTurnIds}
+            sessionId={sessionId}
+            currentThreadKey={currentThreadKey}
+            isCodexSession={isCodexSession}
+            activeCodexTerminalIds={activeCodexTerminalIds}
+            onOpenCodexTerminal={onOpenCodexTerminal}
+            onSelectThread={onSelectThread}
+            questLinkSurface={questLinkSurface}
+            presentationOf={(quest) => (quest ? topicResponsePresentations?.get(quest) : null)}
+          />
+        ) : (
+          turns.map((turn, turnIndex) => {
+            const turnState = turnStates[turnIndex];
+            const isActivityExpanded = turnState?.isActivityExpanded ?? false;
+            const preserveHostQuestQuiz = turnIndex === turns.length - 1 && turnState?.defaultExpanded === false;
+            const answers = threadResponsePresentation;
+            const turnResponsePresentation =
+              answers && readyThreadResponseAppliesToTurn(turn, answers) ? answers : null;
+            const collapsedThreadResponsePresentation =
+              turnResponsePresentation &&
+              (readyThreadResponsePresentation || threadResponsePresentationTouchesTurn(turn, turnResponsePresentation))
+                ? turnResponsePresentation
+                : null;
+            const collapsedShowsMessage = collapsedThreadResponsePresentation
+              ? readyThreadResponseTurnHasMessage(turn, collapsedThreadResponsePresentation, needsInputAnchorMessageIds)
+              : turn.subConclusions.length > 0 ||
+                (turn.collapsedEntries?.some(
+                  (row) => row.kind === "entry" && row.entry.kind === "message" && row.entry.msg.role === "assistant",
+                ) ??
+                  false);
+            // Display only: a handed-off or dispatch-only turn keeps its last note
+            // visible, while answer coverage and Ready state stay unchanged.
+            const unansweredMessageEntry =
+              leaderSession && !isActivityExpanded && !collapsedShowsMessage && turn.lastMessageEntry
+                ? collapsedResponseEntry(turn.lastMessageEntry)
+                : null;
+            const hasCollapsedContent =
+              unansweredMessageEntry !== null ||
+              (collapsedThreadResponsePresentation
+                ? readyThreadResponseTurnHasContent(
+                    turn,
+                    collapsedThreadResponsePresentation,
+                    needsInputAnchorMessageIds,
+                  )
+                : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) ||
+                  turn.subConclusions.length > 0);
+            const hasCollapsedCurrentAnswer =
+              collapsedThreadResponsePresentation?.currentResponses.some((item) => item.sourceTurnId === turn.id) ??
+              false;
+            const turnSummaryDuration = getTurnSummaryDurationMs(turn);
+            const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
+            const completionCard: TimedCard | null =
+              threadQuestId && completedAt !== null && completionSummaryHostTurnId === turn.id
+                ? {
+                    at: completedAt,
+                    blockId: getQuestCompletionFeedBlockId(threadQuestId),
+                    node: (
+                      <QuestCompletionSummaryCard
+                        questId={threadQuestId}
+                        sessionId={sessionId}
+                        questLinkSurface={questLinkSurface}
+                      />
+                    ),
+                  }
+                : null;
+            // Without entries or collapsed rows to sit among, the card ends the turn.
+            const hasEntryRows = isActivityExpanded ? turnPresentationEntries(turn).length > 0 : hasCollapsedContent;
+            const completionSummaryCard =
+              completionCard && !hasEntryRows ? (
+                <div className="min-w-0 pl-9" data-feed-block-id={completionCard.blockId}>
+                  {completionCard.node}
+                </div>
+              ) : null;
+            const threadStatusFooter =
+              showThreadStatusFooter || completionSummaryCard ? (
+                <>
+                  {completionSummaryCard}
+                  {showThreadStatusFooter && (
+                    <TurnThreadStatusFooter
+                      statuses={visibleThreadStatuses}
+                      workerPreviewTarget={workerPreviewTarget}
+                      currentThreadKey={currentThreadKey}
+                      onSelectThread={onSelectThread}
+                      onLayoutContributionChange={onThreadStatusLayoutContributionChange}
                     />
-                  ),
-                }
-              : null;
-          // Without entries or collapsed rows to sit among, the card ends the turn.
-          const hasEntryRows = isActivityExpanded ? turnPresentationEntries(turn).length > 0 : hasCollapsedContent;
-          const completionSummaryCard =
-            completionCard && !hasEntryRows ? (
-              <div className="min-w-0 pl-9" data-feed-block-id={completionCard.blockId}>
-                {completionCard.node}
-              </div>
-            ) : null;
-          const threadStatusFooter =
-            showThreadStatusFooter || completionSummaryCard ? (
-              <>
-                {completionSummaryCard}
-                {showThreadStatusFooter && (
-                  <TurnThreadStatusFooter
-                    statuses={visibleThreadStatuses}
-                    workerPreviewTarget={workerPreviewTarget}
-                    currentThreadKey={currentThreadKey}
-                    onSelectThread={onSelectThread}
-                    onLayoutContributionChange={onThreadStatusLayoutContributionChange}
-                  />
-                )}
-              </>
-            ) : null;
+                  )}
+                </>
+              ) : null;
 
-          const topicMark = turnQuest ? (turnMarks?.[turnIndex] ?? null) : null;
-          const progressCard = topicProgress.card(turnIndex);
-          if (topicProgress.hidden(turnIndex)) {
             return (
               <Fragment key={turn.id}>
-                {progressCard}
-                {/* A folded turn can start a section; the feed's section navigation still finds it here. */}
-                {sectionStartTurnIds.has(turn.id) && <div data-feed-section-id={turn.id} />}
-                {threadStatusFooter}
-              </Fragment>
-            );
-          }
-          return (
-            <Fragment key={turn.id}>
-              {progressCard}
-              {dividerAboveStrip.has(turnIndex) && (
-                <MinuteBoundaryTimestamp
-                  timestamp={dividerAboveStrip.get(turnIndex)!.timestamp}
-                  label={dividerAboveStrip.get(turnIndex)!.label}
-                />
-              )}
-              {topicMark === "strip" && <TopicFeedQuestStart questId={turnQuest!} sessionId={sessionId} />}
-              {topicMark === "label" && <TopicFeedQuestLabel questId={turnQuest!} />}
-              {mainStrips?.[turnIndex] && sessionId && (
-                <MainQuestStrip sessionId={sessionId} quest={mainStrips[turnIndex]!.quest} />
-              )}
-              <div data-feed-section-id={sectionStartTurnIds.has(turn.id) ? turn.id : undefined}>
-                <div
-                  data-turn-id={turn.id}
-                  data-feed-block-id={getTurnFeedBlockId(turn.id)}
-                  className="turn-container space-y-2 sm:space-y-3"
-                  data-user-turn={isUserBoundaryEntry(turn.userEntry, userBoundarySourceSessionId) ? "true" : undefined}
-                >
-                  {turn.userEntry && (
-                    <FeedEntries
-                      entries={[turn.userEntry]}
-                      sessionId={sessionId}
-                      currentThreadKey={currentThreadKey}
-                      minuteBoundaryLabels={entryBoundaryLabels}
-                      isCodexSession={isCodexSession}
-                      activeCodexTerminalIds={activeCodexTerminalIds}
-                      onOpenCodexTerminal={onOpenCodexTerminal}
-                      onSelectThread={onSelectThread}
-                      questLinkSurface={questLinkSurface}
-                    />
-                  )}
-
-                  {turnPresentationEntries(turn).length > 0 && (
-                    <div className="min-w-0">
-                      <TurnActivityDisclosure
-                        stats={turn.stats}
-                        durationMs={turnSummaryDuration}
-                        expanded={isActivityExpanded}
-                        onToggle={() => toggleTurn(turn.id)}
-                      />
-                    </div>
-                  )}
-                  {!isActivityExpanded && !collapsedThreadResponsePresentation && (
-                    <CodexSubagentTurnSegment sessionId={sessionId} turnId={turn.id} />
-                  )}
-                  {isActivityExpanded ? (
-                    turnPresentationEntries(turn).length > 0 && (
-                      <TurnEntriesExpanded
-                        turn={turn}
-                        isLatestTurn={turnIndex === turns.length - 1}
+                {dividerAboveStrip.has(turnIndex) && (
+                  <MinuteBoundaryTimestamp
+                    timestamp={dividerAboveStrip.get(turnIndex)!.timestamp}
+                    label={dividerAboveStrip.get(turnIndex)!.label}
+                  />
+                )}
+                {mainStrips?.[turnIndex] && sessionId && (
+                  <MainQuestStrip sessionId={sessionId} quest={mainStrips[turnIndex]!.quest} />
+                )}
+                <div data-feed-section-id={sectionStartTurnIds.has(turn.id) ? turn.id : undefined}>
+                  <div
+                    data-turn-id={turn.id}
+                    data-feed-block-id={getTurnFeedBlockId(turn.id)}
+                    className="turn-container space-y-2 sm:space-y-3"
+                    data-user-turn={
+                      isUserBoundaryEntry(turn.userEntry, userBoundarySourceSessionId) ? "true" : undefined
+                    }
+                  >
+                    {turn.userEntry && (
+                      <FeedEntries
+                        entries={[turn.userEntry]}
                         sessionId={sessionId}
                         currentThreadKey={currentThreadKey}
-                        threadStatusFooter={threadStatusFooter}
-                        timedCard={completionCard}
                         minuteBoundaryLabels={entryBoundaryLabels}
                         isCodexSession={isCodexSession}
                         activeCodexTerminalIds={activeCodexTerminalIds}
                         onOpenCodexTerminal={onOpenCodexTerminal}
                         onSelectThread={onSelectThread}
                         questLinkSurface={questLinkSurface}
-                        threadResponsePresentation={turnResponsePresentation}
                       />
-                    )
-                  ) : (
-                    <>
-                      {!collapsedThreadResponsePresentation && turn.systemEntries.length > 0 && (
-                        <FeedEntries
-                          entries={turn.systemEntries}
+                    )}
+
+                    {turnPresentationEntries(turn).length > 0 && (
+                      <div className="min-w-0">
+                        <TurnActivityDisclosure
+                          stats={turn.stats}
+                          durationMs={turnSummaryDuration}
+                          expanded={isActivityExpanded}
+                          onToggle={() => toggleTurn(turn.id)}
+                        />
+                      </div>
+                    )}
+                    {!isActivityExpanded && !collapsedThreadResponsePresentation && (
+                      <CodexSubagentTurnSegment sessionId={sessionId} turnId={turn.id} />
+                    )}
+                    {isActivityExpanded ? (
+                      turnPresentationEntries(turn).length > 0 && (
+                        <TurnEntriesExpanded
+                          turn={turn}
+                          isLatestTurn={turnIndex === turns.length - 1}
                           sessionId={sessionId}
                           currentThreadKey={currentThreadKey}
+                          threadStatusFooter={threadStatusFooter}
+                          timedCard={completionCard}
                           minuteBoundaryLabels={entryBoundaryLabels}
                           isCodexSession={isCodexSession}
                           activeCodexTerminalIds={activeCodexTerminalIds}
                           onOpenCodexTerminal={onOpenCodexTerminal}
                           onSelectThread={onSelectThread}
-                          suppressThreadSystemMarkers
                           questLinkSurface={questLinkSurface}
+                          threadResponsePresentation={turnResponsePresentation}
                         />
-                      )}
-                      {hasCollapsedContent && (
-                        <div
-                          className={
-                            hasCollapsedCurrentAnswer
-                              ? "flex min-w-0 items-start"
-                              : "flex min-w-0 items-start gap-2 sm:gap-3"
-                          }
-                          data-testid={hasCollapsedCurrentAnswer ? "thread-response-collapsed-shell" : undefined}
-                        >
-                          {!hasCollapsedCurrentAnswer && (
-                            <PawTrailAvatar messageId={collapsedPawMessageId(turn, unansweredMessageEntry)} />
-                          )}
-                          {/* Clip, not hide: a hidden overflow is a scroll container, which would keep an
+                      )
+                    ) : (
+                      <>
+                        {!collapsedThreadResponsePresentation && turn.systemEntries.length > 0 && (
+                          <FeedEntries
+                            entries={turn.systemEntries}
+                            sessionId={sessionId}
+                            currentThreadKey={currentThreadKey}
+                            minuteBoundaryLabels={entryBoundaryLabels}
+                            isCodexSession={isCodexSession}
+                            activeCodexTerminalIds={activeCodexTerminalIds}
+                            onOpenCodexTerminal={onOpenCodexTerminal}
+                            onSelectThread={onSelectThread}
+                            suppressThreadSystemMarkers
+                            questLinkSurface={questLinkSurface}
+                          />
+                        )}
+                        {hasCollapsedContent && (
+                          <div
+                            className={
+                              hasCollapsedCurrentAnswer
+                                ? "flex min-w-0 items-start"
+                                : "flex min-w-0 items-start gap-2 sm:gap-3"
+                            }
+                            data-testid={hasCollapsedCurrentAnswer ? "thread-response-collapsed-shell" : undefined}
+                          >
+                            {!hasCollapsedCurrentAnswer && (
+                              <PawTrailAvatar messageId={collapsedPawMessageId(turn, unansweredMessageEntry)} />
+                            )}
+                            {/* Clip, not hide: a hidden overflow is a scroll container, which would keep an
                             expanded report's collapse bar from sticking to the feed's top. */}
-                          <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-clip">
-                            <CollapsedTurnContent
-                              turn={turn}
-                              sessionId={sessionId}
-                              currentThreadKey={currentThreadKey}
-                              minuteBoundaryLabels={entryBoundaryLabels}
-                              isCodexSession={isCodexSession}
-                              activeCodexTerminalIds={activeCodexTerminalIds}
-                              onOpenCodexTerminal={onOpenCodexTerminal}
-                              onSelectThread={onSelectThread}
-                              questLinkSurface={questLinkSurface}
-                              threadResponsePresentation={collapsedThreadResponsePresentation}
-                              needsInputAnchorMessageIds={needsInputAnchorMessageIds}
-                              preserveHostQuestQuiz={preserveHostQuestQuiz}
-                              unansweredMessageEntry={unansweredMessageEntry}
-                              completionCard={completionCard}
-                            />
+                            <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-clip">
+                              <CollapsedTurnContent
+                                turn={turn}
+                                sessionId={sessionId}
+                                currentThreadKey={currentThreadKey}
+                                minuteBoundaryLabels={entryBoundaryLabels}
+                                isCodexSession={isCodexSession}
+                                activeCodexTerminalIds={activeCodexTerminalIds}
+                                onOpenCodexTerminal={onOpenCodexTerminal}
+                                onSelectThread={onSelectThread}
+                                questLinkSurface={questLinkSurface}
+                                threadResponsePresentation={collapsedThreadResponsePresentation}
+                                needsInputAnchorMessageIds={needsInputAnchorMessageIds}
+                                preserveHostQuestQuiz={preserveHostQuestQuiz}
+                                unansweredMessageEntry={unansweredMessageEntry}
+                                completionCard={completionCard}
+                              />
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                  {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
+                        )}
+                      </>
+                    )}
+                    {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
+                  </div>
                 </div>
-              </div>
-            </Fragment>
-          );
-        })}
+              </Fragment>
+            );
+          })
+        )}
       </MainQuestStripsContext.Provider>
     </InlineMessageTimingVisibilityContext.Provider>
   );

@@ -5,8 +5,8 @@ import type { ChatMessage } from "../types.js";
 import { filterMessagesForThread } from "../utils/thread-projection.js";
 import { topicViewKey } from "../../shared/topic-thread-key.js";
 import { rememberTopicViewMembers } from "../utils/thread-projection.js";
-import { topicQuestsOfTurns, topicTurnMarks, turnHasFinalMessage } from "./topic-feed.js";
-import { topicProgressRuns } from "./topic-progress-card.js";
+import { isFinalMessage, topicQuestsOfTurns } from "./topic-feed.js";
+import { topicFeedOrder, topicFeedShownEntries } from "./topic-feed-turns.js";
 import { getMessageThreadLinkKey } from "./MessageThreadHeader.js";
 
 /**
@@ -114,10 +114,9 @@ describe("topic feed", () => {
   });
 });
 
-describe("quest strips in a topic conversation", () => {
-  // Jiayi (Formal verification topic): strips repeated above runs that were only collapsed
-  // "1 tool · 1 worker event" or "2 messages" rows. Only turns with a final message get a strip;
-  // a working-steps turn of another quest gets a small label instead.
+describe("what a topic conversation shows, and in what order", () => {
+  // Jiayi: the topic view showed the leader's working steps (commentary, progress, tool and worker
+  // rows) and let parallel quests interleave. It now shows what the user reads, one quest at a time.
   const answer = (id: string, threadKey: string): ChatMessage => ({
     ...message(id, threadKey),
     metadata: { ...message(id, threadKey).metadata, leaderThreadRole: "answer" },
@@ -130,81 +129,69 @@ describe("quest strips in a topic conversation", () => {
     ...message(id, threadKey),
     metadata: { ...message(id, threadKey).metadata, markdownReport: {} as never },
   });
+  const human = (id: string, threadKey: string): ChatMessage =>
+    ({
+      ...message(id, threadKey),
+      role: "user",
+      metadata: { ...message(id, threadKey).metadata, leaderResponseCoverageVersion: 1 },
+    }) as ChatMessage;
+  const shownIds = (item: Turn, reveal?: string) =>
+    topicFeedShownEntries(item, reveal).map((entry) => entry.kind === "message" && entry.msg.id);
 
-  it("puts strips only above final messages, and labels other quests' working steps", () => {
-    const turns = [
-      turn(answer("a", "q-2837")),
-      turn(commentary("b", "q-2892")), // "1 tool · 1 worker event": another quest's working steps
-      turn(commentary("c", "q-2837")), // back in the pinned quest: nothing
-      turn(report("d", "q-2892")),
-      turn(answer("e", "q-2892")),
-    ];
-    const quests = topicQuestsOfTurns(turns, partsOf(["q-2837", "q-2892"]));
-    expect(topicTurnMarks(turns, quests)).toEqual(["strip", "label", null, "strip", null]);
-  });
-
-  it("labels a run of another quest's working steps once, not on each turn", () => {
-    const turns = [
-      turn(answer("a", "q-1")),
-      turn(commentary("b", "q-2")),
-      turn(commentary("c", "q-2")),
-      turn(commentary("d", "q-3")),
-      turn(commentary("e", "q-2")),
-    ];
-    const quests = topicQuestsOfTurns(turns, partsOf(["q-1", "q-2", "q-3"]));
-    expect(topicTurnMarks(turns, quests)).toEqual(["strip", "label", null, "label", "label"]);
-  });
-
-  it("folds only stretches of progress that interleave quests, ending them at final messages and new days", () => {
-    // Progress cards: working-steps turns of two or more quests in a row fold into one run. A final
-    // message ends a run, so it stays in time order, and so does a new day, so its divider stays.
-    const at = (msg: ChatMessage, timestamp: number) => ({ ...msg, timestamp });
-    const day = 24 * 60 * 60 * 1000;
-    const turns = [
-      turn(commentary("a", "q-1")),
-      turn(commentary("b", "q-2")),
-      turn(commentary("c", "q-1")),
-      turn(answer("d", "q-2")), // final: ends the first run
-      turn(commentary("e", "q-2")),
-      turn(commentary("f", "q-2")), // one quest only: stays as it is
-      turn(answer("g", "q-1")),
-      turn(commentary("h", "q-1")),
-      turn(commentary("i", "q-2")),
-      turn(commentary("j", "q-1")),
-      turn(at(commentary("k", "q-2"), 1 + day)), // next day: alone, so it stays
-    ];
-    const quests = topicQuestsOfTurns(turns, partsOf(["q-1", "q-2"]));
-    const runs = topicProgressRuns(turns, quests);
-    expect([...runs.starts.entries()].map(([index, run]) => [index, run.groups])).toEqual([
-      [
-        0,
-        [
-          { quest: "q-1", turnIndexes: [0, 2] },
-          { quest: "q-2", turnIndexes: [1] },
-        ],
-      ],
-      [
-        7,
-        [
-          { quest: "q-1", turnIndexes: [7, 9] },
-          { quest: "q-2", turnIndexes: [8] },
-        ],
-      ],
-    ]);
-    expect([...runs.runOfTurn.keys()]).toEqual([0, 1, 2, 7, 8, 9]);
+  it("shows the user's messages, answers and reports, and leaves the working steps out", () => {
+    const working = turn(commentary("c1", "q-1"), answer("a1", "q-1"), commentary("c2", "q-1"), report("r1", "q-1"));
+    expect(shownIds(working)).toEqual(["a1", "r1"]);
+    expect(shownIds(turn(commentary("c3", "q-1")))).toEqual([]);
+    // A jump to a working step (a search hit, a link) shows it in place.
+    expect(shownIds(working, "c2")).toEqual(["a1", "c2", "r1"]);
   });
 
   it("counts the user's own message as final, but not a herd event or a subagent's text", () => {
-    const human = {
-      ...message("u", "q-1"),
-      role: "user",
-      metadata: { ...message("u", "q-1").metadata, leaderResponseCoverageVersion: 1 },
-    } as ChatMessage;
-    expect(turnHasFinalMessage(turn(human))).toBe(true);
-    expect(turnHasFinalMessage(turn({ ...human, agentSource: { sessionId: "herd-events" } } as ChatMessage))).toBe(
-      false,
-    );
-    expect(turnHasFinalMessage(turn({ ...answer("s", "q-1"), parentToolUseId: "tool-1" }))).toBe(false);
-    expect(turnHasFinalMessage(turn(commentary("c", "q-1")))).toBe(false);
+    const own = human("u", "q-1");
+    expect(isFinalMessage(own)).toBe(true);
+    expect(isFinalMessage({ ...own, agentSource: { sessionId: "herd-events" } } as ChatMessage)).toBe(false);
+    expect(isFinalMessage({ ...answer("s", "q-1"), parentToolUseId: "tool-1" })).toBe(false);
+    expect(isFinalMessage(commentary("c", "q-1"))).toBe(false);
+  });
+
+  it("follows each request with its quest's answers, keeping the requests in their order", () => {
+    // Two quests asked a few minutes apart, their answers and a follow-up arriving interleaved.
+    const turns = [
+      turn(human("ask1", "q-1")),
+      turn(human("ask2", "q-2")),
+      turn(answer("ans1", "q-1")),
+      turn(commentary("steps2", "q-2")),
+      turn(answer("ans2", "q-2")),
+      turn(message("own", "topic:aaaaaaaa")),
+      turn(human("more1", "q-1")),
+      turn(answer("ans-more1", "q-1")),
+    ];
+    const quests = topicQuestsOfTurns(turns, partsOf(["q-1", "q-2", "topic:aaaaaaaa"]));
+    const order = topicFeedOrder(turns, quests, (index) => index !== 3, "topic:aaaaaaaa");
+    expect(order.map((index) => turns[index]!.id)).toEqual([
+      // q-1's track where its request was, its follow-up and answer included; then q-2's; the
+      // topic's own message keeps its place among the tracks.
+      "ask1",
+      "ans1",
+      "more1",
+      "ans-more1",
+      "ask2",
+      "ans2",
+      "own",
+    ]);
+  });
+
+  it("starts a quest's track again on a new day, so day labels stay true", () => {
+    const day = 24 * 60 * 60 * 1000;
+    const at = (msg: ChatMessage, timestamp: number) => ({ ...msg, timestamp });
+    const turns = [
+      turn(at(human("ask1", "q-1"), 1)),
+      turn(at(human("ask2", "q-2"), 2)),
+      turn(at(answer("ans1", "q-1"), 1 + day)),
+      turn(at(answer("ans2", "q-2"), 2 + day)),
+    ];
+    const quests = topicQuestsOfTurns(turns, partsOf(["q-1", "q-2"]));
+    const order = topicFeedOrder(turns, quests, () => true, "topic:aaaaaaaa");
+    expect(order.map((index) => turns[index]!.id)).toEqual(["ask1", "ask2", "ans1", "ans2"]);
   });
 });

@@ -192,7 +192,7 @@ beforeEach(() => {
  * conversation, where strips appear above the turns of each quest.
  */
 describe("quest strips and day dividers", () => {
-  it("draws the divider above the strip, and keeps later dividers inside the quest's run", () => {
+  it("draws the divider above the strip, and restates the strip on a new day", () => {
     const sid = "topic-strip-dividers";
     const day1 = new Date("2026-02-25T12:00:00.000Z").getTime();
     const day2 = new Date("2026-02-26T12:00:00.000Z").getTime();
@@ -239,8 +239,9 @@ describe("quest strips and day dividers", () => {
       "message u1",
       "strip q-12",
       "message u2",
-      // Same quest, a new day: the divider stays between its messages.
+      // Same quest, a new day: the divider, then the quest's strip again for the day's track.
       "divider",
+      "strip q-12",
       "message u3",
     ]);
     expect(screen.getAllByTestId("minute-boundary-timestamp")).toHaveLength(2);
@@ -315,7 +316,7 @@ describe("a request in a topic that continued in a quest", () => {
 });
 
 describe("a request in a topic moved to a quest of another topic", () => {
-  it("gets that quest's strip, naming the other topic, with the leader's note folded in", () => {
+  it("gets that quest's strip, naming the other topic, without the leader's routing note", () => {
     // Jiayi (Chat feed topic): a request handed off to a quest filed under another topic still sat
     // under this topic's strip, with only a small label naming the other topic.
     const sid = "topic-request-elsewhere";
@@ -369,7 +370,7 @@ describe("a request in a topic moved to a quest of another topic", () => {
 });
 
 describe("the leader's reply in the topic right after a request it moved to a quest", () => {
-  it("joins the request's quest, so no topic label interrupts the quest's start", () => {
+  it("joins the request's quest, so nothing of the topic interrupts the quest's start", () => {
     // The filing note ("Filed as q-12 …") is routed to the topic, where the request was asked. In
     // the same turn it reads as part of what the leader did with the request, as under a Main strip.
     const sid = "topic-request-fold";
@@ -421,21 +422,20 @@ describe("the leader's reply in the topic right after a request it moved to a qu
       </QuestRecordFetchContext.Provider>,
     );
     expect(screen.getAllByTestId("topic-feed-quest-start").map((strip) => strip.dataset.quest)).toEqual(["q-12"]);
-    expect(screen.queryAllByTestId("topic-feed-quest-label")).toHaveLength(0);
-    expect(screen.queryAllByTestId("topic-progress-card")).toHaveLength(0);
-    // One turn: the request and everything the leader did with it.
+    // One turn: the request; the leader's notes are working steps, left to the quest's thread.
     expect(document.querySelectorAll("[data-turn-id]")).toHaveLength(1);
+    expect(screen.queryByText("Filed as q-12")).toBeNull();
+    expect(screen.queryByText("Worker started")).toBeNull();
   });
 });
 
 /**
- * Jiayi's Formal verification topic: two quests running together alternated their progress
- * updates, each a label, a collapsed activity row and the text, which was hard to follow. A
- * stretch of progress turns that interleaves quests folds into one card with a row per quest,
- * whose latest updates roll like the worker preview; opening a row brings that quest's turns back.
+ * Jiayi: parallel quests in one topic interleaved their requests, progress and results, and the
+ * leader's working steps buried what to read. The topic now shows the user's messages, answers and
+ * results only, each quest's day as one track that starts at its request.
  */
-describe("progress of quests running together in a topic", () => {
-  const sid = "topic-progress";
+describe("quests running together in a topic", () => {
+  const sid = "topic-parallel";
   const start = new Date("2026-02-25T12:00:00.000Z").getTime();
   const views = (threadKey: string) => [threadKey, "topic:aaaaaaaa"];
   const human = (id: string, threadKey: string, minute: number): ChatMessage => ({
@@ -445,19 +445,21 @@ describe("progress of quests running together in a topic", () => {
     timestamp: start + minute * 60_000,
     metadata: { leaderResponseCoverageVersion: 1, threadKey, questId: threadKey, viewKeys: views(threadKey) },
   });
-  const update = (id: string, threadKey: string, minute: number): ChatMessage => ({
+  const leader = (id: string, threadKey: string, minute: number, role: "answer" | "commentary"): ChatMessage => ({
     id,
     role: "assistant",
-    content: `update ${id}`,
+    content: `${role} ${id}`,
     timestamp: start + minute * 60_000,
-    metadata: { leaderThreadRole: "commentary", threadKey, questId: threadKey, viewKeys: views(threadKey) },
+    metadata: { leaderThreadRole: role, threadKey, questId: threadKey, viewKeys: views(threadKey) },
   });
-  // The user's request and its first reply, then q-12 and q-3 taking turns: five updates of
-  // q-12 (b2 to b10), four of q-3 (a3 to a9).
+  // In time order: both requests, then updates and results of the two quests taking turns.
   const messages = [
-    human("ask", "q-3", 0),
-    update("a1", "q-3", 1),
-    ...[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => update(`${n % 2 ? "a" : "b"}${n}`, n % 2 ? "q-3" : "q-12", n)),
+    human("ask3", "q-3", 0),
+    leader("note3", "q-3", 1, "commentary"),
+    human("ask12", "q-12", 2),
+    leader("note12", "q-12", 3, "commentary"),
+    leader("done3", "q-3", 4, "answer"),
+    leader("done12", "q-12", 5, "answer"),
   ];
 
   function renderTopic() {
@@ -472,43 +474,26 @@ describe("progress of quests running together in a topic", () => {
       </QuestRecordFetchContext.Provider>,
     );
   }
-  const rowOf = (quest: string) =>
-    screen.getAllByTestId("topic-progress-row").find((row) => row.querySelector("a")?.textContent === quest)!;
-  // The turns the conversation shows, by their first message (a split part's id ends with it).
-  const shownTurns = () =>
-    [...document.querySelectorAll<HTMLElement>("[data-turn-id]")].map((turn) => turn.dataset.turnId!.split("-").at(-1));
+  // The messages the conversation shows, in document order, by their text.
+  const shown = () =>
+    messages
+      .map((message) => ({ id: message.id, element: screen.queryByText(message.content as string) }))
+      .filter((item) => item.element)
+      .sort((a, b) => (a.element!.compareDocumentPosition(b.element!) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+      .map((item) => item.id);
 
-  it("folds the interleaved updates into one card, a row per quest with its latest updates", () => {
+  it("shows each request followed by its quest's result, and none of the working steps", () => {
     renderTopic();
-    expect(screen.getAllByTestId("topic-progress-card")).toHaveLength(1);
-    // Rows in the order the quests first post in the run.
-    const rows = screen.getAllByTestId("topic-progress-row");
-    expect(rows.map((row) => row.querySelector("a")?.textContent)).toEqual(["q-12", "q-3"]);
-    // The rolling window keeps the latest four updates; the fifth, oldest, rolls out.
-    const q12 = rowOf("q-12");
-    expect(q12.textContent).toContain("+1 earlier");
-    expect(q12.textContent).not.toContain("update b2");
-    for (const id of ["b4", "b6", "b8", "b10"]) expect(q12.textContent).toContain(`update ${id}`);
-    expect(rowOf("q-3").textContent).not.toContain("earlier");
-    // The folded turns are out of the conversation, and so are their labels.
-    expect(screen.queryAllByTestId("topic-feed-quest-label")).toHaveLength(0);
-    expect(shownTurns()).toEqual(["ask"]);
+    expect(shown()).toEqual(["ask3", "done3", "ask12", "done12"]);
+    expect(screen.getAllByTestId("topic-feed-quest-start").map((strip) => strip.dataset.quest)).toEqual([
+      "q-3",
+      "q-12",
+    ]);
   });
 
-  it("opens a row into that quest's turns under one label, the window giving way to them", () => {
+  it("shows a working step the feed is asked to jump to, in its quest's track", () => {
+    mockStoreValues.scrollToMessageId = new Map([[sid, "note12"]]);
     renderTopic();
-    fireEvent.click(rowOf("q-12").querySelector('[data-testid="topic-progress-toggle"]')!);
-    expect(shownTurns()).toEqual(["ask", "b2", "b4", "b6", "b8", "b10"]);
-    const labels = screen.getAllByTestId("topic-feed-quest-label");
-    expect(labels.map((label) => label.dataset.quest)).toEqual(["q-12"]);
-    expect(rowOf("q-12").querySelector('[data-testid="topic-progress-updates"]')).toBeNull();
-    expect(rowOf("q-12").textContent).toContain("Hide updates");
-  });
-
-  it("opens the row of a folded message the feed is asked to jump to", () => {
-    mockStoreValues.scrollToMessageId = new Map([[sid, "a5"]]);
-    renderTopic();
-    expect(shownTurns()).toEqual(["ask", "a3", "a5", "a7", "a9"]);
-    expect(rowOf("q-3").textContent).toContain("Hide updates");
+    expect(shown()).toEqual(["ask3", "done3", "ask12", "note12", "done12"]);
   });
 });

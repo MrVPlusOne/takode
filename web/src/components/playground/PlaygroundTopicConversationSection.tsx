@@ -1,18 +1,25 @@
 import { TopicLabelButton } from "../MessageTopicLabel.js";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { Turn } from "../../hooks/use-feed-model.js";
 import type { QuestmasterTask } from "../../types.js";
 import { useStore } from "../../store.js";
 import { TopicEntryContext, TopicFeedEntry } from "../library/TopicConversation.js";
 import { TopicFeedContext, TopicFeedQuestStart } from "../topic-feed.js";
 import { MainQuestStrip } from "../MainQuestStrip.js";
-import { TopicProgressCard, type ProgressRun } from "../topic-progress-card.js";
+import { TopicFeedTurns } from "../topic-feed-turns.js";
+import { rememberTopicViewMembers } from "../../utils/thread-projection.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const QUESTS = [
   { questId: "q-9601", title: "Guided review: Takode links and file lists in summaries" },
   { questId: "q-9602", title: "Walkthrough: closer Back/Next, drop redundant answer choices" },
 ];
+
+// The topic's quests are its own: their messages get no thread label, as in the app.
+rememberTopicViewMembers(
+  "topic:aaaaaaaa",
+  QUESTS.map((quest) => quest.questId),
+);
 
 /**
  * A topic conversation: the topic header in place of the quest strip, and a strip in the feed
@@ -91,9 +98,9 @@ export function PlaygroundTopicConversationSection() {
             ))}
           </div>
         </Card>
-        <Card label="Quests running together: their interleaved progress folds into one card, each quest's latest updates rolling (Show all brings its turns back into the conversation)">
+        <Card label="Quests running together, one at a time: each request is followed by its answers, follow-up included, and the next quest's track starts where its request was; working steps stay in the quests' threads">
           <div className="max-w-xl">
-            <PlaygroundProgressCard />
+            <PlaygroundParallelTracks />
           </div>
         </Card>
         <Card label="Scroll inside the box">
@@ -127,55 +134,61 @@ export function PlaygroundTopicConversationSection() {
   );
 }
 
-const PROGRESS_UPDATES: Array<[questId: string, text: string]> = [
-  ["q-9601", "The review map is drafted; links in summaries now open the quest."],
-  ["q-9602", "Back and Next sit closer to the answer; checking the phone layout."],
-  ["q-9601", "File lists render as **links**, one per line."],
-  ["q-9602", "Redundant answer choices are gone from walkthrough questions."],
-  ["q-9601", "Waiting for the reviewer to finish the second pass."],
-  ["q-9601", "Reviewer found one stale link; fixing it now."],
-  ["q-9602", "Phone layout checked in dark and light."],
-  ["q-9601", "Stale link fixed, the review is ready."],
+/** What happened in the topic, in time order: two quests' requests and answers interleaving. */
+const PARALLEL_MESSAGES: Array<[questId: string, role: "user" | "assistant", text: string]> = [
+  ["q-9601", "user", "Make the links in the review summary open the quest."],
+  ["q-9602", "user", "Back and Next are too far apart in walkthroughs."],
+  ["q-9601", "assistant", "Links in summaries now open the quest, and file lists show one link per line."],
+  ["q-9602", "assistant", "Back and Next now sit next to the answer, and the redundant choices are gone."],
+  ["q-9601", "user", "Can the stale link in the second section go too?"],
+  ["q-9601", "assistant", "The stale link is fixed; the review is ready."],
 ];
 
-/** A progress run of the two quests, as the feed builds it from their turns. */
-function PlaygroundProgressCard() {
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const start = Date.now() - PROGRESS_UPDATES.length * 4 * 60_000;
-  const turns = PROGRESS_UPDATES.map(
-    ([, text], index) =>
-      ({
-        id: `progress-${index}`,
-        userEntry: null,
-        allEntries: [
-          {
-            kind: "message",
-            msg: { id: `progress-msg-${index}`, role: "assistant", content: text, timestamp: start + index * 240_000 },
-          },
-        ],
-      }) as unknown as Turn,
-  );
-  const run: ProgressRun = {
-    key: "progress-0",
-    groups: QUESTS.map((quest) => ({
-      quest: quest.questId,
-      turnIndexes: PROGRESS_UPDATES.flatMap(([questId], index) => (questId === quest.questId ? [index] : [])),
-    })),
-  };
+/** The topic conversation of two quests running together, as the feed shows it. */
+function PlaygroundParallelTracks() {
+  const start = Date.now() - PARALLEL_MESSAGES.length * 10 * 60_000;
+  const turns = PARALLEL_MESSAGES.map(([questId, role, content], index) => {
+    const msg = {
+      id: `parallel-${index}`,
+      role,
+      content,
+      timestamp: start + index * 600_000,
+      metadata:
+        role === "user"
+          ? { leaderResponseCoverageVersion: 1, threadKey: questId, questId }
+          : { leaderThreadRole: "answer", threadKey: questId, questId },
+    };
+    const entry = { kind: "message", msg };
+    return {
+      id: `parallel-turn-${index}`,
+      userEntry: role === "user" ? entry : null,
+      allEntries: role === "user" ? [] : [entry],
+    } as unknown as Turn;
+  });
   return (
-    <TopicProgressCard
-      run={run}
-      turns={turns}
-      topicKey="topic:aaaaaaaa"
-      openQuests={open}
-      onToggle={(quest) =>
-        setOpen((previous) => {
-          const next = new Set(previous);
-          if (next.has(quest)) next.delete(quest);
-          else next.add(quest);
-          return next;
-        })
-      }
-    />
+    <TopicFeedContext.Provider
+      value={{
+        questIds: QUESTS.map((quest) => quest.questId),
+        topicKey: "topic:aaaaaaaa",
+        topicName: "Guided review and diffs",
+        openQuest: () => {},
+      }}
+    >
+      <div className="space-y-3">
+        <TopicFeedTurns
+          turns={turns}
+          turnQuests={PARALLEL_MESSAGES.map(([questId]) => questId)}
+          topicKey="topic:aaaaaaaa"
+          sectionStartTurnIds={new Set()}
+          sessionId="playground-leader"
+          currentThreadKey="topic:aaaaaaaa"
+          isCodexSession={false}
+          activeCodexTerminalIds={new Set()}
+          onOpenCodexTerminal={() => {}}
+          questLinkSurface="chat-feed"
+          presentationOf={() => null}
+        />
+      </div>
+    </TopicFeedContext.Provider>
   );
 }
