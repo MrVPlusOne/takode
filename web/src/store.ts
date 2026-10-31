@@ -16,6 +16,7 @@ import type {
   ActiveTurnRoute,
 } from "./types.js";
 import { api, type PRStatusResponse, type CreationProgressEvent, type CreateSessionOpts } from "./api.js";
+import { normalizePinnedTopicIds } from "../shared/sidebar-view-mode.js";
 import type { BoardRowData } from "./components/BoardTable.js";
 import {
   DEFAULT_SHORTCUT_SETTINGS,
@@ -286,6 +287,7 @@ export const useStore = create<AppState>((set, get) => ({
       : "created",
   sidebarViewMode: "spaces",
   leaderProfileCollapsedPools: DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS,
+  sidebarPinnedTopics: [],
   taskPanelOpen: false,
   searchPreviewSessionId: null,
   newSessionModalState: null,
@@ -531,6 +533,16 @@ export const useStore = create<AppState>((set, get) => ({
     api.updateSettings({ leaderProfileCollapsedPools: next }).catch((err) => {
       console.warn("[store] failed to save collapsed portrait groups:", err);
       if (get().leaderProfileCollapsedPools === next) set({ leaderProfileCollapsedPools: previous });
+    });
+  },
+  setTopicPinned: (topicId, pinned) => {
+    const previous = get().sidebarPinnedTopics;
+    const others = previous.filter((id) => id !== topicId);
+    const next = normalizePinnedTopicIds(pinned ? [...others, topicId] : others);
+    set({ sidebarPinnedTopics: next });
+    api.updateSettings({ sidebarPinnedTopics: next }).catch((err) => {
+      console.warn("[store] failed to save pinned topics:", err);
+      if (get().sidebarPinnedTopics === next) set({ sidebarPinnedTopics: previous });
     });
   },
   setTaskPanelOpen: (open) => set({ taskPanelOpen: open, ...(open ? { codexSubagentInspector: null } : {}) }),

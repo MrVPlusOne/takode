@@ -111,6 +111,8 @@ vi.mock("../../utils/routing.js", () => ({
   threadRouteFromHash: () => ({ hasThreadParam: true, threadKey: "q-1" }),
 }));
 
+import { api } from "../../api.js";
+import { useStore } from "../../store.js";
 import { SidebarTopicsMode, useTopicsModeData } from "./SidebarTopicsMode.js";
 
 const node = (id: string, name: string, recentAt: number, isOrchestrator = true) =>
@@ -141,6 +143,7 @@ describe("SidebarTopicsMode", () => {
     navigate.mockReset();
     opened.mockReset();
     openItem.mockReset();
+    useStore.setState({ sidebarPinnedTopics: [] });
   });
 
   it("lists every leader's topics, the leaders and the other sessions", async () => {
@@ -223,6 +226,28 @@ describe("SidebarTopicsMode", () => {
     expect(screen.getByTestId("topic-place-card")).toBeTruthy();
     fireEvent.pointerDown(document.body);
     expect(screen.queryByTestId("topic-place-card")).toBeNull();
+  });
+
+  it("pins a topic from its card to the top of the list, marked, and saves the pin on the server", async () => {
+    // Pins are a server setting so they follow the user to every device.
+    const save = vi.spyOn(api, "updateSettings").mockResolvedValue({} as never);
+    render(<Harness nodes={[node("takode", "DevBox", 500), node("msi", "Daily", 400)]} />);
+    await waitFor(() => expect(screen.getAllByTestId("topics-mode-row")).toHaveLength(3));
+    const chatFeed = screen.getAllByTestId("topics-mode-row")[2]!;
+    expect(chatFeed.textContent).toContain("Chat feed");
+
+    fireEvent.contextMenu(chatFeed);
+    fireEvent.click(within(screen.getByTestId("topic-place-card")).getByTestId("topic-place-card-pin"));
+    expect(save).toHaveBeenCalledWith({ sidebarPinnedTopics: ["bbbbbbbb-1"] });
+    const rows = screen.getAllByTestId("topics-mode-row");
+    expect(rows[0]!.textContent).toContain("Chat feed");
+    expect(within(rows[0]!).getByTestId("topics-mode-pinned")).toBeTruthy();
+    expect(within(rows[1]!).queryByTestId("topics-mode-pinned")).toBeNull();
+
+    // The card now offers Unpin, which puts it back in recency order.
+    fireEvent.click(within(screen.getByTestId("topic-place-card")).getByTestId("topic-place-card-pin"));
+    expect(save).toHaveBeenLastCalledWith({ sidebarPinnedTopics: [] });
+    expect(screen.getAllByTestId("topics-mode-row")[2]!.textContent).toContain("Chat feed");
   });
 
   it("folds a group from its header", async () => {

@@ -1,4 +1,4 @@
-import { isSidebarViewMode, type SidebarViewMode } from "../shared/sidebar-view-mode.js";
+import { isSidebarViewMode, normalizePinnedTopicIds, type SidebarViewMode } from "../shared/sidebar-view-mode.js";
 import { mkdirSync, readFileSync, existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname, basename, extname } from "node:path";
@@ -94,6 +94,8 @@ export interface CompanionSettings {
   sleepInhibitorDurationMinutes: number;
   /** Session sidebar layout, shared by every browser. Optional for backward-compatible tests/mocks. */
   sidebarViewMode?: SidebarViewMode;
+  /** Topics pinned to the top of the sessions panel's Topics mode, in pin order; shared by every device. */
+  sidebarPinnedTopics?: string[];
   /** Preferred Questmaster list sort. Optional for backward-compatible tests/mocks. */
   questmasterCompactSort?: QuestmasterCompactSort;
   /** Chat/message markdown line-height multiplier. Optional for backward-compatible tests/mocks. */
@@ -268,6 +270,7 @@ let settings: CompanionSettings = {
   sleepInhibitorEnabled: false,
   sleepInhibitorDurationMinutes: 5,
   sidebarViewMode: "spaces",
+  sidebarPinnedTopics: [],
   questmasterCompactSort: DEFAULT_QUESTMASTER_COMPACT_SORT,
   chatMessageLineHeight: DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
   sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
@@ -536,6 +539,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
         ? Math.floor(raw.sleepInhibitorDurationMinutes)
         : 5,
     sidebarViewMode: isSidebarViewMode(raw?.sidebarViewMode) ? raw.sidebarViewMode : "spaces",
+    sidebarPinnedTopics: normalizePinnedTopicIds(raw?.sidebarPinnedTopics),
     questmasterCompactSort: normalizeQuestmasterCompactSort(raw?.questmasterCompactSort),
     chatMessageLineHeight: normalizeChatMessageLineHeight(raw?.chatMessageLineHeight),
     sendKeyScheme: normalizeSendKeyScheme(raw?.sendKeyScheme),
@@ -696,6 +700,7 @@ export function updateSettings(
       | "sleepInhibitorEnabled"
       | "sleepInhibitorDurationMinutes"
       | "sidebarViewMode"
+      | "sidebarPinnedTopics"
       | "questmasterCompactSort"
       | "chatMessageLineHeight"
       | "sendKeyScheme"
@@ -729,6 +734,9 @@ export function updateSettings(
   }
   if (defined.leaderProfilePools) {
     defined.leaderProfilePools = normalizeLeaderProfilePoolSettings(defined.leaderProfilePools);
+  }
+  if (defined.sidebarPinnedTopics) {
+    defined.sidebarPinnedTopics = normalizePinnedTopicIds(defined.sidebarPinnedTopics);
   }
   if (defined.leaderProfileCollapsedPools) {
     defined.leaderProfileCollapsedPools = normalizeLeaderProfileCollapsedPools(defined.leaderProfileCollapsedPools);

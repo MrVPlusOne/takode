@@ -18,7 +18,7 @@ import { topicRowLine } from "../library/topic-search.js";
 import { listedSpaces, useAnchoredPopover } from "../RecentSessionList.js";
 import { StatusCountDots } from "../SessionItem.js";
 import { StackedPanes } from "../StackedPanes.js";
-import { countsOf, TopicPlaceCard, usePlaceWork } from "./TopicPlaceCard.js";
+import { countsOf, PinIcon, TopicPlaceCard, usePlaceWork } from "./TopicPlaceCard.js";
 
 /**
  * The sessions panel's Topics mode: for someone who works with one or two leaders and moves between
@@ -85,6 +85,16 @@ export function topicPlaces(leaders: readonly LeaderPlaces[]): TopicPlace[] {
     }
   }
   return [...byTopic.values(), ...rows].sort((a, b) => b.at - a.at);
+}
+
+/**
+ * Pinned topics first, in the order they were pinned, then the rest as they were (newest
+ * interaction first). Jiayi: pin the topics that matter most so they stay at the top.
+ */
+export function withPinnedFirst(rows: readonly TopicPlace[], pinnedIds: readonly string[]): TopicPlace[] {
+  const rank = (place: TopicPlace) => (place.topic ? pinnedIds.indexOf(place.topic.id) : -1);
+  const pinned = rows.filter((place) => rank(place) >= 0).sort((a, b) => rank(a) - rank(b));
+  return [...pinned, ...rows.filter((place) => rank(place) < 0)];
 }
 
 export interface TopicsModeData {
@@ -189,7 +199,9 @@ export function SidebarTopicsMode({
   /** Today's cards for the sessions that are not leaders with topics (and the archive). */
   otherSessions: (nodes: RecentSessionNode[]) => ReactNode;
 }) {
-  const rows = useMemo(() => topicPlaces(places), [places]);
+  const pinnedIds = useStore((state) => state.sidebarPinnedTopics);
+  const setTopicPinned = useStore((state) => state.setTopicPinned);
+  const rows = useMemo(() => withPinnedFirst(topicPlaces(places), pinnedIds), [places, pinnedIds]);
   const routeThread = useRouteThread();
   const work = usePlaceWork();
   const card = usePlaceCard();
@@ -214,12 +226,13 @@ export function SidebarTopicsMode({
                     key={place.key}
                     place={place}
                     current={isCurrent(place)}
+                    pinned={!!place.topic && pinnedIds.includes(place.topic.id)}
                     counts={countsOf(work.ofPlace(place))}
                     onOpen={() => {
                       card.close();
                       onOpen(place.leader.leader.id, place.threadKey);
                     }}
-                    onShowCard={(rect, pinned) => card.show(place.key, rect, pinned)}
+                    onShowCard={(rect, held) => card.show(place.key, rect, held)}
                     onHideCard={card.leave}
                   />
                 ))}
@@ -257,7 +270,13 @@ export function SidebarTopicsMode({
           place={cardPlace}
           work={work.ofPlace(cardPlace)}
           anchorRect={card.state.rect}
-          pinned={card.state.pinned}
+          held={card.state.held}
+          topicPinned={!!cardPlace.topic && pinnedIds.includes(cardPlace.topic.id)}
+          onTogglePin={
+            cardPlace.topic
+              ? () => setTopicPinned(cardPlace.topic!.id, !pinnedIds.includes(cardPlace.topic!.id))
+              : undefined
+          }
           onOpenItem={(item) => {
             card.close();
             work.open(item);
@@ -281,7 +300,7 @@ export function SidebarTopicsMode({
  * mouse moves onto it; a long-press or right-click pins it until a press outside.
  */
 function usePlaceCard() {
-  const [state, setState] = useState<{ key: string; rect: DOMRect; pinned: boolean } | null>(null);
+  const [state, setState] = useState<{ key: string; rect: DOMRect; held: boolean } | null>(null);
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keep = () => {
     if (leaveTimer.current) clearTimeout(leaveTimer.current);
@@ -290,15 +309,15 @@ function usePlaceCard() {
   useEffect(() => keep, []);
   return {
     state,
-    show: (key: string, rect: DOMRect, pinned: boolean) => {
+    show: (key: string, rect: DOMRect, held: boolean) => {
       keep();
-      // A pinned card is not replaced by hovering another row on the way to it.
-      setState((current) => (current?.pinned && !pinned ? current : { key, rect, pinned }));
+      // A held card is not replaced by hovering another row on the way to it.
+      setState((current) => (current?.held && !held ? current : { key, rect, held }));
     },
     keep,
     leave: () => {
       keep();
-      leaveTimer.current = setTimeout(() => setState((current) => (current?.pinned ? current : null)), 100);
+      leaveTimer.current = setTimeout(() => setState((current) => (current?.held ? current : null)), 100);
     },
     close: () => {
       keep();
@@ -310,6 +329,7 @@ function usePlaceCard() {
 function PlaceRow({
   place,
   current,
+  pinned,
   counts,
   onOpen,
   onShowCard,
@@ -317,16 +337,18 @@ function PlaceRow({
 }: {
   place: TopicPlace;
   current: boolean;
+  /** Pinned to the top of the list: a small pin before the counts says so. */
+  pinned: boolean;
   counts: Counts;
   onOpen: () => void;
-  /** Shows the row's card: on hover with a mouse, pinned after a long-press or right-click. */
-  onShowCard: (rect: DOMRect, pinned: boolean) => void;
+  /** Shows the row's card: on hover with a mouse, held open after a long-press or right-click. */
+  onShowCard: (rect: DOMRect, held: boolean) => void;
   onHideCard: () => void;
 }) {
   const leader = place.leader.leader;
   const rowRef = useRef<HTMLButtonElement>(null);
-  const showCard = (pinned: boolean) => {
-    if (rowRef.current) onShowCard(rowRef.current.getBoundingClientRect(), pinned);
+  const showCard = (held: boolean) => {
+    if (rowRef.current) onShowCard(rowRef.current.getBoundingClientRect(), held);
   };
   const longPress = useLongPress(() => showCard(true));
   return (
@@ -356,6 +378,11 @@ function PlaceRow({
           <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
         )}
         <span className="min-w-0 flex-1 truncate text-[13px] text-cc-fg">{place.name}</span>
+        {pinned && (
+          <span title="Pinned" className="flex shrink-0 text-cc-muted" data-testid="topics-mode-pinned">
+            <PinIcon className="h-3 w-3" />
+          </span>
+        )}
         <StatusCountDots counts={counts} />
       </div>
       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-5 text-[11px] text-cc-muted">

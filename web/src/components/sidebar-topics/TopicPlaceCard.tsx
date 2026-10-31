@@ -94,7 +94,9 @@ export function TopicPlaceCard({
   place,
   work,
   anchorRect,
-  pinned,
+  held,
+  topicPinned,
+  onTogglePin,
   onOpenItem,
   onOpenQuest,
   onClose,
@@ -105,7 +107,10 @@ export function TopicPlaceCard({
   work: PlaceWork;
   anchorRect: DOMRect;
   /** Opened by a long-press (or right-click): it stays until a press outside closes it. */
-  pinned: boolean;
+  held: boolean;
+  /** Whether the topic is pinned to the top of the list; topics only (not side chats). */
+  topicPinned?: boolean;
+  onTogglePin?: () => void;
   onOpenItem: (item: NextAttentionItem) => void;
   onOpenQuest: (questId: string) => void;
   onClose: () => void;
@@ -133,7 +138,7 @@ export function TopicPlaceCard({
   const empty = work.needYou.length + work.fresh.length + work.running.length === 0;
   const size = `${work.needYou.length}:${work.fresh.length}:${work.running.length}`;
 
-  useOutsidePress([cardRef], onClose, pinned);
+  useOutsidePress([cardRef], onClose, held);
 
   // Beside the panel like the session cards; where that does not fit (a phone), under the row, or
   // above it when the row is low on the screen.
@@ -179,6 +184,21 @@ export function TopicPlaceCard({
           )}
           <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-cc-fg">{place.name}</span>
           <span className="shrink-0 truncate text-[11px] text-cc-muted">{place.leader.leader.name ?? "Leader"}</span>
+          {onTogglePin && (
+            <button
+              type="button"
+              onClick={onTogglePin}
+              aria-pressed={!!topicPinned}
+              title={topicPinned ? "Unpin from the top of the list" : "Pin to the top of the list"}
+              className={`-mr-1 flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] hover:bg-cc-hover cursor-pointer ${
+                topicPinned ? "text-cc-primary" : "text-cc-muted hover:text-cc-fg"
+              }`}
+              data-testid="topic-place-card-pin"
+            >
+              <PinIcon className="h-3 w-3" />
+              {topicPinned ? "Unpin" : "Pin"}
+            </button>
+          )}
         </div>
         {empty && <div className="px-3 py-1 text-[12px] text-cc-muted">Nothing waiting, new or running.</div>}
         <Section title="Needs you" dotClass="bg-cc-warning" count={work.needYou.length}>
@@ -274,4 +294,21 @@ function phaseOf(
   if (phase) return { label: phase.label, color: getQuestPhaseColorValue(phase.color) };
   const presentation = getQuestJourneyPresentation(tab.boardStatus ?? undefined);
   return presentation ? { label: presentation.label } : null;
+}
+
+/** A pushpin: a pinned topic's marker and the card's Pin button. */
+export function PinIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      aria-hidden="true"
+    >
+      <path d="M6 2.5h4l-.6 4 2.6 2.4v1.1H4v-1.1l2.6-2.4L6 2.5z" strokeLinejoin="round" />
+      <path d="M8 10v3.5" strokeLinecap="round" />
+    </svg>
+  );
 }

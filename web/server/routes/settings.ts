@@ -1,4 +1,4 @@
-import { isSidebarViewMode } from "../../shared/sidebar-view-mode.js";
+import { isSidebarViewMode, normalizePinnedTopicIds } from "../../shared/sidebar-view-mode.js";
 import { Hono, type Context } from "hono";
 import { exec as execCb } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -1072,6 +1072,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       sidebarViewMode: isSidebarViewMode(settings.sidebarViewMode) ? settings.sidebarViewMode : "spaces",
+      sidebarPinnedTopics: normalizePinnedTopicIds(settings.sidebarPinnedTopics),
       questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
       chatMessageLineHeight: normalizeChatMessageLineHeight(settings.chatMessageLineHeight),
       sendKeyScheme: normalizeSendKeyScheme(settings.sendKeyScheme),
@@ -1313,6 +1314,13 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (body.sidebarViewMode !== undefined && !isSidebarViewMode(body.sidebarViewMode)) {
       return c.json({ error: 'sidebarViewMode must be "spaces", "recent" or "topics"' }, 400);
     }
+    if (
+      body.sidebarPinnedTopics !== undefined &&
+      (!Array.isArray(body.sidebarPinnedTopics) ||
+        !(body.sidebarPinnedTopics as unknown[]).every((id) => typeof id === "string"))
+    ) {
+      return c.json({ error: "sidebarPinnedTopics must be an array of topic IDs" }, 400);
+    }
     if (body.questmasterCompactSort !== undefined) {
       if (
         typeof body.questmasterCompactSort !== "object" ||
@@ -1466,6 +1474,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sleepInhibitorEnabled",
       "sleepInhibitorDurationMinutes",
       "sidebarViewMode",
+      "sidebarPinnedTopics",
       "questmasterCompactSort",
       "chatMessageLineHeight",
       "sendKeyScheme",
@@ -1514,6 +1523,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorDurationMinutes:
         typeof body.sleepInhibitorDurationMinutes === "number" ? body.sleepInhibitorDurationMinutes : undefined,
       sidebarViewMode: isSidebarViewMode(body.sidebarViewMode) ? body.sidebarViewMode : undefined,
+      sidebarPinnedTopics: Array.isArray(body.sidebarPinnedTopics)
+        ? normalizePinnedTopicIds(body.sidebarPinnedTopics)
+        : undefined,
       questmasterCompactSort:
         body.questmasterCompactSort && typeof body.questmasterCompactSort === "object"
           ? normalizeQuestmasterCompactSort(body.questmasterCompactSort)

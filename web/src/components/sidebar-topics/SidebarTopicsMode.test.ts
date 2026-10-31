@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadSummary, TopicSummary } from "../../../shared/library-topics.js";
 import type { RecentSessionNode } from "../../utils/recent-sessions.js";
-import { topicPlaces } from "./SidebarTopicsMode.js";
+import { topicPlaces, withPinnedFirst } from "./SidebarTopicsMode.js";
 
 /**
  * Topics mode lists the topics and side chats of every leader with topics in one list, ordered as
@@ -46,5 +46,20 @@ describe("topicPlaces", () => {
       { node: leader("a"), topics: [topic("old", 0, { interactionAt: undefined, activityAt: 50 })], threads: [] },
     ]);
     expect(places[0]!.at).toBe(50);
+  });
+});
+
+describe("withPinnedFirst", () => {
+  it("puts pinned topics first in the order they were pinned, then the rest by recency", () => {
+    // Jiayi pins the topics that matter most; the others keep the usual newest-first order.
+    const places = topicPlaces([
+      {
+        node: leader("takode"),
+        topics: [topic("library", 300), topic("feed", 100), topic("evals", 200)],
+        threads: [thread("chat", 250)],
+      },
+    ]);
+    const ordered = withPinnedFirst(places, ["feed", "evals", "gone"]);
+    expect(ordered.map((place) => place.name)).toEqual(["feed", "evals", "library", "chat"]);
   });
 });

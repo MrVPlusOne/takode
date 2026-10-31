@@ -19,6 +19,7 @@ import {
 import { api } from "../api.js";
 import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
 import { normalizeLeaderProfileCollapsedPools } from "../../shared/leader-profile-portraits.js";
+import { normalizePinnedTopicIds } from "../../shared/sidebar-view-mode.js";
 import { connectSession, syncedProjectionsLive } from "../ws.js";
 import { navigateToSession, navigateToSessionThread, secondaryPageFromHash } from "../utils/routing.js";
 import { openSecondaryPage, toggleSecondaryPage } from "../utils/secondary-view.js";
@@ -26,6 +27,7 @@ import { cancelPendingCreation } from "../utils/pending-creation.js";
 import { getTreeGroupNewSessionDefaultsKey } from "../utils/new-session-defaults.js";
 import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
 import { useRememberedFold } from "../utils/remembered-folds.js";
+import { SidebarViewSwitch, useCompactWhenCrowded } from "./SidebarViewSwitch.js";
 import { TreeViewGroup } from "./TreeViewGroup.js";
 import { SortableTreeGroup } from "./SortableTreeGroup.js";
 import { SessionItem } from "./SessionItem.js";
@@ -84,13 +86,6 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
  * The sessions panel. `titleRow` is off while the desktop panel is unlocked and dropped down
  * below its folded top row, which then shows the logo and navigation instead.
  */
-const SIDEBAR_VIEW_LABELS = { spaces: "Spaces", recent: "Recent", topics: "Topics" } as const;
-const SIDEBAR_VIEW_TITLES = {
-  spaces: "Group sessions by Session Space",
-  recent: "List sessions by recent interaction",
-  topics: "List the topics of your leaders, then the leaders and other sessions",
-} as const;
-
 export function Sidebar({
   onOpenUniversalSearch,
   titleRow = true,
@@ -121,6 +116,8 @@ export function Sidebar({
   const sessionSortMode = useStore((s) => s.sessionSortMode);
   const setSessionSortMode = useStore((s) => s.setSessionSortMode);
   const sidebarViewMode = useStore((s) => s.sidebarViewMode);
+  const viewRowRef = useRef<HTMLDivElement>(null);
+  const viewSwitchCompact = useCompactWhenCrowded(viewRowRef);
   const setSidebarViewMode = useStore((s) => s.setSidebarViewMode);
   const topicsView = sidebarViewMode === "topics";
   // Topics mode lists the leaders' topics, and the other sessions as Recent does.
@@ -288,6 +285,7 @@ export function Sidebar({
           sidebarViewMode:
             s.sidebarViewMode === "recent" || s.sidebarViewMode === "topics" ? s.sidebarViewMode : "spaces",
           leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(s.leaderProfileCollapsedPools),
+          sidebarPinnedTopics: normalizePinnedTopicIds(s.sidebarPinnedTopics),
         });
       })
       .catch(() => {});
@@ -853,27 +851,8 @@ export function Sidebar({
         }}
       >
         {allSessionList.length > 0 && (
-          <div className="px-2 pt-2 pb-1.5 flex shrink-0 items-center gap-1">
-            <div
-              role="group"
-              aria-label="Sidebar view"
-              className="shrink-0 mr-auto inline-flex items-center rounded-md border border-cc-border/70 p-px"
-            >
-              {(["spaces", "recent", "topics"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => switchSidebarView(mode)}
-                  aria-pressed={sidebarViewMode === mode}
-                  title={SIDEBAR_VIEW_TITLES[mode]}
-                  className={`h-6 px-2 rounded-[5px] text-[10px] transition-colors cursor-pointer ${
-                    sidebarViewMode === mode ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg"
-                  }`}
-                >
-                  {SIDEBAR_VIEW_LABELS[mode]}
-                </button>
-              ))}
-            </div>
+          <div ref={viewRowRef} className="px-2 pt-2 pb-1.5 flex shrink-0 items-center gap-1">
+            <SidebarViewSwitch mode={sidebarViewMode} compact={viewSwitchCompact} onSwitch={switchSidebarView} />
             {recentView && <RecentSpacesStatus spaces={treeViewGroups} />}
             {recentView && !topicsView && (
               <RecentNewSessionMenuButton spaces={treeViewGroups} onCreateSession={handleCreateSessionInTreeGroup} />

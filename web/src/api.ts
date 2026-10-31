@@ -679,6 +679,8 @@ export interface AppSettings {
   sleepInhibitorEnabled: boolean;
   sleepInhibitorDurationMinutes: number;
   sidebarViewMode: "spaces" | "recent" | "topics";
+  /** Topics pinned to the top of the sessions panel's Topics mode, in pin order. */
+  sidebarPinnedTopics?: string[];
   questmasterCompactSort: QuestmasterCompactSort;
   chatMessageLineHeight?: number;
   sendKeyScheme?: SendKeyScheme;
@@ -1376,6 +1378,7 @@ export const api = {
     sleepInhibitorEnabled?: boolean;
     sleepInhibitorDurationMinutes?: number;
     sidebarViewMode?: "spaces" | "recent" | "topics";
+    sidebarPinnedTopics?: string[];
     questmasterCompactSort?: QuestmasterCompactSort;
     chatMessageLineHeight?: number;
     sendKeyScheme?: SendKeyScheme;
