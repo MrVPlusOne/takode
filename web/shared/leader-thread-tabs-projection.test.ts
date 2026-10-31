@@ -406,6 +406,18 @@ describe("leader thread tabs projection wire contract", () => {
     expect(isLeaderThreadTabsProjectionValue({ ...previous, runningQuestIds: ["main"] })).toBe(false);
   });
 
+  it("carries the Overview button's phase dots and patches them as a whole", () => {
+    const previous = { ...value(), activePhaseDots: ["q-1:work"] };
+    const next = { ...previous, activePhaseDots: ["q-1:memory"] };
+    expect(leaderThreadTabsProjectionEqual(previous, next)).toBe(false);
+    const patch = createLeaderThreadTabsProjectionPatch(previous, next);
+    expect(patch).toEqual({ b: ["q-1:memory"] });
+    expect(applyLeaderThreadTabsProjectionPatch(previous, patch)?.activePhaseDots).toEqual(["q-1:memory"]);
+    // An equal list keeps the earlier value, so nothing redraws.
+    expect(leaderThreadTabsProjectionEqual(previous, { ...previous, activePhaseDots: ["q-1:work"] })).toBe(true);
+    expect(isLeaderThreadTabsProjectionValue({ ...previous, activePhaseDots: ["main:work"] })).toBe(false);
+  });
+
   it("rejects malformed patches and omits no-op patches", () => {
     const previous = value();
     expect(applyLeaderThreadTabsProjectionPatch(previous, { s: { "q-2": { unknown: true } } })).toBeUndefined();

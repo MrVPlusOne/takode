@@ -179,7 +179,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
   );
 
   /**
-   * For a leader's tab bar and quest tabs: whether it has topics on, the topic of each named quest,
+   * For a leader's tab bar and quest tabs: whether its topics have started, the topic of each named quest,
    * and those topics in brief (name, quests, last activity), so a tab names its topic without
    * loading the page.
    */
@@ -283,7 +283,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
   );
 
   /**
-   * The user starts a new thread in a leader with topics on: a lightweight conversation (not a
+   * The user starts a new thread in a leader: a lightweight conversation (not a
    * topic) that takes the first message, named after its first words until the leader names it.
    */
   api.post("/topics/threads", (c) =>
@@ -291,7 +291,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const body = await c.req.json().catch(() => ({}));
       const leaderId = typeof body.leader === "string" ? ctx.resolveId(body.leader) : null;
       if (!leaderId || !svc.store.isLeaderEnabled(leaderId)) {
-        throw new TopicStoreError("New threads need a leader with topics on.", 404);
+        throw new TopicStoreError("New threads need a leader whose topics have started.", 404);
       }
       const space = ctx.launcher.getSession(leaderId)?.memorySessionSpaceSlug;
       if (!space) throw new TopicStoreError("The leader has no session space.");
@@ -401,17 +401,6 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const body = await c.req.json().catch(() => ({}));
       if (typeof body.accept !== "boolean") throw new TopicStoreError("Send accept: true or false.");
       return { topic: svc.store.answerSuggestion(c.req.param("id"), body.accept) };
-    }),
-  );
-
-  api.post("/topics/leaders/:sessionId", (c) =>
-    run(c, async (svc) => {
-      const body = await c.req.json().catch(() => ({}));
-      const sessionId = ctx.resolveId(c.req.param("sessionId"));
-      if (!sessionId) throw new TopicStoreError(`No session ${c.req.param("sessionId")}.`, 404);
-      if (typeof body.enabled !== "boolean") throw new TopicStoreError("Send enabled: true or false.");
-      await svc.setLeaderEnabled(sessionId, body.enabled);
-      return { enabled: svc.store.isLeaderEnabled(sessionId) };
     }),
   );
 

@@ -1,20 +1,17 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { useStore } from "../store.js";
-import { useLeaderTopicsOn } from "./leader-topics.js";
 
 /**
- * A leader with Library topics on navigates by breadcrumb, on desktop and phones alike: no tab row,
- * the place and quest pickers at the start of the strip under the top bar, and the Working on picker
- * (which holds the work board) in the top bar before the attention bell. The conversation on screen
- * fills the top bar's helpers place.
+ * A leader navigates by breadcrumb (every leader has Library topics), on desktop and phones alike:
+ * no tab row, the place and quest pickers at the start of the strip under the top bar, and the
+ * Overview menu (which holds the work board) in the top bar before the attention bell. The
+ * conversation on screen fills the top bar's helpers place.
  */
 export function useLeaderBreadcrumb(sessionId: string | null | undefined): boolean {
-  const isLeader = useStore(
+  return useStore(
     (state) =>
       !!sessionId && state.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator),
   );
-  const topicsOn = useLeaderTopicsOn(sessionId ?? "");
-  return isLeader && topicsOn;
 }
 
 type TopBarSlot = "helpers";

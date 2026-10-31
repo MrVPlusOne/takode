@@ -18,6 +18,7 @@ import {
 // ─── WorkBoardBar component tests ─────────────────────────────────────────────
 
 interface MockStoreState {
+  sessionNotifications: Map<string, unknown[]>;
   sessionBoards: Map<string, BoardRowData[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
@@ -54,6 +55,7 @@ const mockSetExpandAllInTurn = vi.fn();
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
+    sessionNotifications: new Map(),
     sessionBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
     sessionCompletedBoards: new Map(),
@@ -124,12 +126,7 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
   };
 });
 
-import {
-  closeAllThreadTabs,
-  groupedThreadTabKeys,
-  listedThreadTab,
-  listedThreadTabs,
-} from "../test-fixtures/thread-tab-rows.js";
+import { closeAllThreadTabs, listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
 
 // Must import after mocks are set up
 const { WorkBoardBar: CurrentWorkBoardBar } = await import("./WorkBoardBar.js");
@@ -203,8 +200,9 @@ describe("WorkBoardBar", () => {
       sdkSessions: [{ sessionId: "s1", isOrchestrator: false }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
-    const { container } = render(<WorkBoardBar sessionId="s1" />);
-    expect(container.innerHTML).toBe("");
+    const { queryByTestId } = render(<WorkBoardBar sessionId="s1" />);
+    expect(queryByTestId("thread-tab-rail")).toBeNull();
+    expect(queryByTestId("workboard-main-banner")).toBeNull();
   });
 
   it("keeps the primary workboard navigator visible when board is empty", () => {
@@ -220,10 +218,8 @@ describe("WorkBoardBar", () => {
     expect(queryByTestId("workboard-completed-button")).not.toBeInTheDocument();
     expect(queryByTestId("workboard-other-button")).not.toBeInTheDocument();
     expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-open-tab-count", "1");
-    // Only Main and search remain when no quest tab is open.
-    expect(getByTestId("thread-tab-group-main")).toHaveAttribute("aria-label", "Main Thread");
-    expect(getByTestId("thread-tab-group-main")).toHaveTextContent("Main");
-    expect(queryByTestId("thread-tab-group-chip")).toBeNull();
+    // Main's place is the leader's Home, named by the place picker on its strip.
+    expect(getByTestId("place-crumb-button")).toHaveTextContent("Home");
   });
 
   it("keeps the primary workboard navigator visible when no board data exists for session", () => {
@@ -339,9 +335,8 @@ describe("WorkBoardBar", () => {
       "true",
     );
     expect(queryByText("q-4 ready for review")).toBeInTheDocument();
-    expect(queryByText("Finished work")).not.toBeInTheDocument();
-    // Listed by status group (Needs you, In progress, New results), keeping the tab order inside a group.
-    expect(groupedThreadTabKeys()).toEqual(["q-1", "q-5", "q-2", "q-4"]);
+    // Every open tab is listed; the board's finished quest too, as a finished quest.
+    expect(tabs.map((tab) => tab.dataset.threadKey).sort()).toEqual(["q-1", "q-2", "q-3", "q-4", "q-5"]);
   });
 
   it("selects attention tabs without replaying notification route targets", () => {
@@ -471,107 +466,7 @@ describe("WorkBoardBar", () => {
     expect(reconciledOrder).toEqual(["q-new", "q-open-a", "q-open-b", "q-open-c"]);
   });
 
-  it("keeps stale auto-surfaced board tabs behind server-open tabs when only updatedAt changes", () => {
-    const initialRows: BoardRowData[] = [
-      { questId: "q-open-a", status: "WORKING", title: "Existing open thread A", updatedAt: 50 },
-      { questId: "q-open-b", status: "REVIEWING", title: "Existing open thread B", updatedAt: 40 },
-      { questId: "q-old", status: "QUEUED", title: "Older auto-surfaced quest", updatedAt: 10 },
-    ];
-    const updatedRows: BoardRowData[] = [
-      { questId: "q-open-a", status: "WORKING", title: "Existing open thread A", updatedAt: 50 },
-      { questId: "q-open-b", status: "REVIEWING", title: "Existing open thread B", updatedAt: 40 },
-      { questId: "q-old", status: "WORKING", title: "Older auto-surfaced quest", updatedAt: 99 },
-    ];
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", initialRows]]),
-    });
-
-    const view = render(
-      <WorkBoardBar sessionId="s1" currentThreadKey="q-open-a" openThreadKeys={["q-open-a", "q-open-b"]} />,
-    );
-
-    expect(groupedThreadTabKeys()).toEqual(["q-open-a", "q-open-b", "q-old"]);
-
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", updatedRows]]),
-    });
-    view.rerender(
-      <WorkBoardBar sessionId="s1" currentThreadKey="q-open-a" openThreadKeys={["q-open-a", "q-open-b"]} />,
-    );
-
-    expect(groupedThreadTabKeys()).toEqual(["q-open-a", "q-open-b", "q-old"]);
-  });
-
-  it("hands off an off-board attention-tab close and removes it only after projected authority updates", () => {
-    const onCloseThreadTab = vi.fn();
-    const onSelectThread = vi.fn();
-    const reworkAttention = attentionRecord({
-      id: "reopened",
-      type: "quest_reopened_or_rework",
-      priority: "milestone",
-      actionLabel: "Open",
-      state: "reopened",
-      route: { threadKey: "q-5", questId: "q-5" },
-      threadKey: "q-5",
-      questId: "q-5",
-      dedupeKey: "reopened",
-      title: "q-5 rework requested",
-      updatedAt: 300,
-    });
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
-    });
-
-    const view = render(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-5"
-        onCloseThreadTab={onCloseThreadTab}
-        onSelectThread={onSelectThread}
-        attentionRecords={[reworkAttention]}
-      />,
-    );
-
-    // Closing opens the next tab in the closed tab's status group.
-    const grouped = groupedThreadTabKeys();
-    const expectedNextThread = grouped[grouped.indexOf("q-5") + 1] ?? "main";
-    const tabs = listedThreadTabs();
-    const offBoardTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-5")!;
-    const boardActiveTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    expect(offBoardTab).toHaveAttribute("data-closable", "true");
-    expect(boardActiveTab).toHaveAttribute("data-closable", "false");
-    expect(within(boardActiveTab).queryByTestId("thread-tab-list-row-close")).not.toBeInTheDocument();
-
-    fireEvent.click(within(listedThreadTab("q-5")!).getByLabelText("Close q-5"));
-
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-5", expectedNextThread);
-    expect(onSelectThread).not.toHaveBeenCalled();
-    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toContain("q-5");
-
-    view.rerender(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey={expectedNextThread}
-        onCloseThreadTab={onCloseThreadTab}
-        onSelectThread={onSelectThread}
-        closedThreadKeys={["q-5"]}
-        attentionRecords={[reworkAttention]}
-      />,
-    );
-
-    closeAllThreadTabs();
-    expect(view.queryByText("q-5 rework requested")).not.toBeInTheDocument();
-    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual(
-      expect.arrayContaining(["q-1", "q-2"]),
-    );
-    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).not.toContain("q-5");
-  });
-
   it("uses canonical quest titles for open tabs and keeps closed attention tabs from reappearing", () => {
-    const onCloseThreadTab = vi.fn();
     const staleReworkRecord = attentionRecord({
       id: "reopened-q-1066",
       type: "quest_reopened_or_rework",
@@ -607,7 +502,6 @@ describe("WorkBoardBar", () => {
       <WorkBoardBar
         sessionId="s1"
         openThreadKeys={["q-1066", "q-1119"]}
-        onCloseThreadTab={onCloseThreadTab}
         attentionRecords={[staleReworkRecord]}
         threadRows={[{ threadKey: "q-1119", questId: "q-1119", title: "Recovery follow-up", messageCount: 1 }]}
       />,
@@ -618,16 +512,11 @@ describe("WorkBoardBar", () => {
     expect(q1066Tab).toHaveTextContent("Keep Codex tool-router errors from stranding sessions");
     expect(q1066Tab).not.toHaveTextContent("rework requested");
 
-    fireEvent.click(view.getByLabelText("Close q-1066"));
-    // q-1066 is the only finished tab and q-1119 is still in progress, so closing it
-    // leaves Done empty and returns to Main rather than jumping into other work.
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-1066", "main");
-
+    // Once the tab is closed (as older tab rows could), the stale attention record doesn't bring it back.
     view.rerender(
       <WorkBoardBar
         sessionId="s1"
         openThreadKeys={["q-1119"]}
-        onCloseThreadTab={onCloseThreadTab}
         attentionRecords={[staleReworkRecord]}
         threadRows={[{ threadKey: "q-1119", questId: "q-1119", title: "Recovery follow-up", messageCount: 1 }]}
       />,
@@ -678,8 +567,11 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    // q-1066 is finished in Questmaster, so it lists under Done after the in-progress q-1119.
-    expect(groupedThreadTabKeys()).toEqual(["q-1119", "q-1066"]);
+    expect(
+      listedThreadTabs()
+        .map((tab) => tab.getAttribute("data-thread-key"))
+        .sort(),
+    ).toEqual(["q-1066", "q-1119"]);
 
     view.rerender(
       <WorkBoardBar
@@ -718,69 +610,6 @@ describe("WorkBoardBar", () => {
     expect(queuedMeta).toHaveTextContent("q-2 · Queued");
   });
 
-  it("keeps selected Main joined to its strip, without a spinner for writing on screen", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", []]]),
-      sessionStatus: new Map([["s1", "running"]]),
-      activeTurnRoutes: new Map([["s1", { threadKey: "main" }]]),
-    });
-
-    const { getByTestId } = render(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="main"
-        attentionRecords={[
-          attentionRecord({
-            id: "main-needs-input",
-            threadKey: "main",
-            questId: undefined,
-            route: { threadKey: "main" },
-            title: "Main needs input",
-            dedupeKey: "main-needs-input",
-          }),
-          attentionRecord({
-            id: "main-review",
-            type: "review_ready",
-            source: { kind: "notification", id: "n-main-review", questId: undefined },
-            threadKey: "main",
-            questId: undefined,
-            route: { threadKey: "main" },
-            title: "Main review",
-            priority: "review",
-            dedupeKey: "main-review",
-          }),
-        ]}
-      />,
-    );
-
-    // Main is the selected tab, joined to the Main strip by its card color. The leader writes in
-    // Main, which is on screen, so no tab spins (the feed's "Active here" shows it). A prompt
-    // outranks the unread result on its bell.
-    const mainTab = getByTestId("thread-tab-group-main");
-    expect(mainTab).toHaveAttribute("aria-selected", "true");
-    expect(mainTab).toHaveAttribute("data-active-output", "false");
-    expect(mainTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
-    expect(within(mainTab).queryByTestId("thread-tab-active-output-spinner")).toBeNull();
-    expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
-  });
-
-  it("does not render an active output marker on selected Main without explicit active output in Main", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", []]]),
-      sessionStatus: new Map([["s1", "running"]]),
-      activeTurnRoutes: new Map(),
-    });
-
-    const { getByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="main" />);
-
-    const mainTab = getByTestId("thread-tab-group-main");
-    expect(mainTab).toHaveAttribute("aria-selected", "true");
-    expect(mainTab).toHaveAttribute("data-active-output", "false");
-    expect(within(mainTab).queryByTestId("thread-tab-active-output-spinner")).not.toBeInTheDocument();
-  });
-
   it("composes selected and active-output states when they are on different tabs", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
@@ -793,12 +622,7 @@ describe("WorkBoardBar", () => {
       <WorkBoardBar sessionId="s1" currentThreadKey="q-2" openThreadKeys={["q-1", "q-2"]} />,
     );
 
-    // The leader writes in q-1 while the user reads q-2: both are in progress, so that
-    // group is the selected tab and carries the writing marker.
-    const progress = getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === "in-progress")!;
-    expect(progress).toHaveAttribute("data-selected", "true");
-    expect(progress).toHaveAttribute("data-active-output", "true");
-
+    // The leader writes in q-1 while the user reads q-2.
     const activeTab = listedThreadTab("q-1")!;
     expect(activeTab).toHaveAttribute("data-selected", "false");
     expect(activeTab).toHaveAttribute("data-active-output", "true");
@@ -1120,73 +944,6 @@ describe("WorkBoardBar", () => {
     expect(within(tab).getByTestId("thread-tab-bell")).toHaveClass("text-cc-attention");
   });
 
-  it("embeds Main-owned needs-input state into the pinned Main tab without a duplicate chip", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", []]]),
-    });
-
-    const { getByTestId, queryByTestId } = render(
-      <WorkBoardBar
-        sessionId="s1"
-        attentionRecords={[
-          attentionRecord({
-            id: "main-needs-input",
-            threadKey: "main",
-            questId: undefined,
-            route: { threadKey: "main" },
-            title: "Main needs input",
-            dedupeKey: "main-needs-input",
-          }),
-        ]}
-      />,
-    );
-
-    // Main carries its own bell and is in no group, so no Needs you group appears for it.
-    const mainTab = getByTestId("thread-tab-group-main");
-    expect(mainTab).toHaveTextContent("Main");
-    expect(mainTab).not.toHaveTextContent("Answer");
-    expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
-    expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveClass("text-cc-attention");
-    expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
-    expect(queryByTestId("thread-tab-group-chip")).not.toBeInTheDocument();
-  });
-
-  it("renders Main needs-input as an attention bell without tinting Main while a quest tab is current", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
-    });
-
-    const { getAllByTestId, getByTestId } = render(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-1"
-        openThreadKeys={["q-1"]}
-        attentionRecords={[
-          attentionRecord({
-            id: "main-needs-input",
-            threadKey: "main",
-            questId: undefined,
-            route: { threadKey: "main" },
-            title: "Main needs input",
-            dedupeKey: "main-needs-input",
-          }),
-        ]}
-      />,
-    );
-
-    // Main's bell shows while a quest is current, without making Main the selected tab.
-    const mainTab = getByTestId("thread-tab-group-main");
-    expect(mainTab).toHaveAttribute("aria-selected", "false");
-    expect(mainTab).not.toHaveClass("bg-cc-card");
-    expect(mainTab).not.toHaveTextContent("Answer");
-    expect(within(mainTab).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "needs-input");
-
-    const currentTab = listedThreadTab("q-1")!;
-    expect(currentTab).toHaveAttribute("data-selected", "true");
-  });
-
   it("keeps closed inactive history hidden unless the user has opened it as a tab", () => {
     const completed = [{ questId: "q-3", status: "DONE", title: "Finished work", updatedAt: 3, completedAt: 3 }];
     resetStore({
@@ -1214,97 +971,6 @@ describe("WorkBoardBar", () => {
 
     expect(listedThreadTab("q-3")).toHaveTextContent("Finished work");
     expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
-  });
-
-  it("keeps Main pinned and only exposes close controls for closable thread tabs", () => {
-    const onCloseThreadTab = vi.fn();
-    const completed = [{ questId: "q-3", status: "DONE", title: "Finished work", updatedAt: 3, completedAt: 3 }];
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
-      sessionCompletedBoards: new Map([["s1", completed]]),
-    });
-
-    const { getAllByTestId, getByTestId, getByLabelText, queryByLabelText } = render(
-      <WorkBoardBar sessionId="s1" openThreadKeys={["q-1", "q-3"]} onCloseThreadTab={onCloseThreadTab} />,
-    );
-
-    expect(getByTestId("thread-tab-group-main")).toHaveTextContent("Main");
-    expect(queryByLabelText("Close Main")).not.toBeInTheDocument();
-    const activeTab = listedThreadTab("q-1")!;
-    const completedTab = listedThreadTab("q-3")!;
-    expect(activeTab).toHaveAttribute("data-closable", "false");
-    expect(completedTab).toHaveAttribute("data-closable", "true");
-    expect(within(activeTab).queryByTestId("thread-tab-list-row-close")).not.toBeInTheDocument();
-    fireEvent.click(getByLabelText("Close q-3"));
-    // q-3 is alone in Done; the next tab comes from its own group, so Main opens.
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-3", "main");
-  });
-
-  it("uses sibling select and close buttons for listed tabs", () => {
-    const onSelectThread = vi.fn();
-    const onCloseThreadTab = vi.fn();
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", []]]),
-    });
-
-    const { getAllByTestId, getByLabelText } = render(
-      <WorkBoardBar
-        sessionId="s1"
-        openThreadKeys={["q-99"]}
-        onSelectThread={onSelectThread}
-        onCloseThreadTab={onCloseThreadTab}
-        threadRows={[{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }]}
-      />,
-    );
-
-    const tab = listedThreadTab("q-99")!;
-    expect(tab.tagName).toBe("DIV");
-    expect(tab.querySelector("button button")).toBeNull();
-
-    fireEvent.click(getByLabelText("Close q-99"));
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-99", "main");
-    expect(onSelectThread).not.toHaveBeenCalled();
-
-    fireEvent.click(within(tab).getByTestId("thread-tab-list-row-select"));
-    expect(onSelectThread).toHaveBeenCalledWith("q-99");
-  });
-
-  it("passes the right-hand visible tab as the active close fallback for persisted tabs", () => {
-    const onSelectThread = vi.fn();
-    const onCloseThreadTab = vi.fn();
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", []]]),
-    });
-
-    const { getAllByTestId, getByLabelText } = render(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-middle"
-        openThreadKeys={["q-left", "q-middle", "q-right"]}
-        onSelectThread={onSelectThread}
-        onCloseThreadTab={onCloseThreadTab}
-        threadRows={[
-          { threadKey: "q-left", questId: "q-left", title: "Left thread", messageCount: 1 },
-          { threadKey: "q-middle", questId: "q-middle", title: "Selected thread", messageCount: 2 },
-          { threadKey: "q-right", questId: "q-right", title: "Right thread", messageCount: 3 },
-        ]}
-      />,
-    );
-
-    // Preserve the current rendered tab order: the fallback should be the visible neighbor to the right.
-    expect(listedThreadTabs().map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
-      "q-left",
-      "q-middle",
-      "q-right",
-    ]);
-
-    fireEvent.click(within(listedThreadTab("q-middle")!).getByLabelText("Close q-middle"));
-
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-middle", "q-right");
-    expect(onSelectThread).not.toHaveBeenCalled();
   });
 
   it("routes unified active tab clicks to the owning thread", () => {

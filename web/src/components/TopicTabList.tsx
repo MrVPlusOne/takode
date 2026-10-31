@@ -18,7 +18,7 @@ import { PhaseDots, type TopicTabStatus } from "./ThreadTabGroups.js";
 
 const REFRESH_MS = 60_000;
 
-/** A leader's topics for its Topics tab group, most recent activity first; empty while topics are off. */
+/** A leader's topics for its Topics tab group, most recent activity first; empty until topics start. */
 export function useTopicTabTopics(leaderId: string, enabled: boolean, refreshKey: string): TopicSummary[] {
   const [topics, setTopics] = useState<TopicSummary[]>([]);
   useEffect(() => {

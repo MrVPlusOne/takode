@@ -61,26 +61,23 @@ function renderRail({
   const sessionId = `tab-menu-session-${++sessionCounter}`;
   if (monitoring) publishMonitoring(sessionId, monitoring);
   const onSelectThread = vi.fn();
-  const onCloseThreadTab = vi.fn();
+  // The strip's crumb place, where the place picker listing the tabs (quests under no topic) draws.
+  const crumbSlot = document.createElement("span");
+  document.body.appendChild(crumbSlot);
   render(
     <ThreadTabRail
       tabs={tabs}
       sessionId={sessionId}
       currentThreadKey="main"
       onSelectThread={onSelectThread}
-      onCloseThreadTab={onCloseThreadTab}
+      breadcrumb={{ helpers: null, board: { open: false, dots: [], onToggle: () => {} }, crumbSlot }}
     />,
   );
-  // The test tabs are all in progress; a right-click on that group shows its list.
   const tab = (threadKey: string) => {
-    if (!screen.queryByTestId("thread-tab-group-list")) {
-      fireEvent.contextMenu(
-        screen.getAllByTestId("thread-tab-group-chip").find((group) => group.dataset.group === "in-progress")!,
-      );
-    }
+    if (!screen.queryByTestId("place-crumb-list")) fireEvent.click(screen.getByTestId("place-crumb-button"));
     return screen.getAllByTestId("thread-tab-list-row").find((element) => element.dataset.threadKey === threadKey)!;
   };
-  return { sessionId, onSelectThread, onCloseThreadTab, tab };
+  return { sessionId, onSelectThread, tab };
 }
 
 function menuLabels(): string[] {
@@ -88,10 +85,10 @@ function menuLabels(): string[] {
 }
 
 describe("thread tab context menu", () => {
-  it("opens on right-click with Close tab and Notify Me, and each action reaches its handler", () => {
+  it("opens on right-click with Notify Me, which reaches its handler", () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetch);
-    const { sessionId, onCloseThreadTab, tab } = renderRail({
+    const { sessionId, tab } = renderRail({
       tabs: [chip("q-7")],
       monitoring: {},
     });
@@ -100,18 +97,14 @@ describe("thread tab context menu", () => {
     fireEvent(tab("q-7"), contextMenu);
     // The browser's own menu must not appear on top of ours.
     expect(contextMenu.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(["Close tab", "Notify Me"]);
+    // Tabs don't close any more (every place stays in the menus), so Notify Me is all it offers.
+    expect(menuLabels()).toEqual(["Notify Me"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Notify Me" }));
     expect(fetch).toHaveBeenCalledWith(
       `/api/sessions/${sessionId}/thread-monitoring/q-7`,
       expect.objectContaining({ body: JSON.stringify({ action: "track" }) }),
     );
-    expect(menuLabels()).toEqual([]);
-
-    fireEvent.contextMenu(tab("q-7"));
-    fireEvent.click(screen.getByRole("button", { name: "Close tab" }));
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-7");
     expect(menuLabels()).toEqual([]);
   });
 
@@ -142,15 +135,15 @@ describe("thread tab context menu", () => {
     });
   });
 
-  it("opens on touch long-press and stays open when the finger lifts, without selecting or closing the tab", () => {
+  it("opens on touch long-press and stays open when the finger lifts, without selecting the tab", () => {
     vi.useFakeTimers();
     const vibrate = vi.fn();
     vi.stubGlobal("navigator", { ...navigator, vibrate });
-    const { onSelectThread, onCloseThreadTab, tab } = renderRail({
+    const { onSelectThread, tab } = renderRail({
       tabs: [chip("q-7")],
       monitoring: {},
     });
-    const closeButton = within(tab("q-7")).getByTestId("thread-tab-list-row-close");
+    const closeButton = within(tab("q-7")).getByTestId("thread-tab-list-row-select");
 
     // The row presses in while the long-press is pending.
     fireEvent.touchStart(closeButton, {
@@ -160,14 +153,14 @@ describe("thread tab context menu", () => {
     act(() => vi.advanceTimersByTime(499));
     expect(menuLabels()).toEqual([]);
     act(() => vi.advanceTimersByTime(1));
-    expect(menuLabels()).toEqual(["Close tab", "Notify Me"]);
+    expect(menuLabels()).toEqual(["Notify Me"]);
     expect(tab("q-7").style.scale).toBe("");
     // Haptic tick where the platform supports it (Android); iOS has no API.
     expect(vibrate).toHaveBeenCalledWith(10);
 
     // Lifting the finger cancels touchend, but iOS can still emulate
     // mousedown/mouseup/click. The mousedown must not reach the menu's
-    // outside-press dismissal, and the click must not close the tab.
+    // outside-press dismissal, and the click must not select the tab.
     const touchEnd = createEvent.touchEnd(closeButton);
     fireEvent(closeButton, touchEnd);
     expect(touchEnd.defaultPrevented).toBe(true);
@@ -177,8 +170,8 @@ describe("thread tab context menu", () => {
     // A late or repeated emulated sequence is swallowed too.
     fireEvent.mouseDown(closeButton);
     fireEvent.click(closeButton);
-    expect(onCloseThreadTab).not.toHaveBeenCalled();
-    expect(menuLabels()).toEqual(["Close tab", "Notify Me"]);
+    expect(onSelectThread).not.toHaveBeenCalled();
+    expect(menuLabels()).toEqual(["Notify Me"]);
 
     // A real tap elsewhere still dismisses the menu, and the next ordinary
     // tap on the tab works.
@@ -200,7 +193,7 @@ describe("thread tab context menu", () => {
     // desktop right-click stays compact and touch screens always get big rows.
     const { tab } = renderRail({ tabs: [chip("q-7")], monitoring: {} });
     fireEvent.contextMenu(tab("q-7"));
-    expect(screen.getByRole("button", { name: "Close tab" }).className).toContain("pointer-coarse:py-3");
+    expect(screen.getByRole("button", { name: "Notify Me" }).className).toContain("pointer-coarse:py-3");
   });
 
   it("does not open when the finger moves, so scrolling or dragging is unaffected", () => {
@@ -217,30 +210,10 @@ describe("thread tab context menu", () => {
     expect(menuLabels()).toEqual([]);
   });
 
-  it("shows only applicable actions and leaves tabs with none, such as Main, to the browser", () => {
-    const { tab } = renderRail({
-      tabs: [chip("q-7", { canClose: false }), chip("q-8")],
-      monitoring: {},
-    });
-
-    fireEvent.contextMenu(tab("q-7"));
-    expect(menuLabels()).toEqual(["Notify Me"]);
-    fireEvent.pointerDown(document.body);
-
-    const mainContextMenu = createEvent.contextMenu(screen.getByTestId("thread-tab-group-main"));
-    fireEvent(screen.getByTestId("thread-tab-group-main"), mainContextMenu);
-    expect(mainContextMenu.defaultPrevented).toBe(false);
-    expect(menuLabels()).toEqual([]);
-  });
-
-  it("omits Notify Me until the server monitoring state has loaded", () => {
+  it("omits Notify Me until the server monitoring state has loaded, leaving such tabs to the browser", () => {
     const { tab } = renderRail({
       tabs: [chip("q-7"), chip("q-8", { canClose: false })],
     });
-
-    fireEvent.contextMenu(tab("q-7"));
-    expect(menuLabels()).toEqual(["Close tab"]);
-    fireEvent.pointerDown(document.body);
 
     // A tab with no applicable action gets no custom menu at all.
     const contextMenu = createEvent.contextMenu(tab("q-8"));

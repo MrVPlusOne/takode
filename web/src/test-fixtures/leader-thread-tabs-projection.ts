@@ -63,6 +63,7 @@ export interface LeaderThreadTabsProjectionValueOverrides {
   mainAttention?: Partial<LeaderThreadTabsProjectionAttention>;
   threadStatuses?: LeaderThreadTabsProjectionValue["threadStatuses"];
   activePhaseSummary?: LeaderThreadTabsProjectionValue["activePhaseSummary"];
+  activePhaseDots?: string[];
 }
 
 export function createLeaderThreadTabsProjectionValue(
@@ -145,6 +146,7 @@ export function createLeaderThreadTabsProjectionValue(
     activePhaseSummary: (
       overrides.activePhaseSummary ?? [{ label: "Work", count: 1, tone: "phase", color: "blue", colorName: "Blue" }]
     ).map((segment) => ({ ...segment })),
+    ...(overrides.activePhaseDots ? { activePhaseDots: [...overrides.activePhaseDots] } : {}),
   };
 }
 

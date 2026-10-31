@@ -29,9 +29,9 @@ describe("formatScribeStatus", () => {
     ]);
   });
 
-  it("says when topics are off, so the leader has no Scribe", () => {
+  it("says when the leader's topics haven't started, so it has no Scribe yet", () => {
     expect(formatScribeStatus({ ...STATUS, enabled: false })).toBe(
-      "Topics are off for #2957, so it has no Scribe: the user turned them off in its topics panel or for every leader in Settings.",
+      "Topics haven't started for #2957 yet, so it has no Scribe: they start with its next message.",
     );
   });
 });

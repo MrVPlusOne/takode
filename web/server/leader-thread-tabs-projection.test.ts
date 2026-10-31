@@ -471,6 +471,20 @@ describe("leader thread tabs projection derivation", () => {
     });
   });
 
+  it("carries the Overview button's phase dots: quests in a Journey phase, not queued or proposed", () => {
+    // The dots travel with this projection so a quest changing phase redraws the leader's
+    // navigation once, with its tabs, instead of again when the board detail arrives.
+    const session = makeSession({
+      board: new Map([
+        ["q-1", boardRow("q-1", "WORKING", { updatedAt: 30 })],
+        ["q-2", boardRow("Q-2", "MEMORY", { updatedAt: 20 })],
+        ["q-3", boardRow("q-3", "QUEUED")],
+        ["q-4", boardRow("q-4", "PROPOSED")],
+      ]),
+    });
+    expect(buildLeaderThreadTabsProjectionValue(session).activePhaseDots).toEqual(["q-2:memory", "q-1:work"]);
+  });
+
   it("authorizes the definition only for visible leader sources", () => {
     const leader = makeSession();
     const worker = makeSession({

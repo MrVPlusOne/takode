@@ -1,21 +1,48 @@
 /**
- * Test helpers for leader thread tabs shown as status groups: every open quest tab is listed in
- * its group's list, which a long-press or right-click on the group opens.
+ * Test helpers for a leader's quest tabs as its breadcrumb's place picker lists them: every quest
+ * tab under no topic is a row in the picker's "Not in a topic" list (tests here file no topics).
+ * The picker draws into the crumb place a strip leaves; a bar rendered without a strip on screen
+ * (a quest's strip is ChatView's) gets one here.
  */
-import { fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, within } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { crumbSlotRef } from "../components/breadcrumb/crumb-slot.js";
 
-function groupChips(container?: HTMLElement): HTMLElement[] {
-  const scope = container ? within(container) : screen;
-  return scope.queryAllByTestId("thread-tab-group-chip");
+const added: Array<() => void> = [];
+
+afterEach(() => {
+  for (const remove of added.splice(0)) remove();
+});
+
+/** The place picker of the leader bar `container` is or holds (or the page's first), given a crumb place if it has none. */
+function placePicker(container?: HTMLElement): HTMLElement | null {
+  const rail =
+    container?.dataset.testid === "thread-tab-rail"
+      ? container
+      : within(container ?? document.body).queryAllByTestId("thread-tab-rail")[0];
+  const sessionId = rail?.dataset.sessionId;
+  if (!sessionId) return null;
+  const find = () => document.querySelector<HTMLElement>(`[data-place-crumb-session="${sessionId}"]`);
+  if (!find()) {
+    const place = document.createElement("span");
+    document.body.appendChild(place);
+    const ref = crumbSlotRef(sessionId);
+    act(() => ref(place));
+    added.push(() => {
+      act(() => ref(null));
+      place.remove();
+    });
+  }
+  return find();
 }
 
-/** Opens one group's list and returns its rows (they stay in the document until it closes). */
-function openGroupRows(chip: HTMLElement): HTMLElement[] {
-  const backdrop = screen.queryByTestId("thread-tab-group-backdrop");
-  if (backdrop) fireEvent.click(backdrop);
-  fireEvent.contextMenu(chip, { clientX: 1, clientY: 1 });
-  return within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
+function pickerRows(container?: HTMLElement): HTMLElement[] {
+  const picker = placePicker(container);
+  if (!picker) return [];
+  if (!within(picker).queryByTestId("place-crumb-list"))
+    fireEvent.click(within(picker).getByTestId("place-crumb-button"));
+  const list = within(picker).queryByTestId("place-crumb-list");
+  return list ? within(list).queryAllByTestId("thread-tab-list-row") : [];
 }
 
 const LISTED_ID = "listed-thread-tabs";
@@ -24,52 +51,33 @@ const LISTED_ID = "listed-thread-tabs";
 afterEach(() => document.querySelector(`[data-testid="${LISTED_ID}"]`)?.remove());
 
 /**
- * The open quest tabs, group by group in the bar's order and each group's own order (Main
- * excluded). Only one group's list can be open, so copies of every group's rows are kept in the
- * document until `closeAllThreadTabs`: their text and attributes can be queried, but they don't
- * act; use `listedThreadTab` to click one (its group's list stays open).
+ * The quest tabs the place picker lists. Copies of the rows are kept in the document until
+ * `closeAllThreadTabs`: their text and attributes can be queried, but they don't act; use
+ * `listedThreadTab` to click one (the picker stays open).
  */
 export function listedThreadTabs(container?: HTMLElement): HTMLElement[] {
-  const rows = groupChips(container).flatMap((chip) =>
-    openGroupRows(chip).map((row) => row.cloneNode(true) as HTMLElement),
-  );
+  const rows = pickerRows(container).map((row) => row.cloneNode(true) as HTMLElement);
   closeAllThreadTabs();
   const holder = document.createElement("div");
   holder.setAttribute("data-testid", LISTED_ID);
   for (const row of rows) holder.appendChild(row);
   document.body.appendChild(holder);
-  return rows.filter((row) => row.dataset.threadKey !== "main");
+  return rows;
 }
 
-/** Every open quest tab's key as the bar's status groups list them: group by group, in each group's order. */
-export function groupedThreadTabKeys(): string[] {
-  const keys = listedThreadTabs().map((row) => row.dataset.threadKey ?? "");
-  closeAllThreadTabs();
-  return keys;
-}
-
-/** The thread keys a status group lists, in its order; opens and closes the group's list. */
-export function groupThreadTabKeys(group: string): string[] {
-  const chip = groupChips().find((item) => item.dataset.group === group);
-  if (!chip) return [];
-  const keys = openGroupRows(chip).map((row) => row.dataset.threadKey ?? "");
-  closeAllThreadTabs();
-  return keys;
-}
-
-/** A tab's row, with its group's list left open so the row can be clicked. */
+/** A tab's row, with the place picker left open so the row can be clicked. */
 export function listedThreadTab(threadKey: string, container?: HTMLElement): HTMLElement | undefined {
-  for (const chip of groupChips(container)) {
-    const row = openGroupRows(chip).find((item) => item.dataset.threadKey === threadKey);
-    if (row) return row;
-  }
-  closeAllThreadTabs();
-  return undefined;
+  const row = pickerRows(container).find((item) => item.dataset.threadKey === threadKey);
+  if (!row) closeAllThreadTabs();
+  return row;
 }
 
-/** Closes a group's list if one is open, and drops the copies `listedThreadTabs` left. */
+/** Closes any open place picker, and drops the copies `listedThreadTabs` left. */
 export function closeAllThreadTabs(): void {
   document.querySelector(`[data-testid="${LISTED_ID}"]`)?.remove();
-  const backdrop = screen.queryByTestId("thread-tab-group-backdrop");
-  if (backdrop) fireEvent.click(backdrop);
+  for (const list of document.querySelectorAll<HTMLElement>('[data-testid="place-crumb-list"]')) {
+    const picker = list.closest<HTMLElement>("[data-place-crumb-session]");
+    const button = picker && within(picker).queryByTestId("place-crumb-button");
+    if (button) fireEvent.click(button);
+  }
 }

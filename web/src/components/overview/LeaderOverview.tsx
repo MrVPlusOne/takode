@@ -1,4 +1,4 @@
-import { createContext, useMemo, type ReactNode } from "react";
+import { createContext, useMemo, useRef, type ReactNode } from "react";
 import type { OverviewOrder, TopicSummary } from "../../../shared/library-topics.js";
 import { isRunningBoardRow } from "../../../shared/leader-thread-tab-priority.js";
 import { getQuestJourneyPhase, getQuestJourneyPhaseForState } from "../../../shared/quest-journey.js";
@@ -71,10 +71,25 @@ export const LeaderOverviewContext = createContext<LeaderOverviewData | null>(nu
  * sources as the attention list, the board and the topic list, so what it lists and the counts
  * always agree with them. The leader's Scribe adds an order (what to handle first) and short notes;
  * what it hasn't ranked yet comes first, so the overview is right even while the Scribe is behind.
+ *
+ * With `detail` off, only the counts and which quests run are kept current (a running quest's phase
+ * or title may be stale): enough for a button that shows the counts, which then doesn't re-render
+ * each time a quest moves on.
  */
-export function useLeaderOverview(leaderId: string): LeaderOverviewData {
+export function useLeaderOverview(leaderId: string, detail = true): LeaderOverviewData {
   const { queue, open } = useNextAttention();
-  const board = useStore((state) => state.sessionBoards.get(leaderId) ?? EMPTY_ROWS);
+  // By content: the server sends the board again unchanged (with each activity update, and on
+  // reconnect), and an equal board must not re-render what shows the overview. The selector keeps
+  // returning the rows it returned before while their key is the same.
+  const kept = useRef<{ key: string; rows: BoardRowData[] } | null>(null);
+  const board = useStore((state) => {
+    const rows = state.sessionBoards.get(leaderId) ?? EMPTY_ROWS;
+    const key = detail
+      ? JSON.stringify(rows)
+      : rows.map((row) => `${row.questId}:${isRunningBoardRow(row) ? 1 : 0}`).join(",");
+    if (kept.current?.key !== key) kept.current = { key, rows };
+    return kept.current.rows;
+  });
   const questIds = useMemo(() => board.map((row) => normalizeThreadKey(row.questId)), [board]);
   const topics = useLeaderTopics(leaderId, questIds);
   const order = useOverviewOrder(leaderId);

@@ -38,7 +38,6 @@ import {
   withSecondaryPageInHash,
 } from "./routing.js";
 import { useStore } from "../store.js";
-import { resetLeaderTopicsForTest, seedLeaderTopics } from "./leader-topics.js";
 import { rememberTopicViewMembers } from "./thread-projection.js";
 
 describe("parseHash", () => {
@@ -546,9 +545,9 @@ describe("navigateToSessionMessageId", () => {
     expect(useStore.getState().scrollToMessageId.get("validation-alpha")).toBe("alpha-main-target");
   });
 
-  it("opens a Main message of a leader with topics in its leader log, where Main's messages are read", () => {
-    // Such a leader's Main is its Home, which shows no conversation: a jump there would land nowhere.
-    seedLeaderTopics("validation-alpha", {});
+  it("opens a leader's Main message in its leader log, where Main's messages are read", () => {
+    // A leader's Main is its Home, which shows no conversation: a jump there would land nowhere.
+    useStore.setState({ sdkSessions: [{ sessionId: "validation-alpha", isOrchestrator: true } as never] });
     navigateToSessionMessageId("validation-alpha", "alpha-main-target", {
       routeSessionId: 41,
       threadKey: "main",
@@ -558,7 +557,6 @@ describe("navigateToSessionMessageId", () => {
     // Other threads are read where they are.
     navigateToSessionMessageId("validation-alpha", "alpha-quest-target", { routeSessionId: 41, threadKey: "q-1177" });
     expect(window.location.hash).toBe("#/session/41/msg/alpha-quest-target?thread=q-1177");
-    resetLeaderTopicsForTest();
   });
 });
 

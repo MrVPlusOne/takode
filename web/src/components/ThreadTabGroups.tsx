@@ -1,87 +1,26 @@
 /**
- * Phone thread tabs as status groups: the bar names only the current tab and shows one
- * chip per kind of tab the user scans for (prompts waiting, unread results, quests in
- * progress, finished), with a Topics group after Main when the leader has topics on. A chip
- * lists its tabs. Finding a tab or a message is Search everything's Tabs and Messages modes.
+ * The lists a leader's breadcrumb navigation shows (`LeaderBreadcrumbNav`): its topics, each saying
+ * what its quests are doing, the quests under no topic, and the rows, bells and spinners they share.
+ * Finding a tab or a message is Search everything's Tabs and Messages modes.
  */
 import type { TopicSummary } from "../../shared/library-topics.js";
-import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
 import { TopicTabList } from "./TopicTabList.js";
 import { isKeyOfTopic, topicViewKey } from "../../shared/topic-thread-key.js";
 import { matchesSearch, NoTopicMatches, searchTopics, TopicSearchBox } from "./library/topic-search.js";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { ThreadMonitoringProjectionValue } from "../../shared/thread-monitoring.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress, type OpenContextMenu } from "../hooks/useLongPress.js";
-import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
+import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { BellIcon } from "./AttentionKind.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
-import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
 import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
 import type { SessionNotification } from "../types.js";
-import { createPortal } from "react-dom";
-import { WorkBoardDotsIcon, WorkBoardIcon } from "./leader-workboard-controls.js";
-import type { BoardPhaseDot } from "./leader-board-summary.js";
 import { isOpenInSideClick, type OpenInSideEvent } from "../utils/side-column.js";
-
-export type ThreadTabGroupId = "needs-input" | "new-results" | "in-progress" | "done";
-
-/** Left to right as stages of the work: waiting on the user, ongoing, finished but unread, done. */
-/** Wide screens (the desktop shell) label each group and anchor its list under its tab. */
-const WIDE_LAYOUT_QUERY = "(min-width: 768px)";
-const WIDE_LIST_WIDTH_PX = 448;
-
-export const THREAD_TAB_GROUP_ORDER: readonly ThreadTabGroupId[] = [
-  "needs-input",
-  "in-progress",
-  "new-results",
-  "done",
-];
-
-const GROUP_LABEL: Record<ThreadTabGroupId, string> = {
-  "needs-input": "Needs you",
-  "new-results": "New results",
-  "in-progress": "In progress",
-  done: "Done",
-};
-
-/**
- * Splits quest tabs by what the user looks for. A prompt outranks an unread result; without
- * either, a tab is in progress until its quest is finished. Main is never a member: it is
- * always its own tab with its own bell, so counting it again in a group duplicated it.
- * Within a group, the tab that entered it or was chatted in most recently (the server's
- * `groupChangedAt`) comes first, and ties keep the leader's tab order.
- */
-export function groupThreadTabs(tabs: readonly PrimaryThreadChip[]): Record<ThreadTabGroupId, PrimaryThreadChip[]> {
-  const groups: Record<ThreadTabGroupId, PrimaryThreadChip[]> = {
-    "needs-input": [],
-    "new-results": [],
-    "in-progress": [],
-    done: [],
-  };
-  for (const tab of tabs) {
-    if (tab.needsInput) groups["needs-input"].push(tab);
-    else if (tab.blueNudge) groups["new-results"].push(tab);
-    else if (tab.completed) groups.done.push(tab);
-    else groups["in-progress"].push(tab);
-  }
-  for (const group of Object.values(groups)) {
-    group.sort((left, right) => (right.groupChangedAt ?? 0) - (left.groupChangedAt ?? 0));
-  }
-  return groups;
-}
 
 /**
  * The tab on screen shows its result as read. The browser marks a result in the open tab
@@ -91,29 +30,6 @@ export function groupThreadTabs(tabs: readonly PrimaryThreadChip[]): Record<Thre
  */
 export function readOnScreen(tab: PrimaryThreadChip, currentKey: string): PrimaryThreadChip {
   return tab.blueNudge && normalizeThreadKey(tab.threadKey) === currentKey ? { ...tab, blueNudge: false } : tab;
-}
-
-/**
- * The tab to open after closing `threadKey`: the next tab in the same status group as the
- * bar lists it (the one below, or above when it was last), so closing a finished tab in Done
- * moves on to the next finished one instead of jumping into other work. When the group
- * empties, Main, which also holds the board. Uses the bar's grouping and order exactly.
- */
-export function threadKeyToSelectAfterClosing(
-  threadKey: string,
-  tabs: readonly PrimaryThreadChip[],
-  currentThreadKey: string,
-): string {
-  const closing = normalizeThreadKey(threadKey);
-  const currentKey = normalizeThreadKey(currentThreadKey);
-  const groups = groupThreadTabs(tabs.map((tab) => readOnScreen(tab, currentKey)));
-  for (const group of Object.values(groups)) {
-    const index = group.findIndex((tab) => normalizeThreadKey(tab.threadKey) === closing);
-    if (index < 0) continue;
-    const next = group[index + 1] ?? group[index - 1];
-    return next ? normalizeThreadKey(next.threadKey) : MAIN_THREAD_KEY;
-  }
-  return MAIN_THREAD_KEY;
 }
 
 function isMain(tab: PrimaryThreadChip): boolean {
@@ -133,7 +49,6 @@ export interface RowContext {
   onSelect: (threadKey: string) => void;
   /** A list row's open-in-side click: the thread goes in the side column instead of the main view. */
   onOpenInSide?: (threadKey: string) => void;
-  onClose?: (threadKey: string) => void;
   onOpenMenu?: (tab: PrimaryThreadChip) => OpenContextMenu | undefined;
 }
 
@@ -150,199 +65,6 @@ export interface TopicsGroup {
    * attention list counts them, when the leader's notifications are known.
    */
   unreadOf?: (threadKeys: readonly string[]) => UnreadResultCount;
-}
-
-export interface ThreadTabGroupBarProps extends RowContext {
-  main?: PrimaryThreadChip;
-  tabs: readonly PrimaryThreadChip[];
-  /** Where the bar sits; group lists open away from the screen edge. */
-  placement?: "top" | "bottom";
-}
-
-/**
- * The tab row of a leader with topics off: Main, then one item per non-empty status group. The
- * quest strip below already names the current quest, so the bar only marks which group holds it.
- * Leaders with topics on navigate by breadcrumb instead (`LeaderBreadcrumbNav`).
- */
-export function ThreadTabGroupBar({ main, tabs, placement = "top", ...rows }: ThreadTabGroupBarProps) {
-  const [openGroup, setOpenGroup] = useState<ThreadTabGroupId | null>(null);
-  // The input of the latest press on the bar: a click on an open group differs by mouse and finger.
-  const lastPressRef = useRef<string>("mouse");
-  const mainTab = main ?? {
-    threadKey: MAIN_THREAD_KEY,
-    title: "Main Thread",
-    needsInput: false,
-    mutedNeedsInput: false,
-    blueNudge: false,
-    canClose: false,
-    updatedAt: 0,
-  };
-  const currentKey = normalizeThreadKey(rows.currentThreadKey);
-  const groups = groupThreadTabs(tabs.map((tab) => readOnScreen(tab, currentKey)));
-  // The All view sits under the Main strip too, so Main is the selected tab there.
-  const onMain = currentKey === MAIN_THREAD_KEY || currentKey === ALL_THREADS_KEY;
-  // Which bar tab spins: only one, and none for writing already on screen (the feed's "Active
-  // here" chip shows it). The writing is on screen in its own thread and in the All view.
-  const writingKey = rows.activeOutputThreadKey ? normalizeThreadKey(rows.activeOutputThreadKey) : null;
-  const writingOnScreen = !!writingKey && (writingKey === currentKey || currentKey === ALL_THREADS_KEY);
-  const spinningTab: "main" | ThreadTabGroupId | null =
-    !writingKey || writingOnScreen
-      ? null
-      : writingKey === MAIN_THREAD_KEY
-        ? "main"
-        : (THREAD_TAB_GROUP_ORDER.find((id) =>
-            groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === writingKey),
-          ) ?? null);
-  const currentGroup = onMain
-    ? null
-    : (THREAD_TAB_GROUP_ORDER.find((id) =>
-        groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === currentKey),
-      ) ?? null);
-  const barRef = useRef<HTMLDivElement | null>(null);
-  useGroupMoveAnimation(barRef, currentKey, currentGroup, groups);
-  const select = (threadKey: string) => {
-    setOpenGroup(null);
-    rows.onSelect(threadKey);
-  };
-  const rowContext = {
-    ...rows,
-    onSelect: select,
-    ...(rows.onOpenInSide
-      ? {
-          onOpenInSide: (threadKey: string) => {
-            setOpenGroup(null);
-            rows.onOpenInSide!(threadKey);
-          },
-        }
-      : {}),
-  };
-  const [listLeft, setListLeft] = useState<number | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const listMaxHeight = useHeightAboveKeyboard(listRef, !!openGroup && placement === "top");
-
-  // On wide screens a group's list opens under its own tab instead of spanning the bar.
-  useLayoutEffect(() => {
-    const bar = barRef.current;
-    if (!openGroup || !bar || !window.matchMedia(WIDE_LAYOUT_QUERY).matches) {
-      setListLeft(null);
-      return;
-    }
-    const tab = bar.querySelector<HTMLElement>(`[role="tab"][data-group="${openGroup}"]`);
-    setListLeft(Math.max(0, Math.min(tab?.offsetLeft ?? 0, bar.clientWidth - WIDE_LIST_WIDTH_PX)));
-  }, [openGroup]);
-
-  useEffect(() => {
-    if (!openGroup) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenGroup(null);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [openGroup]);
-
-  // The selected tab takes the color of the strip it labels: Main's strip is a card,
-  // a quest's strip sits on the page background.
-  const selectedSurface = onMain ? "bg-cc-card" : "bg-cc-bg";
-  const item = (key: string, props: Omit<BarItemProps, "placement" | "selectedSurface">) => (
-    <BarItem key={key} placement={placement} selectedSurface={selectedSurface} {...props} />
-  );
-  return (
-    <div
-      ref={barRef}
-      className="relative"
-      data-testid="thread-tab-group-bar"
-      data-placement={placement}
-      onPointerDownCapture={(event) => {
-        lastPressRef.current = event.pointerType;
-      }}
-      onKeyDownCapture={() => {
-        lastPressRef.current = "keyboard";
-      }}
-    >
-      <div
-        className={`flex gap-1 ${placement === "bottom" ? "items-start pb-0.5" : "items-end pt-0.5"}`}
-        role="tablist"
-      >
-        {item("main", {
-          label: "Main Thread",
-          selected: onMain,
-          activeOutput: spinningTab === "main",
-          testId: "thread-tab-group-main",
-          onClick: () => select(MAIN_THREAD_KEY),
-          children: (
-            <>
-              <span>Main</span>
-              <AttentionBell tab={mainTab} />
-            </>
-          ),
-        })}
-        {THREAD_TAB_GROUP_ORDER.map((id) =>
-          groups[id].length > 0
-            ? item(id, {
-                label: `${GROUP_LABEL[id]}: ${groups[id].length}`,
-                selected: currentGroup === id,
-                open: openGroup === id,
-                group: id,
-                count: groups[id].length,
-                activeOutput: spinningTab === id,
-                testId: "thread-tab-group-chip",
-                // A group of one opens its tab on a tap; its list (with the tab's latest
-                // result and menu) stays a long-press or right-click away. A larger group
-                // opens its list and leaves the tab on screen alone: stepping through items
-                // that need attention is the feed's Next chip's job. Clicking the group again
-                // with a mouse opens the list's first tab, saving the trip down to it; a second
-                // tap of a finger closes the list, undoing the first tap.
-                onClick: () => {
-                  if (groups[id].length === 1 || (openGroup === id && !isTouchPress(lastPressRef.current))) {
-                    select(groups[id][0]!.threadKey);
-                    return;
-                  }
-                  setOpenGroup((open) => (open === id ? null : id));
-                },
-                onOpenList: () => setOpenGroup(id),
-                single: groups[id].length === 1,
-                children: <GroupContent id={id} tabs={groups[id]} />,
-              })
-            : null,
-        )}
-      </div>
-      {openGroup && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setOpenGroup(null)}
-            data-testid="thread-tab-group-backdrop"
-          />
-          <div
-            className={`absolute inset-x-0 z-50 max-h-[60dvh] overflow-y-auto rounded-xl border border-cc-border bg-cc-card py-1 shadow-xl ${
-              placement === "bottom" ? "bottom-full mb-1" : "top-full mt-1"
-            }`}
-            ref={listRef}
-            style={{
-              ...(listLeft === null ? {} : { left: listLeft, right: "auto", width: WIDE_LIST_WIDTH_PX }),
-              ...(listMaxHeight === null ? {} : { maxHeight: `min(60dvh, ${listMaxHeight}px)` }),
-            }}
-            role="menu"
-            data-testid="thread-tab-group-list"
-            data-group={openGroup}
-          >
-            <GroupHeading
-              id={openGroup}
-              count={groups[openGroup].length}
-              action={
-                openGroup === "done" && rows.onClose ? (
-                  <CloseAllButton tabs={groups.done.filter((tab) => tab.canClose)} onClose={rows.onClose} />
-                ) : undefined
-              }
-            />
-            {groups[openGroup].map((tab) => (
-              <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 function isActiveOutput(tab: PrimaryThreadChip, activeOutputThreadKey: string | null): boolean {
@@ -382,144 +104,6 @@ export function ActiveOutputSpinner() {
       className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-cc-info/30 border-t-cc-info motion-safe:animate-spin"
       data-testid="thread-tab-active-output-spinner"
     />
-  );
-}
-
-interface BarItemProps {
-  placement: "top" | "bottom";
-  selectedSurface: string;
-  label: string;
-  selected: boolean;
-  open?: boolean;
-  compact?: boolean;
-  group?: ThreadTabGroupId;
-  /** How many tabs the group holds. */
-  count?: number;
-  activeOutput?: boolean;
-  testId: string;
-  onClick: () => void;
-  /** Long-press or right-click on a group item opens its list. */
-  onOpenList?: () => void;
-  /** A group of one switches on tap instead of opening a list. */
-  single?: boolean;
-  children: ReactNode;
-}
-
-/**
- * One item of the bar, drawn as one of today's tabs. The selected item joins the quest
- * strip: tabs hang down from it at the top and up from it at the bottom.
- */
-function BarItem({
-  placement,
-  selectedSurface,
-  label,
-  selected,
-  open = false,
-  compact = false,
-  group,
-  count,
-  activeOutput,
-  testId,
-  onClick,
-  onOpenList,
-  single = false,
-  children,
-}: BarItemProps) {
-  const longPress = useLongPress(onOpenList ? () => onOpenList() : undefined);
-  // Phones share the width evenly; wide screens size each tab to its label.
-  const size = compact ? "w-10 shrink-0 md:w-auto md:px-3" : "min-w-0 flex-1 md:min-w-[7.5rem] md:flex-none md:px-3";
-  const edge = placement === "bottom" ? "rounded-b-md border-t-0" : "rounded-t-md border-b-0";
-  const tone = selected
-    ? `${placement === "bottom" ? "-mt-px" : "-mb-px"} border-cc-primary/45 ${selectedSurface} text-cc-fg`
-    : open
-      ? "border-cc-border bg-cc-hover/70 text-cc-fg"
-      : "border-cc-border/70 bg-cc-hover/30 text-cc-muted";
-  // An open group sits above its list's backdrop, so a second click reaches the tab itself.
-  const layer = open ? "z-50" : selected ? "z-10" : "";
-  return (
-    <button
-      type="button"
-      role="tab"
-      onClick={onClick}
-      {...longPress.handlers}
-      style={longPress.pressStyle}
-      className={`relative ${layer} inline-flex items-center justify-center gap-1.5 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 h-8 border ${size} ${edge} ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
-      aria-label={label}
-      aria-selected={selected}
-      aria-expanded={group && !single ? open : undefined}
-      aria-haspopup={group && !single ? "menu" : compact ? "dialog" : undefined}
-      data-testid={testId}
-      data-group={group}
-      data-count={count}
-      data-selected={selected ? "true" : "false"}
-      data-active-output={activeOutput ? "true" : "false"}
-    >
-      {activeOutput && <ActiveOutputSpinner />}
-      {children}
-    </button>
-  );
-}
-
-function isTouchPress(pointerType: string): boolean {
-  return pointerType === "touch" || pointerType === "pen";
-}
-
-/** The group's name, shown before its count where the bar has room. */
-function WideLabel({ id }: { id: ThreadTabGroupId }) {
-  return <span className="hidden md:inline">{GROUP_LABEL[id]} </span>;
-}
-
-function GroupContent({ id, tabs }: { id: ThreadTabGroupId; tabs: readonly PrimaryThreadChip[] }) {
-  if (id === "needs-input" || id === "new-results") {
-    return (
-      <>
-        <BellIcon className={`h-3 w-3 shrink-0 ${id === "needs-input" ? "text-cc-attention" : "text-cc-info"}`} />
-        <span className={id === "needs-input" ? "text-cc-attention" : "text-cc-info"}>
-          <WideLabel id={id} />
-          {tabs.length}
-        </span>
-      </>
-    );
-  }
-  if (id === "done") {
-    return (
-      <>
-        <svg
-          viewBox="0 0 16 16"
-          className="h-3 w-3 shrink-0"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          aria-hidden="true"
-        >
-          <path d="M3.5 8.5l3 3 6-7" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <span>
-          <WideLabel id={id} />
-          {tabs.length}
-        </span>
-      </>
-    );
-  }
-  return (
-    <>
-      <PhaseDots tabs={tabs} />
-      <span>
-        <WideLabel id={id} />
-        {tabs.length}
-      </span>
-    </>
-  );
-}
-
-function GroupHeading({ id, count, action }: { id: ThreadTabGroupId; count: number; action?: ReactNode }) {
-  const tone = id === "needs-input" ? "text-cc-attention" : id === "new-results" ? "text-cc-info" : "text-cc-muted";
-  return (
-    <div className="sticky top-0 z-10 flex items-center gap-2 bg-cc-card/95 px-4 pb-1 pt-2.5 backdrop-blur">
-      <span className={`text-[11px] uppercase tracking-wide ${tone}`}>{GROUP_LABEL[id]}</span>
-      <span className="text-[11px] tabular-nums text-cc-muted">{count}</span>
-      {action}
-    </div>
   );
 }
 
@@ -632,21 +216,7 @@ export function ThreadTabListRow({
       </button>
       {monitor && <NotifyMeIcon pending={Boolean(monitor.pendingResultId)} className="h-4 w-4" />}
       <AttentionBell tab={tab} size="md" />
-      {context.onClose && tab.canClose && !closed ? (
-        <button
-          type="button"
-          aria-label={`Close ${tab.questId ?? tab.title}`}
-          onClick={() => context.onClose?.(threadKey)}
-          className="-mr-1.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-          data-testid="thread-tab-list-row-close"
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-            <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </button>
-      ) : (
-        <span className="-mr-1.5 w-8 shrink-0" />
-      )}
+      <span className="-mr-1.5 w-8 shrink-0" />
     </div>
   );
 }
@@ -667,35 +237,6 @@ function Highlight({ text, query }: { text: string; query: string }) {
 /** When a tab last saw activity: a chat, a prompt or result, or a board change. */
 function lastActivityAt(tab: PrimaryThreadChip): number {
   return Math.max(tab.updatedAt, tab.groupChangedAt ?? 0);
-}
-
-/** Asks once, then closes every finished tab that can close. */
-function CloseAllButton({
-  tabs,
-  onClose,
-}: {
-  tabs: readonly PrimaryThreadChip[];
-  onClose: (threadKey: string) => void;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  if (tabs.length === 0) return null;
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        if (!confirming) {
-          setConfirming(true);
-          return;
-        }
-        for (const tab of tabs) onClose(normalizeThreadKey(tab.threadKey));
-        setConfirming(false);
-      }}
-      className="ml-auto text-[12px] text-cc-primary"
-      data-testid="thread-tab-close-all"
-    >
-      {confirming ? `Close ${tabs.length} tabs?` : "Close all"}
-    </button>
-  );
 }
 
 /**
@@ -908,34 +449,6 @@ export function TopicsGroupList({
       {topicFirst && <UnsortedTabs tabs={unsorted} context={rowContext} query={query} />}
     </>
   );
-}
-
-/**
- * The most a list opened downward from the top can be tall and still end above the phone's
- * keyboard (the visual viewport's bottom), while `active`; null when it need not be limited.
- */
-function useHeightAboveKeyboard(ref: RefObject<HTMLElement | null>, active: boolean): number | null {
-  const [height, setHeight] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const viewport = window.visualViewport;
-    if (!active || !viewport) {
-      setHeight(null);
-      return;
-    }
-    const update = () => {
-      const top = ref.current?.getBoundingClientRect().top;
-      if (top === undefined) return;
-      setHeight(Math.max(120, Math.floor(viewport.offsetTop + viewport.height - top - 8)));
-    };
-    update();
-    viewport.addEventListener("resize", update);
-    viewport.addEventListener("scroll", update);
-    return () => {
-      viewport.removeEventListener("resize", update);
-      viewport.removeEventListener("scroll", update);
-    };
-  }, [ref, active]);
-  return height;
 }
 
 /**

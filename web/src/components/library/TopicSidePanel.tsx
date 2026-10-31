@@ -22,7 +22,7 @@ import { PhoneTopicFrame } from "./PhoneTopicFrame.js";
 import { useStore } from "../../store.js";
 import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import { SplitHandle, useSplitWidth } from "../SplitHandle.js";
-import { ChangeList, RenameSuggestions, TopicSettings, TopicsOffHint } from "./TopicPage.js";
+import { ChangeList, RenameSuggestions, TopicSettings } from "./TopicPage.js";
 import { TopicActivityList } from "./TopicActivityList.js";
 import { NoTopicMatches, searchTopics, TopicSearchBox } from "./topic-search.js";
 import { TopicView } from "./TopicView.js";
@@ -132,7 +132,6 @@ export function TopicSidePanel({
   const act = (action: Promise<unknown>) => void action.then(load).catch((reason: Error) => setError(reason.message));
   const collapses = variant === "docked";
   const matching = searchTopics(data?.topics ?? [], query);
-  const topicsOn = !!data?.leaders.find((leader) => leader.sessionId === leaderId)?.enabled;
 
   const body = (
     <>
@@ -153,7 +152,7 @@ export function TopicSidePanel({
         ) : (
           <TopicSearchBox query={query} onChange={setQuery} />
         )}
-        {topicsOn && (
+        {data && (
           <button
             type="button"
             onClick={() => {
@@ -163,7 +162,7 @@ export function TopicSidePanel({
             }}
             aria-label="Topic settings"
             aria-expanded={settingsOpen && !shown}
-            title="Topic settings: instructions for the Scribe, pause, turn off"
+            title="Topic settings: instructions for the Scribe, pause"
             className={`flex h-7 w-7 items-center justify-center rounded-md hover:bg-cc-hover hover:text-cc-fg ${
               settingsOpen && !shown ? "text-cc-fg" : "text-cc-muted"
             }`}
@@ -236,8 +235,7 @@ export function TopicSidePanel({
             <div className="px-3 py-4 text-[13px] text-cc-muted">Loading…</div>
           ) : (
             <>
-              <TopicsOffHint data={data} leaderId={leaderId} act={act} />
-              {topicsOn && settingsOpen && (
+              {settingsOpen && (
                 <TopicSettings data={data} leaderId={leaderId} act={act} onClose={() => setSettingsOpen(false)} />
               )}
               <ChangeList data={data} act={act} />

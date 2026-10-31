@@ -1,7 +1,7 @@
 /**
- * Leader thread tabs: the tab data shared with WorkBoardBar and the rail that shows the
- * tabs as status groups (ThreadTabGroups) on every screen size, with the tab menu
- * (close, Notify Me) behind a long-press or right-click on a listed tab.
+ * Leader thread tabs: the tab data shared with WorkBoardBar and the rail that hands them to the
+ * leader's breadcrumb navigation, with the tab menu (Notify Me) behind a long-press or right-click
+ * on a listed tab.
  */
 import { isKeyOfTopic, isTopicViewKey, topicViewKey } from "../../shared/topic-thread-key.js";
 import { prepareZoom } from "./topic-zoom.js";
@@ -17,7 +17,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
-import { countUnreadResults, ThreadTabGroupBar } from "./ThreadTabGroups.js";
+import { countUnreadResults } from "./ThreadTabGroups.js";
 import { LeaderBreadcrumbNav, type LeaderBreadcrumbNavProps } from "./breadcrumb/LeaderBreadcrumbNav.js";
 import { useLeaderThreads, useLeaderTopics } from "../utils/leader-topics.js";
 import { isOpenInSideClick, openInSide, type OpenInSideEvent } from "../utils/side-column.js";
@@ -141,21 +141,16 @@ export function ThreadTabRail({
   sessionId,
   currentThreadKey,
   onSelectThread,
-  onCloseThreadTab,
   threadStatuses,
   breadcrumb,
 }: {
-  /**
-   * Leaders with topics on navigate by breadcrumb (`LeaderBreadcrumbNav`): the places it draws into.
-   * Without it, the status-group tab row.
-   */
-  breadcrumb?: Pick<LeaderBreadcrumbNavProps, "helpers" | "board" | "crumbSlot">;
+  /** Leaders navigate by breadcrumb (`LeaderBreadcrumbNav`): the places it draws into. */
+  breadcrumb: Pick<LeaderBreadcrumbNavProps, "helpers" | "board" | "crumbSlot">;
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
   sessionId: string;
   currentThreadKey: string;
   onSelectThread?: (threadKey: string) => void;
-  onCloseThreadTab?: (threadKey: string) => void;
   threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
 }) {
   const openThread = (threadKey: string) => {
@@ -179,12 +174,6 @@ export function ThreadTabRail({
   const tabMenuItems = (tab: PrimaryThreadChip): ContextMenuItem[] => {
     const threadKey = normalizeThreadKey(tab.threadKey);
     const items: ContextMenuItem[] = [];
-    if (onCloseThreadTab && tab.canClose) {
-      items.push({
-        label: "Close tab",
-        onClick: () => onCloseThreadTab(threadKey),
-      });
-    }
     // Notify Me tracks quest threads only, and its current state comes from the server projection.
     if (monitors && /^q-\d+$/.test(threadKey)) {
       const monitor = monitors[threadKey];
@@ -224,8 +213,8 @@ export function ThreadTabRail({
     .map((notification) => resolveNotificationOwnerThreadKey(notification))
     .filter(isTopicViewKey)
     .join(",");
-  const allThreads = useLeaderThreads(sessionId, !!leaderTopics, `${currentKey}|${threadAnswers}`);
-  const topicList = useTopicTabTopics(sessionId, !!leaderTopics, currentTopicId ?? "");
+  const allThreads = useLeaderThreads(sessionId, true, `${currentKey}|${threadAnswers}`);
+  const topicList = useTopicTabTopics(sessionId, true, currentTopicId ?? "");
   const topicOfQuest = leaderTopics
     ? Object.fromEntries(Object.entries(leaderTopics.map).map(([questId, topic]) => [questId, topic.id]))
     : null;
@@ -263,7 +252,6 @@ export function ThreadTabRail({
     onSelect: openThread,
     // The open-in-side click on a listed quest puts its conversation in the side column.
     onOpenInSide: (threadKey: string) => openInSide(sessionId, { kind: "conversation", threadKey }),
-    onClose: onCloseThreadTab,
     onOpenMenu: (tab: PrimaryThreadChip) =>
       tabMenuItems(tab).length > 0
         ? (x: number, y: number) => setTabMenu({ threadKey: normalizeThreadKey(tab.threadKey), x, y })
@@ -271,30 +259,26 @@ export function ThreadTabRail({
   };
   return (
     <div
-      className={breadcrumb && leaderTopics ? "contents" : "border-b border-cc-border bg-cc-card px-3 sm:px-4"}
+      className="contents"
       data-testid="thread-tab-rail"
+      data-session-id={sessionId}
       data-open-tab-count={tabs.length + 1}
     >
-      {breadcrumb && leaderTopics ? (
-        <LeaderBreadcrumbNav
-          {...breadcrumb}
-          {...rowProps}
-          leaderId={sessionId}
-          main={mainState}
-          tabs={displayedTabs}
-          threads={allThreads}
-          topics={{
-            list: topicList,
-            currentTopicId,
-            topicOfQuest: topicOfQuest ?? {},
-            onOpen: openTopic,
-            unreadOf: (threadKeys) => countUnreadResults(unreadIn(threadKeys)),
-          }}
-        />
-      ) : (
-        // A new bar per leader, so motion that compares renders never compares two leaders' tabs.
-        <ThreadTabGroupBar key={sessionId} main={mainState} tabs={displayedTabs} {...rowProps} />
-      )}
+      <LeaderBreadcrumbNav
+        {...breadcrumb}
+        {...rowProps}
+        leaderId={sessionId}
+        main={mainState}
+        tabs={displayedTabs}
+        threads={allThreads}
+        topics={{
+          list: topicList,
+          currentTopicId,
+          topicOfQuest: topicOfQuest ?? {},
+          onOpen: openTopic,
+          unreadOf: (threadKeys) => countUnreadResults(unreadIn(threadKeys)),
+        }}
+      />
       {tabMenu && menuItems.length > 0 && (
         <ContextMenu x={tabMenu.x} y={tabMenu.y} items={menuItems} onClose={() => setTabMenu(null)} />
       )}

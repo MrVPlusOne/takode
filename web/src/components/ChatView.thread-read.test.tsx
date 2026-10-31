@@ -41,6 +41,13 @@ vi.mock("../hooks/useSessionSearch.js", () => ({ useSessionSearch: vi.fn() }));
 vi.mock("./SearchBar.js", () => ({ SearchBar: () => null }));
 vi.mock("./TodoStatusLine.js", () => ({ TodoStatusLine: () => null }));
 vi.mock("./Composer.js", () => ({ Composer: () => null }));
+// A leader's Main is its Home, drawn instead of a feed; it stands in for the Main view here.
+vi.mock("./LeaderHomePage.js", () => ({
+  LeaderHomePage: ({ leaderId }: { leaderId: string }) => (
+    <div data-testid="message-feed" data-session-id={leaderId} data-thread-key="main" data-home="true" />
+  ),
+  NewThreadComposer: () => <div data-testid="new-thread-composer" />,
+}));
 vi.mock("./MessageFeed.js", () => ({
   MessageFeed: ({ threadKey }: { threadKey: string }) => <div data-testid="message-feed" data-thread-key={threadKey} />,
 }));

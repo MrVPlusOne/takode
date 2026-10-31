@@ -103,11 +103,9 @@ export { resolveChatSessionNavigationSummary } from "../utils/chat-session-navig
 import {
   projectedLeaderOpenThreadTabs,
   resolveLeaderThreadTabsProjection,
-  resolveWorkBoardIsOrchestrator,
 } from "../utils/leader-thread-tabs-resolver.js";
 import { mergeProjectedLeaderThreadRows } from "../utils/leader-thread-tabs-navigation.js";
 import { useLeaderOpenThreadTabStateSync } from "../hooks/use-leader-open-thread-tab-state-sync.js";
-import { playStripClose } from "./quest-strip-close-animation.js";
 import { recordViewedTab } from "../utils/view-history.js";
 import type {
   ChatMessage,
@@ -566,7 +564,7 @@ export function ChatView({
   );
   const [selectedSideChatId, setSelectedSideChatId] = useState<string | null>(null);
   const desktopShell = useDesktopShellLayout();
-  // Desktop leaders with topics on: a breadcrumb at the start of the strip, helpers in the top bar.
+  // Leaders: a breadcrumb at the start of the strip, helpers in the top bar.
   const breadcrumb = useLeaderBreadcrumb(sessionId) && !preview;
   // A topic leader's Main is its Home: no conversation of its own (Main's messages are in the
   // leader log), but what needs the user and a place to start a thread.
@@ -829,17 +827,28 @@ export function ChatView({
     `${sessionId}:${normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY)}`,
     !preview,
   );
+  // The thread whose results this view shows: a leader's Home shows none of Main's messages, its
+  // leader log shows them.
+  const readThreadKey = !isLeaderSession
+    ? MAIN_THREAD_KEY
+    : !breadcrumb
+      ? selectedThreadKey
+      : normalizeThreadKey(selectedThreadKey) === ALL_THREADS_KEY
+        ? MAIN_THREAD_KEY
+        : normalizeThreadKey(selectedThreadKey) === MAIN_THREAD_KEY
+          ? null
+          : selectedThreadKey;
   const reviewNotificationIdsToClear = useMemo(
     () =>
-      selectedThreadReadOnScreen
+      selectedThreadReadOnScreen && readThreadKey
         ? reviewNotificationIdsForSelectedThread(
             sessionNotifications,
             reviewAttentionRecords,
-            isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY,
+            readThreadKey,
             isLeaderSession,
           )
         : [],
-    [isLeaderSession, reviewAttentionRecords, selectedThreadKey, selectedThreadReadOnScreen, sessionNotifications],
+    [isLeaderSession, readThreadKey, reviewAttentionRecords, selectedThreadReadOnScreen, sessionNotifications],
   );
   useEffect(() => {
     for (const notificationId of reviewNotificationIdsToClear) {
@@ -947,38 +956,11 @@ export function ChatView({
     prepareZoom(sessionId, questId, "in", { feedKey: feedThreadKey, part });
     handleSelectThread(questId);
   };
-  // Closing the tab on screen plays its quest strip away (any close path, not only the strip's button).
   const questStripRef = useRef<HTMLDivElement | null>(null);
   const phoneTopicTopRef = useRef<HTMLDivElement | null>(null);
-  const handleCloseThreadTab = useCallback(
-    (threadKey: string, nextThreadKey = MAIN_THREAD_KEY) => {
-      const normalized = normalizeThreadKey(threadKey);
-      const nextOpenThreadTabKeys = openThreadTabKeysRef.current.filter((key) => key !== normalized);
-      openThreadTabKeysRef.current = nextOpenThreadTabKeys;
-      setOpenThreadTabKeys(nextOpenThreadTabKeys);
-      sendLeaderThreadTabUpdate({ type: "close", threadKey: normalized, closedAt: Date.now() });
-      if (normalizeThreadKey(selectedThreadKey) === normalized) {
-        const strip = questStripRef.current;
-        playStripClose(strip?.querySelector<HTMLElement>('[data-testid="quest-thread-banner"]'), strip?.parentElement);
-        handleSelectThread(nextThreadKey);
-      }
-    },
-    [handleSelectThread, selectedThreadKey, sendLeaderThreadTabUpdate],
-  );
-  // Leaders with topics off close tabs: the quest strip closes the tab on screen the way its listed
-  // row's close button does, only while the server lets it close, and through the tab bar, which
-  // picks the next tab in the same status group.
   const selectedTabKey = normalizeThreadKey(selectedThreadKey);
-  const selectedTabCanClose =
-    isLeaderSession &&
-    !breadcrumb &&
-    !!leaderTabsProjection?.tabs.some((tab) => tab.threadKey === selectedTabKey && tab.canClose);
-  const workBoardCloseTabRef = useRef<((threadKey: string) => void) | null>(null);
-  const closeSelectedThreadTab = selectedTabCanClose
-    ? () => (workBoardCloseTabRef.current ?? handleCloseThreadTab)(selectedTabKey)
-    : undefined;
-  // With the breadcrumb, tabs don't close (every place stays in the menus): the band's × leaves the
-  // quest for where it lives, its topic's conversation, else Main.
+  // Tabs don't close (every place stays in the menus): the band's × leaves the quest for where it
+  // lives, its topic's conversation, else the leader's Home.
   const leaveSelectedQuest: { run: () => void; label: string } | undefined =
     breadcrumb && isQuestThreadKey(selectedTabKey)
       ? topicConversation
@@ -1239,9 +1221,7 @@ export function ChatView({
               currentThreadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
               onSelectThread={isLeaderSession ? handleSelectThread : undefined}
               openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
-              onCloseThreadTab={isLeaderSession && !breadcrumb ? handleCloseThreadTab : undefined}
               threadRows={isLeaderSession ? workBoardThreadRows : undefined}
-              closeTabRef={workBoardCloseTabRef}
               hideThreadStrip={phoneTopicsOpen}
             />
           )}
@@ -1282,7 +1262,7 @@ export function ChatView({
                         sideQuestOf={selectedSideQuestOf}
                         monitorSessionId={sessionId}
                         diffSessionId={sessionId}
-                        onCloseTab={leaveSelectedQuest?.run ?? closeSelectedThreadTab}
+                        onCloseTab={leaveSelectedQuest?.run}
                         closeLabel={leaveSelectedQuest?.label}
                         singleLine={breadcrumb}
                         // The breadcrumb: the place (Main or the quest's topic), then the quest, which

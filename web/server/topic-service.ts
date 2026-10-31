@@ -26,7 +26,7 @@ import {
 } from "./scribe-messages.js";
 
 /**
- * Keeps topic pages current with one Scribe per leader that has topics on: a worker in that
+ * Keeps topic pages current with one Scribe per leader: a worker in that
  * leader's herd, running continuously like any worker. Events (the leader's quests put under a
  * topic or finished, the user's messages in those quests' tabs, artifacts saved there, changes
  * the user undid) are recorded on their topics. Whenever its Scribe is
@@ -72,7 +72,7 @@ export interface TopicServiceDeps {
   hostOf: (sessionId: string) => string | undefined;
   /** Whether the Scribe is working on a turn now. */
   isScribeBusy: (sessionId: string) => boolean;
-  /** Archives a Scribe (its leader turned topics off). */
+  /** Archives a Scribe (replaced, or of a retired design). */
   retireScribe: (sessionId: string) => Promise<void>;
   /** Tells a leader something about its Scribe that needs it. */
   notifyLeader: (leaderId: string, text: string) => void;
@@ -80,8 +80,6 @@ export interface TopicServiceDeps {
   messageText: (sessionNum: number, index: number) => string | null;
   /** Tells browsers the topics changed. */
   broadcastChanged: () => void;
-  /** Whether leaders get topics (Settings); on unless the user turned them off there. */
-  topicsForLeaders?: () => boolean;
   /** A file's modification time on the leader's machine (its pages' images load from there), or null when missing. */
   fileModifiedAt?: (leaderId: string, path: string) => Promise<number | null>;
   /** The images in a folder on the leader's machine, with paths written the way the folder was. */
@@ -238,14 +236,14 @@ export class TopicService {
   // ─── Events ───────────────────────────────────────────────────────────────
 
   /**
-   * Reads new messages of a leader with topics on: the user's messages in a quest tab or a topic's
+   * Reads new messages of a leader: the user's messages in a quest tab or a topic's
    * own thread (its conversation) are events of that topic.
    */
   sessionSaved(sessionId: string): void {
     if (!this.store.loaded) return;
     if (!this.store.isLeaderEnabled(sessionId)) {
       // A leader that never had topics, a new one included, gets them now.
-      void this.turnOnByDefault(sessionId);
+      void this.startTopics(sessionId);
       return;
     }
     const session = this.deps.getSession(sessionId);
@@ -298,7 +296,7 @@ export class TopicService {
     this.store.threadWritten(thread.id, typeof at === "number" ? at : this.now());
   }
 
-  /** A quest of a leader with topics on changed: finishing one is an event; a new one may need a topic. */
+  /** A quest of a leader changed: finishing one is an event; a new one may need a topic. */
   questChanged(quest: QuestmasterTask): void {
     if (!this.store.loaded) return;
     const leaderId = (quest as { leaderSessionId?: string }).leaderSessionId;
@@ -878,72 +876,31 @@ export class TopicService {
   }
 
   /**
-   * The user turns topics on or off for a leader. Turning on starts its Scribe, which initializes:
-   * it sorts the leader's recent work into topics and writes the pages. Turning off archives the
-   * Scribe, and the leader stays off while other leaders get topics by default.
+   * Every leader has topics. At startup, each leader that hasn't started them yet (a new leader,
+   * or one from an install that had topics off) starts them now.
    */
-  async setLeaderEnabled(sessionId: string, enabled: boolean): Promise<void> {
-    const leader = this.deps.getLeaderInfo(sessionId);
-    if (!leader?.isOrchestrator) throw new Error("Topics can be turned on only for leaders.");
-    if (enabled && !this.topicsForLeaders()) {
-      throw new Error("Library topics are off for leaders in Settings; turn them on there first.");
-    }
-    this.store.setLeaderEnabled(sessionId, enabled, true);
-    const session = this.deps.getSession(sessionId);
-    if (enabled && session) this.store.setCursor(sessionId, session.messageHistory.length);
-    if (!enabled) await this.stopScribe(sessionId);
-    await this.store.flush();
-    this.deps.broadcastChanged();
-    if (enabled) await this.deliver(sessionId);
-  }
-
-  /**
-   * Topics are on for every leader by default. At startup and when Settings change: with topics on
-   * for leaders, each leader the user didn't turn off gets them; with them off, every leader's are
-   * turned off (each leader's own choice is kept for when they come back on).
-   */
-  async applyLeaderDefaults(): Promise<void> {
+  async startLeaderTopics(): Promise<void> {
     if (!this.store.loaded) return;
-    // First, so leaders this turns off below aren't later taken for leaders the user turned off.
-    this.store.recordEarlierTurnOffs();
-    if (this.topicsForLeaders()) {
-      for (const leader of this.deps.listLeaders()) await this.turnOnByDefault(leader.sessionId);
-    } else {
-      for (const leaderId of this.store.enabledLeaderIds()) {
-        this.store.setLeaderEnabled(leaderId, false);
-        await this.stopScribe(leaderId);
-      }
-    }
+    for (const leader of this.deps.listLeaders()) await this.startTopics(leader.sessionId);
     await this.store.flush();
     this.deps.broadcastChanged();
   }
 
   /**
-   * Turns topics on for a leader that hasn't got them and wasn't turned off by the user. Its Scribe
-   * starts at once when the leader has recent quests to sort; a new leader's starts with its first.
+   * Starts topics for a leader that hasn't got them. From its next message on, its work becomes
+   * events; its Scribe starts at once when the leader has recent quests to sort into topics, and a
+   * new leader's starts with its first quest.
    */
-  private async turnOnByDefault(sessionId: string): Promise<void> {
-    // Before any leader comes on by default, leaders turned off earlier are recorded as such.
-    this.store.recordEarlierTurnOffs();
-    if (!this.topicsForLeaders() || this.store.isLeaderEnabled(sessionId) || this.store.turnedOffByUser(sessionId)) {
-      return;
-    }
+  private async startTopics(sessionId: string): Promise<void> {
+    if (this.store.isLeaderEnabled(sessionId)) return;
     const leader = this.deps.getLeaderInfo(sessionId);
     if (!leader?.isOrchestrator || leader.archived) return;
-    this.store.setLeaderEnabled(sessionId, true);
+    this.store.enableLeader(sessionId);
     const session = this.deps.getSession(sessionId);
     if (session) this.store.setCursor(sessionId, session.messageHistory.length);
     await this.store.flush();
     this.deps.broadcastChanged();
     if ((await this.leaderQuests(sessionId, this.now() - RECENT_WINDOW_MS)).length) await this.deliver(sessionId);
-  }
-
-  private async stopScribe(leaderId: string): Promise<void> {
-    const scribe = this.store.scribeSession(leaderId);
-    this.store.setScribeSession(leaderId, undefined);
-    this.awaiting.delete(leaderId);
-    this.forced.delete(leaderId);
-    if (scribe && this.deps.isScribeAlive(scribe)) await this.deps.retireScribe(scribe);
   }
 
   /**
@@ -997,10 +954,6 @@ export class TopicService {
     return Object.fromEntries(
       images.flatMap(({ src, path }) => (stats[path] == null ? [] : [[src, stats[path]] as [string, number]])),
     );
-  }
-
-  private topicsForLeaders(): boolean {
-    return this.deps.topicsForLeaders?.() ?? true;
   }
 
   /** At startup: Scribes whose pages predate the current page format are asked to rewrite them. */
@@ -1132,7 +1085,8 @@ export class TopicService {
   /** What a leader's Scribe is doing, in one line for the panel and `takode scribe status`. */
   async activity(leaderId: string): Promise<ScribeActivity> {
     const leader = this.deps.getLeaderInfo(leaderId);
-    if (!leader || !this.store.isLeaderEnabled(leaderId)) return { state: "off", text: "Topics are off", pending: 0 };
+    if (!leader || !this.store.isLeaderEnabled(leaderId))
+      return { state: "off", text: "Topics haven't started yet", pending: 0 };
     const scribe = this.store.scribeSession(leaderId);
     const alive = !!scribe && this.deps.isScribeAlive(scribe);
     const pending = this.store
@@ -1220,7 +1174,6 @@ export class TopicService {
           space: leader.space,
           enabled,
           questCount,
-          ...(this.topicsForLeaders() ? {} : { offInSettings: true }),
         };
       });
   }

@@ -129,11 +129,6 @@ export interface CompanionSettings {
   workerSlotLimits?: WorkerSlotLimits;
   /** Backend of leaders' Scribes: the leader's own ("leader") or a fixed one. Optional for tests/mocks. */
   scribeBackend?: ScribeBackendSetting;
-  /**
-   * Whether leaders have Library topics and a Scribe (default: true). Off saves the Scribes' tokens;
-   * each leader can still be turned off alone while it is on. Optional for tests/mocks.
-   */
-  leaderTopics?: boolean;
   updatedAt: number;
 }
 
@@ -283,7 +278,6 @@ let settings: CompanionSettings = {
   sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   workerSlotLimits: DEFAULT_WORKER_SLOT_LIMITS,
   scribeBackend: "leader",
-  leaderTopics: true,
   updatedAt: 0,
 };
 
@@ -570,7 +564,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
     workerSlotLimits: normalizeWorkerSlotLimits(raw?.workerSlotLimits),
     scribeBackend: normalizeScribeBackend(raw?.scribeBackend),
-    leaderTopics: raw?.leaderTopics !== false,
+    // Retired: `leaderTopics` (topics for leaders, now always on) is dropped from older files.
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -716,7 +710,6 @@ export function updateSettings(
       | "sessionDefaults"
       | "workerSlotLimits"
       | "scribeBackend"
-      | "leaderTopics"
       | "serverSlug"
       | "serverTimeZone"
       | "restartUpdatesCheckout"

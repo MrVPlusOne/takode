@@ -200,6 +200,13 @@ vi.mock("./PermissionBanner.js", () => ({
   PlanCollapsedChip: () => null,
   PermissionsCollapsedChip: () => null,
 }));
+// A leader's Main is its Home, drawn instead of a feed; it stands in for the Main view here.
+vi.mock("./LeaderHomePage.js", () => ({
+  LeaderHomePage: ({ leaderId }: { leaderId: string }) => (
+    <div data-testid="message-feed" data-session-id={leaderId} data-thread-key="main" data-home="true" />
+  ),
+  NewThreadComposer: () => <div data-testid="new-thread-composer" />,
+}));
 vi.mock("./MessageFeed.js", () => ({
   MessageFeed: ({
     sessionId,
@@ -227,13 +234,11 @@ vi.mock("./WorkBoardBar.js", () => ({
     currentThreadKey,
     onSelectThread,
     openThreadKeys = [],
-    onCloseThreadTab,
     threadRows = [],
   }: {
     currentThreadKey?: string;
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
-    onCloseThreadTab?: (threadKey: string, nextThreadKey?: string) => void;
     threadRows?: Array<{ threadKey: string; questId?: string; title: string }>;
   }) => (
     <div
@@ -271,18 +276,6 @@ vi.mock("./WorkBoardBar.js", () => ({
           ))}
         </>
       )}
-      {onCloseThreadTab &&
-        openThreadKeys.map((threadKey, index) => (
-          <button
-            type="button"
-            key={`close-${threadKey}`}
-            data-testid="mock-workboard-close-tab"
-            data-thread-key={threadKey}
-            onClick={() => onCloseThreadTab(threadKey, openThreadKeys[index + 1])}
-          >
-            Close {threadKey}
-          </button>
-        ))}
     </div>
   ),
 }));
@@ -443,7 +436,7 @@ describe("ChatView leader open thread tabs", () => {
     expect(mockMessageFeedRenders).not.toHaveBeenCalledWith({ sessionId: "s1", threadKey: "main" });
   });
 
-  it("sends open and close operations to the server without writing localStorage", () => {
+  it("sends open operations to the server without writing localStorage", () => {
     resetStore({
       messages: new Map([["s1", [threadMessage("q-941", 2)]]]),
       quests: [{ questId: "q-941", title: "Quest thread MVP", status: "in_progress" }],
@@ -459,13 +452,6 @@ describe("ChatView leader open thread tabs", () => {
       operation: { type: "open", threadKey: "q-941", placement: "first" },
     });
     expect(localStorage.getItem("test-server:cc-leader-open-thread-tabs:s1")).toBeNull();
-
-    fireEvent.click(scope.getByTestId("mock-workboard-close-tab"));
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "");
-    expect(mockSendToSession).toHaveBeenLastCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: { type: "close", threadKey: "q-941", closedAt: expect.any(Number) },
-    });
   });
 
   it("persists a browser-local selected leader tab without writing open-tab localStorage", async () => {
@@ -760,43 +746,6 @@ describe("ChatView leader open thread tabs", () => {
   });
 
   // The Board button opens the active board, or Completed when nothing is active.
-  it.each([
-    [true, "active"],
-    [false, "completed"],
-  ] as const)("opens the board in place from a quest thread (active rows: %s)", async (hasActiveRows, expectedView) => {
-    persistLeaderSelectedThreadKey("s1", "q-42");
-    resetStore({
-      sessions: leaderSession(),
-      projectedLeaderTabKeys: projectionTabKeys(["q-42"]),
-      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true, name: "Leader Session" }],
-      sessionBoards: new Map([
-        ["s1", hasActiveRows ? [{ questId: "q-42", status: "IMPLEMENTING", title: "Active", updatedAt: 2 }] : []],
-      ]),
-      sessionCompletedBoards: new Map([
-        ["s1", [{ questId: "q-41", status: "DONE", title: "Completed", updatedAt: 1, completedAt: 1 }]],
-      ]),
-      messages: new Map([["s1", [threadMessage("q-42", 2)]]]),
-      quests: [{ questId: "q-42", title: "Routed quest", status: "in_progress" }],
-    });
-    window.location.hash = "#/session/s1?thread=q-42";
-
-    const view = render(<RouteAwareLeaderSession />);
-    const scope = within(view.container);
-
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
-    expect(scope.queryByTestId("workboard-panel")).not.toBeInTheDocument();
-
-    fireEvent.click(scope.getByTestId("topbar-workboard-button"));
-    view.rerender(<RouteAwareLeaderSession />);
-
-    await waitFor(() => expect(scope.getByTestId("workboard-panel")).toHaveAttribute("data-view", expectedView));
-    expect(window.location.hash).toBe("#/session/s1?thread=q-42");
-    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42");
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "q-42");
-    expect(scope.getByTestId("workboard-panel")).toHaveAttribute("data-view", expectedView);
-    expect(readLeaderSelectedThreadKey("s1")).toBe("q-42");
-  });
-
   it("renders server-owned tabs and applies remote close updates from another browser", () => {
     resetStore({
       sessions: leaderSession(),

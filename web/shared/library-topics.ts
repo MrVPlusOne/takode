@@ -171,8 +171,6 @@ export interface TopicLeaderState {
   space: string;
   enabled: boolean;
   questCount: number;
-  /** Topics are off for every leader in Settings, so this one can't be turned on here. */
-  offInSettings?: boolean;
 }
 
 /** A new name a Scribe suggests for a topic the user named; nothing changes until accepted. */

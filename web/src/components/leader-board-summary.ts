@@ -1,15 +1,11 @@
 import type { CSSProperties } from "react";
 import type { BoardRowData } from "./BoardTable.js";
 import {
+  activePhaseDotKeys,
   buildLeaderActivePhaseSummary,
-  orderLeaderActivePhaseRows,
   type LeaderActivePhaseSummarySegment,
 } from "../../shared/leader-active-phase-summary.js";
-import {
-  getQuestJourneyCurrentPhaseId,
-  getQuestJourneyPhase,
-  type QuestJourneyPhase,
-} from "../../shared/quest-journey.js";
+import { getQuestJourneyPhase, type QuestJourneyPhase } from "../../shared/quest-journey.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 
 export interface BoardSummarySegment {
@@ -47,18 +43,18 @@ export interface BoardPhaseDot {
   phase: QuestJourneyPhase;
 }
 
-const NOT_IN_MOTION_STATUSES = new Set(["QUEUED", "PROPOSED"]);
-
-/**
- * Board quests currently in a Journey phase (Work, User Checkpoint, Memory, Landing, ...),
- * in board order. Queued and proposed rows are not being worked on and get no dot.
- */
+/** Board quests currently in a Journey phase, in board order (see `activePhaseDotKeys`). */
 export function activeBoardPhaseDots(board: readonly BoardRowData[]): BoardPhaseDot[] {
+  return phaseDotsFromKeys(activePhaseDotKeys(board));
+}
+
+/** The dots of `questId:phaseId` keys, as `activePhaseDotKeys` and the leader-tabs projection give them. */
+export function phaseDotsFromKeys(keys: readonly string[]): BoardPhaseDot[] {
   const dots: BoardPhaseDot[] = [];
-  for (const row of orderLeaderActivePhaseRows(board)) {
-    if (NOT_IN_MOTION_STATUSES.has((row.status ?? "").trim().toUpperCase())) continue;
-    const phase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
-    if (phase) dots.push({ questId: row.questId, phase });
+  for (const key of keys) {
+    const split = key.lastIndexOf(":");
+    const phase = getQuestJourneyPhase(key.slice(split + 1));
+    if (split > 0 && phase) dots.push({ questId: key.slice(0, split), phase });
   }
   return dots;
 }

@@ -132,8 +132,7 @@ describe("Playground", { timeout: 60_000 }, () => {
   it("documents projected scheduled priority and dismissal parity on desktop and mobile", () => {
     render(<PlaygroundOverviewOnly />);
 
-    // Desktop and mobile widths show the same status groups; every tab is listed, under
-    // its group, in the all-tabs sheet.
+    // Desktop and mobile widths list the same tabs in the place picker.
     for (const testId of ["playground-projected-thread-tabs-desktop", "playground-projected-thread-tabs-mobile"]) {
       const container = screen.getByTestId(testId);
       const tab = (threadKey: string) => listedThreadTab(threadKey, container)!;
@@ -154,39 +153,42 @@ describe("Playground", { timeout: 60_000 }, () => {
       const reviewUnread = tab("q-9003");
       expect(reviewUnread).toHaveAttribute("data-blue-notification", "true");
       expect(within(reviewUnread).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "review");
-      expect(within(reviewUnread).getByRole("button", { name: "Close q-9003" })).toBeTruthy();
+      expect(reviewUnread).toHaveAttribute("data-closable", "true");
 
       const muted = tab("q-9005");
       expect(muted).toHaveAttribute("data-muted-needs-input", "true");
       expect(within(muted).getByTestId("thread-tab-bell")).toHaveAttribute("data-kind", "muted");
-      expect(within(muted).getByRole("button", { name: "Close q-9005" })).toBeTruthy();
-      expect(within(tab("q-9002")).getByRole("button", { name: "Close q-9002" })).toBeTruthy();
-      expect(within(tab("q-9006")).getByRole("button", { name: "Close q-9006" })).toBeTruthy();
+      expect(muted).toHaveAttribute("data-closable", "true");
+      expect(tab("q-9002")).toHaveAttribute("data-closable", "true");
+      expect(tab("q-9006")).toHaveAttribute("data-closable", "true");
 
       // Quests another leader runs, or no board holds, say so and stay closable.
       const handed = tab("q-9010");
       expect(handed).toHaveTextContent("Led by #2851");
       expect(within(handed).getByTestId("thread-tab-led-elsewhere-icon")).toBeTruthy();
-      expect(within(handed).getByRole("button", { name: "Close q-9010" })).toBeTruthy();
+      expect(handed).toHaveAttribute("data-closable", "true");
       const offBoard = tab("q-9011");
       expect(offBoard).toHaveTextContent("Not on board");
-      expect(within(offBoard).getByRole("button", { name: "Close q-9011" })).toBeTruthy();
-
-      // Opening the prompt's tab shows its quest strip with the timed Journey preview.
-      fireEvent.click(within(listedThreadTab("q-9001", container)!).getByTestId("thread-tab-list-row-select"));
-      fireEvent.click(within(container).getByTestId("quest-thread-journey-hover-target"));
-      const preview = within(screen.getAllByTestId("quest-thread-journey-hover-card").at(-1)!).getByTestId(
-        "quest-journey-preview-card",
-      );
-      expect(preview).toHaveTextContent("3 phases · Total 4m");
-      expect(
-        within(preview)
-          .getAllByTestId("quest-journey-phase-duration")
-          .map((node) => node.textContent),
-      ).toEqual(["1m", "3m"]);
-      expect(preview).not.toHaveTextContent("Duration unavailable");
-      closeAllThreadTabs();
+      expect(offBoard).toHaveAttribute("data-closable", "true");
     }
+
+    // Both widths show the same leader, so opening a tab in one opens it in the other (and shows
+    // its result as read): open it once, after both lists were checked. Opening the prompt's tab
+    // shows its quest strip with the timed Journey preview.
+    const desktop = screen.getByTestId("playground-projected-thread-tabs-desktop");
+    fireEvent.click(within(listedThreadTab("q-9001", desktop)!).getByTestId("thread-tab-list-row-select"));
+    fireEvent.click(screen.getAllByTestId("quest-thread-journey-hover-target")[0]!);
+    const preview = within(screen.getAllByTestId("quest-thread-journey-hover-card").at(-1)!).getByTestId(
+      "quest-journey-preview-card",
+    );
+    expect(preview).toHaveTextContent("3 phases · Total 4m");
+    expect(
+      within(preview)
+        .getAllByTestId("quest-journey-phase-duration")
+        .map((node) => node.textContent),
+    ).toEqual(["1m", "3m"]);
+    expect(preview).not.toHaveTextContent("Duration unavailable");
+    closeAllThreadTabs();
   });
 
   it("documents additive source projection without source attachment markers", () => {

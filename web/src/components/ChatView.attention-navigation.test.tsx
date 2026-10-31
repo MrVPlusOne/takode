@@ -36,6 +36,13 @@ vi.mock("./SearchBar.js", () => ({ SearchBar: () => null }));
 vi.mock("./TodoStatusLine.js", () => ({ TodoStatusLine: () => null }));
 vi.mock("./Composer.js", () => ({ Composer: () => null }));
 const feedThreadSelection = vi.hoisted(() => ({ select: null as null | ((threadKey: string) => void) }));
+// A leader's Main is its Home, drawn instead of a feed; it stands in for the Main view here.
+vi.mock("./LeaderHomePage.js", () => ({
+  LeaderHomePage: ({ leaderId }: { leaderId: string }) => (
+    <div data-testid="message-feed" data-session-id={leaderId} data-thread-key="main" data-home="true" />
+  ),
+  NewThreadComposer: () => <div data-testid="new-thread-composer" />,
+}));
 vi.mock("./MessageFeed.js", () => ({
   MessageFeed: ({ threadKey, onSelectThread }: { threadKey: string; onSelectThread?: (key: string) => void }) => {
     feedThreadSelection.select = onSelectThread ?? null;
@@ -137,10 +144,11 @@ beforeEach(() => {
 });
 
 describe("ChatView attention navigation", () => {
-  it("selects Main and clears its unread result when an attention item opens it from a quest thread", async () => {
+  it("opens Main's unread result in the leader log and clears it, from a quest thread", async () => {
     // Reproduces the reported bug: from a quest tab, opening Main's unread
     // result through the attention chip (or Next) left the quest tab selected,
-    // so Main's review notification was never cleared.
+    // so Main's review notification was never cleared. Main is the leader's Home now, so its
+    // messages are read in the leader log.
     const view = render(<ChatView sessionId="leader" {...routeProps()} />);
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1"));
     expect(mockMarkNotificationDone).not.toHaveBeenCalled();
@@ -160,7 +168,7 @@ describe("ChatView attention navigation", () => {
     });
     view.rerender(<ChatView sessionId="leader" {...routeProps()} />);
 
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "all"));
     await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-main", true), {
       timeout: THREAD_READ_DWELL_MS + 1_000,
     });
@@ -194,9 +202,8 @@ describe("ChatView attention navigation", () => {
     const view = render(<ChatView sessionId="leader" {...routeProps()} />);
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1"));
 
-    act(() => feedThreadSelection.select?.("main"));
-    // The selection is local, so Main needs no explicit thread in the address.
-    expect(window.location.hash).toBe("#/session/leader");
+    act(() => feedThreadSelection.select?.("all"));
+    expect(window.location.hash).toBe("#/session/leader?thread=all");
     expect(useStore.getState().scrollToMessageId.get("leader")).toBeUndefined();
 
     act(() => feedThreadSelection.select?.("q-1"));
@@ -204,9 +211,10 @@ describe("ChatView attention navigation", () => {
     view.unmount();
   });
 
-  it("selects Main when no Ready result message is known for it", async () => {
-    // Without a result to scroll to, the item opens the thread itself; Main
-    // must still be an explicit route or the quest tab is restored.
+  it("opens the leader log when no Ready result message is known for a Main result", async () => {
+    // Without a result to scroll to, the item opens the thread itself: for Main, the leader log
+    // where its messages are read (its Home shows none), as an explicit route so the quest tab
+    // isn't restored.
     useStore
       .getState()
       .setSessionNotifications("leader", [
@@ -228,10 +236,10 @@ describe("ChatView attention navigation", () => {
         useStore.getState().sdkSessions,
       );
     });
-    expect(window.location.hash).toContain("thread=main");
+    expect(window.location.hash).toContain("thread=all");
     view.rerender(<ChatView sessionId="leader" {...routeProps()} />);
 
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "all"));
     await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-main", true), {
       timeout: THREAD_READ_DWELL_MS + 1_000,
     });

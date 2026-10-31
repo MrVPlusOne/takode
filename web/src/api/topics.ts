@@ -34,7 +34,7 @@ export const topicApi = {
       `/topics?space=${encodeURIComponent(space || "all")}${leader ? `&leader=${encodeURIComponent(leader)}` : ""}`,
     ),
   get: (id: string) => request<TopicDetail>(topicPath(id)),
-  /** Starts a new thread in a leader with topics on, named `name` until the leader names it. */
+  /** Starts a new thread in a leader, named `name` until the leader names it. */
   startThread: (leader: string, name: string, startedFrom?: string, firstMessage?: string) =>
     request<{ thread: ThreadSummary }>("/topics/threads", {
       method: "POST",
@@ -68,11 +68,6 @@ export const topicApi = {
     request<{ instructions: string }>(`/scribe/${encodeURIComponent(leaderSessionId)}/instructions`, {
       method: "POST",
       body: { text },
-    }),
-  setLeaderEnabled: (sessionId: string, enabled: boolean) =>
-    request<{ enabled: boolean }>(`/topics/leaders/${encodeURIComponent(sessionId)}`, {
-      method: "POST",
-      body: { enabled },
     }),
   /** Pauses or resumes a leader's Scribe. */
   setScribePaused: (leaderSessionId: string, paused: boolean) =>

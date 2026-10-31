@@ -42,6 +42,13 @@ vi.mock("./TodoStatusLine.js", () => ({ TodoStatusLine: () => null }));
 vi.mock("./Composer.js", () => ({
   Composer: ({ threadKey }: { threadKey: string }) => <div data-testid="composer" data-thread-key={threadKey} />,
 }));
+// A leader's Main is its Home, drawn instead of a feed; it stands in for the Main view here.
+vi.mock("./LeaderHomePage.js", () => ({
+  LeaderHomePage: ({ leaderId }: { leaderId: string }) => (
+    <div data-testid="message-feed" data-session-id={leaderId} data-thread-key="main" data-home="true" />
+  ),
+  NewThreadComposer: () => <div data-testid="new-thread-composer" />,
+}));
 vi.mock("./MessageFeed.js", () => ({
   MessageFeed: ({
     sessionId,
@@ -60,30 +67,18 @@ vi.mock("./MessageFeed.js", () => ({
     />
   ),
 }));
-// The tab bar's close handler, which picks the next tab; the quest strip closes through it.
-const mockBarCloseTab = vi.hoisted(() => vi.fn());
 vi.mock("./WorkBoardBar.js", () => ({
   WorkBoardBar: ({
     currentThreadKey,
     openThreadKeys,
     threadRows,
     onSelectThread,
-    onCloseThreadTab,
-    closeTabRef,
   }: {
     currentThreadKey: string;
     openThreadKeys?: string[];
     threadRows?: Array<{ threadKey: string; title: string }>;
     onSelectThread?: (threadKey: string) => void;
-    onCloseThreadTab?: (threadKey: string, nextThreadKey: string) => void;
-    closeTabRef?: { current: ((threadKey: string) => void) | null };
   }) => {
-    if (closeTabRef) {
-      closeTabRef.current = (threadKey) => {
-        mockBarCloseTab(threadKey);
-        onCloseThreadTab?.(threadKey, "main");
-      };
-    }
     return (
       <div
         data-testid="work-board-bar"
@@ -270,29 +265,6 @@ describe("ChatView leader thread tabs projection", () => {
         .map((node) => node.textContent),
     ).toEqual(["5m", "2m"]);
     expect(card).not.toHaveTextContent("Duration unavailable");
-  });
-
-  it("closes the tab on screen from the quest strip only while that tab can close", async () => {
-    // q-1 is active work the server will not close, so its strip has no close button;
-    // the finished q-2 does, and closing it sends the same close command as its listed row.
-    const active = render(<ChatView sessionId="leader" hasThreadRoute routeThreadKey="q-1" />);
-    await screen.findByTestId("quest-thread-banner");
-    expect(screen.queryByTestId("quest-thread-close-tab")).toBeNull();
-    active.unmount();
-
-    window.location.hash = "#/session/leader?thread=q-2";
-    render(<ChatView sessionId="leader" hasThreadRoute routeThreadKey="q-2" />);
-    const close = await screen.findByTestId("quest-thread-close-tab");
-    expect(close).toHaveAccessibleName("Close the q-2 tab");
-    mockSendToSession.mockClear();
-    fireEvent.click(close);
-    // The tab bar closes it, so the strip's X picks the next tab by the same rule as a
-    // listed tab's X: the next tab in the closed tab's status group.
-    expect(mockBarCloseTab).toHaveBeenCalledWith("q-2");
-    expect(mockSendToSession).toHaveBeenCalledWith("leader", {
-      type: "leader_thread_tabs_update",
-      operation: { type: "close", threadKey: "q-2", closedAt: expect.any(Number) },
-    });
   });
 
   it("does not feed authoritative projection refreshes back into tab commands or navigation", async () => {

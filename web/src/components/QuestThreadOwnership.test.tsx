@@ -13,7 +13,7 @@ import {
 } from "../test-fixtures/leader-thread-tabs-projection.js";
 import { mergeProjectedLeaderThreadRows } from "../utils/leader-thread-tabs-navigation.js";
 import { QuestThreadBanner } from "./QuestThreadBanner.js";
-import { listedThreadTab } from "../test-fixtures/thread-tab-rows.js";
+import { listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 
 /**
@@ -141,7 +141,7 @@ afterEach(() => {
 describe("quest tabs led by another leader", () => {
   it("mutes and labels tabs this leader does not run while its own tabs stay unchanged", () => {
     installLeader(ownershipProjection());
-    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={() => {}} />);
+    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" />);
 
     // Every tab is listed in its status group's list.
     const tab = (threadKey: string) => listedThreadTab(threadKey)!;
@@ -175,22 +175,18 @@ describe("quest tabs led by another leader", () => {
     expect(tab("q-5")).toHaveAttribute("data-ownership-note", "");
   });
 
-  it("files off-board tabs under Done in the tab groups once Questmaster says they finished", () => {
-    // q-4 finished on its board row and q-5
-    // only in its loaded Questmaster record; both belong under Done, while the unfinished
-    // off-board q-3 and the handed-off q-2 stay in progress.
+  it("marks off-board tabs Done once Questmaster says they finished", () => {
+    // q-4 finished on its board row and q-5 only in its loaded Questmaster record; both read Done,
+    // while the unfinished off-board q-3 and the handed-off q-2 don't.
     installLeader(ownershipProjection());
-    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={() => {}} />);
+    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" />);
 
-    const chip = (group: string) =>
-      screen.getAllByTestId("thread-tab-group-chip").find((candidate) => candidate.dataset.group === group)!;
-    fireEvent.click(chip("done"));
-    const doneRows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
-    expect(doneRows.map((row) => row.dataset.threadKey)).toEqual(["q-4", "q-5"]);
-    expect(doneRows[1]).toHaveTextContent("q-5 · Done");
-    fireEvent.click(chip("in-progress"));
-    const progressRows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
-    expect(progressRows.map((row) => row.dataset.threadKey)).toEqual(["q-1", "q-2", "q-3"]);
+    const rows = listedThreadTabs();
+    const row = (key: string) => rows.find((candidate) => candidate.dataset.threadKey === key)!;
+    expect(row("q-4")).toHaveTextContent("q-4 · Done");
+    expect(row("q-5")).toHaveTextContent("q-5 · Done");
+    expect(row("q-3")).not.toHaveTextContent("Done");
+    expect(row("q-2")).not.toHaveTextContent("Done");
   });
 
   it("names the leader that runs the quest in the quest header", () => {

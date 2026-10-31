@@ -1,7 +1,6 @@
 /**
- * A leader's thread navigation: with topics off, the status-group tab row (at the top and at the
- * bottom of the screen); with topics on, the breadcrumb (place picker at the start of the strip)
- * and the Working on picker in the top bar, on phones and desktop alike; and the side chats list.
+ * A leader's thread navigation: the breadcrumb (place picker at the start of the strip) and the
+ * Overview menu in the top bar, on phones and desktop alike; and the threads list.
  */
 import { QuestThreadBanner } from "../QuestThreadBanner.js";
 import { useState } from "react";
@@ -13,7 +12,6 @@ import { LeaderBreadcrumbNav } from "../breadcrumb/LeaderBreadcrumbNav.js";
 import { CrumbStart, CrumbStrip, ThreadCrumb } from "../breadcrumb/CrumbStart.js";
 import { useCrumbSlot } from "../breadcrumb/crumb-slot.js";
 import { ItemCrumb } from "../breadcrumb/ItemCrumb.js";
-import { ThreadTabGroupBar } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
@@ -70,7 +68,7 @@ const TABS: PrimaryThreadChip[] = [
   ),
 ];
 
-/** For a leader with topics on: its topics by recent activity, for the place picker. */
+/** A leader's topics by recent activity, for the place picker. */
 const TOPICS: TopicSummary[] = [
   playgroundTopic("topic-feed", "Feed polish", 12, "Answer times sit on the last line of each answer.", [
     "q-9482",
@@ -165,52 +163,9 @@ function threadsMenu(onOpen: (threadKey: string) => void): ThreadsMenu {
   };
 }
 
-function PhoneFrame({
-  placement,
-  wide = false,
-}: {
-  placement: "top" | "bottom";
-  /** A desktop-width bar. */
-  wide?: boolean;
-}) {
-  const [current, setCurrent] = useState("q-9482");
-  const [tabs, setTabs] = useState(TABS);
-  const close = (threadKey: string) => {
-    setTabs((existing) => existing.filter((tab) => tab.threadKey !== threadKey));
-  };
-  return (
-    <div
-      className={`${wide ? "w-[900px]" : "w-[430px]"} max-w-full rounded-lg border border-cc-border bg-cc-card px-3`}
-      data-testid="playground-thread-tab-groups"
-    >
-      <ThreadTabGroupBar
-        main={MAIN}
-        tabs={tabs}
-        placement={placement}
-        currentThreadKey={current}
-        activeOutputThreadKey="q-9482"
-        threadStatuses={{
-          "q-9479": {
-            kind: "ready",
-            label: "Thread Ready",
-            threadKey: "q-9479",
-            questId: "q-9479",
-            summary: "landed; watch a live answer on the phone",
-            messageId: "ready-9479",
-            timestamp: NOW,
-            updatedAt: NOW,
-          },
-        }}
-        onSelect={setCurrent}
-        onClose={close}
-      />
-    </div>
-  );
-}
-
 /**
- * A leader with topics on (phones and desktop alike): the top bar with the Working on picker before
- * the bell, and the strip under it starting with the place picker, then the quest or thread.
+ * A leader (phones and desktop alike): the top bar with the Overview menu before the bell, and the
+ * strip under it starting with the place picker, then the quest or thread.
  */
 function BreadcrumbFrame({ width, sessionId }: { width: number; sessionId: string }) {
   const [current, setCurrent] = useState("q-9482");
@@ -293,29 +248,18 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="A leader's thread navigation. With topics off: the tab row, Main and one item per kind of tab (prompts waiting, in progress with phase-color dots, unread results, done); wide screens add each group's name; a group lists its tabs (a group of one opens its tab directly; long-press shows the list) and the Done list offers Close all. With topics on, phones and desktop alike have no tab row: the strip under the top bar is a breadcrumb whose first part picks the place (Main, All threads, then the topics, each saying what its quests are doing, and the quests under no topic), and the top bar's Working on picker lists the quests in motion, with the full board behind a button in its list. Side chats (threads the user started) live in the side column; its Recent list shows those with something for the user first, then every one read."
+        description="A leader's thread navigation, phones and desktop alike: no tab row. The strip under the top bar is a breadcrumb whose first part picks the place (Home, then the topics, each saying what its quests are doing, and the quests under no topic, then the leader log), and the top bar's Overview menu lists what needs the user and what runs, with the full board behind a button. Threads live in the side column; its Recent list shows those with something for the user first, then every one read."
       >
         <div className="space-y-4">
-          <Card label="Topics off, at the top (tap a group)">
-            <PhoneFrame placement="top" />
-          </Card>
-          <Card label="Topics off, desktop width">
-            <PhoneFrame placement="top" wide />
-          </Card>
-          <Card label="Topics on, phone: Working on in the top bar, the place picker starting the strip">
+          <Card label="Phone: the Overview menu in the top bar, the place picker starting the strip">
             <BreadcrumbFrame width={430} sessionId="playground-crumbs-phone" />
           </Card>
-          <Card label="Topics on, desktop">
+          <Card label="Desktop">
             <BreadcrumbFrame width={1000} sessionId="playground-crumbs-desktop" />
           </Card>
-          <Card label="Side chats (the side column's Recent list)">
+          <Card label="Threads (the side column's Recent list)">
             <div className="w-[22rem] max-w-full rounded-xl border border-cc-border bg-cc-card py-1">
               <ThreadsList menu={threadsMenu(() => {})} currentKey="" writingKey={WRITING_THREAD} />
-            </div>
-          </Card>
-          <Card label="Topics off, at the bottom (lists open upward)">
-            <div className="pt-72">
-              <PhoneFrame placement="bottom" />
             </div>
           </Card>
         </div>

@@ -29,7 +29,7 @@ export type NextAttentionItem =
       remindAt?: number;
       /** For one unread answer, report or finished quest: its notification and message. */
       notification?: SessionNotification;
-      /** The Library topic of its quest, when the leader has topics on: the list groups by it. */
+      /** The Library topic of its quest, when it has one: the list groups by it. */
       topic?: { id: string; name: string } | null;
     });
 

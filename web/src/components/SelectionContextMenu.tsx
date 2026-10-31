@@ -6,7 +6,7 @@ import { copyRichText, writeClipboardText } from "../utils/copy-utils.js";
 import { htmlFragmentToMarkdown, htmlFragmentToRichText } from "../utils/html-to-markdown.js";
 import { selectionCopyForSlack } from "../utils/slack-copy.js";
 import type { TextSelectionState } from "../hooks/useTextSelection.js";
-import { useLeaderTopicsOn } from "../utils/leader-topics.js";
+import { useLeaderBreadcrumb } from "../utils/top-bar-slots.js";
 import { openInSide, sideChatOrigin, sideColumnOnScreen } from "../utils/side-column.js";
 import { newSideChatDraftKey } from "./side-column/NewSideChat.js";
 import { useComposerTarget } from "./composer-target.js";
@@ -92,8 +92,8 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
     onClose();
   }, [selection, onClose]);
 
-  // A leader with topics on can take the passage to a side chat about it instead of this thread.
-  const canStartThread = useLeaderTopicsOn(sessionId);
+  // A leader can take the passage to a new thread about it instead of this thread.
+  const canStartThread = useLeaderBreadcrumb(sessionId);
   const handleAskInSideChat = useCallback(() => {
     if (!selection.plainText.trim()) return;
     // In the column on screen, which may show another leader's chat: the new one is with this

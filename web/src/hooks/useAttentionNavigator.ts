@@ -22,6 +22,7 @@ import {
   type Route,
 } from "../utils/routing.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
+import { threadForMessagesOf } from "../utils/leader-topics.js";
 
 export interface NextAttentionLanding {
   item: NextAttentionItem;
@@ -140,7 +141,9 @@ export function openAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessi
       return;
     }
     const routeSessionId = routeSessionRefForId(sessionId, sdkSessions);
-    navigateToSessionThread(sessionId, threadKey, false, routeSessionId, { preserveMainThreadRoute: true });
+    // Where its messages are read: a leader's Main messages are in its leader log.
+    const view = threadForMessagesOf(sessionId, threadKey);
+    navigateToSessionThread(sessionId, view, false, routeSessionId, { preserveMainThreadRoute: true });
     if (known) return;
     const openedRoute = parseHash(window.location.hash);
     api
@@ -148,7 +151,7 @@ export function openAttentionItem(item: NextAttentionItem, sdkSessions: SdkSessi
       .then((notifications) => {
         const loaded = firstUnreadResult(notifications, inThread);
         // Only while the thread just opened is still on screen as it was: never pull the user back.
-        if (!loaded?.messageId || !stillShowsThread(openedRoute, threadKey)) return;
+        if (!loaded?.messageId || !stillShowsThread(openedRoute, view)) return;
         navigateToSessionMessageId(sessionId, loaded.messageId, {
           replace: true,
           routeSessionId,

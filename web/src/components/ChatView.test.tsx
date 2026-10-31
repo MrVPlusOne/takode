@@ -154,6 +154,13 @@ vi.mock("../ws.js", () => ({
   sendToSession: (sessionId: string, msg: unknown) => mockSendToSession(sessionId, msg),
 }));
 
+// A leader's Main is its Home, drawn instead of a feed; it stands in for the Main view here.
+vi.mock("./LeaderHomePage.js", () => ({
+  LeaderHomePage: ({ leaderId }: { leaderId: string }) => (
+    <div data-testid="message-feed" data-session-id={leaderId} data-thread-key="main" data-home="true" />
+  ),
+  NewThreadComposer: () => <div data-testid="new-thread-composer" />,
+}));
 vi.mock("./MessageFeed.js", () => ({
   MessageFeed: ({
     sessionId,
@@ -233,14 +240,12 @@ vi.mock("./WorkBoardBar.js", () => ({
     onReturnToMain,
     onSelectThread,
     openThreadKeys = [],
-    onCloseThreadTab,
   }: {
     sessionId: string;
     currentThreadKey?: string;
     onReturnToMain?: () => void;
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
-    onCloseThreadTab?: (threadKey: string, nextThreadKey?: string) => void;
   }) => {
     const projection = currentLeaderTabsProjection(sessionId);
     const projectedRows =
@@ -281,18 +286,6 @@ vi.mock("./WorkBoardBar.js", () => ({
             ))}
           </>
         )}
-        {onCloseThreadTab &&
-          openThreadKeys.map((threadKey, index) => (
-            <button
-              type="button"
-              key={`close-${threadKey}`}
-              data-testid="mock-workboard-close-tab"
-              data-thread-key={threadKey}
-              onClick={() => onCloseThreadTab(threadKey, openThreadKeys[index + 1])}
-            >
-              Close {threadKey}
-            </button>
-          ))}
         {onReturnToMain && (
           <button type="button" onClick={onReturnToMain}>
             Return to Main
@@ -647,6 +640,8 @@ describe("ChatView chat surface and leader routing", () => {
 
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
+    // A thread link in the leader log (Home shows no feed).
+    fireEvent.click(scope.getByTestId("mock-workboard-all"));
 
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-additional-attention-count", "0");
 
@@ -729,7 +724,6 @@ describe("ChatView chat surface and leader routing", () => {
     await waitFor(() => {
       expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
     });
-    expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "main");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "");
     expect(window.location.hash).toBe("#/session/s1");
   });
@@ -884,7 +878,7 @@ describe("ChatView chat surface and leader routing", () => {
     });
   });
 
-  it("offers All Threads as a global projection while keeping a Main/global composer available", () => {
+  it("offers the leader log (All Threads) as a global projection whose message box starts a thread", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
@@ -913,16 +907,15 @@ describe("ChatView chat surface and leader routing", () => {
     fireEvent.click(scope.getByTestId("mock-workboard-all"));
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "all");
     expect(window.location.hash).toBe("#/session/s1?thread=all");
-    expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "main");
-    expect(scope.getByTestId("composer")).toHaveAttribute("data-transcription-thread-key", "main");
-    expect(scope.getByTestId("composer")).not.toHaveAttribute("data-quest-id");
+    // Main's messages are read here, but nothing is written to Main: writing starts a thread.
+    expect(scope.queryByTestId("composer")).toBeNull();
+    expect(scope.getByTestId("new-thread-composer")).toBeTruthy();
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "all");
     expect(scope.queryByTestId("all-threads-return-main")).not.toBeInTheDocument();
 
     fireEvent.click(scope.getByTestId("mock-workboard-main"));
-    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-home", "true");
     expect(window.location.hash).toBe("#/session/s1");
-    expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "main");
   });
 
   it("restores a valid leader thread from the URL route", async () => {

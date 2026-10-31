@@ -1,15 +1,6 @@
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { showTopBarSession, topBarHelpersRef, useLeaderBreadcrumb } from "../utils/top-bar-slots.js";
-import {
-  useState,
-  useMemo,
-  useCallback,
-  useRef,
-  useEffect,
-  useLayoutEffect,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -23,14 +14,8 @@ import { resolveSessionNavigation } from "../utils/session-navigation-resolver.j
 import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
-import { activeBoardPhaseDots } from "./leader-board-summary.js";
-import {
-  LeaderTopicsTopBarButton,
-  LeaderWorkboardTopBarButton,
-  toggleLeaderWorkboard,
-} from "./leader-workboard-controls.js";
+import { LeaderTopicsTopBarButton } from "./leader-workboard-controls.js";
 import { setTopicSheetOpen, useTopicSheetOpen } from "../utils/topic-panel.js";
-import type { BoardRowData } from "./BoardTable.js";
 import { SessionContextMenu, type SessionMenuTarget } from "./SessionContextMenu.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import { SessionArchiveConfirmation } from "./SessionArchiveConfirmation.js";
@@ -41,7 +26,6 @@ import { GlobalAttentionMenu } from "./GlobalAttentionMenu.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
-const EMPTY_LEADER_BOARD_ROWS: readonly BoardRowData[] = [];
 
 interface TopBarProps {
   fullPageLabel?: string;
@@ -137,8 +121,6 @@ export function TopBar({
     activeQuestCount,
     refreshQuestSummary,
     isCurrentLeaderSession,
-    currentLeaderBoard,
-    currentLeaderWorkboardView,
   } = useStore(
     useShallow((s) => ({
       currentSessionId: s.currentSessionId,
@@ -154,10 +136,6 @@ export function TopBar({
       isCurrentLeaderSession:
         !!s.currentSessionId &&
         s.sdkSessions.some((session) => session.sessionId === s.currentSessionId && session.isOrchestrator === true),
-      currentLeaderBoard: s.currentSessionId
-        ? (s.sessionBoards.get(s.currentSessionId) ?? EMPTY_LEADER_BOARD_ROWS)
-        : EMPTY_LEADER_BOARD_ROWS,
-      currentLeaderWorkboardView: s.currentSessionId ? (s.leaderWorkboardViews.get(s.currentSessionId) ?? null) : null,
     })),
   );
   const {
@@ -201,7 +179,6 @@ export function TopBar({
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   const isPaused = paused;
-  const currentLeaderPhaseDots = useMemo(() => activeBoardPhaseDots(currentLeaderBoard), [currentLeaderBoard]);
 
   const statusDot = (className?: string) => (
     <SessionStatusDot
@@ -291,10 +268,6 @@ export function TopBar({
     closeCodexSubagentInspector();
     toggleSecondaryPage("questmaster");
   }, [closeCodexSubagentInspector]);
-  // Opens the board under the tabs without leaving the current thread; the panel switches views itself.
-  const toggleLeaderWorkboardInPlace = useCallback(() => {
-    if (currentSessionId) toggleLeaderWorkboard(currentSessionId);
-  }, [currentSessionId]);
 
   if (fullPageLabel) {
     return (
@@ -363,8 +336,8 @@ export function TopBar({
     .filter(Boolean)
     .join(" ");
 
-  // A leader with topics on navigates by the breadcrumb under the bar; the bar keeps its Working on
-  // picker (see useLeaderBreadcrumb).
+  // A leader navigates by the breadcrumb under the bar; the bar keeps its Overview menu (see
+  // useLeaderBreadcrumb).
   const breadcrumb = leaderBreadcrumb && isSessionView;
   return (
     <header
@@ -534,16 +507,8 @@ export function TopBar({
 
       {/* Right side */}
       <div className={`flex items-center shrink-0 text-[12px] text-cc-muted ${compact ? "gap-1.5" : "gap-2 sm:gap-3"}`}>
-        {/* The conversation's Working on picker, which holds the work board. */}
+        {/* The conversation's Overview menu, which holds the work board. */}
         {breadcrumb && <div ref={topBarHelpersRef} className="flex items-center" data-testid="topbar-thread-helpers" />}
-        {currentSessionId && isSessionView && isCurrentLeaderSession && !breadcrumb && (
-          <LeaderWorkboardTopBarButton
-            open={currentLeaderWorkboardView !== null}
-            dots={currentLeaderPhaseDots}
-            compact={compact}
-            onToggle={toggleLeaderWorkboardInPlace}
-          />
-        )}
         {/* Phones open the topic sheet here; desktop keeps the panel beside the conversation. */}
         {currentSessionId && isSessionView && isCurrentLeaderSession && compact && (
           <LeaderTopicsTopBarButton

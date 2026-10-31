@@ -176,21 +176,15 @@ vi.mock("./WorkBoardBar.js", () => ({
   WorkBoardBar: ({
     currentThreadKey,
     onSelectThread,
-    onCloseThreadTab,
     openThreadKeys = [],
     threadRows = [],
   }: {
     currentThreadKey?: string;
     onSelectThread?: (threadKey: string) => void;
-    onCloseThreadTab?: (threadKey: string) => void;
     openThreadKeys?: string[];
     threadRows?: Array<{ threadKey: string; title: string }>;
   }) => (
-    <div
-      data-testid="work-board-bar"
-      data-current-thread-key={currentThreadKey}
-      data-can-close={onCloseThreadTab ? "true" : "false"}
-    >
+    <div data-testid="work-board-bar" data-current-thread-key={currentThreadKey}>
       <button type="button" onClick={() => onSelectThread?.("main")}>
         Main
       </button>
@@ -330,49 +324,35 @@ describe("ChatView passive leader-session returns", () => {
     await waitFor(() => expect(screen.getByTestId("composer")).toHaveAttribute("data-thread-key", QUEST_ID));
   });
 
-  it("reuses one thread entry across a plan overlay but refreshes a true Main to quest to Main return", async () => {
+  it("reuses one thread entry across a plan overlay but refreshes a true quest to Home to quest return", async () => {
     persistLeaderSelectedThreadKey(LEADER_SESSION_ID, "main");
     history.replaceState(null, "", `#/session/${LEADER_SESSION_ID}`);
     const view = render(
       <ChatView sessionId={LEADER_SESSION_ID} viewportHandoffThreadEntryScopeId="session-entry-scope" />,
     );
-
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    const firstMainEntryId = latestViewportThreadEntryId(LEADER_SESSION_ID, "main");
-    expect(firstMainEntryId).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-home", "true"));
+    fireEvent.click(screen.getByTestId(`thread-button-${QUEST_ID}`));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    const firstEntryId = latestViewportThreadEntryId(LEADER_SESSION_ID, QUEST_ID);
+    expect(firstEntryId).toBeTruthy();
 
     mockState.pendingPermissions = new Map([
-      [
-        LEADER_SESSION_ID,
-        new Map([
-          [
-            "plan-1",
-            {
-              request_id: "plan-1",
-              tool_name: "ExitPlanMode",
-            },
-          ],
-        ]),
-      ],
+      [LEADER_SESSION_ID, new Map([["plan-1", { request_id: "plan-1", tool_name: "ExitPlanMode" }]])],
     ]);
     view.rerender(<ChatView sessionId={LEADER_SESSION_ID} viewportHandoffThreadEntryScopeId="session-entry-scope" />);
     await waitFor(() => expect(screen.getByTestId("plan-review-overlay")).toBeInTheDocument());
 
     mockState.pendingPermissions = new Map();
     view.rerender(<ChatView sessionId={LEADER_SESSION_ID} viewportHandoffThreadEntryScopeId="session-entry-scope" />);
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    expect(latestViewportThreadEntryId(LEADER_SESSION_ID, "main")).toBe(firstMainEntryId);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    expect(latestViewportThreadEntryId(LEADER_SESSION_ID, QUEST_ID)).toBe(firstEntryId);
 
+    // Leaving for the leader's Home and coming back is a true return: a fresh entry.
+    fireEvent.click(screen.getByRole("button", { name: "Main" }));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-home", "true"));
     fireEvent.click(screen.getByTestId(`thread-button-${QUEST_ID}`));
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
-    const questEntryId = latestViewportThreadEntryId(LEADER_SESSION_ID, QUEST_ID);
-    expect(questEntryId).toBeTruthy();
-    expect(questEntryId).not.toBe(firstMainEntryId);
-
-    fireEvent.click(screen.getByRole("button", { name: "Main" }));
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    expect(latestViewportThreadEntryId(LEADER_SESSION_ID, "main")).not.toBe(firstMainEntryId);
-    expect(latestViewportThreadEntryId(LEADER_SESSION_ID, "main")).not.toBe(questEntryId);
+    expect(latestViewportThreadEntryId(LEADER_SESSION_ID, QUEST_ID)).not.toBe(firstEntryId);
   });
   it("checkpoints the actual Main selection across A to B to A and ignores late completed-thread hydration", async () => {
     // Regression: a completed quest tab stays server-open for inspection. If a
@@ -539,8 +519,6 @@ describe("ChatView breadcrumb band ×", () => {
       LEADER_SESSION_ID,
       expect.objectContaining({ operation: expect.objectContaining({ type: "close" }) }),
     );
-    // Nor can its menus close it: the tab bar gets no close handler with the breadcrumb.
-    expect(screen.getByTestId("work-board-bar")).toHaveAttribute("data-can-close", "false");
   });
 });
 

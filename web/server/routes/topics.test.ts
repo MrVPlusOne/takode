@@ -121,7 +121,7 @@ describe("topic routes", () => {
   it("lets a leader's Scribe read its overview and save an order with short notes the panel gets", async () => {
     // Jiayi: the Scribe orders the overview by what to handle first and adds a short line of context.
     const { app, store, send, setCaller } = await setup();
-    store.setLeaderEnabled("leader", true);
+    store.enableLeader("leader");
     setCaller("scribe");
     const read = await (await app.request("/scribe/overview")).json();
     expect(read.order).toBeNull();
@@ -159,7 +159,7 @@ describe("topic routes", () => {
   it("files a leader's quest under a topic and tells quest create the leader's topics", async () => {
     const { app, store, send, setCaller } = await setup();
     setCaller("leader");
-    store.setLeaderEnabled("leader", true);
+    store.enableLeader("leader");
     const filed = await (await send("/topics/assign", "POST", { questId: "q-1", topic: "T7 run" })).json();
     expect(filed).toMatchObject({ created: true, topic: { name: "T7 run", space: "MSI", nameSource: "agent" } });
     // A topic the leader started goes to its Scribe to check that it is distinct enough.
@@ -471,7 +471,7 @@ describe("topic routes", () => {
     const refused = await send("/topics/threads", "POST", { leader: "leader", name: "Quick question" });
     expect(refused.status).toBe(404);
 
-    store.setLeaderEnabled("leader", true);
+    store.enableLeader("leader");
     const { thread } = await (
       await send("/topics/threads", "POST", { leader: "leader", name: "Quick question", startedFrom: "Q-2" })
     ).json();
@@ -494,7 +494,7 @@ describe("topic routes", () => {
   // whatever topic was on screen. A leader opens a thread for them instead, filed under a topic.
   it("lets a leader open a thread of its own, filed under a topic, and leaves none behind for an unknown topic", async () => {
     const { app, store, send, setCaller } = await setup();
-    store.setLeaderEnabled("leader", true);
+    store.enableLeader("leader");
     store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
     setCaller("leader");
     const { thread } = await (

@@ -144,13 +144,11 @@ interface TopicState {
   version: 1;
   topics: Record<string, StoredTopic>;
   questTopics: Record<string, string>;
+  /** The leaders whose topics have started: every leader's do; its Scribe initializes once. */
   enabledLeaders: Record<string, { enabledAt: number; initializedAt?: number }>;
-  /**
-   * Leaders the user turned topics off for, and when. Topics are on for every other leader by
-   * default, so these are the ones that stay off.
-   */
+  /** Retired with topics-off mode: leaders the user had turned topics off for. Dropped on load. */
   disabledLeaders?: Record<string, number>;
-  /** When topics became on by default; leaders turned off before it were recorded as turned off then. */
+  /** Retired with topics-off mode: when topics became on by default. Dropped on load. */
   onByDefaultSince?: number;
   /** Retired: dismissals of the hint that offered topics while they were opt-in. Not read. */
   hintDismissed?: Record<string, number>;
@@ -236,8 +234,7 @@ export class TopicStore {
       const parsed = JSON.parse(await readFile(join(this.root, "topics.json"), "utf-8")) as TopicState;
       if (parsed?.version !== 1 || typeof parsed.topics !== "object") throw new Error("unknown topics format");
       this.state = parsed;
-      for (const topic of Object.values(parsed.topics)) {
-      }
+      this.upgradeState(parsed);
       this.coverMergedEvents();
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
@@ -261,6 +258,27 @@ export class TopicStore {
     return this.state !== null;
   }
 
+  /**
+   * Brings a saved store from an older version up to date, so nothing reads a missing part:
+   * containers added since are created, and the opt-outs of the retired topics-off mode are
+   * dropped (every leader has topics now; leaders that had them off start them at startup).
+   */
+  private upgradeState(state: TopicState): void {
+    state.questTopics ??= {};
+    state.enabledLeaders ??= {};
+    state.cursors ??= {};
+    state.changes ??= [];
+    for (const topic of Object.values(state.topics)) {
+      topic.events ??= [];
+      topic.aliases ??= [];
+    }
+    if (state.disabledLeaders || state.onByDefaultSince) {
+      delete state.disabledLeaders;
+      delete state.onByDefaultSince;
+      this.dirty = true;
+    }
+  }
+
   // ─── Leaders ──────────────────────────────────────────────────────────────
 
   isLeaderEnabled(sessionId: string): boolean {
@@ -272,50 +290,19 @@ export class TopicStore {
   }
 
   /**
-   * Turns topics on or off for a leader; returns whether its Scribe still has to initialize. The
-   * user's own choice (`byUser`) is remembered: a leader the user turned off stays off, while one
-   * turned off with every leader (Settings) comes back on with them.
+   * Starts topics for a leader (every leader has them); returns whether its Scribe still has to
+   * initialize, which it does once: sorting the leader's recent work into topics.
    */
-  setLeaderEnabled(sessionId: string, enabled: boolean, byUser = false): { needsInitialization: boolean } {
-    const state = this.s();
-    const leaders = state.enabledLeaders;
-    if (byUser || enabled) {
-      if (!enabled) (state.disabledLeaders ??= {})[sessionId] = this.now();
-      else if (state.disabledLeaders?.[sessionId]) delete state.disabledLeaders[sessionId];
+  enableLeader(sessionId: string): { needsInitialization: boolean } {
+    const leaders = this.s().enabledLeaders;
+    if (!leaders[sessionId]) {
+      leaders[sessionId] = { enabledAt: this.now() };
       this.dirty = true;
     }
-    if (!enabled) {
-      if (leaders[sessionId]) {
-        delete leaders[sessionId];
-        this.dirty = true;
-      }
-      return { needsInitialization: false };
-    }
-    leaders[sessionId] ??= { enabledAt: this.now() };
-    this.dirty = true;
     return { needsInitialization: !leaders[sessionId].initializedAt };
   }
 
-  /** The user turned topics off for this leader, so they don't come on by default. */
-  turnedOffByUser(sessionId: string): boolean {
-    return !!this.s().disabledLeaders?.[sessionId];
-  }
-
-  /**
-   * Once, when topics become on by default: a leader that had topics before (it has a Scribe
-   * record) but has them off now was turned off by the user, so it stays off.
-   */
-  recordEarlierTurnOffs(): void {
-    const state = this.s();
-    if (state.onByDefaultSince) return;
-    state.onByDefaultSince = this.now();
-    for (const leaderId of Object.keys(state.scribes ?? {})) {
-      if (!state.enabledLeaders[leaderId]) (state.disabledLeaders ??= {})[leaderId] = state.onByDefaultSince;
-    }
-    this.dirty = true;
-  }
-
-  /** Topics are on for the leader and its Scribe has not been asked to initialize yet. */
+  /** The leader's topics have started and its Scribe has not been asked to initialize yet. */
   needsInitialization(sessionId: string): boolean {
     const leader = this.s().enabledLeaders[sessionId];
     return !!leader && !leader.initializedAt;

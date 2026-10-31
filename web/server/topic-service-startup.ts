@@ -23,8 +23,7 @@ const THREAD_NOTICE_DELAY_MS = 300;
 
 /**
  * Starts the Library's topics: loads the store beside the artifact library, reads saved sessions
- * of leaders with topics on, and starts each such leader's Scribe (a worker in its herd) when it is
- * first needed.
+ * of leaders, and starts each leader's Scribe (a worker in its herd) when it is first needed.
  */
 export async function startLibraryTopics(input: {
   serverId: string;
@@ -115,7 +114,6 @@ export async function startLibraryTopics(input: {
       return message ? historyMessageText(message) : null;
     },
     broadcastChanged: () => {},
-    topicsForLeaders: () => getSettings().leaderTopics !== false,
     // A page's images load from its leader's machine (a remote host's too), so they are checked there.
     fileModifiedAt: async (leaderId, path) => {
       const where = leaderMachine(leaderId);

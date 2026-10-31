@@ -5,10 +5,10 @@
  * board rows stay independently authoritative and load only while their panel
  * is open.
  */
-import { useLeaderBreadcrumb, useTopBarSlot } from "../utils/top-bar-slots.js";
+import { useTopBarSlot } from "../utils/top-bar-slots.js";
 import { useCrumbSlot } from "./breadcrumb/crumb-slot.js";
 import { CrumbStart } from "./breadcrumb/CrumbStart.js";
-import { memo, useEffect, useLayoutEffect, useMemo, useState, type MutableRefObject } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import {
@@ -22,9 +22,9 @@ import type { BoardRowData } from "./BoardTable.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { getQuestPhaseAccentValue, getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
 import {
-  activeBoardPhaseDots,
   activeBoardSummarySegments,
   boardSummary,
+  phaseDotsFromKeys,
   type BoardSummarySegment,
 } from "./leader-board-summary.js";
 import { LeaderWorkboardControlButton, toggleLeaderWorkboard, WorkBoardIcon } from "./leader-workboard-controls.js";
@@ -33,6 +33,7 @@ import type { LeaderWorkboardView } from "../store-types.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import {
   resolveLeaderThreadTabsProjection,
+  selectLeaderPhaseDotsKey,
   resolveWorkBoardIsOrchestrator,
 } from "../utils/leader-thread-tabs-resolver.js";
 import { buildLeaderThreadMigrationKeys } from "../utils/leader-thread-tabs-navigation.js";
@@ -49,8 +50,6 @@ import {
   isSelectedThread,
   type PrimaryThreadChip,
 } from "./WorkBoardThreadTabs.js";
-import { threadKeyToSelectAfterClosing } from "./ThreadTabGroups.js";
-import { NotifyMeControl } from "./NotifyMe.js";
 
 export { activeBoardSummarySegments, boardSummary };
 export type { BoardSummarySegment };
@@ -400,90 +399,33 @@ function PanelViewSwitch({
   );
 }
 
-function ProjectionToggle({
-  currentThreadKey,
-  onSelectThread,
-}: {
-  currentThreadKey: string;
-  onSelectThread?: (threadKey: string) => void;
-}) {
-  if (!onSelectThread) return null;
-  const allSelected = isSelectedThread(currentThreadKey, ALL_THREADS_KEY);
-  const mainSelected = !allSelected;
-  const base =
-    "inline-flex h-6 items-center rounded px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset";
-  const selected = "bg-cc-hover text-cc-fg";
-  const idle = "text-cc-muted hover:bg-cc-hover/55 hover:text-cc-fg";
-  return (
-    <div
-      className="inline-flex shrink-0 items-center rounded-md border border-cc-border/70 bg-cc-card/60 p-0.5"
-      data-testid="workboard-projection-toggle"
-      aria-label="Main thread projection"
-    >
-      <button
-        type="button"
-        onClick={() => onSelectThread(MAIN_THREAD_KEY)}
-        className={`${base} ${mainSelected ? selected : idle}`}
-        aria-pressed={mainSelected}
-        data-testid="workboard-projection-main"
-      >
-        Main
-      </button>
-      <button
-        type="button"
-        onClick={() => onSelectThread(ALL_THREADS_KEY)}
-        className={`${base} ${allSelected ? selected : idle}`}
-        aria-pressed={allSelected}
-        data-testid="workboard-projection-all"
-      >
-        All
-      </button>
-    </div>
-  );
-}
-
 function WorkBoardBarComponent({
   sessionId,
   currentThreadKey = MAIN_THREAD_KEY,
   onSelectThread,
   openThreadKeys = [],
-  onCloseThreadTab,
   threadRows = [],
-  closeTabRef,
   hideThreadStrip = false,
 }: {
   sessionId: string;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   openThreadKeys?: string[];
-  onCloseThreadTab?: (threadKey: string, nextThreadKey: string) => void;
   threadRows?: WorkBoardThreadNavigationRow[];
-  /** Filled with this bar's close handler, for closing a tab from outside the bar. */
-  closeTabRef?: MutableRefObject<((threadKey: string) => void) | null>;
   /** Hides Main's strip under the tabs (the phone topic panel covers the thread). */
   hideThreadStrip?: boolean;
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
-  // Leaders with topics on navigate by breadcrumb: the place picker at the start of the strip, the
-  // Working on picker in the top bar (each conversation in its own box there, which the top bar
-  // shows only while that conversation is on screen).
-  const navInTopBar = useLeaderBreadcrumb(sessionId);
+  // Leaders navigate by breadcrumb: the place picker at the start of the strip, the Overview menu
+  // in the top bar (each conversation in its own box there, which the top bar shows only while that
+  // conversation is on screen).
   const topBarHelpers = useTopBarSlot("helpers", sessionId);
   // The breadcrumb: the place picker goes to the start of the strip on screen.
-  const crumbSlot = useCrumbSlot(sessionId, navInTopBar);
-  // The Working on button's board dots, only in the top bar, and by what they show: a board
-  // update that changes no dot must not re-render the bar.
-  const boardDotsKey = useStore((state) =>
-    navInTopBar
-      ? activeBoardPhaseDots(state.sessionBoards.get(sessionId) ?? [])
-          .map((dot) => `${dot.questId}:${dot.phase.id}`)
-          .join(",")
-      : "",
-  );
-  const boardDots = useMemo(
-    () => (boardDotsKey ? activeBoardPhaseDots(useStore.getState().sessionBoards.get(sessionId) ?? []) : []),
-    [boardDotsKey, sessionId],
-  );
+  const crumbSlot = useCrumbSlot(sessionId, isOrchestrator);
+  // The Overview button's board dots, by what they show: an update that changes no dot must not
+  // re-render the bar.
+  const boardDotsKey = useStore((state) => selectLeaderPhaseDotsKey(state, sessionId));
+  const boardDots = useMemo(() => phaseDotsFromKeys(boardDotsKey ? boardDotsKey.split(",") : []), [boardDotsKey]);
   const leaderTabsResolution = useStore(useShallow((state) => resolveLeaderThreadTabsProjection(state, sessionId)));
   const projection = leaderTabsResolution.projectionState === "accepted" ? leaderTabsResolution.value : null;
   const activeView = useStore((state) => state.leaderWorkboardViews?.get(sessionId) ?? null);
@@ -567,17 +509,6 @@ function WorkBoardBarComponent({
         ? null
         : activeView;
 
-  // Only leaders with topics off close tabs (their status-group row); with the breadcrumb every
-  // place stays in the menus.
-  const handleCloseThreadTab = (threadKey: string) => {
-    const normalized = normalizeThreadKey(threadKey);
-    onCloseThreadTab?.(normalized, threadKeyToSelectAfterClosing(normalized, displayedThreadTabs, currentThreadKey));
-  };
-  // The quest strip's close button closes through here too, so every close picks the next
-  // tab by the same rule.
-  useLayoutEffect(() => {
-    if (closeTabRef) closeTabRef.current = onCloseThreadTab ? handleCloseThreadTab : null;
-  });
   const handleSelectView = (view: LeaderWorkboardView) => {
     setLeaderWorkboardView(sessionId, activeView === view ? null : view);
   };
@@ -585,25 +516,20 @@ function WorkBoardBarComponent({
 
   const rail = (
     <ThreadTabRail
-      breadcrumb={
-        navInTopBar
-          ? {
-              helpers: topBarHelpers,
-              board: {
-                open: activeView !== null,
-                dots: boardDots,
-                onToggle: () => toggleLeaderWorkboard(sessionId),
-              },
-              crumbSlot,
-            }
-          : undefined
-      }
+      breadcrumb={{
+        helpers: topBarHelpers,
+        board: {
+          open: activeView !== null,
+          dots: boardDots,
+          onToggle: () => toggleLeaderWorkboard(sessionId),
+        },
+        crumbSlot,
+      }}
       mainState={mainThreadState}
       tabs={displayedThreadTabs}
       sessionId={sessionId}
       currentThreadKey={currentThreadKey}
       onSelectThread={onSelectThread}
-      onCloseThreadTab={onCloseThreadTab ? handleCloseThreadTab : undefined}
       threadStatuses={threadStatuses}
     />
   );
@@ -613,16 +539,12 @@ function WorkBoardBarComponent({
 
       {showMainBanner && !hideThreadStrip && (
         <div
-          className={`relative flex min-w-0 flex-nowrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 sm:px-4 ${navInTopBar ? "min-h-8 py-0.5" : "py-1.5"}`}
+          className="relative flex min-h-8 min-w-0 flex-nowrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 py-0.5 sm:px-4"
           data-testid="workboard-main-banner"
           data-active-view={panelView ?? ""}
         >
-          {/* The breadcrumb's place picker (Home or the leader log) replaces it there. */}
-          {navInTopBar ? (
-            <CrumbStart sessionId={sessionId} separator={false} />
-          ) : (
-            <ProjectionToggle currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
-          )}
+          {/* The breadcrumb's place picker (Home or the leader log). */}
+          <CrumbStart sessionId={sessionId} separator={false} />
           <WorkBoardIcon className="h-4 w-4 text-cc-info" />
           <MainStripSummary
             summary={projection?.activePhaseSummary ?? []}
@@ -632,9 +554,6 @@ function WorkBoardBarComponent({
             onSelectView={handleSelectView}
           />
           <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
-            {/* Main's Notify offers "Remind me later" only: Notify Me does not track Main. A
-                leader's Home (where Main was, with topics on) has nothing to be reminded of. */}
-            {!navInTopBar && <NotifyMeControl sessionId={sessionId} threadKey="main" />}
             {/* The leader's own changes; nothing shows while its checkout is clean. */}
             <SessionChangesChip
               sessionId={sessionId}

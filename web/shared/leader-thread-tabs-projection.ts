@@ -115,6 +115,12 @@ export interface LeaderThreadTabsProjectionValue {
    * Topics mode). Absent from older servers.
    */
   runningQuestIds?: string[];
+  /**
+   * The phase dots of the leader's Overview button, `questId:phaseId` each in board order
+   * (`activePhaseDotKeys`). Here so that a quest changing phase redraws the leader's navigation once,
+   * with the rest of this projection, rather than again when the board detail arrives.
+   */
+  activePhaseDots?: string[];
   /** "Remind me later" wake times by thread key ("main" or a quest ID), including closed tabs. */
   threadReminders?: Record<string, LeaderThreadReminderProjection>;
 }
@@ -332,6 +338,14 @@ export function isLeaderThreadTabsProjectionValue(value: unknown): value is Lead
   ) {
     return false;
   }
+  if (
+    candidate.activePhaseDots !== undefined &&
+    (!Array.isArray(candidate.activePhaseDots) ||
+      candidate.activePhaseDots.length > LEADER_THREAD_TABS_PROJECTION_MAX_TABS ||
+      candidate.activePhaseDots.some((key) => typeof key !== "string" || !/^q-\d+:[a-z-]+$/.test(key)))
+  ) {
+    return false;
+  }
   if (candidate.threadReminders !== undefined && !isThreadReminders(candidate.threadReminders)) return false;
 
   const tabKeys = candidate.tabs.map((tab) => tab.threadKey);
@@ -357,6 +371,8 @@ export interface LeaderThreadTabsProjectionPatch {
   r?: Record<string, LeaderThreadReminderProjection>;
   /** The whole list of quests in motion when it changed. */
   q?: string[];
+  /** The whole list of phase dots when it changed. */
+  b?: string[];
 }
 
 const STATUS_FIELDS = new Set([
@@ -414,6 +430,9 @@ export function createLeaderThreadTabsProjectionPatch(
   if (!arraysEqual(previous.runningQuestIds ?? [], next.runningQuestIds ?? [], (left, right) => left === right)) {
     patch.q = next.runningQuestIds ?? [];
   }
+  if (!arraysEqual(previous.activePhaseDots ?? [], next.activePhaseDots ?? [], (left, right) => left === right)) {
+    patch.b = next.activePhaseDots ?? [];
+  }
   const patchBytes = jsonUtf8ByteLength(patch);
   const valueBytes = jsonUtf8ByteLength(next);
   return Object.keys(patch).length && patchBytes !== null && valueBytes !== null && patchBytes < valueBytes
@@ -436,7 +455,7 @@ export function applyLeaderThreadTabsProjectionPatch(
   }
   const patch = input as LeaderThreadTabsProjectionPatch;
   const keys = Object.keys(patch);
-  if (!keys.length || keys.some((key) => key.length !== 1 || !"dtoasprq".includes(key))) return undefined;
+  if (!keys.length || keys.some((key) => key.length !== 1 || !"dtoasprqb".includes(key))) return undefined;
 
   const tabMap = new Map(previous.tabs.map((tab) => [tab.threadKey, tab]));
   if (patch.t !== undefined) {
@@ -474,6 +493,7 @@ export function applyLeaderThreadTabsProjectionPatch(
     ...(patch.p !== undefined ? { activePhaseSummary: patch.p } : {}),
     ...(patch.r !== undefined ? { threadReminders: patch.r } : {}),
     ...(patch.q !== undefined ? { runningQuestIds: patch.q } : {}),
+    ...(patch.b !== undefined ? { activePhaseDots: patch.b } : {}),
     tabs,
     threadStatuses,
   };
@@ -534,6 +554,12 @@ export function reconcileLeaderThreadTabsProjectionValue(
     arraysEqual(previous.runningQuestIds, next.runningQuestIds, (left, right) => left === right)
       ? previous.runningQuestIds
       : next.runningQuestIds;
+  const activePhaseDots =
+    previous.activePhaseDots &&
+    next.activePhaseDots &&
+    arraysEqual(previous.activePhaseDots, next.activePhaseDots, (left, right) => left === right)
+      ? previous.activePhaseDots
+      : next.activePhaseDots;
   if (
     tabState === previous.tabState &&
     tabs === previous.tabs &&
@@ -541,7 +567,8 @@ export function reconcileLeaderThreadTabsProjectionValue(
     threadStatuses === previous.threadStatuses &&
     activePhaseSummary === previous.activePhaseSummary &&
     threadReminders === previous.threadReminders &&
-    runningQuestIds === previous.runningQuestIds
+    runningQuestIds === previous.runningQuestIds &&
+    activePhaseDots === previous.activePhaseDots
   ) {
     return previous;
   }
@@ -553,6 +580,7 @@ export function reconcileLeaderThreadTabsProjectionValue(
     threadStatuses,
     activePhaseSummary,
     ...(runningQuestIds ? { runningQuestIds } : {}),
+    ...(activePhaseDots ? { activePhaseDots } : {}),
     ...(threadReminders ? { threadReminders } : {}),
   };
 }

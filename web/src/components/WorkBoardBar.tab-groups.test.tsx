@@ -170,21 +170,17 @@ const THREAD_ROWS = Array.from({ length: 5 }, (_, index) => {
 
 const OPEN_KEYS = ["q-1", "q-2", "q-3", "q-4", "q-5"];
 
-function groupChip(group: string): HTMLElement {
-  return screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === group)!;
-}
-
-/** Opens a group's list (a right-click also opens a group of one) and returns its rows. */
-function openGroup(group: string): HTMLElement[] {
-  fireEvent.contextMenu(groupChip(group));
-  return within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
+/** Opens the place picker and returns its quest rows (the tests file no topics). */
+function pickerRows(): HTMLElement[] {
+  const first = listedThreadTab(OPEN_KEYS[0]!) ?? listedThreadTab("q-4");
+  return first ? within(screen.getByTestId("place-crumb-list")).getAllByTestId("thread-tab-list-row") : [];
 }
 
 function row(rows: HTMLElement[], threadKey: string): HTMLElement {
   return rows.find((candidate) => candidate.getAttribute("data-thread-key") === threadKey)!;
 }
 
-describe("WorkBoardBar tab groups", () => {
+describe("WorkBoardBar quest rows in the place picker", () => {
   beforeEach(() => {
     resetWorkBoardProjectionFixture();
     resetStore();
@@ -193,42 +189,6 @@ describe("WorkBoardBar tab groups", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-  });
-
-  it("files every open tab under its group and selects a tab from a group's list", () => {
-    // q-3 waits for input and the leader is writing in q-4, so Needs you holds q-3 and
-    // the in-progress group carries the writing marker.
-    const onSelectThread = vi.fn();
-    resetStore({
-      sessionStatus: new Map([["s1", "running"]]),
-      activeTurnRoutes: new Map([["s1", { threadKey: "q-4", questId: "q-4" }]]),
-      sessionBoards: new Map([
-        ["s1", [{ questId: "q-3", title: "Quest 3 thread", status: "WAITING", updatedAt: 3, waitForInput: ["user"] }]],
-      ]),
-    });
-
-    render(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-5"
-        openThreadKeys={OPEN_KEYS}
-        onSelectThread={onSelectThread}
-        threadRows={THREAD_ROWS}
-      />,
-    );
-
-    expect(groupChip("needs-input")).toHaveAttribute("data-count", "1");
-    expect(groupChip("in-progress")).toHaveAttribute("data-count", "4");
-    expect(groupChip("in-progress")).toHaveAttribute("data-active-output", "true");
-
-    fireEvent.click(groupChip("in-progress"));
-    const rows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
-    expect(rows.map((candidate) => candidate.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2", "q-4", "q-5"]);
-    expect(row(rows, "q-4")).toHaveAttribute("data-active-output", "true");
-
-    fireEvent.click(within(row(rows, "q-4")).getByTestId("thread-tab-list-row-select"));
-    expect(onSelectThread).toHaveBeenCalledWith("q-4");
-    expect(screen.queryByTestId("thread-tab-group-list")).not.toBeInTheDocument();
   });
 
   it("navigates a leader with topics on by breadcrumb, with Working on in the top bar only for the conversation on screen", () => {
@@ -277,8 +237,6 @@ describe("WorkBoardBar tab groups", () => {
       expect(screen.getByTestId("workboard-main-banner")).toContainElement(screen.getByTestId("place-crumb-button"));
       // Working on carries the Board button's icon, one dot per quest at work on the board.
       expect(within(helpers).getAllByTestId("workboard-dot")).toHaveLength(1);
-      // No tab row of its own under the top bar.
-      expect(view.container.querySelector('[data-testid="thread-tab-group-bar"]')).toBeNull();
 
       show(leaderB);
       view.rerender(kept(leaderB, [leaderA, leaderB]));
@@ -390,10 +348,7 @@ describe("WorkBoardBar tab groups", () => {
       />,
     );
 
-    const results = groupChip("new-results");
-    expect(results).toHaveAttribute("data-count", "1");
-    expect(results).toHaveClass("text-cc-muted");
-    const rows = openGroup("new-results");
+    const rows = pickerRows();
     expect(onSelectThread).not.toHaveBeenCalled();
 
     expect(row(rows, "q-4")).toHaveAttribute("data-blue-notification", "true");
@@ -403,7 +358,7 @@ describe("WorkBoardBar tab groups", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-4");
   });
 
-  it("files a Thread Ready unread result under New results with a blue bell", () => {
+  it("marks a Thread Ready unread result with a blue bell", () => {
     render(
       <WorkBoardBar
         sessionId="s1"
@@ -414,13 +369,13 @@ describe("WorkBoardBar tab groups", () => {
       />,
     );
 
-    const q4 = row(openGroup("new-results"), "q-4");
+    const q4 = row(pickerRows(), "q-4");
     expect(q4).toHaveAttribute("data-blue-notification", "true");
     expect(q4).toHaveAttribute("data-needs-input", "false");
     expect(within(q4).getByTestId("thread-tab-bell")).toHaveClass("text-cc-info");
   });
 
-  it("keeps an open prompt ahead of an unread result for both the group and the bell", () => {
+  it("keeps an open prompt ahead of an unread result for the bell", () => {
     resetStore({
       sessionBoards: new Map([
         ["s1", [{ questId: "q-4", title: "Quest 4 thread", status: "WAITING", updatedAt: 4, waitForInput: ["user"] }]],
@@ -437,66 +392,15 @@ describe("WorkBoardBar tab groups", () => {
       />,
     );
 
-    // q-4 has both, so it waits under Needs you and no New results group appears.
-    expect(groupChip("needs-input")).toHaveAttribute("data-count", "1");
-    expect(screen.getAllByTestId("thread-tab-group-chip").some((chip) => chip.dataset.group === "new-results")).toBe(
-      false,
-    );
-    const q4 = row(openGroup("needs-input"), "q-4");
+    // q-4 has both: one bell, in the attention color.
+    const q4 = row(pickerRows(), "q-4");
     expect(q4).toHaveAttribute("data-needs-input", "true");
     expect(q4).toHaveAttribute("data-blue-notification", "true");
     expect(within(q4).getAllByTestId("thread-tab-bell")).toHaveLength(1);
     expect(within(q4).getByTestId("thread-tab-bell")).toHaveClass("text-cc-attention");
   });
 
-  it("moves the tab on screen from In progress straight to Done when its quest finishes", () => {
-    // The server finishes a quest in two steps (completeBoardRow): it moves the board row to
-    // the completed board, then posts a "ready for review" result for that quest. The user
-    // is watching q-4, so the browser marks that result read as soon as it arrives, one
-    // round trip later. Each step below is one server update; the bar must never show the
-    // tab on screen under New results in between.
-    const onScreenGroups: Array<{ selected: string | undefined; groups: string[] }> = [];
-    const snapshot = () =>
-      onScreenGroups.push({
-        selected: screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.selected === "true")
-          ?.dataset.group,
-        groups: screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group!),
-      });
-    const workingRow = { questId: "q-4", title: "Quest 4 thread", status: "IMPLEMENTING", updatedAt: 4 };
-    const finishedRow = { ...workingRow, status: "DONE", updatedAt: 200, completedAt: 200 };
-    const bar = (attentionRecords: SessionAttentionRecord[]) => (
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-4"
-        openThreadKeys={["q-1", "q-4"]}
-        threadRows={THREAD_ROWS}
-        attentionRecords={attentionRecords}
-      />
-    );
-    const result = { ...reviewAttentionRecord("q-4"), createdAt: 201, updatedAt: 201 };
-
-    resetStore({ sessionBoards: new Map([["s1", [workingRow]]]) });
-    const { rerender } = render(bar([]));
-    snapshot();
-
-    // The board row finishes and the result arrives unread.
-    mockState.sessionBoards = new Map([["s1", []]]);
-    mockState.sessionCompletedBoards = new Map([["s1", [finishedRow]]]);
-    rerender(bar([result]));
-    snapshot();
-
-    // The browser's read lands.
-    rerender(bar([{ ...result, state: "resolved", resolvedAt: 260, updatedAt: 260 }]));
-    snapshot();
-
-    expect(onScreenGroups).toEqual([
-      { selected: "in-progress", groups: ["in-progress"] },
-      { selected: "done", groups: ["in-progress", "done"] },
-      { selected: "done", groups: ["in-progress", "done"] },
-    ]);
-  });
-
-  it("still files another tab's unread result under New results", () => {
+  it("still marks another tab's unread result", () => {
     // Only the tab on screen counts as read: q-1 finished while the user watched q-4.
     resetStore({
       sessionCompletedBoards: new Map([
@@ -512,10 +416,10 @@ describe("WorkBoardBar tab groups", () => {
         attentionRecords={[reviewAttentionRecord("q-1")]}
       />,
     );
-    expect(row(openGroup("new-results"), "q-1")).toHaveAttribute("data-blue-notification", "true");
+    expect(row(pickerRows(), "q-1")).toHaveAttribute("data-blue-notification", "true");
   });
 
-  it("uses the done gray for finished quests listed under Done", () => {
+  it("uses the done gray for finished quests", () => {
     resetStore({
       sessionCompletedBoards: new Map([
         [
@@ -540,7 +444,7 @@ describe("WorkBoardBar tab groups", () => {
 
     render(<WorkBoardBar sessionId="s1" currentThreadKey="q-5" openThreadKeys={OPEN_KEYS} threadRows={THREAD_ROWS} />);
 
-    const meta = within(row(openGroup("done"), "q-4")).getByTestId("thread-tab-list-row-meta");
+    const meta = within(row(pickerRows(), "q-4")).getByTestId("thread-tab-list-row-meta");
     expect(meta).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(meta).not.toHaveStyle({ color: getPhaseColor("PORTING") });
   });
@@ -559,10 +463,10 @@ describe("WorkBoardBar tab groups", () => {
 
     render(<WorkBoardBar sessionId="s1" currentThreadKey="q-5" openThreadKeys={OPEN_KEYS} threadRows={THREAD_ROWS} />);
 
-    const groups = screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group);
-    expect(groups).not.toContain("needs-input");
-    expect(groups).not.toContain("new-results");
-    const meta = within(row(openGroup("done"), "q-4")).getByTestId("thread-tab-list-row-meta");
+    const q4 = row(pickerRows(), "q-4");
+    expect(q4).toHaveAttribute("data-needs-input", "false");
+    expect(q4).toHaveAttribute("data-blue-notification", "false");
+    const meta = within(q4).getByTestId("thread-tab-list-row-meta");
     expect(meta).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
   });
 
@@ -572,7 +476,6 @@ describe("WorkBoardBar tab groups", () => {
         sessionId="s1"
         currentThreadKey="q-1"
         openThreadKeys={["q-1"]}
-        onCloseThreadTab={vi.fn()}
         threadRows={[
           {
             threadKey: "q-1",
@@ -586,7 +489,7 @@ describe("WorkBoardBar tab groups", () => {
       />,
     );
 
-    const q1 = row(openGroup("in-progress"), "q-1");
+    const q1 = row(pickerRows(), "q-1");
     expect(q1).toHaveAttribute("data-closable", "true");
     expect(within(q1).getByTestId("thread-tab-list-row-meta")).toHaveAttribute("data-title-color", "");
   });
@@ -662,65 +565,5 @@ describe("WorkBoardBar tab groups", () => {
     expect(retained).toBeDefined();
     expect(retained).toHaveTextContent("Resolve VSCode QA Stack Conflicts");
     expect(retained).not.toHaveTextContent("Old cached title");
-  });
-
-  it("keeps a group's list open after closing a tab from it", () => {
-    // The close fallback still follows the full ordered tab list.
-    const onCloseThreadTab = vi.fn();
-    render(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-5"
-        openThreadKeys={OPEN_KEYS}
-        onCloseThreadTab={onCloseThreadTab}
-        threadRows={THREAD_ROWS}
-      />,
-    );
-
-    const rows = openGroup("in-progress");
-    fireEvent.click(within(row(rows, "q-4")).getByLabelText("Close q-4"));
-
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-4", "q-5");
-    expect(screen.getByTestId("thread-tab-group-list")).toBeInTheDocument();
-  });
-
-  it("keeps a group's list open across several closes", () => {
-    const onCloseThreadTab = vi.fn();
-    const view = render(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-5"
-        openThreadKeys={OPEN_KEYS}
-        onCloseThreadTab={onCloseThreadTab}
-        threadRows={THREAD_ROWS}
-      />,
-    );
-
-    fireEvent.click(within(row(openGroup("in-progress"), "q-4")).getByLabelText("Close q-4"));
-    expect(screen.getByTestId("thread-tab-group-list")).toBeInTheDocument();
-
-    // Simulate the server-owned tab state after the first close while the list stays open.
-    view.rerender(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-5"
-        openThreadKeys={["q-1", "q-2", "q-3", "q-5"]}
-        onCloseThreadTab={onCloseThreadTab}
-        threadRows={THREAD_ROWS}
-      />,
-    );
-
-    const remaining = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
-    expect(remaining.map((candidate) => candidate.getAttribute("data-thread-key"))).toEqual([
-      "q-1",
-      "q-2",
-      "q-3",
-      "q-5",
-    ]);
-    fireEvent.click(within(row(remaining, "q-3")).getByLabelText("Close q-3"));
-
-    expect(onCloseThreadTab).toHaveBeenNthCalledWith(1, "q-4", "q-5");
-    expect(onCloseThreadTab).toHaveBeenNthCalledWith(2, "q-3", "q-5");
-    expect(screen.getByTestId("thread-tab-group-list")).toBeInTheDocument();
   });
 });

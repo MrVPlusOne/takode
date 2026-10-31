@@ -144,9 +144,8 @@ const openWorkingOn = () => fireEvent.click(screen.getByTestId("thread-tab-group
 describe("the place picker", () => {
   it("names where the conversation on screen lives: its quest's topic, Home or the leader log", () => {
     const { crumbSlot, rerender } = renderNav();
-    // Drawn at the start of the strip, not in place: no tab row at all.
+    // Drawn at the start of the strip, not in place.
     expect(within(crumbSlot).getByTestId("place-crumb-button").textContent).toContain("Relay");
-    expect(screen.queryByTestId("thread-tab-group-bar")).toBeNull();
     rerender({ currentThreadKey: "q-11" });
     // Main is the leader's Home (it has no conversation of its own); All threads is its log.
     expect(screen.getByTestId("place-crumb-button").textContent).toContain("Home");

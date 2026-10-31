@@ -10,6 +10,7 @@ import type {
 } from "../../shared/library-topics.js";
 import { isKeyOfTopic, isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { topicApi } from "../api/topics.js";
+import { useStore } from "../store.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 
 /**
@@ -218,7 +219,7 @@ export function useKnownThreadOfKey(leaderId: string, threadKey: string): Thread
 
 /** Asks the server about some of a leader's quests and remembers the answer. */
 export function loadLeaderTopics(leaderId: string, questIds: readonly string[]): Promise<void> {
-  // With no quests to ask about, still learn once whether topics are on: a leader can have
+  // With no quests to ask about, still learn once whether its topics have started: a leader can have
   // threads it started before any quest.
   if (!questIds.length && useLeaderTopicsStore.getState().byLeader[leaderId]) return Promise.resolve();
   return topicApi.questMap(leaderId, questIds).then((response) => remember(leaderId, questIds, response));
@@ -226,7 +227,7 @@ export function loadLeaderTopics(leaderId: string, questIds: readonly string[]):
 
 /**
  * For the tab bar: loads the topics of these quests (all its tabs), and returns what the Done list
- * groups by; null while the leader has topics off.
+ * groups by; null until they load.
  */
 export function useLeaderTopics(
   leaderId: string,
@@ -243,18 +244,15 @@ export function useLeaderTopics(
 }
 
 /**
- * Where a leader's messages of `threadKey` are read. A leader with topics on has a Home instead of a
- * Main conversation, so Main's messages are read in its leader log (All threads); every other thread
- * is read where it is.
+ * Where a session's messages of `threadKey` are read. A leader has a Home instead of a Main
+ * conversation, so Main's messages are read in its leader log (All threads); every other thread,
+ * and every other session's conversation, is read where it is.
  */
-export function threadForMessagesOf(leaderId: string, threadKey: string): string {
-  const topicsOn = !!useLeaderTopicsStore.getState().byLeader[leaderId]?.enabled;
-  return topicsOn && normalizeThreadKey(threadKey) === MAIN_THREAD_KEY ? ALL_THREADS_KEY : threadKey;
-}
-
-/** Whether a leader has Library topics on, as last known (false until its tab bar has asked). */
-export function useLeaderTopicsOn(leaderId: string): boolean {
-  return useLeaderTopicsStore((state) => !!leaderId && !!state.byLeader[leaderId]?.enabled);
+export function threadForMessagesOf(sessionId: string, threadKey: string): string {
+  const leader = useStore
+    .getState()
+    .sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator);
+  return leader && normalizeThreadKey(threadKey) === MAIN_THREAD_KEY ? ALL_THREADS_KEY : threadKey;
 }
 
 /** The topic a quest is filed under, as last known; undefined when not known yet. */

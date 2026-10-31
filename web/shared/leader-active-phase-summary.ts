@@ -55,6 +55,24 @@ export function buildLeaderActivePhaseSummary(
   }));
 }
 
+/** Board rows not being worked on: they get no phase dot. */
+const NOT_IN_MOTION_STATUSES = new Set(["QUEUED", "PROPOSED"]);
+
+/**
+ * The phase dots of a leader's Overview button: one `questId:phaseId` per board quest in a Journey
+ * phase (Work, User Checkpoint, Memory, Landing, ...), in board order. Queued and proposed quests
+ * are not being worked on and get none.
+ */
+export function activePhaseDotKeys(board: readonly LeaderActivePhaseSummaryRow[]): string[] {
+  const keys: string[] = [];
+  for (const row of orderLeaderActivePhaseRows(board)) {
+    if (NOT_IN_MOTION_STATUSES.has((row.status ?? "").trim().toUpperCase())) continue;
+    const phase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
+    if (phase) keys.push(`${row.questId}:${phase.id}`);
+  }
+  return keys;
+}
+
 export function orderLeaderActivePhaseRows<Row extends LeaderActivePhaseSummaryRow>(board: readonly Row[]): Row[] {
   return [...board].sort((a, b) => {
     const byPriority = statusPriority(a.status) - statusPriority(b.status);

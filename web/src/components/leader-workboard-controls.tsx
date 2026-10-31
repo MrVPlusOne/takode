@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useStore } from "../store.js";
 import { TopicIcon } from "./library/library-icons.js";
 import type { LeaderWorkboardView } from "../store-types.js";
-import { describeBoardPhaseDots, type BoardPhaseDot, type BoardSummarySegment } from "./leader-board-summary.js";
+import { type BoardPhaseDot, type BoardSummarySegment } from "./leader-board-summary.js";
 import { getQuestPhaseAccentValue } from "../utils/quest-phase-theme.js";
 
 /**
@@ -147,46 +147,6 @@ export function WorkBoardDotsIcon({ dots, large }: { dots: readonly BoardPhaseDo
         )}
       </span>
     </span>
-  );
-}
-
-/**
- * The leader's way into the work board from any thread: a top-bar button next to Next.
- * It shows the board's quests in a Journey phase as colored dots, never as a count or a
- * notification-style badge: it is information, not something unread. The count and the
- * phase breakdown live in the tooltip and the accessible label. The width never changes:
- * phones show the 36 px square board, desktop adds the "Board" label.
- */
-export function LeaderWorkboardTopBarButton({
-  open,
-  dots,
-  compact,
-  onToggle,
-}: {
-  open: boolean;
-  dots: readonly BoardPhaseDot[];
-  compact: boolean;
-  onToggle: () => void;
-}) {
-  const label = `${open ? "Close" : "Open"} work board: ${describeBoardPhaseDots(dots)}`;
-  const tone = open
-    ? "border-cc-primary/50 bg-cc-primary/12 text-cc-fg"
-    : "border-cc-border bg-cc-hover/40 text-cc-fg hover:bg-cc-hover";
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={`inline-flex shrink-0 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset ${
-        compact ? "h-9 w-9" : "h-7 gap-1.5 px-1.5 pr-2 text-[12px] font-medium"
-      } ${tone}`}
-      data-testid="topbar-workboard-button"
-      aria-pressed={open}
-      aria-label={label}
-      title={label}
-    >
-      <WorkBoardDotsIcon dots={dots} large={compact} />
-      {!compact && <span>Board</span>}
-    </button>
   );
 }
 

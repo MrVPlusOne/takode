@@ -13,6 +13,7 @@ import {
 } from "../test-fixtures/work-board-projection-adapter.js";
 
 interface MockStoreState {
+  sessionNotifications: Map<string, unknown[]>;
   sessionBoards: Map<string, BoardRowData[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
@@ -49,6 +50,7 @@ const mockSetExpandAllInTurn = vi.fn();
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
+    sessionNotifications: new Map(),
     sessionBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
     sessionCompletedBoards: new Map(),
@@ -273,35 +275,6 @@ describe("WorkBoardBar panel views", () => {
 
     fireEvent.pointerDown(document.body);
     expect(getByTestId("board-table")).toBeInTheDocument();
-  });
-
-  it("offers Main and All Threads projection in the persistent banner", () => {
-    const onSelectThread = vi.fn();
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
-    });
-
-    const { getByTestId } = render(<WorkBoardBar sessionId="s1" onSelectThread={onSelectThread} />);
-    expect(getByTestId("workboard-projection-toggle")).toBeInTheDocument();
-    expect(getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "true");
-    expect(getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "false");
-
-    fireEvent.click(getByTestId("workboard-projection-main"));
-    fireEvent.click(getByTestId("workboard-projection-all"));
-    expect(onSelectThread).toHaveBeenNthCalledWith(1, "main");
-    expect(onSelectThread).toHaveBeenNthCalledWith(2, "all");
-  });
-
-  it("marks All projection selected in the persistent banner", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
-    });
-
-    const { getByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="all" onSelectThread={vi.fn()} />);
-    expect(getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "false");
-    expect(getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("navigates active and completed quest threads without changing QuestLink semantics", () => {

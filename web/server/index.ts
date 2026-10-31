@@ -1557,8 +1557,7 @@ const websocketHandlers: WebSocketHandler<SocketData> = {
 void topicService
   .retireLegacyWriters()
   .then(() => topicService.askOutdatedScribes())
-  // Topics are on for every leader by default: leaders without them (unless the user turned them off) get them.
-  .then(() => topicService.applyLeaderDefaults())
+  .then(() => topicService.startLeaderTopics())
   .catch((error) => console.error("[library-topics] Startup work failed:", error));
 
 const server = Bun.serve<SocketData>({

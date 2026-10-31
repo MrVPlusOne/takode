@@ -25,7 +25,7 @@ export function LeaderName({ sessionId }: { sessionId: string }) {
 }
 
 /**
- * The leaders a side chat can be started with: those with topics on that are not archived, the
+ * The leaders a side chat can be started with: those with topics started that are not archived, the
  * column's own first, then the rest by when the user last wrote to them. Read when `enabled`.
  */
 function useSideChatLeaders(columnId: string, enabled: boolean): string[] | null {

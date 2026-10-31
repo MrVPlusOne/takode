@@ -3,7 +3,7 @@ import type { TopicSummary } from "../shared/library-topics.js";
 
 /**
  * `--topic` on `quest create` and `quest edit`: files the quest under a Library topic. A leader
- * with topics on that files a quest without one gets a reminder listing its space's topics.
+ * that files a quest without one gets a reminder listing its space's topics.
  */
 export async function fileQuestUnderTopic(server: QuestServerClient, questId: string, topic: string): Promise<void> {
   const { value } = await server.request<{ topic: TopicSummary; created: boolean }>("POST", "/topics/assign", {

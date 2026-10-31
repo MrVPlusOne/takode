@@ -3,10 +3,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api.js", () => ({ api: {} }));
+// Whether the passage's session is a leader (only leaders have threads).
 const topicsOn = vi.hoisted(() => ({ value: false }));
-vi.mock("../utils/leader-topics.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../utils/leader-topics.js")>()),
-  useLeaderTopicsOn: () => topicsOn.value,
+vi.mock("../utils/top-bar-slots.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/top-bar-slots.js")>()),
+  useLeaderBreadcrumb: () => topicsOn.value,
 }));
 
 import { useStore } from "../store.js";

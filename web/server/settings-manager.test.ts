@@ -91,7 +91,6 @@ describe("settings-manager", () => {
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
       scribeBackend: "leader",
-      leaderTopics: true,
       updatedAt: expect.any(Number),
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -764,7 +763,6 @@ describe("settings-manager", () => {
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
       scribeBackend: "leader",
-      leaderTopics: true,
       updatedAt: 0,
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -786,13 +784,12 @@ describe("settings-manager", () => {
     expect(getSettings().workerSlotLimits).toEqual({ claude: 8, codex: 6 });
   });
 
-  it("has Library topics on for leaders unless they were turned off", () => {
-    // Topics became on by default; only a saved false turns them off.
-    expect(getSettings().leaderTopics).toBe(true);
-    expect(updateSettings({ leaderTopics: false }).leaderTopics).toBe(false);
-    writeFileSync(settingsPath, JSON.stringify({ leaderTopics: "no" }), "utf-8");
+  it("drops the retired setting that turned Library topics off for leaders", () => {
+    // Topics are always on now: an older file's `leaderTopics: false` is read without error and
+    // not kept.
+    writeFileSync(settingsPath, JSON.stringify({ leaderTopics: false }), "utf-8");
     _resetForTest(settingsPath);
-    expect(getSettings().leaderTopics).toBe(true);
+    expect("leaderTopics" in getSettings()).toBe(false);
   });
 
   it("runs Scribes on the leader's backend unless Settings name one", () => {

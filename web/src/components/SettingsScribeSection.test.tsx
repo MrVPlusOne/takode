@@ -27,16 +27,8 @@ describe("Scribe settings", () => {
     await waitFor(() => expect(select).toHaveValue("codex"));
   });
 
-  it("shows Library topics on for leaders by default, and turns them off for every leader", async () => {
-    // Topics are on unless the user turns them off here (for the rare token-saving case).
-    mockUpdateSettings.mockResolvedValue({ leaderTopics: false });
+  it("has no switch to turn Library topics off: every leader has them", () => {
     render(<SettingsScribeSection settings={{ scribeBackend: "leader" } as AppSettings} />);
-    const toggle = screen.getByRole("switch", { name: "Library topics for leaders" });
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-
-    fireEvent.click(toggle);
-
-    expect(mockUpdateSettings).toHaveBeenCalledWith({ leaderTopics: false });
-    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+    expect(screen.queryByRole("switch", { name: "Library topics for leaders" })).toBeNull();
   });
 });

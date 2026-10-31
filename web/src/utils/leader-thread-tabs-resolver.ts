@@ -2,7 +2,11 @@ import {
   LEADER_THREAD_TABS_PROJECTION,
   type LeaderThreadTabsProjectionValue,
 } from "../../shared/leader-thread-tabs-projection.js";
-import type { LeaderActivePhaseSummarySegment } from "../../shared/leader-active-phase-summary.js";
+import {
+  activePhaseDotKeys,
+  type LeaderActivePhaseSummaryRow,
+  type LeaderActivePhaseSummarySegment,
+} from "../../shared/leader-active-phase-summary.js";
 import {
   LEADER_OPEN_THREAD_TABS_VERSION,
   type LeaderOpenThreadTabsState,
@@ -81,6 +85,22 @@ export function selectLeaderActivePhaseSummary(
 ): LeaderActivePhaseSummarySegment[] {
   const resolution = resolveLeaderThreadTabsProjection(source, sessionId);
   return resolution.projectionState === "accepted" ? resolution.value.activePhaseSummary : EMPTY_ACTIVE_PHASE_SUMMARY;
+}
+
+/**
+ * The phase dots of a leader's Overview button, `questId:phaseId` joined by commas. They come with
+ * the projection, so a quest changing phase redraws the leader's navigation once, with its tabs;
+ * the board detail gives them only until a projection carries them.
+ */
+export function selectLeaderPhaseDotsKey(
+  source: LeaderThreadTabsProjectionSource & {
+    sessionBoards?: Map<string, readonly LeaderActivePhaseSummaryRow[]>;
+  },
+  sessionId: string,
+): string {
+  const resolution = resolveLeaderThreadTabsProjection(source, sessionId);
+  const projected = resolution.projectionState === "accepted" ? resolution.value.activePhaseDots : undefined;
+  return (projected ?? activePhaseDotKeys(source.sessionBoards?.get(sessionId) ?? [])).join(",");
 }
 
 /** Whether a session shows the leader's work board and thread tab row. */

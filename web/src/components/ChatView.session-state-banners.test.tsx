@@ -228,14 +228,12 @@ vi.mock("./WorkBoardBar.js", () => ({
     onReturnToMain,
     onSelectThread,
     openThreadKeys = [],
-    onCloseThreadTab,
   }: {
     sessionId: string;
     currentThreadKey?: string;
     onReturnToMain?: () => void;
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
-    onCloseThreadTab?: (threadKey: string, nextThreadKey?: string) => void;
   }) => {
     const projection = currentLeaderTabsProjection(sessionId);
     const projectedRows =
@@ -276,18 +274,6 @@ vi.mock("./WorkBoardBar.js", () => ({
             ))}
           </>
         )}
-        {onCloseThreadTab &&
-          openThreadKeys.map((threadKey, index) => (
-            <button
-              type="button"
-              key={`close-${threadKey}`}
-              data-testid="mock-workboard-close-tab"
-              data-thread-key={threadKey}
-              onClick={() => onCloseThreadTab(threadKey, openThreadKeys[index + 1])}
-            >
-              Close {threadKey}
-            </button>
-          ))}
         {onReturnToMain && (
           <button type="button" onClick={onReturnToMain}>
             Return to Main

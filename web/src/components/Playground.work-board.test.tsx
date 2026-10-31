@@ -58,15 +58,13 @@ describe("Playground", { timeout: 60_000 }, () => {
     expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveClass("rounded-full", "border");
   });
 
-  it("documents Work Board Bar status groups, the phase legend and tab states", () => {
+  it("documents the Work Board Bar's quest rows, the phase legend and tab states", () => {
     render(<Playground />);
 
     const workBoardBar = getPlaygroundSection("interactive-work-board-bar");
     fireEvent.click(workBoardBar.getByText("Seed board data"));
 
     const rail = workBoardBar.getByTestId("thread-tab-rail");
-    expect(within(rail).getByTestId("thread-tab-group-bar")).toBeTruthy();
-    expect(within(rail).queryByText("Tabs")).not.toBeInTheDocument();
     expect(workBoardBar.getByTestId("workboard-main-banner")).toBeTruthy();
     expect(
       rail.compareDocumentPosition(workBoardBar.getByTestId("workboard-main-banner")) &
@@ -76,13 +74,7 @@ describe("Playground", { timeout: 60_000 }, () => {
     expect(workBoardBar.queryByTestId("workboard-current-thread")).toBeNull();
     expect(workBoardBar.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Work");
 
-    // Main is the selected tab, joined to the Main strip, and the leader is not writing in Main.
-    const mainTab = workBoardBar.getByTestId("thread-tab-group-main");
-    expect(mainTab).toHaveAttribute("aria-selected", "true");
-    expect(mainTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
-    expect(mainTab).toHaveAttribute("data-active-output", "false");
-
-    // Every seeded tab is listed under its group, with canonical titles.
+    // Every seeded tab is listed in the place picker, with canonical titles.
     const container = rail;
     const tab = (threadKey: string) => listedThreadTab(threadKey, container)!;
     for (const key of ["q-1932", "q-42", "q-55", "q-61", "q-77", "q-88"]) expect(tab(key)).toBeTruthy();
@@ -115,8 +107,6 @@ describe("Playground", { timeout: 60_000 }, () => {
     expect(workBoardBar.getByTestId("thread-tab-rail")).toBeTruthy();
 
     fireEvent.click(workBoardBar.getByText("Main banner"));
-    expect(workBoardBar.getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "true");
-    expect(workBoardBar.getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "false");
     expect(workBoardBar.getByTestId("workboard-other-button")).toHaveTextContent("3 other");
     expect(workBoardBar.queryByTestId("workboard-off-board-threads")).toBeNull();
     fireEvent.click(workBoardBar.getByTestId("workboard-other-button"));
@@ -173,8 +163,8 @@ describe("Playground", { timeout: 60_000 }, () => {
     expect(within(palette).getByTestId("playground-retained-alignment")).toHaveTextContent("Alignment approval");
   });
 
-  it("documents a desktop tab crowd filed into status groups", () => {
-    // Many open tabs no longer overflow into a More list: every one is listed under its group.
+  it("documents a desktop tab crowd listed in the place picker", () => {
+    // Many open tabs no longer overflow into a More list: the place picker lists every one.
     render(<Playground />);
 
     const workBoardBar = getPlaygroundSection("interactive-work-board-bar");

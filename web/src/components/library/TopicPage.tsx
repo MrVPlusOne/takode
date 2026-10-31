@@ -3,52 +3,13 @@ import type { TopicListResponse } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 
 /**
- * The parts of a leader's topic panel around the topic pages (`TopicView`): the offer to turn
- * topics on, the topic settings, recent changes to the topics (each with Undo) and rename
- * suggestions.
+ * The parts of a leader's topic panel around the topic pages (`TopicView`): the topic settings,
+ * recent changes to the topics (each with Undo) and rename suggestions.
  */
-
-/**
- * What a leader's panel shows while its topics are off: turned off for this leader (with Turn on),
- * or for every leader in Settings. Null while they are on, which is the default.
- */
-export function TopicsOffHint({
-  data,
-  leaderId,
-  act,
-}: {
-  data: TopicListResponse;
-  leaderId: string;
-  act: (action: Promise<unknown>) => void;
-}) {
-  const leader = data.leaders.find((candidate) => candidate.sessionId === leaderId);
-  if (!leader || leader.enabled) return null;
-  return (
-    <div className="border-b border-cc-border px-4 py-3 text-[13px]" data-testid="topic-hint">
-      <div className="text-cc-fg">
-        {leader.offInSettings ? "Library topics are off for leaders in Settings." : "Topics are off for this leader."}
-      </div>
-      <div className="mt-0.5 text-cc-muted">
-        A Scribe keeps a page per topic: where it stands, your decisions, what was made.
-      </div>
-      {!leader.offInSettings && (
-        <div className="mt-2 flex gap-2">
-          <button
-            type="button"
-            onClick={() => act(topicApi.setLeaderEnabled(leader.sessionId, true))}
-            className="rounded-md bg-cc-primary px-2.5 py-1 text-white"
-          >
-            Turn on
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * A leader's topic settings, opened from the panel header's gear: the user's instructions for the
- * Scribe, the pause, and turning topics off.
+ * Scribe and the pause. Every leader has topics, so they can't be turned off.
  */
 export function TopicSettings({
   data,
@@ -79,16 +40,6 @@ export function TopicSettings({
           />
           <span className="text-cc-fg">Keep pages up to date</span>
         </label>
-        <button
-          type="button"
-          onClick={() => {
-            onClose();
-            act(topicApi.setLeaderEnabled(leaderId, false));
-          }}
-          className="self-start text-cc-muted hover:text-cc-fg"
-        >
-          Turn topics off for this leader
-        </button>
       </div>
     </div>
   );

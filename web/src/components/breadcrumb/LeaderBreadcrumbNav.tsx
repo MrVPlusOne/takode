@@ -63,9 +63,10 @@ export function LeaderBreadcrumbNav({
   leaderId,
   ...rows
 }: LeaderBreadcrumbNavProps) {
-  const overview = useLeaderOverview(leaderId);
-  const needYou = overview.needYou;
   const [workingOnOpen, setWorkingOnOpen] = useState(false);
+  // Closed, the Overview button shows only counts: a quest moving to its next phase doesn't redraw it.
+  const overview = useLeaderOverview(leaderId, workingOnOpen);
+  const needYou = overview.needYou;
   const desktop = useDesktopShellLayout();
   const currentKey = normalizeThreadKey(rows.currentThreadKey);
   // Topic conversations and threads are not tabs here; they are reached by the place picker.
@@ -281,7 +282,14 @@ export function LeaderBreadcrumbNav({
 
   return (
     <>
-      {crumbSlot && createPortal(<PlaceCrumb place={place} list={placeList} />, crumbSlot)}
+      {crumbSlot &&
+        createPortal(
+          // Named by its leader, for finding one picker among several on a page (tests, Playground).
+          <span className="contents" data-place-crumb-session={leaderId}>
+            <PlaceCrumb place={place} list={placeList} />
+          </span>,
+          crumbSlot,
+        )}
       {helpers && createPortal(workingOnPicker, helpers)}
     </>
   );

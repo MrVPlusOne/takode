@@ -184,7 +184,6 @@ function mockApi() {
     topics: { t7: { name: "T7 run", questIds: ["q-2713", "q-2797"], activityAt: NOW } },
   });
   return {
-    enable: vi.spyOn(topicApi, "setLeaderEnabled").mockResolvedValue({ enabled: true }),
     undo: vi.spyOn(topicApi, "undo").mockResolvedValue({}),
     update: vi.spyOn(topicApi, "updateNow").mockResolvedValue({ result: "asked" }),
   };
@@ -209,7 +208,7 @@ describe("TopicSidePanel", () => {
     );
   });
 
-  it("offers to turn topics back on, lists topics and undoes the Scribe's tidying", async () => {
+  it("lists topics and undoes the Scribe's tidying, with no way to turn topics off", async () => {
     const api = mockApi();
     // q-2713 (T7 run) has an open question; an answered one and a muted one don't count.
     const [question] = askQuestions(
@@ -218,11 +217,9 @@ describe("TopicSidePanel", () => {
       { questId: "q-2713", muted: true },
     );
     render(<TopicSidePanel leaderId="l1" threadKey="main" variant="docked" />);
-    // Topics are on by default; a leader the user turned off can turn them back on here.
-    const hint = await screen.findByTestId("topic-hint");
-    expect(hint).toHaveTextContent("Topics are off for this leader.");
-    fireEvent.click(within(hint).getByText("Turn on"));
-    expect(api.enable).toHaveBeenCalledWith("l1", true);
+    // Every leader has topics: even one the server lists as not started has no off notice.
+    await screen.findAllByTestId("library-topic-row");
+    expect(screen.queryByTestId("topic-hint")).toBeNull();
 
     // Each topic shows its newest update (else its description) and its open questions to the user.
     const rows = screen.getAllByTestId("library-topic-row");
@@ -529,7 +526,7 @@ describe("TopicSidePanel", () => {
     fireEvent.change(screen.getByLabelText("Instructions for the Scribe"), { target: { value: "One topic per run." } });
     fireEvent.click(within(screen.getByTestId("scribe-instructions")).getByText("Save"));
     expect(instructions).toHaveBeenCalledWith("l1", "One topic per run.");
-    expect(api.enable).not.toHaveBeenCalled();
+    expect(screen.getByTestId("topic-settings")).not.toHaveTextContent("Turn topics off");
     fireEvent.click(within(screen.getByTestId("topic-settings")).getByText("Done"));
     expect(screen.queryByTestId("topic-settings")).toBeNull();
   });

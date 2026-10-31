@@ -40,7 +40,8 @@ describe("startLibraryTopics Scribe creation", () => {
       launcher,
       sessionName: () => "Leader",
     });
-    await service.setLeaderEnabled("leader", true);
+    service.store.enableLeader("leader");
+    await service.deliver("leader");
     return bodies[0];
   }
 

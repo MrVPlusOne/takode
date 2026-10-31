@@ -6,7 +6,7 @@ import { need } from "./takode-topic.js";
 
 export const SCRIBE_HELP = `Usage: takode scribe <command> ...
 
-A leader with Library topics on has a Scribe: a special worker in its herd that keeps the topic
+Every leader has a Scribe: a special worker in its herd that keeps the topic
 pages from that leader's activity. Takode sends it what changed by itself; its routine turns don't
 reach the leader, and it speaks up only when it needs the leader. It never takes quest work. To
 steer it beyond these commands, message it: takode send <its session> "...".
@@ -178,7 +178,7 @@ export interface ScribeStatusResponse {
 export function formatScribeStatus(status: ScribeStatusResponse): string {
   const leader = `#${status.leader.sessionNum ?? "?"}`;
   if (!status.enabled)
-    return `Topics are off for ${leader}, so it has no Scribe: the user turned them off in its topics panel or for every leader in Settings.`;
+    return `Topics haven't started for ${leader} yet, so it has no Scribe: they start with its next message.`;
   const { activity, paused, instructions } = status.scribe;
   const scribe = activity.sessionNum != null ? `#${activity.sessionNum}` : "not started";
   const lines = [

@@ -19,7 +19,7 @@ import {
 import { MessageFeed } from "./MessageFeed.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
-import { groupThreadTabKeys, listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
+import { listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
 
 const mockSendToSession = vi.hoisted(() => vi.fn(() => true));
 
@@ -261,142 +261,19 @@ describe("leader thread tabs projected component behavior", () => {
         sessionId="leader"
         currentThreadKey="q-5"
         openThreadKeys={["q-stale"]}
-        onCloseThreadTab={vi.fn()}
         threadRows={[{ threadKey: "q-4", questId: "q-4", title: "Archived q-4", messageCount: 1, section: "done" }]}
       />,
     );
 
-    // No prompt or unread result: neither attention group appears.
-    const groups = screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group);
-    expect(groups).not.toContain("needs-input");
-    expect(groups).not.toContain("new-results");
     const completedRow = listedThreadTab("q-3")!;
     const activeWorkRow = listedThreadTab("q-4")!;
 
     // A finished quest with Thread Waiting reads in the normal foreground; the active Work
     // quest keeps its phase color although a stale hydrated record says it is done.
     expect(completedRow).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
-    expect(within(completedRow).getByRole("button", { name: "Close q-3" })).toBeTruthy();
+    expect(completedRow).toHaveAttribute("data-closable", "true");
     expect(activeWorkRow).toHaveAttribute("data-title-color", "var(--color-cc-phase-thread-tab-title-work, #166534)");
-    expect(within(activeWorkRow).queryByRole("button", { name: "Close q-4" })).toBeNull();
-  });
-
-  it("keeps projected order inside a group while exposing scheduled close controls", () => {
-    // The server-authored projection owns ordering and closeability. Groups file tabs by
-    // status, but inside a group (equal change times here) the projected order holds, and
-    // in-motion tabs never become dismissible.
-    const tabs = [
-      projectedTab("q-101", {
-        title: "Alignment work",
-        boardStatus: "PLANNING",
-        journey: {
-          mode: "active",
-          phaseIds: ["alignment", "work", "memory"],
-          currentPhaseId: "alignment",
-          activePhaseIndex: 0,
-          phaseCount: 3,
-          durationSummary: null,
-        },
-        active: true,
-        canClose: false,
-      }),
-      projectedTab("q-102", {
-        title: "Implementation work",
-        boardStatus: "WORKING",
-        journey: {
-          mode: "active",
-          phaseIds: ["alignment", "work", "memory"],
-          currentPhaseId: "work",
-          activePhaseIndex: 1,
-          phaseCount: 3,
-          durationSummary: null,
-        },
-        active: true,
-        canClose: false,
-      }),
-      projectedTab("q-103", {
-        title: "Checkpoint work",
-        boardStatus: "USER_CHECKPOINTING",
-        journey: {
-          mode: "active",
-          phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
-          currentPhaseId: "user-checkpoint",
-          activePhaseIndex: 2,
-          phaseCount: 5,
-          durationSummary: null,
-        },
-        active: true,
-        canClose: false,
-        attention: { needsInput: true, mutedNeedsInput: false, reviewUnread: false, updatedAt: 30, changedAt: 30 },
-      }),
-      projectedTab("q-104", {
-        title: "Memory work",
-        boardStatus: "MEMORY",
-        journey: {
-          mode: "active",
-          phaseIds: ["alignment", "work", "memory"],
-          currentPhaseId: "memory",
-          activePhaseIndex: 2,
-          phaseCount: 3,
-          durationSummary: null,
-        },
-        active: true,
-        canClose: false,
-      }),
-      projectedTab("q-105", {
-        title: "Queued follow-up",
-        boardStatus: "QUEUED",
-        active: false,
-        queued: true,
-        canClose: true,
-      }),
-      projectedTab("q-106", {
-        title: "Proposed follow-up",
-        boardStatus: "PROPOSED",
-        active: false,
-        proposed: true,
-        canClose: true,
-      }),
-      projectedTab("q-107", {
-        title: "Completed follow-up",
-        boardStatus: "DONE",
-        active: false,
-        completed: true,
-        canClose: true,
-      }),
-    ];
-    installLeaderProjection(
-      createLeaderThreadTabsProjectionValue({
-        tabState: {
-          version: 1,
-          orderedOpenThreadKeys: tabs.map((tab) => tab.threadKey),
-          closedThreadTombstones: [],
-          updatedAt: 100,
-        },
-        tabs,
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
-        threadStatuses: {},
-        activePhaseSummary: [],
-      }),
-    );
-    const onCloseThreadTab = vi.fn();
-
-    render(<WorkBoardBar sessionId="leader" currentThreadKey="q-105" onCloseThreadTab={onCloseThreadTab} />);
-
-    expect(groupThreadTabKeys("needs-input")).toEqual(["q-103"]);
-    expect(groupThreadTabKeys("in-progress")).toEqual(["q-101", "q-102", "q-104", "q-105", "q-106"]);
-    expect(groupThreadTabKeys("done")).toEqual(["q-107"]);
-
-    for (const key of ["q-101", "q-102", "q-103", "q-104"]) {
-      expect(listedThreadTab(key)).toHaveAttribute("data-closable", "false");
-      expect(within(listedThreadTab(key)!).queryByTestId("thread-tab-list-row-close")).toBeNull();
-    }
-    fireEvent.click(within(listedThreadTab("q-105")!).getByRole("button", { name: "Close q-105" }));
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-105", "q-106");
-    // q-106 is last in In progress, so the tab above it in that group opens next, not q-107
-    // from Done.
-    fireEvent.click(within(listedThreadTab("q-106")!).getByRole("button", { name: "Close q-106" }));
-    expect(onCloseThreadTab).toHaveBeenLastCalledWith("q-106", "q-105");
+    expect(activeWorkRow).toHaveAttribute("data-closable", "false");
   });
 
   it("does not rebuild leader tabs from raw board rows when the current projection is unavailable", () => {
@@ -415,8 +292,8 @@ describe("leader thread tabs projected component behavior", () => {
 
     render(<WorkBoardBar sessionId="leader" openThreadKeys={["q-202", "q-201"]} />);
 
-    expect(screen.queryByTestId("thread-tab-group-chip")).toBeNull();
-    expect(screen.getByTestId("thread-tab-group-main")).toBeTruthy();
+    // No tabs: the picker still lists the board's quests as quests, not as tabs rebuilt from it.
+    expect(screen.getByTestId("thread-tab-rail")).toHaveAttribute("data-open-tab-count", "1");
   });
 
   it("uses accepted projected activity over stale hydrated completion and follows projected completion", async () => {
@@ -482,7 +359,7 @@ describe("leader thread tabs projected component behavior", () => {
       ],
     });
 
-    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={vi.fn()} />);
+    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" />);
 
     const tab = () => listedThreadTab("q-700")!;
     expect(tab()).toHaveAttribute("data-closable", "false");
@@ -503,7 +380,7 @@ describe("leader thread tabs projected component behavior", () => {
       });
     });
     expect(tab()).toHaveAttribute("data-title-color", "var(--color-cc-phase-thread-tab-title-work, #166534)");
-    expect(within(tab()).queryByRole("button", { name: "Close q-700" })).toBeNull();
+    expect(tab()).toHaveAttribute("data-closable", "false");
 
     act(() => {
       useStore.getState().applySyncedProjectionUpdate(
@@ -555,7 +432,6 @@ describe("leader thread tabs projected component behavior", () => {
     await waitFor(() => {
       expect(tab()).toHaveAttribute("data-closable", "true");
       expect(tab()).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
-      expect(within(tab()).getByRole("button", { name: "Close q-700" })).toBeTruthy();
     });
   });
 
@@ -574,9 +450,9 @@ describe("leader thread tabs projected component behavior", () => {
     delete invalidProjection.currentQuestStateVersion;
     installLeaderProjection(invalidProjection as LeaderThreadTabsProjectionValue);
 
-    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={vi.fn()} />);
+    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" />);
 
-    expect(screen.queryByTestId("thread-tab-group-chip")).toBeNull();
+    expect(screen.getByTestId("thread-tab-rail")).toHaveAttribute("data-open-tab-count", "1");
   });
 
   it("combines restored local tabs with derived projection tabs while tab state is absent", () => {
@@ -605,11 +481,12 @@ describe("leader thread tabs projected component behavior", () => {
 
     render(<WorkBoardBar sessionId="leader" openThreadKeys={["q-701", "q-702"]} />);
 
-    // q-702's unread result files it under New results, after the in-progress tabs. Among
-    // those, the projected q-703 changed group more recently than the restored local q-701,
-    // which has no server time yet.
-    expect(groupThreadTabKeys("in-progress")).toEqual(["q-703", "q-701"]);
-    expect(groupThreadTabKeys("new-results")).toEqual(["q-702"]);
+    // The restored local tab and the projected ones are all listed.
+    expect(
+      listedThreadTabs()
+        .map((row) => row.dataset.threadKey)
+        .sort(),
+    ).toEqual(["q-701", "q-702", "q-703"]);
     expect(listedThreadTab("q-702")).toHaveAttribute("data-blue-notification", "true");
     expect(listedThreadTab("q-703")).toHaveAttribute("data-muted-needs-input", "true");
   });

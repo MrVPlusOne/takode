@@ -5,11 +5,9 @@ import { scopeLine } from "./quest-topic.js";
 export const TOPIC_HELP = `Usage: takode topic <command> ...
 
 Library topics group quests by subject, in the user's words, each with a page that a leader's
-Scribe keeps current (see takode scribe). They are on only for leaders the user turned them on for;
-normal work needs nothing from the leader but filing quests with --topic.
+Scribe keeps current (see takode scribe). Every leader has them; normal work needs nothing from the
+leader but filing quests with --topic.
 
-  takode topic on|off [--leader <session>]            Turn topics on or off for a leader (default:
-                                                       you), when the user asks; on starts its Scribe
   takode topic list [--space <name>|all] [--json]     Topics of your space, newest first
   takode topic show <topic> [--json]                   A topic's page and quests (read it before
                                                        answering questions about the topic)
@@ -73,22 +71,6 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
         `${questId} is under "${summary.name}" (${summary.questIds.length} quests${summary.tentative ? ", new" : ""}).`,
       );
       console.log(scopeLine(summary));
-      return;
-    }
-    case "on":
-    case "off": {
-      const leader =
-        typeof flags.leader === "string"
-          ? flags.leader
-          : ((await apiGet(base, "/takode/me")) as { sessionId: string }).sessionId;
-      const { enabled } = (await apiPost(base, `/topics/leaders/${encodeURIComponent(leader)}`, {
-        enabled: subcommand === "on",
-      })) as { enabled: boolean };
-      console.log(
-        enabled
-          ? "Topics are on: its Scribe starts and sorts the leader's recent work into topics."
-          : "Topics are off; the Scribe was archived.",
-      );
       return;
     }
     case "rename": {

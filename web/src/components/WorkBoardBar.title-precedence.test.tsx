@@ -17,6 +17,7 @@ import {
 import { listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
 
 interface MockStoreState {
+  sessionNotifications: Map<string, unknown[]>;
   sessionBoards: Map<string, BoardRowData[]>;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
   sessionBoardRowStatuses: Map<string, Record<string, unknown>>;
@@ -56,6 +57,7 @@ vi.mock("../api.js", () => ({
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
+    sessionNotifications: new Map(),
     sessionBoards: new Map(),
     sessionCompletedBoards: new Map(),
     sessionBoardRowStatuses: new Map(),

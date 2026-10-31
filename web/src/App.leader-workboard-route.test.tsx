@@ -292,14 +292,18 @@ beforeEach(() => {
   window.location.hash = `#/session/${SESSION_ID}?thread=q-42`;
 });
 
-it("keeps the explicit leader quest-thread route stable while the title-bar Board button opens the board in place", async () => {
+/** Toggles the work board the way a leader does: Full board in the top bar's Overview menu. */
+function toggleBoard() {
+  fireEvent.click(screen.getByTestId("thread-tab-group-working-on"));
+  fireEvent.click(screen.getByTestId("thread-top-bar-board-button"));
+}
+
+it("keeps the explicit leader quest-thread route stable while the Overview menu opens the board in place", async () => {
   render(<App />);
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
-  expect(screen.getByTestId("topbar-workboard-button")).toHaveTextContent("Board");
-
-  fireEvent.click(screen.getByTestId("topbar-workboard-button"));
+  toggleBoard();
 
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
@@ -310,12 +314,12 @@ it("keeps the explicit leader quest-thread route stable while the title-bar Boar
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "completed"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 
-  fireEvent.click(screen.getByTestId("topbar-workboard-button"));
+  toggleBoard();
 
   await waitFor(() => expect(screen.queryByTestId("workboard-panel")).not.toBeInTheDocument());
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 
-  fireEvent.click(screen.getByTestId("topbar-workboard-button"));
+  toggleBoard();
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toBeInTheDocument());
   fireEvent.click(screen.getByTestId("workboard-panel-close"));
 
@@ -323,7 +327,7 @@ it("keeps the explicit leader quest-thread route stable while the title-bar Boar
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 });
 
-it("renders the title-bar board from the canonical row when legacy session state is stale", async () => {
+it("opens the board from the canonical row when legacy session state is stale", async () => {
   const sessions = new Map(useStore.getState().sessions);
   const legacy = sessions.get(SESSION_ID)!;
   sessions.set(SESSION_ID, { ...legacy, isOrchestrator: false });
@@ -333,9 +337,7 @@ it("renders the title-bar board from the canonical row when legacy session state
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
-  expect(screen.getByTestId("topbar-workboard-button")).toHaveTextContent("Board");
-
-  fireEvent.click(screen.getByTestId("topbar-workboard-button"));
+  toggleBoard();
 
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);

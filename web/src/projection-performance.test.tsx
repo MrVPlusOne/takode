@@ -17,6 +17,7 @@ import type { SessionNavigationProjectionValue } from "../shared/session-navigat
 import type { BrowserIncomingMessage, SessionNotification, SessionState } from "./types.js";
 import { SessionItem } from "./components/SessionItem.js";
 import { WorkBoardBar } from "./components/WorkBoardBar.js";
+import { activePhaseDotKeys } from "../shared/leader-active-phase-summary.js";
 import type { BoardRowData } from "./components/BoardTable.js";
 import { useStore } from "./store.js";
 import { getSyncedProjectionValue } from "./store-synced-projections.js";
@@ -979,6 +980,8 @@ function leaderProjectionValue(status: "WORKING" | "MEMORY" | "DONE" = "WORKING"
       status === "DONE"
         ? [{ label: "Work", count: 3, tone: "phase" }]
         : [{ label: status === "MEMORY" ? "Memory" : "Work", count: 4, tone: "phase" }],
+    // As the server sends them: the Overview button's phase dots of the same board.
+    activePhaseDots: activePhaseDotKeys(leaderActivityFields(status).board),
   });
 }
 

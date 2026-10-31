@@ -19,7 +19,7 @@ import {
   type LeaderThreadTabsProjectionValue,
   type LeaderThreadReminderProjection,
 } from "../shared/leader-thread-tabs-projection.js";
-import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
+import { activePhaseDotKeys, buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import {
   LEADER_OPEN_THREAD_TABS_VERSION,
   normalizeLeaderOpenThreadTabsState,
@@ -953,6 +953,11 @@ export function buildLeaderThreadTabsProjectionValue(
       .filter((row) => isRunningBoardRow(row, { completed: isCompletedRow(row) }))
       .filter((row) => normalizeProjectionThreadKey(row.questId) !== null)
       .map((row) => normalizeProjectionThreadKey(row.questId)!)
+      .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS),
+    activePhaseDots: activePhaseDotKeys(
+      activeBoard.map((row) => ({ ...row, questId: normalizeProjectionThreadKey(row.questId) ?? "" })),
+    )
+      .filter((key) => /^q-\d+:/.test(key))
       .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS),
     threadReminders: projectThreadReminders(session),
   });
