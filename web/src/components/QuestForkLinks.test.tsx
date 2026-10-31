@@ -257,6 +257,45 @@ describe("Quest fork links under the source message", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-10");
   });
 
+  it("shows a side quest filed later in a side pane too, when the main view learns of it", async () => {
+    // Jiayi (Oct 31): a message in a side pane lacked the "Side quest q-2933" row its main-view copy
+    // showed. Only the main view reloads when a new quest thread appears, so the feeds of a session
+    // share the newest list.
+    const session = "leader-shared-forks";
+    const startedFrom = { ...STARTED_FROM, sessionId: session };
+    let filed = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          quests: filed ? [{ questId: "q-11", title: "Retire topics-off mode", startedFrom, sideQuest: true }] : [],
+        }),
+      ),
+    );
+    const feeds = (mainKey: string) => (
+      <>
+        <StartedQuestsProvider sessionId={session} enabled refreshKey={mainKey}>
+          <div data-testid="main-feed">
+            <ContinuedInLinks message={{ id: "main-ask" }} currentThreadKey="topic:aaaa0001" onSelectThread={vi.fn()} />
+          </div>
+        </StartedQuestsProvider>
+        <StartedQuestsProvider sessionId={session} enabled refreshKey="q-2927">
+          <div data-testid="side-feed">
+            <ContinuedInLinks message={{ id: "main-ask" }} currentThreadKey="q-2927" onSelectThread={vi.fn()} />
+          </div>
+        </StartedQuestsProvider>
+      </>
+    );
+    const view = render(feeds("rows:1"));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(screen.queryAllByTestId("quest-fork-link")).toHaveLength(0);
+
+    filed = true;
+    view.rerender(feeds("rows:2"));
+    await waitFor(() => expect(within(screen.getByTestId("side-feed")).getByText("Side quest")).toBeVisible());
+    expect(within(screen.getByTestId("main-feed")).getByText("Side quest")).toBeVisible();
+  });
+
   it("shows Continued in for a side quest the user has written in, though its request stayed", async () => {
     // The server reports q-9 as no longer a side quest once the user wrote in its tab; the
     // request itself was never handed off, so the row must follow the server's verdict.

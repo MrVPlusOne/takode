@@ -48,6 +48,23 @@ export function markQuestForkNew(quest: Pick<StartedQuest, "questId" | "startedF
   uncuedForks.add(forkKey(quest));
 }
 
+/**
+ * The latest list of each session's started quests, shared by every feed of the session on the page
+ * (the main view and its side panes): each loads it on its own occasions, such as the main view when
+ * a new quest thread appears, and all of them show the newest answer. A side pane alone would never
+ * learn of a side quest filed from a message it shows.
+ */
+const sharedLists = new Map<string, { request: number; quests: StartedQuest[] }>();
+const sharedListeners = new Set<(sessionId: string) => void>();
+let requests = 0;
+
+/** Keeps a loaded list unless a later-started request already answered. */
+function shareList(sessionId: string, request: number, quests: StartedQuest[]): void {
+  if ((sharedLists.get(sessionId)?.request ?? -1) > request) return;
+  sharedLists.set(sessionId, { request, quests });
+  for (const listener of sharedListeners) listener(sessionId);
+}
+
 /** The quests started from each user message, by message ID; the Playground provides fixed ones. */
 export const StartedQuestsContext = createContext<ReadonlyMap<string, StartedQuest[]> | null>(null);
 
@@ -67,8 +84,17 @@ export function StartedQuestsProvider({
   refreshKey: string | number;
   children: ReactNode;
 }) {
-  const [quests, setQuests] = useState<StartedQuest[]>([]);
+  const [quests, setQuests] = useState<StartedQuest[]>(() => sharedLists.get(sessionId)?.quests ?? []);
   const [changes, setChanges] = useState(0);
+  useEffect(() => {
+    const listener = (changed: string) => {
+      if (changed === sessionId) setQuests(sharedLists.get(sessionId)!.quests);
+    };
+    sharedListeners.add(listener);
+    return () => {
+      sharedListeners.delete(listener);
+    };
+  }, [sessionId]);
   useEffect(
     () =>
       onStartedQuestsChanged((changed) => {
@@ -79,10 +105,11 @@ export function StartedQuestsProvider({
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
+    const request = ++requests;
     fetchStartedQuests(sessionId, controller.signal)
       .then((list) => {
         noteListedForks(sessionId, list);
-        setQuests(list);
+        shareList(sessionId, request, list);
       })
       .catch((error) => {
         if (!controller.signal.aborted) console.error("[quest-forks] Started quests failed to load:", error);
