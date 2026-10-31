@@ -257,8 +257,12 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const callerId = caller(c);
       const space = quest.sessionSpaceSlug ?? callerSpace(svc, callerId);
       if (!space) throw new TopicStoreError("The quest has no session space.");
-      // Filing is an event for the Scribe of the quest's leader.
-      const questLeader = (quest as { leaderSessionId?: string }).leaderSessionId;
+      // Filing is an event for the Scribe of the quest's leader. A quest a leader just created has no
+      // leader recorded until it is dispatched: the leader filing it (or its worker's leader) is it.
+      const callerInfo = callerId ? ctx.launcher.getSession(callerId) : undefined;
+      const questLeader =
+        (quest as { leaderSessionId?: string }).leaderSessionId ??
+        (callerInfo?.isOrchestrator ? callerId! : callerInfo?.herdedBy);
       const result = svc.store.assign({
         questId: quest.questId,
         space,
@@ -271,10 +275,8 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       svc.store.threadFollowsQuest(startedFromThread(quest), result.topic.id);
       if (questLeader) svc.leaderActivity(questLeader);
       // A leader (or its worker) starting a topic: the leader's Scribe checks it is distinct enough.
-      const callerInfo = callerId ? ctx.launcher.getSession(callerId) : undefined;
-      const starter = questLeader ?? (callerInfo?.isOrchestrator ? callerId! : callerInfo?.herdedBy);
-      if (result.created && callerId && !scribeLeader(svc, callerId) && starter) {
-        svc.topicCreated(result.topic.id, starter);
+      if (result.created && callerId && !scribeLeader(svc, callerId) && questLeader) {
+        svc.topicCreated(result.topic.id, questLeader);
       }
       return result;
     }),
@@ -335,19 +337,32 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
+  /** Files a quest, or several (`questIds`, one change with one Undo), under another topic. */
   api.post("/topics/move", (c) =>
     run(c, async (svc) => {
       const body = await c.req.json().catch(() => ({}));
-      const quest = typeof body.questId === "string" ? await getQuest(body.questId) : null;
-      if (!quest) throw new TopicStoreError("Quest not found.", 404);
+      const ids: unknown[] = Array.isArray(body.questIds) ? body.questIds : [body.questId];
+      const quests = await Promise.all(ids.map((id) => (typeof id === "string" ? getQuest(id) : null)));
+      const missing = ids.filter((_, index) => !quests[index]);
+      if (missing.length || !quests.length) throw new TopicStoreError(`Quest not found: ${missing.join(", ")}`, 404);
+      const found = quests as QuestmasterTask[];
       const callerId = caller(c);
-      const space = quest.sessionSpaceSlug ?? callerSpace(svc, callerId) ?? "";
+      const space = found[0]!.sessionSpaceSlug ?? callerSpace(svc, callerId) ?? "";
       const target =
         typeof body.topic === "string"
           ? { topicId: svc.store.resolve(body.topic, space)?.id, name: body.topic }
           : { topicId: undefined, name: undefined };
-      const moved = svc.store.move(quest.questId, target, space, !!scribeLeader(svc, callerId));
-      svc.store.threadFollowsQuest(startedFromThread(quest), moved.id);
+      const byAgent = !!scribeLeader(svc, callerId);
+      const moved =
+        found.length === 1
+          ? svc.store.move(found[0]!.questId, target, space, byAgent)
+          : svc.store.moveMany(
+              found.map((quest) => quest.questId),
+              target,
+              space,
+              byAgent,
+            );
+      for (const quest of found) svc.store.threadFollowsQuest(startedFromThread(quest), moved.id);
       return moved;
     }),
   );

@@ -108,7 +108,14 @@ interface LegacyNowEntry {
 type Undo =
   | { kind: "rename"; topicId: string; name: string; nameSource: TopicNameSource }
   | { kind: "merge"; from: StoredTopic; intoId: string; intoAliases: string[]; questIds: string[] }
-  | { kind: "move"; questId: string; fromTopicId: string | null; createdTopicId?: string };
+  | { kind: "move"; questId: string; fromTopicId: string | null; createdTopicId?: string }
+  /** Quests moved together under one topic: one change, one Undo. */
+  | {
+      kind: "moves";
+      toTopicId: string;
+      moves: Array<{ questId: string; fromTopicId: string | null }>;
+      createdTopicId?: string;
+    };
 
 interface StoredChange extends TopicChange {
   undo: Undo;
@@ -577,6 +584,8 @@ export class TopicStore {
     byAgent: boolean;
     /** The quest's leader, whose Scribe hears of the filing. */
     leaderId?: string;
+    /** The caller records the move itself (several quests moved as one change). */
+    unrecorded?: boolean;
   }): {
     topic: TopicSummary;
     created: boolean;
@@ -597,7 +606,7 @@ export class TopicStore {
       ...(input.byAgent ? { byScribe: true } : {}),
       ...(input.leaderId ? { leaderId: input.leaderId } : {}),
     });
-    if (previous) {
+    if (previous && !input.unrecorded) {
       this.recordChange(
         input.space,
         `Moved ${input.questId} from "${previous.name}" to "${topic.name}"`,
@@ -901,6 +910,45 @@ export class TopicStore {
     return this.assign({ questId, space, name: target.name, by: byAgent ? "agent" : "user", byAgent }).topic;
   }
 
+  /**
+   * Moves several quests under one topic as one change with one Undo, as when a topic is split or
+   * its edge with another is redrawn. A new name starts a topic. Quests already there stay put.
+   */
+  moveMany(
+    questIds: string[],
+    target: { topicId?: string; name?: string },
+    space: string,
+    byAgent: boolean,
+  ): TopicSummary {
+    const targetTopic = target.topicId ? this.require(target.topicId) : undefined;
+    const name = targetTopic?.name ?? target.name;
+    if (!name) throw new TopicStoreError("Name the topic to move the quests to.");
+    const into = targetTopic?.space ?? space;
+    const by = targetTopic?.nameSource ?? (byAgent ? "agent" : "user");
+    const moves: Array<{ questId: string; fromTopicId: string | null; fromName?: string }> = [];
+    let summary: TopicSummary | undefined;
+    let createdTopicId: string | undefined;
+    for (const questId of [...new Set(questIds)]) {
+      const previous = this.topicOfQuest(questId);
+      const result = this.assign({ questId, space: into, name, by, byAgent, unrecorded: true });
+      summary = result.topic;
+      if (result.created) createdTopicId = result.topic.id;
+      if (previous?.id !== result.topic.id) {
+        moves.push({ questId, fromTopicId: previous?.id ?? null, ...(previous ? { fromName: previous.name } : {}) });
+      }
+    }
+    if (!summary) throw new TopicStoreError("Name the quests to move.");
+    if (moves.length) {
+      this.recordChange(into, movesText(moves, summary.name), byAgent, {
+        kind: "moves",
+        toTopicId: summary.id,
+        moves: moves.map(({ questId, fromTopicId }) => ({ questId, fromTopicId })),
+        ...(createdTopicId ? { createdTopicId } : {}),
+      });
+    }
+    return summary;
+  }
+
   /** Reverts a change; later changes to the same topics are kept. */
   undo(changeId: string): TopicChange {
     const change = this.s().changes.find((candidate) => candidate.id === changeId);
@@ -927,7 +975,7 @@ export class TopicStore {
         const fromEventKeys = new Set(undo.from.events.map(eventKey));
         into.events = into.events.filter((event) => !fromEventKeys.has(eventKey(event)));
       }
-    } else {
+    } else if (undo.kind === "move") {
       const movedTo = this.s().questTopics[undo.questId];
       if (movedTo && movedTo !== undo.createdTopicId) affected.push(movedTo);
       if (undo.fromTopicId) affected.push(undo.fromTopicId);
@@ -936,8 +984,21 @@ export class TopicStore {
       if (undo.createdTopicId && this.questsOf(undo.createdTopicId).length === 0) {
         delete this.s().topics[undo.createdTopicId];
       }
+    } else {
+      // Only quests still where the change put them go back; later moves of a quest are kept.
+      if (undo.toTopicId !== undo.createdTopicId) affected.push(undo.toTopicId);
+      for (const move of undo.moves) {
+        if (this.s().questTopics[move.questId] !== undo.toTopicId) continue;
+        if (move.fromTopicId) {
+          this.s().questTopics[move.questId] = move.fromTopicId;
+          affected.push(move.fromTopicId);
+        } else delete this.s().questTopics[move.questId];
+      }
+      if (undo.createdTopicId && this.questsOf(undo.createdTopicId).length === 0) {
+        delete this.s().topics[undo.createdTopicId];
+      }
     }
-    for (const topicId of affected) {
+    for (const topicId of new Set(affected)) {
       if (this.s().topics[topicId]?.page) {
         this.addEvent(topicId, { at: this.now(), kind: "undone", text: `The user undid: ${change.text}` });
       }
@@ -1159,10 +1220,14 @@ export class TopicStore {
     }
   }
 
-  /** The leader's events up to `upToDateAt` need nothing on the page: they count as covered. */
+  /**
+   * The leader's events up to `upToDateAt` need nothing on the page: they count as covered, and so
+   * do events of no leader up to then, which any write covers.
+   */
   markCovered(topicId: string, upToDateAt: number, leaderId: string): void {
     const topic = this.require(topicId);
     topic.checkedAt = this.now();
+    topic.upToDateAt = Math.max(upToDateAt, topic.upToDateAt ?? 0);
     topic.coveredThrough = {
       ...topic.coveredThrough,
       [leaderId]: Math.max(upToDateAt, topic.coveredThrough?.[leaderId] ?? 0),
@@ -1398,6 +1463,22 @@ function pendingOf(topic: StoredTopic, leaderId?: string): TopicEvent[] {
     if (leaderId && event.leaderId && event.leaderId !== leaderId) return false;
     return event.at > covered(event.leaderId);
   });
+}
+
+/** One line for quests moved together: `Moved q-1, q-2 and 3 more to "B" from "A" (4) and "C" (1)`. */
+function movesText(moves: ReadonlyArray<{ questId: string; fromName?: string }>, to: string): string {
+  const shown = moves.slice(0, 3).map((move) => move.questId);
+  const quests = moves.length > 3 ? `${shown.join(", ")} and ${moves.length - 3} more` : joinAnd(shown);
+  const from = new Map<string, number>();
+  for (const move of moves) from.set(move.fromName ?? "", (from.get(move.fromName ?? "") ?? 0) + 1);
+  const sources = [...from].map(([name, count]) =>
+    name ? `"${name}"${from.size > 1 || moves.length > 1 ? ` (${count})` : ""}` : `no topic (${count})`,
+  );
+  return `Moved ${quests} to "${to}" from ${joinAnd(sources)}`;
+}
+
+function joinAnd(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
 function cleanName(name: string): string {

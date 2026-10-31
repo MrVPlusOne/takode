@@ -130,6 +130,51 @@ describe("topic store", () => {
     expect(store.findByName("MSI", "Seeded QA")).toBeUndefined();
   });
 
+  it("moves several quests as one change with one Undo, as when a topic is split or an edge redrawn", async () => {
+    // Redrawing the edge between two topics moves a handful of quests at once; the user sees one
+    // line for them and undoes them together, and a quest moved again since stays where it is now.
+    const store = await newStore();
+    const library = store.assign({ questId: "q-1", space: "Takode", name: "Library", by: "agent", byAgent: false });
+    for (const questId of ["q-2", "q-3"]) {
+      store.assign({ questId, space: "Takode", name: "Library", by: "agent", byAgent: false });
+    }
+    const feed = store.assign({ questId: "q-4", space: "Takode", name: "Chat feed", by: "agent", byAgent: false });
+    store.writePage(library.topic.id, "Artifacts and topic pages.", now);
+    now += 1000;
+
+    const moved = store.moveMany(["q-1", "q-2", "q-4"], { name: "Leader navigation" }, "Takode", true);
+    expect(moved).toMatchObject({ name: "Leader navigation", questIds: ["q-1", "q-2", "q-4"] });
+    const changes = store.changes("Takode");
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({
+      text: 'Moved q-1, q-2 and q-4 to "Leader navigation" from "Library" (2) and "Chat feed" (1)',
+      byAgent: true,
+    });
+
+    store.move("q-4", { name: "Chat feed" }, "Takode", false);
+    store.undo(changes[0]!.id);
+    expect(store.topicOfQuest("q-1")?.id).toBe(library.topic.id);
+    expect(store.topicOfQuest("q-2")?.id).toBe(library.topic.id);
+    expect(store.topicOfQuest("q-4")?.id).toBe(feed.topic.id);
+    // The topic the change started is gone again, and the page that lost quests is told once.
+    expect(store.findByName("Takode", "Leader navigation")).toBeUndefined();
+    expect(store.pendingEvents(library.topic.id).filter((event) => event.kind === "undone")).toHaveLength(1);
+  });
+
+  it("lets a Scribe mark events of no leader read along with its own", async () => {
+    // Events of no leader count as covered by any write; marking a topic read (nothing on the page
+    // to change) must cover them too, or the Scribe is reminded about them forever.
+    const store = await newStore();
+    const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    store.writePage(topic.id, "The T7 run.", now, { leaderId: "leader" });
+    now += 1000;
+    store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    store.assign({ questId: "q-3", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
+    expect(store.pendingEvents(topic.id, "leader")).toHaveLength(2);
+    store.markCovered(topic.id, now, "leader");
+    expect(store.pendingEvents(topic.id, "leader")).toEqual([]);
+  });
+
   it("keeps events a merged topic's page took in from waiting on the topic they move to", async () => {
     // Another leader's quest filed in "Server", whose page that leader's Scribe wrote, then merged
     // into "Ops": only that leader's Scribe could clear it there, and it never hears of it again.
@@ -666,12 +711,21 @@ describe("topic service", () => {
   });
 
   it("sends what changed as soon as the Scribe is idle, and holds later changes until its turn ends", async () => {
-    const { service, injected, store, leader, busy } = await setupService();
+    const { service, injected, store, leader, busy, quests } = await setupService();
     const scribe = await enable(service, store, "leader");
+    quests.push({
+      questId: "q-2713",
+      title: "Launch T7",
+      createdAt: NOW,
+      leaderSessionId: "leader",
+      status: "refined",
+    });
     store.assign({ questId: "q-2713", space: "MSI", name: "T7 run", by: "agent", byAgent: false, leaderId: "leader" });
     service.changed("leader");
     await vi.advanceTimersByTimeAsync(0);
     expect(injected.at(-1)?.text).toContain("q-2713 was put under this topic");
+    // With its title, so the Scribe can check the quest belongs there without looking it up.
+    expect(injected.at(-1)?.text).toContain('q-2713 was put under this topic: "Launch T7"');
     vi.advanceTimersByTime(10);
     writePage(store, "T7 run");
     await service.scribeTurnEnded(scribe);

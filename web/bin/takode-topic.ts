@@ -1,5 +1,6 @@
 import type { TopicDetail, TopicListResponse, TopicRenameSuggestion, TopicSummary } from "../shared/library-topics.js";
 import { apiGet, apiPatch, apiPost, err, formatRelativeTime, parseFlags } from "./takode-core.js";
+import { scopeLine } from "./quest-topic.js";
 
 export const TOPIC_HELP = `Usage: takode topic <command> ...
 
@@ -14,7 +15,8 @@ normal work needs nothing from the leader but filing quests with --topic.
                                                        answering questions about the topic)
   takode topic set q-N "<topic>"                       File a quest under a topic (new name: new topic)
   takode topic set topic:<thread> "<topic>"            File a user's thread under an existing topic
-  takode topic move q-N "<topic>"                      File a quest under another topic
+  takode topic move q-N [q-M ...] "<topic>"            File quests under another topic (several in one
+                                                       command are one change, undone together)
   takode topic rename <topic> "<name>" [--reason "<why>"]
   takode topic merge <from> <into> [--fold]
   takode topic instructions <topic> "<text>"           Save the user's lasting requests for this
@@ -46,6 +48,14 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
     }
     case "set":
     case "move": {
+      if (subcommand === "move" && positionals.length > 2) {
+        const topic = positionals.at(-1)!;
+        const questIds = positionals.slice(0, -1);
+        const result = (await apiPost(base, "/topics/move", { questIds, topic })) as TopicSummary;
+        console.log(`${questIds.join(", ")} are under "${result.name}" (${result.questIds.length} quests).`);
+        console.log(scopeLine(result));
+        return;
+      }
       const [questId, topic] = positionals;
       if (!questId || !topic) err(`Usage: takode topic ${subcommand} q-N|topic:<thread> "<topic>"`);
       // A thread (New thread) joins an existing topic; it is not a quest.
@@ -62,6 +72,7 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
       console.log(
         `${questId} is under "${summary.name}" (${summary.questIds.length} quests${summary.tentative ? ", new" : ""}).`,
       );
+      console.log(scopeLine(summary));
       return;
     }
     case "on":
@@ -158,7 +169,14 @@ export function formatTopicList(topics: TopicSummary[]): string {
 function formatTopicDetail(detail: TopicDetail): string {
   return [
     `${detail.name}  (${detail.id.slice(0, 8)}, space ${detail.space}${detail.tentative ? ", new" : ""})`,
-    `Quests: ${detail.questIds.join(", ") || "none"}`,
+    ...(detail.quests?.length
+      ? [
+          "Quests:",
+          ...detail.quests.map(
+            (quest) => `  ${quest.questId} ${quest.title}${quest.status === "done" ? "" : ` (${quest.status})`}`,
+          ),
+        ]
+      : [`Quests: ${detail.questIds.join(", ") || "none"}`]),
     ...(detail.instructions ? [`The user's requests for this page: "${detail.instructions}"`] : []),
     detail.upToDateAt
       ? `Page up to date as of ${new Date(detail.upToDateAt).toLocaleString()}${detail.pendingEvents ? `; ${detail.pendingEvents} newer events` : ""}:`

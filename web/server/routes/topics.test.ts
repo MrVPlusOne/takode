@@ -167,6 +167,12 @@ describe("topic routes", () => {
 
     const status = await (await app.request("/topics/caller-status")).json();
     expect(status).toEqual({ enabled: true, space: "MSI", topics: ["T7 run"] });
+
+    // A quest the leader just created has no leader recorded until it is dispatched: its filing is
+    // still the leader's event, so its Scribe hears of it and can check it belongs there.
+    await send("/topics/assign", "POST", { questId: "q-2", topic: "T7 run" });
+    const filed2 = store.pendingEvents(filed.topic.id).find((event) => event.questId === "q-2");
+    expect(filed2).toMatchObject({ kind: "quest_filed", leaderId: "leader" });
   });
 
   it("turns a Scribe's rename of a topic the user named into a suggestion, while the user renames directly", async () => {
@@ -186,6 +192,30 @@ describe("topic routes", () => {
     expect(list.suggestions).toHaveLength(1);
     await send(`/topics/suggestions/${list.suggestions[0].id}`, "POST", { accept: true });
     expect(store.resolve(topic.id)).toMatchObject({ name: "Coding T7", nameSource: "user" });
+  });
+
+  it("moves several quests in one request as one change, made by the Scribe that sent it", async () => {
+    const { app, store, send, setCaller } = await setup();
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    store.assign({ questId: "q-2", space: "MSI", name: "Twin", by: "agent", byAgent: false });
+    setCaller("scribe");
+    const moved = await (
+      await send("/topics/move", "POST", { questIds: ["q-1", "q-2"], topic: "Long context" })
+    ).json();
+    expect(moved).toMatchObject({ name: "Long context", questIds: ["q-1", "q-2"] });
+    setCaller(null);
+    const { changes } = await (await app.request("/topics?space=MSI")).json();
+    expect(changes).toEqual([
+      expect.objectContaining({
+        text: 'Moved q-1 and q-2 to "Long context" from "T7 run" (1) and "Twin" (1)',
+        byAgent: true,
+      }),
+    ]);
+    // A quest that doesn't exist fails the whole request, naming it.
+    const missing = await send("/topics/move", "POST", { questIds: ["q-1", "q-9"], topic: "T7 run" });
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).error).toContain("q-9");
+    expect(store.topicOfQuest("q-1")?.name).toBe("Long context");
   });
 
   it("lets the user dismiss changes from the panel without undoing them", async () => {

@@ -10,7 +10,15 @@ export async function fileQuestUnderTopic(server: QuestServerClient, questId: st
     questId,
     topic,
   });
-  console.log(`Filed under topic "${value.topic.name}"${value.created ? " (new)" : ""}.`);
+  console.log(`Filed under topic "${value.topic.name}"${value.created ? " (new)" : ""}. ${scopeLine(value.topic)}`);
+}
+
+/**
+ * A topic's scope (its page's lead sentence), shown wherever a quest is filed so the filer sees at
+ * once whether the quest belongs there.
+ */
+export function scopeLine(topic: Pick<TopicSummary, "summary">): string {
+  return topic.summary ? `Its scope: ${topic.summary}` : "It has no scope line yet: its page isn't written.";
 }
 
 export async function remindAboutTopic(server: QuestServerClient, questId: string): Promise<void> {
@@ -20,7 +28,7 @@ export async function remindAboutTopic(server: QuestServerClient, questId: strin
   console.log(
     `Topics are on for you: file this quest with \`quest edit ${questId} --topic "<topic>"\`` +
       (known.length
-        ? `, picking the closest existing topic; a new name starts a topic, for a genuinely new area only. Existing topics: ${known.join(", ")}.`
+        ? `, picking the existing topic whose scope covers it (\`takode topic list\` shows each scope); a new name starts a topic, for a genuinely new area only. Existing topics: ${known.join(", ")}.`
         : " (a new name starts a topic)."),
   );
 }

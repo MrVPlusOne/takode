@@ -576,6 +576,12 @@ export class TopicService {
     const since = this.store.deliveredSeq(leaderId);
     const ownQuests = await this.leaderQuestIds(leaderId);
     const isNew = (event: TopicEvent) => (event.seq ?? 0) > since && (event.seq ?? 0) <= throughSeq;
+    // A filing names its quest's title, so the Scribe can check the quest belongs in that topic.
+    const titles = new Map(recent.map((quest) => [quest.questId, quest.title]));
+    const withTitle = (event: TopicEvent): TopicEvent =>
+      event.kind === "quest_filed" && !event.text && event.questId && titles.has(event.questId)
+        ? { ...event, text: `"${titles.get(event.questId)}"` }
+        : event;
     const topics = this.store
       .list(leader.space)
       .map((summary) => {
@@ -586,7 +592,8 @@ export class TopicService {
               isNew(event) &&
               !event.byScribe &&
               (event.leaderId === leaderId || (!event.leaderId && summary.questIds.some((id) => ownQuests.has(id)))),
-          );
+          )
+          .map(withTitle);
         return { id: summary.id, name: summary.name, events };
       })
       .filter((topic) => topic.events.length);
