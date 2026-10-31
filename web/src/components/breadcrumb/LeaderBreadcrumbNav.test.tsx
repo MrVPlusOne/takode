@@ -54,6 +54,7 @@ const question = {
 } as unknown as NextAttentionItem;
 function overviewData(forYou: NextAttentionItem[] = [question]): LeaderOverviewData {
   return {
+    leaderId: "leader-1",
     forYou,
     running: [running("q-10", "Fix the relay proxy")],
     needYou: forYou.filter((item) => item.kind === "needs-input").length,

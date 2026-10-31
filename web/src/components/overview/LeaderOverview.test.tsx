@@ -80,7 +80,7 @@ function seed() {
         "leader",
         [
           { questId: "q-1", title: "Relay fix", status: "IMPLEMENTING", updatedAt: 10 },
-          { questId: "q-3", title: "Eval sweep", status: "IMPLEMENTING", updatedAt: 20 },
+          { questId: "q-3", title: "Eval sweep", status: "IMPLEMENTING", worker: "w", workerNum: 7, updatedAt: 20 },
           // Queued, proposed and checkpointed rows are not running: a checkpoint waits on the user.
           { questId: "q-4", title: "Later", status: "QUEUED", updatedAt: 30 },
           { questId: "q-5", title: "Idea", status: "PROPOSED", updatedAt: 40 },
@@ -198,6 +198,35 @@ describe("LeaderOverview", () => {
     cleanup();
     render(<LeaderOverview data={result.current} topics={topics} onOpenQuest={() => {}} onOpenTopic={() => {}} />);
     expect(screen.getAllByTestId("overview-running-row")).toHaveLength(2);
+  });
+
+  it("gives every row Takode's own menu on right-click instead of the browser's", () => {
+    // Jiayi: Running now rows showed the browser's menu while the Needs you rows had Takode's.
+    seed();
+    const { result } = renderHook(() => useLeaderOverview("leader"));
+    const topics = [{ id: "t3", name: "Quiet", questIds: [], activityAt: 1 }] as never;
+    render(<LeaderOverview data={result.current} topics={topics} onOpenQuest={() => {}} onOpenTopic={() => {}} />);
+    fireEvent.click(within(screen.getByTestId("overview-running")).getByTestId("overview-fold"));
+    fireEvent.click(within(screen.getByTestId("overview-topics")).getByTestId("overview-fold"));
+    const rows = [
+      ...screen.getAllByTestId("overview-for-you-row"),
+      ...screen.getAllByTestId("overview-running-row"),
+      ...screen.getAllByTestId("overview-topic-row"),
+    ];
+    for (const row of rows) {
+      // fireEvent returns false when the handler prevented the browser's own menu.
+      expect(fireEvent.contextMenu(row)).toBe(false);
+      expect(document.querySelector('[data-context-menu="true"]')?.querySelectorAll("button").length).toBeGreaterThan(
+        0,
+      );
+      fireEvent.keyDown(document, { key: "Escape" });
+    }
+    // The running quest's worker comes from its board row.
+    const sweep = screen.getAllByTestId("overview-running-row").find((row) => row.textContent?.includes("Eval sweep"))!;
+    fireEvent.contextMenu(sweep);
+    expect(
+      within(document.querySelector<HTMLElement>('[data-context-menu="true"]')!).getByText("Open worker #7"),
+    ).toBeTruthy();
   });
 
   it("puts a thread's unread answers on one row", () => {

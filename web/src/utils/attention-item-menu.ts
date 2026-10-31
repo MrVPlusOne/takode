@@ -11,6 +11,10 @@ import { parseQuestIdsFromReviewSummary } from "./attention-records.js";
 import type { NextAttentionItem } from "./next-attention.js";
 import { resolveNotificationOwnerThreadKey } from "./notification-thread.js";
 import { normalizeThreadKey } from "./thread-projection.js";
+import { absoluteUrlForHash, navigateToSession, routeSessionRefForId, sessionThreadHash } from "./routing.js";
+import { canOpenInSide, openConversationInSide, openInSide, openQuestInSide } from "./side-column.js";
+import { topicViewKey } from "../../shared/topic-thread-key.js";
+import { writeClipboardText } from "./copy-utils.js";
 
 function logFailure(action: string) {
   return (error: unknown) => console.error(`[attention-menu] ${action} failed:`, error);
@@ -49,7 +53,7 @@ export function needsInputMenuItems(sessionId: string, notification: SessionNoti
 
 /**
  * The actions an attention list offers for one item, by kind: prompt actions,
- * Acknowledge and Stop tracking for Notify Me results, and Remind me later and
+ * Acknowledge, Remind me later and Stop tracking for Notify Me results, and Remind me later and
  * Mark as read for unread results. Opening stays on the row's Go to.
  */
 export function attentionItemMenuItems(item: NextAttentionItem): ContextMenuItem[] {
@@ -67,6 +71,23 @@ export function attentionItemMenuItems(item: NextAttentionItem): ContextMenuItem
           void updateThreadMonitoring(item.sessionId, threadKey, "acknowledge", pending.id).catch(
             logFailure("Acknowledge"),
           ),
+      });
+      // It comes back as a reminder at the same message; acknowledged until then.
+      items.push({
+        label: "Remind me later",
+        onClick: () => {},
+        children: itemRemindPresets().map((preset) => ({
+          label: preset.label,
+          onClick: () =>
+            void setThreadReminder(
+              item.sessionId,
+              normalizeThreadKey(threadKey),
+              preset.durationMs,
+              pending.messageId || undefined,
+            )
+              .then(() => updateThreadMonitoring(item.sessionId, threadKey, "acknowledge", pending.id))
+              .catch(logFailure("Remind me later")),
+        })),
       });
     }
     items.push({
@@ -212,4 +233,81 @@ export function threadReminderMenuItems(sessionId: string, threadKey: string): C
       onClick: () => void cancelThreadReminder(sessionId, threadKey).catch(logFailure("Cancel reminder")),
     },
   ];
+}
+
+/**
+ * Actions for a quest of a leader that runs now: open it in the side column (where there is one)
+ * or its worker's session, bring it back later as a reminder, or copy a link to its thread.
+ * Tapping the row already opens the quest's thread. `onLeave` runs after an opening, so a
+ * dropdown holding the row can close.
+ */
+export function runningQuestMenuItems(input: {
+  leaderId: string;
+  questId: string;
+  workerId?: string;
+  workerNum?: number;
+  onLeave?: () => void;
+}): ContextMenuItem[] {
+  const { leaderId, questId, workerId, workerNum, onLeave } = input;
+  const items: ContextMenuItem[] = [];
+  if (canOpenInSide()) {
+    items.push({
+      label: "Open in side column",
+      onClick: () => {
+        if (!openConversationInSide(leaderId, questId)) openQuestInSide(questId);
+        onLeave?.();
+      },
+    });
+  }
+  if (workerId) {
+    items.push({
+      label: workerNum ? `Open worker #${workerNum}` : "Open worker",
+      onClick: () => {
+        navigateToSession(workerId);
+        onLeave?.();
+      },
+    });
+  }
+  items.push(
+    {
+      label: "Remind me later",
+      onClick: () => {},
+      children: itemRemindPresets().map((preset) => ({
+        label: preset.label,
+        onClick: () =>
+          void remindThreadLater(leaderId, questId, preset.durationMs).catch(logFailure("Remind me later")),
+      })),
+    },
+    copyThreadLinkItem(leaderId, questId),
+  );
+  return items;
+}
+
+/**
+ * Actions for a topic in a leader's overview: open its page in the side column (where there is
+ * one) or copy a link to its conversation. Tapping the row already opens the conversation.
+ */
+export function overviewTopicMenuItems(leaderId: string, topicId: string, onLeave?: () => void): ContextMenuItem[] {
+  const items: ContextMenuItem[] = [];
+  if (canOpenInSide()) {
+    items.push({
+      label: "Open in side column",
+      onClick: () => {
+        openInSide(leaderId, { kind: "topic", topicId });
+        onLeave?.();
+      },
+    });
+  }
+  items.push(copyThreadLinkItem(leaderId, topicViewKey(topicId)));
+  return items;
+}
+
+function copyThreadLinkItem(leaderId: string, threadKey: string): ContextMenuItem {
+  return {
+    label: "Copy link",
+    onClick: () => {
+      const ref = routeSessionRefForId(leaderId, useStore.getState().sdkSessions);
+      void writeClipboardText(absoluteUrlForHash(sessionThreadHash(ref, threadKey))).catch(logFailure("Copy link"));
+    },
+  };
 }

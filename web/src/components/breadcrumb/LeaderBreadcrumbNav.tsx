@@ -268,6 +268,7 @@ export function LeaderBreadcrumbNav({
                 close();
                 topics.onOpen(topic);
               }}
+              onLeave={close}
             />
           </div>
         </>

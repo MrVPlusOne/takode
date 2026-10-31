@@ -232,6 +232,7 @@ function SideOverview({
               leave();
               navigateToSessionThread(leaderId, questId);
             }}
+            onLeave={leave}
           />
         </div>
       )}

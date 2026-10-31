@@ -29,6 +29,9 @@ export interface RunningQuest {
   phase: { label: string; accent: string } | null;
   updatedAt: number;
   topic: { id: string; name: string } | null;
+  /** The session of its worker and that session's number, when it has one. */
+  workerId?: string;
+  workerNum?: number;
   /** The Scribe's note on it, when it wrote one and the quest needs nothing from the user. */
   note?: string;
 }
@@ -44,6 +47,8 @@ export interface TopicCounts {
 }
 
 export interface LeaderOverviewData {
+  /** The leader whose overview this is. */
+  leaderId: string;
   /** The leader's open questions and unread answers, reports and finished quests, in Next order. */
   forYou: NextAttentionItem[];
   running: RunningQuest[];
@@ -111,6 +116,7 @@ export function useLeaderOverview(leaderId: string): LeaderOverviewData {
       };
     };
     return {
+      leaderId,
       forYou,
       running,
       needYou: forYouGroups(forYou).filter(isQuestion).length,
@@ -132,11 +138,14 @@ export function LeaderOverview({
   topics,
   onOpenQuest,
   onOpenTopic,
+  onLeave,
 }: {
   data: LeaderOverviewData;
   topics?: readonly TopicSummary[];
   onOpenQuest: (questId: string) => void;
   onOpenTopic?: (topic: TopicSummary) => void;
+  /** After a row's menu opened something elsewhere, so a dropdown or sheet holding this can close. */
+  onLeave?: () => void;
 }) {
   const titles = useAttentionThreadTitles(data.forYou);
   const quiet = (topics ?? []).filter((topic) => {
@@ -170,13 +179,25 @@ export function LeaderOverview({
       )}
       <OverviewFold name="running" title="Running now" count={data.running.length} testId="overview-running">
         {data.running.map((quest) => (
-          <RunningLine key={quest.questId} quest={quest} onOpen={() => onOpenQuest(quest.questId)} />
+          <RunningLine
+            key={quest.questId}
+            leaderId={data.leaderId}
+            quest={quest}
+            onOpen={() => onOpenQuest(quest.questId)}
+            onLeave={onLeave}
+          />
         ))}
       </OverviewFold>
       {topics && onOpenTopic && (
         <OverviewFold name="topics" title="Other topics" count={quiet.length} testId="overview-topics">
           {quiet.map((topic) => (
-            <TopicLine key={topic.id} topic={topic} onOpen={() => onOpenTopic(topic)} />
+            <TopicLine
+              key={topic.id}
+              leaderId={data.leaderId}
+              topic={topic}
+              onOpen={() => onOpenTopic(topic)}
+              onLeave={onLeave}
+            />
           ))}
         </OverviewFold>
       )}
@@ -258,6 +279,7 @@ function runningQuest(row: BoardRowData, topic: { id: string; name: string } | u
     phase: phase ? { label: phase.label, accent: getQuestPhaseAccentValue(phase.color) } : null,
     updatedAt: row.updatedAt,
     topic: topic ?? null,
+    ...(row.worker ? { workerId: row.worker, workerNum: row.workerNum } : {}),
   };
 }
 

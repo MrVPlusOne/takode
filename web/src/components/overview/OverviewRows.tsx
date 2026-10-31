@@ -3,7 +3,12 @@ import type { TopicSummary } from "../../../shared/library-topics.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import type { AttentionThreadTitles } from "../../hooks/useAttentionThreadTitles.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../../hooks/useLongPress.js";
-import { attentionItemMenuItems, attentionPlaceMenuItems } from "../../utils/attention-item-menu.js";
+import {
+  attentionItemMenuItems,
+  attentionPlaceMenuItems,
+  overviewTopicMenuItems,
+  runningQuestMenuItems,
+} from "../../utils/attention-item-menu.js";
 import { countNewThings, type NextAttentionItem } from "../../utils/next-attention.js";
 import { scopedGetItem, scopedSetItem } from "../../utils/scoped-storage.js";
 import { MAIN_THREAD_KEY } from "../../utils/thread-projection.js";
@@ -81,7 +86,17 @@ export function UnreadLine({
 }
 
 /** A quest in progress: its phase's color, title and phase, and the Scribe's note when it wrote one. */
-export function RunningLine({ quest, onOpen }: { quest: RunningQuest; onOpen: () => void }) {
+export function RunningLine({
+  leaderId,
+  quest,
+  onOpen,
+  onLeave,
+}: {
+  leaderId: string;
+  quest: RunningQuest;
+  onOpen: () => void;
+  onLeave?: () => void;
+}) {
   return (
     <Line
       icon={
@@ -93,18 +108,38 @@ export function RunningLine({ quest, onOpen }: { quest: RunningQuest; onOpen: ()
       status={quest.phase ? <span style={{ color: quest.phase.accent }}>{quest.phase.label}</span> : null}
       detail={quest.note}
       onOpen={onOpen}
+      menu={() =>
+        runningQuestMenuItems({
+          leaderId,
+          questId: quest.questId,
+          workerId: quest.workerId,
+          workerNum: quest.workerNum,
+          onLeave,
+        })
+      }
       testId="overview-running-row"
     />
   );
 }
 
-export function TopicLine({ topic, onOpen }: { topic: TopicSummary; onOpen: () => void }) {
+export function TopicLine({
+  leaderId,
+  topic,
+  onOpen,
+  onLeave,
+}: {
+  leaderId: string;
+  topic: TopicSummary;
+  onOpen: () => void;
+  onLeave?: () => void;
+}) {
   return (
     <Line
       icon={<TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />}
       title={topic.name}
       status={<span className="text-cc-muted">{formatRelativeTime(topic.activityAt)}</span>}
       onOpen={onOpen}
+      menu={() => overviewTopicMenuItems(leaderId, topic.id, onLeave)}
       testId="overview-topic-row"
     />
   );

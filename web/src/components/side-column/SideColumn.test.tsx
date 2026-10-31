@@ -41,6 +41,7 @@ vi.mock("./thread-names.js", () => ({
 vi.mock("../overview/LeaderOverview.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../overview/LeaderOverview.js")>()),
   useLeaderOverview: () => ({
+    leaderId: "leader-1",
     forYou: [],
     running: [
       {
