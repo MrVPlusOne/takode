@@ -198,4 +198,65 @@ describe("read-aloud player", () => {
     expect(first.result.current).toBeNull();
     expect(second.result.current?.status).toBe("preparing");
   });
+
+  it("plays a deck slide by slide: each slide's narration, the next fetched ahead, moving on when one ends", async () => {
+    // Playing a deck reads one slide at a time, from its notes, and turns to the next slide when the
+    // audio ends; the following slide's audio is asked for while the current one plays.
+    const { fetchMock, respond } = deferredFetch();
+    const { result } = renderHook(() => player.useReadAloudState("deck"));
+    const deck = {
+      sessionId: "s1",
+      messageId: "deck",
+      title: "Deck",
+      slides: [
+        { narration: "Intro script.", shown: "# Deck" },
+        { narration: "Second script.", shown: "## Two" },
+        { narration: "## Three", shown: "## Three" },
+      ],
+    };
+    const body = (call: number) => JSON.parse(String(fetchMock.mock.calls[call][1].body));
+
+    act(() => player.playDeck(deck, 0));
+    expect(result.current).toMatchObject({ status: "preparing", slide: { index: 0, count: 3 } });
+    expect(body(0)).toMatchObject({ messageId: "deck", text: "Intro script.", slide: { shown: "# Deck" } });
+
+    await respond(mp3());
+    expect(result.current).toMatchObject({ status: "ready", slide: { index: 0 } });
+    // The second slide is being prepared ahead.
+    expect(body(1)).toMatchObject({ text: "Second script.", slide: { shown: "## Two" } });
+    await respond(mp3());
+
+    act(() => {
+      lastAudio().dispatchEvent(new Event("ended"));
+    });
+    // Its audio was already there: no new request for slide two, which now plays.
+    await vi.waitFor(() => expect(result.current).toMatchObject({ status: "ready", slide: { index: 1 } }));
+    expect(srcAtPlay.at(-1)).toBe("blob:reply-audio-2");
+    expect(body(2)).toMatchObject({ text: "## Three" });
+
+    // Going back plays slide one again from its saved audio.
+    act(() => player.goToPlayedSlide(0));
+    await vi.waitFor(() => expect(result.current).toMatchObject({ status: "ready", slide: { index: 0 } }));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    act(() => player.stopReadAloud());
+    expect(result.current).toBeNull();
+    expect((fetchMock.mock.calls[2][1].signal as AbortSignal).aborted).toBe(true);
+  });
+
+  it("stays on the last slide when the deck ends", async () => {
+    const { respond } = deferredFetch();
+    const { result } = renderHook(() => player.useReadAloudState("deck"));
+    act(() =>
+      player.playDeck(
+        { sessionId: "s1", messageId: "deck", title: "Deck", slides: [{ narration: "a", shown: "a" }] },
+        0,
+      ),
+    );
+    await respond(mp3());
+    act(() => {
+      lastAudio().dispatchEvent(new Event("ended"));
+    });
+    expect(result.current).toMatchObject({ status: "ready", slide: { index: 0, count: 1 } });
+  });
 });

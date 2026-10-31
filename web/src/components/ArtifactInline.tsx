@@ -210,6 +210,7 @@ export function ArtifactVersionContentView({
             title={title ?? ""}
             markdown={content.markdown}
             sourcePath={content.sourcePath}
+            message={content.message}
             renderMarkdown={renderMarkdown}
           />
         );
@@ -228,16 +229,18 @@ export function ArtifactVersionContentView({
   }
 }
 
-/** A deck in the Library or an artifact window, under the viewer's own title. */
+/** A deck in the Library or an artifact window, under the viewer's own title; it plays through its message. */
 function LibraryDeck({
   title,
   markdown,
   sourcePath,
+  message,
   renderMarkdown,
 }: {
   title: string;
   markdown: string;
   sourcePath?: string;
+  message?: { sessionId: string; messageId: string };
   renderMarkdown: RenderMarkdown;
 }) {
   const render = useCallback(
@@ -249,6 +252,7 @@ function LibraryDeck({
       title={title}
       markdown={markdown}
       render={render}
+      message={message}
       framed={false}
       menuItems={[{ label: "Copy Markdown", onClick: () => void writeClipboardText(markdown).catch(console.error) }]}
     />

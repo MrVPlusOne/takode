@@ -26,7 +26,8 @@ function sourcePosition(source: HTMLElement, annotation: ConversationAnnotation)
   // target-scroll operation. A second scroll here would bypass that ownership.
   if (!feed) source.scrollIntoView?.({ block: "center", behavior: "instant" });
   const placed = range?.getBoundingClientRect?.() ?? source.getBoundingClientRect();
-  return { position: { x: placed.left, y: placed.bottom + 12 }, sourceUnavailable: !range };
+  // A comment on a whole slide quotes no passage, so there is none to miss.
+  return { position: { x: placed.left, y: placed.bottom + 12 }, sourceUnavailable: !range && !annotation.slide?.whole };
 }
 
 /** Use normal bounded-feed navigation, then position the editor beside the verified passage. */

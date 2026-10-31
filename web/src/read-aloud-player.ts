@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { fetchReadAloudAudio, reportReadAloudTiming } from "./api/read-aloud.js";
+import { fetchReadAloudAudio, reportReadAloudTiming, type ReadAloudAudio } from "./api/read-aloud.js";
 
 /** The voices offered in the player, in menu order. */
 export const READ_ALOUD_PLAYER_VOICES = ["marin", "cedar", "coral", "ash"] as const;
@@ -19,6 +19,17 @@ export interface ReadAloudState {
   /** "ready" once audio is loaded, whether playing or paused. */
   status: "preparing" | "ready" | "error";
   error?: string;
+  /** While a deck is played: the slide being read (from 0) and how many the deck has. */
+  slide?: { index: number; count: number };
+}
+
+/** A slide deck to play slide by slide: what each slide says (its notes, else its text) and shows. */
+export interface NarratedDeck {
+  sessionId: string;
+  messageId: string;
+  historyIndex?: number;
+  title: string;
+  slides: ReadonlyArray<{ narration: string; shown: string }>;
 }
 
 /** Where the audio is; changes several times a second while playing. */
@@ -42,17 +53,22 @@ let playback: ReadAloudPlayback = IDLE_PLAYBACK;
 let preferences: ReadAloudPreferences = loadPreferences();
 const listeners = new Set<() => void>();
 let audio: HTMLAudioElement | null = null;
-/** The current read, from tap until stopped; aborting it cancels its request. */
+/** The current read, from tap until stopped; aborting it cancels its requests (a played deck's slides too). */
 let currentRead: AbortController | null = null;
+/** The audio being loaded; a newer load (another slide, another voice) makes an older one stale. */
+let currentLoad: object | null = null;
 /** What the current read asked for, so a voice change can ask again. */
 let currentInput: ReadAloudInput | null = null;
 let audioUrl: string | null = null;
+/** The deck being played: its slide, and each slide's audio once asked for (the next is fetched ahead). */
+let deck: { narration: NarratedDeck; index: number; audio: Map<number, Promise<ReadAloudAudio>> } | null = null;
 
 interface ReadAloudInput {
   sessionId: string;
   messageId: string;
   text: string;
   historyIndex?: number;
+  slide?: { shown: string };
 }
 
 /**
@@ -61,14 +77,40 @@ interface ReadAloudInput {
  */
 export function startReadAloud(input: ReadAloudInput): void {
   stopReadAloud();
+  currentRead = new AbortController();
   load(input, 0);
+}
+
+/**
+ * Play a deck from slide `index`: each slide's narration is read aloud, and the next slide starts
+ * when one ends. The deck follows `state.slide`. Must be called from the tap that asked for it.
+ */
+export function playDeck(narration: NarratedDeck, index: number): void {
+  stopReadAloud();
+  currentRead = new AbortController();
+  deck = { narration, index: clampSlide(narration, index), audio: new Map() };
+  load(slideInput(deck.index), 0);
+}
+
+/** Move a played deck to slide `index` and read it from its start. */
+export function goToPlayedSlide(index: number): void {
+  if (!deck) return;
+  deck.index = clampSlide(deck.narration, index);
+  load(slideInput(deck.index), 0);
+}
+
+/** Stop playing the deck of `messageId`, when that deck is the one being played. */
+export function stopPlayedDeck(messageId: string): void {
+  if (deck?.narration.messageId === messageId) stopReadAloud();
 }
 
 /** Stop reading aloud, including a request still being prepared, and close the player. */
 export function stopReadAloud(): void {
   currentRead?.abort();
   currentRead = null;
+  currentLoad = null;
   currentInput = null;
+  deck = null;
   releaseAudio();
   setState(null);
 }
@@ -108,7 +150,8 @@ export function setReadAloudVoice(voice: ReadAloudVoice): void {
   const resumeFraction = audio?.duration && !audio.ended ? audio.currentTime / audio.duration : 0;
   const input = currentInput;
   currentRead?.abort();
-  releaseAudio();
+  currentRead = new AbortController();
+  deck?.audio.clear();
   load(input, resumeFraction);
 }
 
@@ -138,27 +181,32 @@ export function previewReadAloudState(next: ReadAloudState | null, nextPlayback:
 }
 
 function load(input: ReadAloudInput, resumeFraction: number): void {
+  releaseAudio();
   const element = getAudioElement();
   element.src = SILENT_WAV;
   // Only unlocks the element; a refusal here shows up when the real audio plays.
   element.play().catch(() => {});
 
-  const request = new AbortController();
-  currentRead = request;
+  const token = {};
+  currentLoad = token;
   currentInput = input;
-  playback = IDLE_PLAYBACK;
-  const read = { messageId: input.messageId, sessionId: input.sessionId };
+  const read = {
+    messageId: input.messageId,
+    sessionId: input.sessionId,
+    ...(deck ? { slide: { index: deck.index, count: deck.narration.slides.length } } : {}),
+  };
   setState({ ...read, status: "preparing" });
-  fetchReadAloudAudio({ ...input, voice: preferences.voice }, request.signal)
+  const audioPromise = deck ? slideAudio(deck.index) : fetchAudio(input);
+  audioPromise
     .then(async ({ blob, recordId, cached, waitMs, downloadMs }) => {
-      if (currentRead !== request) return;
+      if (currentLoad !== token) return;
       const loadedAt = performance.now();
       audioUrl = URL.createObjectURL(blob);
       element.src = audioUrl;
       element.playbackRate = preferences.playbackRate;
       if (resumeFraction > 0) {
         await new Promise((resolve) => element.addEventListener("loadedmetadata", resolve, { once: true }));
-        if (currentRead !== request) return;
+        if (currentLoad !== token) return;
         element.currentTime = resumeFraction * element.duration;
       }
       await element.play();
@@ -166,11 +214,12 @@ function load(input: ReadAloudInput, resumeFraction: number): void {
         reportReadAloudTiming(recordId, { waitMs, downloadMs, startMs: performance.now() - loadedAt, cached });
       setState({ ...read, status: "ready" });
       showOnLockScreen();
+      // The next slide's audio is made while this one plays, so the deck moves on without a wait.
+      if (deck && deck.index + 1 < deck.narration.slides.length) void slideAudio(deck.index + 1).catch(() => {});
     })
     .catch((error: unknown) => {
-      if (request.signal.aborted) return;
+      if (currentLoad !== token) return;
       console.error("[read-aloud] Failed:", error);
-      currentRead = null;
       releaseAudio();
       setState({
         ...read,
@@ -178,6 +227,39 @@ function load(input: ReadAloudInput, resumeFraction: number): void {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+}
+
+function fetchAudio(input: ReadAloudInput): Promise<ReadAloudAudio> {
+  return fetchReadAloudAudio({ ...input, voice: preferences.voice }, currentRead!.signal);
+}
+
+/** A played slide's audio, asked for once; a failed request is forgotten so going back to it tries again. */
+function slideAudio(index: number): Promise<ReadAloudAudio> {
+  const played = deck!;
+  const known = played.audio.get(index);
+  if (known) return known;
+  const audio = fetchAudio(slideInput(index));
+  played.audio.set(index, audio);
+  audio.catch(() => {
+    if (played.audio.get(index) === audio) played.audio.delete(index);
+  });
+  return audio;
+}
+
+function slideInput(index: number): ReadAloudInput {
+  const { narration } = deck!;
+  const slide = narration.slides[index];
+  return {
+    sessionId: narration.sessionId,
+    messageId: narration.messageId,
+    historyIndex: narration.historyIndex,
+    text: slide.narration,
+    slide: { shown: slide.shown },
+  };
+}
+
+function clampSlide(narration: NarratedDeck, index: number): number {
+  return Math.max(0, Math.min(narration.slides.length - 1, index));
 }
 
 function releaseAudio(): void {
@@ -198,6 +280,11 @@ function getAudioElement(): HTMLAudioElement {
       if (audioUrl && element.src === audioUrl) updatePlayback();
     });
   }
+  // A played deck moves to its next slide when one ends (the unlocking silence ends too, unnoticed).
+  element.addEventListener("ended", () => {
+    if (deck && audioUrl && element.src === audioUrl && deck.index + 1 < deck.narration.slides.length)
+      goToPlayedSlide(deck.index + 1);
+  });
   audio = element;
   return element;
 }
@@ -212,13 +299,25 @@ function updatePlayback(): void {
   notify();
 }
 
-/** Lets the lock screen and Control Center show and control what is playing. */
+/** Lets the lock screen and Control Center show and control what is playing; a played deck skips by slide. */
 function showOnLockScreen(): void {
   if (!("mediaSession" in navigator) || typeof MediaMetadata === "undefined") return;
-  navigator.mediaSession.metadata = new MediaMetadata({ title: "Takode reply", artist: "Read aloud" });
-  navigator.mediaSession.setActionHandler("stop", stopReadAloud);
-  navigator.mediaSession.setActionHandler("seekbackward", () => skipReadAloud(-1));
-  navigator.mediaSession.setActionHandler("seekforward", () => skipReadAloud(1));
+  const session = navigator.mediaSession;
+  session.metadata = deck
+    ? new MediaMetadata({
+        title: deck.narration.title,
+        artist: `Slide ${deck.index + 1} of ${deck.narration.slides.length}`,
+      })
+    : new MediaMetadata({ title: "Takode reply", artist: "Read aloud" });
+  session.setActionHandler("stop", stopReadAloud);
+  session.setActionHandler("seekbackward", () => skipReadAloud(-1));
+  session.setActionHandler("seekforward", () => skipReadAloud(1));
+  try {
+    session.setActionHandler("previoustrack", deck ? () => deck && goToPlayedSlide(deck.index - 1) : null);
+    session.setActionHandler("nexttrack", deck ? () => deck && goToPlayedSlide(deck.index + 1) : null);
+  } catch {
+    // Browsers without track actions keep the 5-second skips.
+  }
 }
 
 function loadPreferences(): ReadAloudPreferences {

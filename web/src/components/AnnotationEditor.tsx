@@ -246,7 +246,9 @@ export function AnnotationEditor({
         }}
       >
         {(target ?? annotation.reportSource) && (
-          <div className="mb-2 flex">{target ?? <ReportCommentTarget source={annotation.reportSource!} />}</div>
+          <div className="mb-2 flex">
+            {target ?? <ReportCommentTarget source={annotation.reportSource!} slide={annotation.slide} />}
+          </div>
         )}
         <blockquote
           className={`mb-3 max-h-24 overflow-auto border-l-2 border-cc-primary/60 pl-3 text-xs text-cc-muted ${

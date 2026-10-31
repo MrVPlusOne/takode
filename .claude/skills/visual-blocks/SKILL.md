@@ -1,6 +1,6 @@
 ---
 name: visual-blocks
-description: Use when an answer, report or guided review would explain better with a picture than with prose or a table: a pipeline or flow, who sends what to whom, a timeline or branch history, before/after, nested counts, numbers across runs or steps. Also use when asked for slides, a presentation or a deck. Explains the ```visual block, Takode's visual kit (pipelines, flows, sequences, timelines, comparisons, stat cards, rows, nested sets, bars, notes), the Mermaid and chart helpers, the required preview with `takode visual preview` before publishing, and slide decks (`slides: true` reports shown one slide at a time).
+description: Use when an answer, report or guided review would explain better with a picture than with prose or a table: a pipeline or flow, who sends what to whom, a timeline or branch history, before/after, nested counts, numbers across runs or steps. Also use when asked for slides, a presentation or a deck. Explains the ```visual block, Takode's visual kit (pipelines, flows, sequences, timelines, comparisons, stat cards, rows, nested sets, bars, notes), the Mermaid and chart helpers, the required preview with `takode visual preview` before publishing, and slide decks (`slides: true` reports shown one slide at a time, with speaker notes that Play reads aloud).
 ---
 
 # Visual blocks
@@ -60,7 +60,9 @@ It renders the visual on the Takode server at a phone's and a desktop's message 
 
 ## Slides
 
-When asked for slides, a presentation or a deck, publish a `takode report` file written as a deck. Takode shows it one slide at a time with previous/next and Present (full screen), and exports it as a PDF with one slide per page.
+When asked for slides, a presentation or a deck, publish a `takode report` file written as a deck. Takode shows it one slide at a time with each slide's speaker notes under it, previous/next, Present (full screen) and Play, which presents the deck while reading each slide's notes aloud and turns to the next slide when they end. The user can comment on a whole slide or on text in it, and the comment tells you which slide. A PDF export has one slide per page.
+
+**Write the script first.** Decide what you would say, slide by slide, and write it as the slide's notes: complete spoken sentences that carry the explanation. Then put on the slide only what the audience needs to see while hearing it: a short heading, a few words, and a visual, a chart of just the numbers you talk about, or a short code block. Most of the words belong in the notes, very few on the slide. A slide that reads like a page of the report has failed; a slide whose notes repeat it word for word has too.
 
 ````markdown
 ---
@@ -69,18 +71,28 @@ slides: true
 
 # The deck's title
 
-*One line on what it covers.*
+Notes:
+
+One or two sentences on what this talk covers and why it matters.
 
 ---
 
-## One point per slide
+## Keys use file contents
 
-A lead sentence, then one visual, a short code block or a few bullets.
+```visual
+...
+```
+
+Notes:
+
+What you would say over this slide, as plain sentences. It is read aloud on Play, so write it to be heard: no tables, bullets or code here.
 ````
 
 - `slides: true` front matter opens the file. A `---` line with a blank line before it starts the next slide (`---` inside a fence, like a visual's header, doesn't).
+- `Notes:` alone on a line, with a blank line before it, ends what the slide shows; everything after it, up to the next slide, is the slide's notes. Every slide should have notes. A slide without them is read aloud from its own text on Play.
 - A slide that starts with a `#` heading is a title slide and sits in the middle. Give every other slide a `##` heading: it names the slide in the slide list.
-- **A slide is one screen.** On wide screens it is a 16:9 slide laid out at 1280x720 with large text; visuals draw half again as large. Aim for a heading, at most about four lines of prose or five bullets, and one visual or a code block of up to about 12 lines. A longer slide shrinks, down to half size, and then scrolls, which reads badly when presenting: split it into two slides instead, and put detail that fits no slide in a separate report the deck links to.
+- **A slide is one screen.** On wide screens it is a 16:9 slide laid out at 1280x720 with large text; visuals draw half again as large. Aim for a heading, one visual or a code block of up to about 12 lines, and at most a line or two of text. A longer slide shrinks, down to half size, and then scrolls, which reads badly when presenting: split it into two slides, and move words into the notes.
+- Keep a minimal style: one idea per slide, no decoration, no text the notes don't talk about, and visuals that show only what the notes discuss.
 - On a phone held upright each slide shows as a page at reading size that scrolls, so the same file works there.
 
 ## Limits

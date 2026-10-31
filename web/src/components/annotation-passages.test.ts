@@ -40,6 +40,21 @@ describe("annotation passage identity", () => {
     expect(remounted.querySelector("a")?.getAttribute("href")).toBe("#link");
   });
 
+  it("names the slide a passage was selected on, in a deck's slide or its notes", () => {
+    // A deck marks its shown slide (and the notes under it) with the slide it is; comments carry it.
+    document.body.innerHTML =
+      '<div data-message-id="deck"><div data-markdown-report-source=\'{"sessionId":"s","reportId":"deck","sourcePath":"/d.md","sha256":"' +
+      "8".repeat(64) +
+      '"}\'><div data-annotation-slide=\'{"number":2,"title":"Why"}\'><div data-chat-selection-scope="true">The <b>point</b>.</div></div></div></div>';
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector("b")!);
+    expect(captureAnnotationSource(range)).toMatchObject({
+      sourceMessageId: "deck",
+      reportSource: { reportId: "deck" },
+      slide: { number: 2, title: "Why" },
+    });
+  });
+
   it("anchors a whole scope spanning formatted inline nodes", () => {
     const root = source();
     const scope = root.querySelector("[data-chat-selection-scope]")!;

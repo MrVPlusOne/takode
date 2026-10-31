@@ -33,7 +33,9 @@ export interface SessionReadAloudRouteDeps {
  * Read aloud: POST /sessions/:id/read-aloud returns MP3 audio of one assistant message.
  * The browser sends the text it shows (so merged or thread-prefixed messages read as
  * displayed); the server adds the conversation context and calls OpenAI with the
- * Voice key. Every read is recorded for the Read Aloud debug panel, whose
+ * Voice key. For one slide of a deck being played, the browser also sends `slide`, what
+ * the slide shows; the text is then the slide's narration, and the slide replaces the
+ * conversation as the rewrite's context. Every read is recorded for the Read Aloud debug panel, whose
  * /read-aloud/records routes list, show and replay records with other settings. A
  * message read again with the same text and settings plays its recorded audio.
  */
@@ -57,6 +59,8 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
     const text = typeof body.text === "string" ? body.text.trim() : "";
     const historyIndex = typeof body.historyIndex === "number" ? Math.floor(body.historyIndex) : undefined;
     if (!messageId || !text) return c.json({ error: "messageId and text are required" }, 400);
+    const slide = readSlide(body.slide);
+    if (slide === "invalid") return c.json({ error: "slide.shown must be a string" }, 400);
     if (text.length > MAX_MESSAGE_CHARS) return c.json({ error: "This message is too long to read aloud" }, 413);
     const voice = body.voice ?? DEFAULT_READ_ALOUD_SETTINGS.voice;
     const accepted = READ_ALOUD_SPEECH_MODELS.find((entry) => entry.model === DEFAULT_READ_ALOUD_SETTINGS.ttsModel);
@@ -66,7 +70,7 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
 
     const settings = { ...DEFAULT_READ_ALOUD_SETTINGS, voice };
     const cacheKey = createHash("sha256")
-      .update(JSON.stringify([sessionId, messageId, text, settings]))
+      .update(JSON.stringify([sessionId, messageId, text, settings, ...(slide ? [slide.shown] : [])]))
       .digest("hex");
     const cached = await records.findCached(cacheKey).catch((error) => {
       console.warn(`[read-aloud] Could not look up earlier audio: ${error}`);
@@ -75,11 +79,19 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
     const cachedAudio = cached ? await records.readAudio(cached.id).catch(() => null) : null;
     if (cached && cachedAudio) return audioResponse(cachedAudio, cached.id, true);
 
-    const conversationContext = buildReadAloudContext(session.messageHistory, messageId, historyIndex);
+    const conversationContext = slide ? "" : buildReadAloudContext(session.messageHistory, messageId, historyIndex);
     const linkDetails = await describeLinks(text);
     // A visual is heard as its plain-text version, never as its HTML.
-    const spokenSource = replaceVisualFences(text, (block) => `(A visual on screen: ${visualFallbackText(block)})`);
-    const result = await run({ messageText: spokenSource, conversationContext, linkDetails }, config, settings);
+    const plain = (markdown: string) =>
+      replaceVisualFences(markdown, (block) => `(A visual on screen: ${visualFallbackText(block)})`);
+    const spokenSource = plain(text);
+    // A slide without notes is narrated from its own text, which then needs no second copy.
+    const onScreen = slide && slide.shown.trim() && slide.shown.trim() !== text ? plain(slide.shown) : undefined;
+    const result = await run(
+      { messageText: spokenSource, conversationContext, linkDetails, ...(onScreen ? { onScreen } : {}) },
+      config,
+      settings,
+    );
     // Saved before answering so the browser can attach its own timing to this record.
     const record = await records
       .create(
@@ -89,6 +101,7 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
           messageText: text,
           conversationContext,
           linkDetails,
+          ...(onScreen ? { onScreen } : {}),
           cacheKey,
           trace: result.trace,
           error: result.error,
@@ -161,6 +174,7 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
       messageText: source.messageText,
       conversationContext: source.conversationContext,
       linkDetails: source.linkDetails,
+      ...(source.onScreen ? { onScreen: source.onScreen } : {}),
     };
     const result = await run(input, config, settings);
     const record = await records.create(
@@ -176,6 +190,14 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
     );
     return c.json({ record });
   });
+}
+
+/** A played slide: what it shows. Null when absent. */
+function readSlide(value: unknown): { shown: string } | null | "invalid" {
+  if (value === undefined) return null;
+  const shown = (value as { shown?: unknown } | null)?.shown;
+  if (typeof shown !== "string" || shown.length > MAX_MESSAGE_CHARS) return "invalid";
+  return { shown };
 }
 
 function audioResponse(audio: Uint8Array<ArrayBuffer>, recordId: string | undefined, cached: boolean): Response {

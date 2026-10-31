@@ -54,7 +54,51 @@ describe("slide decks", () => {
 
   it("names a slide by its first heading outside code, else leaves it untitled", () => {
     const slides = splitSlides("---\nslides: true\n---\n```sh\n# a comment\n```\n\nNo heading here.");
-    expect(slides).toEqual([{ markdown: "```sh\n# a comment\n```\n\nNo heading here.", title: "" }]);
+    expect(slides).toEqual([{ markdown: "```sh\n# a comment\n```\n\nNo heading here.", notes: "", title: "" }]);
+  });
+
+  it("separates each slide's speaker notes, started by a Notes: line on its own", () => {
+    const deck = [
+      "---",
+      "slides: true",
+      "---",
+      "",
+      "## Shown",
+      "",
+      "Note: this caption stays on the slide.",
+      "",
+      "Notes:",
+      "",
+      "The script for this slide,",
+      "over two lines.",
+      "",
+      "Notes:",
+      "",
+      "A second Notes: line is part of the notes.",
+      "",
+      "---",
+      "",
+      "## No notes",
+      "",
+      "```md",
+      "",
+      "Notes:",
+      "```",
+      "",
+      "---",
+      "",
+      "Notes:",
+      "Only notes: the slide shows nothing.",
+    ].join("\n");
+    const slides = splitSlides(deck);
+    expect(slides[0]).toEqual({
+      markdown: "## Shown\n\nNote: this caption stays on the slide.",
+      notes: "The script for this slide,\nover two lines.\n\nNotes:\n\nA second Notes: line is part of the notes.",
+      title: "Shown",
+    });
+    // A Notes: line inside a fence is the slide's own text.
+    expect(slides[1]).toEqual({ markdown: "## No notes\n\n```md\n\nNotes:\n```", notes: "", title: "No notes" });
+    expect(slides[2]).toEqual({ markdown: "", notes: "Only notes: the slide shows nothing.", title: "" });
   });
 
   it("removes the front matter for display and keeps other text as it is", () => {

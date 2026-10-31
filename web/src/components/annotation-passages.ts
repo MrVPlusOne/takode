@@ -5,7 +5,7 @@ const SCOPE = '[data-chat-selection-scope="true"]';
 /** Capture the selected occurrence, including when the same words appear repeatedly in a message. */
 export function captureAnnotationSource(
   range: Range | null,
-): Pick<ConversationAnnotation, "sourceMessageId" | "sourceAnchor" | "reportSource"> {
+): Pick<ConversationAnnotation, "sourceMessageId" | "sourceAnchor" | "reportSource" | "slide"> {
   if (!range) return {};
   const element = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
   const message = element?.closest<HTMLElement>("[data-message-id]");
@@ -14,6 +14,11 @@ export function captureAnnotationSource(
   const reportElement = element?.closest<HTMLElement>("[data-markdown-report-source]");
   const reportSource = reportElement?.dataset.markdownReportSource
     ? (JSON.parse(reportElement.dataset.markdownReportSource) as ConversationAnnotation["reportSource"])
+    : undefined;
+  // A deck's slide (and its notes) carries the slide it is, so a comment on it says which.
+  const slideElement = element?.closest<HTMLElement>("[data-annotation-slide]");
+  const slide = slideElement?.dataset.annotationSlide
+    ? (JSON.parse(slideElement.dataset.annotationSlide) as ConversationAnnotation["slide"])
     : undefined;
   const scopes = Array.from(message.querySelectorAll<HTMLElement>(SCOPE));
   const scopeIndex = scopes.findIndex(
@@ -28,6 +33,7 @@ export function captureAnnotationSource(
   return {
     sourceMessageId,
     ...(reportSource ? { reportSource } : {}),
+    ...(slide ? { slide } : {}),
     ...(text ? { sourceAnchor: { scopeIndex, start, end: start + text.length, text } } : {}),
   };
 }

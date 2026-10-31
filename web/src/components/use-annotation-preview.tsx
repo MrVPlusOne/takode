@@ -80,7 +80,9 @@ export function useAnnotationPreview(annotation: ConversationAnnotation, number:
           >
             <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-cc-muted">
               <span className="shrink-0">Comment {number}</span>
-              {annotation.reportSource && <ReportCommentTarget source={annotation.reportSource} />}
+              {annotation.reportSource && (
+                <ReportCommentTarget source={annotation.reportSource} slide={annotation.slide} />
+              )}
             </div>
             <blockquote className="whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-2 text-cc-muted">
               {annotation.selectedText}

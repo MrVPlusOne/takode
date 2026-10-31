@@ -116,6 +116,8 @@ export type ArtifactVersionContent =
       sourcePath?: string;
       /** A review's walkthrough, read from the message it was published in when that is still there. */
       review?: ArtifactGuidedReview;
+      /** For a report: the message it was published in, which a slide deck is played (read aloud) through. */
+      message?: { sessionId: string; messageId: string };
     }
   | { kind: "table"; markdown: string }
   | { kind: "visual"; source: string }

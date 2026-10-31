@@ -7,6 +7,8 @@ import { normalizeHistoryMessageToChatMessages } from "../../utils/history-messa
 import { ArtifactVersionContentView } from "../ArtifactInline.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { MessageBubble } from "../MessageBubble.js";
+import { useStore } from "../../store.js";
+import { goToPlayedSlide, stopReadAloud, useReadAloudState } from "../../read-aloud-player.js";
 
 // A deck as an agent writes it: front matter, a title slide, and slides with ## headings.
 const DECK = [
@@ -31,9 +33,36 @@ const DECK = [
   "1. Share the cache.",
 ].join("\n");
 
+/** The same deck written script first: what each slide shows, then its speaker notes. */
+const DECK_WITH_NOTES = [
+  "---",
+  "slides: true",
+  "---",
+  "",
+  "# Cache walkthrough",
+  "",
+  "Notes:",
+  "",
+  "Today: what we cache and why.",
+  "",
+  "---",
+  "",
+  "## What goes into a key",
+  "",
+  "File contents, not timestamps.",
+  "",
+  "Notes:",
+  "",
+  "Timestamps change on every checkout, so keys built from them never match.",
+  "",
+  "---",
+  "",
+  "## Next steps",
+].join("\n");
+
 /** The deck published as a report and shown the way the conversation shows it. */
-function renderDeckReport() {
-  const report = { ...makeMarkdownReportFixture(), content: DECK };
+function renderDeckReport(content = DECK) {
+  const report = { ...makeMarkdownReportFixture(), content };
   const [message] = normalizeHistoryMessageToChatMessages(report, 0);
   return render(<MessageBubble message={message} sessionId={report.source.sessionId} />);
 }
@@ -162,6 +191,90 @@ describe("slide decks in the conversation", () => {
     for (const label of labels) expect(screen.getByText(label)).toBeInTheDocument();
     // A deck has no single long picture to export.
     expect(screen.queryByText("Image (.png)")).not.toBeInTheDocument();
+  });
+});
+
+describe("speaker notes, comments and Play", () => {
+  it("shows a slide's notes below it, not on the slide", () => {
+    setBoxWidth(900);
+    renderDeckReport(DECK_WITH_NOTES);
+    fireEvent.click(screen.getByRole("button", { name: "Next slide" }));
+    const notes = screen.getByTestId("slide-notes");
+    expect(notes).toHaveTextContent("Timestamps change on every checkout");
+    expect(screen.getByTestId("slide-stage")).not.toHaveTextContent("Timestamps");
+    // A slide without notes shows none.
+    fireEvent.click(screen.getByRole("button", { name: "Next slide" }));
+    expect(screen.queryByTestId("slide-notes")).not.toBeInTheDocument();
+  });
+
+  it("comments on a whole slide, naming the slide and the report", () => {
+    setBoxWidth(900);
+    useStore.getState().setAnnotationEditor(null);
+    renderDeckReport(DECK_WITH_NOTES);
+    fireEvent.click(screen.getByRole("button", { name: "Next slide" }));
+    fireEvent.click(screen.getByRole("button", { name: "Comment on slide 2" }));
+    const editor = useStore.getState().annotationEditor;
+    expect(editor?.annotation).toMatchObject({
+      selectedText: "What goes into a key",
+      comment: "",
+      reportSource: { sourcePath: makeMarkdownReportFixture().source.sourcePath },
+      slide: { number: 2, title: "What goes into a key", whole: true },
+    });
+    useStore.getState().setAnnotationEditor(null);
+  });
+
+  it("Play presents the deck reading each slide's notes, the deck follows the reading, and Close ends it", () => {
+    // The request never answers here: what matters is what is asked for and how the deck follows.
+    const fetchMock = vi.fn((_url: string, _init: RequestInit) => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    setBoxWidth(1200);
+    const report = makeMarkdownReportFixture();
+    renderDeckReport(DECK_WITH_NOTES);
+    const reading = () => {
+      let state: ReturnType<typeof useReadAloudState> = null;
+      function Probe() {
+        state = useReadAloudState(report.id);
+        return null;
+      }
+      render(<Probe />);
+      return state as ReturnType<typeof useReadAloudState>;
+    };
+
+    fireEvent.click(screen.getByTestId("play-deck-button"));
+    const presenter = screen.getByTestId("slide-presenter");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toMatchObject({
+      messageId: report.id,
+      text: "Today: what we cache and why.",
+      slide: { shown: "# Cache walkthrough" },
+    });
+    expect(reading()).toMatchObject({ status: "preparing", slide: { index: 0, count: 3 } });
+
+    // The reading moves on (as when a slide's audio ends): the presentation turns with it.
+    act(() => goToPlayedSlide(2));
+    expect(within(presenter).getByText("3 / 3")).toBeInTheDocument();
+    // A slide without notes is read from its own text.
+    expect(JSON.parse(String(fetchMock.mock.calls.at(-1)![1].body))).toMatchObject({ text: "## Next steps" });
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(reading()).toBeNull();
+    stopReadAloud();
+  });
+
+  it("shows notes in Present when asked, and remembers it", () => {
+    setBoxWidth(1200);
+    localStorage.removeItem("cc-slide-presenter-notes");
+    renderDeckReport(DECK_WITH_NOTES);
+    fireEvent.click(screen.getByTestId("present-button"));
+    const presenter = screen.getByTestId("slide-presenter");
+    expect(within(presenter).queryByTestId("slide-notes")).not.toBeInTheDocument();
+    fireEvent.click(within(presenter).getByTestId("slide-notes-toggle"));
+    expect(within(presenter).getByTestId("slide-notes")).toHaveTextContent("Today: what we cache and why.");
+    expect(localStorage.getItem("cc-slide-presenter-notes")).toBe("1");
+    localStorage.removeItem("cc-slide-presenter-notes");
   });
 });
 

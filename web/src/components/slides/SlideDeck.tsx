@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Slide } from "../../../shared/slides.js";
+import type { NarratedDeck } from "../../read-aloud-player.js";
+import { SelectableMessage } from "../FullScreenPanel.js";
 import { useConversationShown } from "../KeptConversationViews.js";
 import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
+import {
+  NarrationControls,
+  NarrationProgress,
+  NotesToggle,
+  SlideCommentButton,
+  SlideNotes,
+  slideCommentAttributes,
+  usePresenterNotes,
+  type DeckComments,
+} from "./SlideControls.js";
 
 /** How a slide is laid out: on a 16:9 stage scaled to fit, or as a page at reading size. */
 export type SlideLayout = "stage" | "page";
@@ -196,7 +208,9 @@ export function useElementWidth<T extends HTMLElement>(): [(node: T | null) => v
 /**
  * The deck over the whole screen, one slide at a time, for presenting: the browser goes full screen
  * where it can; arrow keys, Space and Page Up/Down move, Home and End go to the ends, swiping moves
- * on touch screens, and Escape, Close or the back gesture closes it.
+ * on touch screens, and Escape, Close or the back gesture closes it. Notes shows each slide's speaker
+ * notes under it; with `narration`, Play reads the slides aloud one by one; with `comments`, slides
+ * can be commented on.
  */
 export function SlidePresenter({
   title,
@@ -205,6 +219,8 @@ export function SlidePresenter({
   onChange,
   render,
   onClose,
+  narration,
+  comments,
 }: {
   title: string;
   slides: readonly Slide[];
@@ -212,6 +228,8 @@ export function SlidePresenter({
   onChange: (index: number) => void;
   render: RenderSlide;
   onClose: () => void;
+  narration?: NarratedDeck;
+  comments?: DeckComments;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
@@ -221,6 +239,7 @@ export function SlidePresenter({
     [onChange, slides.length],
   );
   const layout = slideLayoutFor(size.width);
+  const [notesShown, toggleNotes] = usePresenterNotes();
   usePreviewSheetHistoryEntry(true, panelRef, onClose);
 
   useLayoutEffect(() => {
@@ -273,6 +292,33 @@ export function SlidePresenter({
   if (!conversationShown) return null;
   const slide = slides[index];
   const stageWidth = Math.min(size.width, (size.height * STAGE_WIDTH) / STAGE_HEIGHT);
+  const hasNotes = slides.some((candidate) => candidate.notes);
+  const shown = (
+    <>
+      {/* Measured inside its padding, so the slide keeps a margin from the screen's edges. */}
+      <div className="flex min-h-0 flex-1 px-2 py-1 sm:px-6 sm:py-2" {...swipe}>
+        <div ref={setFrame} className="flex min-w-0 flex-1 items-center justify-center">
+          {slide && size.width > 0 && (
+            <SlideView
+              key={index}
+              slide={slide}
+              layout={layout}
+              width={layout === "stage" ? stageWidth : size.width}
+              height={size.height}
+              render={render}
+            />
+          )}
+        </div>
+      </div>
+      {notesShown && slide?.notes && (
+        <SlideNotes
+          notes={slide.notes}
+          render={render}
+          className="mx-auto mt-2 max-h-[35%] w-full max-w-[1100px] shrink-0 overflow-y-auto border-t border-cc-border px-4 pt-2 sm:px-8"
+        />
+      )}
+    </>
+  );
   return createPortal(
     <div
       ref={panelRef}
@@ -292,19 +338,33 @@ export function SlidePresenter({
           Close
         </button>
       </div>
-      <div ref={setFrame} className="flex min-h-0 flex-1 items-center justify-center px-2 sm:px-6" {...swipe}>
-        {slide && size.width > 0 && (
-          <SlideView
-            key={index}
-            slide={slide}
-            layout={layout}
-            width={layout === "stage" ? stageWidth : size.width}
-            height={size.height}
-            render={render}
-          />
-        )}
+      {comments ? (
+        // Text selected here is commented on like the deck in the conversation, naming its slide.
+        <SelectableMessage
+          sessionId={comments.sessionId}
+          messageId={comments.messageId}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div
+            className="flex min-h-0 flex-1 flex-col"
+            data-markdown-report-source={JSON.stringify(comments.source)}
+            {...(slide ? slideCommentAttributes(slide, index) : {})}
+          >
+            {shown}
+          </div>
+        </SelectableMessage>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col">{shown}</div>
+      )}
+      {narration && <NarrationProgress messageId={narration.messageId} />}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1 px-2 py-1.5" data-copy-exclude="">
+        <div className="flex items-center">{hasNotes && <NotesToggle shown={notesShown} onToggle={toggleNotes} />}</div>
+        <SlideNav slides={slides} index={index} onChange={go} />
+        <div className="flex items-center justify-end gap-1">
+          {comments && slide && <SlideCommentButton comments={comments} slide={slide} index={index} />}
+          {narration && <NarrationControls deck={narration} index={index} />}
+        </div>
       </div>
-      <SlideNav slides={slides} index={index} onChange={go} className="py-1.5" />
     </div>,
     document.body,
   );

@@ -1,6 +1,6 @@
 import type { MarkdownReportMessage } from "../markdown-report.js";
 
-/** A synthetic slide deck report: a title slide, a visual, code, a list and a chart-like visual. */
+/** A synthetic slide deck report written script first: few words and a visual or code per slide, speaker notes under each. */
 export function makeSlideDeckReportFixture(): MarkdownReportMessage {
   return {
     type: "markdown_report",
@@ -24,13 +24,13 @@ slides: true
 
 # How the build cache works
 
-*A walkthrough of what is cached, when it is reused and what we measured last week.*
+Notes:
+
+This is a short walkthrough of the build cache: what it stores, when a build can reuse it, and what changed last week.
 
 ---
 
-## The whole pipeline on one page
-
-Every build asks the cache first and **only compiles what changed**.
+## Only compile what changed
 
 \`\`\`visual
 title: From a commit to a finished build
@@ -44,11 +44,13 @@ alt: Four stages. Commit: the changed files. Hash: each target's inputs are hash
 </div>
 \`\`\`
 
+Notes:
+
+Every build asks the cache first. Each target's inputs are hashed into a key, and when that key is already stored, the build reuses the output instead of compiling it again. Only targets whose key is new get compiled.
+
 ---
 
-## What goes into a cache key
-
-A target's key is a hash of everything that can change its output:
+## The key
 
 \`\`\`ts
 const key = hash([
@@ -59,12 +61,13 @@ const key = hash([
 ]);
 \`\`\`
 
-- Timestamps are left out, so a fresh checkout still hits.
-- A dependency's key is part of the key, so a change ripples up.
+Notes:
+
+The key covers everything that can change a target's output: its source files, the keys of what it imports, the toolchain version and the build flags. Timestamps are deliberately left out, so a fresh checkout still hits the cache. And because a dependency's key is part of the key, a change ripples up to everything that imports it.
 
 ---
 
-## Last week's builds
+## Hits since Thursday
 
 \`\`\`visual
 title: Cache hits per day
@@ -79,13 +82,19 @@ alt: Hit rate per day last week. Monday 62 percent, Tuesday 71, Wednesday 68, Th
 </div>
 \`\`\`
 
-Hits rose after Thursday's change took timestamps out of the key.
+Notes:
+
+Early in the week about two builds in three hit the cache. On Thursday we took timestamps out of the key, and the hit rate jumped to the mid-eighties and stayed there.
 
 ---
 
-## Next steps
+## Next
 
-1. Share the cache between CI machines.
-2. Keep outputs for 14 days instead of 7.
-3. Report the hit rate on every build.
+- Share across CI
+- Keep 14 days
+- Report hit rate
+
+Notes:
+
+Three things next. Share the cache between CI machines, so one machine's work helps the others. Keep outputs for fourteen days instead of seven. And report the hit rate on every build, so a drop shows up right away.
 `;

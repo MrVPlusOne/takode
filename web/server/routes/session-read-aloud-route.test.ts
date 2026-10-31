@@ -107,6 +107,37 @@ describe("POST /sessions/:id/read-aloud", () => {
     expect(summary).toMatchObject({ sessionId: "s1", previewText: "Fixed it.", voice: "marin", error: null });
   });
 
+  it("narrates a slide with the slide as context instead of the conversation, and keeps slides apart", async () => {
+    // Playing a deck reads each slide's notes; the rewrite gets what the slide shows, not the chat.
+    const { post, run, records } = makeApp();
+    const shown = "## Why\n\n```visual\ntitle: Flow\nalt: A to B.\n---\n<div></div>\n```";
+    const res = await post("/sessions/s1/read-aloud", {
+      messageId: "deck",
+      text: "Here is why it matters.",
+      slide: { shown },
+    });
+    expect(res.status).toBe(200);
+    const [input] = run.mock.calls[0] as unknown as [{ conversationContext: string; onScreen?: string }];
+    expect(input.conversationContext).toBe("");
+    expect(input.onScreen).toBe("## Why\n\n(A visual on screen: Flow: A to B.)");
+    const [summary] = await waitForRecords(records, 1);
+    expect((await records.get(summary.id))?.onScreen).toBe(input.onScreen);
+
+    // A slide without notes is read from its own text, which is then not repeated as context.
+    await post("/sessions/s1/read-aloud", { messageId: "deck", text: "## Plain", slide: { shown: "## Plain" } });
+    expect((run.mock.calls[1] as unknown as [{ onScreen?: string }])[0].onScreen).toBeUndefined();
+    // The same narration over another slide is read again, not served from the first slide's audio.
+    const again = await post("/sessions/s1/read-aloud", {
+      messageId: "deck",
+      text: "Here is why it matters.",
+      slide: { shown: "## Another slide" },
+    });
+    expect(again.headers.get("X-Read-Aloud-Cached")).toBe("0");
+    expect((await post("/sessions/s1/read-aloud", { messageId: "deck", text: "Hi", slide: { shown: 3 } })).status).toBe(
+      400,
+    );
+  });
+
   it("explains where to add a key when none is set", async () => {
     mocks.apiKey = null;
     const { post, run } = makeApp();

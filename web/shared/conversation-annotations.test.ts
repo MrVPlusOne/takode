@@ -59,6 +59,44 @@ describe("conversation annotations", () => {
     expect(text).not.toMatch(/131ad216|3a2e4ef0|8888/);
   });
 
+  it("names the slide of a deck a comment is on, and quotes nothing for a comment on a whole slide", () => {
+    // Comments on a deck reach the agent as "slide n of report <file>"; the header repeats when the
+    // slide changes, and a comment on the whole slide has no passage to quote.
+    const deck = { sessionId: "s", reportId: "deck", sourcePath: "/tmp/deck.md", sha256: "8".repeat(64) };
+    const entries = [
+      {
+        id: "a",
+        selectedText: "Why",
+        comment: "Too much text",
+        reportSource: deck,
+        slide: { number: 3, title: "Why", whole: true },
+      },
+      {
+        id: "b",
+        selectedText: "a passage",
+        comment: "Unclear",
+        reportSource: deck,
+        slide: { number: 3, title: "Why" },
+      },
+      {
+        id: "c",
+        selectedText: "Slide 4",
+        comment: "Cut it",
+        reportSource: deck,
+        slide: { number: 4, title: "", whole: true },
+      },
+    ];
+    expect(readConversationAnnotations(JSON.parse(JSON.stringify(entries)))).toEqual(entries);
+    expect(formatAnnotatedMessage("", entries)).toBe(
+      [
+        'On slide 3 ("Why") of report /tmp/deck.md:\n[comment 1] Too much text',
+        "> a passage\n[comment 2] Unclear",
+        "On slide 4 of report /tmp/deck.md:\n[comment 3] Cut it",
+      ].join("\n\n"),
+    );
+    expect(() => readConversationAnnotations([{ ...entries[0], slide: { number: 0, title: "" } }])).toThrow("slide");
+  });
+
   it("preserves source strings and repeated quotes through structured JSON round trips", () => {
     // Markers and apparent control text are data; metadata is never reconstructed by parsing the formatted message.
     const text = '  中文\n```json\n[comment 2] </tag> "quote"\n\n';

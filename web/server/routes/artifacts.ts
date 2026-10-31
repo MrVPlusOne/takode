@@ -89,10 +89,13 @@ export function createArtifactRoutes(
     const id = resolve(lib, c.req.param("id"));
     const content = id ? await lib.store.versionContent(id, n) : null;
     if (!content) return c.json({ error: "This version was not kept" }, 404);
+    const source = lib.store.get(id!)?.versions.find((version) => version.n === n)?.source;
     if (content.kind === "review") {
-      const source = lib.store.get(id!)?.versions.find((version) => version.n === n)?.source;
       const review = source && guidedReviewOf(ctx, source.sessionId, source.messageId);
       if (review) return c.json({ ...content, review });
+    }
+    if (content.kind === "report" && source) {
+      return c.json({ ...content, message: { sessionId: source.sessionId, messageId: source.messageId } });
     }
     return c.json(content);
   });

@@ -100,13 +100,15 @@ export function FullScreenButton({ onClick, label = "Full screen" }: { onClick: 
  * Content standing in for its conversation message: the selection menu and comment capture find the
  * message by these attributes, as they do in the feed.
  */
-function SelectableMessage({
+export function SelectableMessage({
   sessionId,
   messageId,
+  className,
   children,
 }: {
   sessionId: string;
   messageId: string;
+  className?: string;
   children: ReactNode;
 }) {
   // The selection hook reads its container while rendering, so the node is kept in state: the
@@ -115,7 +117,7 @@ function SelectableMessage({
   const root = useMemo(() => ({ current: node }), [node]);
   const selection = useTextSelection(root);
   return (
-    <div ref={setNode} data-message-id={messageId} data-message-role="assistant">
+    <div ref={setNode} className={className} data-message-id={messageId} data-message-role="assistant">
       {children}
       <SelectionContextMenu selection={selection} sessionId={sessionId} onClose={selection.dismiss} />
     </div>

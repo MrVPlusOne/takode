@@ -99,7 +99,7 @@ function AnnotationAttachment({
           Comment {number}
           {annotation.reportSource && (
             <span className="ml-2">
-              <ReportCommentTarget source={annotation.reportSource} />
+              <ReportCommentTarget source={annotation.reportSource} slide={annotation.slide} />
             </span>
           )}
         </summary>

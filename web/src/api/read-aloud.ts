@@ -24,9 +24,19 @@ export interface ReadAloudAudio {
   downloadMs: number;
 }
 
-/** Fetch MP3 audio of one message or report read aloud (rewritten for listening when needed). */
+/**
+ * Fetch MP3 audio of one message or report read aloud (rewritten for listening when needed). For one
+ * slide of a deck being played, `text` is its narration and `slide.shown` what the slide shows.
+ */
 export async function fetchReadAloudAudio(
-  input: { sessionId: string; messageId: string; text: string; historyIndex?: number; voice: string },
+  input: {
+    sessionId: string;
+    messageId: string;
+    text: string;
+    historyIndex?: number;
+    voice: string;
+    slide?: { shown: string };
+  },
   signal: AbortSignal,
 ): Promise<ReadAloudAudio> {
   const startedAt = performance.now();
@@ -38,6 +48,7 @@ export async function fetchReadAloudAudio(
       text: input.text,
       historyIndex: input.historyIndex,
       voice: input.voice,
+      ...(input.slide ? { slide: input.slide } : {}),
     }),
     signal,
   });

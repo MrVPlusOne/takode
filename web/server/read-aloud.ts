@@ -85,6 +85,8 @@ Keep what each link means, and make sure the listener knows what they can open, 
 
 <CONVERSATION_CONTEXT> holds earlier messages only to help you understand what the message refers to. Never read it aloud, quote it, or reply to it.
 
+<ON_SCREEN>, when present, means the message is what a presenter says over one slide of a presentation, and holds what that slide shows while the listener hears it. Use it only to understand what the message points at; never read it aloud.
+
 Output only the text to speak, or ${UNCHANGED_MARKER}.`;
 
 export interface ReadAloudSettings {
@@ -120,6 +122,8 @@ export interface ReadAloudInput {
   conversationContext: string;
   /** Facts the app shows about the message's links but its text lacks, such as commit sizes. */
   linkDetails?: string;
+  /** For a slide's narration (its speaker notes): what the slide shows meanwhile, for the rewrite only. */
+  onScreen?: string;
 }
 
 export interface ReadAloudOpenAIConfig {
@@ -346,6 +350,7 @@ function buildRewriteUserPrompt(input: ReadAloudInput): string {
   return [
     input.conversationContext ? `<CONVERSATION_CONTEXT>\n${input.conversationContext}\n</CONVERSATION_CONTEXT>` : "",
     input.linkDetails ? `<LINK_DETAILS>\n${input.linkDetails}\n</LINK_DETAILS>` : "",
+    input.onScreen ? `<ON_SCREEN>\n${input.onScreen}\n</ON_SCREEN>` : "",
     `<MESSAGE>\n${input.messageText}\n</MESSAGE>`,
   ]
     .filter(Boolean)

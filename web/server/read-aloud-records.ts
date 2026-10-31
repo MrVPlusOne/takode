@@ -26,6 +26,8 @@ export interface ReadAloudRecord {
   conversationContext: string;
   /** Link facts given to the rewrite; missing on older records. */
   linkDetails?: string;
+  /** For a slide's narration: what the slide shows, given to the rewrite. */
+  onScreen?: string;
   trace: ReadAloudTrace;
   error: string | null;
   audioBytes: number;

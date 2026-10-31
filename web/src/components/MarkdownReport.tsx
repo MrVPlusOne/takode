@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type RefObject } from "react";
+import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { libraryMenuItems } from "./ArtifactInline.js";
 import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
 import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
@@ -31,7 +31,7 @@ export function MarkdownReport({
 }) {
   const guidedReview = message.metadata?.guidedReview;
   if (!guidedReview && isSlideDeck(message.content))
-    return <MarkdownReportDeck message={message} readOnly={readOnly} />;
+    return <MarkdownReportDeck message={message} feedSessionId={feedSessionId} readOnly={readOnly} />;
   if (!guidedReview) return <MarkdownReportBody message={message} feedSessionId={feedSessionId} readOnly={readOnly} />;
   const source = message.metadata!.markdownReport!;
   return (
@@ -128,11 +128,20 @@ function MarkdownReportBody({
 }
 
 /**
- * A report written as a slide deck: one slide at a time with Present, in place of the long card.
- * Slides render like the report's text (file links resolve against its file, text can be commented
- * on); its More menu holds what the report card's does, with the deck's own exports.
+ * A report written as a slide deck: one slide at a time with Present and Play, in place of the long
+ * card. Slides render like the report's text (file links resolve against its file, text can be
+ * commented on, and so can a whole slide); its More menu holds what the report card's does, with the
+ * deck's own exports. Play replaces Read aloud: it reads the deck slide by slide.
  */
-function MarkdownReportDeck({ message, readOnly }: { message: ChatMessage; readOnly: boolean }) {
+function MarkdownReportDeck({
+  message,
+  feedSessionId,
+  readOnly,
+}: {
+  message: ChatMessage;
+  feedSessionId?: string;
+  readOnly: boolean;
+}) {
   const source = message.metadata!.markdownReport!;
   const reportMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "report");
   const title = reportMarker?.title || reportTitleOf(message.content, source.sourcePath);
@@ -149,22 +158,28 @@ function MarkdownReportDeck({ message, readOnly }: { message: ChatMessage; readO
     ),
     [readOnly, source.responsibleWorkerId, source.sessionId, source.sourcePath],
   );
+  const deckMessage = useMemo(
+    () => ({ sessionId: source.sessionId, messageId: message.id, historyIndex: message.historyIndex }),
+    [source.sessionId, message.id, message.historyIndex],
+  );
+  const comments = useMemo(
+    () => ({ sessionId: feedSessionId ?? source.sessionId, messageId: message.id, source }),
+    [feedSessionId, message.id, source],
+  );
   return (
-    <>
-      {!readOnly && <ReadAloudPlayer messageId={message.id} />}
-      <article className="min-w-0" data-markdown-report-source={JSON.stringify(source)}>
-        <SlideDeckCard
-          title={title}
-          markdown={message.content}
-          render={renderSlide}
-          readAloud={!readOnly && <ReportReadAloudButton message={message} sessionId={source.sessionId} />}
-          menuItems={[
-            ...(!readOnly && reportMarker ? libraryMenuItems(reportMarker) : []),
-            { label: "Copy Markdown", onClick: () => void writeClipboardText(message.content).catch(console.error) },
-          ]}
-        />
-      </article>
-    </>
+    <article className="min-w-0" data-markdown-report-source={JSON.stringify(source)}>
+      <SlideDeckCard
+        title={title}
+        markdown={message.content}
+        render={renderSlide}
+        message={readOnly ? undefined : deckMessage}
+        comments={readOnly ? undefined : comments}
+        menuItems={[
+          ...(!readOnly && reportMarker ? libraryMenuItems(reportMarker) : []),
+          { label: "Copy Markdown", onClick: () => void writeClipboardText(message.content).catch(console.error) },
+        ]}
+      />
+    </article>
   );
 }
 

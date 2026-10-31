@@ -8,8 +8,18 @@ export interface ConversationAnnotation {
   comment: string;
   sourceMessageId?: string;
   reportSource?: import("./markdown-report.js").MarkdownReportSource;
+  /** The slide of a slide deck the comment is on. */
+  slide?: AnnotationSlide;
   /** Rendered-text offsets within one source Markdown scope; text verifies the anchor after remounts. */
   sourceAnchor?: { scopeIndex: number; start: number; end: number; text: string };
+}
+
+/** A comment's slide: its number (from 1) and title, and whether it is on the whole slide rather than a passage. */
+export interface AnnotationSlide {
+  number: number;
+  title: string;
+  /** Set when the comment is on the slide as a whole; `selectedText` then just names the slide. */
+  whole?: boolean;
 }
 
 /** The original composer payload when annotations accompany a question answer. */
@@ -60,6 +70,17 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
     ) {
       throw new Error("Invalid report source.");
     }
+    const slide = entry.slide;
+    if (
+      slide !== undefined &&
+      (!slide ||
+        !Number.isSafeInteger(slide.number) ||
+        slide.number < 1 ||
+        typeof slide.title !== "string" ||
+        (slide.whole !== undefined && typeof slide.whole !== "boolean"))
+    ) {
+      throw new Error("Invalid annotation slide.");
+    }
     if (
       anchor !== undefined &&
       (!anchor ||
@@ -88,6 +109,9 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
             },
           }
         : {}),
+      ...(slide
+        ? { slide: { number: slide.number, title: slide.title, ...(slide.whole ? { whole: true } : {}) } }
+        : {}),
       ...(entry.sourceMessageId !== undefined ? { sourceMessageId: entry.sourceMessageId } : {}),
       ...(anchor
         ? { sourceAnchor: { scopeIndex: anchor.scopeIndex, start: anchor.start, end: anchor.end, text: anchor.text } }
@@ -99,26 +123,40 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
 /**
  * Format the agent-facing user message; attachment identity stays in structured metadata.
  * Report comments name only the report's source file, which is what the agent can open, and
- * only once per run of consecutive comments on the same report; report and session IDs and
- * the digest stay in `reportSource`.
+ * only once per run of consecutive comments on the same report (and slide, for a deck); report
+ * and session IDs and the digest stay in `reportSource`. A comment on a whole slide quotes nothing.
  */
 export function formatAnnotatedMessage(content: string, annotations?: readonly ConversationAnnotation[]): string {
   if (!annotations?.length) return content;
   const comments = annotations
     .map((annotation, index) => {
-      const report = annotation.reportSource;
-      const previous = annotations[index - 1]?.reportSource;
-      const sameReport = report && previous?.reportId === report.reportId && previous.sessionId === report.sessionId;
-      const header = report && !sameReport ? `On report ${report.sourcePath}:\n` : "";
-      const quote = annotation.selectedText
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
+      const target = annotationTarget(annotation);
+      const header =
+        target && target.key !== annotationTarget(annotations[index - 1])?.key ? `On ${target.text}:\n` : "";
+      const quote = annotation.slide?.whole
+        ? ""
+        : annotation.selectedText
+            .split("\n")
+            .map((line) => `> ${line}`)
+            .join("\n") + "\n";
       // A passage taken along without a comment is just quoted; the message says what to do with it.
       return annotation.comment.trim()
-        ? `${header}${quote}\n[comment ${index + 1}] ${annotation.comment}`
-        : `${header}${quote}`;
+        ? `${header}${quote}[comment ${index + 1}] ${annotation.comment}`
+        : `${header}${quote}`.trimEnd();
     })
     .join("\n\n");
   return content.trim() ? `${comments}\n\n---\n${content}` : comments;
+}
+
+/** What a comment is on, as the agent reads it (a report, or one slide of a deck), and a key telling targets apart. */
+function annotationTarget(annotation: ConversationAnnotation | undefined): { text: string; key: string } | null {
+  const report = annotation?.reportSource;
+  if (!report) return null;
+  const slide = annotation.slide;
+  return {
+    text: slide
+      ? `slide ${slide.number}${slide.title ? ` ("${slide.title}")` : ""} of report ${report.sourcePath}`
+      : `report ${report.sourcePath}`,
+    key: JSON.stringify([report.sessionId, report.reportId, slide?.number]),
+  };
 }
