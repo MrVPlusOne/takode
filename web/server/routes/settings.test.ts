@@ -143,6 +143,10 @@ describe("settings routes", () => {
     const bad = await put("grid");
     expect(bad.status).toBe(400);
     expect(getSettings().sidebarViewMode).toBe("recent");
+
+    // Topics mode lists the leaders' topics instead of their sessions.
+    expect((await (await put("topics")).json()).sidebarViewMode).toBe("topics");
+    expect(getSettings().sidebarViewMode).toBe("topics");
   });
 
   it("accepts centralized session defaults settings updates", async () => {

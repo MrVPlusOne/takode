@@ -20,7 +20,7 @@ import { api } from "../api.js";
 import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
 import { normalizeLeaderProfileCollapsedPools } from "../../shared/leader-profile-portraits.js";
 import { connectSession, syncedProjectionsLive } from "../ws.js";
-import { navigateToSession, secondaryPageFromHash } from "../utils/routing.js";
+import { navigateToSession, navigateToSessionThread, secondaryPageFromHash } from "../utils/routing.js";
 import { openSecondaryPage, toggleSecondaryPage } from "../utils/secondary-view.js";
 import { cancelPendingCreation } from "../utils/pending-creation.js";
 import { getTreeGroupNewSessionDefaultsKey } from "../utils/new-session-defaults.js";
@@ -40,6 +40,7 @@ import { SidebarLockToggle } from "./SidebarFold.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { RecentNewSessionMenuButton, RecentSessionList, RecentSpacesStatus } from "./RecentSessionList.js";
+import { SidebarTopicsMode, TopicsModeNewButton, useTopicsModeData } from "./sidebar-topics/SidebarTopicsMode.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import type { SdkSessionInfo } from "../types.js";
 import {
@@ -82,6 +83,13 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
  * The sessions panel. `titleRow` is off while the desktop panel is unlocked and dropped down
  * below its folded top row, which then shows the logo and navigation instead.
  */
+const SIDEBAR_VIEW_LABELS = { spaces: "Spaces", recent: "Recent", topics: "Topics" } as const;
+const SIDEBAR_VIEW_TITLES = {
+  spaces: "Group sessions by Session Space",
+  recent: "List sessions by recent interaction",
+  topics: "List the topics of your leaders, then the leaders and other sessions",
+} as const;
+
 export function Sidebar({
   onOpenUniversalSearch,
   titleRow = true,
@@ -111,7 +119,9 @@ export function Sidebar({
   const setSessionSortMode = useStore((s) => s.setSessionSortMode);
   const sidebarViewMode = useStore((s) => s.sidebarViewMode);
   const setSidebarViewMode = useStore((s) => s.setSidebarViewMode);
-  const recentView = sidebarViewMode === "recent";
+  const topicsView = sidebarViewMode === "topics";
+  // Topics mode lists the leaders' topics, and the other sessions as Recent does.
+  const recentView = sidebarViewMode === "recent" || topicsView;
   const treeGroups = useStore((s) => s.treeGroups);
   const treeAssignments = useStore((s) => s.treeAssignments);
   const collapsedTreeGroups = useStore((s) => s.collapsedTreeGroups);
@@ -272,7 +282,8 @@ export function Sidebar({
         hydrateChatDisplaySettingsFromServer(s);
         useStore.setState({
           sendKeyScheme: normalizeSendKeyScheme(s.sendKeyScheme),
-          sidebarViewMode: s.sidebarViewMode === "recent" ? "recent" : "spaces",
+          sidebarViewMode:
+            s.sidebarViewMode === "recent" || s.sidebarViewMode === "topics" ? s.sidebarViewMode : "spaces",
           leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(s.leaderProfileCollapsedPools),
         });
       })
@@ -485,8 +496,8 @@ export function Sidebar({
     window.setTimeout(() => void refreshSessionListNow(true), 1500);
   }
 
-  function switchSidebarView(mode: "spaces" | "recent") {
-    if (mode === "recent") {
+  function switchSidebarView(mode: "spaces" | "recent" | "topics") {
+    if (mode !== "spaces") {
       cancelBulkSelection();
       setBulkSourceMenuOpen(false);
       setReorderMode(false);
@@ -535,6 +546,7 @@ export function Sidebar({
       sidebarViewMode,
     ],
   );
+  const topicsData = useTopicsModeData(recentNodes, topicsView);
 
   useEffect(() => {
     const sessionById = new Map(allSessionList.map((session) => [session.id, session] as const));
@@ -723,6 +735,88 @@ export function Sidebar({
     archiveConfirmation,
   };
 
+  // Shared by the three views: Topics mode puts them in its Other sessions group.
+  const pendingList = pendingSessions.size > 0 && (
+    <div className="space-y-2 sm:space-y-0.5 mb-1">
+      {Array.from(pendingSessions.values())
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((ps) => (
+          <PendingSessionItem
+            key={ps.id}
+            pending={ps}
+            isActive={currentSessionId === ps.id}
+            onSelect={() => {
+              navigateToSession(ps.id);
+            }}
+            onCancel={() => cancelPendingCreation(ps.id)}
+          />
+        ))}
+    </div>
+  );
+  const cronSection = cronSessions.length > 0 && (
+    <div className="mt-2 pt-2 border-t border-cc-border">
+      <button
+        onClick={() => setShowCronSessions(!showCronSessions)}
+        className="w-full px-3 py-1.5 text-[11px] font-medium text-violet-400 uppercase tracking-wider flex items-center gap-1.5 hover:text-violet-300 transition-colors cursor-pointer"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          className={`w-3 h-3 transition-transform ${showCronSessions ? "rotate-90" : ""}`}
+        >
+          <path d="M6 4l4 4-4 4" />
+        </svg>
+        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60">
+          <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 10-2 0v3a1 1 0 00.293.707l2 2a1 1 0 001.414-1.414L9 7.586V5z" />
+        </svg>
+        Scheduled Runs ({cronSessions.length})
+      </button>
+      {showCronSessions && (
+        <div className="space-y-2 sm:space-y-0.5 mt-1">
+          {cronSessions.map((s) => (
+            <SessionItem
+              key={s.id}
+              session={s}
+              isActive={currentSessionId === s.id}
+              sessionName={s.name ?? undefined}
+              permCount={s.permCount}
+              attention={sessionSetAttention.get(s.id) ?? null}
+              hasUnread={hasUnreadSessionAttention(sessionSetAttention.get(s.id))}
+              isRecentlyRenamed={recentlyRenamed.has(s.id)}
+              herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
+              herdHoverHighlight={herdHoverHighlights.get(s.id)}
+              reviewerSession={s.sessionNum != null ? reviewerByParent.get(s.sessionNum) : undefined}
+              useStatusBar
+              {...sessionItemProps}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+  const archivedSection = (
+    <ArchivedSessionSection
+      showArchived={showArchived}
+      hasNoActiveSessionRows={hasNoActiveSessionRows}
+      loaded={archivedSessionPage.loaded}
+      loading={archivedSessionPage.loading}
+      error={archivedSessionPage.error}
+      hasMore={archivedSessionPage.hasMore}
+      total={archivedSessionPage.total}
+      archivedSessions={visibleArchivedSessions}
+      autoLoadUnsupported={archivedAutoLoadUnsupported}
+      loadMoreSentinelRef={archivedLoadMoreSentinelRef}
+      currentSessionId={currentSessionId}
+      recentlyRenamed={recentlyRenamed}
+      herdGroupBadgeThemes={herdGroupBadgeThemes}
+      herdHoverHighlights={herdHoverHighlights}
+      reviewerByParent={reviewerByParent}
+      sessionItemProps={sessionItemProps}
+      onToggle={toggleArchivedSessions}
+      onLoadMore={() => void loadArchivedSessionsPage()}
+    />
+  );
+
   return (
     <aside className="w-full sm:w-[var(--split-w,260px)] h-full flex flex-col bg-cc-sidebar border-r border-cc-border">
       <div className={`px-4 pb-3 border-b border-cc-border/60 ${titleRow ? "pt-4" : "pt-3"}`}>
@@ -743,7 +837,12 @@ export function Sidebar({
         ref={sessionScrollerRef}
         data-testid="sidebar-session-scroller"
         className={`flex-1 px-2 pb-2 overflow-x-hidden ${
-          mobileReorderHandleActive ? "overflow-y-hidden overscroll-none" : "overflow-y-auto"
+          // Topics mode's groups scroll on their own, so the panel itself doesn't.
+          topicsView
+            ? "flex min-h-0 flex-col overflow-y-hidden"
+            : mobileReorderHandleActive
+              ? "overflow-y-hidden overscroll-none"
+              : "overflow-y-auto"
         }`}
         style={{
           touchAction: mobileReorderHandleActive ? "none" : "pan-y",
@@ -751,30 +850,37 @@ export function Sidebar({
         }}
       >
         {allSessionList.length > 0 && (
-          <div className="px-2 pt-2 pb-1.5 flex items-center gap-1">
+          <div className="px-2 pt-2 pb-1.5 flex shrink-0 items-center gap-1">
             <div
               role="group"
               aria-label="Sidebar view"
               className="shrink-0 mr-auto inline-flex items-center rounded-md border border-cc-border/70 p-px"
             >
-              {(["spaces", "recent"] as const).map((mode) => (
+              {(["spaces", "recent", "topics"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => switchSidebarView(mode)}
                   aria-pressed={sidebarViewMode === mode}
-                  title={mode === "spaces" ? "Group sessions by Session Space" : "List sessions by recent interaction"}
+                  title={SIDEBAR_VIEW_TITLES[mode]}
                   className={`h-6 px-2 rounded-[5px] text-[10px] transition-colors cursor-pointer ${
                     sidebarViewMode === mode ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg"
                   }`}
                 >
-                  {mode === "spaces" ? "Spaces" : "Recent"}
+                  {SIDEBAR_VIEW_LABELS[mode]}
                 </button>
               ))}
             </div>
             {recentView && <RecentSpacesStatus spaces={treeViewGroups} />}
-            {recentView && (
+            {recentView && !topicsView && (
               <RecentNewSessionMenuButton spaces={treeViewGroups} onCreateSession={handleCreateSessionInTreeGroup} />
+            )}
+            {topicsView && (
+              <TopicsModeNewButton
+                leaders={topicsData.places.map((place) => place.node)}
+                spaces={treeViewGroups}
+                onCreateSession={handleCreateSessionInTreeGroup}
+              />
             )}
             {!recentView && bulkSourceGroups.length > 0 && (
               <button
@@ -866,35 +972,48 @@ export function Sidebar({
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">No sessions yet.</p>
         ) : (
           <>
-            {pendingSessions.size > 0 && (
-              <div className="space-y-2 sm:space-y-0.5 mb-1">
-                {Array.from(pendingSessions.values())
-                  .sort((a, b) => b.createdAt - a.createdAt)
-                  .map((ps) => (
-                    <PendingSessionItem
-                      key={ps.id}
-                      pending={ps}
-                      isActive={currentSessionId === ps.id}
-                      onSelect={() => {
-                        navigateToSession(ps.id);
-                      }}
-                      onCancel={() => cancelPendingCreation(ps.id)}
-                    />
-                  ))}
-              </div>
-            )}
-
-            {recentView ? (
-              <RecentSessionList
-                nodes={recentNodes}
+            {topicsView ? (
+              <SidebarTopicsMode
+                data={topicsData}
                 currentSessionId={currentSessionId}
-                recentlyRenamed={recentlyRenamed}
-                sessionAttention={sessionSetAttention}
-                herdGroupBadgeThemes={herdGroupBadgeThemes}
-                rowProps={{ ...sessionItemProps, reorderMode: false, isDraggable: false }}
+                onOpen={(leaderId, threadKey) => {
+                  setContextMenu(null);
+                  navigateToSessionThread(leaderId, threadKey);
+                  if (!isDesktopLayout) useStore.getState().setSidebarOpen(false);
+                }}
+                otherSessions={(others) => (
+                  <>
+                    {pendingList}
+                    <RecentSessionList
+                      nodes={others}
+                      currentSessionId={currentSessionId}
+                      recentlyRenamed={recentlyRenamed}
+                      sessionAttention={sessionSetAttention}
+                      herdGroupBadgeThemes={herdGroupBadgeThemes}
+                      rowProps={{ ...sessionItemProps, reorderMode: false, isDraggable: false }}
+                    />
+                    {cronSection}
+                    {archivedSection}
+                  </>
+                )}
               />
+            ) : recentView ? (
+              <>
+                {pendingList}
+                <RecentSessionList
+                  nodes={recentNodes}
+                  currentSessionId={currentSessionId}
+                  recentlyRenamed={recentlyRenamed}
+                  sessionAttention={sessionSetAttention}
+                  herdGroupBadgeThemes={herdGroupBadgeThemes}
+                  rowProps={{ ...sessionItemProps, reorderMode: false, isDraggable: false }}
+                />
+                {cronSection}
+                {archivedSection}
+              </>
             ) : (
               <>
+                {pendingList}
                 <DndContext
                   sensors={sessionSortMode === "activity" || bulkSelectionGroupId ? [] : treeSensors}
                   collisionDetection={closestCenter}
@@ -962,71 +1081,10 @@ export function Sidebar({
                   </svg>
                   <span className="font-medium">New Session Space</span>
                 </button>
+                {cronSection}
+                {archivedSection}
               </>
             )}
-
-            {cronSessions.length > 0 && (
-              <div className="mt-2 pt-2 border-t border-cc-border">
-                <button
-                  onClick={() => setShowCronSessions(!showCronSessions)}
-                  className="w-full px-3 py-1.5 text-[11px] font-medium text-violet-400 uppercase tracking-wider flex items-center gap-1.5 hover:text-violet-300 transition-colors cursor-pointer"
-                >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className={`w-3 h-3 transition-transform ${showCronSessions ? "rotate-90" : ""}`}
-                  >
-                    <path d="M6 4l4 4-4 4" />
-                  </svg>
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-60">
-                    <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 10-2 0v3a1 1 0 00.293.707l2 2a1 1 0 001.414-1.414L9 7.586V5z" />
-                  </svg>
-                  Scheduled Runs ({cronSessions.length})
-                </button>
-                {showCronSessions && (
-                  <div className="space-y-2 sm:space-y-0.5 mt-1">
-                    {cronSessions.map((s) => (
-                      <SessionItem
-                        key={s.id}
-                        session={s}
-                        isActive={currentSessionId === s.id}
-                        sessionName={s.name ?? undefined}
-                        permCount={s.permCount}
-                        attention={sessionSetAttention.get(s.id) ?? null}
-                        hasUnread={hasUnreadSessionAttention(sessionSetAttention.get(s.id))}
-                        isRecentlyRenamed={recentlyRenamed.has(s.id)}
-                        herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
-                        herdHoverHighlight={herdHoverHighlights.get(s.id)}
-                        reviewerSession={s.sessionNum != null ? reviewerByParent.get(s.sessionNum) : undefined}
-                        useStatusBar
-                        {...sessionItemProps}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <ArchivedSessionSection
-              showArchived={showArchived}
-              hasNoActiveSessionRows={hasNoActiveSessionRows}
-              loaded={archivedSessionPage.loaded}
-              loading={archivedSessionPage.loading}
-              error={archivedSessionPage.error}
-              hasMore={archivedSessionPage.hasMore}
-              total={archivedSessionPage.total}
-              archivedSessions={visibleArchivedSessions}
-              autoLoadUnsupported={archivedAutoLoadUnsupported}
-              loadMoreSentinelRef={archivedLoadMoreSentinelRef}
-              currentSessionId={currentSessionId}
-              recentlyRenamed={recentlyRenamed}
-              herdGroupBadgeThemes={herdGroupBadgeThemes}
-              herdHoverHighlights={herdHoverHighlights}
-              reviewerByParent={reviewerByParent}
-              sessionItemProps={sessionItemProps}
-              onToggle={toggleArchivedSessions}
-              onLoadMore={() => void loadArchivedSessionsPage()}
-            />
           </>
         )}
       </div>

@@ -142,7 +142,12 @@ function normalizeScribeBackend(value: unknown): ScribeBackendSetting {
 }
 
 /** Sessions grouped by Session Space, or one list ordered by recent interaction. */
-export type SidebarViewMode = "spaces" | "recent";
+/** The sessions panel's view: sessions by Session Space, by recency, or the topics leaders work in. */
+export type SidebarViewMode = "spaces" | "recent" | "topics";
+
+export function isSidebarViewMode(value: unknown): value is SidebarViewMode {
+  return value === "spaces" || value === "recent" || value === "topics";
+}
 export const QUESTMASTER_COMPACT_SORT_COLUMNS = [
   "quest",
   "title",
@@ -534,7 +539,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       typeof raw?.sleepInhibitorDurationMinutes === "number" && raw.sleepInhibitorDurationMinutes >= 1
         ? Math.floor(raw.sleepInhibitorDurationMinutes)
         : 5,
-    sidebarViewMode: raw?.sidebarViewMode === "recent" ? "recent" : "spaces",
+    sidebarViewMode: isSidebarViewMode(raw?.sidebarViewMode) ? raw.sidebarViewMode : "spaces",
     questmasterCompactSort: normalizeQuestmasterCompactSort(raw?.questmasterCompactSort),
     chatMessageLineHeight: normalizeChatMessageLineHeight(raw?.chatMessageLineHeight),
     sendKeyScheme: normalizeSendKeyScheme(raw?.sendKeyScheme),

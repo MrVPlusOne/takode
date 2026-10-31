@@ -158,7 +158,7 @@ export function RecentNewSessionMenuButton({
  * A panel below a trigger, right-aligned to it, closed by Escape or a press
  * outside both (the trigger counts as inside so its own toggle wins).
  */
-function useAnchoredPopover() {
+export function useAnchoredPopover() {
   const anchorRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; right: number } | null>(null);
@@ -199,7 +199,7 @@ function useAnchoredPopover() {
 }
 
 /** Spaces the user can see and create in; the transient "Locating..." bucket is not one. */
-function listedSpaces(spaces: TreeViewGroupData[]): TreeViewGroupData[] {
+export function listedSpaces(spaces: TreeViewGroupData[]): TreeViewGroupData[] {
   return spaces.filter((space) => space.id !== PENDING_TREE_GROUP_ID);
 }
 

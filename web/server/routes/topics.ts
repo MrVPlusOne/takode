@@ -1,3 +1,4 @@
+import { topicInteractionAt } from "../topic-interaction.js";
 import { Hono, type Context } from "hono";
 import { getQuest, listQuests } from "../quest-store.js";
 import type { QuestmasterTask } from "../quest-types.js";
@@ -99,7 +100,14 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
           (topic) => threadTopics.has(topic.id) || topic.questIds.some((questId) => own.has(questId)),
         );
       }
-      topics = withQuestActivity(topics, await listQuests());
+      const quests = await listQuests();
+      topics = withQuestActivity(topics, quests);
+      if (leaderId) {
+        // For the sessions panel's Topics mode: ordered as Recent orders leaders.
+        const times = svc.interactionTimes(leaderId);
+        const byId = new Map(quests.map((quest) => [quest.questId, quest]));
+        topics = topics.map((topic) => ({ ...topic, interactionAt: topicInteractionAt(topic, times, byId) }));
+      }
       return {
         topics,
         changes: svc.store.changes(scoped),

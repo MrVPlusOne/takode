@@ -1,3 +1,4 @@
+import { threadInteractionTimes } from "./topic-interaction.js";
 import { topicIdOfViewKey } from "../shared/topic-thread-key.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
@@ -202,12 +203,27 @@ export class TopicService {
   /** Per leader: deliveries run one at a time, so two events never send two messages. */
   private chains = new Map<string, Promise<unknown>>();
   private readonly now: () => number;
+  /** Per leader: its threads' interaction times, as of a history length, extended as messages arrive. */
+  private interactions = new Map<string, { length: number; times: Map<string, number> }>();
 
   constructor(
     readonly store: TopicStore,
     private readonly deps: TopicServiceDeps,
   ) {
     this.now = deps.now ?? Date.now;
+  }
+
+  /**
+   * When the user and each of a leader's threads last dealt with each other (`threadInteractionTimes`),
+   * read once and then only for new messages; a shorter history (a revert) is read again.
+   */
+  interactionTimes(leaderId: string): ReadonlyMap<string, number> {
+    const history = this.deps.getSession(leaderId)?.messageHistory ?? [];
+    const cached = this.interactions.get(leaderId);
+    const fresh = !cached || history.length < cached.length;
+    const times = threadInteractionTimes(history, fresh ? 0 : cached.length, fresh ? new Map() : cached.times);
+    this.interactions.set(leaderId, { length: history.length, times });
+    return times;
   }
 
   // ─── Events ───────────────────────────────────────────────────────────────

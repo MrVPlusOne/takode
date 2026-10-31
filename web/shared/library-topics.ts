@@ -33,6 +33,12 @@ export interface TopicSummary {
   latestUpdate?: string;
   /** How many Now entries are open. */
   openNow: number;
+  /**
+   * In a list for one leader: when the user and the topic last dealt with each other there (the user
+   * wrote in it, or the leader answered or asked them in it, or one of its quests finished), the rule
+   * the sessions panel's Recent view orders leaders by.
+   */
+  interactionAt?: number;
   /** Threads filed under this topic: they show in its conversation, each under its own name. */
   threads?: TopicThreadRef[];
 }

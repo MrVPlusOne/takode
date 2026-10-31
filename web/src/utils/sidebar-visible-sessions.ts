@@ -16,7 +16,7 @@ export interface SidebarVisibleSessionsInput {
   sessionAttention: Map<string, SessionAttentionReason>;
   sessionSortMode: "created" | "activity";
   /** Defaults to the Session Space view. */
-  sidebarViewMode?: "spaces" | "recent";
+  sidebarViewMode?: "spaces" | "recent" | "topics";
 }
 
 export interface SidebarVisibleSessionsResult {
@@ -84,7 +84,7 @@ export function buildSidebarVisibleSessions<TInput extends SidebarVisibleSession
       ? [node.leader.id, ...node.workers.map((worker) => worker.id)]
       : [node.leader.id];
   const orderedVisibleSessionIds =
-    sidebarViewMode === "recent"
+    sidebarViewMode === "recent" || sidebarViewMode === "topics"
       ? recentNodes.flatMap(visibleIdsForNode)
       : treeViewGroups.flatMap((group) =>
           collapsedTreeGroups.has(group.id) ? [] : group.nodes.flatMap(visibleIdsForNode),

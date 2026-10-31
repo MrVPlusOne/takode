@@ -948,6 +948,10 @@ export function buildLeaderThreadTabsProjectionValue(
     mainAttention: { ...(attentionVisualInputs.get("main")?.attention ?? EMPTY_ATTENTION) },
     threadStatuses,
     activePhaseSummary: compactActivePhaseSummary(activeBoard),
+    runningQuestIds: activeBoard
+      .filter(isInMotionBoardCandidate)
+      .map((row) => normalizeProjectionThreadKey(row.questId)!)
+      .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS),
     threadReminders: projectThreadReminders(session),
   });
 }

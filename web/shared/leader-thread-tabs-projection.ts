@@ -109,6 +109,11 @@ export interface LeaderThreadTabsProjectionValue {
   mainAttention: LeaderThreadTabsProjectionAttention;
   threadStatuses: Record<string, LeaderThreadStatus>;
   activePhaseSummary: LeaderActivePhaseSummarySegment[];
+  /**
+   * The leader's quests in motion on its board (in a Journey phase, not queued or proposed), for
+   * running counts outside its tabs (the sessions panel's Topics mode). Absent from older servers.
+   */
+  runningQuestIds?: string[];
   /** "Remind me later" wake times by thread key ("main" or a quest ID), including closed tabs. */
   threadReminders?: Record<string, LeaderThreadReminderProjection>;
 }
@@ -318,6 +323,14 @@ export function isLeaderThreadTabsProjectionValue(value: unknown): value is Lead
     return false;
   }
   if (!isActivePhaseSummary(candidate.activePhaseSummary)) return false;
+  if (
+    candidate.runningQuestIds !== undefined &&
+    (!Array.isArray(candidate.runningQuestIds) ||
+      candidate.runningQuestIds.length > LEADER_THREAD_TABS_PROJECTION_MAX_TABS ||
+      candidate.runningQuestIds.some((questId) => typeof questId !== "string" || !/^q-\d+$/.test(questId)))
+  ) {
+    return false;
+  }
   if (candidate.threadReminders !== undefined && !isThreadReminders(candidate.threadReminders)) return false;
 
   const tabKeys = candidate.tabs.map((tab) => tab.threadKey);
@@ -341,6 +354,8 @@ export interface LeaderThreadTabsProjectionPatch {
   p?: LeaderActivePhaseSummarySegment[];
   /** The whole reminder map when it changed (small: at most one entry per thread). */
   r?: Record<string, LeaderThreadReminderProjection>;
+  /** The whole list of quests in motion when it changed. */
+  q?: string[];
 }
 
 const STATUS_FIELDS = new Set([
@@ -395,6 +410,9 @@ export function createLeaderThreadTabsProjectionPatch(
     patch.p = next.activePhaseSummary;
   }
   if (!threadRemindersEqual(previous.threadReminders, next.threadReminders)) patch.r = next.threadReminders ?? {};
+  if (!arraysEqual(previous.runningQuestIds ?? [], next.runningQuestIds ?? [], (left, right) => left === right)) {
+    patch.q = next.runningQuestIds ?? [];
+  }
   const patchBytes = jsonUtf8ByteLength(patch);
   const valueBytes = jsonUtf8ByteLength(next);
   return Object.keys(patch).length && patchBytes !== null && valueBytes !== null && patchBytes < valueBytes
@@ -417,7 +435,7 @@ export function applyLeaderThreadTabsProjectionPatch(
   }
   const patch = input as LeaderThreadTabsProjectionPatch;
   const keys = Object.keys(patch);
-  if (!keys.length || keys.some((key) => key.length !== 1 || !"dtoaspr".includes(key))) return undefined;
+  if (!keys.length || keys.some((key) => key.length !== 1 || !"dtoasprq".includes(key))) return undefined;
 
   const tabMap = new Map(previous.tabs.map((tab) => [tab.threadKey, tab]));
   if (patch.t !== undefined) {
@@ -454,6 +472,7 @@ export function applyLeaderThreadTabsProjectionPatch(
     ...(patch.a !== undefined ? { mainAttention: patch.a } : {}),
     ...(patch.p !== undefined ? { activePhaseSummary: patch.p } : {}),
     ...(patch.r !== undefined ? { threadReminders: patch.r } : {}),
+    ...(patch.q !== undefined ? { runningQuestIds: patch.q } : {}),
     tabs,
     threadStatuses,
   };
@@ -508,13 +527,20 @@ export function reconcileLeaderThreadTabsProjectionValue(
   const threadReminders = threadRemindersEqual(previous.threadReminders, next.threadReminders)
     ? previous.threadReminders
     : next.threadReminders;
+  const runningQuestIds =
+    previous.runningQuestIds &&
+    next.runningQuestIds &&
+    arraysEqual(previous.runningQuestIds, next.runningQuestIds, (left, right) => left === right)
+      ? previous.runningQuestIds
+      : next.runningQuestIds;
   if (
     tabState === previous.tabState &&
     tabs === previous.tabs &&
     mainAttention === previous.mainAttention &&
     threadStatuses === previous.threadStatuses &&
     activePhaseSummary === previous.activePhaseSummary &&
-    threadReminders === previous.threadReminders
+    threadReminders === previous.threadReminders &&
+    runningQuestIds === previous.runningQuestIds
   ) {
     return previous;
   }
@@ -525,6 +551,7 @@ export function reconcileLeaderThreadTabsProjectionValue(
     mainAttention,
     threadStatuses,
     activePhaseSummary,
+    ...(runningQuestIds ? { runningQuestIds } : {}),
     ...(threadReminders ? { threadReminders } : {}),
   };
 }

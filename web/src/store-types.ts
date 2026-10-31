@@ -231,9 +231,9 @@ export interface AppState {
   sessionSortMode: "created" | "activity";
   setSessionSortMode: (mode: "created" | "activity") => void;
   /** Sidebar layout: sessions grouped by Session Space, or one list by the user's recent interaction. */
-  sidebarViewMode: "spaces" | "recent";
+  sidebarViewMode: "spaces" | "recent" | "topics";
   /** Saves the choice on the server, which keeps one view for every browser. */
-  setSidebarViewMode: (mode: "spaces" | "recent") => void;
+  setSidebarViewMode: (mode: "spaces" | "recent" | "topics") => void;
   /** Portrait pools collapsed in the leader portrait picker; loaded from the server's settings. */
   leaderProfileCollapsedPools: import("../shared/leader-profile-portraits.js").LeaderProfilePoolId[];
   /** Collapses or expands one pool and saves the choice on the server, so every device shows the same. */

@@ -17,6 +17,7 @@ import {
   getServerName,
   setServerName,
   getServerId,
+  isSidebarViewMode,
   getClaudeUserDefaultModel,
   getCodexUserDefaultModel,
   QUESTMASTER_COMPACT_SORT_COLUMNS,
@@ -1070,7 +1071,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       editorConfig: settings.editorConfig,
       sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
-      sidebarViewMode: settings.sidebarViewMode === "recent" ? "recent" : "spaces",
+      sidebarViewMode: isSidebarViewMode(settings.sidebarViewMode) ? settings.sidebarViewMode : "spaces",
       questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
       chatMessageLineHeight: normalizeChatMessageLineHeight(settings.chatMessageLineHeight),
       sendKeyScheme: normalizeSendKeyScheme(settings.sendKeyScheme),
@@ -1309,8 +1310,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: "sleepInhibitorDurationMinutes must be an integer between 1 and 30" }, 400);
     }
-    if (body.sidebarViewMode !== undefined && body.sidebarViewMode !== "spaces" && body.sidebarViewMode !== "recent") {
-      return c.json({ error: 'sidebarViewMode must be "spaces" or "recent"' }, 400);
+    if (body.sidebarViewMode !== undefined && !isSidebarViewMode(body.sidebarViewMode)) {
+      return c.json({ error: 'sidebarViewMode must be "spaces", "recent" or "topics"' }, 400);
     }
     if (body.questmasterCompactSort !== undefined) {
       if (
@@ -1512,8 +1513,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         typeof body.restartUpdatesCheckout === "boolean" ? body.restartUpdatesCheckout : undefined,
       sleepInhibitorDurationMinutes:
         typeof body.sleepInhibitorDurationMinutes === "number" ? body.sleepInhibitorDurationMinutes : undefined,
-      sidebarViewMode:
-        body.sidebarViewMode === "spaces" || body.sidebarViewMode === "recent" ? body.sidebarViewMode : undefined,
+      sidebarViewMode: isSidebarViewMode(body.sidebarViewMode) ? body.sidebarViewMode : undefined,
       questmasterCompactSort:
         body.questmasterCompactSort && typeof body.questmasterCompactSort === "object"
           ? normalizeQuestmasterCompactSort(body.questmasterCompactSort)

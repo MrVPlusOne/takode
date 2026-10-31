@@ -394,6 +394,18 @@ describe("leader thread tabs projection wire contract", () => {
     expect(applyLeaderThreadTabsProjectionPatch(next, cleared)?.threadReminders).toEqual({});
   });
 
+  it("carries the leader's running quests, for counts outside its tabs", () => {
+    // The sessions panel's Topics mode counts running quests per topic for every leader, so the
+    // quests in motion travel with the synced tab state, not only the open tabs.
+    const previous = { ...value(), runningQuestIds: ["q-1"] };
+    const next = { ...previous, runningQuestIds: ["q-1", "q-2"] };
+    expect(leaderThreadTabsProjectionEqual(previous, next)).toBe(false);
+    const patch = createLeaderThreadTabsProjectionPatch(previous, next);
+    expect(patch).toEqual({ q: ["q-1", "q-2"] });
+    expect(applyLeaderThreadTabsProjectionPatch(previous, patch)?.runningQuestIds).toEqual(["q-1", "q-2"]);
+    expect(isLeaderThreadTabsProjectionValue({ ...previous, runningQuestIds: ["main"] })).toBe(false);
+  });
+
   it("rejects malformed patches and omits no-op patches", () => {
     const previous = value();
     expect(applyLeaderThreadTabsProjectionPatch(previous, { s: { "q-2": { unknown: true } } })).toBeUndefined();
