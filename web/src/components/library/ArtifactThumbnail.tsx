@@ -1,3 +1,4 @@
+import { stripInlineMarkdown } from "../../../shared/markdown-plain-text.js";
 import { useState } from "react";
 import {
   ARTIFACT_KIND_LABELS,
@@ -120,10 +121,7 @@ function TableMiniature({ markdown }: { markdown: string }) {
 }
 
 function stripMarkdown(text: string): string {
-  return text
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`]|~~/g, "")
-    .trim();
+  return stripInlineMarkdown(text).trim();
 }
 
 /** Starred marks use the amber of the phase dots, which has a light and a dark shade. */

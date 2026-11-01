@@ -1,3 +1,4 @@
+import { stripInlineMarkdown } from "../shared/markdown-plain-text.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
 import {
@@ -142,7 +143,7 @@ function extractReport(message: Extract<BrowserIncomingMessage, { type: "markdow
 /** A report's title: its top-level heading, else its file name in words. */
 export function reportTitle(markdown: string, sourcePath: string): string {
   const heading = /^#[ \t]+(.+?)[ \t#]*$/m.exec(markdown);
-  if (heading) return clipTitle(stripInlineMarkdown(heading[1]));
+  if (heading) return clipTitle(plainTitleLine(heading[1]));
   const name = (sourcePath.split("/").pop() || sourcePath)
     .replace(/\.[a-z0-9]+$/i, "")
     .replace(/[-_]+/g, " ")
@@ -327,7 +328,7 @@ function tableCells(line: string): string[] {
     .replace(/^\|/, "")
     .replace(/\|$/, "")
     .split("|")
-    .map((cell) => stripInlineMarkdown(cell))
+    .map((cell) => plainTitleLine(cell))
     .filter(Boolean);
 }
 
@@ -339,10 +340,10 @@ function tableTitle(before: string[], header: string[]): string {
   const previous = [...before.slice(-3)].reverse().find((line) => line.trim());
   const line = previous?.trim() ?? "";
   const heading = /^#{1,6}[ \t]+(.+?)[ \t#]*$/.exec(line);
-  if (heading) return clipTitle(stripInlineMarkdown(heading[1]));
+  if (heading) return clipTitle(plainTitleLine(heading[1]));
   const bold = /^\*\*(.+?)\*\*/.exec(line);
-  if (bold) return clipTitle(stripInlineMarkdown(bold[1]).replace(/[\s:.]+$/, ""));
-  if (line.endsWith(":")) return clipTitle(stripInlineMarkdown(line).replace(/[\s:]+$/, ""));
+  if (bold) return clipTitle(plainTitleLine(bold[1]).replace(/[\s:.]+$/, ""));
+  if (line.endsWith(":")) return clipTitle(plainTitleLine(line).replace(/[\s:]+$/, ""));
   return clipTitle(header.join(" · ") || "Table");
 }
 
@@ -367,16 +368,13 @@ function scanImages(prose: string, base: number, block: number, images: ImageRef
 function autoTitle(body: string): string {
   const line = body
     .split("\n")
-    .map((candidate) => stripInlineMarkdown(candidate).trim())
+    .map((candidate) => plainTitleLine(candidate))
     .find((candidate) => candidate.length > 0);
   return clipTitle((line || "Draft").replace(/[\s:]+$/, ""));
 }
 
-function stripInlineMarkdown(text: string): string {
-  return text
-    .replace(/^[#>\-*+\s]+/, "")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`]|~~/g, "")
+function plainTitleLine(text: string): string {
+  return stripInlineMarkdown(text.replace(/^[#>\-*+\s]+/, ""))
     .replace(/\s+/g, " ")
     .trim();
 }

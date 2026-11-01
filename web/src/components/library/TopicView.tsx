@@ -1,3 +1,4 @@
+import { stripInlineMarkdown } from "../../../shared/markdown-plain-text.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ArtifactSummary } from "../../../shared/artifact-library.js";
 import type { TopicDetail, TopicStands, TopicSummary } from "../../../shared/library-topics.js";
@@ -634,11 +635,7 @@ export function splitPage(page: string | null): { lead: string; body: string } {
 
 /** Markdown as plain text: link labels kept, emphasis marks dropped. */
 function plainText(markdown: string): string {
-  return markdown
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return stripInlineMarkdown(markdown).replace(/\s+/g, " ").trim();
 }
 
 function statusLabel(status: string): string {

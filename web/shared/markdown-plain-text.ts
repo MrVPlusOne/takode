@@ -2,31 +2,22 @@ import { markdownWithVisualFallbacks } from "./visual-block.js";
 
 /**
  * Strip Markdown syntax to readable plain text, keeping math source such as
- * `$x_1$` intact. Shared by browser copy actions and server-written previews.
+ * `$x_1$` and code (fenced blocks and inline spans) intact. Shared by browser
+ * copy actions and server-written previews.
  */
 export function markdownToPlainText(markdown: string): string {
   // A visual block reads as its plain-text version, never as its HTML.
+  // Math is replaced by `\0M<n>;` tokens and every literal NUL doubled; code uses the same scheme.
   const protectedMath = protectMathSource(markdownWithVisualFallbacks(markdown));
-  let text = protectedMath.text;
-  // Remove fenced code block markers (``` lang ... ```)
-  text = text.replace(/```[\s\S]*?```/g, (match) => {
-    // Keep the content inside, strip the fences
+  // A fenced block keeps its content verbatim, without its fences.
+  const blocks: string[] = [];
+  let text = protectedMath.text.replace(/```[\s\S]*?```/g, (match) => {
     const inner = match.replace(/^```\w*\n?/, "").replace(/\n?```$/, "");
-    return inner;
+    return `\0B${blocks.push(inner) - 1};`;
   });
-  // Remove inline code backticks
-  text = text.replace(/`([^`]+)`/g, "$1");
-  // Remove images ![alt](url)
-  text = text.replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1");
-  // Remove links [text](url) → text
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  text = stripEscapedInlineMarkdown(text);
   // Remove heading markers
   text = text.replace(/^#{1,6}\s+/gm, "");
-  // Remove bold/italic markers
-  text = text.replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1");
-  text = text.replace(/_{1,3}([^_]+)_{1,3}/g, "$1");
-  // Remove strikethrough
-  text = text.replace(/~~([^~]+)~~/g, "$1");
   // Remove blockquote markers
   text = text.replace(/^>\s?/gm, "");
   // Remove horizontal rules
@@ -35,7 +26,43 @@ export function markdownToPlainText(markdown: string): string {
   text = text.replace(/^[\t ]*[-*+]\s+/gm, "");
   // Remove list markers (ordered)
   text = text.replace(/^[\t ]*\d+\.\s+/gm, "");
-  return protectedMath.restore(text.trim());
+  return protectedMath.restore(restoreTokens(text, "B", blocks).trim());
+}
+
+/**
+ * Inline Markdown as plain text: link and image labels kept, code spans unwrapped with their
+ * content untouched, and emphasis and strikethrough marks dropped. As in CommonMark, underscores
+ * mark emphasis only at the edges of a word, so `snake_case` words and identifiers such as
+ * QA_DATASETS_1031 keep theirs. For one-line titles and labels as much as for whole messages.
+ */
+export function stripInlineMarkdown(markdown: string): string {
+  return stripEscapedInlineMarkdown(markdown.replaceAll("\0", "\0\0")).replace(/\0\0/g, "\0");
+}
+
+/**
+ * `_emphasis_`, `__strong__` or `___both___` opening after a non-word character and closing
+ * before one, with no space just inside the marks.
+ */
+const UNDERSCORE_EMPHASIS = /(^|[^\p{L}\p{N}_])(_{1,3})(?!\s)((?:(?!\2).)*?[^\s_])\2(?![\p{L}\p{N}_])/gu;
+
+/** stripInlineMarkdown on text whose literal NULs are doubled, so `\0C<n>;` can stand in for code spans. */
+function stripEscapedInlineMarkdown(text: string): string {
+  const spans: string[] = [];
+  const stripped = text
+    .replace(/`([^`]+)`/g, (_match, inner: string) => `\0C${spans.push(inner) - 1};`)
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1")
+    .replace(UNDERSCORE_EMPHASIS, "$1$3")
+    .replace(/~~([^~]+)~~/g, "$1");
+  return restoreTokens(stripped, "C", spans);
+}
+
+/** Put back `\0<kind><n>;` tokens, leaving doubled NULs and other tokens as they are. */
+function restoreTokens(text: string, kind: string, values: string[]): string {
+  return text.replace(/\0(\0|([A-Z])(\d+);)/g, (match, _rest, tokenKind?: string, index?: string) =>
+    tokenKind === kind && values[Number(index)] != null ? values[Number(index)]! : match,
+  );
 }
 
 function protectMathSource(markdown: string): { text: string; restore: (value: string) => string } {

@@ -1,3 +1,4 @@
+import { stripInlineMarkdown } from "../shared/markdown-plain-text.js";
 import { normalizeTopicKey, topicHandle } from "../shared/topic-thread-key.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -1674,11 +1675,7 @@ function latestHistoryLine(page: string | null): string | undefined {
 
 /** Markdown in one plain line: link labels kept, emphasis dropped, capped. */
 function plainLine(markdown: string): string {
-  const plain = markdown
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const plain = stripInlineMarkdown(markdown).replace(/\s+/g, " ").trim();
   return plain.length > 240 ? `${plain.slice(0, 239).trimEnd()}…` : plain;
 }
 
@@ -1700,10 +1697,6 @@ export function pageSummary(page: string | null): string {
       .trim()
       .split(/\n\s*\n/)[0] ??
     "";
-  const plain = text
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const plain = stripInlineMarkdown(text).replace(/\s+/g, " ").trim();
   return plain.length > 240 ? `${plain.slice(0, 239).trimEnd()}…` : plain;
 }

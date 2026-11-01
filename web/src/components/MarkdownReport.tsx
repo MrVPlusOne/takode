@@ -1,3 +1,4 @@
+import { stripInlineMarkdown } from "../../shared/markdown-plain-text.js";
 import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { libraryMenuItems } from "./ArtifactInline.js";
 import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
@@ -227,7 +228,7 @@ function ReportContent({
 /** A report's title from its text: its top-level heading, else its file's name. */
 function reportTitleOf(markdown: string, sourcePath: string): string {
   const heading = /^#[ \t]+(.+?)[ \t#]*$/m.exec(markdown)?.[1];
-  return heading?.replace(/[*_`]/g, "") || sourcePath.split("/").pop() || "Report";
+  return (heading && stripInlineMarkdown(heading)) || sourcePath.split("/").pop() || "Report";
 }
 
 /** Reports have no message menu, so their header carries Read aloud (and Stop while reading). */

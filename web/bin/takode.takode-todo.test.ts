@@ -128,6 +128,36 @@ describe("takode todo", () => {
     }
   });
 
+  it("keeps underscores of identifiers and code in the title and link it prints", async () => {
+    // The reported to-do: its title lost every underscore, in list, show and the ready-to-paste link.
+    const title = "Review Junhong's PR #111645 adding SWE Atlas QA to `QA_DATASETS_1031` and _soon_";
+    const server = createServer((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      if (req.url === "/api/takode/me")
+        return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
+      if (req.url === "/api/todos/items")
+        return res.end(
+          JSON.stringify({
+            items: [{ ...item(), titleMarkdown: title, categoryName: "Inbox", markdown: undefined }],
+            revision: 2,
+          }),
+        );
+      return res.end(
+        JSON.stringify({ item: { ...item(), markdown: `${title}\nDetails` }, category: snapshot().categories[0] }),
+      );
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const plain = "Review Junhong's PR #111645 adding SWE Atlas QA to QA_DATASETS_1031 and soon";
+      expect((await runTakode(["todo", "list"], port)).stdout).toContain(plain);
+      expect((await runTakode(["todo", "show", "td-1"], port)).stdout).toContain(`Link: [${plain}](todo:td-1)`);
+    } finally {
+      server.close();
+    }
+  });
+
   it("reads one Markdown object from stdin without trimming and sends exact authorization provenance", async () => {
     let received: JsonObject | null = null;
     const server = createServer(async (req, res) => {

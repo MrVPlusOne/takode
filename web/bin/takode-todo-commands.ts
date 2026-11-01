@@ -8,6 +8,7 @@ import type {
   TodoStateMutationResponse,
   TodoStatus,
 } from "../shared/todo-types.js";
+import { stripInlineMarkdown } from "../shared/markdown-plain-text.js";
 import { TODO_STATUSES } from "../shared/todo-types.js";
 import { formatTodoMarkdownLink } from "../shared/todo-link.js";
 import { isTodoOverdue, isValidTodoDue } from "../shared/todo-due.js";
@@ -59,12 +60,7 @@ function jsonOutput(flags: Record<string, string | boolean>, value: unknown): bo
 }
 
 function titleText(markdown: string, limit = 80): string {
-  const plain = markdown
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[`*_~]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const plain = stripInlineMarkdown(markdown).replace(/\s+/g, " ").trim();
   return plain.length > limit ? `${plain.slice(0, limit - 1)}…` : plain;
 }
 

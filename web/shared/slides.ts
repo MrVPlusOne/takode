@@ -1,3 +1,4 @@
+import { stripInlineMarkdown } from "./markdown-plain-text.js";
 import { scanFences } from "./draft-posts.js";
 
 /**
@@ -73,5 +74,5 @@ function pushSlide(slides: Slide[], markdown: string, notes: string): void {
   const said = notes.trim();
   if (!shown && !said) return;
   const heading = HEADING.exec(shown.replace(/```[\s\S]*?```/g, ""))?.[1] ?? "";
-  slides.push({ markdown: shown, notes: said, title: heading.replace(/[*_`]/g, "") });
+  slides.push({ markdown: shown, notes: said, title: stripInlineMarkdown(heading) });
 }

@@ -13,6 +13,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { stripInlineMarkdown } from "../shared/markdown-plain-text.js";
 import { isTodoOverdue } from "../shared/todo-due.js";
 import { deriveTodoMarkdown } from "../shared/todo-markdown.js";
 import type { TodoItem } from "../shared/todo-types.js";
@@ -137,9 +138,7 @@ export function overdueTodosIn(items: TodoItem[], now: number): OverdueTodo[] {
     .map((item) => ({
       id: item.id,
       due: item.due!,
-      title: deriveTodoMarkdown(item.markdown)
-        .titleMarkdown.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-        .replace(/[`*~]/g, ""),
+      title: stripInlineMarkdown(deriveTodoMarkdown(item.markdown).titleMarkdown),
     }));
 }
 
