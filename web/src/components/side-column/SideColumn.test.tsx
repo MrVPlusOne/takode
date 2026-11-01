@@ -73,6 +73,7 @@ import { useTopicPanel } from "../../utils/topic-panel.js";
 import { useStore } from "../../store.js";
 import { isRememberedFolded } from "../../utils/remembered-folds.js";
 import { SideColumn } from "./SideColumn.js";
+import { focusedChat, MAIN_CHAT, sideChatId, useChatFocusStore } from "../../utils/chat-focus.js";
 
 afterEach(() => {
   cleanup();
@@ -80,6 +81,7 @@ afterEach(() => {
   sendToSession.mockClear();
   useStore.setState({ threadWindows: new Map(), threadWindowMessages: new Map() } as never);
   useSideColumnStore.setState({ columns: {} });
+  useChatFocusStore.setState({ focused: MAIN_CHAT, sideChats: [] });
   useTopicPanel.setState({ panels: {}, sheets: [], focus: null });
   localStorage.clear();
   threads.list = [];
@@ -550,6 +552,40 @@ describe("SideColumn", () => {
     useTopicPanel.setState({ sheets: ["l1"] });
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="sheet" />);
     expect(screen.queryByTestId("side-scroll-strip")).toBeNull();
+  });
+
+  it("makes a side pane the focused chat when opened or clicked, and gives focus back to the main view when it folds", () => {
+    // Jiayi (Oct 31): one focused chat at a time, like OS windows. Opening a conversation beside
+    // the main view focuses it; a click anywhere in a pane focuses it; scrolling does not. The
+    // focused pane is marked; a pane that leaves the screen hands focus back to the main view.
+    render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+    act(() => {
+      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+      openInSide("l1", { kind: "conversation", threadKey: "q-3" });
+    });
+    const [newer, older] = useSideColumnStore.getState().columns.l1!.items;
+    expect(focusedChat()).toBe(sideChatId("l1", newer!.id));
+    const chats = () =>
+      screen.getAllByTestId("side-section").map((section) => section.querySelector("[data-chat-focused]"));
+    expect(chats().map((chat) => chat?.getAttribute("data-chat-focused"))).toEqual(["true", "false", undefined]);
+
+    fireEvent.wheel(within(openBodies()[1]!).getByTestId("mock-conversation"));
+    expect(focusedChat()).toBe(sideChatId("l1", newer!.id));
+    fireEvent.pointerDown(within(openBodies()[1]!).getByTestId("mock-conversation"));
+    expect(focusedChat()).toBe(sideChatId("l1", older!.id));
+
+    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: true }));
+    expect(focusedChat()).toBe(MAIN_CHAT);
+  });
+
+  it("keeps the main view focused on a phone, where the sheet is the one view on screen", () => {
+    useTopicPanel.setState({ sheets: ["l1"] });
+    render(<SideColumn leaderId="l1" threadKey="main" variant="sheet" />);
+    act(() => {
+      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+    });
+    fireEvent.pointerDown(within(openBodies()[0]!).getByTestId("mock-conversation"));
+    expect(useChatFocusStore.getState()).toMatchObject({ focused: MAIN_CHAT, sideChats: [] });
   });
 
   it("collapses on desktop and closes on a phone", () => {

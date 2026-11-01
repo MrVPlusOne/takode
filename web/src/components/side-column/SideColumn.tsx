@@ -41,6 +41,16 @@ import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { BellIcon } from "../AttentionKind.js";
 import { openLibraryArtifact } from "../../utils/library-nav.js";
+import {
+  ChatFocusContext,
+  chatFocusHandlers,
+  focusChat,
+  MAIN_CHAT,
+  sideChatId,
+  useChatFocusMarked,
+  useSideChat,
+} from "../../utils/chat-focus.js";
+import { ChatFocusMark } from "../ChatFocusMark.js";
 
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
 const KEPT_MOUNTED = 3;
@@ -97,6 +107,9 @@ export function SideColumn({
     if (!focus || focusAt === shownFocus.current) return;
     shownFocus.current = focusAt;
     sectionElements.current.get(focus)?.scrollIntoView?.({ block: "nearest" });
+    // Opening a conversation beside the main view focuses it, as opening a window does.
+    const opened = items.find((item) => item.id === focus);
+    if (variant === "docked" && opened && isChatItem(opened)) focusChat(sideChatId(leaderId, focus));
   }, [focus, focusAt]);
   // Open sections stay mounted, and so do the last few folded ones, like kept conversations.
   const keptRef = useRef<string[]>([]);
@@ -145,22 +158,27 @@ export function SideColumn({
    * its height and the edge that sets it. A conversation keeps a fixed height (its feed scrolls
    * inside); a page is as tall as its content, up to that height.
    */
-  const section = (id: string, row: ReactNode, body: ReactNode, fixed: boolean, defaultHeight: number) => {
+  const section = (
+    id: string,
+    row: ReactNode,
+    body: ReactNode,
+    fixed: boolean,
+    defaultHeight: number,
+    /** A chat's focus id: a conversation's section can be the focused chat (chat-focus.ts). */
+    chatId?: string,
+  ) => {
     const open = isOpen(id);
     const dragged = heights.heightOf(id);
     const size = dragged ?? defaultHeight;
-    return (
-      <section
-        key={id}
-        ref={(element) => {
-          if (element) sectionElements.current.set(id, element);
-          else sectionElements.current.delete(id);
-        }}
-        data-section={id}
-        data-open={open}
-        data-testid="side-section"
-      >
-        <div className="sticky top-0 z-10 bg-cc-bg">{row}</div>
+    const content = (
+      <>
+        <div className="sticky top-0 z-10 bg-cc-bg">
+          {/* The focused chat's mark, in the header row so it stays in view while the pane scrolls. */}
+          <span className="hidden group-data-[chat-focused=true]/chat:block">
+            <ChatFocusMark />
+          </span>
+          {row}
+        </div>
         {kept.includes(id) && (
           <Activity mode={open ? "visible" : "hidden"}>
             <div
@@ -182,13 +200,33 @@ export function SideColumn({
             />
           </Activity>
         )}
+      </>
+    );
+    return (
+      <section
+        key={id}
+        ref={(element) => {
+          if (element) sectionElements.current.set(id, element);
+          else sectionElements.current.delete(id);
+        }}
+        data-section={id}
+        data-open={open}
+        data-testid="side-section"
+      >
+        {chatId ? (
+          <SideChatFocus chatId={chatId} onScreen={open && kept.includes(id)}>
+            {content}
+          </SideChatFocus>
+        ) : (
+          content
+        )}
       </section>
     );
   };
 
   const itemSection = (entry: SideItem | null) => {
     const id = entry?.id ?? HOME_ITEM;
-    const conversation = entry?.kind === "conversation" || entry?.kind === "new-chat" || entry?.kind === "session";
+    const conversation = !!entry && isChatItem(entry);
     const row = <SideItemRow leaderId={leaderId} item={entry} open={isOpen(id)} onOpen={() => toggle(id)} />;
     const body = (
       // A link clicked here opens in this pane; the open-in-side click opens it in the main view.
@@ -201,7 +239,10 @@ export function SideColumn({
         <SideItemBody leaderId={leaderId} threadKey={threadKey} item={entry} variant={variant} />
       </div>
     );
-    return section(id, row, body, conversation, fill);
+    // On a phone the sheet is the single view on screen, always focused: its chats use the main
+    // view's id. On a desktop each conversation pane is a chat of its own.
+    const chatId = !conversation ? undefined : variant === "sheet" ? MAIN_CHAT : sideChatId(leaderId, id);
+    return section(id, row, body, conversation, fill, chatId);
   };
 
   return (
@@ -265,6 +306,27 @@ function ColumnScrollStrip({ scrollRef }: { scrollRef: RefObject<HTMLDivElement 
       {/* A faint grip, brighter on hover, so the strip can be found without drawing the eye. */}
       <div className="h-8 w-0.5 rounded-full bg-cc-muted/25 transition-colors group-hover/strip:bg-cc-muted/60" />
     </div>
+  );
+}
+
+/** Items that are a chat: a conversation, a thread being started, or another session's conversation. */
+function isChatItem(item: SideItem): boolean {
+  return item.kind === "conversation" || item.kind === "new-chat" || item.kind === "session";
+}
+
+/**
+ * A side pane as a chat: its id for what it contains (composer, feed), registered while on screen,
+ * focused by a click or tap anywhere in it, and marked while it is the focused chat.
+ */
+function SideChatFocus({ chatId, onScreen, children }: { chatId: string; onScreen: boolean; children: ReactNode }) {
+  useSideChat(chatId, onScreen && chatId !== MAIN_CHAT);
+  const marked = useChatFocusMarked(chatId) && chatId !== MAIN_CHAT;
+  return (
+    <ChatFocusContext.Provider value={chatId}>
+      <div className="group/chat" data-chat-focused={marked ? "true" : "false"} {...chatFocusHandlers(chatId)}>
+        {children}
+      </div>
+    </ChatFocusContext.Provider>
   );
 }
 

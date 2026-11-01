@@ -64,6 +64,8 @@ import { ChatView } from "./ChatView.js";
 import { THREAD_READ_DWELL_MS } from "../hooks/use-thread-read-on-screen.js";
 import { KeptConversationViews } from "./KeptConversationViews.js";
 import { readDisplayedLeaderThreadKey } from "../utils/thread-viewport.js";
+import { focusedChat, sideChatId } from "../utils/chat-focus.js";
+import { useSideColumnStore } from "../utils/side-column.js";
 
 const NO_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 };
 let visibility: DocumentVisibilityState = "visible";
@@ -295,5 +297,21 @@ describe("ChatView marking Ready results read", () => {
     expect(mockMarkNotificationDone).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(200));
     expect(mockMarkNotificationDone).toHaveBeenCalledWith("leader", "n-q1", true);
+  });
+});
+
+describe("ChatView focus when a thread moves to the side column", () => {
+  it("keeps focus with the moved conversation instead of the Home the main view returns to", () => {
+    // One focused chat at a time (chat-focus.ts): opening a conversation focuses it, and the main
+    // view opening Home is a by-product of the move, not the user turning to Home.
+    installLeader([]);
+    renderLeader("#/session/leader?thread=q-1");
+    act(() => {
+      screen.getByRole("button", { name: "Move to the side column" }).click();
+    });
+    act(() => vi.advanceTimersByTime(100));
+    const item = useSideColumnStore.getState().columns.leader!.items[0]!;
+    expect(focusedChat()).toBe(sideChatId("leader", item.id));
+    expect(screen.getAllByTestId("message-feed")[0]).toHaveAttribute("data-thread-key", "main");
   });
 });

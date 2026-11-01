@@ -3,7 +3,12 @@ import { renderHook } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionNotification } from "../types.js";
-import { SEEN_DWELL_MS, readsWhenSeen, useUnreadMessagesSeen } from "./use-unread-messages-seen.js";
+import {
+  SCROLL_ATTENTION_MS,
+  SEEN_DWELL_MS,
+  readsWhenSeen,
+  useUnreadMessagesSeen,
+} from "./use-unread-messages-seen.js";
 
 /**
  * Unread answers are read once seen, as in Slack: a message counts as read after it has been
@@ -17,6 +22,10 @@ function rect(top: number, height: number): DOMRect {
 
 /** A visible feed (top 0, 600 tall) with messages at the given tops. */
 function mountFeed(threadKey: string, messages: Array<{ id: string; top: number; height?: number }>) {
+  return mountFeedElement(threadKey, messages).elements;
+}
+
+function mountFeedElement(threadKey: string, messages: Array<{ id: string; top: number; height?: number }>) {
   const feed = document.createElement("div");
   feed.dataset.testid = "message-feed-scroll-container";
   feed.dataset.feedSessionId = "leader";
@@ -32,7 +41,7 @@ function mountFeed(threadKey: string, messages: Array<{ id: string; top: number;
     elements[message.id] = element;
   }
   document.body.appendChild(feed);
-  return elements;
+  return { feed, elements };
 }
 
 function answer(id: string, timestamp: number, extra: Partial<SessionNotification> = {}): SessionNotification {
@@ -210,5 +219,60 @@ describe("useUnreadMessagesSeen", () => {
       vi.advanceTimersByTime(SEEN_DWELL_MS + 500);
     });
     expect(result.current).toBeNull();
+  });
+
+  it("leaves an answer arriving in a chat that isn't focused unread, and reads it once the user scrolls there", () => {
+    // Jiayi (Oct 31): with the main view and side panes on screen, an answer that shows up by
+    // itself in a pane the user isn't working in stays unread; scrolling that pane is deliberate
+    // attention, so what is on screen then reads as usual. Focusing the chat reads it too.
+    const { feed } = mountFeedElement("q-1", [{ id: "m-a1", top: 100 }]);
+    const onSeen = vi.fn();
+    renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        feedKey: "q-1",
+        notifications: [answer("a1", 1)],
+        enabled: true,
+        focused: false,
+        onSeen,
+      }),
+    );
+    act(() => {
+      vi.advanceTimersByTime(SEEN_DWELL_MS * 5);
+    });
+    expect(onSeen).not.toHaveBeenCalled();
+
+    // The user scrolls the pane: the answer on screen now counts, after the usual second.
+    act(() => {
+      feed.dispatchEvent(new Event("wheel"));
+      vi.advanceTimersByTime(SEEN_DWELL_MS + 500);
+    });
+    expect(onSeen).toHaveBeenCalledWith("a1");
+  });
+
+  it("reads what arrives on screen once the chat is focused", () => {
+    mountFeedElement("q-1", [{ id: "m-a1", top: 100 }]);
+    const onSeen = vi.fn();
+    let focused = false;
+    const { rerender } = renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        feedKey: "q-1",
+        notifications: [answer("a1", 1)],
+        enabled: true,
+        focused,
+        onSeen,
+      }),
+    );
+    act(() => {
+      vi.advanceTimersByTime(SCROLL_ATTENTION_MS + SEEN_DWELL_MS);
+    });
+    expect(onSeen).not.toHaveBeenCalled();
+    focused = true;
+    rerender();
+    act(() => {
+      vi.advanceTimersByTime(SEEN_DWELL_MS + 500);
+    });
+    expect(onSeen).toHaveBeenCalledWith("a1");
   });
 });

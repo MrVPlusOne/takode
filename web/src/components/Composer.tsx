@@ -1,5 +1,6 @@
 import { ComposerMinimizer } from "./ComposerMinimizer.js";
 import { useComposerTypeToCompose } from "./use-composer-type-to-compose.js";
+import { useChatFocused, useChatFocusId } from "../utils/chat-focus.js";
 import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
@@ -779,9 +780,11 @@ export function Composer({
   useEffect(() => {
     if (autoFocus && !usesTouchKeyboard) textareaRef.current?.focus();
   }, [autoFocus, usesTouchKeyboard]);
-  // Desktop only: a phone has no keyboard to type with until a text box already has focus.
+  // Desktop only: a phone has no keyboard to type with until a text box already has focus. Only
+  // the focused chat's composer takes typing, so it lands in one place (chat-focus.ts).
+  const chatFocused = useChatFocused(useChatFocusId());
   const typeToCompose =
-    !secondary && (shortcutSettings ?? DEFAULT_SHORTCUT_SETTINGS).typeToCompose && !usesTouchKeyboard;
+    chatFocused && (shortcutSettings ?? DEFAULT_SHORTCUT_SETTINGS).typeToCompose && !usesTouchKeyboard;
   useComposerTypeToCompose({ textareaRef, enabled: typeToCompose });
 
   useEffect(() => {

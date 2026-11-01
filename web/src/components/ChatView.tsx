@@ -6,6 +6,8 @@ import { openInSide } from "../utils/side-column.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
 import { loadLeaderNamesOnce, useKnownThreadOfKey, useKnownTopicOfKey } from "../utils/leader-topics.js";
 import { useReadyThreadDestination } from "../utils/ready-thread-destination.js";
+import { ChatFocusMark } from "./ChatFocusMark.js";
+import { chatFocusHandlers, focusChat, MAIN_CHAT, useChatFocused, useChatFocusMarked } from "../utils/chat-focus.js";
 import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { ThreadStrip } from "./ThreadStrip.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
@@ -674,11 +676,22 @@ export function ChatView({
     navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true, sessionId, { preserveMainThreadRoute: true });
   }, [addressedTopic, sessionId]);
   const feedThreadKey = selectedThreadKey;
+  // The main view is one of the chats on screen; one of them is focused (chat-focus.ts). Opening
+  // a conversation here focuses it, except when the view returns Home because its conversation
+  // moved to the side column: focus follows the conversation there.
+  const mainFocused = useChatFocused(MAIN_CHAT);
+  const mainFocusMarked = useChatFocusMarked(MAIN_CHAT);
+  const movedToSideRef = useRef(false);
+  useEffect(() => {
+    if (movedToSideRef.current) movedToSideRef.current = false;
+    else if (!preview) focusChat(MAIN_CHAT);
+  }, [preview, sessionId, feedThreadKey]);
   const unreadAbove = useUnreadMessagesSeen({
     sessionId,
     feedKey: feedThreadKey,
     notifications: sessionNotifications,
     enabled: isLeaderSession && !preview,
+    focused: mainFocused,
     inFeed: (ownerThreadKey) =>
       normalizeThreadKey(feedThreadKey) === ALL_THREADS_KEY || ownerThreadKey === normalizeThreadKey(feedThreadKey),
     onSeen: (notificationId) => void api.markNotificationDone(sessionId, notificationId, true).catch(console.error),
@@ -901,6 +914,7 @@ export function ChatView({
     leaderNav && desktopShell
       ? () => {
           openInSide(sessionId, { kind: "conversation", threadKey: selectedThreadKey });
+          movedToSideRef.current = selectedThreadKey !== MAIN_THREAD_KEY;
           handleSelectThread(MAIN_THREAD_KEY);
         }
       : undefined;
@@ -1115,7 +1129,13 @@ export function ChatView({
   // stays under it alone.
   return (
     <div className="flex h-full min-h-0">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div
+        className="relative flex min-w-0 flex-1 flex-col"
+        data-chat-focused={mainFocused ? "true" : "false"}
+        data-testid="main-chat"
+        {...chatFocusHandlers(MAIN_CHAT)}
+      >
+        {mainFocusMarked && <ChatFocusMark />}
         <ComposerFeedLayout>
           {preview ? (
             <div className="shrink-0 px-4 py-2 border-b border-cc-border bg-cc-card/80 text-[11px] text-cc-muted font-medium">

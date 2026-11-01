@@ -190,6 +190,7 @@ vi.mock("../store.js", async () => {
 });
 
 import { Composer } from "./Composer.js";
+import { ChatFocusContext, focusChat, MAIN_CHAT, useChatFocusStore } from "../utils/chat-focus.js";
 import { clearComposerUndoHistoriesForTest } from "./composer-undo-history.js";
 
 function makeSession(overrides: Partial<SessionState> = {}): SessionState {
@@ -741,6 +742,35 @@ describe("Composer type-to-compose and Escape", () => {
     fireEvent.keyDown(textarea(), { key: "Escape" });
 
     expect(isCollapsed()).toBe(false);
+  });
+
+  it("sends typing only to the focused chat's composer, a side pane's included", () => {
+    // Jiayi (Oct 31): with the main view and side panes on screen, typing goes to one place, the
+    // focused chat (chat-focus.ts). A side pane's composer takes it while that pane is focused; the
+    // main view's then doesn't.
+    setupMockStore({ draftText: "hello" });
+    useChatFocusStore.setState({ focused: "side:s1:pane-1", sideChats: ["side:s1:pane-1"] });
+    try {
+      render(
+        <>
+          <Composer sessionId="s1" />
+          <ChatFocusContext.Provider value="side:s1:pane-1">
+            <Composer sessionId="s1" threadKey="q-2" draftKey="s1:side:q-2" secondary />
+          </ChatFocusContext.Provider>
+        </>,
+      );
+      const [main, side] = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+      act(() => (document.activeElement as HTMLElement | null)?.blur());
+      fireEvent.keyDown(document.body, { key: "a" });
+      expect(document.activeElement).toBe(side);
+
+      act(() => side!.blur());
+      act(() => focusChat(MAIN_CHAT));
+      fireEvent.keyDown(document.body, { key: "b" });
+      expect(document.activeElement).toBe(main);
+    } finally {
+      useChatFocusStore.setState({ focused: MAIN_CHAT, sideChats: [] });
+    }
   });
 
   it("does neither when turned off in Settings", () => {

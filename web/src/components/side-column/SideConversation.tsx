@@ -12,6 +12,7 @@ import { ComposerTargetContext } from "../composer-target.js";
 import { StartedQuestsProvider } from "../QuestForkLinks.js";
 import { navigateToSessionThread } from "../../utils/routing.js";
 import { openInSide, wantsSideClick } from "../../utils/side-column.js";
+import { useChatFocused, useChatFocusId } from "../../utils/chat-focus.js";
 
 /**
  * One of the leader's conversations in the side column: a thread or a quest's thread, with its own
@@ -33,11 +34,14 @@ export function SideConversation({
   const key = threadKey.toLowerCase();
   const thread = useKnownThreadOfKey(leaderId, isTopicViewKey(key) ? key : "");
   const notifications = useStore((state) => state.sessionNotifications.get(leaderId));
+  // A pane that isn't the focused chat reads only what the user scrolls to (chat-focus.ts).
+  const focused = useChatFocused(useChatFocusId());
   useUnreadMessagesSeen({
     sessionId: leaderId,
     feedKey: key,
     notifications,
     enabled: true,
+    focused,
     onSeen: (notificationId) => void api.markNotificationDone(leaderId, notificationId, true).catch(console.error),
   });
   // A thread opened from this pane opens in it, in place of this conversation; the open-in-side
