@@ -85,9 +85,15 @@ export function useSectionHeights(stackId: string) {
   return {
     /** The height the user gave a section, if they dragged it. */
     heightOf: (id: string): number | undefined => heights[id],
-    /** Sets a section's height from a drag that started at `start` px. */
-    resize: (id: string, start: number, delta: number) =>
-      setHeights((previous) => ({ ...previous, [id]: Math.max(MIN_SECTION_HEIGHT, Math.round(start + delta)) })),
+    /** Sets a section's height from a drag that started at `start` px; returns the height set. */
+    resize: (id: string, start: number, delta: number): number => {
+      const height = Math.max(MIN_SECTION_HEIGHT, Math.round(start + delta));
+      setHeights((previous) => ({ ...previous, [id]: height }));
+      return height;
+    },
+    /** Gives a section a height of its own, as a drag would. */
+    set: (id: string, height: number) =>
+      setHeights((previous) => ({ ...previous, [id]: Math.max(MIN_SECTION_HEIGHT, Math.round(height)) })),
     /** Back to the section's default height. */
     reset: (id: string) =>
       setHeights((previous) => {

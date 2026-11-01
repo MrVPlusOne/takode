@@ -81,7 +81,13 @@ afterEach(() => {
   setSideViewsOf.mockClear();
   sendToSession.mockClear();
   useStore.setState({ threadWindows: new Map(), threadWindowMessages: new Map() } as never);
-  useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
+  useSideColumnStore.setState({
+    items: [],
+    focus: undefined,
+    focusAt: undefined,
+    used: undefined,
+    chatHeight: undefined,
+  });
   useChatFocusStore.setState({ focused: MAIN_CHAT, sideChats: [] });
   useTopicPanel.setState({ open: true, sheet: false, focus: null });
   localStorage.clear();
@@ -240,6 +246,32 @@ describe("SideColumn", () => {
     expect(JSON.parse(localStorage.getItem("cc-stacked-panes")!).side.heights).toEqual({});
   });
 
+  it("starts a new thread as tall as the side conversation last resized", () => {
+    // Jiayi (Nov 1): new threads always started at one height, taller or shorter than they like.
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    });
+    const resized = screen.getAllByTestId("side-section")[0]!;
+    const body = within(resized).getByTestId("side-section-body");
+    body.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+    fireEvent.keyDown(within(resized).getByRole("separator"), { key: "ArrowDown" });
+    expect(useSideColumnStore.getState().chatHeight).toBe(324);
+    // A page resized afterwards doesn't count: it is not a conversation.
+    act(() => {
+      openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
+    });
+    const page = screen.getAllByTestId("side-section")[0]!;
+    within(page).getByTestId("side-section-body").getBoundingClientRect = () => ({ height: 100 }) as DOMRect;
+    fireEvent.keyDown(within(page).getByRole("separator"), { key: "ArrowDown" });
+    expect(useSideColumnStore.getState().chatHeight).toBe(324);
+    act(() => {
+      openInSide({ kind: "new-chat", leaderId: "l1", startedFrom: null });
+    });
+    const fresh = screen.getAllByTestId("side-section")[0]!;
+    expect(within(fresh).getByTestId("side-section-body").style.height).toBe("324px");
+  });
+
   it("removes an item with its ×, and moves a conversation to the main view", () => {
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
@@ -320,11 +352,15 @@ describe("SideColumn", () => {
     expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), ["q-3", "q-2"]);
     expect(held.count.get("l2")).toBe(1);
     // Folding l2's conversation drops its leader's live messages and connection too.
+    const holdsBefore = held.holds;
     const l2Row = rows().find((row) => row.textContent?.includes("topic:bbbb0001"))!;
     fireEvent.click(within(l2Row).getByRole("button", { expanded: true }));
     expect(mounted().sort()).toEqual(["q-2", "q-3"]);
     expect(setSideViewsOf.mock.calls.filter(([leader]) => leader === "l2").at(-1)?.[2]).toEqual([]);
     expect(held.count.get("l2")).toBe(0);
+    // l1 keeps the hold it had: taking it again would have reconnected it.
+    expect(held.holds).toBe(holdsBefore);
+    expect(held.count.get("l1")).toBe(1);
   });
 
   it("starts a side chat from the quest on screen", () => {

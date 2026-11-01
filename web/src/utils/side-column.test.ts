@@ -30,7 +30,13 @@ const items = () => useSideColumnStore.getState().items;
 const keys = () => items().map((item) => (item.kind === "conversation" ? item.threadKey : item.kind));
 
 afterEach(() => {
-  useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined, used: undefined });
+  useSideColumnStore.setState({
+    items: [],
+    focus: undefined,
+    focusAt: undefined,
+    used: undefined,
+    chatHeight: undefined,
+  });
   useTopicPanel.setState({ open: true, sheet: false, focus: null });
   useStore.setState({ currentSessionId: null, sdkSessions: [] } as never);
   localStorage.clear();

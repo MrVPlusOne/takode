@@ -58,6 +58,8 @@ export interface SideColumnState {
   focus?: string;
   /** When it was opened, so opening it again scrolls to it again. */
   focusAt?: number;
+  /** The height the user last dragged a side conversation to: a new thread starts at it. */
+  chatHeight?: number;
 }
 
 const STORAGE_KEY = "cc-side-column";
@@ -272,6 +274,11 @@ export function replaceSideItem(id: string, input: SideItemInput): void {
   });
   // A new thread that became its conversation now counts toward the open limit.
   if (!isRememberedFolded(sideFoldId(id))) noteSideItemUsed(id);
+}
+
+/** The user dragged a side conversation to `height`: new threads in the column start at it. */
+export function rememberSideChatHeight(height: number): void {
+  if (useSideColumnStore.getState().chatHeight !== height) update((column) => ({ ...column, chatHeight: height }));
 }
 
 export function useSideColumn(): SideColumnState {

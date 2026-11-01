@@ -10,6 +10,7 @@ import {
   notePaneClick,
   openInSide,
   isConversationItem,
+  rememberSideChatHeight,
   newSideChat,
   noteSideItemUsed,
   replaceSideItem,
@@ -87,7 +88,7 @@ export function SideColumn({
   threadKey: string;
   variant: "docked" | "sheet";
 }) {
-  const { items, focus, focusAt } = useSideColumn();
+  const { items, focus, focusAt, chatHeight } = useSideColumn();
   const folds = useRememberedFolds();
   const isOpen = (id: string) => !folds.isFolded(sideFoldId(id));
   // Unfolding goes through the column's open limit: a fourth open conversation folds the oldest.
@@ -96,6 +97,16 @@ export function SideColumn({
   const sectionIds = [...items.map((item) => item.id), ...(leaderId ? [HOME_ITEM] : [])];
   const idsKey = sectionIds.join(",");
   useEffect(() => heights.keepOnly(idsKey.split(",")), [idsKey]);
+  // A new thread starts as tall as the side conversation last resized (Jiayi, Nov 1): one height
+  // doesn't suit everyone, and their last drag says what suits them.
+  const seenIds = useRef(new Set(sectionIds));
+  useEffect(() => {
+    for (const item of items) {
+      if (seenIds.current.has(item.id)) continue;
+      seenIds.current.add(item.id);
+      if (item.kind === "new-chat" && chatHeight !== undefined) heights.set(item.id, chatHeight);
+    }
+  }, [idsKey]);
   // The scrolling area's height: one open section fits it beside every header row by default.
   const scrollRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState(0);
@@ -152,12 +163,25 @@ export function SideColumn({
   ]
     .sort()
     .join(",");
+  // A leader still wanted keeps its hold: releasing and taking it again would reconnect it.
+  const heldLeaders = useRef(new Map<string, () => void>());
   useEffect(() => {
-    const releases = itemLeaders ? itemLeaders.split(",").map((other) => holdSessionConnection(other)) : [];
-    return () => {
-      for (const release of releases) release();
-    };
+    const wanted = new Set(itemLeaders ? itemLeaders.split(",") : []);
+    const held = heldLeaders.current;
+    for (const other of wanted) if (!held.has(other)) held.set(other, holdSessionConnection(other));
+    for (const [other, release] of held) {
+      if (wanted.has(other)) continue;
+      release();
+      held.delete(other);
+    }
   }, [itemLeaders]);
+  useEffect(() => {
+    const held = heldLeaders.current;
+    return () => {
+      for (const release of held.values()) release();
+      held.clear();
+    };
+  }, []);
   // The server sends this browser the live messages of the column's open conversations too, each
   // over its leader's connection; a folded one's stop until it is opened again.
   const conversationViews = items
@@ -220,7 +244,10 @@ export function SideColumn({
             </div>
             <SectionEdge
               measure={() => bodyElements.current.get(id)?.getBoundingClientRect().height || size}
-              onResize={(start, delta) => heights.resize(id, start, delta)}
+              onResize={(start, delta) => {
+                const height = heights.resize(id, start, delta);
+                if (fixed) rememberSideChatHeight(height);
+              }}
               onReset={() => heights.reset(id)}
             />
           </Activity>
