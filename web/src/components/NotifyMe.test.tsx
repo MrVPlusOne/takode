@@ -154,4 +154,39 @@ describe("Notify Me controls", () => {
     expect(fetch.mock.calls[1][0]).toContain("/notifications/n-1/done");
     await waitFor(() => expect(screen.queryByTestId("notify-me-menu")).not.toBeInTheDocument());
   });
+
+  it("shows a reminder's time on one line, and on a phone's strip only its day", () => {
+    // Jiayi (Oct 31): on a thread's strip the icon button was 24 px wide, so "Sun 10:17 PM"
+    // wrapped onto three lines, taller than the strip. The button widens instead, the time never
+    // wraps, and the compact (strip) form drops a later day's time on phones.
+    const inTwoDays = Date.now() + 2 * 24 * 60 * 60 * 1000;
+    const view = (iconOnly: boolean, reminderAt: number) =>
+      render(
+        <NotifyMeControlView
+          enabled={false}
+          pending={false}
+          reminderAt={reminderAt}
+          iconOnly={iconOnly}
+          onOpen={() => {}}
+          onAcknowledge={() => {}}
+        />,
+      );
+    const strip = view(true, inTwoDays);
+    const time = screen.getByTestId("notify-me-reminder-time");
+    expect(time).toHaveClass("whitespace-nowrap");
+    expect(screen.getByRole("button", { name: "Notify Me" })).toHaveClass("whitespace-nowrap");
+    const clock = new Date(inTwoDays).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    expect(time.textContent).toContain(clock);
+    expect([...time.querySelectorAll("span")].find((part) => part.textContent?.includes(clock))).toHaveClass(
+      "max-sm:hidden",
+    );
+    strip.unmount();
+    // Elsewhere the whole time always shows.
+    view(false, inTwoDays);
+    expect(screen.getByTestId("notify-me-reminder-time").querySelector(".max-sm\\:hidden")).toBeNull();
+    cleanup();
+    // Today's reminder (noon today, whatever the hour the test runs) is only a time, which fits anywhere.
+    view(true, new Date().setHours(12, 0, 0, 0));
+    expect(screen.getByTestId("notify-me-reminder-time").querySelector("span")).toBeNull();
+  });
 });

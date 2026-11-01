@@ -701,8 +701,9 @@ export function QuestThreadBanner({
                 sessionId={monitorSessionId}
                 threadKey={threadKey}
                 iconOnly
-                // A 32 px target on phones, as the close button, without growing the strip.
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md max-sm:-my-1 max-sm:h-8 max-sm:w-8"
+                // A 32 px target on phones without growing the strip. Square with only the icon; with a
+                // reminder set it widens to say when, on one line.
+                className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center gap-1 rounded-md px-0.5 text-[11px] max-sm:-my-1 max-sm:h-8 max-sm:min-w-8"
               />
             </span>
           )}

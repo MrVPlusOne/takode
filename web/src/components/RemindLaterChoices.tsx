@@ -37,12 +37,21 @@ export const SECONDARY_BUTTON_CLASS =
 
 /** "Today 8:15 PM" reads as just the time; the coming week adds the weekday and later days the date. */
 export function formatSnoozeUntil(until: number, now = Date.now()): string {
+  const { day, time } = snoozeUntilParts(until, now);
+  return day ? `${day} ${time}` : time;
+}
+
+/**
+ * `formatSnoozeUntil` in its two parts: the day (none for today; the weekday this week, else the
+ * date) and the time, so a tight place can show the day alone.
+ */
+export function snoozeUntilParts(until: number, now = Date.now()): { day: string | null; time: string } {
   const date = new Date(until);
   const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const daysAhead = Math.round((startOfDay(date) - startOfDay(new Date(now))) / DAY_MS);
-  if (daysAhead === 0) return time;
-  if (daysAhead > 0 && daysAhead < 7) return `${date.toLocaleDateString([], { weekday: "short" })} ${time}`;
-  return `${date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} ${time}`;
+  if (daysAhead === 0) return { day: null, time };
+  if (daysAhead > 0 && daysAhead < 7) return { day: date.toLocaleDateString([], { weekday: "short" }), time };
+  return { day: date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }), time };
 }
 
 /**

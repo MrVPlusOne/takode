@@ -8,7 +8,7 @@ import type { SdkSessionInfo } from "../types.js";
 import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
 import { useThreadReminder } from "../utils/thread-reminders.js";
 import { NotifyMeMenu } from "./NotifyMeMenu.js";
-import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
+import { ClockIcon, formatSnoozeUntil, snoozeUntilParts } from "./RemindLaterChoices.js";
 
 export function NotifyMeIcon({
   pending = false,
@@ -102,13 +102,10 @@ export function NotifyMeControlView({
                 ? "Notify Me is on"
                 : "Notify Me: now or later"
         }
-        className={`${className ?? "inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px]"} transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${highlighted ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
+        className={`${className ?? "inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px]"} whitespace-nowrap transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${highlighted ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
       >
         {reminderAt !== undefined && !pending ? (
-          <>
-            <ClockIcon />
-            {formatSnoozeUntil(reminderAt)}
-          </>
+          <ReminderTime at={reminderAt} compact={iconOnly} />
         ) : (
           <>
             <NotifyMeIcon pending={pending} monitored={enabled} />
@@ -122,6 +119,24 @@ export function NotifyMeControlView({
         </span>
       )}
     </span>
+  );
+}
+
+/**
+ * When a reminder brings the thread back, on one line: "10:17 PM" today, "Sun 10:17 PM" this week,
+ * the date later. `compact` (an icon button on a thread's strip) drops a later day's time on a phone.
+ */
+function ReminderTime({ at, compact }: { at: number; compact: boolean }) {
+  const { day, time } = snoozeUntilParts(at);
+  return (
+    <>
+      <ClockIcon />
+      <span className="whitespace-nowrap" data-testid="notify-me-reminder-time">
+        {day}
+        {day && <span className={compact ? "max-sm:hidden" : ""}> {time}</span>}
+        {!day && time}
+      </span>
+    </>
   );
 }
 

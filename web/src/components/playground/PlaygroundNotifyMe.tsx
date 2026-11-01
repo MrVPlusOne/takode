@@ -22,6 +22,21 @@ export function PlaygroundNotifyMe() {
             onAcknowledge={() => setPending(false)}
           />
         </div>
+        {/* A reminder set on a thread's strip: the icon button widens to say when, on one line. */}
+        <div className="flex h-8 max-w-sm items-center gap-1.5 border-b border-cc-border/80 text-xs">
+          <span className="min-w-0 flex-1 truncate font-medium text-cc-fg">
+            q-2944 Rebase the seeded-QA pipeline PR and fix regressions
+          </span>
+          <NotifyMeControlView
+            enabled={false}
+            pending={false}
+            reminderAt={Date.now() + 2 * 24 * 60 * 60 * 1000}
+            iconOnly
+            className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center gap-1 rounded-md px-0.5 text-[11px]"
+            onOpen={() => {}}
+            onAcknowledge={() => {}}
+          />
+        </div>
         <button
           type="button"
           className="text-xs text-cc-info hover:underline cursor-pointer"
