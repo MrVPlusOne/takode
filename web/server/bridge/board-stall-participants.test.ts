@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ResourceLeaseWait } from "../resource-lease-types.js";
 import type { BackgroundTaskInfo } from "./adapter-interface.js";
 import { describeSessionWaits } from "../../shared/session-waits.js";
-import { listSessionWaits } from "./board-stall-participants.js";
+import { backgroundWaitEndsAt, listSessionWaits, mergeBackgroundTasks } from "./board-stall-participants.js";
 
 // listSessionWaits feeds the `waits` list behind the waiting icons and text that
 // sidebar rows, the top bar, the work board's worker column and the feed's waiting
@@ -78,5 +78,30 @@ describe("listSessionWaits", () => {
     expect(waitText({ jobs: [job("gate", "Run full gate")], waits: [{ resourceKey: "agent-browser" }] })).toBe(
       'background job "Run full gate"; agent-browser (#1 in line)',
     );
+  });
+});
+
+describe("background job waits", () => {
+  const MINUTE = 60_000;
+
+  // An idle worker's background job is a legitimate wait for 30 minutes from its
+  // start, or from its latest sign of life (a takode exec command's newest
+  // output), so a long command that keeps working never reads as a stall while
+  // one that went silent still does.
+  it("counts from a job's start or its latest sign of life, whichever is later", () => {
+    expect(backgroundWaitEndsAt({ backgroundJobs: [] })).toBe(0);
+    expect(backgroundWaitEndsAt({ backgroundJobs: [job("gate", "Run full gate")] })).toBe(30 * MINUTE);
+    const command = { taskId: "x-3", description: "takode exec on condor: make", startedAt: 0, activeAt: 90 * MINUTE };
+    expect(backgroundWaitEndsAt({ backgroundJobs: [command] })).toBe(120 * MINUTE);
+  });
+
+  // A session's jobs come from its Claude backend and from takode exec; the
+  // board and the waits list see them together.
+  it("merges a session's jobs from several sources", () => {
+    const claude = { tasks: [job("gate", "Run full gate")], changedAt: 5 };
+    const exec = { tasks: [job("x-1", "takode exec on condor: make")], changedAt: 9 };
+    expect(mergeBackgroundTasks(null, undefined)).toBeNull();
+    expect(mergeBackgroundTasks(claude, null)).toBe(claude);
+    expect(mergeBackgroundTasks(claude, exec)).toEqual({ tasks: [...claude.tasks, ...exec.tasks], changedAt: 9 });
   });
 });

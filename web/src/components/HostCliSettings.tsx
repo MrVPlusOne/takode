@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { updateMachineSettings, type MachineSettings } from "../remote-hosts.js";
+import { SettingsToggle } from "./settings-controls.js";
 
 type Program = "claude" | "codex";
 
@@ -47,6 +48,42 @@ export function HostCliSettings({
       ))}
       <WorktreeFolderField hostId={hostId} value={settings.worktreeRoot ?? ""} defaultRoot={defaultWorktreeRoot} />
       <EditorAccessField hostId={hostId} access={settings.editorAccess ?? ""} sshHost={settings.sshHost ?? ""} />
+      <AgentCommandsField hostId={hostId} allowed={settings.execDisabled !== true} />
+    </div>
+  );
+}
+
+/**
+ * Whether sessions may run commands on this machine with `takode exec`. They
+ * run as the machine's user, so turning it off keeps agents off a machine
+ * without unregistering it; sessions running there are not affected.
+ */
+function AgentCommandsField({ hostId, allowed }: { hostId: string; allowed: boolean }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function change(next: boolean) {
+    setSaving(true);
+    setError("");
+    try {
+      await updateMachineSettings(hostId, { execDisabled: !next });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      <SettingsToggle
+        label="Agents may run commands here"
+        description="Sessions on any machine can run commands on this one with takode exec, as its user."
+        checked={allowed}
+        onChange={(next) => void change(next)}
+        disabled={saving}
+      />
+      {error && <p className="mt-1 text-[11px] text-cc-error">{error}</p>}
     </div>
   );
 }
@@ -172,8 +209,11 @@ function WorktreeFolderField({
 const INPUT_CLASS =
   "flex-1 min-w-0 w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-md text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60 font-mono";
 
+/** The machine settings edited as text. */
+type TextSetting = "claudeBinary" | "codexBinary" | "worktreeRoot" | "sshHost";
+
 /** A machine setting edited in a text field and saved when the field loses focus. */
-function useSavedField(hostId: string, field: keyof MachineSettings, value: string) {
+function useSavedField(hostId: string, field: TextSetting, value: string) {
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");

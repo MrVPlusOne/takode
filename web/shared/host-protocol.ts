@@ -84,6 +84,8 @@ export interface HostMachineSettings {
   editorAccess?: EditorAccess;
   /** The SSH host name the user's computer reaches this machine by, for Remote-SSH editor links. */
   sshHost?: string;
+  /** The user turned off `takode exec` for this machine: sessions may not run commands on it. */
+  execDisabled?: boolean;
 }
 
 export type EditorAccess = "" | "local" | "ssh";
@@ -109,6 +111,11 @@ export type HostCommand =
        * `command`/`args`/`cwd`, which are then ignored.
        */
       preparedLaunchId?: string;
+      /**
+       * Start it in a process group of its own, and send signals to the whole
+       * group, so stopping it also stops what it started (`takode exec`).
+       */
+      group?: boolean;
     }
   /**
    * Write a file on the host, in order with the other commands, e.g. an image

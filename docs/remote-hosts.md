@@ -210,6 +210,32 @@ conversation itself is kept by Claude Code or Codex under the machine's home
 folder; when that is lost, the session continues in a fresh conversation as
 described in [Keeping it running](#keeping-it-running).
 
+## Running commands on a machine
+
+Sessions can run commands on any machine with a Takode node, whatever machine
+they run on themselves, with `takode exec` (see `takode exec --help`):
+
+```bash
+takode exec --host condor1-cpu-takode --cwd '~/repo' -- 'git status --short'
+takode exec --host condor1-cpu-takode --background -- 'cd ~/images && make build'
+takode exec status x-12; takode exec logs x-12; takode exec kill x-12
+```
+
+A command runs over the machine's host link as the user that runs
+`takode node` there, in that user's login shell, with no input. A foreground
+run returns its output and exit code; long output shows both ends, and the
+rest is in `takode exec logs`. A `--background` run, or a foreground one whose
+caller is interrupted or goes away, keeps running, and its session gets a
+message when it ends. The coordinator records every call (session, quest,
+machine, command, outcome and times) and keeps its output under
+`~/.companion/exec/` on the coordinator's machine. A restarted coordinator
+takes running commands over, and a host does not update itself while one runs
+there. Killing a command stops everything it started.
+
+Turn **Agents may run commands here** off for a machine in
+**Settings → Hosts** to refuse new commands on it. The calling session's own
+permission mode still applies to its `takode exec` call.
+
 ## Keeping it running
 
 Neither the tunnel nor `takode node` restarts by itself after a reboot. Run each

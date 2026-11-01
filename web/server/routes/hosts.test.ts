@@ -90,6 +90,16 @@ describe("host routes", () => {
     expect((await (await put(host.id, { editorAccess: "local" })).json()).settings.editorAccess).toBe("local");
   });
 
+  // The user's per-machine off switch for takode exec: stored as a boolean, off by default.
+  it("stores whether sessions may run commands on a machine", async () => {
+    const { host } = await registry.register("condor");
+    expect(registry.machineSettings(host.id).execDisabled).toBeUndefined();
+    expect((await (await put(host.id, { execDisabled: true })).json()).settings.execDisabled).toBe(true);
+    expect(registry.machineSettings(host.id).execDisabled).toBe(true);
+    expect((await put(host.id, { execDisabled: "yes" })).status).toBe(400);
+    expect((await (await put(host.id, { execDisabled: false })).json()).settings.execDisabled).toBe(false);
+  });
+
   // Empty, a machine's worktree folder is ~/.companion/worktrees in that
   // machine's own home, which can be elsewhere (node-local disk on a cluster).
   // The list resolves it from the home directory the host reported, and has

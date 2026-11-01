@@ -256,13 +256,17 @@ describe("SettingsHostsSection", () => {
     expect(screen.getAllByTestId("host-crowded-directory")).toHaveLength(1);
   });
 
-  it("shows this machine's node status without a switch", async () => {
+  // The node always runs, so the retired "keep sessions running" switch stays
+  // gone; the only switch on this machine's row is the takode exec one.
+  it("shows this machine's node status without a node switch", async () => {
     serveHostRoutes([]);
     render(<SettingsHostsSection />);
     const status = await screen.findByTestId("settings-local-node");
     expect(status.textContent).toContain("so a server restart does not interrupt them");
     expect(status.textContent).toContain("Node starting");
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.getAllByRole("switch").map((toggle) => toggle.getAttribute("aria-label"))).toEqual([
+      "Agents may run commands here",
+    ]);
   });
 
   // Every machine, this server's included, shows its own name and can be

@@ -33,6 +33,8 @@ export interface HostUpdateSessionsDeps {
   coordinatorStartedAt: number;
   /** Whether a landing run is under way on the host; restarting its node would cut it off. */
   landingRunOn: (hostId: string) => boolean;
+  /** Whether a `takode exec` command runs on the host; restarting its node would end it. */
+  execRunningOn?: (hostId: string) => boolean;
   /** Sessions holding a slot of a full-suite pool, i.e. running `takode land test --full` (or `gate try`). */
   testRunHolders: () => string[];
   /** Interrupt a session's turn as Restart Server does, keeping input that is still queued. */
@@ -69,8 +71,9 @@ export class HostUpdateSessions {
 
   /**
    * What updating the host must wait for now, worded to follow "It updates
-   * once", or null when it may update. A landing run there is never cut off,
-   * and sessions still waiting to take over their processes are let finish.
+   * once", or null when it may update. A landing run or `takode exec` command
+   * there is never cut off, and sessions still waiting to take over their
+   * processes are let finish.
    * Only a non-immediate update waits for turns and full test runs to end: an
    * immediate one would otherwise wait 10+ minutes per run, or forever on a
    * host where workers keep testing, so it ends them and has them rerun.
@@ -79,6 +82,7 @@ export class HostUpdateSessions {
     // Nodes may reconnect while the server stops; an update would end sessions the next server takes over.
     if (serverWorkAdmission.isStopping()) return "the server has restarted";
     if (this.deps.landingRunOn(hostId)) return "the landing run there finishes";
+    if (this.deps.execRunningOn?.(hostId)) return "the commands sessions run there with takode exec finish";
     const live = this.liveOn(hostId);
     if (live.some((session) => this.deps.awaitingReattach(session.sessionId))) return "its sessions are taken over";
     if (mode === "immediate") return null;

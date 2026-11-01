@@ -56,6 +56,8 @@ export interface RouteContext {
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
     checkFrontendAvailability?: FrontendAvailabilityChecker;
     messageDeliveries?: import("../message-delivery-tracker.js").MessageDeliveryTracker;
+    /** `takode exec`: commands sessions run on any machine with a Takode node. */
+    hostExec?: import("../remote-host/host-exec.js").HostExec;
   };
   perfTracer?: PerfTracer;
   checkFrontendAvailability?: FrontendAvailabilityChecker;

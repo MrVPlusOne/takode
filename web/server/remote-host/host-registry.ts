@@ -265,7 +265,7 @@ function publicHost({ id, name, createdAt }: StoredHost): RegisteredHost {
   return { id, name, createdAt };
 }
 
-/** The string fields of a settings patch, trimmed. */
+/** The fields of a settings patch that hold valid values, strings trimmed. */
 function definedSettings(patch: Partial<MachineSettings>): Partial<MachineSettings> {
   const defined: Partial<MachineSettings> = {};
   if (typeof patch.claudeBinary === "string") defined.claudeBinary = patch.claudeBinary.trim();
@@ -275,6 +275,7 @@ function definedSettings(patch: Partial<MachineSettings>): Partial<MachineSettin
     defined.editorAccess = patch.editorAccess;
   }
   if (typeof patch.sshHost === "string") defined.sshHost = patch.sshHost.trim();
+  if (typeof patch.execDisabled === "boolean") defined.execDisabled = patch.execDisabled;
   return defined;
 }
 

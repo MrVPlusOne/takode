@@ -39,6 +39,7 @@ import { WORKTREE_CLEANUP_HELP } from "./takode-worktree-cleanup.js";
 import { WORKTREE_HELP } from "./takode-worktree.js";
 import { BUNDLE_HELP } from "./takode-bundle-commands.js";
 import { LAND_GATE_HELP, LAND_HELP } from "./takode-land.js";
+import { EXEC_HELP } from "./takode-exec.js";
 
 const HOST_HELP = `Usage: takode host <add|list|remove> ...
 
@@ -624,6 +625,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "host":
       console.log(HOST_HELP);
       return true;
+    case "exec":
+      console.log(EXEC_HELP);
+      return true;
     case "bundle":
       console.log(BUNDLE_HELP);
       return true;
@@ -809,6 +813,7 @@ Commands:
   worktree-cleanup  List or retry archived worktree cleanup
   worktree         Register and inspect auxiliary worktree retention
   host             Register machines that run sessions for this server (takode host add <name>)
+  exec             Run a command on another machine (takode exec --host <machine> -- <command>)
   user-content     The user's instructions and skills on every machine (status, import, take-over)
   openai-test-key  OpenAI key for agent tests and experiments (never use the live key)
   bundle           Carry commits to the machine of your port target (takode bundle send|fetch)

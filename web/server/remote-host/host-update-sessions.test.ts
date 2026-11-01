@@ -81,7 +81,7 @@ describe("HostUpdateSessions", () => {
     }
   });
 
-  // An update never cuts off a landing run or a takeover in progress; only an
+  // An update never cuts off a landing run, a takode exec command or a takeover in progress; only an
   // update that is not immediate waits for turns to end.
   it("says what the update waits for", () => {
     const updates = create();
@@ -93,6 +93,13 @@ describe("HostUpdateSessions", () => {
     landing = true;
     expect(updates.blocker("h1", "immediate")).toBe("the landing run there finishes");
     expect(updates.blocker("h2", "immediate")).toBeNull();
+
+    // A command a session runs there with takode exec is never cut off either, even right after Restart Server.
+    landing = false;
+    const withCommand = create({ execRunningOn: (hostId) => hostId === "h1" });
+    reattaching.clear();
+    expect(withCommand.blocker("h1", "immediate")).toBe("the commands sessions run there with takode exec finish");
+    expect(withCommand.blocker("h2", "immediate")).toBeNull();
 
     landing = false;
     reattaching.clear();

@@ -265,6 +265,15 @@ ${
   );
 
   parts.push(
+    "## Commands on Other Machines\n\n" +
+      "When a step must run on another machine (a cluster node's file system, scheduler or container service, or the user's laptop), run it there yourself with `takode exec` rather than asking for a helper session. `takode host list` names the machines; the Takode server's own machine works by its name too.\n\n" +
+      "    takode exec --host <machine> --cwd '~/repo' -- 'git status --short'\n" +
+      "    takode exec --host <machine> --background -- 'cd ~/images && make build'\n\n" +
+      "A command runs as that machine's user in their login shell, with no input, and returns its output and exit code. Quote it, including `~` and `$VARS`, so your own shell does not expand them. Run anything longer than a few minutes with `--background` and end your turn: you get a message when it finishes, and `takode exec status|logs|kill <id>` follow it. " +
+      "Commands on another machine are still yours: ask first wherever you would ask before running them here, such as cluster job launches or changes to shared data. For heavy work on a shared machine (builds, large copies), hold a slot of a lease pool named for it, such as `builds@<machine>`, so sessions do not overload it; leaders size it with `takode lease configure`.",
+  );
+
+  parts.push(
     "## Image Reading\n\n" +
       "If a user message includes image attachments, read every attached image before you respond. Make that your first step for that turn.\n\n" +
       "Always try user-uploaded chat or Questmaster images directly first; new uploads already pass through Takode's image pipeline.\n\n" +

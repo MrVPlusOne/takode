@@ -28,6 +28,7 @@ import { PlaygroundGuidedReviewSection } from "./PlaygroundGuidedReviewSection.j
 import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
 import { PlaygroundPendingMessageStates } from "./PlaygroundPendingMessageStates.js";
 import {
+  PlaygroundCommandFinishedMessage,
   PlaygroundLandingQueueMessage,
   PlaygroundSessionRecoveryMessage,
   PlaygroundSkillChangeMessage,
@@ -722,6 +723,12 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Skills changed notice">
             <PlaygroundSkillChangeMessage />
+          </Card>
+          <Card label="Background command finished">
+            <PlaygroundCommandFinishedMessage outcome="succeeded" />
+          </Card>
+          <Card label="Background command failed">
+            <PlaygroundCommandFinishedMessage outcome="failed" />
           </Card>
           <Card label="Thread outcome reminder (collapsed chip)">
             <PlaygroundThreadOutcomeReminderMessage />

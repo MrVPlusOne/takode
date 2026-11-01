@@ -105,6 +105,8 @@ export interface RemoteSpawnOptions {
   signal?: AbortSignal;
   /** A launch the host prepared itself; `command`, `args` and `cwd` are then ignored. */
   preparedLaunchId?: string;
+  /** Run it in its own process group, so a kill also stops the processes it started. */
+  group?: boolean;
 }
 
 /**
@@ -490,6 +492,7 @@ export class HostLinkManager {
       env: sameMachine ? definedEnv(options.env) : sessionEnv(options.env),
       ...(sameMachine ? { fullEnv: true } : {}),
       ...(options.preparedLaunchId ? { preparedLaunchId: options.preparedLaunchId } : {}),
+      ...(options.group ? { group: true } : {}),
     }));
     options.signal?.addEventListener("abort", () => proc.kill("SIGTERM"), { once: true });
     return proc;

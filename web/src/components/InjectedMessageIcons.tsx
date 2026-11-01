@@ -39,6 +39,11 @@ export function LandingIcon() {
   return <StrokeIcon d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10" />;
 }
 
+/** A terminal prompt: a command that ran on a machine. */
+export function TerminalIcon() {
+  return <StrokeIcon d={["M2.5 3.5h11v9h-11v-9z", "M5 6.5l2 1.5-2 1.5", "M8.5 10H11"]} />;
+}
+
 /** An open book: skill text. */
 export function BookIcon() {
   return (

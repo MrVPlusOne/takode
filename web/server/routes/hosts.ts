@@ -62,6 +62,9 @@ export function createHostRoutes(
     if (typeof body.worktreeRoot === "string" && body.worktreeRoot.trim() && !isAbsolute(body.worktreeRoot.trim())) {
       return c.json({ error: "The worktree folder must be an absolute path" }, 400);
     }
+    if (body.execDisabled !== undefined && typeof body.execDisabled !== "boolean") {
+      return c.json({ error: "execDisabled must be true or false" }, 400);
+    }
     if (
       body.editorAccess !== undefined &&
       body.editorAccess !== "" &&
@@ -80,6 +83,7 @@ export function createHostRoutes(
       ...(typeof body.worktreeRoot === "string" ? { worktreeRoot: body.worktreeRoot } : {}),
       ...(typeof body.editorAccess === "string" ? { editorAccess: body.editorAccess as EditorAccess } : {}),
       ...(typeof body.sshHost === "string" ? { sshHost: body.sshHost } : {}),
+      ...(typeof body.execDisabled === "boolean" ? { execDisabled: body.execDisabled } : {}),
     });
     if (!settings) return c.json({ error: "Host not found" }, 404);
     links.pushSettings(id);

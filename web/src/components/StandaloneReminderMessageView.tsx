@@ -14,7 +14,7 @@ import { useStore } from "../store.js";
 import { celebrationAnchor, playCheckPop, usePlayOnArrival } from "./completion-celebration.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { InjectedMessageChip, InjectedMessageRow } from "./InjectedMessageChip.js";
-import { BookIcon, LandingIcon, LockIcon, RestartIcon, WarningIcon } from "./InjectedMessageIcons.js";
+import { BookIcon, LandingIcon, LockIcon, RestartIcon, TerminalIcon, WarningIcon } from "./InjectedMessageIcons.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import {
@@ -158,5 +158,6 @@ function SystemReminderIcon({ kind }: { kind: SystemReminderViewModel["kind"] })
   if (kind === "landing-queue") return <LandingIcon />;
   if (kind === "long-sleep-guard" || kind === "session-recovery") return <WarningIcon />;
   if (kind === "skills-changed") return <BookIcon />;
+  if (kind === "command-finished") return <TerminalIcon />;
   return <RestartIcon />;
 }

@@ -72,12 +72,27 @@ export function getBoardParticipantRuntime(
 
 /**
  * When a participant's background jobs stop counting as a legitimate wait: the
- * newest job's start plus the plausible run time, or 0 without jobs. Past it,
- * the jobs are treated as hung or forgotten, such as a dev server left running.
+ * newest job's start or latest sign of life plus the plausible run time, or 0
+ * without jobs. Past it, the jobs are treated as hung or forgotten, such as a
+ * dev server left running.
  */
 export function backgroundWaitEndsAt(runtime: Pick<BoardParticipantRuntime, "backgroundJobs">): number {
   if (runtime.backgroundJobs.length === 0) return 0;
-  return Math.max(...runtime.backgroundJobs.map((job) => job.startedAt)) + BACKGROUND_JOB_WAIT_LIMIT_MS;
+  const lastAlive = runtime.backgroundJobs.map((job) => Math.max(job.startedAt, job.activeAt ?? 0));
+  return Math.max(...lastAlive) + BACKGROUND_JOB_WAIT_LIMIT_MS;
+}
+
+/** One session's background jobs from several sources (its backend, `takode exec`), or null when none reports any. */
+export function mergeBackgroundTasks(
+  ...snapshots: Array<BackgroundTaskSnapshot | null | undefined>
+): BackgroundTaskSnapshot | null {
+  const present = snapshots.filter((snapshot): snapshot is BackgroundTaskSnapshot => !!snapshot);
+  if (present.length === 0) return null;
+  if (present.length === 1) return present[0]!;
+  return {
+    tasks: present.flatMap((snapshot) => snapshot.tasks),
+    changedAt: Math.max(...present.map((snapshot) => snapshot.changedAt)),
+  };
 }
 
 export function formatOverdueBackgroundJobs(jobs: readonly BackgroundTaskInfo[]): string {

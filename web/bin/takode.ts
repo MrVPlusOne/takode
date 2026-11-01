@@ -60,6 +60,7 @@ import { handleReconnect } from "./takode-reconnect.js";
 import { handleWorktreeCleanup } from "./takode-worktree-cleanup.js";
 import { handleWorktree } from "./takode-worktree.js";
 import { handleHost } from "./takode-host-commands.js";
+import { handleExec } from "./takode-exec.js";
 import { handleBundle } from "./takode-bundle-commands.js";
 import { handleLand } from "./takode-land.js";
 import {
@@ -83,7 +84,11 @@ async function ensureTakodeAccess(base: string, options?: { requireOrchestrator?
 }
 
 const command = process.argv[2];
-const rawArgs = process.argv.slice(3);
+const allArgs = process.argv.slice(3);
+// `takode exec` passes everything after `--` to the other machine untouched.
+const passthroughAt = command === "exec" ? allArgs.indexOf("--") : -1;
+const rawArgs = passthroughAt === -1 ? allArgs : allArgs.slice(0, passthroughAt);
+const passthrough = passthroughAt === -1 ? [] : allArgs.slice(passthroughAt);
 const args = stripGlobalFlags(rawArgs);
 const base = getBase(rawArgs);
 trackCliLatency("takode", command, args);
@@ -139,6 +144,7 @@ try {
     ["worktree-cleanup", { requireOrchestrator: true }],
     ["worktree", {}],
     ["openai-test-key", {}],
+    ["exec", {}],
   ]);
   if (!command || command === "-h" || command === "--help") {
     printUsage();
@@ -330,6 +336,9 @@ try {
       break;
     case "host":
       await handleHost(base, args);
+      break;
+    case "exec":
+      await handleExec(base, [...args, ...passthrough]);
       break;
     case "bundle":
       await handleBundle(base, args);

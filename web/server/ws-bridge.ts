@@ -340,6 +340,7 @@ import {
   getCodexRecoveryOrchestratorDeps as getCodexRecoveryOrchestratorDepsController,
   getGenerationLifecycleDeps as getGenerationLifecycleDepsController,
   maybeBroadcastGlobalSessionActivityUpdate,
+  sessionBackgroundTasks,
 } from "./ws-bridge-deps.js";
 import {
   broadcastGlobalAndScheduleBoardParticipantRefresh,
@@ -369,7 +370,7 @@ export class WsBridge {
     getWaits: (sessionId) =>
       listSessionWaits(sessionId, {
         getLeaseWaits: (id) => this.resourceLeaseManager?.getLeaseWaits(id) ?? [],
-        getBackgroundTasks: (id) => this.sessions.get(id)?.claudeSdkAdapter?.getBackgroundTasks?.() ?? null,
+        getBackgroundTasks: (id) => sessionBackgroundTasks(this.sessions.get(id), id),
         isLandingActive: (id) => this.landingQueue?.isLandingActive(id) ?? false,
         listBoardSessions: () => this.sessions.values(),
       }),

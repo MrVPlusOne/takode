@@ -209,6 +209,37 @@ describe("MessageBubble standalone system reminder messages", () => {
     }
   });
 
+  it("renders a finished takode exec command as a chip with its outcome", () => {
+    // The agent gets the whole message, including the command's last output
+    // lines and run time; the chip keeps the command id, machine and outcome.
+    const msg = makeMessage({
+      content: [
+        "[Command finished] x-12 on condor1-cpu-takode: exit 2 after 3m 5s.",
+        "",
+        "```text",
+        "$ make images",
+        "error: missing base image",
+        "```",
+        "",
+        "All of its output: `takode exec logs x-12`.",
+      ].join("\n"),
+      agentSource: { sessionId: "host-exec", sessionLabel: "Remote Command" },
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByTestId("standalone-system-reminder-chip");
+    expect(chip.getAttribute("data-chip-kind")).toBe("command-finished");
+    expect(chip.getAttribute("data-chip-tone")).toBe("attention");
+    expect(chip.textContent).toContain("Command");
+    expect(chip.textContent).toContain("x-12 on condor1-cpu-takode");
+    expect(chip.textContent).toContain("exit 2");
+    expect(chip.textContent).not.toContain("missing base image");
+
+    fireEvent.click(chip);
+    expect(screen.getByText(/missing base image/)).toBeTruthy();
+  });
+
   it("renders landing-queue messages as collapsed chips with the outcome as a badge", () => {
     // The leader-facing completion message from the screenshot that motivated
     // this: the chip shows only its first sentence; SHAs and the commit-links

@@ -65,6 +65,8 @@ export interface BackgroundTaskInfo {
   description: string;
   /** When Takode first saw the task running. */
   startedAt: number;
+  /** Its latest sign of life, such as output, when Takode sees one; its wait limit counts from the later of the two. */
+  activeAt?: number;
 }
 
 /** The backend process's live background tasks, and when that set last changed (0 if never). */

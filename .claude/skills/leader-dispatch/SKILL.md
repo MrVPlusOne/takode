@@ -173,7 +173,9 @@ For approved Work that needs a shared lease, dispatch the worker into Work and l
 
 ### Helper Sessions
 
-A quest keeps one owner. When a step inside the quest's approved scope needs a machine or backend its worker lacks (submitting a job from the user's laptop, a sign-in in the user's browser, computer use from a Codex session), spawn a helper session for that step instead of a second quest:
+A quest keeps one owner. A command that must run on another machine (a cluster node's scheduler, file system or container service, the user's laptop) needs no helper: the owner runs it there with `takode exec --host <machine>`, in the background for long jobs, and is told when it finishes. Don't route other quests' steps through one session on that machine either.
+
+When a step inside the quest's approved scope needs what `takode exec` cannot give, spawn a helper session for that step instead of a second quest: an agent working on that machine (long interactive debugging, judgment over many files there), a sign-in in the user's browser, or computer use from a Codex session:
 
 - In the helper's dispatch, name the quest and its owner and say not to claim the quest. Ask it to record its result on the quest with `quest feedback add q-N --kind artifact`, which works from any machine, and to report back.
 - Record the wait: `takode board set q-N --wait-for #<helper>`. While the helper is busy, the idle owner is not reported stalled; once the helper stops, `board_stalled` names it, so a forgotten result still surfaces. The board shows which quest the helper serves. Clear the wait with `--clear-wait-for` when it no longer applies; it also ends when the row leaves Work.

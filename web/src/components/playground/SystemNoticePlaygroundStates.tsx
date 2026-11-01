@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../../types.js";
 import { MessageBubble } from "../MessageBubble.js";
+import { HOST_EXEC_MESSAGE_SOURCE } from "../../../shared/host-exec.js";
 
 const LANDING_QUEUE_SOURCE = { sessionId: "landing-queue", sessionLabel: "Landing Queue" };
 
@@ -75,4 +76,39 @@ export function PlaygroundSkillChangeMessage() {
     },
   };
   return <MessageBubble message={message} sessionId="playground-skill-change" showTimestamp={false} />;
+}
+
+const COMMAND_FINISHED_MESSAGES: Record<"succeeded" | "failed", string> = {
+  succeeded: [
+    "[Command finished] x-12 on condor1-cpu-takode: exit 0 after 14m 3s.",
+    "",
+    "```text",
+    "$ cd ~/images && docker build -t trainer:latest .",
+    "#12 exporting layers 41.2s done",
+    "#12 naming to docker.io/library/trainer:latest done",
+    "```",
+    "",
+    "All of its output: `takode exec logs x-12`.",
+  ].join("\n"),
+  failed: [
+    "[Command finished] x-13 on condor1-cpu-takode: exit 2 after 8s.",
+    "",
+    "```text",
+    "$ python publish_dataset.py --split eval",
+    "FileNotFoundError: /mnt/vast/data/eval/manifest.json",
+    "```",
+    "",
+    "All of its output: `takode exec logs x-13`.",
+  ].join("\n"),
+};
+
+export function PlaygroundCommandFinishedMessage({ outcome }: { outcome: "succeeded" | "failed" }) {
+  const message: ChatMessage = {
+    id: `playground-command-finished-${outcome}`,
+    role: "user",
+    content: COMMAND_FINISHED_MESSAGES[outcome],
+    timestamp: Date.now() - 11_000,
+    agentSource: HOST_EXEC_MESSAGE_SOURCE,
+  };
+  return <MessageBubble message={message} sessionId="playground-command-finished" showTimestamp={false} />;
 }

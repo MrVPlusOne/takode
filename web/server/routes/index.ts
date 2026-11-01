@@ -40,6 +40,7 @@ import { createTodoRoutes } from "./todos.js";
 import { createResourceLeaseRoutes } from "./resource-leases.js";
 import { createBundleRoutes } from "./bundles.js";
 import { createLandingQueueRoutes } from "./landing-queue.js";
+import { createHostExecRoutes } from "./host-exec.js";
 import { createStreamRoutes } from "./streams.js";
 import { createMemoryRoutes } from "./memory.js";
 import { createCodexSidecarRoutes } from "./codex-sidecar.js";
@@ -190,6 +191,7 @@ export function createRoutes(
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
     checkFrontendAvailability?: FrontendAvailabilityChecker;
     messageDeliveries?: import("../message-delivery-tracker.js").MessageDeliveryTracker;
+    hostExec?: import("../remote-host/host-exec.js").HostExec;
     webPush?: import("../web-push.js").WebPushChannel;
   },
   perfTracer?: PerfTracer,
@@ -285,6 +287,7 @@ export function createRoutes(
   api.route("/", createResourceLeaseRoutes(ctx));
   api.route("/", createBundleRoutes(ctx));
   api.route("/", createLandingQueueRoutes(ctx));
+  api.route("/", createHostExecRoutes(ctx));
   api.route("/", createStreamRoutes(ctx));
   api.route("/", createMemoryRoutes(ctx));
   api.route("/", createCodexSidecarRoutes(ctx));

@@ -13,7 +13,9 @@ import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
 import { resolveQuietTurn as resolveQuietTurnController } from "./bridge/quiet-turn.js";
 import { isScribeSession } from "./scribe-registry.js";
-import { listSessionWaits } from "./bridge/board-stall-participants.js";
+import { listSessionWaits, mergeBackgroundTasks } from "./bridge/board-stall-participants.js";
+import type { BackgroundTaskSnapshot } from "./bridge/adapter-interface.js";
+import { execBackgroundTasks } from "./remote-host/host-exec.js";
 import { buildLeaderSkillPreloadBundles } from "./leader-skill-preload.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
@@ -1362,6 +1364,11 @@ export function getQuestBoardCompletionDeps(host: any) {
   };
 }
 
+/** Background jobs a session is told about when they end: its Claude backend's and its `takode exec` commands. */
+export function sessionBackgroundTasks(session: Session | undefined, sessionId: string): BackgroundTaskSnapshot | null {
+  return mergeBackgroundTasks(session?.claudeSdkAdapter?.getBackgroundTasks?.(), execBackgroundTasks(sessionId));
+}
+
 export function getBoardWatchdogDeps(host: any) {
   const notificationDeps = host.getSessionNotificationDeps();
   return {
@@ -1372,8 +1379,7 @@ export function getBoardWatchdogDeps(host: any) {
     timerCount: (sessionId: string) => host.timerManager?.listTimers(sessionId).length ?? 0,
     getLeaseWaits: (sessionId: string) => host.resourceLeaseManager?.getLeaseWaits(sessionId) ?? [],
     isLandingActive: (sessionId: string) => host.landingQueue?.isLandingActive(sessionId) ?? false,
-    getBackgroundTasks: (sessionId: string) =>
-      (host.sessions.get(sessionId) as Session | undefined)?.claudeSdkAdapter?.getBackgroundTasks?.() ?? null,
+    getBackgroundTasks: (sessionId: string) => sessionBackgroundTasks(host.sessions.get(sessionId), sessionId),
     backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
     getBoard: (sessionId: string) => getBoardForSessionController(host.sessions, sessionId),
     getBoardRowsForQuest: (questId: string) => {
@@ -1942,8 +1948,7 @@ export function getGenerationLifecycleDeps(host: any) {
           (host.timerManager?.listTimers(sessionId).length ?? 0) > 0 ||
           listSessionWaits(sessionId, {
             getLeaseWaits: (id) => host.resourceLeaseManager?.getLeaseWaits(id) ?? [],
-            getBackgroundTasks: (id) =>
-              (host.sessions.get(id) as Session | undefined)?.claudeSdkAdapter?.getBackgroundTasks?.() ?? null,
+            getBackgroundTasks: (id) => sessionBackgroundTasks(host.sessions.get(id), id),
             isLandingActive: (id) => host.landingQueue?.isLandingActive(id) ?? false,
             listBoardSessions: () => host.sessions.values(),
           }).length > 0,

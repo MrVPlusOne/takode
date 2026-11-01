@@ -89,6 +89,8 @@ import { LandingQueueStore } from "./landing-queue-store.js";
 import { LandingGateStore } from "./landing-gate-store.js";
 import { FULL_SUITE_POOL_PREFIX, LANDING_QUEUE_MESSAGE_SOURCE } from "../shared/landing-queue.js";
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
+import { configureHostExec, HostExec } from "./remote-host/host-exec.js";
+import { HOST_EXEC_MESSAGE_SOURCE } from "../shared/host-exec.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
 import { HostOutageAlerts, describeHeldWork } from "./remote-host/host-outage-alerts.js";
@@ -365,6 +367,27 @@ const isLandingRunnerRequest = (request: Request): boolean =>
   );
 // Machine names belong to the machines, so they survive the coordinator role moving elsewhere.
 const thisMachine = await ThisMachine.load();
+// Commands sessions run on any machine with a node; restored before hosts connect, so running ones are taken over.
+const hostExec = new HostExec({
+  links: hostLinks,
+  resolveHost: async (nameOrId) => {
+    if (nameOrId === thisMachine.name || nameOrId === LOCAL_HOST_ID)
+      return { id: LOCAL_HOST_ID, name: thisMachine.name };
+    const host = (await hostRegistry.list()).find(
+      (candidate) => candidate.name === nameOrId || candidate.id === nameOrId,
+    );
+    return host ? { id: host.id, name: host.name } : null;
+  },
+  machineNames: async () => [thisMachine.name, ...(await hostRegistry.list()).map((host) => host.name)],
+  execDisabled: (hostId) => hostRegistry.machineSettings(hostId).execDisabled === true,
+  notify: (sessionId, text) => {
+    wsBridge.injectUserMessage(sessionId, text, HOST_EXEC_MESSAGE_SOURCE);
+  },
+  onSessionChange: (sessionId) => wsBridge.invalidateSessionNavigation(sessionId),
+  dir: join(homedir(), ".companion", "exec", serverId),
+});
+await hostExec.restore();
+configureHostExec(hostExec);
 const notifyFromLandingQueue = (sessionId: string, text: string) => {
   wsBridge.injectUserMessage(sessionId, text, LANDING_QUEUE_MESSAGE_SOURCE);
 };
@@ -399,6 +422,7 @@ const hostUpdateSessions = new HostUpdateSessions({
   bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
   coordinatorStartedAt,
   landingRunOn: (hostId) => landingQueue.isRunActiveOn(hostId),
+  execRunningOn: (hostId) => hostExec.runningOn(hostId),
   testRunHolders: () => resourceLeaseManager.holdersOf(FULL_SUITE_POOL_PREFIX),
   interrupt: (sessionId, operationId) =>
     wsBridge.interruptSession(sessionId, "user", {
@@ -1409,6 +1433,7 @@ app.route(
       checkFrontendAvailability: checkCurrentFrontendAvailability,
       webPush: webPushAvailable ? webPush : undefined,
       messageDeliveries,
+      hostExec,
     },
     perfTracer,
     sleepInhibitor,

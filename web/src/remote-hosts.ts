@@ -13,6 +13,8 @@ export interface MachineSettings {
   editorAccess?: "" | "local" | "ssh";
   /** The SSH host name the user's computer reaches this machine by. */
   sshHost?: string;
+  /** Sessions may not run commands on this machine with `takode exec`. */
+  execDisabled?: boolean;
 }
 
 /** The machine holding files of a host id from the server (null or absent for the server's own machine). */

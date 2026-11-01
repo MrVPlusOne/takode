@@ -94,7 +94,11 @@ export interface HostAgentOptions {
   reconnectDelayMs?: number;
   /** Overrides for tests. */
   connect?: (url: string, headers: Record<string, string>) => AgentSocket;
-  spawnProcess?: (command: string, args: string[], options: { cwd?: string; env: NodeJS.ProcessEnv }) => ChildProcess;
+  spawnProcess?: (
+    command: string,
+    args: string[],
+    options: { cwd?: string; env: NodeJS.ProcessEnv; detached?: boolean },
+  ) => ChildProcess;
   log?: (message: string) => void;
 }
 
@@ -543,7 +547,12 @@ export class HostAgent {
     const start = this.options.spawnProcess ?? defaultSpawn;
     let child: ChildProcess;
     try {
-      child = start(program, programArgs, { ...(cwd ? { cwd } : {}), env });
+      // A process group leader of its own, so a kill reaches what it started too.
+      child = start(program, programArgs, {
+        ...(cwd ? { cwd } : {}),
+        env,
+        ...(command.group ? { detached: true } : {}),
+      });
     } catch (error) {
       this.emit(command.procId, { kind: "error", message: errorMessage(error) });
       this.emit(command.procId, { kind: "exit", code: null, signal: null });
@@ -552,7 +561,7 @@ export class HostAgent {
     hosted.control = {
       write: (data) => child.stdin?.write(data),
       end: () => child.stdin?.end(),
-      kill: (signal) => child.kill(signal),
+      kill: (signal) => (command.group ? killGroup(child, signal) : child.kill(signal)),
     };
     let spawned = false;
     child.once("spawn", () => {
@@ -869,8 +878,26 @@ function linkUrl(coordinatorUrl: string): string {
   return url.toString();
 }
 
-function defaultSpawn(command: string, args: string[], options: { cwd?: string; env: NodeJS.ProcessEnv }) {
+function defaultSpawn(
+  command: string,
+  args: string[],
+  options: { cwd?: string; env: NodeJS.ProcessEnv; detached?: boolean },
+) {
   return spawnChild(command, args, { ...options, stdio: ["pipe", "pipe", "pipe"] });
+}
+
+/**
+ * Signal a process started as its own group leader and everything in its
+ * group, including processes it left running after it exited (a group's id is
+ * not reused while any member lives).
+ */
+function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (child.pid === undefined) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    child.kill(signal);
+  }
 }
 
 function errorMessage(error: unknown): string {

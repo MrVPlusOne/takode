@@ -9,6 +9,7 @@ import {
 } from "../../shared/resource-lease-message.js";
 import { LANDING_QUEUE_MESSAGE_SOURCE, LANDING_QUEUE_MESSAGE_TAG } from "../../shared/landing-queue.js";
 import { SESSION_RECOVERY_SOURCE_ID, SKILL_CHANGE_NOTICE_SOURCE_ID } from "../../shared/injected-event-message.js";
+import { HOST_EXEC_MESSAGE_SOURCE, HOST_EXEC_MESSAGE_TAG } from "../../shared/host-exec.js";
 
 export type SystemReminderKind =
   | "resource-lease"
@@ -16,7 +17,8 @@ export type SystemReminderKind =
   | "restart-continuation"
   | "landing-queue"
   | "session-recovery"
-  | "skills-changed";
+  | "skills-changed"
+  | "command-finished";
 
 /** Color of a chip: good news, something that needs a look, or neutral system info. */
 export type SystemReminderTone = "success" | "attention" | "info";
@@ -54,7 +56,8 @@ export function isStandaloneReminderMessage(message: ReminderCandidate): boolean
     sourceId?.startsWith("system:restart-continuation:") === true ||
     sourceId === LANDING_QUEUE_MESSAGE_SOURCE.sessionId ||
     sourceId === SESSION_RECOVERY_SOURCE_ID ||
-    sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID
+    sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID ||
+    sourceId === HOST_EXEC_MESSAGE_SOURCE.sessionId
   );
 }
 
@@ -88,6 +91,7 @@ export function buildSystemReminderViewModel(message: ReminderCandidate): System
   if (sourceId === LANDING_QUEUE_MESSAGE_SOURCE.sessionId) return buildLandingQueueReminder(message.content);
   if (sourceId === SESSION_RECOVERY_SOURCE_ID) return buildSessionRecoveryReminder(message.content);
   if (sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID) return buildSkillChangeReminder(message.content);
+  if (sourceId === HOST_EXEC_MESSAGE_SOURCE.sessionId) return buildCommandFinishedReminder(message.content);
   return null;
 }
 
@@ -167,6 +171,31 @@ function buildSessionRecoveryReminder(content: string): SystemReminderViewModel 
     tone: "attention",
     detailFacts: [],
     detailContent: content,
+  };
+}
+
+/**
+ * A background `takode exec` command ended. The first line reads
+ * "x-12 on condor: exit 0 after 3m 5s."; the chip keeps the command and machine
+ * with the outcome as its badge, short enough for a phone. The run time and
+ * last output lines stay in the detail.
+ */
+function buildCommandFinishedReminder(content: string): SystemReminderViewModel {
+  const body = content.startsWith(HOST_EXEC_MESSAGE_TAG)
+    ? content.slice(HOST_EXEC_MESSAGE_TAG.length).trimStart()
+    : content;
+  const firstLine = body.split(/\r?\n/, 1)[0] ?? "";
+  const parsed = firstLine.match(/^(.+?): (.+?) after .+\.$/);
+  const outcome = parsed?.[2] ?? "";
+  const badge = outcome.startsWith("exit ") ? outcome : outcome.startsWith("killed") ? "killed" : "failed";
+  return {
+    kind: "command-finished",
+    title: "Command",
+    summary: parsed?.[1] ?? firstLine,
+    badge: parsed ? badge : "ended",
+    tone: outcome === "exit 0" ? "success" : "attention",
+    detailFacts: [],
+    detailContent: body,
   };
 }
 
