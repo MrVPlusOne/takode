@@ -16,7 +16,8 @@ import { StartedQuestsContext } from "./QuestForkLinks.js";
  * that continues it), else to the thread it was written in. It is shown elsewhere when written in
  * Main and moved, or attached to another quest's thread. (A message written in another thread is
  * named by its thread header instead, `TopicThreadLabel`.) Tapping the label opens that quest's
- * thread at this message.
+ * thread at this message. When the message's "Continued in" row (`ContinuedInLinks`) already names
+ * that quest, the label is left out, so the quest shows once (Jiayi, Nov 1).
  */
 export function MessageTopicLabel({
   message,
@@ -33,7 +34,10 @@ export function MessageTopicLabel({
   return <TopicLabel sessionId={sessionId} messageId={message.id} questId={home} view={currentThreadKey} />;
 }
 
-/** The quest or topic thread a message belongs to, unless the view on screen is that thread. */
+/**
+ * The quest or topic thread a message belongs to, unless the view on screen is that thread or the
+ * message's "Continued in" row names it.
+ */
 function useHome(message: Pick<ChatMessage, "id" | "metadata">, currentThreadKey?: string): string | null {
   const started = useContext(StartedQuestsContext)?.get(message.id);
   const metadata = message.metadata ?? {};
@@ -45,7 +49,8 @@ function useHome(message: Pick<ChatMessage, "id" | "metadata">, currentThreadKey
   if (!home) return null;
   const thread = normalizeThreadKey(home);
   const view = normalizeThreadKey(currentThreadKey ?? "");
-  return view === thread ? null : thread;
+  if (view === thread) return null;
+  return started?.some((quest) => normalizeThreadKey(quest.questId) === thread) ? null : thread;
 }
 
 /** A message written in a topic's own thread, seen elsewhere (in All, or another view). */

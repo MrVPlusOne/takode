@@ -9,6 +9,7 @@ import { rememberThreads, rememberTopicList, resetLeaderTopicsForTest } from "..
 import { useSideColumnStore } from "../utils/side-column.js";
 import { MessageThreadHeader } from "./MessageThreadHeader.js";
 import { MessageTopicLabel } from "./MessageTopicLabel.js";
+import { StartedQuestsContext } from "./QuestForkLinks.js";
 
 /**
  * A user's message shown in a view it doesn't belong to names the quest thread it belongs to, at
@@ -50,6 +51,19 @@ describe("MessageTopicLabel", () => {
     expect(screen.queryByTestId("message-topic-label")).toBeNull();
     rerender(<MessageTopicLabel message={MOVED} sessionId="l1" currentThreadKey="q-9" />);
     expect(screen.getByTestId("message-topic-label").textContent).toBe("q-7");
+  });
+
+  it("leaves the quest to the message's Continued in row when that row names it", () => {
+    // Jiayi (Nov 1): a handed-off message named its quest twice, in this label and in the
+    // "Continued in q-N" row at the bottom of the bubble. The row keeps it; the thread header
+    // still says where the message was written.
+    const started = new Map([["m-1", [{ questId: "q-7", title: "Fix the relay", sideQuest: false } as never]]]);
+    render(
+      <StartedQuestsContext.Provider value={started}>
+        <MessageTopicLabel message={MOVED} sessionId="l1" currentThreadKey="q-9" />
+      </StartedQuestsContext.Provider>,
+    );
+    expect(screen.queryByTestId("message-topic-label")).toBeNull();
   });
 
   it("leaves a message that belongs to the view alone", () => {
