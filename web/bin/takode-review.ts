@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
-  GUIDED_REVIEW_CONTEXT_LINES,
   MAX_GUIDED_REVIEW_DIFF_BYTES,
   checkGuidedReviewCoverage,
   outlineGuidedReviewDiff,
@@ -164,15 +163,7 @@ async function readGitRange(
   };
   const base = (await git("rev-parse", "--verify", `${baseRev}^{commit}`)).trim();
   const head = (await git("rev-parse", "--verify", `${headRev}^{commit}`)).trim();
-  const diff = await git(
-    "diff",
-    "--no-color",
-    "--no-ext-diff",
-    "--find-renames",
-    `--unified=${GUIDED_REVIEW_CONTEXT_LINES}`,
-    base,
-    head,
-  );
+  const diff = await git("diff", "--no-color", "--no-ext-diff", "--find-renames", base, head);
   if (Buffer.byteLength(diff, "utf8") > MAX_GUIDED_REVIEW_DIFF_BYTES) {
     throw new Error("The diff is over 8 MiB; review a smaller range.");
   }

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -155,6 +155,48 @@ describe("guided review publication", () => {
       sha: head,
       available: false,
       reason: "repo_unavailable",
+    });
+  });
+
+  it("reads a stop's file over the range with the whole file as context, for the code around it", async () => {
+    // Jiayi (Nov 1): the code around a stop is read from git when the review is viewed, not saved.
+    // Only files the stops show can be read; when the commits are gone the reader falls back.
+    const root = await mkdtemp(join(tmpdir(), "guided-review-context-"));
+    roots.push(root);
+    const git = (...args: string[]) =>
+      promisify(execFile)("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@t", ...args]);
+    await git("init", "-q");
+    const lines = Array.from({ length: 30 }, (_, index) => `const line${index + 1} = ${index + 1};`);
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src/client.ts"), `${lines.join("\n")}\n`);
+    await git("add", ".");
+    await git("commit", "-qm", "base");
+    const base = (await git("rev-parse", "HEAD")).stdout.trim();
+    lines[14] = "const line15 = 1500;";
+    await writeFile(join(root, "src/client.ts"), `${lines.join("\n")}\n`);
+    await git("commit", "-qam", "change");
+    const head = (await git("rev-parse", "HEAD")).stdout.trim();
+    const { api, publish } = await harness();
+    const range = { ...validBody.range, base, head, commits: [{ sha: head, subject: "change" }] };
+    const published = await publish({ ...validBody, range: { ...range, repoPaths: [join(root, "gone"), root] } });
+    const { reviewId } = await published.json();
+
+    const read = (id: string, path: string) =>
+      api.request(`/sessions/review-host/guided-reviews/${id}/file-diff?path=${encodeURIComponent(path)}`);
+    const live = await (await read(reviewId, "src/client.ts")).json();
+    expect(live.available).toBe(true);
+    // The whole file comes as context: its first and last lines, around the change.
+    expect(live.diff).toContain(" const line1 = 1;");
+    expect(live.diff).toContain("+const line15 = 1500;");
+    expect(live.diff).toContain(" const line30 = 30;");
+    // A path no stop shows is not read.
+    expect((await read(reviewId, "secrets.txt")).status).toBe(404);
+    // Without a checkout that has the commits, the code is unavailable rather than an error.
+    const missing = await publish({ ...validBody, range: { ...range, repoPaths: [join(root, "gone")] } });
+    const { reviewId: gone } = await missing.json();
+    expect(await (await read(gone, "src/client.ts")).json()).toEqual({
+      available: false,
+      reason: "commits_not_available",
     });
   });
 

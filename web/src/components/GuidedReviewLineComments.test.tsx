@@ -31,9 +31,9 @@ async function openStop(stopsForward: number) {
   return viewer;
 }
 
-/** The current stop's own code lines: the ones it points at, shown among the code around them. */
+/** The current stop's code lines. */
 function codeRows(viewer: HTMLElement): HTMLElement[] {
-  return [...within(viewer).getByTestId("guided-review-stop").querySelectorAll<HTMLElement>(".diff-line-focus")];
+  return [...within(viewer).getByTestId("guided-review-stop").querySelectorAll<HTMLElement>(".diff-line")];
 }
 
 /** Select from the start of one code line's text to the end of another's, as dragging over them does. */
@@ -79,12 +79,8 @@ describe("comments on lines of a guided review's code", () => {
   });
 
   it("comments on the selected lines, marks them, lists the comment on the stop and sends it with the answers", async () => {
-    // Stop 2 shows src/client.ts lines 5-7: a removed line, then three added ones, among the code
-    // around them, which is dimmed.
+    // Stop 2 shows src/client.ts lines 5-7: a removed line, then three added ones.
     const viewer = await openStop(2);
-    const shown = [...within(viewer).getByTestId("guided-review-stop").querySelectorAll<HTMLElement>(".diff-line")];
-    expect(shown.length).toBeGreaterThan(4);
-    expect(shown.filter((row) => row.classList.contains("diff-line-context")).length).toBe(shown.length - 4);
     const stop = within(viewer).getByTestId("guided-review-stop");
     expect(stop).toHaveTextContent("Select lines in the code to comment on them.");
     const rows = codeRows(viewer);

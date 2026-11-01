@@ -1,7 +1,7 @@
 import { prepareWorktreeSessionArtifacts } from "../cli-launcher-worktree.js";
 import { listDirectories, listFolderEntries } from "../directory-listing.js";
 import { deliverMcpOAuthCallback } from "../mcp-oauth-callback.js";
-import { readCommitDetails } from "../git-commit-reader.js";
+import { readCommitDetails, readRangeFileDiff } from "../git-commit-reader.js";
 import { ensureWorktreeAsync, getRepoInfoAsync, listBranchesAsync } from "../git-utils.js";
 import { startLandingRunner } from "../landing-runner-launcher.js";
 import { syncBaseCheckoutToRemote } from "../landing-target-sync.js";
@@ -50,6 +50,8 @@ const operations = {
   portCommand: (...args: Parameters<typeof runPortCommand>) => runPortCommand(...args),
   verifyReview: (...args: Parameters<typeof verifyReview>) => verifyReview(...args),
   readCommitDetails: (...args: Parameters<typeof readCommitDetails>) => readCommitDetails(...args),
+  // A guided review's file over its range, whole-file context, for the code around a stop.
+  readRangeFileDiff: (...args: Parameters<typeof readRangeFileDiff>) => readRangeFileDiff(...args),
   resolveDeliveryRange: (...args: Parameters<typeof resolveDeliveryRange>) => resolveDeliveryRange(...args),
   readDeliveryRange: (...args: Parameters<typeof readDeliveryRange>) => readDeliveryRange(...args),
   // The landing queue starts runners on the host of a waiting change (the coordinator's own machine starts them in-process).

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   GUIDED_REVIEW_TIERS,
+  GUIDED_REVIEW_MORE_CONTEXT_LINES,
   guidedReviewFocus,
   guidedReviewSummaryFiles,
   type GuidedReviewCodeRef,
@@ -24,6 +25,7 @@ import { DiffViewer, type DiffLineEmphasis, type DiffLineNumbers } from "./DiffV
 import { reviewCodeAttributes } from "./GuidedReviewLineComments.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { VoiceAnswerField } from "./NeedsInputAnswerField.js";
+import { useLiveReviewSnippet } from "../utils/guided-review-live-context.js";
 
 /** The pieces a guided review is drawn from, shared by the feed card and the viewer's layouts. */
 
@@ -498,7 +500,10 @@ function Section({
   );
 }
 
-/** The code a stop points at, as saved with the review, with the lines the user commented on marked. */
+/**
+ * The code a stop points at, with the code around it read live from git (its saved lines when git
+ * can't be reached) and the lines the user commented on marked.
+ */
 export function ReviewCode({
   refs,
   target,
@@ -522,7 +527,7 @@ export function ReviewCode({
     <div className="space-y-2">
       {refs.map((ref, index) => (
         <div key={`${ref.path}:${ref.lines?.join("-") ?? "all"}:${index}`} {...reviewCodeAttributes(stop, ref.path)}>
-          <ReviewSnippet codeRef={ref} full={full} reviewId={target.meta.reviewId} />
+          <ReviewSnippet codeRef={ref} full={full} target={target} />
         </div>
       ))}
     </div>
@@ -533,19 +538,29 @@ export function ReviewCode({
  * One snippet, shown like the chat feed's code blocks: long lines scroll sideways instead of
  * wrapping, and a tall snippet shows a scrollable window with a bar below that expands it to full
  * height. `full` shows all of it from the start. The lines the stop is about carry a bar and the
- * code around them is dimmed.
+ * code around them, read live from git, is dimmed; "Show more" widens it.
  */
-function ReviewSnippet({ codeRef, full, reviewId }: { codeRef: GuidedReviewCodeRef; full: boolean; reviewId: string }) {
-  const diff = codeRef.snippet!;
+function ReviewSnippet({
+  codeRef,
+  full,
+  target,
+}: {
+  codeRef: GuidedReviewCodeRef;
+  full: boolean;
+  target: GuidedReviewTarget;
+}) {
+  const reviewId = target.meta.reviewId;
+  const live = useLiveReviewSnippet(target.sessionId, reviewId, codeRef);
+  const diff = live.snippet;
   const path = codeRef.path;
   const lineEmphasis = useMemo(() => {
-    const focus = guidedReviewFocus(codeRef);
+    const focus = guidedReviewFocus({ ...codeRef, snippet: diff });
     if (!focus) return undefined;
     return (_file: string, line: DiffLineNumbers): DiffLineEmphasis =>
       (line.newLineNo !== undefined ? focus.newLines.has(line.newLineNo) : focus.oldLines.has(line.oldLineNo!))
         ? "focus"
         : "context";
-  }, [codeRef]);
+  }, [codeRef, diff]);
   const frameRef = useRef<HTMLDivElement>(null);
   const comments = useGuidedReviewState((state) => state.drafts[reviewId]?.lineComments);
   const isLineMarked = useMemo(() => {
@@ -592,6 +607,16 @@ function ReviewSnippet({ codeRef, full, reviewId }: { codeRef: GuidedReviewCodeR
           lineEmphasis={lineEmphasis}
         />
       </div>
+      {live.canShowMore && (
+        <button
+          type="button"
+          onClick={live.showMore}
+          className="flex w-full items-center justify-center gap-1.5 border border-t-0 border-cc-border bg-cc-code-bg/80 py-1.5 text-xs text-cc-muted last:rounded-b-[10px] hover:text-cc-fg"
+          data-testid="guided-review-show-more"
+        >
+          Show {GUIDED_REVIEW_MORE_CONTEXT_LINES} more lines around it
+        </button>
+      )}
       {!full && (overflows || expanded) && (
         <button
           type="button"

@@ -53,6 +53,35 @@ export async function readCommitDetails(
   return { ...metadata, ...stats, ...patch };
 }
 
+/**
+ * One file's change over a range (base to head), with the whole file as context: what a guided
+ * review shows around a stop's lines. `paths` are the file's path and, for a rename, its old path.
+ * Null when the diff is larger than `maxBytes`.
+ */
+export async function readRangeFileDiff(
+  cwd: string,
+  base: string,
+  head: string,
+  paths: readonly string[],
+  maxBytes = MAX_PATCH_BYTES,
+): Promise<string | null> {
+  const [from, to] = await Promise.all([resolveCommit(cwd, base), resolveCommit(cwd, head)]);
+  const diff = await runGit(cwd, [
+    "--literal-pathspecs",
+    "--no-replace-objects",
+    "diff",
+    "--no-color",
+    "--no-ext-diff",
+    "--find-renames",
+    "--unified=1000000",
+    from,
+    to,
+    "--",
+    ...paths,
+  ]);
+  return Buffer.byteLength(diff, "utf8") > maxBytes ? null : diff;
+}
+
 /** Metadata and totals are saved at delivery time; reading them never downloads the patch. */
 export async function readCommitSummary(cwd: string, sha: string): Promise<CommitSummary> {
   const metadata = await readCommitMetadata(cwd, sha);

@@ -169,6 +169,33 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
     }
     return c.json({ sha, available: false, reason: "commit_not_available" });
   });
+
+  // One of the review's files over its range, with the whole file as context, read from git on the
+  // machine the review was published from: the code around its stops, read when viewed rather than
+  // saved. Only paths the review's stops show; unavailable when git or the commits are gone.
+  api.get("/sessions/:id/guided-reviews/:reviewId/file-diff", async (c) => {
+    const sessionId = ctx.resolveId(c.req.param("id"));
+    const session = sessionId ? ctx.wsBridge.getSession(sessionId) : null;
+    if (!session) return c.json({ error: "Session not found" }, 404);
+    const review = findGuidedReview(session.messageHistory, c.req.param("reviewId"))?.guidedReview;
+    if (!review) return c.json({ error: "Review not found" }, 404);
+    const path = c.req.query("path");
+    const ref = review.map.stops.flatMap((stop) => stop.code).find((code) => code.path === path);
+    if (!ref) return c.json({ error: "The review shows no code from that path" }, 404);
+    const oldPath = ref.snippet ? parseGuidedReviewDiff(ref.snippet)[0]?.oldPath : undefined;
+    const paths = oldPath && oldPath !== ref.path ? [ref.path, oldPath] : [ref.path];
+    const { range } = review;
+    for (const repoPath of range.repoPaths ?? []) {
+      try {
+        const diff = await onMachine(range.hostId, "readRangeFileDiff", repoPath, range.base, range.head, paths);
+        if (diff === null) return c.json({ available: false, reason: "too_large" });
+        return c.json({ available: true, diff });
+      } catch {
+        // Try the next checkout; a worktree may be gone while its main checkout still has the commits.
+      }
+    }
+    return c.json({ available: false, reason: "commits_not_available" });
+  });
   return api;
 }
 

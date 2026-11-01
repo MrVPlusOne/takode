@@ -1729,6 +1729,11 @@ export const api = {
       `/sessions/${encodeURIComponent(sessionId)}/guided-reviews/${encodeURIComponent(reviewId)}/commits/${encodeURIComponent(sha)}${qs}`,
     );
   },
+  /** One of a guided review's files over its range, whole-file context, read live from git. */
+  getGuidedReviewFileDiff: (sessionId: string, reviewId: string, path: string) =>
+    get<{ available: true; diff: string } | { available: false; reason?: string }>(
+      `/sessions/${encodeURIComponent(sessionId)}/guided-reviews/${encodeURIComponent(reviewId)}/file-diff?path=${encodeURIComponent(path)}`,
+    ),
   getQuestMemoryCommit: (id: string, sha: string, options?: { includeDiff?: boolean }) => {
     const qs = options?.includeDiff === false ? "?includeDiff=false" : "";
     return get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/memory-commits/${encodeURIComponent(sha)}${qs}`);
