@@ -119,6 +119,24 @@ export async function gitSafeAsync(cmd: string, cwd: string, machine?: Machine):
   }
 }
 
+/**
+ * Whether `cwd` is inside a git work tree on `machine` (this machine when omitted). "not-a-checkout"
+ * only when git itself says the directory is outside any repository, such as a helper session on a
+ * remote host working in a scratch folder. "unknown" when git could not answer (an unreachable host,
+ * a missing directory or git): callers must treat that as unverified, not as no checkout.
+ */
+export async function gitCheckoutKindAsync(
+  cwd: string,
+  machine?: Machine,
+): Promise<"checkout" | "not-a-checkout" | "unknown"> {
+  try {
+    return (await gitAsync("rev-parse --is-inside-work-tree", cwd, machine)) === "true" ? "checkout" : "unknown";
+  } catch (error) {
+    const stderr = String((error as { stderr?: unknown }).stderr ?? "");
+    return /not a git repository/i.test(stderr) ? "not-a-checkout" : "unknown";
+  }
+}
+
 export async function resolveRefAsync(repoRoot: string, ref: string): Promise<string | null> {
   return gitSafeAsync(`rev-parse --verify ${ref}`, repoRoot);
 }

@@ -26,7 +26,7 @@ import {
   type QuestListSortColumn,
 } from "../quest-list-filters.js";
 import { SERVER_GIT_CMD } from "../constants.js";
-import { gitSafeAsync } from "../git-utils.js";
+import { gitCheckoutKindAsync, gitSafeAsync } from "../git-utils.js";
 import { machineFor } from "../remote-host/session-machine.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -583,6 +583,18 @@ export function createQuestRoutes(ctx: RouteContext) {
         status: codeCommitSubmissionError.status,
         headers: { "content-type": "application/json" },
       });
+    }
+
+    // A worker outside any git checkout (a helper on a remote host working in a scratch folder) has no
+    // tracked changes or sync state to check, so no-code completion needs nothing more. Only git's
+    // own answer counts: an unreachable host or unreadable directory stays unverified below.
+    const workerCwd = wsBridge.getSession(workerSessionId)?.state?.cwd;
+    const workerHostId = wsBridge.getSession(workerSessionId)?.state?.host_id;
+    if (
+      workerCwd &&
+      (await gitCheckoutKindAsync(workerCwd, workerHostId ? machineFor(workerHostId) : undefined)) === "not-a-checkout"
+    ) {
+      return null;
     }
 
     const refreshGit = async (sessionId: string): Promise<boolean> => {

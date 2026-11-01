@@ -858,6 +858,87 @@ describe("POST /api/quests/:questId/complete", () => {
     }
   });
 
+  // A helper on a remote host often works in a scratch folder: no checkout means no tracked changes,
+  // so no-code completion must not fail on git checks it cannot pass (q-2937's helper could not).
+  it("completes for a remote worker whose folder is not a git checkout", async () => {
+    const hostExec = vi.fn(async () => ({
+      kind: "exec",
+      code: 128,
+      signal: null,
+      stdout: "",
+      stderr: "fatal: not a git repository (or any of the parent directories): .git\n",
+      truncated: false,
+    }));
+    configureRemoteMachines({ request: hostExec } as any);
+    try {
+      // The git refresh found nothing to read, which alone would refuse completion.
+      const auth = installV2MemoryFixture({
+        workerState: {
+          host_id: "host-1",
+          git_branch: "",
+          git_default_branch: "",
+          diff_base_branch: "",
+          git_status_refresh_error: "Unable to read git status",
+        },
+      });
+
+      const res = await postV2Complete({}, auth);
+
+      expect(res.status, await res.clone().text()).toBe(200);
+      expect(hostExec).toHaveBeenCalledWith(
+        "host-1",
+        expect.objectContaining({ cwd: "/repo", command: expect.stringContaining("rev-parse --is-inside-work-tree") }),
+        expect.any(Number),
+      );
+      expect(questStore.completeQuest).toHaveBeenCalled();
+    } finally {
+      configureRemoteMachines(null);
+    }
+  });
+
+  it("completes for a worker on this machine whose folder is not a git checkout", async () => {
+    mockExecSync.mockImplementation((cmd?: string) => {
+      if (cmd?.includes("rev-parse --is-inside-work-tree"))
+        throw Object.assign(new Error("Command failed"), {
+          stderr: "fatal: not a git repository (or any of the parent directories): .git\n",
+        });
+      return "";
+    });
+    const auth = installV2MemoryFixture({
+      workerState: {
+        git_default_branch: "",
+        diff_base_branch: "",
+        git_status_refresh_error: "Unable to read git status",
+      },
+    });
+
+    const res = await postV2Complete({}, auth);
+
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(questStore.completeQuest).toHaveBeenCalled();
+  });
+
+  it("still checks a worker whose checkout git could not read, as before", async () => {
+    // Any other git failure (missing folder, broken repository) is not proof of "no checkout".
+    mockExecSync.mockImplementation((cmd?: string) => {
+      if (cmd?.includes("rev-parse --is-inside-work-tree"))
+        throw Object.assign(new Error("Command failed"), { stderr: "fatal: unable to read tree\n" });
+      return "";
+    });
+    const auth = installV2MemoryFixture({
+      workerState: {
+        git_default_branch: "",
+        diff_base_branch: "",
+        git_status_refresh_error: "Unable to read git status",
+      },
+    });
+
+    const res = await postV2Complete({}, auth);
+
+    expect(res.status).toBe(409);
+    expect(questStore.completeQuest).not.toHaveBeenCalled();
+  });
+
   it("rejects remote-backed worktree completion when the caller self-selects local-clean", async () => {
     const auth = installV2MemoryFixture({
       workerState: { git_ahead: 2 },
