@@ -140,6 +140,43 @@ export async function searchGlobalStarredMessages(
   return res.json() as Promise<GlobalStarredMessageSearchResponse>;
 }
 
+/** One of the user's own messages, found in any session. */
+export interface UserMessageSearchResult extends Omit<MessageSearchResult, "role" | "category" | "starred"> {
+  sessionName: string;
+  archived: boolean;
+  role: "user";
+  category: "user";
+}
+
+export interface UserMessageSearchResponse {
+  query: string;
+  totalMatches: number;
+  results: UserMessageSearchResult[];
+  nextOffset: number | null;
+  hasMore: boolean;
+  tookMs: number;
+}
+
+/** Search the user's own messages in every session (in one Session Space when given), best match first. */
+export async function searchUserMessages(options: {
+  query: string;
+  sessionSpaceId?: string | null;
+  limit?: number;
+  offset?: number;
+  signal?: AbortSignal;
+}): Promise<UserMessageSearchResponse> {
+  const params = new URLSearchParams({ q: options.query });
+  if (options.sessionSpaceId) params.set("sessionSpaceId", options.sessionSpaceId);
+  if (typeof options.limit === "number") params.set("limit", String(options.limit));
+  if (typeof options.offset === "number") params.set("offset", String(options.offset));
+  const res = await fetch(`${BASE}/sessions/user-message-search?${params}`, { signal: options.signal });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json() as Promise<UserMessageSearchResponse>;
+}
+
 /** Read the server-owned route for one stable source message, including messages outside the loaded window. */
 export async function resolveSessionMessageTarget(
   sessionId: string,

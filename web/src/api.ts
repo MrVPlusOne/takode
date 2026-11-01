@@ -20,7 +20,11 @@ import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import type { SessionActivityPreview } from "../server/session-activity-preview.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
-import { searchGlobalStarredMessages, searchSessionMessages } from "./api/session-message-search.js";
+import {
+  searchGlobalStarredMessages,
+  searchSessionMessages,
+  searchUserMessages,
+} from "./api/session-message-search.js";
 import { fetchRecentAskBundles } from "./api/recent-asks.js";
 import { getSessionInfo, getSessionInstructionContent, listSessions, pollActiveSessions } from "./api/session-info.js";
 import { getMemoryCatalog, getMemoryRecord, getMemoryUpdateDiff, listMemorySpaces } from "./api/memory.js";
@@ -73,6 +77,8 @@ export type {
   GlobalStarredMessageSearchResult,
   SearchGlobalStarredMessagesOptions,
   SearchSessionMessagesOptions,
+  UserMessageSearchResponse,
+  UserMessageSearchResult,
 } from "./api/session-message-search.js";
 
 export type {
@@ -1086,6 +1092,7 @@ export const api = {
 
   searchSessionMessages,
   searchGlobalStarredMessages,
+  searchUserMessages,
   fetchRecentAskBundles,
 
   killSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/kill`),
