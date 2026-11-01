@@ -80,7 +80,7 @@ takode board set q-12 --wait-for #31   # replaces the list
 takode board set q-12 --clear-wait-for
 ```
 
-While a helper is busy (running, on a timer, a background job or a progressing lease wait) or a waited quest is unfinished, the idle worker is not reported stalled. Once every helper has stopped, `board_stalled` names them, so their result still reaches the worker. The wait stays through a User Checkpoint and ends when the row leaves Work; queue dependencies never carry into Work. `free-worker` is a queue-only token.
+While a helper is busy (running, on a timer, a background job or a progressing lease wait) or a waited quest is unfinished, the idle worker is not reported stalled. Once every helper has stopped, `board_stalled` names them, so their result still reaches the worker, even while the worker itself waits on a timer or job of its own. The wait stays through a User Checkpoint and ends when the row leaves Work; queue dependencies never carry into Work. `free-worker` is a queue-only token.
 
 A question you post in a quest's thread pauses its Work by itself (see Automatic User Checkpoints in `quest-journey.md`). By hand:
 

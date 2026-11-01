@@ -1829,12 +1829,10 @@ function buildBoardStallCandidate(
   const title = row.title?.trim() || undefined;
 
   if (isActiveWorkerOwnedBoardRow(row)) {
-    if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
-    // An idle worker whose change is in an active landing run resumes on its Landing Queue message.
-    if (deps.isLandingActive?.(workerSessionId)) return null;
-    // An idle Claude worker resumes when its background job's completion notice arrives.
-    if (backgroundWaitEndsAt(workerRuntime) > now) return null;
+    if (!workerSessionId || workerRuntime.status === "running") return null;
     // The worker waits for a helper session or another quest, whose result the leader passes on.
+    // A stopped helper is flagged whatever the worker itself waits on: a worker that also helps
+    // other quests keeps timers and jobs for that work, and none of them passes this result on.
     const workWait = assessWorkRowWaits(
       row,
       { ...deps, isQuestBlocking: (questId) => isQuestDependencyBlocked(session, questId, deps) },
@@ -1842,6 +1840,33 @@ function buildBoardStallCandidate(
       now,
     );
     if (workWait === "progressing") return null;
+    // Every helper the worker waits on has stopped: its result (or its question) has to reach the worker.
+    if (workWait) {
+      const helperLabels = workWait.map((helper) => `${helper.ref} ${helper.status}`);
+      return {
+        signature: `${row.questId}|${stage}|helper:${workWait
+          .map((helper) => helper.ref)
+          .sort()
+          .join(",")}`,
+        sourceSessionId: workerSessionId,
+        questId: row.questId,
+        title,
+        stage,
+        workerStatus: workerRuntime.status,
+        reviewerStatus: reviewerRuntime.status,
+        stalledSince: stalledSinceFrom(
+          workerRuntime.lastActivityAt,
+          ...workWait.map((helper) => helper.lastActivityAt),
+        ),
+        reason: `worker waiting on ${helperLabels.length > 1 ? "helpers" : "helper"} ${helperLabels.join(", ")}`,
+        action: "inspect the helper; pass its result to the worker, or clear the wait (board set --clear-wait-for)",
+      };
+    }
+    if (workerRuntime.hasActiveTimer) return null;
+    // An idle worker whose change is in an active landing run resumes on its Landing Queue message.
+    if (deps.isLandingActive?.(workerSessionId)) return null;
+    // An idle Claude worker resumes when its background job's completion notice arrives.
+    if (backgroundWaitEndsAt(workerRuntime) > now) return null;
     const leaseWait =
       workerRuntime.status === "missing" ? null : assessLeaseWait(workerSessionId, deps, session, new Set(), now);
     // A queued worker resumes on the Resource Lease promotion message, so its
@@ -1884,28 +1909,6 @@ function buildBoardStallCandidate(
         stalledSince: stalledSinceFrom(workerRuntime.lastActivityAt, backgroundWaitEndsAt(workerRuntime)),
         reason: `worker ${workerRuntime.status} with ${formatOverdueBackgroundJobs(workerRuntime.backgroundJobs)}`,
         action: "inspect worker; check whether its background job is hung, stop it, or resume Work",
-      };
-    }
-    // Every helper the worker waits on has stopped: its result (or its question) has to reach the worker.
-    if (workWait) {
-      const helperLabels = workWait.map((helper) => `${helper.ref} ${helper.status}`);
-      return {
-        signature: `${row.questId}|${stage}|helper:${workWait
-          .map((helper) => helper.ref)
-          .sort()
-          .join(",")}`,
-        sourceSessionId: workerSessionId,
-        questId: row.questId,
-        title,
-        stage,
-        workerStatus: workerRuntime.status,
-        reviewerStatus: reviewerRuntime.status,
-        stalledSince: stalledSinceFrom(
-          workerRuntime.lastActivityAt,
-          ...workWait.map((helper) => helper.lastActivityAt),
-        ),
-        reason: `worker waiting on ${helperLabels.length > 1 ? "helpers" : "helper"} ${helperLabels.join(", ")}`,
-        action: "inspect the helper; pass its result to the worker, or clear the wait (board set --clear-wait-for)",
       };
     }
     return {

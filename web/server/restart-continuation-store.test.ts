@@ -6,6 +6,7 @@ import {
   buildRestartContinuationPlan,
   HOST_UPDATE_REQUEST_MAX_AGE_MS,
   RESTART_CONTINUE_MESSAGE,
+  resumeAfterOutdatedProcess,
   resumeRestartContinuations,
   saveHostUpdateRequest,
   saveRestartContinuationPlan,
@@ -146,5 +147,71 @@ describe("restart-continuation-store", () => {
       undefined,
       { deliveryContent: RESTART_CONTINUE_MESSAGE, historyFollowUps: [] },
     );
+  });
+
+  // Restart Server leaves node-run sessions running mid-turn. When the restarted
+  // server builds other instructions it ends those processes instead of taking
+  // them over, and the restored session does not know a turn was under way. In
+  // the reported case a worker's turn was cut off this way: no turn end reached
+  // its leader, and the session sat "running" in its history until someone looked.
+  describe("resumeAfterOutdatedProcess", () => {
+    const idleSession = (overrides: Partial<Parameters<typeof resumeAfterOutdatedProcess>[0]> = {}) => ({
+      backendType: "claude-sdk",
+      messageHistory: [{ type: "user_message" }, { type: "assistant" }, { type: "result" }],
+      isGenerating: false,
+      pendingMessages: [],
+      pendingCodexInputs: [],
+      pendingCodexTurns: [],
+      ...overrides,
+    });
+    const run = (session: Parameters<typeof resumeAfterOutdatedProcess>[0]) => {
+      const actions = { continueTurn: vi.fn(), relaunch: vi.fn() };
+      return { outcome: resumeAfterOutdatedProcess(session, actions), ...actions };
+    };
+
+    it("continues a Claude turn the ending cut off", () => {
+      // A leader's message arrived mid-turn, then the agent kept working (tool output
+      // and assistant text are trailing entries) until its process was ended.
+      for (const tail of [
+        [{ type: "user_message" }, { type: "assistant" }, { type: "tool_result_preview" }],
+        // A turn the CLI started itself (a background job's completion notice) has no user message.
+        [{ type: "assistant" }],
+      ]) {
+        const { outcome, continueTurn, relaunch } = run(
+          idleSession({ messageHistory: [{ type: "user_message" }, { type: "result" }, ...tail] }),
+        );
+        expect(outcome).toBe("continued");
+        expect(continueTurn).toHaveBeenCalledTimes(1);
+        expect(relaunch).not.toHaveBeenCalled();
+      }
+    });
+
+    it("leaves an idle session stopped until its next message", () => {
+      // Entries after the result that are not turn input or output do not reopen the turn.
+      const { outcome, continueTurn, relaunch } = run(
+        idleSession({ messageHistory: [{ type: "user_message" }, { type: "result" }, { type: "compact_marker" }] }),
+      );
+      expect(outcome).toBeNull();
+      expect(continueTurn).not.toHaveBeenCalled();
+      expect(relaunch).not.toHaveBeenCalled();
+      expect(run(idleSession({ messageHistory: [] })).outcome).toBeNull();
+    });
+
+    it("relaunches a session whose input waited for its host", () => {
+      const { outcome, relaunch, continueTurn } = run(idleSession({ pendingMessages: ["herd event"] }));
+      expect(outcome).toBe("relaunched");
+      expect(relaunch).toHaveBeenCalledTimes(1);
+      expect(continueTurn).not.toHaveBeenCalled();
+    });
+
+    it("relaunches Codex for its unfinished turns, which it resumes itself", () => {
+      // Codex persists its turns, so a continuation message would duplicate the resumed turn.
+      const codex = (pendingCodexTurns: Array<{ status?: string }>) =>
+        idleSession({ backendType: "codex", messageHistory: [{ type: "user_message" }], pendingCodexTurns });
+      const unfinished = run(codex([{ status: "dispatched" }]));
+      expect(unfinished.outcome).toBe("relaunched");
+      expect(unfinished.continueTurn).not.toHaveBeenCalled();
+      expect(run(codex([{ status: "completed" }])).outcome).toBeNull();
+    });
   });
 });

@@ -18,6 +18,7 @@ if (!process.env.UV_THREADPOOL_SIZE) {
 import { getEnrichedPath } from "./path-resolver.js";
 process.env.PATH = getEnrichedPath();
 
+import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -113,6 +114,7 @@ import { createMessageDeliveryProbe, MessageDeliveryTracker } from "./message-de
 import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchestrator-recovery.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import {
+  resumeAfterOutdatedProcess,
   resumeRestartContinuations,
   sendRestartContinuation,
   takeHostUpdateRequest,
@@ -891,17 +893,19 @@ launcher.onBeforeRelaunchCallback((sessionId, backendType) => {
 });
 
 // A process that outlived the restart but ran outdated instructions was ended rather than taken
-// over; input sent while it waited for its host would otherwise sit queued with the turn stuck.
+// over; the turn it was in, or input sent while it waited for its host, would otherwise be stuck.
 launcher.onOutdatedProcessEndedCallback((sessionId) => {
   const bridgeSession = wsBridge.getSession(sessionId);
   if (!bridgeSession) return;
-  const waiting =
-    bridgeSession.isGenerating ||
-    bridgeSession.pendingMessages.length > 0 ||
-    bridgeSession.pendingCodexInputs.length > 0;
-  if (!waiting) return;
-  console.log(`[server] Input waits for session ${sessionId} after its outdated process ended; relaunching`);
-  relaunchQueue.request(sessionId, { trailing: false });
+  const resumed = resumeAfterOutdatedProcess(bridgeSession, {
+    continueTurn: () => sendRestartContinuation(wsBridge, sessionId, `outdated-process:${randomUUID().slice(0, 8)}`),
+    relaunch: () => relaunchQueue.request(sessionId, { trailing: false }),
+  });
+  if (resumed === "continued") {
+    console.log(`[server] Session ${sessionId} was mid-turn when its outdated process ended; continuing the turn`);
+  } else if (resumed === "relaunched") {
+    console.log(`[server] Input waits for session ${sessionId} after its outdated process ended; relaunching`);
+  }
 });
 
 // Start watching PRs when git info is resolved for a session

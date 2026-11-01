@@ -124,6 +124,54 @@ export function sendRestartContinuation(
   });
 }
 
+/** The parts of a restored session that show whether its ended process left work behind. */
+export interface OutdatedProcessSession {
+  backendType?: string;
+  messageHistory: ReadonlyArray<{ type: string }>;
+  isGenerating: boolean;
+  pendingMessages: readonly unknown[];
+  pendingCodexInputs: readonly unknown[];
+  pendingCodexTurns: ReadonlyArray<{ status?: string }>;
+}
+
+/**
+ * Get a session going again whose process outlived a restart but was ended for
+ * running outdated instructions. Restart Server leaves such processes running
+ * mid-turn, and the restored session does not know a turn was under way, so a
+ * Claude turn the ending cut off is continued as if Restart Server had
+ * interrupted it; delivering the continuation relaunches the session. Without
+ * it the turn never ends and the session's leader never hears of it. Codex
+ * keeps its unfinished turns and resumes them when relaunched, as it does
+ * input queued while the session waited for its host.
+ */
+export function resumeAfterOutdatedProcess(
+  session: OutdatedProcessSession,
+  actions: { continueTurn: () => void; relaunch: () => void },
+): "continued" | "relaunched" | null {
+  if (session.backendType !== "codex" && endsInUnfinishedTurn(session.messageHistory)) {
+    actions.continueTurn();
+    return "continued";
+  }
+  const waiting =
+    session.isGenerating ||
+    session.pendingMessages.length > 0 ||
+    session.pendingCodexInputs.length > 0 ||
+    session.pendingCodexTurns.some((turn) => turn.status !== "completed");
+  if (!waiting) return null;
+  actions.relaunch();
+  return "relaunched";
+}
+
+/** Whether the history's last turn never ended: its newest input or output came after its last result. */
+function endsInUnfinishedTurn(history: ReadonlyArray<{ type: string }>): boolean {
+  for (let index = history.length - 1; index >= 0; index--) {
+    const type = history[index].type;
+    if (type === "result") return false;
+    if (type === "user_message" || type === "assistant") return true;
+  }
+  return false;
+}
+
 /**
  * How long a Restart Server request stays valid for the server it starts. A
  * later start, say by hand after the restart failed, is no user's restart.

@@ -383,8 +383,8 @@ export class CliLauncher {
 
   /**
    * Called when a session's process that outlived the previous server was ended for running outdated
-   * instructions instead of being taken over. Input sent while it waited for its host (a message,
-   * a herd event) is still queued, so the server relaunches it then.
+   * instructions instead of being taken over. A turn it was in was cut off, and input sent while it
+   * waited for its host (a message, a herd event) is still queued, so the server continues or relaunches it.
    */
   onOutdatedProcessEndedCallback(cb: (sessionId: string) => void): void {
     this.onOutdatedProcessEnded = cb;

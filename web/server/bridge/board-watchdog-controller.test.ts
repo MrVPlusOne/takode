@@ -462,6 +462,24 @@ describe("Work Board stall check for rows waiting on a helper", () => {
     });
   });
 
+  it("names a stopped helper even while the worker waits on its own timer or job", () => {
+    // The reported case: one helper session served several quests. It owned a quest
+    // that waited on another session, whose turn was cut off, and kept timers for the
+    // other quests' jobs. Those timers do not pass the stopped session's result on.
+    for (const worker of [
+      { sessionNum: 10, timers: 1 },
+      { sessionNum: 10, backgroundJobs: [{ taskId: "job", description: "Build", startedAt: 0 }] },
+    ]) {
+      const fixture = setupIdleWorkerStall({ worker, helper: { sessionNum: 11, lastActivityAt: 100_000 } }, {});
+      fixture.deps.resolveSessionId = vi.fn((ref: string) => (ref === "11" ? "helper" : undefined));
+      fixture.leader.board.get("q-90")!.waitFor = ["#11"];
+      sweepBoardStallWarnings([fixture.leader], 100_000, fixture.deps);
+      sweepBoardStallWarnings([fixture.leader], 280_001, fixture.deps);
+      expect(fixture.emitted).toHaveLength(1);
+      expect(fixture.emitted[0]).toMatchObject({ signature: "q-90|WORKING|helper:#11|since:100000" });
+    }
+  });
+
   it("does not flag the idle worker while a quest it waits on is unfinished", () => {
     const { leader, emitted, sweepPastThreshold } = setupIdleWorkerStall({ worker: { sessionNum: 10 } }, {});
     leader.board.get("q-90")!.waitFor = ["q-91"];
