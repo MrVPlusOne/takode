@@ -696,11 +696,11 @@ export function ChatView({
       normalizeThreadKey(feedThreadKey) === ALL_THREADS_KEY || ownerThreadKey === normalizeThreadKey(feedThreadKey),
     onSeen: (notificationId) => void api.markNotificationDone(sessionId, notificationId, true).catch(console.error),
   });
-  const unreadAboveIndicator = unreadAbove?.first.messageId ? (
+  const unreadAboveIndicator = unreadAbove?.next.messageId ? (
     <MessageFeedUnreadAbove
       unread={unreadAbove}
       onJump={() =>
-        navigateToSessionMessageId(sessionId, unreadAbove.first.messageId!, {
+        navigateToSessionMessageId(sessionId, unreadAbove.next.messageId!, {
           threadKey: selectedThreadKey,
           preserveMainThreadRoute: true,
         })

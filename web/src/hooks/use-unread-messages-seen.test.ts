@@ -157,7 +157,7 @@ describe("useUnreadMessagesSeen", () => {
     expect(readsWhenSeen(answer("d", 1, { done: true }))).toBe(false);
   });
 
-  it("counts the unread messages above the view, oldest first, and leaves out what is on screen", () => {
+  it("counts the unread messages above the view, and leaves out what is on screen", () => {
     // A conversation opened at its latest says how many unread wait above: one scrolled past,
     // one not loaded (older than the window), but not the one on screen nor another thread's.
     mountFeed("q-1", [
@@ -180,7 +180,125 @@ describe("useUnreadMessagesSeen", () => {
       }),
     );
     expect(result.current?.count).toBe(2);
-    expect(result.current?.first.id).toBe("unloaded");
+    // A jump goes to the nearest: the one scrolled past, before the one above the loaded window.
+    expect(result.current?.next.id).toBe("above");
+  });
+
+  it("puts one New line above unread answers that are together at the bottom", () => {
+    // The usual case: everything after the last read answer is unread, so a line says it.
+    const elements = mountFeed("q-1", [
+      { id: "m-read", top: 0 },
+      { id: "m-u1", top: 150 },
+      { id: "m-u2", top: 300 },
+    ]);
+    renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        feedKey: "q-1",
+        notifications: [answer("read", 1, { done: true }), answer("u1", 2), answer("u2", 3)],
+        enabled: true,
+        inFeed: () => true,
+        onSeen: vi.fn(),
+      }),
+    );
+    expect(elements["m-u1"]!.getAttribute("data-unread-start")).toBe("true");
+    expect(document.querySelectorAll("[data-unread-start]").length).toBe(1);
+    expect(document.querySelectorAll("[data-unread-answer]").length).toBe(0);
+  });
+
+  it("tags each unread answer when a read one sits below an unread one, as in a joined thread", () => {
+    // Jiayi (Nov 1): the Scribe joined a newer thread, already read, onto an older conversation
+    // whose last answer was still unread. A New line above that answer said everything below was
+    // unread; each unread answer now gets its own tag, and read ones none, kept while the view lasts.
+    const elements = mountFeed("q-1", [
+      { id: "m-early", top: 0 },
+      { id: "m-joined-read", top: 150 },
+      { id: "m-joined-unread", top: 300 },
+    ]);
+    const { rerender, unmount } = renderHook(
+      ({ list }) =>
+        useUnreadMessagesSeen({
+          sessionId: "leader",
+          feedKey: "q-1",
+          notifications: list,
+          enabled: true,
+          inFeed: () => true,
+          onSeen: vi.fn(),
+        }),
+      {
+        initialProps: {
+          list: [
+            answer("early", 1),
+            answer("joined-read", 5, { done: true }),
+            answer("joined-unread", 6, { unreadReason: "report" }),
+          ],
+        },
+      },
+    );
+    const tagged = () =>
+      Object.entries(elements)
+        .filter(([, element]) => element.getAttribute("data-unread-answer") === "true")
+        .map(([id]) => id);
+    expect(tagged()).toEqual(["m-early", "m-joined-unread"]);
+    expect(document.querySelectorAll("[data-unread-start]").length).toBe(0);
+    // Read on screen, the tags stay for this view, then go with it.
+    rerender({
+      list: [
+        answer("early", 1, { done: true }),
+        answer("joined-read", 5, { done: true }),
+        answer("joined-unread", 6, { unreadReason: "report", done: true }),
+      ],
+    });
+    act(() => {
+      vi.advanceTimersByTime(SEEN_DWELL_MS);
+    });
+    expect(tagged()).toEqual(["m-early", "m-joined-unread"]);
+    unmount();
+    expect(tagged()).toEqual([]);
+  });
+
+  it("steps the jump up through unread answers one at a time, skipping read ones between", () => {
+    // Two unread answers above the view with a read one between: the pill's jump goes to the
+    // nearer first, then (once it is read) to the next, never to the farthest straight away.
+    const elements = mountFeed("q-1", [
+      { id: "m-far", top: -900 },
+      { id: "m-read", top: -650 },
+      { id: "m-near", top: -400 },
+      { id: "m-latest", top: 300 },
+    ]);
+    const { result, rerender } = renderHook(
+      ({ list }) =>
+        useUnreadMessagesSeen({
+          sessionId: "leader",
+          feedKey: "q-1",
+          notifications: list,
+          enabled: true,
+          inFeed: () => true,
+          onSeen: vi.fn(),
+        }),
+      {
+        initialProps: {
+          list: [answer("far", 1), answer("read", 2, { done: true }), answer("near", 3), answer("latest", 4)],
+        },
+      },
+    );
+    expect(result.current?.count).toBe(2);
+    expect(result.current?.next.id).toBe("near");
+    elements["m-near"]!.getBoundingClientRect = () => rect(100, 100);
+    elements["m-far"]!.getBoundingClientRect = () => rect(-500, 100);
+    rerender({
+      list: [
+        answer("far", 1),
+        answer("read", 2, { done: true }),
+        answer("near", 3, { done: true }),
+        answer("latest", 4, { done: true }),
+      ],
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(result.current?.count).toBe(1);
+    expect(result.current?.next.id).toBe("far");
   });
 
   it("does not count unloaded messages while a newer section is unloaded too", () => {
