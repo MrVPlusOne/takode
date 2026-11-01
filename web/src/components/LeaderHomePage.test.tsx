@@ -49,6 +49,7 @@ import { useTopicPanel } from "../utils/topic-panel.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
 import { useStore } from "../store.js";
 import { LeaderHomePage } from "./LeaderHomePage.js";
+import { SideHome } from "./side-column/SideHome.js";
 import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
 function member(threadKey: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
@@ -235,5 +236,53 @@ describe("LeaderHomePage", () => {
     view.unmount();
     render(<LeaderHomePage leaderId="l1" />);
     expect(screen.getByTestId("idle-by-topic")).toBeTruthy();
+  });
+});
+
+describe("SideHome", () => {
+  it("lists another leader's threads from its projection, and opens them in the main view", () => {
+    // Jiayi (Nov 1): a Home in the side column switches the main view between a leader's threads.
+    // That leader's status row isn't on screen, so the side Home reads its threads itself.
+    const attention = { needsInput: false, mutedNeedsInput: false, reviewUnread: true, updatedAt: 5, changedAt: 5 };
+    useStore.getState().applySyncedProjectionSnapshot({
+      projection: LEADER_THREAD_TABS_PROJECTION,
+      key: "l2",
+      generation: "side-home",
+      revision: 1,
+      value: {
+        ...EMPTY_TABS_VALUE,
+        tabState: { version: 1 },
+        tabs: [
+          {
+            threadKey: "q-7",
+            questId: "q-7",
+            title: "Relay outage",
+            boardStatus: null,
+            journey: null,
+            sourceLeaderSessionId: "l2",
+            sourceRowCreatedAt: null,
+            workerSessionId: null,
+            workerSessionNum: null,
+            ownership: null,
+            active: true,
+            queued: false,
+            proposed: false,
+            neverStartedScheduled: false,
+            completed: false,
+            canClose: false,
+            attention,
+            updatedAt: 5,
+            groupChangedAt: 5,
+          },
+        ],
+      } as never,
+    });
+    render(<SideHome leaderId="l2" />);
+    const row = screen.getByTestId("home-thread-row");
+    expect(row.textContent).toContain("Relay outage");
+    // No message box under it: the column has its own New thread.
+    expect(screen.queryByTestId("composer")).toBeNull();
+    fireEvent.click(row);
+    expect(navigateToSessionThread).toHaveBeenCalledWith("l2", "q-7");
   });
 });

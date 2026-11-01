@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } fr
 import { useLeaderNavigation } from "../utils/top-bar-slots.js";
 import { LeaderHomePage, NewThreadComposer } from "./LeaderHomePage.js";
 import { SideColumnPhoneSheet } from "./library/TopicSidePanel.js";
-import { openInSide, showMainView } from "../utils/side-column.js";
+import { lastThreadShownOf, openInSide, showMainView } from "../utils/side-column.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
 import { loadLeaderNamesOnce, useKnownThreadOfKey, useKnownTopicOfKey } from "../utils/leader-topics.js";
 import { useReadyThreadDestination } from "../utils/ready-thread-destination.js";
@@ -916,13 +916,16 @@ export function ChatView({
     [cachedThreadWindows, isLeaderSession, openThreadTab, preview, selectedThreadKey, sessionId],
   );
   // The mirror of a side pane's move-to-main button: the thread goes into the side column and the
-  // main view returns to the leader's Home. Desktop only, where the column sits beside the view.
+  // main view returns to the leader's Home. Home itself goes there too (its Main opens as its Home),
+  // and the main view goes back to the thread it showed before, else the leader log. Desktop only,
+  // where the column sits beside the view.
   const moveSelectedToSide =
     leaderNav && desktopShell
       ? () => {
           openInSide({ kind: "conversation", threadKey: selectedThreadKey, leaderId: sessionId });
-          movedToSideRef.current = selectedThreadKey !== MAIN_THREAD_KEY;
-          handleSelectThread(MAIN_THREAD_KEY);
+          const home = normalizeThreadKey(selectedThreadKey) === MAIN_THREAD_KEY;
+          movedToSideRef.current = !home;
+          handleSelectThread(home ? (lastThreadShownOf(sessionId) ?? ALL_THREADS_KEY) : MAIN_THREAD_KEY);
         }
       : undefined;
   const questStripRef = useRef<HTMLDivElement | null>(null);
@@ -1189,6 +1192,7 @@ export function ChatView({
               openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
               threadRows={isLeaderSession ? workBoardThreadRows : undefined}
               hideThreadStrip={phoneTopicsOpen}
+              onMoveHomeToSide={homePage ? moveSelectedToSide : undefined}
             />
           )}
 

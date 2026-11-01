@@ -188,13 +188,20 @@ vi.mock("./WorkBoardBar.js", () => ({
     onSelectThread,
     openThreadKeys = [],
     threadRows = [],
+    onMoveHomeToSide,
   }: {
     currentThreadKey?: string;
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
     threadRows?: Array<{ threadKey: string; title: string }>;
+    onMoveHomeToSide?: () => void;
   }) => (
     <div data-testid="work-board-bar" data-current-thread-key={currentThreadKey}>
+      {onMoveHomeToSide && (
+        <button type="button" data-testid="home-move-to-side" onClick={onMoveHomeToSide}>
+          Move Home
+        </button>
+      )}
       <button type="button" onClick={() => onSelectThread?.("main")}>
         Main
       </button>
@@ -489,6 +496,12 @@ describe("ChatView topics as tags", () => {
       LEADER_SESSION_ID,
       expect.objectContaining({ operation: expect.objectContaining({ type: "close" }) }),
     );
+    // Home moves there too (Jiayi, Nov 1), and the main view goes back to the thread it showed.
+    fireEvent.click(await screen.findByTestId("home-move-to-side"));
+    expect(useSideColumnStore.getState().items[0]).toEqual(
+      expect.objectContaining({ kind: "home", leaderId: LEADER_SESSION_ID }),
+    );
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
     view.unmount();
     useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
   });

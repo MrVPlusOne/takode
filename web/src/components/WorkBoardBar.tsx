@@ -27,6 +27,7 @@ import {
 } from "./leader-board-summary.js";
 import { LeaderWorkboardControlButton, toggleLeaderWorkboard, WorkBoardIcon } from "./leader-workboard-controls.js";
 import { MainStripSummary } from "./WorkBoardMainStrip.js";
+import { MoveToSideButton } from "./ThreadStrip.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import {
@@ -45,6 +46,7 @@ import {
   QUEUED_THREAD_TITLE_COLOR,
   ThreadNavButton,
   ThreadTabRail,
+  useLeaderThreadChips,
   isSelectedThread,
   type PrimaryThreadChip,
 } from "./WorkBoardThreadTabs.js";
@@ -397,45 +399,18 @@ function PanelViewSwitch({
   );
 }
 
-function WorkBoardBarComponent({
-  sessionId,
-  currentThreadKey = MAIN_THREAD_KEY,
-  onSelectThread,
-  openThreadKeys = [],
-  threadRows = [],
-  hideThreadStrip = false,
-}: {
-  sessionId: string;
-  currentThreadKey?: string;
-  onSelectThread?: (threadKey: string) => void;
-  openThreadKeys?: string[];
-  threadRows?: WorkBoardThreadNavigationRow[];
-  /** Hides Main's strip under the tabs (the phone topic panel covers the thread). */
-  hideThreadStrip?: boolean;
-}) {
-  const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
-  // The Board button goes in the top bar (each conversation in its own box there, which the top bar
-  // shows only while that conversation is on screen).
-  const topBarHelpers = useTopBarSlot("helpers", sessionId);
-  // The Board button's dots, by what they show: an update that changes no dot must not
-  // re-render the bar.
-  const boardDotsKey = useStore((state) => selectLeaderPhaseDotsKey(state, sessionId));
-  const boardDots = useMemo(() => phaseDotsFromKeys(boardDotsKey ? boardDotsKey.split(",") : []), [boardDotsKey]);
+/**
+ * A leader's quest threads as its status row shows them (`ThreadTabRail`), with the state of Main
+ * while something there still waits, from the leader's synchronized tab projection. The status row
+ * and a leader's Home in the side column both read it.
+ */
+export function useLeaderThreadTabs(
+  sessionId: string,
+  openThreadKeys: readonly string[],
+  threadRows: readonly WorkBoardThreadNavigationRow[],
+): { projection: LeaderThreadTabsProjectionValue | null; tabs: PrimaryThreadChip[]; mainState?: PrimaryThreadChip } {
   const leaderTabsResolution = useStore(useShallow((state) => resolveLeaderThreadTabsProjection(state, sessionId)));
   const projection = leaderTabsResolution.projectionState === "accepted" ? leaderTabsResolution.value : null;
-  const activeView = useStore((state) => state.leaderWorkboardViews?.get(sessionId) ?? null);
-  const setLeaderWorkboardView = useStore((state) => state.setLeaderWorkboardView ?? (() => {}));
-  const activeCount = useStore((state) => state.sessionBoards.get(sessionId)?.length ?? 0);
-  const completedCount = useStore((state) => state.sessionCompletedBoards.get(sessionId)?.length ?? 0);
-  const boardKeysSignature = useStore((state) => boardThreadKeySignature(state, sessionId));
-  const boardThreadKeys = useMemo(
-    () => new Set(boardKeysSignature ? boardKeysSignature.split("\u0000") : []),
-    [boardKeysSignature],
-  );
-  const otherThreadCount = useMemo(
-    () => threadRows.filter((row) => !boardThreadKeys.has(normalizeThreadKey(row.threadKey))).length,
-    [boardThreadKeys, threadRows],
-  );
   const requestedQuestIds = useMemo(() => {
     const ids = new Set<string>();
     for (const tab of projection?.tabs ?? []) ids.add(normalizeThreadKey(tab.questId ?? tab.threadKey));
@@ -446,16 +421,6 @@ function WorkBoardBarComponent({
   }, [openThreadKeys, projection]);
   const canonicalTitles = useStore(useShallow((state) => canonicalTitlesForKeys(state, requestedQuestIds)));
   const questTitleById = useMemo(() => new Map(Object.entries(canonicalTitles)), [canonicalTitles]);
-
-  useEffect(() => {
-    if (!activeView) return;
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setLeaderWorkboardView(sessionId, null);
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [activeView, sessionId, setLeaderWorkboardView]);
-
   const otherLeaderNums = useStore(useShallow((state) => otherLeaderSessionNums(state, projection)));
   const leaderSessionNums = useMemo(() => new Map(Object.entries(otherLeaderNums)), [otherLeaderNums]);
   const doneOffBoardSignature = useStore((state) => doneOffBoardQuestSignature(state, projection));
@@ -493,6 +458,82 @@ function WorkBoardBarComponent({
       groupChangedAt: attention.changedAt,
     } satisfies PrimaryThreadChip;
   }, [projection]);
+  return { projection, tabs: displayedThreadTabs, mainState: mainThreadState };
+}
+
+/**
+ * A leader's threads as its Home lists them, for a Home shown without the leader's status row (in
+ * the side column).
+ */
+export function useLeaderHomeThreads(leaderId: string): PrimaryThreadChip[] {
+  const { projection, tabs, mainState } = useLeaderThreadTabs(leaderId, NO_KEYS, NO_ROWS);
+  return useLeaderThreadChips({
+    sessionId: leaderId,
+    tabs,
+    mainState,
+    currentThreadKey: MAIN_THREAD_KEY,
+    threadStatuses: projection?.threadStatuses,
+  });
+}
+
+const NO_KEYS: readonly string[] = [];
+const NO_ROWS: readonly WorkBoardThreadNavigationRow[] = [];
+
+function WorkBoardBarComponent({
+  sessionId,
+  currentThreadKey = MAIN_THREAD_KEY,
+  onSelectThread,
+  openThreadKeys = [],
+  threadRows = [],
+  hideThreadStrip = false,
+  onMoveHomeToSide,
+}: {
+  sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+  openThreadKeys?: string[];
+  threadRows?: WorkBoardThreadNavigationRow[];
+  /** Hides Main's strip under the tabs (the phone topic panel covers the thread). */
+  hideThreadStrip?: boolean;
+  /** Moves the leader's Home, on screen, into the side column (desktop). */
+  onMoveHomeToSide?: () => void;
+}) {
+  const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
+  // The Board button goes in the top bar (each conversation in its own box there, which the top bar
+  // shows only while that conversation is on screen).
+  const topBarHelpers = useTopBarSlot("helpers", sessionId);
+  // The Board button's dots, by what they show: an update that changes no dot must not
+  // re-render the bar.
+  const boardDotsKey = useStore((state) => selectLeaderPhaseDotsKey(state, sessionId));
+  const boardDots = useMemo(() => phaseDotsFromKeys(boardDotsKey ? boardDotsKey.split(",") : []), [boardDotsKey]);
+  const activeView = useStore((state) => state.leaderWorkboardViews?.get(sessionId) ?? null);
+  const setLeaderWorkboardView = useStore((state) => state.setLeaderWorkboardView ?? (() => {}));
+  const activeCount = useStore((state) => state.sessionBoards.get(sessionId)?.length ?? 0);
+  const completedCount = useStore((state) => state.sessionCompletedBoards.get(sessionId)?.length ?? 0);
+  const {
+    projection,
+    tabs: displayedThreadTabs,
+    mainState: mainThreadState,
+  } = useLeaderThreadTabs(sessionId, openThreadKeys, threadRows);
+  const boardKeysSignature = useStore((state) => boardThreadKeySignature(state, sessionId));
+  const boardThreadKeys = useMemo(
+    () => new Set(boardKeysSignature ? boardKeysSignature.split("\u0000") : []),
+    [boardKeysSignature],
+  );
+  const otherThreadCount = useMemo(
+    () => threadRows.filter((row) => !boardThreadKeys.has(normalizeThreadKey(row.threadKey))).length,
+    [boardThreadKeys, threadRows],
+  );
+
+  useEffect(() => {
+    if (!activeView) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLeaderWorkboardView(sessionId, null);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [activeView, sessionId, setLeaderWorkboardView]);
+
   const threadStatuses = projection?.threadStatuses ?? {};
   const showMainBanner =
     isSelectedThread(currentThreadKey, MAIN_THREAD_KEY) || isSelectedThread(currentThreadKey, ALL_THREADS_KEY);
@@ -551,6 +592,9 @@ function WorkBoardBarComponent({
               title="Show leader changes"
               testId="workboard-main-diff-chip"
             />
+            {onMoveHomeToSide && isSelectedThread(currentThreadKey, MAIN_THREAD_KEY) && (
+              <MoveToSideButton onMove={onMoveHomeToSide} />
+            )}
           </span>
         </div>
       )}

@@ -237,6 +237,22 @@ describe("WorkBoardBar panel views", () => {
     expect(queryByTestId("workboard-main-banner")).toBeInTheDocument();
   });
 
+  it("offers to move Home to the side column from its strip, but not the leader log", () => {
+    // Jiayi (Nov 1): a leader's Home moves between the main view and the column, like a chat.
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+    const onMoveHomeToSide = vi.fn();
+    const { getByTestId, queryByTestId, rerender } = render(
+      <WorkBoardBar sessionId="s1" onMoveHomeToSide={onMoveHomeToSide} />,
+    );
+    fireEvent.click(getByTestId("thread-move-to-side"));
+    expect(onMoveHomeToSide).toHaveBeenCalledTimes(1);
+    rerender(<WorkBoardBar sessionId="s1" currentThreadKey="all" onMoveHomeToSide={onMoveHomeToSide} />);
+    expect(queryByTestId("thread-move-to-side")).not.toBeInTheDocument();
+  });
+
   it("keeps selected workboard view visible in place while visiting a quest thread", () => {
     resetStore({
       sdkSessions: [

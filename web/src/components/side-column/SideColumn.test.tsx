@@ -57,6 +57,15 @@ vi.mock("./SideQuest.js", () => ({
 vi.mock("./SideSession.js", () => ({
   SideSession: ({ sessionId }: { sessionId: string }) => <div data-testid="mock-session">{sessionId}</div>,
 }));
+// What a click in a Home does, set by the test.
+const homeClick = vi.hoisted(() => ({ current: () => {} }));
+vi.mock("./SideHome.js", () => ({
+  SideHome: ({ leaderId }: { leaderId: string }) => (
+    <button type="button" data-testid="mock-home" onClick={() => homeClick.current()}>
+      {leaderId}
+    </button>
+  ),
+}));
 vi.mock("./thread-names.js", () => ({
   ThreadOriginName: ({ threadKey }: { threadKey: string }) => <>{`name of ${threadKey}`}</>,
 }));
@@ -286,6 +295,34 @@ describe("SideColumn", () => {
     });
     fireEvent.click(within(rows()[0]!).getByTestId("side-item-close"));
     expect(useSideColumnStore.getState().items).toEqual([]);
+  });
+
+  it("shows a leader's Home, keeps its leader connected, and moves it to the main view", () => {
+    // Jiayi (Nov 1): a leader's Home moves between the main view and the column, like a chat.
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "home", leaderId: "l2" });
+    });
+    expect(within(openBodies()[0]!).getByTestId("mock-home").textContent).toBe("l2");
+    expect(rows()[0]!.textContent).toContain("Home");
+    expect(held.count.get("l2")).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "Open in the main view" }));
+    expect(useSideColumnStore.getState().items).toEqual([]);
+    expect(window.location.hash).toContain("/session/l2");
+    expect(window.location.hash).toContain("thread=main");
+    expect(held.count.get("l2")).toBe(0);
+  });
+
+  it("opens what is clicked in a Home elsewhere, not in the Home's pane", () => {
+    // A Home beside the main view is a switcher: unlike other panes, its clicks don't replace it.
+    // Its rows open in the main view; the open-in-side click on one adds the conversation.
+    homeClick.current = () => openInSide({ kind: "conversation", threadKey: "q-5", leaderId: "l1" });
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "home", leaderId: "l1" });
+    });
+    fireEvent.click(screen.getByTestId("mock-home"));
+    expect(useSideColumnStore.getState().items.map((item) => item.kind)).toEqual(["conversation", "home"]);
   });
 
   it("shows an artifact at its version, and moves it to the Library from its row", () => {

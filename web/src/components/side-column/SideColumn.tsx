@@ -26,7 +26,7 @@ import { loadLeaderNamesOnce, useKnownThreadOfKey, useThreadDestinations } from 
 import { useReadyThreadDestination } from "../../utils/ready-thread-destination.js";
 import { navigateToSession, navigateToSessionThread, openQuestOverlayRouteAware } from "../../utils/routing.js";
 import { resolveNotificationOwnerThreadKey } from "../../utils/notification-thread.js";
-import { normalizeThreadKey } from "../../utils/thread-projection.js";
+import { MAIN_THREAD_KEY, normalizeThreadKey } from "../../utils/thread-projection.js";
 import { isLeaderThreadRunning } from "../../utils/leader-thread-tabs-resolver.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { noteThreadMerged } from "../../utils/thread-viewport.js";
@@ -44,6 +44,7 @@ import { SideChatLeaderMenu, useLeaderCard } from "./SideChatLeaders.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { SideQuest } from "./SideQuest.js";
 import { SideSession } from "./SideSession.js";
+import { SideHome } from "./SideHome.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { BellIcon } from "../AttentionKind.js";
@@ -153,11 +154,13 @@ export function SideColumn({
   // The column's conversations read and send over their leaders' connections, which the main view
   // keeps open only for the session it shows. Held per leader, so a new chat turning into its
   // thread keeps the same connection: dropping it in between loses the live messages of its first turn.
-  // Only open conversations and new threads need theirs: a folded one shows nothing live.
+  // Only open conversations, new threads and Homes need theirs: a folded one shows nothing live.
   const itemLeaders = [
     ...new Set(
       items.flatMap((item) =>
-        (item.kind === "conversation" || item.kind === "new-chat") && isOpen(item.id) ? [item.leaderId] : [],
+        (item.kind === "conversation" || item.kind === "new-chat" || item.kind === "home") && isOpen(item.id)
+          ? [item.leaderId]
+          : [],
       ),
     ),
   ]
@@ -286,7 +289,8 @@ export function SideColumn({
         className="flex min-h-0 flex-1 flex-col"
         data-testid="side-item-body"
         data-item={id}
-        onClickCapture={(event) => notePaneClick(entry?.id ?? null, event)}
+        // A Home is a switcher for the main view: what is clicked there opens there, not in its pane.
+        onClickCapture={(event) => entry?.kind !== "home" && notePaneClick(entry?.id ?? null, event)}
       >
         <SideItemBody mainLeaderId={leaderId} threadKey={threadKey} item={entry} variant={variant} />
       </div>
@@ -445,9 +449,10 @@ function SideItemRow({
       >
         <SideItemIcon leaderId={owner} item={item} group={group} />
         {/* Whose conversation it is (Jiayi, Nov 1): the leader's portrait, as Threads view rows show. */}
-        {(item?.kind === "conversation" || item?.kind === "new-chat" || item?.kind === "quest") && (
-          <LeaderIcon leaderId={owner} />
-        )}
+        {(item?.kind === "conversation" ||
+          item?.kind === "new-chat" ||
+          item?.kind === "quest" ||
+          item?.kind === "home") && <LeaderIcon leaderId={owner} />}
         <span className={`min-w-0 truncate ${open ? "text-cc-fg" : "text-cc-fg/80"}`}>
           <SideItemTitle leaderId={owner} item={item} />
         </span>
@@ -497,11 +502,20 @@ function ItemActions({ item }: { item: SideItem | null }) {
         }
       : item.kind === "session"
         ? { label: "Open in the main view", go: () => navigateToSession(item.sessionId) }
-        : item.kind === "quest"
-          ? { label: "Open the quest", go: () => openQuestOverlayRouteAware(item.questId) }
-          : item.kind === "artifact"
-            ? { label: "Open in the Library", go: () => openLibraryArtifact(item.artifactId, item.version) }
-            : null;
+        : item.kind === "home"
+          ? {
+              label: "Open in the main view",
+              // Main named outright: a bare leader address restores the thread viewed last, not Home.
+              go: () =>
+                navigateToSessionThread(item.leaderId, MAIN_THREAD_KEY, false, item.leaderId, {
+                  preserveMainThreadRoute: true,
+                }),
+            }
+          : item.kind === "quest"
+            ? { label: "Open the quest", go: () => openQuestOverlayRouteAware(item.questId) }
+            : item.kind === "artifact"
+              ? { label: "Open in the Library", go: () => openLibraryArtifact(item.artifactId, item.version) }
+              : null;
   return (
     <span className="flex shrink-0 items-center">
       {moveOut && (
@@ -573,6 +587,8 @@ function SideItemBody({
       return <SideQuest questId={item.questId} />;
     case "session":
       return <SideSession sessionId={item.sessionId} />;
+    case "home":
+      return <SideHome leaderId={item.leaderId} />;
   }
 }
 
@@ -600,7 +616,14 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
       return <SideQuestTitle questId={item.questId} />;
     case "session":
       return <SideSessionTitle sessionId={item.sessionId} />;
+    case "home":
+      return <HomeTitle leaderId={item.leaderId} />;
   }
+}
+
+function HomeTitle({ leaderId }: { leaderId: string }) {
+  const leader = useLeaderCard(leaderId);
+  return <>Home{leader?.name ? ` · ${leader.name}` : ""}</>;
 }
 
 function NewChatWithTitle({ leaderId }: { leaderId: string }) {
@@ -659,6 +682,7 @@ function SideItemIcon({
   if (!item || item.kind === "topic") return <TopicIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "artifact") return <LibraryIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "session") return <SessionIcon className={`${className} text-cc-muted`} />;
+  if (item.kind === "home") return <HomeIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "new-chat" || (thread && group === "idle"))
     return <NewThreadIcon className={`${className} text-cc-primary`} />;
   if (isTopicViewKey(key) && !thread) return <TopicIcon className={`${className} text-cc-primary`} />;
@@ -693,6 +717,21 @@ function useOpenIn(leaderId: string, threadKey: string | null, category: "review
             resolveNotificationOwnerThreadKey(notification) === normalizeThreadKey(threadKey),
         ).length
       : 0,
+  );
+}
+
+function HomeIcon({ className }: { className: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M2.5 7.25 8 2.75l5.5 4.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M4 6.25v6.75h8V6.25" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
   );
 }
 

@@ -157,43 +157,28 @@ function cachedQuestForId(questId: string | undefined): QuestmasterTask | undefi
 }
 
 /**
- * The leader's threads as the status row. Tab titles take the done color once a hydrated
- * Questmaster record says the quest finished, unless a Thread Waiting status says work continues
- * there. Besides its quest threads (`tabs`), the row holds the leader's other threads, the leader
- * log while something from Main still waits there, and questions other sessions ask about its
- * quests (which open the question).
+ * The leader's threads as its status row and Home list them. Tab titles take the done color once
+ * a hydrated Questmaster record says the quest finished, unless a Thread Waiting status says work
+ * continues there. Besides its quest threads (`tabs`), they are the leader's other threads, the
+ * leader log while something from Main still waits there, and questions other sessions ask about
+ * its quests (which open the question).
  */
-export function ThreadTabRail({
-  mainState,
-  tabs,
+export function useLeaderThreadChips({
   sessionId,
+  tabs,
+  mainState,
   currentThreadKey,
-  onSelectThread,
   threadStatuses,
-  board,
 }: {
-  /** The top bar's Board button: where it goes, its dots, and the board's state. */
-  board: { helpers: HTMLElement | null; dots: readonly BoardPhaseDot[]; open: boolean; onToggle: () => void };
-  mainState?: PrimaryThreadChip;
-  tabs: PrimaryThreadChip[];
   sessionId: string;
+  tabs: readonly PrimaryThreadChip[];
+  mainState?: PrimaryThreadChip;
   currentThreadKey: string;
-  onSelectThread?: (threadKey: string) => void;
   threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
-}) {
-  const openThread = (threadKey: string) => {
-    const target = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
-    const selected = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
-    if (onSelectThread && (selected === ALL_THREADS_KEY || selected !== target)) onSelectThread(target);
-  };
-  const desktop = useDesktopShellLayout();
+}): PrimaryThreadChip[] {
   const sessionStatus = useStore((state) => state.sessionStatus.get(sessionId));
-  const monitors = useStore(
-    (state) => getSyncedProjectionValue(state, THREAD_MONITORING_PROJECTION, sessionId)?.threads,
-  );
   const activeTurnRoute = useStore((state) => state.activeTurnRoutes.get(sessionId));
   const runningRoute = sessionStatus === "running" ? activeTurnRoute : null;
-  const [tabMenu, setTabMenu] = useState<{ threadKey: string; x: number; y: number } | null>(null);
   // Cancelled quests leave the row (and Home, which lists the same members).
   const cancelled = useCancelledQuestIds(tabs.map((tab) => tab.questId));
   const displayedTabs = tabs
@@ -202,45 +187,6 @@ export function ThreadTabRail({
       const titleColor = displayThreadTabTitleColor(tab, cachedQuestForId(tab.questId), threadStatuses);
       return titleColor === tab.titleColor ? tab : { ...tab, titleColor };
     });
-
-  // Only actions that apply to a thread are offered: Notify Me for a quest, then opening it beside,
-  // its worker, a reminder and a link. The leader log and a question from another session (which
-  // opens the question) get none.
-  const tabMenuItems = (tab: PrimaryThreadChip): ContextMenuItem[] => {
-    const threadKey = normalizeThreadKey(tab.threadKey);
-    if (tab.onOpen || threadKey === ALL_THREADS_KEY) return [];
-    const items: ContextMenuItem[] = [];
-    // Notify Me tracks quest threads only, and its current state comes from the server projection.
-    if (monitors && /^q-\d+$/.test(threadKey)) {
-      const monitor = monitors[threadKey];
-      const pendingResultId = monitor?.pendingResultId ?? undefined;
-      const action = !monitor ? "track" : pendingResultId ? "acknowledge" : "untrack";
-      items.push({
-        label: {
-          track: "Notify Me",
-          untrack: "Turn off Notify Me",
-          acknowledge: "Acknowledge result",
-        }[action],
-        onClick: () => {
-          updateThreadMonitoring(sessionId, threadKey, action, pendingResultId).catch((error) =>
-            console.error("[thread-tabs] Notify Me update failed:", error),
-          );
-        },
-      });
-    }
-    const boardRow = useStore
-      .getState()
-      .sessionBoards.get(sessionId)
-      ?.find((row) => row.questId === threadKey);
-    items.push(
-      ...threadMenuItems({
-        leaderId: sessionId,
-        threadKey,
-        ...(boardRow?.worker ? { workerId: boardRow.worker, workerNum: boardRow.workerNum } : {}),
-      }),
-    );
-    return items;
-  };
   const currentKey = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
   // The leader's other threads. Asked again when an answer in a thread arrives or is read: the
@@ -301,6 +247,81 @@ export function ThreadTabRail({
     }
     return members;
   }, [displayedTabs, plainThreads, notifications, mainState, questions, runningKey, writingKey]);
+  return threads;
+}
+
+/** The leader's threads as the status row (`useLeaderThreadChips`), which Home lists too. */
+export function ThreadTabRail({
+  mainState,
+  tabs,
+  sessionId,
+  currentThreadKey,
+  onSelectThread,
+  threadStatuses,
+  board,
+}: {
+  /** The top bar's Board button: where it goes, its dots, and the board's state. */
+  board: { helpers: HTMLElement | null; dots: readonly BoardPhaseDot[]; open: boolean; onToggle: () => void };
+  mainState?: PrimaryThreadChip;
+  tabs: PrimaryThreadChip[];
+  sessionId: string;
+  currentThreadKey: string;
+  onSelectThread?: (threadKey: string) => void;
+  threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
+}) {
+  const openThread = (threadKey: string) => {
+    const target = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
+    const selected = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
+    if (onSelectThread && (selected === ALL_THREADS_KEY || selected !== target)) onSelectThread(target);
+  };
+  const desktop = useDesktopShellLayout();
+  const sessionStatus = useStore((state) => state.sessionStatus.get(sessionId));
+  const monitors = useStore(
+    (state) => getSyncedProjectionValue(state, THREAD_MONITORING_PROJECTION, sessionId)?.threads,
+  );
+  const activeTurnRoute = useStore((state) => state.activeTurnRoutes.get(sessionId));
+  const runningRoute = sessionStatus === "running" ? activeTurnRoute : null;
+  const [tabMenu, setTabMenu] = useState<{ threadKey: string; x: number; y: number } | null>(null);
+
+  // Only actions that apply to a thread are offered: Notify Me for a quest, then opening it beside,
+  // its worker, a reminder and a link. The leader log and a question from another session (which
+  // opens the question) get none.
+  const tabMenuItems = (tab: PrimaryThreadChip): ContextMenuItem[] => {
+    const threadKey = normalizeThreadKey(tab.threadKey);
+    if (tab.onOpen || threadKey === ALL_THREADS_KEY) return [];
+    const items: ContextMenuItem[] = [];
+    // Notify Me tracks quest threads only, and its current state comes from the server projection.
+    if (monitors && /^q-\d+$/.test(threadKey)) {
+      const monitor = monitors[threadKey];
+      const pendingResultId = monitor?.pendingResultId ?? undefined;
+      const action = !monitor ? "track" : pendingResultId ? "acknowledge" : "untrack";
+      items.push({
+        label: {
+          track: "Notify Me",
+          untrack: "Turn off Notify Me",
+          acknowledge: "Acknowledge result",
+        }[action],
+        onClick: () => {
+          updateThreadMonitoring(sessionId, threadKey, action, pendingResultId).catch((error) =>
+            console.error("[thread-tabs] Notify Me update failed:", error),
+          );
+        },
+      });
+    }
+    const boardRow = useStore
+      .getState()
+      .sessionBoards.get(sessionId)
+      ?.find((row) => row.questId === threadKey);
+    items.push(
+      ...threadMenuItems({
+        leaderId: sessionId,
+        threadKey,
+        ...(boardRow?.worker ? { workerId: boardRow.worker, workerNum: boardRow.workerNum } : {}),
+      }),
+    );
+    return items;
+  };
+  const threads = useLeaderThreadChips({ sessionId, tabs, mainState, currentThreadKey, threadStatuses });
   // Home lists the same threads at full width.
   useEffect(() => {
     useLeaderThreadMembers.setState((state) => ({ byLeader: { ...state.byLeader, [sessionId]: threads } }));

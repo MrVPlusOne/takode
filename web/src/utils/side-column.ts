@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { setTopicPanelOpen, setTopicSheetOpen } from "./topic-panel.js";
 import { readDisplayedLeaderThreadKey } from "./thread-viewport.js";
+import { ALL_THREADS_KEY } from "./thread-projection.js";
 import { useStore } from "../store.js";
 import { platformIsMac } from "../shortcuts.js";
 import type { OpenInSideModifier } from "../../shared/shortcut-settings.js";
@@ -40,7 +41,12 @@ export type SideItem =
   /** A quest's details (what a click on a quest link shows), of any leader. */
   | { id: string; kind: "quest"; questId: string }
   /** Another session's conversation (what a click on a session link opens), such as a worker's. */
-  | { id: string; kind: "session"; sessionId: string };
+  | { id: string; kind: "session"; sessionId: string }
+  /**
+   * A leader's Home: its threads, where its Main conversation was. Beside the main view it is a
+   * switcher: what is clicked there opens in the main view.
+   */
+  | { id: string; kind: "home"; leaderId: string };
 
 export type SideItemInput = SideItem extends infer Item ? (Item extends SideItem ? Omit<Item, "id"> : never) : never;
 
@@ -75,7 +81,7 @@ function stored(): SideColumnState {
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as SideColumnState;
-      return { ...parsed, items: Array.isArray(parsed.items) ? parsed.items : [] };
+      return { ...parsed, items: Array.isArray(parsed.items) ? parsed.items.map(asSideTarget) : [] };
     } catch (error) {
       console.warn("[side-column] Ignoring unreadable side column state:", error);
       return { items: [] };
@@ -131,9 +137,11 @@ function update(change: (column: SideColumnState) => SideColumnState): void {
   setLocalStorageItem(STORAGE_KEY, JSON.stringify(next));
 }
 
-/** The leader an item belongs to: a conversation's, a thread being started's or a topic's; none for others. */
+/** The leader an item belongs to: a conversation's, a thread being started's, a topic's or a Home's; none for others. */
 export function sideItemLeader(item: SideItemInput): string | null {
-  return item.kind === "conversation" || item.kind === "new-chat" || item.kind === "topic" ? item.leaderId : null;
+  return item.kind === "conversation" || item.kind === "new-chat" || item.kind === "topic" || item.kind === "home"
+    ? item.leaderId
+    : null;
 }
 
 function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
@@ -154,7 +162,16 @@ function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
       return a.questId.toLowerCase() === (b as typeof a).questId.toLowerCase();
     case "session":
       return a.sessionId === (b as typeof a).sessionId;
+    case "home":
+      return a.leaderId === (b as typeof a).leaderId;
   }
+}
+
+/** A leader's Main is its Home: opening it in the column opens the Home. */
+function asSideTarget<Item extends SideItem | SideItemInput>(input: Item): Item {
+  if (input.kind !== "conversation" || input.threadKey.toLowerCase() !== "main") return input;
+  const { threadKey: _main, ...rest } = input;
+  return { ...rest, kind: "home" } as unknown as Item;
 }
 
 /** The remembered fold of an item of the column, or of the topic page it follows (HOME_ITEM). */
@@ -217,7 +234,8 @@ function focusSideItem(id: string): void {
  * Puts something in the side column, or brings it back to the top if it is there already, unfolds
  * it, scrolls the column to it and shows the column (on phones, its sheet).
  */
-export function openInSide(input: SideItemInput): string {
+export function openInSide(opened: SideItemInput): string {
+  const input = asSideTarget(opened);
   // A link clicked in one of the column's panes opens in that pane, in place of what it showed.
   const pane = paneClick?.itemId ?? null;
   if (pane && useSideColumnStore.getState().items.some((item) => item.id === pane)) {
@@ -261,7 +279,8 @@ export function closeSideItem(id: string): void {
  * Turns an item into another in place, such as a new thread into its conversation once it started.
  * Another item showing the same thing goes, so the column never holds it twice.
  */
-export function replaceSideItem(id: string, input: SideItemInput): void {
+export function replaceSideItem(id: string, replacement: SideItemInput): void {
+  const input = asSideTarget(replacement);
   update((column) => {
     const twin = column.items.find((item) => item.id !== id && sameTarget(item, input));
     return {
@@ -312,11 +331,21 @@ export const useMainViewStore = create<{ sessionId: string | null; threadKey: st
 /** The main view shows this session's thread; returns the cleanup for when it no longer does. */
 export function showMainView(sessionId: string, threadKey: string | null): () => void {
   useMainViewStore.setState({ sessionId, threadKey });
+  const key = threadKey?.toLowerCase();
+  if (key && key !== "main" && key !== ALL_THREADS_KEY) lastThreadShown.set(sessionId, key);
   return () => {
     const now = useMainViewStore.getState();
     if (now.sessionId === sessionId && now.threadKey === threadKey)
       useMainViewStore.setState({ sessionId: null, threadKey: null });
   };
+}
+
+/** The thread each leader's main view showed last, other than its Home and its log. */
+const lastThreadShown = new Map<string, string>();
+
+/** The thread a leader's main view showed last, other than its Home and its log (this page load). */
+export function lastThreadShownOf(leaderId: string): string | null {
+  return lastThreadShown.get(leaderId) ?? null;
 }
 
 /** The leader of a session: itself when a leader, else the leader that herds it; null for neither. */
@@ -481,14 +510,12 @@ export function openQuestInSide(questId: string): boolean {
 }
 
 /**
- * Opens a session's conversation in the side column; false when there is none on screen. The
- * leader in the main view opens as its Main thread.
+ * Opens a session's conversation in the side column; false when there is none on screen. A
+ * leader opens as its Home.
  */
 export function openSessionInSide(sessionId: string): boolean {
-  const onScreen = useMainViewStore.getState().sessionId === sessionId && mainViewLeader() === sessionId;
-  return openInSideOnScreen(
-    onScreen ? { kind: "conversation", threadKey: "main", leaderId: sessionId } : { kind: "session", sessionId },
-  );
+  const leader = leaderOfSession(sessionId) === sessionId;
+  return openInSideOnScreen(leader ? { kind: "home", leaderId: sessionId } : { kind: "session", sessionId });
 }
 
 /** Whether something can open in the side column now: a conversation is on screen. */

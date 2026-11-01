@@ -6,6 +6,7 @@ import {
   HOME_ITEM,
   handleOpenInSideClick,
   isOpenInSideClick,
+  lastThreadShownOf,
   mergeLeaderColumns,
   newSideChat,
   notePaneClick,
@@ -98,6 +99,34 @@ describe("side column items", () => {
       threadKey: "topic:aaaa0002",
       leaderId: "l1",
     });
+  });
+});
+
+describe("a leader's Home in the side column", () => {
+  it("opens a leader's Main as its Home, once per leader, and leaves its log a conversation", () => {
+    // Jiayi (Nov 1): a leader's Home moves between the main view and the column, like a chat.
+    const home = openInSide({ kind: "conversation", threadKey: "Main", leaderId: "l1" });
+    expect(items()).toEqual([{ id: home, kind: "home", leaderId: "l1" }]);
+    expect(openInSide({ kind: "home", leaderId: "l1" })).toBe(home);
+    openInSide({ kind: "conversation", threadKey: "all", leaderId: "l1" });
+    expect(keys()).toEqual(["all", "home"]);
+  });
+
+  it("turns a saved Main conversation into its leader's Home", async () => {
+    localStorage.setItem(
+      "cc-side-column",
+      JSON.stringify({ items: [{ id: "a", kind: "conversation", threadKey: "main", leaderId: "l1" }] }),
+    );
+    vi.resetModules();
+    const fresh = await import("./side-column.js");
+    expect(fresh.useSideColumnStore.getState().items).toEqual([{ id: "a", kind: "home", leaderId: "l1" }]);
+  });
+
+  it("remembers the thread each leader's main view showed last, other than Home and its log", () => {
+    // Moving Home to the column sends the main view back there.
+    for (const key of ["q-1", "main", "all"]) showMainView("l1", key)();
+    expect(lastThreadShownOf("l1")).toBe("q-1");
+    expect(lastThreadShownOf("l2")).toBeNull();
   });
 });
 
@@ -308,17 +337,21 @@ describe("opening in the side", () => {
   it("opens a quest's details or a session's conversation in the side column", () => {
     expect(openQuestInSide("Q-5")).toBe(false);
     useStore.setState({
-      sdkSessions: [{ sessionId: "l1", isOrchestrator: true, state: "connected", cwd: "/", createdAt: 1 }],
+      sdkSessions: [
+        { sessionId: "l1", isOrchestrator: true, state: "connected", cwd: "/", createdAt: 1 },
+        { sessionId: "l2", isOrchestrator: true, state: "connected", cwd: "/", createdAt: 1 },
+      ],
     } as never);
     const shown = showMainView("l1", "main");
     try {
       expect(openQuestInSide("Q-5")).toBe(true);
       expect(openSessionInSide("worker-9")).toBe(true);
-      // The leader on screen itself opens as its Main thread.
+      // A leader opens as its Home, the one on screen or another (Jiayi, Nov 1: Shift-click a leader).
       expect(openSessionInSide("l1")).toBe(true);
-      expect(items().map((item) => item.kind)).toEqual(["conversation", "session", "quest"]);
-      expect(items()[0]).toEqual(expect.objectContaining({ threadKey: "main", leaderId: "l1" }));
-      expect(items()[2]).toEqual(expect.objectContaining({ questId: "q-5" }));
+      expect(openSessionInSide("l2")).toBe(true);
+      expect(items().map((item) => item.kind)).toEqual(["home", "home", "session", "quest"]);
+      expect(items().map((item) => (item.kind === "home" ? item.leaderId : null))).toEqual(["l2", "l1", null, null]);
+      expect(items()[3]).toEqual(expect.objectContaining({ questId: "q-5" }));
     } finally {
       shown();
     }
