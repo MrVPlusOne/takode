@@ -4,6 +4,11 @@ export interface VoiceAudioBridge {
   analyser: AnalyserNode;
   ready: Promise<boolean>;
   setInput: (stream: MediaStream) => Promise<void>;
+  /**
+   * Suspends and resumes the context; true when it runs again. WebKit can leave a context
+   * "running" with its clock stopped, which this sometimes restarts (WebKit bug 276687).
+   */
+  reawaken: () => Promise<boolean>;
   close: () => void;
 }
 
@@ -25,7 +30,7 @@ export function canRecordThroughVoiceAudioBridge(userAgent = navigator.userAgent
  * Prepares a continuous recorder input during the recording click. Swapping sources leaves
  * MediaRecorder's track set and encoded file intact. Unsupported or blocked Web Audio lets
  * the caller keep direct capture and apply microphone picks to the next recording instead.
- * A direct recording uses a bridge created once capture is open only for its level meter.
+ * A direct recording (WebKit) uses a bridge only for its level meter.
  */
 export function createVoiceAudioBridge(): VoiceAudioBridge | null {
   let context: AudioContext | undefined;
@@ -74,6 +79,11 @@ export function createVoiceAudioBridge(): VoiceAudioBridge | null {
         source = next;
         gain = nextGain;
         pending = null;
+      },
+      async reawaken() {
+        if (closed) return false;
+        await ctx.suspend();
+        return closed ? false : waitForAudioContext(ctx, ctx.resume());
       },
       close() {
         if (closed) return;

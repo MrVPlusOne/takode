@@ -404,46 +404,76 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   }, []);
 
   /**
-   * Meters a recording made straight from the microphone track. Its audio context starts only
-   * now, with capture open, so it runs at the audio route the microphone chose (see
-   * canRecordThroughVoiceAudioBridge). The recording never waits for it.
+   * Meters a recording made straight from the microphone track (WebKit). The recording never waits
+   * for the meter.
    *
-   * WebKit can stop that context without stopping the recording: an interruption (a notification
-   * sound, Siri) briefly mutes the microphone and leaves the context suspended or interrupted, and a
-   * route change after it started leaves it running slower than real time. Either way the meter shows
-   * near-silence while the recording is fine. So the meter is checked about once a second, and after
-   * the microphone unmutes, and restarted on a fresh context, which picks up the current route.
+   * WebKit can leave the meter's context unable to show the voice while the recording is fine: an
+   * interruption (a notification sound, Siri) briefly mutes the microphone and leaves the context
+   * suspended or interrupted; a route change after it started (AirPods) leaves it running slower
+   * than real time; and a context can report "running" with its clock stopped, so the meter stays
+   * flat. The first meter is the context the record tap created (`tapMeter`): on iPhones a context
+   * started later, outside the tap, came up with a stopped clock again and again, and the meter
+   * stayed flat for whole recordings. The meter is checked about once a second, and after the
+   * microphone unmutes; a meter that stopped or runs slow is first suspended and resumed, then, if
+   * that did not help, replaced by a fresh context, which picks up the current route. What was done
+   * is saved as `meterRestarts`, such as "clock 0.00 → resume".
    */
   const meterDirectRecording = useCallback(
-    (stream: MediaStream) => {
+    (stream: MediaStream, tapMeter: VoiceAudioBridge | null) => {
       let restarts = 0;
       let lastClock: { contextTime: number; wallTime: number } | null = null;
-      const start = () => {
-        const meter = createVoiceAudioBridge();
+      /** The meter already suspended and resumed once; it is replaced the next time it fails. */
+      let woken: VoiceAudioBridge | null = null;
+      /** A suspend and resume is under way; checks wait for it. */
+      let waking = false;
+      const start = (existing: VoiceAudioBridge | null = null) => {
+        const meter = existing ?? createVoiceAudioBridge();
         audioBridgeRef.current = meter;
         lastClock = null;
         if (!meter) return;
         void meter.ready
           .then(async (ready) => {
-            if (!ready || audioBridgeRef.current !== meter) return;
+            if (audioBridgeRef.current !== meter) return;
+            if (!ready) {
+              // A tap's context that could not start is replaced once by one started now.
+              if (existing) {
+                meter.close();
+                start();
+              }
+              return;
+            }
             await meter.setInput(stream);
             if (audioBridgeRef.current === meter) startVolumeMonitor(meter.analyser);
           })
           .catch((error) => console.warn("Could not start the microphone level meter", error));
       };
       const restart = (reason: string) => {
-        if (restarts >= MAX_METER_RESTARTS || streamRef.current !== stream) return;
+        if (waking || restarts >= MAX_METER_RESTARTS || streamRef.current !== stream) return;
         restarts += 1;
+        const meter = audioBridgeRef.current;
+        const wake = !!meter && meter !== woken;
         const timing = recordingTimingRef.current;
-        if (timing) timing.meterRestarts = [...(timing.meterRestarts ?? []), reason];
+        if (timing) timing.meterRestarts = [...(timing.meterRestarts ?? []), `${reason} → ${wake ? "resume" : "new"}`];
+        lastClock = null;
+        if (meter && wake) {
+          woken = meter;
+          waking = true;
+          void meter
+            .reawaken()
+            .catch((error) => console.warn("Could not resume the microphone level meter", error))
+            .finally(() => {
+              waking = false;
+            });
+          return;
+        }
         if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
         animFrameRef.current = 0;
-        audioBridgeRef.current?.close();
+        meter?.close();
         start();
       };
       const check = () => {
         const context = audioBridgeRef.current?.analyser.context;
-        if (!context || !analyserRef.current) return;
+        if (waking || !context || !analyserRef.current) return;
         if (context.state !== "running") return restart(`context ${context.state}`);
         const now = { contextTime: context.currentTime, wallTime: performance.now() };
         const previous = lastClock;
@@ -452,7 +482,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         const rate = (now.contextTime - previous.contextTime) / ((now.wallTime - previous.wallTime) / 1000);
         if (rate < METER_MIN_CLOCK_RATE) restart(`clock ${rate.toFixed(2)}`);
       };
-      start();
+      start(tapMeter);
       meterCheckTimerRef.current = setInterval(check, METER_CHECK_MS);
       meterRestartRef.current = restart;
     },
@@ -658,10 +688,13 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       // after the microphone, which must be the tap's first request (see requestVoiceCaptureStream),
       // but before awaiting it: WebKit grants the first wake lock only while the tap is recent.
       releaseScreenWakeLockRef.current ??= holdScreenWakeLock();
-      const bridge = canRecordThroughVoiceAudioBridge() ? createVoiceAudioBridge() : null;
+      // Started in the tap on every browser. WebKit records the mic directly and uses it only for
+      // the level meter (see meterDirectRecording), so it does not wait for it.
+      const recordsThroughBridge = canRecordThroughVoiceAudioBridge();
+      const bridge = createVoiceAudioBridge();
       audioBridgeRef.current = bridge;
       const stream = await streamRequest;
-      const bridgeReady = bridge ? await bridge.ready : false;
+      const bridgeReady = bridge && recordsThroughBridge ? await bridge.ready : false;
       if (generation !== captureGenerationRef.current) {
         stream.getTracks().forEach((track) => track.stop());
         bridge?.close();
@@ -676,7 +709,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
           console.warn("Live microphone switching is unavailable; using direct capture", error);
         }
       }
-      if (!routed) {
+      if (!routed && recordsThroughBridge) {
         bridge?.close();
         audioBridgeRef.current = null;
       }
@@ -697,9 +730,9 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       attachTrackListeners(stream);
 
       // Start volume metering
-      const recorderInput = audioBridgeRef.current?.stream ?? stream;
-      if (audioBridgeRef.current) startVolumeMonitor(audioBridgeRef.current.analyser);
-      else meterDirectRecording(stream);
+      const recorderInput = routed && bridge ? bridge.stream : stream;
+      if (routed && bridge) startVolumeMonitor(bridge.analyser);
+      else meterDirectRecording(stream, recordsThroughBridge ? null : bridge);
 
       const recorderOptions = resolveVoiceRecorderOptions();
       const recorder = new MediaRecorder(recorderInput, recorderOptions);

@@ -130,7 +130,12 @@ class MockAudioContext {
       }),
     };
   }
+  suspend() {
+    this.state = "suspended";
+    return Promise.resolve();
+  }
   resume() {
+    this.state = "running";
     return Promise.resolve();
   }
   close() {
@@ -1375,13 +1380,14 @@ it("releases a microphone granted after preparing was cancelled", async () => {
 describe("useVoiceInput — WebKit records the microphone track directly", () => {
   // WebKit's Web Audio keeps the output rate it started with. With AirPods worn, opening a mic moves
   // the iPhone to the headset's call route, and recordings routed through Web Audio came out at about
-  // a third of real time and near-silent, whichever mic was chosen. So WebKit records the mic track
-  // and starts the level meter's audio context only after capture has opened.
+  // a third of real time and near-silent, whichever mic was chosen. So WebKit records the mic track;
+  // Web Audio only meters it, on a context the record tap starts (one started later, outside the
+  // tap, often came up on iPhones with its clock stopped, leaving the meter flat).
   beforeEach(() => {
     Object.defineProperty(navigator, "userAgent", { configurable: true, value: IPHONE_SAFARI_USER_AGENT });
   });
 
-  it("records the mic track and meters it with an audio context started after capture opened", async () => {
+  it("records the mic track and meters it with an audio context the record tap started", async () => {
     const order: string[] = [];
     vi.stubGlobal(
       "AudioContext",
@@ -1408,7 +1414,8 @@ describe("useVoiceInput — WebKit records the microphone track directly", () =>
     act(() => {
       result.current.startRecording();
     });
-    expect(order).toEqual(["microphone"]);
+    // The microphone stays the tap's first request; the meter's context starts in the same tap.
+    expect(order).toEqual(["microphone", "audio-context"]);
 
     await act(async () => grant(mic));
     expect(order).toEqual(["microphone", "audio-context"]);
@@ -1419,11 +1426,45 @@ describe("useVoiceInput — WebKit records the microphone track directly", () =>
     expect(result.current.volumeLevel).toBeGreaterThan(0);
   });
 
+  it("meters on a context started after capture when the tap's context cannot start", async () => {
+    // Some autoplay-blocked contexts never finish resuming; the meter then starts a context of its
+    // own once capture is open, as before, rather than staying flat.
+    const contexts: MockAudioContext[] = [];
+    vi.stubGlobal(
+      "AudioContext",
+      class extends MockAudioContext {
+        constructor() {
+          super();
+          this.state = contexts.length === 0 ? "suspended" : "running";
+          contexts.push(this);
+        }
+        resume(): Promise<void> {
+          return contexts[0] === this ? new Promise<void>(() => {}) : super.resume();
+        }
+      },
+    );
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => frames.push(callback));
+    MockAudioContext.sampleAmplitude = 32;
+    const { result } = renderHook(() => useVoiceInput());
+    await act(async () => {
+      result.current.startRecording();
+    });
+    expect(contexts).toHaveLength(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(contexts).toHaveLength(2);
+    act(() => frames.shift()?.(0));
+    expect(result.current.volumeLevel).toBeGreaterThan(0);
+  });
+
   describe("keeps the level meter live while the recording runs", () => {
     // The meter's own audio context can stop while the recording itself is fine: an interruption
-    // (a notification sound) mutes the mic briefly and leaves WebKit's context interrupted, or a
-    // route change leaves it running slower than real time. The meter then showed near-silence.
-    // It is checked about once a second and restarted on a fresh context.
+    // (a notification sound) mutes the mic briefly and leaves WebKit's context interrupted, a route
+    // change leaves it running slower than real time, or it reports "running" with its clock
+    // stopped. The meter then showed near-silence. It is checked about once a second, suspended
+    // and resumed first, and replaced by a fresh context if that did not help.
     let contexts: Array<MockAudioContext & { currentTime: number }>;
     let wallTime: number;
 
@@ -1465,9 +1506,14 @@ describe("useVoiceInput — WebKit records the microphone track directly", () =>
       });
     }
 
-    it("restarts the meter on a fresh context when WebKit leaves its context interrupted", async () => {
+    it("resumes the meter's context when WebKit leaves it interrupted, and replaces it if that fails", async () => {
       const { recorder } = await startRecording();
       await tick();
+      contexts[0]!.state = "interrupted";
+      await tick();
+      // Suspended and resumed: running again, no new context.
+      expect(contexts).toHaveLength(1);
+      expect(contexts[0]!.state).toBe("running");
       contexts[0]!.state = "interrupted";
       await tick();
       expect(contexts).toHaveLength(2);
@@ -1475,10 +1521,36 @@ describe("useVoiceInput — WebKit records the microphone track directly", () =>
       expect(recorder?.state).toBe("recording");
     });
 
+    it("resumes, then replaces, a meter whose clock stopped while it reports running", async () => {
+      // Jiayi's iPhone (Nov 1): the meter's contexts said "running" with currentTime stuck at 0,
+      // and the meter stayed flat for whole recordings.
+      const onAudioReady = vi.fn();
+      const { result } = await startRecording(undefined, onAudioReady);
+      await tick(0);
+      await tick(0);
+      expect(contexts).toHaveLength(1);
+      await tick(0);
+      await tick(0);
+      expect(contexts).toHaveLength(2);
+      await tick(1);
+      await tick(1);
+      expect(contexts).toHaveLength(2);
+      await act(async () => {
+        result.current.stopRecording();
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect(onAudioReady.mock.calls[0][1]).toEqual(
+        expect.objectContaining({ meterRestarts: "clock 0.00 → resume, clock 0.00 → new" }),
+      );
+    });
+
     it("restarts the meter when its context runs slower than real time", async () => {
       await startRecording();
       await tick(1);
       await tick(1);
+      expect(contexts).toHaveLength(1);
+      await tick(0.35);
+      await tick(0.35);
       expect(contexts).toHaveLength(1);
       await tick(0.35);
       expect(contexts).toHaveLength(2);
@@ -1492,13 +1564,13 @@ describe("useVoiceInput — WebKit records the microphone track directly", () =>
         track.emit("mute");
         track.emit("unmute");
       });
-      expect(contexts).toHaveLength(2);
+      expect(contexts).toHaveLength(1);
 
       await act(async () => {
         result.current.stopRecording();
         await vi.advanceTimersByTimeAsync(300);
       });
-      expect(onAudioReady.mock.calls[0][1]).toEqual(expect.objectContaining({ meterRestarts: "unmute" }));
+      expect(onAudioReady.mock.calls[0][1]).toEqual(expect.objectContaining({ meterRestarts: "unmute → resume" }));
     });
 
     it("stops restarting after a few attempts when a context never runs", async () => {
@@ -1507,7 +1579,8 @@ describe("useVoiceInput — WebKit records the microphone track directly", () =>
         contexts.at(-1)!.state = "suspended";
         await tick();
       }
-      expect(contexts).toHaveLength(6);
+      // Five attempts: resume, new, resume, new, resume.
+      expect(contexts).toHaveLength(3);
     });
   });
 
