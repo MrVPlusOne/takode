@@ -47,8 +47,12 @@ const GROUP_LABEL: Record<ThreadGroupId, string> = {
   "in-progress": "In progress",
 };
 
-/** Wide screens (the desktop shell) label each group and anchor its list under its tab. */
-const WIDE_LAYOUT_QUERY = "(min-width: 768px)";
+/**
+ * A bar this wide labels each group and anchors its list under its tab; a narrower one (a phone, or
+ * the main view beside the side column) shares its width evenly with counts only. The bar's own
+ * width decides, not the screen's: the side column takes room from it (`@2xl` = 42rem).
+ */
+const WIDE_BAR_PX = 672;
 const WIDE_LIST_WIDTH_PX = 448;
 
 /**
@@ -201,7 +205,7 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
   // On wide screens a group's list opens under its own tab instead of spanning the bar.
   useLayoutEffect(() => {
     const bar = barRef.current;
-    if (!openGroup || !bar || !window.matchMedia(WIDE_LAYOUT_QUERY).matches) {
+    if (!openGroup || !bar || bar.clientWidth < WIDE_BAR_PX) {
       setListLeft(null);
       return;
     }
@@ -224,7 +228,7 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
   return (
     <div
       ref={barRef}
-      className="relative"
+      className="@container relative min-w-0"
       data-testid="thread-group-bar"
       onPointerDownCapture={(event) => {
         lastPressRef.current = event.pointerType;
@@ -563,8 +567,8 @@ function BarItem({
       onClick={onClick}
       {...longPress.handlers}
       style={longPress.pressStyle}
-      // Phones share the width evenly; wide screens size each tab to its label.
-      className={`relative ${layer} inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-t-md border border-b-0 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 md:min-w-[7.5rem] md:flex-none md:px-3 ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
+      // A narrow bar shares its width evenly; a wide one (`@2xl`, see WIDE_BAR_PX) sizes each tab to its label.
+      className={`relative ${layer} inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-t-md border border-b-0 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 @2xl:min-w-[7.5rem] @2xl:flex-none @2xl:px-3 ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
       aria-label={label}
       aria-selected={selected}
       aria-expanded={group && !single ? open : undefined}
@@ -587,7 +591,7 @@ function isTouchPress(pointerType: string): boolean {
 
 /** The group's name, shown before its count where the row has room. */
 function WideLabel({ id }: { id: ThreadGroupId }) {
-  return <span className="hidden md:inline">{GROUP_LABEL[id]} </span>;
+  return <span className="hidden @2xl:inline">{GROUP_LABEL[id]} </span>;
 }
 
 function GroupContent({ id, tabs }: { id: ThreadGroupId; tabs: readonly PrimaryThreadChip[] }) {

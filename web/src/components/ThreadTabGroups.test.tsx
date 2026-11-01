@@ -289,6 +289,25 @@ describe("ThreadGroupBar", () => {
   });
 });
 
+describe("ThreadGroupBar width", () => {
+  // Jiayi: with the side column open, the row ran past the main view into the column. The row sizes
+  // itself by its own width (a container query), not the screen's: a narrow bar shares its width
+  // with counts only, and only a wide one labels its tabs and anchors a list under its tab.
+  it("labels and anchors lists only when the bar itself is wide", () => {
+    const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(500);
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockReturnValue(300);
+    renderBar();
+    expect(screen.getByTestId("thread-group-bar").className).toContain("@container");
+    fireEvent.click(groupTab("idle"));
+    expect(screen.getByTestId("thread-tab-group-list").style.width).toBe("");
+    cleanup();
+    width.mockReturnValue(1000);
+    renderBar();
+    fireEvent.click(groupTab("idle"));
+    expect(screen.getByTestId("thread-tab-group-list").style.left).toBe("300px");
+  });
+});
+
 describe("ThreadGroupBar group move animation", () => {
   // jsdom has no Web Animations, so the test supplies animate() and records who played.
   function trackAnimations(reducedMotion = false) {
