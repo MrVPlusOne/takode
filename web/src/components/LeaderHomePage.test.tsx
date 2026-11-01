@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * A leader's Home, where its Main conversation was: its threads by what they need (the status
- * row's groups at full width), links to the leader log and the topics, over a message box whose
- * first message starts a new thread with the leader, which then opens in the main view.
+ * A leader's Home, where its Main conversation was: its threads in one list (questions on top, then
+ * by when the user last dealt with them), links to the leader log and the topics, over a message
+ * box whose first message starts a new thread with the leader, which then opens in the main view.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -29,10 +29,25 @@ vi.mock("./Composer.js", () => ({
 vi.mock("./side-column/thread-names.js", () => ({ threadNameFromMessage: (text: string) => `named: ${text}` }));
 const navigateToSessionThread = vi.hoisted(() => vi.fn());
 vi.mock("../utils/routing.js", () => ({ navigateToSessionThread }));
+const activityPreview = vi.hoisted(() => vi.fn());
+vi.mock("../api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api.js")>();
+  return { ...actual, api: { ...actual.api, getSessionActivityPreview: activityPreview } };
+});
+const EMPTY_TABS_VALUE = {
+  currentQuestStateVersion: 1 as const,
+  tabState: null,
+  tabs: [],
+  mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
+  threadStatuses: {},
+  activePhaseSummary: [],
+};
 import { resetLeaderTopicsForTest } from "../utils/leader-topics.js";
 import { scopedSetItem } from "../utils/scoped-storage.js";
 import { useSideColumnStore } from "../utils/side-column.js";
 import { useTopicPanel } from "../utils/topic-panel.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
+import { useStore } from "../store.js";
 import { LeaderHomePage } from "./LeaderHomePage.js";
 import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
@@ -65,35 +80,100 @@ afterEach(() => {
 });
 
 describe("LeaderHomePage", () => {
-  it("lists the leader's threads by what they need, and opens one in the main view", () => {
-    // The same members the status row groups: quest threads and the leader's other threads alike.
+  it("lists each thread once, questions on top, then by when the user last dealt with it", () => {
+    // Jiayi (Nov 1): Home's groups overlapped (an unread quest under Unread and Idle). It is now
+    // one list like the sessions panel's Threads view: unread doesn't move a row, and the user's
+    // own dealings (from the leader's tab projection) set the order.
+    useStore.getState().applySyncedProjectionSnapshot({
+      projection: LEADER_THREAD_TABS_PROJECTION,
+      key: "l1",
+      generation: "home",
+      revision: 1,
+      value: { ...EMPTY_TABS_VALUE, userInteractionAt: { "q-2": 50, "q-4": 10 } },
+    });
     useLeaderThreadMembers.setState({
       byLeader: {
         l1: [
-          member("q-4", { questId: "q-4", title: "Fix the relay", needsInput: true }),
-          member("topic:aaaa0001", { title: "Quick question", blueNudge: true }),
+          member("q-4", { questId: "q-4", title: "Fix the relay", needsInput: true, running: false }),
+          member("topic:aaaa0001", { title: "Quick question", blueNudge: true, userStartedAt: 30, running: false }),
           member("q-2", { questId: "q-2", title: "Old work", completed: true }),
+          member("q-9", { questId: "q-9", title: "Never touched", completed: true, updatedAt: 99 }),
         ],
       },
     });
     render(<LeaderHomePage leaderId="l1" />);
-    const sections = screen.getAllByTestId("thread-group-section");
-    // The question and the unread answer are in threads still at work, so they are listed again
-    // under In progress (Jiayi, Oct 31: attention and activity are separate questions).
-    expect(sections.map((section) => section.dataset.group)).toEqual([
-      "needs-input",
-      "new-results",
-      "in-progress",
-      "idle",
-    ]);
-    expect(sections[1]!.textContent).toContain("Quick question");
-    expect(
-      within(sections[2]!)
-        .getAllByTestId("thread-tab-list-row")
-        .map((row) => row.dataset.threadKey),
-    ).toEqual(["q-4", "topic:aaaa0001"]);
-    fireEvent.click(within(sections[0]!).getByTestId("thread-tab-list-row-select"));
+    const rows = () => screen.getAllByTestId("home-thread-row").map((row) => row.dataset.threadKey);
+    expect(rows()).toEqual(["q-4", "q-2", "topic:aaaa0001", "q-9"]);
+    expect(screen.getByTestId("home-pinned-end")).toBeTruthy();
+    fireEvent.click(screen.getAllByTestId("home-thread-row")[0]!);
     expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-4");
+    // Filters narrow the same list; a filter with nothing in it is left out.
+    fireEvent.click(screen.getByText("New"));
+    expect(rows()).toEqual(["topic:aaaa0001"]);
+    expect(screen.queryAllByTestId("home-filter").map((chip) => chip.dataset.filter)).toEqual([
+      "all",
+      "needs-input",
+      "new",
+    ]);
+  });
+
+  it("leaves cancelled quests out", () => {
+    useStore.getState().upsertQuestTitlePreview({ questId: "q-7", title: "Dropped", version: 2, cancelled: true });
+    useLeaderThreadMembers.setState({
+      byLeader: { l1: [member("q-7", { questId: "q-7" }), member("q-8", { questId: "q-8" })] },
+    });
+    render(<LeaderHomePage leaderId="l1" />);
+    expect(screen.getAllByTestId("home-thread-row").map((row) => row.dataset.threadKey)).toEqual(["q-8"]);
+  });
+
+  it("shows the question asked, a running quest's worker at work, and a finished quest's commits", async () => {
+    // Home has room the sessions panel lacks: what the thread asks, what its worker is doing now.
+    activityPreview.mockResolvedValue({
+      lines: [{ historyIndex: 3, kind: "tool", toolName: "Bash", text: "Run the relay tests", timestamp: 1 }],
+      lastActivityAt: 1,
+    });
+    useStore.setState({
+      sessionNotifications: new Map([
+        [
+          "l1",
+          [
+            {
+              id: "n-1",
+              category: "needs-input",
+              summary: "Which grading?",
+              timestamp: 1,
+              messageId: null,
+              threadKey: "q-4",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sessionBoardRowStatuses: new Map([
+        ["l1", { "q-3": { worker: { sessionId: "w-3", sessionNum: 33, status: "running" } } }],
+      ]),
+    } as never);
+    useStore.getState().upsertQuestTitlePreview({ questId: "q-2", title: "Relay", version: 1, commitShas: ["a", "b"] });
+    useLeaderThreadMembers.setState({
+      byLeader: {
+        l1: [
+          member("q-4", { questId: "q-4", needsInput: true }),
+          member("q-3", { questId: "q-3", stateLabel: "Work", running: true }),
+          member("q-2", { questId: "q-2", stateLabel: "Done", completed: true }),
+        ],
+      },
+    });
+    render(<LeaderHomePage leaderId="l1" />);
+    const status = (key: string) =>
+      within(screen.getAllByTestId("home-thread-row").find((row) => row.dataset.threadKey === key)!).getByTestId(
+        "home-row-status",
+      ).textContent;
+    expect(status("q-4")).toBe("Asks: Which grading?");
+    expect(status("q-2")).toBe("Done · 2 commits");
+    await waitFor(() => expect(status("q-3")).toContain("Bash: Run the relay tests"));
+    expect(status("q-3")).toContain("#33");
+    expect(activityPreview).toHaveBeenCalledWith("w-3");
+    useStore.setState({ sessionNotifications: new Map(), sessionBoardRowStatuses: new Map() } as never);
   });
 
   it("says so when the leader has no threads yet, and links to the leader log and the topics", () => {
@@ -136,51 +216,13 @@ describe("LeaderHomePage", () => {
     });
     render(<LeaderHomePage leaderId="l1" />);
     await waitFor(() =>
-      // q-4 is listed under Needs you and In progress, with its line in both.
-      expect(screen.getAllByTestId("thread-tab-list-row-line")[0]!.textContent).toBe(
-        "Waiting on your pick of the grading.",
-      ),
+      expect(screen.getAllByTestId("home-row-line")[0]!.textContent).toBe("Waiting on your pick of the grading."),
     );
     expect(homeLines).toHaveBeenCalledWith("l1", ["q-2", "q-3", "q-4"]);
     expect(screen.getByTestId("home-since-last-looked").textContent).toContain("1 question · 1 finished");
   });
 
-  it("shows each row in two lines: quest number, title and time, then the news line", async () => {
-    // Jiayi (Nov 1): three lines per row was too much, and the middle one (q-N · phase · time)
-    // repeated the news line ("Done" then "Done: ..."). Rows now read like the sessions panel's
-    // Threads view, with the time on the right and no phase.
-    homeLines.mockResolvedValue({ lines: { "q-2": { text: "Done: the relay reconnects.", at: 5, source: "scribe" } } });
-    useLeaderThreadMembers.setState({
-      byLeader: {
-        l1: [
-          member("q-2", {
-            questId: "q-2",
-            title: "Fix the relay",
-            stateLabel: "Done",
-            completed: true,
-            updatedAt: Date.now(),
-          }),
-          member("q-3", { questId: "q-3", title: "Search messages", stateLabel: "Work", running: true }),
-        ],
-      },
-    });
-    render(<LeaderHomePage leaderId="l1" />);
-    const row = (key: string) =>
-      screen.getAllByTestId("thread-tab-list-row").find((item) => item.dataset.threadKey === key)!;
-    await waitFor(() =>
-      expect(within(row("q-2")).getByTestId("thread-tab-list-row-line").textContent).toBe(
-        "Done: the relay reconnects.",
-      ),
-    );
-    expect(within(row("q-2")).getByTestId("thread-tab-list-row-quest").textContent).toBe("q-2");
-    expect(within(row("q-2")).getByTestId("thread-tab-list-row-time").textContent).toBe("just now");
-    expect(within(row("q-2")).queryByTestId("thread-tab-list-row-meta")).toBeNull();
-    expect(row("q-2").textContent).not.toContain("Done ·");
-    // Without a news line yet, the row's state stands in on line two.
-    expect(within(row("q-3")).getByTestId("thread-tab-list-row-line").textContent).toBe("Work");
-  });
-
-  it("lists Idle newest first or by topic, remembering the choice", async () => {
+  it("lists the threads in order or by topic, remembering the choice", async () => {
     topicList.mockResolvedValue({
       topics: [{ id: "t1", name: "Relay", questIds: ["q-2"], activityAt: 1, summary: "The phone reaches it again." }],
     });
@@ -193,7 +235,8 @@ describe("LeaderHomePage", () => {
       },
     });
     const view = render(<LeaderHomePage leaderId="l1" />);
-    fireEvent.click(screen.getByTestId("idle-view-topic"));
+    expect(screen.getAllByTestId("home-thread-row")).toHaveLength(2);
+    fireEvent.click(screen.getByTestId("home-view-topic"));
     const topics = await screen.findAllByTestId("idle-topic");
     await waitFor(() => expect(screen.getAllByTestId("idle-topic")[0]!.textContent).toContain("Relay"));
     expect(screen.getByTestId("idle-topic-summary").textContent).toBe("The phone reaches it again.");

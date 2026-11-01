@@ -93,6 +93,7 @@ function questTitlePreviewFromTask(quest: QuestmasterTask): QuestTitlePreview {
     version: quest.version,
     updatedAt: Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0),
     ...(Array.isArray(quest.commitShas) ? { commitShas: quest.commitShas } : {}),
+    ...(quest.status === "done" && quest.cancelled ? { cancelled: true as const } : {}),
   };
 }
 
@@ -128,6 +129,7 @@ function mergeQuestTitlePreview(
     current.title === incoming.title &&
     current.version === incoming.version &&
     current.updatedAt === incoming.updatedAt &&
+    current.cancelled === incoming.cancelled &&
     stringArraysEqual(current.commitShas, commitShas)
   ) {
     return current;

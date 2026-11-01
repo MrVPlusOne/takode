@@ -1,9 +1,9 @@
 /**
- * What a leader's Home adds to its thread groups: a line of news under each row (the Scribe's, or a
- * stand-in from what agents wrote), Idle listed newest first or by topic (with each topic's "where
- * it stands"), and what changed since the user last looked.
+ * What a leader's Home adds to its thread list: a line of news under each row (the Scribe's, or a
+ * stand-in from what agents wrote), the list by topic (with each topic's "where it stands") as an
+ * alternative to its plain order, and what changed since the user last looked.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TopicBrief } from "../../../shared/library-topics.js";
 import { topicHandle } from "../../../shared/topic-thread-key.js";
 import { topicApi } from "../../api/topics.js";
@@ -11,8 +11,8 @@ import { useLeaderTopicBriefs, loadLeaderNamesOnce } from "../../utils/leader-to
 import { scopedGetItem, scopedSetItem } from "../../utils/scoped-storage.js";
 import { normalizeThreadKey } from "../../utils/thread-projection.js";
 import { TopicIcon } from "../library/library-icons.js";
-import { ThreadTabListRow, type RowContext } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
+import type { HomeThread } from "./HomeThreadList.js";
 
 /** A line of news per thread (`GET /topics/home-lines`), loaded again every minute. */
 export function useHomeLines(leaderId: string, questIds: readonly string[]): (threadKey: string) => string | undefined {
@@ -59,24 +59,24 @@ export function useLeadersHomeLines(
   return (leaderId, threadKey) => lines[leaderId]?.[normalizeThreadKey(threadKey)]?.text;
 }
 
-export type IdleView = "recent" | "topic";
+export type HomeView = "recent" | "topic";
 
-/** Recent | By topic, for Idle. */
-export function IdleViewSwitch({ value, onChange }: { value: IdleView; onChange: (view: IdleView) => void }) {
+/** Recent | By topic, for Home's list. */
+export function HomeViewSwitch({ value, onChange }: { value: HomeView; onChange: (view: HomeView) => void }) {
   return (
     <span
       className="inline-flex overflow-hidden rounded-md border border-cc-border/70 text-[11px] normal-case tracking-normal"
       role="group"
-      aria-label="List Idle"
+      aria-label="List threads"
     >
       {(["recent", "topic"] as const).map((view) => (
         <button
           key={view}
           type="button"
           onClick={() => onChange(view)}
-          className={`w-[4.75rem] py-0.5 ${value === view ? "bg-cc-hover text-cc-fg" : "text-cc-muted hover:bg-cc-hover/50"}`}
+          className={`px-2 py-0.5 @xl:w-[4.75rem] @xl:px-0 ${value === view ? "bg-cc-hover text-cc-fg" : "text-cc-muted hover:bg-cc-hover/50"}`}
           aria-pressed={value === view}
-          data-testid={`idle-view-${view}`}
+          data-testid={`home-view-${view}`}
         >
           {view === "recent" ? "Recent" : "By topic"}
         </button>
@@ -89,7 +89,7 @@ interface TopicGroup {
   id: string | null;
   name: string;
   summary?: string;
-  tabs: PrimaryThreadChip[];
+  threads: HomeThread[];
 }
 
 /** The topic a thread is filed under, from the leader's topic list. */
@@ -107,18 +107,19 @@ function topicOfKey(
 }
 
 /**
- * Idle by topic: each topic with where it stands, its newest threads first and the rest behind
- * "N more"; topics ordered by their newest thread, threads under no topic last.
+ * Home's list by topic: each topic with where it stands, its threads in the list's order and the
+ * rest behind "N more"; topics in the order of their first thread, threads under no topic last.
  */
-export function IdleByTopic({
+export function ThreadsByTopic({
   leaderId,
-  tabs,
-  context,
+  threads,
+  renderRow,
   perTopic = 3,
 }: {
   leaderId: string;
-  tabs: readonly PrimaryThreadChip[];
-  context: RowContext;
+  /** In Home's order. */
+  threads: readonly HomeThread[];
+  renderRow: (thread: HomeThread) => ReactNode;
   perTopic?: number;
 }) {
   useEffect(() => loadLeaderNamesOnce(leaderId), [leaderId]);
@@ -126,48 +127,46 @@ export function IdleByTopic({
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const groups = useMemo(() => {
     const byTopic = new Map<string | null, TopicGroup>();
-    for (const tab of tabs) {
-      const topic = topicOfKey(briefs, tab.threadKey);
+    for (const thread of threads) {
+      const topic = topicOfKey(briefs, thread.tab.threadKey);
       const id = topic?.id ?? null;
       const group = byTopic.get(id) ?? {
         id,
         name: topic?.name ?? "No topic",
         ...(topic?.summary ? { summary: topic.summary } : {}),
-        tabs: [],
+        threads: [],
       };
-      group.tabs.push(tab);
+      group.threads.push(thread);
       byTopic.set(id, group);
     }
-    const newest = (group: TopicGroup) => Math.max(...group.tabs.map((tab) => tab.groupChangedAt ?? tab.updatedAt));
-    return [...byTopic.values()].sort((a, b) => (a.id === null ? 1 : b.id === null ? -1 : newest(b) - newest(a)));
-  }, [tabs, briefs]);
+    // Map order is first-seen order, which is the list's order.
+    return [...byTopic.values()].sort((a, b) => (a.id === null ? 1 : b.id === null ? -1 : 0));
+  }, [threads, briefs]);
   return (
     <div className="pb-1" data-testid="idle-by-topic">
       {groups.map((group) => {
         const key = group.id ?? "none";
-        const shown = open[key] ? group.tabs : group.tabs.slice(0, perTopic);
+        const shown = open[key] ? group.threads : group.threads.slice(0, perTopic);
         return (
           <div key={key} className="mt-1 first:mt-0" data-testid="idle-topic">
             <div className="flex min-w-0 items-baseline gap-2 px-4 pt-2">
               {group.id && <TopicIcon className="h-3.5 w-3.5 shrink-0 self-center text-cc-primary" />}
               <span className="shrink-0 text-[13px] font-medium text-cc-fg">{group.name}</span>
-              <span className="text-[11px] tabular-nums text-cc-muted">{group.tabs.length}</span>
+              <span className="text-[11px] tabular-nums text-cc-muted">{group.threads.length}</span>
             </div>
             {group.summary && (
               <p className="truncate px-4 pl-[2.375rem] text-[12px] text-cc-muted" data-testid="idle-topic-summary">
                 {group.summary}
               </p>
             )}
-            {shown.map((tab) => (
-              <ThreadTabListRow key={tab.threadKey} tab={tab} context={context} />
-            ))}
-            {shown.length < group.tabs.length && (
+            {shown.map((thread) => renderRow(thread))}
+            {shown.length < group.threads.length && (
               <button
                 type="button"
                 onClick={() => setOpen((previous) => ({ ...previous, [key]: true }))}
                 className="w-full px-4 py-1 text-left text-[12px] text-cc-muted hover:bg-cc-hover/40"
               >
-                {group.tabs.length - shown.length} more
+                {group.threads.length - shown.length} more
               </button>
             )}
           </div>
@@ -177,19 +176,20 @@ export function IdleByTopic({
   );
 }
 
-/** How Idle is listed on a leader's Home, remembered in this browser. */
-export function useIdleView(): [IdleView, (view: IdleView) => void] {
-  const [view, setView] = useState<IdleView>(() => (scopedGetItem(IDLE_VIEW_KEY) === "topic" ? "topic" : "recent"));
+/** How a leader's Home lists its threads, remembered in this browser. */
+export function useHomeView(): [HomeView, (view: HomeView) => void] {
+  const [view, setView] = useState<HomeView>(() => (scopedGetItem(HOME_VIEW_KEY) === "topic" ? "topic" : "recent"));
   return [
     view,
     (next) => {
       setView(next);
-      scopedSetItem(IDLE_VIEW_KEY, next);
+      scopedSetItem(HOME_VIEW_KEY, next);
     },
   ];
 }
 
-const IDLE_VIEW_KEY = "cc-home-idle-view";
+// The key from when the choice was Idle's only; kept so the choice carries over.
+const HOME_VIEW_KEY = "cc-home-idle-view";
 
 /**
  * When this browser last showed a leader's Home: read when Home opens, and written when it closes,

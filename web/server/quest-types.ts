@@ -462,6 +462,8 @@ export interface QuestTitlePreview {
   updatedAt?: number;
   /** Ordered synchronized code commits. Omitted only by legacy or title-only producers. */
   commitShas?: string[];
+  /** The quest was cancelled (done, not delivered): a leader's Home leaves it out. */
+  cancelled?: true;
 }
 
 export interface QuestTitlePreviewResponse {

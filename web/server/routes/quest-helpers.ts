@@ -11,6 +11,7 @@ export function buildQuestTitlePreview(quest: QuestmasterTask): QuestTitlePrevie
     version: quest.version,
     updatedAt: Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0),
     commitShas: [...(quest.commitShas ?? [])],
+    ...(quest.status === "done" && quest.cancelled ? { cancelled: true as const } : {}),
   };
 }
 

@@ -127,6 +127,8 @@ export interface PrimaryThreadChip {
   sideQuestOf?: string;
   /** Set while a "Remind me later" is pending: when the thread comes back. */
   remindAt?: number;
+  /** A thread the user started: when, which counts as dealing with it (Home's order). */
+  userStartedAt?: number;
 }
 
 function displayThreadTabTitleColor(

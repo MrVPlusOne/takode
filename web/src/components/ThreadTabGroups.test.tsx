@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ThreadSummary } from "../../shared/library-topics.js";
 import type { SessionNotification } from "../types.js";
-import { ThreadGroupBar, ThreadGroupSections, groupThreads, plainThreadChip, readOnScreen } from "./ThreadTabGroups.js";
+import { ThreadGroupBar, groupThreads, plainThreadChip, readOnScreen } from "./ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
 import { GLIDE_MS } from "./thread-tab-group-move.js";
@@ -468,31 +468,5 @@ describe("ThreadGroupBar group move animation", () => {
     const reduced = render(<ThreadGroupBar {...props(working, "q-10")} />);
     reduced.rerender(<ThreadGroupBar {...props(finished, "q-10")} />);
     expect(still).toEqual([]);
-  });
-});
-
-describe("ThreadGroupSections", () => {
-  it("lists the groups as Home's sections, Idle's newest few with the rest behind N older", () => {
-    const onSelect = vi.fn();
-    render(
-      <ThreadGroupSections
-        threads={TABS}
-        context={{ currentThreadKey: "main", activeOutputThreadKey: null, onSelect }}
-        idleLimit={2}
-      />,
-    );
-    const sections = screen.getAllByTestId("thread-group-section");
-    expect(sections.map((section) => section.dataset.group)).toEqual([
-      "needs-input",
-      "new-results",
-      "in-progress",
-      "idle",
-    ]);
-    const idle = sections[3]!;
-    expect(within(idle).getAllByTestId("thread-tab-list-row")).toHaveLength(2);
-    fireEvent.click(within(idle).getByTestId("thread-group-more"));
-    expect(within(idle).getAllByTestId("thread-tab-list-row")).toHaveLength(4);
-    fireEvent.click(within(sections[0]!).getByTestId("thread-tab-list-row-select"));
-    expect(onSelect).toHaveBeenCalledWith("q-11");
   });
 });

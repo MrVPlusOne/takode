@@ -2,8 +2,8 @@
  * A leader's threads, grouped by what the user looks for: Needs you and Unread for what needs them,
  * In progress and Idle for whether work goes on, so a thread can be in two groups. Every thread is a
  * member: a quest's, and the leader's other threads alike. The status row
- * under the top bar (`ThreadGroupBar`) is the leader's navigation; its Home lists the same groups
- * at full width (`ThreadGroupSections`). Topics are tags on a thread, not places.
+ * under the top bar (`ThreadGroupBar`) is the leader's navigation; its Home lists the same threads
+ * in one list instead (`home/HomeThreadList.tsx`). Topics are tags on a thread, not places.
  */
 import {
   useEffect,
@@ -38,7 +38,7 @@ export type ThreadGroupId = "needs-input" | "new-results" | "idle" | "in-progres
 /**
  * The groups by urgency: what needs the user (questions, then unread results), then work going on
  * now, then the large, quiet Idle group (nothing running; finished quests included). A thread in two
- * groups belongs to the first here, and Home lists its sections in this order, top down.
+ * groups belongs to the first here.
  */
 export const THREAD_GROUP_ORDER: readonly ThreadGroupId[] = ["needs-input", "new-results", "in-progress", "idle"];
 
@@ -161,6 +161,7 @@ export function plainThreadChip(
     groupChangedAt: thread.interactionAt ?? thread.activityAt,
     canClose: false,
     updatedAt: thread.activityAt,
+    ...(thread.startedBy ? {} : { userStartedAt: thread.createdAt }),
   };
 }
 
@@ -182,8 +183,6 @@ export interface RowContext {
   /** A list row's open-in-side click: the thread goes in the side column instead of the main view. */
   onOpenInSide?: (threadKey: string) => void;
   onOpenMenu?: (tab: PrimaryThreadChip) => OpenContextMenu | undefined;
-  /** A line of news under a row (Home's wide rows): what is newest in the thread. */
-  lineOf?: (threadKey: string) => string | undefined;
 }
 
 export interface ThreadGroupBarProps extends RowContext {
@@ -377,76 +376,6 @@ const quietHome: PrimaryThreadChip = {
   updatedAt: 0,
 };
 
-/**
- * The groups as sections of one list, for the leader's Home. Idle shows its newest few, the rest
- * behind "N older".
- */
-export function ThreadGroupSections({
-  threads,
-  context,
-  idleLimit = 8,
-  only = THREAD_GROUP_ORDER,
-  idleExtra,
-  renderIdle,
-}: {
-  threads: readonly PrimaryThreadChip[];
-  context: RowContext;
-  idleLimit?: number;
-  /** The groups to list, in order (all of them by default). */
-  only?: readonly ThreadGroupId[];
-  /** Beside Idle's heading: a control for how Idle is listed. */
-  idleExtra?: ReactNode;
-  /** Lists Idle's threads another way (by topic) instead of newest first. */
-  renderIdle?: (tabs: readonly PrimaryThreadChip[]) => ReactNode;
-}) {
-  const groups = groupThreads(threads);
-  const [allIdle, setAllIdle] = useState(false);
-  return (
-    <>
-      {only.map((id) => {
-        if (groups[id].length === 0) return null;
-        if (id === "idle" && renderIdle) {
-          return (
-            <section
-              key={id}
-              className="border-t border-cc-border/60 first:border-t-0"
-              data-testid="thread-group-section"
-              data-group={id}
-            >
-              <GroupHeading id={id} count={groups[id].length} extra={idleExtra} />
-              {renderIdle(groups.idle)}
-            </section>
-          );
-        }
-        const shown = id === "idle" && !allIdle ? groups.idle.slice(0, idleLimit) : groups[id];
-        return (
-          <section
-            key={id}
-            className="border-t border-cc-border/60 first:border-t-0"
-            data-testid="thread-group-section"
-            data-group={id}
-          >
-            <GroupHeading id={id} count={groups[id].length} extra={id === "idle" ? idleExtra : undefined} />
-            {shown.map((tab) => (
-              <ThreadTabListRow key={tab.threadKey} tab={tab} context={context} />
-            ))}
-            {shown.length < groups[id].length && (
-              <button
-                type="button"
-                onClick={() => setAllIdle(true)}
-                className="w-full px-4 py-2 text-left text-[12.5px] text-cc-muted hover:bg-cc-hover/40"
-                data-testid="thread-group-more"
-              >
-                {groups[id].length - shown.length} older
-              </button>
-            )}
-          </section>
-        );
-      })}
-    </>
-  );
-}
-
 /** The bell as the groups draw it: an outline in the attention color, nothing when quiet. */
 export function AttentionBell({ tab, size = "sm" }: { tab: PrimaryThreadChip; size?: "sm" | "md" }) {
   const tone = tab.needsInput
@@ -493,7 +422,6 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
   const status = context.threadStatuses?.[threadStatusKey(threadKey)];
   const summary = status?.kind === "ready" ? status.summary : undefined;
   const activeAt = lastActivityAt(tab);
-  const line = context.lineOf?.(threadKey);
   // A thread that is not a quest's is named by its title and state; its key means nothing.
   const plainThread = isTopicViewKey(threadKey) && !tab.questId;
   const meta = [
@@ -506,13 +434,6 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
     .join(" · ");
   const quiet = tab.completed && !tab.needsInput && !tab.blueNudge;
   const style: CSSProperties = { ...longPress.pressStyle };
-  // Home's rows (those with news lines) are two lines, as in the sessions panel's Threads view
-  // (Jiayi, Nov 1): the quest number, title and time, then the news line. Their phase line went:
-  // the group says where a thread stands, and the news line usually said it again.
-  const newsRow = context.lineOf !== undefined;
-  const questLabel = tab.questId ?? (plainThread ? null : threadKey);
-  const when =
-    tab.remindAt !== undefined ? `Remind ${formatSnoozeUntil(tab.remindAt)}` : activeAt ? timeAgo(activeAt) : null;
   return (
     <div
       className={`flex min-h-[3.25rem] items-center gap-3 px-4 py-1.5 ${selected ? "bg-cc-active" : "hover:bg-cc-hover/40"} ${openMenu ? LONG_PRESS_TARGET_CLASS : ""}`}
@@ -567,52 +488,22 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
                 <SideQuestIcon sideQuestOf={tab.sideQuestOf} />
               </span>
             )}
-            {newsRow && questLabel && (
-              <span
-                className="shrink-0 font-mono-code text-[12px] text-cc-muted"
-                data-testid="thread-tab-list-row-quest"
-              >
-                {questLabel}
-              </span>
-            )}
             <span className="truncate">{tab.title}</span>
-            {newsRow && when && (
-              <span
-                className="ml-auto shrink-0 pl-2 text-[11.5px] tabular-nums text-cc-muted"
-                data-testid="thread-tab-list-row-time"
-              >
-                {when}
-              </span>
-            )}
           </span>
-          {newsRow && (
-            <span className="mt-0.5 truncate text-[12.5px] text-cc-fg/75" data-testid="thread-tab-list-row-line">
-              {line ?? summary ?? tab.stateLabel ?? tab.detail}
+          <span className="mt-0.5 truncate text-[11.5px]">
+            <span
+              style={{ color: tab.titleColor }}
+              data-testid="thread-tab-list-row-meta"
+              data-title-color={tab.titleColor ?? ""}
+            >
+              {meta}
             </span>
-          )}
-          {!newsRow && (
-            <span className="mt-0.5 truncate text-[11.5px]">
-              <span
-                style={{ color: tab.titleColor }}
-                data-testid="thread-tab-list-row-meta"
-                data-title-color={tab.titleColor ?? ""}
-              >
-                {meta}
-              </span>
-              {summary && <span className="text-cc-muted"> — {summary}</span>}
-            </span>
-          )}
+            {summary && <span className="text-cc-muted"> — {summary}</span>}
+          </span>
         </span>
       </button>
       {monitor && <NotifyMeIcon pending={Boolean(monitor.pendingResultId)} className="h-4 w-4" />}
-      {newsRow ? (
-        // A fixed slot, so the times on the right line up whether or not a row has a bell.
-        <span className="flex w-4 shrink-0 justify-center">
-          <AttentionBell tab={tab} size="md" />
-        </span>
-      ) : (
-        <AttentionBell tab={tab} size="md" />
-      )}
+      <AttentionBell tab={tab} size="md" />
       <span className="-mr-1.5 w-8 shrink-0" />
     </div>
   );

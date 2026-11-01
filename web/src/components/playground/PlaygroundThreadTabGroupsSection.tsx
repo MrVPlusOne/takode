@@ -13,7 +13,8 @@ import { MessageBubble } from "../MessageBubble.js";
 import { QuestThreadBanner } from "../QuestThreadBanner.js";
 import { ThreadJoinMarker } from "../ThreadJoinMarker.js";
 import { ThreadStrip } from "../ThreadStrip.js";
-import { plainThreadChip, ThreadGroupBar, ThreadGroupSections } from "../ThreadTabGroups.js";
+import { plainThreadChip, ThreadGroupBar } from "../ThreadTabGroups.js";
+import { HomeThreadList } from "../home/HomeThreadList.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
@@ -182,7 +183,7 @@ export function PlaygroundThreadTabGroupsSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Thread Tab Groups"
-        description="A leader's navigation, phones and desktop alike: the status row under the top bar lists Home, then the leader's threads (quest threads and its other threads alike) by what they need: Needs you, Unread, In progress and Idle (In progress only while work goes on: a running quest, or the thread the leader is answering in). A group of one opens its thread; a larger group opens its list. The strip names the thread on screen with its topic tag, which opens the topic's page. Home shows the same groups at full width."
+        description="A leader's navigation, phones and desktop alike: the status row under the top bar lists Home, then the leader's threads (quest threads and its other threads alike) by what they need: Needs you, Unread, In progress and Idle (In progress only while work goes on: a running quest, or the thread the leader is answering in). A group of one opens its thread; a larger group opens its list. The strip names the thread on screen with its topic tag, which opens the topic's page. Home lists the same threads at full width, by when you last dealt with them, questions on top."
       >
         <div className="space-y-4">
           <Card label="Phone">
@@ -191,17 +192,13 @@ export function PlaygroundThreadTabGroupsSection() {
           <Card label="Desktop">
             <LeaderFrame width={1000} />
           </Card>
-          <Card label="Home: the same groups at full width, each row with its line of news">
-            <div className="w-[44rem] max-w-full rounded-xl border border-cc-border bg-cc-card pb-1">
-              <ThreadGroupSections
+          <Card label="Home: the same threads in one list, questions on top, each row with its line of news">
+            <div className="w-[44rem] max-w-full">
+              <HomeThreadList
+                leaderId="playground-leader"
                 threads={MEMBERS}
-                context={{
-                  currentThreadKey: "main",
-                  activeOutputThreadKey: WRITING_THREAD,
-                  onSelect: () => {},
-                  lineOf: (key) => HOME_LINES[key],
-                }}
-                idleLimit={2}
+                lineOf={(key) => HOME_LINES[key]}
+                writingThreadKey={WRITING_THREAD}
               />
             </div>
           </Card>

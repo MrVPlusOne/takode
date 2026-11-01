@@ -1,27 +1,19 @@
 import { useMemo } from "react";
-import {
-  IdleByTopic,
-  IdleViewSwitch,
-  SinceLastLooked,
-  useHomeLines,
-  useIdleView,
-  useLastLooked,
-} from "./home/HomeExtras.js";
+import { SinceLastLooked, useHomeLines, useLastLooked } from "./home/HomeExtras.js";
+import { HomeThreadList } from "./home/HomeThreadList.js";
 import { topicApi } from "../api/topics.js";
 import { useStore } from "../store.js";
 import { rememberThreads } from "../utils/leader-topics.js";
 import { navigateToSessionThread } from "../utils/routing.js";
-import { openInSide, openTopicsInSide } from "../utils/side-column.js";
+import { openTopicsInSide } from "../utils/side-column.js";
 import { ALL_THREADS_KEY } from "../utils/thread-projection.js";
 import { Composer } from "./Composer.js";
 import { threadNameFromMessage } from "./side-column/thread-names.js";
 import { sideComposerDraftKey } from "../draft-sync-bridge.js";
-import { ThreadGroupSections } from "./ThreadTabGroups.js";
 import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
 /**
- * A leader's Home, where its Main conversation was: its threads by what they need (the status row's
- * groups at full width), then links to the leader log and the topics, over a message box that starts
+ * A leader's Home, where its Main conversation was: its threads in one list (`HomeThreadList`), then links to the leader log and the topics, over a message box that starts
  * a new thread, which then opens here. Main's own messages are in the leader log; anything the user
  * should read lives in a thread.
  */
@@ -90,9 +82,8 @@ export function NewThreadComposer({ leaderId }: { leaderId: string }) {
 }
 
 /**
- * The leader's threads by what they need, as its status row lists them, each with a line of news
- * (`useHomeLines`), under a line about what changed since the user last looked. Idle is listed
- * newest first or by topic, as the user chose last.
+ * The leader's threads (the status row's members) in one list, each with a line of news
+ * (`useHomeLines`), under a line about what changed since the user last looked.
  */
 function HomeThreads({ leaderId }: { leaderId: string }) {
   const threads = useLeaderThreadMembers((state) => state.byLeader[leaderId]) ?? EMPTY_THREADS;
@@ -101,7 +92,6 @@ function HomeThreads({ leaderId }: { leaderId: string }) {
   );
   const questIds = useMemo(() => threads.flatMap((tab) => (tab.questId ? [tab.questId] : [])), [threads]);
   const lineOf = useHomeLines(leaderId, questIds);
-  const [idleView, setIdleView] = useIdleView();
   const lastLooked = useLastLooked(leaderId);
   if (threads.length === 0) {
     return (
@@ -110,30 +100,10 @@ function HomeThreads({ leaderId }: { leaderId: string }) {
       </p>
     );
   }
-  const context = {
-    currentThreadKey: "main",
-    activeOutputThreadKey: writing,
-    onSelect: (threadKey: string) => navigateToSessionThread(leaderId, threadKey),
-    onOpenInSide: (threadKey: string) => openInSide({ kind: "conversation" as const, threadKey, leaderId }),
-    lineOf,
-  };
   return (
     <>
       <SinceLastLooked threads={threads} since={lastLooked} />
-      <section
-        className="overflow-hidden rounded-xl border border-cc-border bg-cc-card pb-1"
-        data-testid="leader-home-threads"
-      >
-        <ThreadGroupSections
-          threads={threads}
-          context={context}
-          idleLimit={6}
-          idleExtra={<IdleViewSwitch value={idleView} onChange={setIdleView} />}
-          {...(idleView === "topic"
-            ? { renderIdle: (tabs) => <IdleByTopic leaderId={leaderId} tabs={tabs} context={context} /> }
-            : {})}
-        />
-      </section>
+      <HomeThreadList leaderId={leaderId} threads={threads} lineOf={lineOf} writingThreadKey={writing} />
     </>
   );
 }
