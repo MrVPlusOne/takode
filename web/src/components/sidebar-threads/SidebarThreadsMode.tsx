@@ -16,7 +16,11 @@ import { navigateToSessionThread, threadRouteFromHash } from "../../utils/routin
 import { handleOpenInSideClick, openInSideOnScreen } from "../../utils/side-column.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../../utils/thread-projection.js";
 import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
-import { TOUCH_MENU_ITEM_CLASS } from "../ContextMenu.js";
+import { useLongPress } from "../../hooks/useLongPress.js";
+import { latestReadThreadResult, markThreadRead, threadMenuItems } from "../../utils/attention-item-menu.js";
+import type { CommonSessionItemProps } from "../ArchivedSessionSection.js";
+import { ContextMenu, TOUCH_MENU_ITEM_CLASS, type ContextMenuItem } from "../ContextMenu.js";
+import { SessionArchiveConfirmation } from "../SessionArchiveConfirmation.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { NewThreadIcon } from "../library/library-icons.js";
 import { questOf } from "../library/topic-questions.js";
@@ -279,6 +283,7 @@ export function SidebarThreadsMode({
   currentSessionId,
   onOpened,
   otherSessions,
+  sessionRowProps,
 }: {
   data: ThreadsModeData;
   currentSessionId: string | null;
@@ -286,6 +291,11 @@ export function SidebarThreadsMode({
   onOpened: () => void;
   /** Today's cards for the sessions that are not leaders (and the archive). */
   otherSessions: (nodes: RecentSessionNode[]) => ReactNode;
+  /**
+   * The session cards' menu, rename and archive confirmation, for the leader rows: right-click or
+   * long-press on a leader opens the same session menu as its card in the other views.
+   */
+  sessionRowProps?: CommonSessionItemProps;
 }) {
   const { queue } = useNextAttention();
   const questKeys = useMemo(
@@ -317,65 +327,120 @@ export function SidebarThreadsMode({
       plain();
     onOpened();
   };
+  // A thread row's menu (right-click, or long-press on touch).
+  const [menu, setMenu] = useState<{ row: ThreadRow; x: number; y: number } | null>(null);
   return (
-    <StackedPanes
-      stackId="sidebar-threads"
-      panes={[
-        {
-          id: "threads",
-          title: "Threads",
-          defaultWeight: 3,
-          children: (
-            <div className="space-y-0.5" data-testid="threads-mode-threads">
-              {shown.map((row) => (
-                <ThreadRowButton
-                  key={row.key}
-                  row={row}
-                  line={lineOf(row.leader.leader.id, row.threadKey)}
-                  current={row.leader.leader.id === currentSessionId && routeThread === row.threadKey}
-                  onOpen={(event) => open(row.leader.leader.id, row.threadKey, event)}
-                />
-              ))}
-              {shown.length < rows.length && (
-                <button
-                  type="button"
-                  onClick={() => setAllIdle(true)}
-                  className="w-full rounded-lg px-2 py-1.5 text-left text-[11px] text-cc-muted hover:bg-cc-hover"
-                  data-testid="threads-mode-more"
-                >
-                  {rows.length - shown.length} older idle
-                </button>
-              )}
-            </div>
-          ),
-        },
-        {
-          id: "leaders",
-          title: "Leaders",
-          defaultWeight: 1,
-          children: (
-            <div className="space-y-0.5" data-testid="threads-mode-leaders">
-              {leaders.map((input) => (
-                <LeaderRow
-                  key={input.node.leader.id}
-                  node={input.node}
-                  current={input.node.leader.id === currentSessionId && routeThread === MAIN_THREAD_KEY}
-                  counts={leaderCounts(input, queue)}
-                  onOpen={(event) => open(input.node.leader.id, MAIN_THREAD_KEY, event)}
-                />
-              ))}
-            </div>
-          ),
-        },
-        {
-          id: "sessions",
-          title: "Other sessions",
-          defaultWeight: 2,
-          children: otherSessions(others),
-        },
-      ]}
-    />
+    <>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={threadRowMenuItems(menu.row, () => {
+            navigateToSessionThread(menu.row.leader.leader.id, menu.row.threadKey);
+            onOpened();
+          })}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      <StackedPanes
+        stackId="sidebar-threads"
+        panes={[
+          {
+            id: "threads",
+            title: "Threads",
+            defaultWeight: 3,
+            children: (
+              <div className="space-y-0.5" data-testid="threads-mode-threads">
+                {shown.map((row) => (
+                  <ThreadRowButton
+                    key={row.key}
+                    row={row}
+                    line={lineOf(row.leader.leader.id, row.threadKey)}
+                    current={row.leader.leader.id === currentSessionId && routeThread === row.threadKey}
+                    onOpen={(event) => open(row.leader.leader.id, row.threadKey, event)}
+                    onOpenMenu={(x, y) => setMenu({ row, x, y })}
+                  />
+                ))}
+                {shown.length < rows.length && (
+                  <button
+                    type="button"
+                    onClick={() => setAllIdle(true)}
+                    className="w-full rounded-lg px-2 py-1.5 text-left text-[11px] text-cc-muted hover:bg-cc-hover"
+                    data-testid="threads-mode-more"
+                  >
+                    {rows.length - shown.length} older idle
+                  </button>
+                )}
+              </div>
+            ),
+          },
+          {
+            id: "leaders",
+            title: "Leaders",
+            defaultWeight: 1,
+            children: (
+              <div className="space-y-0.5" data-testid="threads-mode-leaders">
+                {leaders.map((input) => (
+                  <LeaderRow
+                    key={input.node.leader.id}
+                    node={input.node}
+                    current={input.node.leader.id === currentSessionId && routeThread === MAIN_THREAD_KEY}
+                    counts={leaderCounts(input, queue)}
+                    onOpen={(event) => open(input.node.leader.id, MAIN_THREAD_KEY, event)}
+                    sessionRowProps={sessionRowProps}
+                  />
+                ))}
+              </div>
+            ),
+          },
+          {
+            id: "sessions",
+            title: "Other sessions",
+            defaultWeight: 2,
+            children: otherSessions(others),
+          },
+        ]}
+      />
+    </>
   );
+}
+
+/**
+ * A thread row's actions: open it (also in the side column), its quest and worker, mark it read
+ * or unread, remind me later, copy link. The leader log only opens and marks Main's results read.
+ */
+function threadRowMenuItems(row: ThreadRow, open: () => void): ContextMenuItem[] {
+  const leaderId = row.leader.leader.id;
+  const items: ContextMenuItem[] = [{ label: "Open", onClick: open }];
+  if (row.threadKey === ALL_THREADS_KEY) {
+    if (row.counts.unread > 0) {
+      items.push({
+        label: "Mark as read",
+        onClick: () =>
+          void markThreadRead(leaderId, MAIN_THREAD_KEY).catch((error) =>
+            console.error("[threads-view] Mark as read failed:", error),
+          ),
+      });
+    }
+    return items;
+  }
+  const state = useStore.getState();
+  const boardRow = row.questId
+    ? state.sessionBoards.get(leaderId)?.find((candidate) => normalizeThreadKey(candidate.questId) === row.questId)
+    : undefined;
+  items.push(
+    ...threadMenuItems({
+      leaderId,
+      threadKey: row.threadKey,
+      ...(row.questId ? { questId: row.questId } : {}),
+      ...(boardRow?.worker ? { workerId: boardRow.worker, workerNum: boardRow.workerNum } : {}),
+      read: {
+        unread: row.counts.unread > 0,
+        canMarkUnread: !!latestReadThreadResult(state.sessionNotifications.get(leaderId), row.threadKey),
+      },
+    }),
+  );
+  return items;
 }
 
 /**
@@ -388,19 +453,24 @@ function ThreadRowButton({
   line,
   current,
   onOpen,
+  onOpenMenu,
 }: {
   row: ThreadRow;
   /** The thread's news line, as on its leader's Home, when there is one. */
   line?: string;
   current: boolean;
   onOpen: (event: MouseEvent) => void;
+  onOpenMenu: (x: number, y: number) => void;
 }) {
   const leader = row.leader.leader;
   const quiet = row.group === "idle";
+  const longPress = useLongPress(onOpenMenu);
   return (
     <button
       type="button"
       onClick={onOpen}
+      {...longPress.handlers}
+      style={longPress.pressStyle}
       className={`w-full rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${
         current ? "bg-cc-active" : "hover:bg-cc-hover"
       }`}
@@ -450,17 +520,69 @@ function LeaderRow({
   current,
   counts,
   onOpen,
+  sessionRowProps: props,
 }: {
   node: RecentSessionNode;
   current: boolean;
   counts: ThreadCounts;
   onOpen: (event: MouseEvent) => void;
+  sessionRowProps?: CommonSessionItemProps;
 }) {
   const leader = node.leader;
-  return (
+  const editing = props?.editingSessionId === leader.id;
+  const onContextMenu = props?.onContextMenu;
+  const longPress = useLongPress(
+    onContextMenu && !editing
+      ? (x, y) =>
+          onContextMenu(
+            { preventDefault: () => {}, stopPropagation: () => {}, clientX: x, clientY: y } as MouseEvent,
+            leader.id,
+          )
+      : undefined,
+  );
+  const archiving = props?.archiveConfirmation?.sessionId === leader.id;
+  const confirmation = archiving && props?.onConfirmArchive && props.onCancelArchive && (
+    <SessionArchiveConfirmation
+      archiveConfirmation={props.archiveConfirmation!}
+      onConfirmArchive={props.onConfirmArchive}
+      onConfirmArchiveHerdMembers={props.onConfirmArchiveHerdMembers}
+      onCancelArchive={props.onCancelArchive}
+    />
+  );
+  if (editing && props) {
+    // Renaming from the session menu, as a session card does.
+    return (
+      <div className="flex w-full min-w-0 items-center gap-2 rounded-lg bg-cc-active px-2 py-1.5">
+        {leader.leaderProfilePortrait && (
+          <LeaderProfilePortraitImage portrait={leader.leaderProfilePortrait} size="lg" />
+        )}
+        <input
+          ref={props.editInputRef}
+          value={props.editingName}
+          onChange={(event) => props.setEditingName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              props.onConfirmRename();
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              props.onCancelRename();
+            }
+            event.stopPropagation();
+          }}
+          onBlur={props.onConfirmRename}
+          className="min-w-0 flex-1 rounded border border-cc-border bg-transparent px-1 py-0 text-[13px] text-cc-fg outline-none focus:border-cc-primary/50"
+          data-testid="threads-mode-leader-rename"
+        />
+      </div>
+    );
+  }
+  const row = (
     <button
       type="button"
       onClick={onOpen}
+      {...longPress.handlers}
+      style={longPress.pressStyle}
       className={`flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${
         current ? "bg-cc-active" : "hover:bg-cc-hover"
       }`}
@@ -478,6 +600,14 @@ function LeaderRow({
       </span>
       <StatusCountDots counts={counts} />
     </button>
+  );
+  return confirmation ? (
+    <div>
+      {row}
+      {confirmation}
+    </div>
+  ) : (
+    row
   );
 }
 

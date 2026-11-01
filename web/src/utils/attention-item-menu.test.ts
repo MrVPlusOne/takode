@@ -40,7 +40,13 @@ const mockWriteClipboardText = vi.hoisted(() => vi.fn().mockResolvedValue(undefi
 vi.mock("./copy-utils.js", () => ({ writeClipboardText: mockWriteClipboardText }));
 
 import { useStore } from "../store.js";
-import { attentionItemMenuItems, markThreadRead, needsInputMenuItems, threadMenuItems } from "./attention-item-menu.js";
+import {
+  attentionItemMenuItems,
+  latestReadThreadResult,
+  markThreadRead,
+  needsInputMenuItems,
+  threadMenuItems,
+} from "./attention-item-menu.js";
 import type { NextAttentionItem } from "./next-attention.js";
 
 const prompt = (overrides: Partial<SessionNotification> = {}) =>
@@ -221,5 +227,20 @@ describe("threadMenuItems", () => {
     await vi.waitFor(() =>
       expect(mockSetThreadReminder).toHaveBeenCalledWith("leader", "topic:aa11bb22", expect.any(Number), undefined),
     );
+  });
+});
+
+describe("latestReadThreadResult", () => {
+  it("picks the thread's newest read result, the one Mark as unread brings back", () => {
+    const review = (id: string, threadKey: string, timestamp: number, done: boolean) =>
+      ({ id, category: "review", summary: "", timestamp, threadKey, done }) as SessionNotification;
+    const notifications = [
+      review("old", "q-1", 1, true),
+      review("new", "q-1", 3, true),
+      review("unread", "q-1", 4, false),
+      review("other", "q-2", 5, true),
+    ];
+    expect(latestReadThreadResult(notifications, "q-1")?.id).toBe("new");
+    expect(latestReadThreadResult(notifications, "q-3")).toBeUndefined();
   });
 });

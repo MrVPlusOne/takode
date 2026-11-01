@@ -28,6 +28,7 @@ vi.mock("../../utils/routing.js", async (importOriginal) => ({
   navigateToSessionThread,
 }));
 import type { LeaderThreadTabsProjectionTab } from "../../../shared/leader-thread-tabs-projection.js";
+import { useStore } from "../../store.js";
 import type { RecentSessionNode } from "../../utils/recent-sessions.js";
 import { SidebarThreadsMode, threadRows, type LeaderThreadsInput } from "./SidebarThreadsMode.js";
 
@@ -202,5 +203,66 @@ describe("SidebarThreadsMode", () => {
     expect(screen.getAllByTestId("threads-mode-row")[0]!.dataset.threadKey).toBe("q-44");
     fireEvent.click(screen.getByTestId("threads-mode-more"));
     expect(screen.getAllByTestId("threads-mode-row")).toHaveLength(35);
+  });
+
+  it("gives thread rows Takode's own menu on right-click, with the thread's actions", () => {
+    // Jiayi (Nov 1): right-clicking a row showed the browser's menu. A thread row now has its
+    // actions: open it (also in the side column), its quest and worker, read state, remind, link.
+    useStore.setState({
+      sessionBoards: new Map([["takode", [{ questId: "q-4", worker: "w-4", workerNum: 44 } as never]]]),
+    });
+    const onOpened = vi.fn();
+    render(
+      <SidebarThreadsMode
+        data={{ leaders: LEADERS, others: [] }}
+        currentSessionId={null}
+        onOpened={onOpened}
+        otherSessions={() => null}
+      />,
+    );
+    const row = screen.getAllByTestId("threads-mode-row").find((item) => item.dataset.threadKey === "q-4")!;
+    const event = fireEvent.contextMenu(row, { clientX: 20, clientY: 30 });
+    expect(event).toBe(false); // the browser's own menu is prevented
+    for (const label of ["Open", "Open quest", "Open worker #44", "Remind me later", "Copy link"]) {
+      expect(screen.getByRole("button", { name: label })).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(navigateToSessionThread).toHaveBeenCalledWith("takode", "q-4");
+    expect(onOpened).toHaveBeenCalled();
+    useStore.setState({ sessionBoards: new Map() });
+  });
+
+  it("gives leader rows the session cards' menu, with rename in the row", () => {
+    // The same session menu as the leader's card in the Spaces and Recent views (archive, rename...).
+    const onContextMenu = vi.fn();
+    const sessionRowProps = {
+      onContextMenu,
+      editingSessionId: null,
+      editingName: "",
+      setEditingName: vi.fn(),
+      onConfirmRename: vi.fn(),
+      onCancelRename: vi.fn(),
+    } as never;
+    const view = render(
+      <SidebarThreadsMode
+        data={{ leaders: LEADERS, others: [] }}
+        currentSessionId={null}
+        onOpened={() => {}}
+        otherSessions={() => null}
+        sessionRowProps={sessionRowProps}
+      />,
+    );
+    fireEvent.contextMenu(screen.getAllByTestId("threads-mode-leader")[1]!, { clientX: 5, clientY: 6 });
+    expect(onContextMenu).toHaveBeenCalledWith(expect.objectContaining({ clientX: 5, clientY: 6 }), "msi");
+    view.rerender(
+      <SidebarThreadsMode
+        data={{ leaders: LEADERS, others: [] }}
+        currentSessionId={null}
+        onOpened={() => {}}
+        otherSessions={() => null}
+        sessionRowProps={{ ...(sessionRowProps as object), editingSessionId: "msi", editingName: "Daily" } as never}
+      />,
+    );
+    expect((screen.getByTestId("threads-mode-leader-rename") as HTMLInputElement).value).toBe("Daily");
   });
 });

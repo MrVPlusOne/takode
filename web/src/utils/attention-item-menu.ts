@@ -11,7 +11,13 @@ import { parseQuestIdsFromReviewSummary } from "./attention-records.js";
 import type { NextAttentionItem } from "./next-attention.js";
 import { resolveNotificationOwnerThreadKey } from "./notification-thread.js";
 import { normalizeThreadKey } from "./thread-projection.js";
-import { absoluteUrlForHash, navigateToSession, routeSessionRefForId, sessionThreadHash } from "./routing.js";
+import {
+  absoluteUrlForHash,
+  navigateToSession,
+  openQuestOverlayRouteAware,
+  routeSessionRefForId,
+  sessionThreadHash,
+} from "./routing.js";
 import { canOpenInSide, openConversationInSide, openQuestInSide } from "./side-column.js";
 import { writeClipboardText } from "./copy-utils.js";
 
@@ -186,6 +192,30 @@ export async function markThreadRead(sessionId: string, threadKey: string): Prom
   await Promise.all(reviews.map((notification) => api.markNotificationDone(sessionId, notification.id, true)));
 }
 
+/** A thread's newest read result: the one "Mark as unread" brings back. */
+export function latestReadThreadResult(
+  notifications: readonly SessionNotification[] | undefined,
+  threadKey: string,
+): SessionNotification | undefined {
+  const target = normalizeThreadKey(threadKey);
+  return (notifications ?? [])
+    .filter(
+      (notification) =>
+        notification.category === "review" &&
+        notification.done &&
+        resolveNotificationOwnerThreadKey(notification) === target,
+    )
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+}
+
+/** Brings a thread's newest read result back as unread, as a session's "Mark as unread" does for the session. */
+export async function markThreadUnread(sessionId: string, threadKey: string): Promise<void> {
+  const notifications =
+    useStore.getState().sessionNotifications.get(sessionId) ?? (await api.getSessionNotifications(sessionId));
+  const latest = latestReadThreadResult(notifications, threadKey);
+  if (latest) await api.markNotificationDone(sessionId, latest.id, false);
+}
+
 /**
  * Remind the user about a thread later: it counts as read now and comes back as unread,
  * with a phone alert, when the time comes. `messageId` is the message it was set from.
@@ -245,15 +275,28 @@ export function threadMenuItems(input: {
   threadKey: string;
   workerId?: string;
   workerNum?: number;
+  /** Adds "Open quest" (its details) for a quest's thread. */
+  questId?: string;
+  /** Adds "Mark as read" for a thread with unread results, else "Mark as unread" for one that has read ones. */
+  read?: { unread: boolean; canMarkUnread: boolean };
   onLeave?: () => void;
 }): ContextMenuItem[] {
-  const { leaderId, threadKey, workerId, workerNum, onLeave } = input;
+  const { leaderId, threadKey, workerId, workerNum, questId, read, onLeave } = input;
   const items: ContextMenuItem[] = [];
   if (canOpenInSide()) {
     items.push({
       label: "Open in side column",
       onClick: () => {
         if (!openConversationInSide(leaderId, threadKey) && /^q-\d+$/.test(threadKey)) openQuestInSide(threadKey);
+        onLeave?.();
+      },
+    });
+  }
+  if (questId) {
+    items.push({
+      label: "Open quest",
+      onClick: () => {
+        openQuestOverlayRouteAware(questId);
         onLeave?.();
       },
     });
@@ -265,6 +308,17 @@ export function threadMenuItems(input: {
         navigateToSession(workerId);
         onLeave?.();
       },
+    });
+  }
+  if (read?.unread) {
+    items.push({
+      label: "Mark as read",
+      onClick: () => void markThreadRead(leaderId, threadKey).catch(logFailure("Mark as read")),
+    });
+  } else if (read?.canMarkUnread) {
+    items.push({
+      label: "Mark as unread",
+      onClick: () => void markThreadUnread(leaderId, threadKey).catch(logFailure("Mark as unread")),
     });
   }
   items.push(

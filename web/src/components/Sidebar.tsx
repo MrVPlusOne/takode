@@ -959,6 +959,7 @@ export function Sidebar({
               <SidebarThreadsMode
                 data={threadsData}
                 currentSessionId={currentSessionId}
+                sessionRowProps={sessionItemProps}
                 onOpened={() => {
                   setContextMenu(null);
                   if (!isDesktopLayout) useStore.getState().setSidebarOpen(false);
