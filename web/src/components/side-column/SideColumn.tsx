@@ -168,11 +168,12 @@ export function SideColumn({
                 if (element) bodyElements.current.set(id, element);
                 else bodyElements.current.delete(id);
               }}
-              className="isolate flex min-h-0 flex-col overflow-hidden"
+              className="isolate flex min-h-0 overflow-hidden"
               style={fixed || dragged !== undefined ? { height: size } : { maxHeight: size }}
               data-testid="side-section-body"
             >
-              {body}
+              {variant === "docked" && <ColumnScrollStrip scrollRef={scrollRef} />}
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</div>
             </div>
             <SectionEdge
               measure={() => bodyElements.current.get(id)?.getBoundingClientRect().height || size}
@@ -229,12 +230,9 @@ export function SideColumn({
           {variant === "sheet" ? "✕" : <CollapseIcon className="h-4 w-4" />}
         </button>
       </div>
-      <div className="flex min-h-0 flex-1">
-        {variant === "docked" && <ColumnScrollStrip scrollRef={scrollRef} />}
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
-          {items.map(itemSection)}
-          {itemSection(null)}
-        </div>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
+        {items.map(itemSection)}
+        {itemSection(null)}
       </div>
     </div>
   );
@@ -244,9 +242,11 @@ export function SideColumn({
 const WHEEL_LINE_PX = 16;
 
 /**
- * A narrow strip along the column's left edge that scrolls the whole column. The column scrolls and
- * so does each conversation in it, and a wheel over a conversation scrolls that conversation; over
- * this strip it scrolls the column (Jiayi, Oct 31). Desktop only: a phone's sheet scrolls by touch.
+ * A narrow strip on the left of a section's content that scrolls the whole column. The column
+ * scrolls and so does each conversation in it, and a wheel over a conversation scrolls that
+ * conversation; over this strip it scrolls the column (Jiayi, Oct 31). Header rows span the full
+ * width: a wheel over them already scrolls the column, and the indent sets a pane's content apart
+ * from its title bar. Desktop only: a phone's sheet scrolls by touch.
  */
 function ColumnScrollStrip({ scrollRef }: { scrollRef: RefObject<HTMLDivElement | null> }) {
   return (

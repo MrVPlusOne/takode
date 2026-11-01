@@ -529,15 +529,19 @@ describe("SideColumn", () => {
     }
   });
 
-  it("scrolls the whole column from the strip on its left edge, on desktop only", () => {
+  it("scrolls the whole column from the strip beside each section's content, on desktop only", () => {
     // Jiayi (Oct 31): the column scrolls and so does each conversation in it, and a wheel over a
     // conversation moves only that conversation. The strip moves the column, whatever is beside it.
+    // It sits only beside a section's content; header rows keep the full width (later the same day).
     const view = render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    const body = screen.getAllByTestId("side-section-body")[0]!;
+    expect(within(body).getByTestId("side-scroll-strip")).toBeTruthy();
+    expect(screen.getAllByTestId("side-scroll-strip")).toHaveLength(screen.getAllByTestId("side-section-body").length);
     const scroller = screen.getByTestId("side-scroll");
     const scrollBy = vi.fn();
     Object.defineProperty(scroller, "scrollBy", { value: scrollBy });
     Object.defineProperty(scroller, "clientHeight", { value: 400 });
-    const strip = screen.getByTestId("side-scroll-strip");
+    const strip = within(body).getByTestId("side-scroll-strip");
     fireEvent.wheel(strip, { deltaY: 120 });
     fireEvent.wheel(strip, { deltaY: 3, deltaMode: 1 });
     fireEvent.wheel(strip, { deltaY: -1, deltaMode: 2 });
