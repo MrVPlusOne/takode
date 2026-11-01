@@ -829,7 +829,7 @@ export function QuestThreadFeedChips({
   const working = !done && !!(row.rowStatus?.worker || row.boardRow?.worker);
   return (
     <div
-      className="pointer-events-auto inline-flex min-w-0 max-w-full flex-wrap items-center gap-1 self-start rounded-lg border border-cc-border/60 bg-cc-bg/90 px-1 py-0.5 text-xs shadow-sm backdrop-blur"
+      className="pointer-events-auto inline-flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 self-start rounded-lg border border-cc-border/60 bg-cc-bg/90 px-1 py-0.5 text-xs shadow-sm backdrop-blur"
       data-testid="quest-thread-feed-chips"
     >
       {ownership && (
@@ -839,22 +839,6 @@ export function QuestThreadFeedChips({
           fallbackLeaderSessionNum={row.leaderSessionNum}
           questId={questId}
         />
-      )}
-      {queued ? (
-        <QuestBannerQueuedStatusChip condition={queued} />
-      ) : row.journey ? (
-        <QuestJourneyHoverTarget row={row}>
-          <QuestJourneyTimeline
-            journey={row.journey}
-            status={journeyStatusForThread(row)}
-            variant="compact"
-            showNotes={false}
-            compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
-            className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ownership === "other-leader" ? "opacity-60" : ""}`}
-          />
-        </QuestJourneyHoverTarget>
-      ) : (
-        <QuestStatusFallbackPill status={row.status} />
       )}
       {openQuestionCount > 0 && <QuestBannerOpenQuestionsPill count={openQuestionCount} />}
       {working && (
@@ -882,6 +866,23 @@ export function QuestThreadFeedChips({
           fallbackCommitShas={row.commitShas}
           testId="quest-thread-diff-chip"
         />
+      )}
+      {/* Last, so it always ends the group at the feed's right edge: its place is predictable. */}
+      {queued ? (
+        <QuestBannerQueuedStatusChip condition={queued} />
+      ) : row.journey ? (
+        <QuestJourneyHoverTarget row={row}>
+          <QuestJourneyTimeline
+            journey={row.journey}
+            status={journeyStatusForThread(row)}
+            variant="compact"
+            showNotes={false}
+            compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
+            className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ownership === "other-leader" ? "opacity-60" : ""}`}
+          />
+        </QuestJourneyHoverTarget>
+      ) : (
+        <QuestStatusFallbackPill status={row.status} />
       )}
     </div>
   );

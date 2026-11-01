@@ -1371,6 +1371,9 @@ describe("ChatView chat surface and leader routing", () => {
     expect(chips.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
     expect(chips.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("data-testid", "quest-thread-participant");
     expect(chips.getByLabelText("Reviewer #1306")).toHaveAttribute("href", "#session-1306");
+    // The phase chip ends the group, so it always sits at the feed's right edge (Jiayi, Nov 1).
+    const group = scope.getByTestId("quest-thread-feed-chips");
+    expect(group.lastElementChild?.contains(scope.getByTestId("quest-journey-compact-summary"))).toBe(true);
   });
 
   it("shows queued Work Board wait reasons in the quest-thread banner", () => {

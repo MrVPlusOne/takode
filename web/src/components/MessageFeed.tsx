@@ -1780,6 +1780,7 @@ export function MessageFeed({
   useFeedLoadTiming(sessionId, normalizedThreadKey, showConversationLoading || showSelectedWindowLoading);
 
   const pinnedTop = useFeedPinnedTop(containerRef, contentRootRef, viewportLayoutSignature);
+  const [topRoom, setTopRoom] = useState(0);
   const feedTopControls = (
     <MessageFeedTopControls
       sessionId={sessionId}
@@ -1794,6 +1795,7 @@ export function MessageFeed({
       }}
       showCodexSubagents={showCodexSubagentControl}
       questChips={questChips}
+      onTopRoomChange={setTopRoom}
       dayPill={
         unreadAboveIndicator ?? (
           <MessageFeedDayPill
@@ -1854,7 +1856,8 @@ export function MessageFeed({
           data-feed-thread-key={normalizedThreadKey}
           data-feed-has-newer={hasNewerSections ? "true" : undefined}
           className="message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
-          style={{ overscrollBehavior: "contain" }}
+          // Quest chips float at the top: the feed starts below them, so its first line stays clear.
+          style={{ overscrollBehavior: "contain", ...(topRoom > 0 ? { paddingTop: topRoom } : {}) }}
         >
           <FeedNotificationProvider sessionId={sessionId} notifications={feedMessageModel.displayNotifications}>
             <PawTrailProvider scopeKey={`${sessionId}:${normalizedThreadKey}`} showNewestPaw={!hasNewerSections}>

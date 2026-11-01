@@ -216,6 +216,33 @@ describe("MessageFeedTopControls", () => {
     expect(view.container).toBeEmptyDOMElement();
   });
 
+  it("floats a quest thread's chips at the top right and asks the feed for room above its content", () => {
+    // Jiayi (Nov 1): the chips at the top left covered the conversation's first line. They now sit
+    // at the right, where they cover less, and the feed leaves their height (plus a gap) above its
+    // earliest content, so scrolled to the top nothing is under them.
+    installSession(false);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(30);
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockReturnValue(4);
+    const onTopRoomChange = vi.fn();
+    const props = {
+      sessionId: "session-1",
+      terminals: [],
+      subagents: [],
+      selectedToolUseId: null,
+      onSelect: vi.fn(),
+      onSelectSubagent: vi.fn(),
+      onDismissSubagent: vi.fn(),
+      onTopRoomChange,
+    };
+    const view = render(<MessageFeedTopControls {...props} questChips={<span data-testid="chips">Work</span>} />);
+    expect(screen.getByTestId("chips").parentElement).toHaveClass("ml-auto", "justify-end");
+    expect(onTopRoomChange).toHaveBeenLastCalledWith(4 + 30 + 8);
+    // Without chips the feed keeps its usual top padding.
+    view.rerender(<MessageFeedTopControls {...props} />);
+    expect(onTopRoomChange).toHaveBeenLastCalledWith(0);
+    vi.restoreAllMocks();
+  });
+
   describe("day pill placement", () => {
     const pill = <span data-testid="day-pill">Sun, Oct 25 · 2 days ago</span>;
     const baseProps = {
@@ -243,7 +270,7 @@ describe("MessageFeedTopControls", () => {
       installSession(false);
       const { rerender } = render(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} />);
       expect(screen.getByTestId("message-feed-top-overlay").className).toContain(
-        "top-[calc(var(--feed-pinned-bar,0px)+0.5rem)]",
+        "top-[calc(var(--feed-pinned-bar,0px)+0.25rem)]",
       );
       rerender(<MessageFeedTopControls {...baseProps} terminals={[]} dayPill={pill} belowPinnedStrip />);
       const overlay = screen.getByTestId("message-feed-top-overlay");
