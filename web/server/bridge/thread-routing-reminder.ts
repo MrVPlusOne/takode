@@ -720,7 +720,7 @@ export function buildMainAnswerReminderContent(kind: "result" | "request"): stri
     kind === "result"
       ? "You posted a new result in Main (`[thread:main:A]`). Main is only your log: the user's Home lists threads, so they won't see it there."
       : "You answered a request in Main. Main is only your log: the user's Home lists threads, so they see the answer only by opening the log.",
-    'Post what the user should read in the thread it is about (`[thread:q-N:A]`, `[thread:topic:<handle>:A]`), or open one first: `takode thread new "<subject>" --topic "<topic>"`. For a request still waiting in Main, hand it to that thread (`takode thread handoff <thread> --user uN`) and answer there. Commentary and shell commands in Main are fine: they are your log.',
+    'Post what the user should read in the thread it is about (`[thread:q-N:A]`, `[thread:t-N:A]`), or open one first: `takode thread new "<subject>" --topic "<topic>"`. For a request still waiting in Main, hand it to that thread (`takode thread handoff <thread> --user uN`) and answer there. Commentary and shell commands in Main are fine: they are your log.',
   ].join("\n");
 }
 
@@ -728,9 +728,9 @@ export function buildMainAnswerReminderContent(kind: "result" | "request"): stri
 export function buildUnknownThreadReminderContent(threadKey: string): string {
   return [
     THREAD_ROUTING_REMINDER_HEADER,
-    `Unknown thread \`${threadKey}\`: no thread has that handle (a topic's handle names no thread: topics are tags), so your output there shows in no thread view (only in All).`,
+    `Unknown thread \`${threadKey}\`: no thread has that address (a topic's handle names no thread: topics are tags), so your output there shows in no thread view (only in All).`,
     describeClosestThreads(threadKey),
-    "Thread handles come from the `[thread:topic:<handle>]` tag on the user's messages in that thread and from `takode thread new`. Post again in the thread you meant (`[thread:topic:<handle>:C]`, `:A:uN`, or a quest); answers to requests still follow the requests they name.",
+    "Thread addresses (`t-N`) come from the `[thread:t-N]` tag on the user's messages in that thread and from `takode thread new`. Post again in the thread you meant (`[thread:t-N:C]`, `:A:uN`, or a quest); answers to requests still follow the requests they name.",
   ].join("\n");
 }
 

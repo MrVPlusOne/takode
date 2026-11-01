@@ -1,4 +1,5 @@
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
+import { threadAddress } from "../../shared/topic-thread-key.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createHash } from "node:crypto";
@@ -40,7 +41,7 @@ export function createMarkdownReportRoutes(ctx: RouteContext) {
             {
               reportId: receipt.message.id,
               sessionId: session.id,
-              threadKey: receipt.message.threadKey,
+              threadKey: threadAddress(receipt.message.threadKey),
               sha256: receipt.message.source.sha256,
               bytes: Buffer.byteLength(receipt.message.content, "utf8"),
             },
@@ -77,7 +78,7 @@ export function publishSessionReport(
     return {
       error:
         "Leaders don't publish reports in Main: Main is your log, and the user's Home lists threads. " +
-        'Publish with --thread q-N or --thread topic:<handle> (open one with takode thread new "<subject>").',
+        'Publish with --thread q-N or --thread t-N (open one with takode thread new "<subject>").',
       status: 400,
     };
   }

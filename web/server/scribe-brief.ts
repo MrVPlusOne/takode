@@ -198,7 +198,7 @@ The user often comes back to an earlier request in a new thread ("the composer i
 now"). When Takode lists threads the user just started, check whether each plainly continues an
 earlier conversation of your leader: the same request or problem, picked up again. If it does, join
 it onto that conversation: \`takode scribe join <thread> <earlier>\`, where <earlier> is another
-thread (\`topic:<handle>\`) or a quest (\`q-N\`) whose thread it continues. The thread's messages
+thread (\`t-N\`) or a quest (\`q-N\`) whose thread it continues. The thread's messages
 then read after the earlier ones, with a line marking where they begin, and the thread leaves the
 lists. The same goes for a thread whose whole work became a quest: join it onto that quest, and the
 quest's thread is its home. Join only clear cases; a new subject in a familiar area stays a thread
@@ -237,7 +237,7 @@ hears about each join with its next delivery.
   suggest a name the user dismissed or redo a change the user undid; Takode tells you when you try.
 - Threads: the user can start a thread on purpose (New thread). It is not a topic: don't page it.
   When one settles (the user read its last answer) under no topic, Takode lists it: file it under the topic it plainly
-  belongs to (\`takode topic set topic:<handle> "<topic>"\`), or leave it; never make a topic for a
+  belongs to (\`takode topic set t-N "<topic>"\`), or leave it; never make a topic for a
   thread. Once filed, its news reaches that topic's page. Unsorted quests started from a thread take
   their thread along when you file them, so file them where the work belongs.
 

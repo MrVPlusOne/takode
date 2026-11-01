@@ -7,7 +7,7 @@ import type {
   TopicBrief,
   TopicSummary,
 } from "../../shared/library-topics.js";
-import { isKeyOfTopic, isTopicViewKey } from "../../shared/topic-thread-key.js";
+import { isKeyOfTopic, isTopicViewKey, rememberThreadNumbers } from "../../shared/topic-thread-key.js";
 import { topicApi } from "../api/topics.js";
 import { useStore } from "../store.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
@@ -82,6 +82,10 @@ const useLeaderThreadsStore = create<{ byLeader: Record<string, ThreadSummary[]>
 
 /** Records a leader's threads: the whole list, or one thread that changed. */
 export function rememberThreads(leaderId: string, threads: readonly ThreadSummary[], whole = true): void {
+  // So a thread's address (`t-17`) resolves here too, as in a link.
+  rememberThreadNumbers(
+    threads.flatMap((thread) => (thread.number === undefined ? [] : [[thread.number, thread.id] as const])),
+  );
   useLeaderThreadsStore.setState((state) => {
     const previous = state.byLeader[leaderId] ?? [];
     const next = whole

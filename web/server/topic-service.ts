@@ -1,5 +1,5 @@
 import { threadInteractionTimes } from "./topic-interaction.js";
-import { topicIdOfViewKey } from "../shared/topic-thread-key.js";
+import { threadAddress, topicIdOfViewKey } from "../shared/topic-thread-key.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
 import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
@@ -475,7 +475,10 @@ export class TopicService {
 
   /** The user undid a join: the leader hears with its next delivery. */
   noteThreadUnjoined(leaderId: string, thread: ThreadSummary & { from?: string }): void {
-    this.noteForLeader(leaderId, threadUnjoinedNotice({ key: thread.key, name: thread.name }, thread.from ?? "it"));
+    this.noteForLeader(
+      leaderId,
+      threadUnjoinedNotice({ key: thread.key, name: thread.name }, thread.from ? threadAddress(thread.from) : "it"),
+    );
   }
 
   /**

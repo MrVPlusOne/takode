@@ -32,7 +32,7 @@ export function prepareLeaderThreadHandoff(
   | { ok: false; error: string } {
   const toQuest = /^q-\d+$/.test(destination);
   if (!toQuest && !isTopicViewKey(destination)) {
-    return { ok: false, error: "The destination must be a quest (q-N) or a topic thread (topic:<handle>)" };
+    return { ok: false, error: "The destination must be a quest (q-N) or a thread (t-N)" };
   }
   if (userMessageIds.length === 0 || userMessageIds.some((id) => !isCanonicalLeaderUserMessageId(id))) {
     return { ok: false, error: "Provide exact user-message IDs such as u1" };

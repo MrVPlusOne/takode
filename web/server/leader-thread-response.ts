@@ -192,7 +192,7 @@ function isQuestKey(threadKey: string): boolean {
 
 function normalizeThreadKey(value: string): string {
   const threadKey = normalizeSelectedFeedThreadKey(value);
-  if (!isLeaderThreadKey(threadKey)) throw new Error("threadKey must be main, q-N or topic:<handle>.");
+  if (!isLeaderThreadKey(threadKey)) throw new Error("threadKey must be main, q-N or t-N.");
   return threadKey;
 }
 

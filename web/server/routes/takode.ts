@@ -58,6 +58,7 @@ import {
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
+import { threadAddress } from "../../shared/topic-thread-key.js";
 import { formatReplyContentForAssistant } from "../../shared/reply-context.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RequiredAuthResult, RouteContext } from "./context.js";
@@ -771,7 +772,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const rawThreadKey = c.req.query("threadKey");
     const threadTarget = rawThreadKey ? normalizeThreadTarget(rawThreadKey) : null;
     if (rawThreadKey && !threadTarget) {
-      return c.json({ error: "threadKey must be main, q-N or topic:<handle>" }, 400);
+      return c.json({ error: "threadKey must be main, q-N or t-N" }, 400);
     }
     const threadKey = threadTarget?.threadKey;
     const contextUsageHistory = bridgeSession?.contextUsageHistory ?? [];
@@ -861,7 +862,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const rawThreadKey = c.req.query("threadKey");
     const threadTarget = rawThreadKey ? normalizeThreadTarget(rawThreadKey) : null;
     if (rawThreadKey && !threadTarget) {
-      return c.json({ error: "threadKey must be main, q-N or topic:<handle>" }, 400);
+      return c.json({ error: "threadKey must be main, q-N or t-N" }, 400);
     }
 
     const history = wsBridge.getSession(sessionId)?.messageHistory ?? null;
@@ -921,7 +922,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const rawThreadKey = c.req.query("threadKey");
     const threadTarget = rawThreadKey ? normalizeThreadTarget(rawThreadKey) : null;
     if (rawThreadKey && !threadTarget) {
-      return c.json({ error: "threadKey must be main, q-N or topic:<handle>" }, 400);
+      return c.json({ error: "threadKey must be main, q-N or t-N" }, 400);
     }
     const results = grepMessageHistory(history, query, { limit, type, threadKey: threadTarget?.threadKey }, sessionId);
 
@@ -982,7 +983,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
             : "";
     const explicitRoute = rawThreadKey ? threadRouteForTarget(rawThreadKey) : null;
     if (rawThreadKey && routeKey(explicitRoute) === "main" && rawThreadKey.trim().toLowerCase() !== "main") {
-      return c.json({ error: "threadKey must be main, q-N or topic:<handle>" }, 400);
+      return c.json({ error: "threadKey must be main, q-N or t-N" }, 400);
     }
     const explicitThread = explicitRoute
       ? await resolveSentThread(explicitRoute, session.isOrchestrator ? wsBridge.getSession(id) : undefined)
@@ -1076,15 +1077,15 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
 
     const body = await c.req.json().catch(() => ({}));
-    // The thread to hand the messages off to: a quest, or a thread (`topic:<handle>`).
+    // The thread to hand the messages off to: a quest, or a thread (`t-N`, or its older `topic:<handle>`).
     const target = typeof body.questId === "string" ? normalizeThreadTarget(body.questId) : null;
     if (!target || target.threadKey === "main") {
-      return c.json({ error: "Give a quest ID (q-N) or a thread (topic:<handle>)" }, 400);
+      return c.json({ error: "Give a quest ID (q-N) or a thread (t-N)" }, 400);
     }
     const questId = target.threadKey;
     const targetQuestId = target.questId;
     if (isUnknownThreadKey(questId)) {
-      return c.json({ error: `No thread has the handle in ${questId}. ${describeClosestThreads(questId)}` }, 404);
+      return c.json({ error: `No thread is ${threadAddress(questId)}. ${describeClosestThreads(questId)}` }, 404);
     }
 
     const indices = new Set<number>();
@@ -1479,7 +1480,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const targets = buildLeaderAnswerTargets(session);
     const threadTarget = rawThreadKey ? threadRouteForTarget(rawThreadKey) : null;
     if (rawThreadKey && routeKey(threadTarget) === "main" && rawThreadKey.trim().toLowerCase() !== "main") {
-      return c.json({ error: "threadKey must be main, q-N or topic:<handle>" }, 400);
+      return c.json({ error: "threadKey must be main, q-N or t-N" }, 400);
     }
     const selection: LeaderAnswerTargetSelection =
       rawMsgIndex !== undefined
@@ -1946,7 +1947,7 @@ async function resolveSentThread(
   };
 }> {
   const questId = route.questId;
-  if (!questId) return { route, report: { threadKey: "main" } };
+  if (!questId) return { route, report: { threadKey: threadAddress(route.threadKey) } };
   if (!(await questStore.getQuest(questId))) {
     return {
       route: { threadKey: "main" },

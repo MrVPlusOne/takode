@@ -1,4 +1,5 @@
 import { formatThreadMarker } from "../../shared/thread-routing.js";
+import { threadAddress } from "../../shared/topic-thread-key.js";
 import { topicOfViewForLeader } from "../topic-views.js";
 import { LIBRARY_MESSAGE_SOURCE } from "../../shared/library-topics.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
@@ -87,7 +88,7 @@ export function buildUserMessageDeliveryPrefix(
 
 /**
  * For a message written in a topic's thread: `[topic: "<name>"; quests: q-12, q-9, …] ` after its
- * `[thread:topic:<handle>]` tag. The user wrote to the topic, not to a quest; the leader answers in
+ * `[thread:t-N]` tag. The user wrote to the topic, not to a quest; the leader answers in
  * the topic's thread or hands the message off to one of its quests.
  */
 function topicTag(threadKey: string | undefined): string {
@@ -97,11 +98,11 @@ function topicTag(threadKey: string | undefined): string {
   // A thread the user started (New thread) is not a topic: the leader names it, may file it under
   // a topic, and starts quests from it.
   if (topic.thread) {
-    const from = topic.thread.startedFrom ? `; started from ${topic.thread.startedFrom}` : "";
+    const from = topic.thread.startedFrom ? `; started from ${threadAddress(topic.thread.startedFrom)}` : "";
     const under = topic.thread.topicName ? `; filed under topic "${topic.thread.topicName}"` : "";
     // Leaders often forgot to name a thread; the reminder stays until they do.
     const unnamed = topic.thread.placeholderName
-      ? `; unnamed: name it after its subject with \`takode topic rename topic:${topic.thread.handle} "<name>"\``
+      ? `; unnamed: name it after its subject with \`takode topic rename ${threadAddress(`topic:${topic.thread.handle}`)} "<name>"\``
       : "";
     const opened = topic.thread.byLeader ? "; you opened it" : "";
     return `[user thread: "${topic.name}"${opened}${unnamed}${from}${under}] `;

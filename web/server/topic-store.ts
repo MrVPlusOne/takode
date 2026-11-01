@@ -1,5 +1,11 @@
 import { stripInlineMarkdown } from "../shared/markdown-plain-text.js";
-import { normalizeTopicKey, topicHandle } from "../shared/topic-thread-key.js";
+import {
+  isThreadNumberKey,
+  normalizeTopicKey,
+  rememberThreadNumbers,
+  topicHandle,
+  topicIdOfViewKey,
+} from "../shared/topic-thread-key.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -84,6 +90,8 @@ interface StoredTopic {
 
 interface StoredThread {
   leaderId: string;
+  /** Its short address's number (`t-17`): global, in the order threads started. */
+  number?: number;
   /** The leader opened it itself, for something it proposes or asks; else the user did. */
   startedBy?: "leader";
   startedFrom?: string;
@@ -169,6 +177,8 @@ interface TopicState {
   /** Per quest under a topic: its ticked checks and feedback entries already turned into events. */
   questMarks?: Record<string, QuestMark>;
   changes: StoredChange[];
+  /** The number the next thread gets (`t-N`). */
+  nextThreadNumber?: number;
 }
 
 /** A leader's Scribe: the worker in its herd that keeps its topic pages, and how the user set it. */
@@ -290,6 +300,7 @@ export class TopicStore {
       delete state.onByDefaultSince;
       this.dirty = true;
     }
+    this.numberThreads(state);
     // Retired with the leader's overview: the Scribe's order for it.
     for (const scribe of Object.values(state.scribes ?? {}) as Array<Record<string, unknown>>) {
       if (!("overviewOrder" in scribe)) continue;
@@ -607,6 +618,22 @@ export class TopicStore {
   }
 
   /**
+   * Gives every thread without one its number (`t-N`), in the order threads started, after the
+   * numbers already given, and makes them known to address resolution.
+   */
+  private numberThreads(state: TopicState): void {
+    const threads = Object.values(state.topics).filter((topic) => topic.thread);
+    let next = Math.max(state.nextThreadNumber ?? 1, ...threads.map((topic) => (topic.thread!.number ?? 0) + 1));
+    const unnumbered = threads
+      .filter((topic) => topic.thread!.number === undefined)
+      .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+    for (const topic of unnumbered) topic.thread!.number = next++;
+    if (unnumbered.length || state.nextThreadNumber !== next) this.dirty = true;
+    state.nextThreadNumber = next;
+    rememberThreadNumbers(threads.map((topic) => [topic.thread!.number!, topic.id] as const));
+  }
+
+  /**
    * Starts a thread the user opened with New thread: a lightweight conversation of the leader's
    * space, named after its first words until the leader names it. It is not a topic.
    */
@@ -620,8 +647,13 @@ export class TopicStore {
   }): ThreadSummary {
     const topic = this.createTopic(input.space, cleanName(input.name), "agent");
     const firstMessage = input.firstMessage?.trim().slice(0, 400);
+    const state = this.s();
+    const number = state.nextThreadNumber ?? 1;
+    state.nextThreadNumber = number + 1;
+    rememberThreadNumbers([[number, topic.id]]);
     topic.thread = {
       leaderId: input.leaderId,
+      number,
       ...(input.startedBy ? { startedBy: input.startedBy } : {}),
       ...(input.startedFrom ? { startedFrom: input.startedFrom } : {}),
       ...(firstMessage ? { firstMessage } : {}),
@@ -661,7 +693,8 @@ export class TopicStore {
 
   /** A thread by ID or handle (also `topic:<handle>`); undefined for topics and unknown refs. */
   thread(ref: string): StoredTopic | undefined {
-    const handle = topicHandle(ref.replace(/^topic:/i, ""));
+    // A thread number (`t-17`) or key (`topic:<handle>`), else an ID or handle.
+    const handle = topicIdOfViewKey(ref) ?? topicHandle(ref);
     const topic = Object.values(this.s().topics).find((candidate) => topicHandle(candidate.id) === handle);
     return topic?.thread ? topic : undefined;
   }
@@ -873,6 +906,7 @@ export class TopicStore {
     return {
       id: topic.id,
       key: `topic:${topicHandle(topic.id)}`,
+      ...(thread.number !== undefined ? { number: thread.number, address: `t-${thread.number}` } : {}),
       name: topic.name,
       leaderId: thread.leaderId,
       ...(thread.startedBy ? { startedBy: thread.startedBy } : {}),
@@ -1355,8 +1389,9 @@ export class TopicStore {
 
   /** A live topic by ID, unique ID prefix, or name in the given space. */
   resolve(ref: string, space?: string): StoredTopic | undefined {
-    // A thread key names its topic too (`topic:<handle>`).
+    // A thread key names its topic too (`topic:<handle>`), as does a thread number (`t-17`).
     if (/^topic:[0-9a-f]/i.test(ref)) ref = ref.slice("topic:".length);
+    else if (isThreadNumberKey(ref)) ref = topicIdOfViewKey(ref) ?? ref;
     const topics = this.s().topics;
     const direct = topics[ref];
     if (direct) return this.live(direct.id);

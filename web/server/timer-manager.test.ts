@@ -97,7 +97,7 @@ describe("TimerManager", () => {
       // REST input is untrusted even though the TypeScript input is a string.
       await expect(
         manager.createTimer("session-1", { title: "check build", in: "5m", threadKey: threadKey as string }),
-      ).rejects.toThrow("Timer thread must be main, q-N or topic:<handle>");
+      ).rejects.toThrow("Timer thread must be main, q-N or t-N");
       expect(mockFiles.size).toBe(0);
     });
 

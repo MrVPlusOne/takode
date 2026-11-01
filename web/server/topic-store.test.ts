@@ -1029,15 +1029,15 @@ describe("topic service", () => {
     expect(await service.deliver("leader")).toBe("sent");
     const text = injected.at(-1)!.text;
     expect(text).toContain("Threads the user just started");
-    expect(text).toContain(`- ${fresh.key} "The composer is a little high"`);
+    expect(text).toContain(`- ${fresh.address} "The composer is a little high"`);
     expect(text).toContain('It began: "The composer is a little high now when the keyboard is closed."');
     // Asked about: only the new thread. A thread the leader opened is its own subject, and the
     // earlier one was asked about before; both are among the threads it may continue.
     const [asked, candidates] = text.split("Your leader's other recent threads:");
-    expect(asked).not.toContain(opened.key);
-    expect(asked).not.toContain(earlier.key);
-    expect(candidates).toContain(`- ${earlier.key} "Collapsed composer sits low"`);
-    expect(candidates).toContain(opened.key);
+    expect(asked).not.toContain(opened.address!);
+    expect(asked).not.toContain(earlier.address!);
+    expect(candidates).toContain(`- ${earlier.address} "Collapsed composer sits low"`);
+    expect(candidates).toContain(opened.address!);
     await service.scribeTurnEnded(scribe);
     injected.length = 0;
     expect(await service.deliver("leader")).toBe("nothing");

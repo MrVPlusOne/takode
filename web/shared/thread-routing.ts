@@ -1,5 +1,11 @@
 import { isCanonicalLeaderUserMessageId } from "./leader-user-message-id.js";
-import { normalizeTopicKey, TOPIC_THREAD_KEY_PATTERN } from "./topic-thread-key.js";
+import {
+  isThreadNumberKey,
+  normalizeTopicKey,
+  threadAddress,
+  THREAD_NUMBER_PATTERN,
+  TOPIC_THREAD_KEY_PATTERN,
+} from "./topic-thread-key.js";
 
 export type ThreadRouteTarget = {
   threadKey: string;
@@ -26,10 +32,10 @@ export type ThreadRouteParseResult =
     };
 
 /**
- * A thread key as written in markers and commands: Main, a quest, or a topic's own thread
- * (`topic:<handle>`, see `topic-thread-key.ts`).
+ * A thread key as written in markers and commands: Main, a quest, or a thread, by its number
+ * (`t-17`) or its older handle (`topic:<handle>`, see `topic-thread-key.ts`).
  */
-export const THREAD_KEY_PATTERN = String.raw`main|q-\d+|${TOPIC_THREAD_KEY_PATTERN}`;
+export const THREAD_KEY_PATTERN = String.raw`main|q-\d+|${THREAD_NUMBER_PATTERN}|${TOPIC_THREAD_KEY_PATTERN}`;
 
 // An answer marker may list the user-message IDs it answers, or none for a
 // result presented on the leader's own initiative ([thread:q-N:A]). `A!` marks
@@ -83,7 +89,9 @@ export function normalizeThreadTarget(raw: string): ThreadRouteTarget | null {
   if (threadKey === "main") return { threadKey };
   if (isQuestThreadKey(threadKey)) return { threadKey, questId: threadKey };
   const topicKey = normalizeTopicKey(threadKey);
-  return topicKey ? { threadKey: topicKey } : null;
+  if (topicKey) return { threadKey: topicKey };
+  // A thread number this side doesn't know stays as written, so an unknown thread is reported.
+  return isThreadNumberKey(threadKey) ? { threadKey } : null;
 }
 
 export function inferThreadTargetFromTextContent(text: string): ThreadRouteTarget | null {
@@ -106,6 +114,8 @@ export function formatThreadMarker(
   answerUserMessageIds: readonly string[] = [],
   options: { urgent?: boolean } = {},
 ): string {
+  // Threads are written by their number (`t-17`) where it is known.
+  const address = threadAddress(threadKey);
   if (role === "answer") {
     if (
       answerUserMessageIds.some((id) => !isCanonicalLeaderUserMessageId(id)) ||
@@ -115,11 +125,11 @@ export function formatThreadMarker(
     }
     const answerRole = options.urgent ? "A!" : "A";
     return answerUserMessageIds.length === 0
-      ? `[thread:${threadKey}:${answerRole}]`
-      : `[thread:${threadKey}:${answerRole}:${answerUserMessageIds.join(",")}]`;
+      ? `[thread:${address}:${answerRole}]`
+      : `[thread:${address}:${answerRole}:${answerUserMessageIds.join(",")}]`;
   }
   const suffix = role === "commentary" ? ":C" : "";
-  return `[thread:${threadKey}${suffix}]`;
+  return `[thread:${address}${suffix}]`;
 }
 
 export function isThreadTextMarkerLikeAtLineStart(text: string): boolean {

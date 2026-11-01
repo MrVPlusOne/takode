@@ -145,7 +145,7 @@ describe("takode timers", () => {
 
       if (!valid) {
         expect(result.status).not.toBe(0);
-        expect(result.stderr).toContain("--thread requires main, q-N or topic:<handle>");
+        expect(result.stderr).toContain("--thread requires main, q-N or t-N");
         expect(receivedBody).toBeNull();
         return;
       }

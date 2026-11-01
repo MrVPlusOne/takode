@@ -288,9 +288,9 @@ Use --text-file - with a quoted heredoc to avoid a temporary file.
 `;
 
 const THREAD_HELP = `Usage: takode thread new "<name>" [--topic "<topic>"] [--json]
-       takode thread attach <quest-id|topic:<handle>> --message <index> [more-indices...] [--json]
-       takode thread attach <quest-id|topic:<handle>> --range <start-end> [--json]
-       takode thread attach <quest-id|topic:<handle>> --turn <turn> [--json]
+       takode thread attach <quest-id|t-N> --message <index> [more-indices...] [--json]
+       takode thread attach <quest-id|t-N> --range <start-end> [--json]
+       takode thread attach <quest-id|t-N> --turn <turn> [--json]
 
 Open a thread of your own (leaders), for a proposal or question that has no thread yet.
 
@@ -352,8 +352,8 @@ const REFRESH_BRANCH_HELP = `Usage: takode refresh-branch <session> [--json]
 Refresh git branch info for a session after checkout, rebase, or other branch changes.
 `;
 
-const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <q-N|topic:<handle>> | --quest <q-N>] [--suggest <answer>]... [--json]
-       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--no-checkpoint] [--thread <q-N|topic:<handle>> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
+const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <q-N|t-N> | --quest <q-N>] [--suggest <answer>]... [--json]
+       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--no-checkpoint] [--thread <q-N|t-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--json]
        takode notify resolve <notification-id> [--json]
 

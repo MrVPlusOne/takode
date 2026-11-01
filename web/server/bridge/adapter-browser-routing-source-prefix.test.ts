@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { setTopicViewSource } from "../topic-views.js";
+import { rememberThreadNumbers, resetThreadNumbersForTest } from "../../shared/topic-thread-key.js";
 import { buildAdapterUserMessageSourcePrefix } from "./adapter-browser-routing-source-prefix.js";
 
 /**
@@ -7,7 +8,10 @@ import { buildAdapterUserMessageSourcePrefix } from "./adapter-browser-routing-s
  * the leader tagged with that thread, plus the topic's name and its quests (newest first), so it can
  * answer in the topic's thread or hand the message off to one of the quests.
  */
-afterEach(() => setTopicViewSource(null));
+afterEach(() => {
+  setTopicViewSource(null);
+  resetThreadNumbersForTest();
+});
 
 describe("user message source tag", () => {
   const leader = () => ({ id: "leader" }) as never;
@@ -77,6 +81,30 @@ describe("user message source tag", () => {
     });
     expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "yes", "topic:88beef00", "u3")).toMatch(
       /\[user thread: "Faster eval sweeps"; you opened it\] $/,
+    );
+  });
+
+  it("names the thread, where it started and the rename command by address once threads are numbered", () => {
+    // Leaders read and write threads by their short address (`t-17`), so the tag uses it too.
+    rememberThreadNumbers([
+      [17, "55badbba"],
+      [4, "66cafe00"],
+    ]);
+    setTopicViewSource({
+      topicOf: (handle) =>
+        handle === "55badbba"
+          ? {
+              id: "55badbba-1111",
+              name: "Quick question: how do…",
+              thread: { startedFrom: "topic:66cafe00", placeholderName: true },
+            }
+          : null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "topic:55badbba", "u1")).toMatch(
+      /\[thread:t-17\] \[user thread: "Quick question: how do…"; unnamed: name it after its subject with `takode topic rename t-17 "<name>"`; started from t-4\] $/,
     );
   });
 

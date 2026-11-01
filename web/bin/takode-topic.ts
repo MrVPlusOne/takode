@@ -1,6 +1,7 @@
 import type { TopicDetail, TopicListResponse, TopicRenameSuggestion, TopicSummary } from "../shared/library-topics.js";
 import { apiGet, apiPatch, apiPost, err, formatRelativeTime, parseFlags } from "./takode-core.js";
 import { scopeLine } from "./quest-topic.js";
+import { isThreadNumberKey } from "../shared/topic-thread-key.js";
 
 export const TOPIC_HELP = `Usage: takode topic <command> ...
 
@@ -12,7 +13,7 @@ leader but filing quests with --topic.
   takode topic show <topic> [--json]                   A topic's page and quests (read it before
                                                        answering questions about the topic)
   takode topic set q-N "<topic>"                       File a quest under a topic (new name: new topic)
-  takode topic set topic:<thread> "<topic>"            File a user's thread under an existing topic
+  takode topic set t-N "<topic>"                     File a user's thread under an existing topic
   takode topic move q-N [q-M ...] "<topic>"            File quests under another topic (several in one
                                                        command are one change, undone together)
   takode topic rename <topic> "<name>" [--reason "<why>"]
@@ -55,9 +56,9 @@ export async function handleTopic(base: string, args: string[]): Promise<void> {
         return;
       }
       const [questId, topic] = positionals;
-      if (!questId || !topic) err(`Usage: takode topic ${subcommand} q-N|topic:<thread> "<topic>"`);
+      if (!questId || !topic) err(`Usage: takode topic ${subcommand} q-N|t-N "<topic>"`);
       // A thread (New thread) joins an existing topic; it is not a quest.
-      if (questId.toLowerCase().startsWith("topic:")) {
+      if (questId.toLowerCase().startsWith("topic:") || isThreadNumberKey(questId)) {
         const result = (await apiPost(base, `/topics/threads/${encodeURIComponent(questId)}/file`, { topic })) as {
           thread: { name: string; topic?: { name: string } };
         };

@@ -1,4 +1,10 @@
-import { topicHandle, topicIdOfViewKey, topicViewKey } from "../shared/topic-thread-key.js";
+import {
+  isThreadNumberKey,
+  threadAddress,
+  topicHandle,
+  topicIdOfViewKey,
+  topicViewKey,
+} from "../shared/topic-thread-key.js";
 
 /**
  * Which quests a topic conversation holds, and which topic conversation shows a quest: the
@@ -168,13 +174,15 @@ export function viewKeysOfRoutes(routeKeys: Iterable<string>): string[] {
 }
 
 /**
- * Whether a `topic:<handle>` key names no thread: a mistyped handle, or a topic's (topics are tags,
- * nobody writes in them). A message routed there shows in no view but All. False for other keys,
- * and while topics are not loaded.
+ * Whether a thread key names no thread: a thread number no thread has, a mistyped handle, or a
+ * topic's (topics are tags, nobody writes in them). A message routed there shows in no view but
+ * All. False for other keys, and while topics are not loaded.
  */
 export function isUnknownThreadKey(threadKey: string): boolean {
+  if (!source) return false;
   const handle = topicIdOfViewKey(threadKey);
-  return !!handle && !!source && !source.topicOf(handle)?.thread;
+  if (!handle) return isThreadNumberKey(threadKey);
+  return !source.topicOf(handle)?.thread;
 }
 
 /**
@@ -182,12 +190,18 @@ export function isUnknownThreadKey(threadKey: string): boolean {
  * then most recent activity), at most `limit`, for a warning that suggests the intended one.
  */
 export function closestThreads(threadKey: string, limit = 3): Array<{ key: string; name: string }> {
-  const handle = topicIdOfViewKey(threadKey);
-  if (!handle || !source?.listThreads) return [];
+  if (!source?.listThreads) return [];
+  // A thread number is compared by its digits, a handle by its characters.
+  const written = isThreadNumberKey(threadKey) ? threadKey.trim().toLowerCase() : topicIdOfViewKey(threadKey);
+  if (!written) return [];
   return source
     .listThreads()
-    .map((thread, order) => ({ key: topicViewKey(thread.id), name: thread.name, order }))
-    .map((thread) => ({ ...thread, distance: editDistance(handle, thread.key.slice("topic:".length)) }))
+    .map((thread, order) => {
+      const key = topicViewKey(thread.id);
+      const address = threadAddress(key);
+      const compared = isThreadNumberKey(written) ? address : key.slice("topic:".length);
+      return { key: address, name: thread.name, order, distance: editDistance(written, compared) };
+    })
     .sort((a, b) => a.distance - b.distance || a.order - b.order)
     .slice(0, limit)
     .map(({ key, name }) => ({ key, name }));

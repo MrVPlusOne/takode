@@ -15,7 +15,7 @@ export function normalizeNotifyThreadRoute(
   if (!rawThreadKey && !rawQuestId) return { ok: true };
 
   const threadTarget = rawThreadKey ? normalizeThreadTarget(rawThreadKey) : null;
-  if (rawThreadKey && !threadTarget) return { ok: false, error: "threadKey must be main, q-N or topic:<handle>" };
+  if (rawThreadKey && !threadTarget) return { ok: false, error: "threadKey must be main, q-N or t-N" };
 
   const questTarget = rawQuestId ? normalizeThreadTarget(rawQuestId) : null;
   if (rawQuestId && (!questTarget || questTarget.threadKey === "main")) {
@@ -36,5 +36,5 @@ export function normalizeNotifyThreadRoute(
  */
 export const LEADER_NOTIFY_IN_MAIN_ERROR =
   "Leaders don't ask or report in Main: Main is your log, and the user's Home lists threads, not Main. " +
-  "Ask in the thread it is about (--thread q-N or --thread topic:<handle>), or open one first: " +
-  'takode thread new "<subject>" --topic "<topic>", then takode notify ... --thread topic:<handle>.';
+  "Ask in the thread it is about (--thread q-N or --thread t-N), or open one first: " +
+  'takode thread new "<subject>" --topic "<topic>", then takode notify ... --thread t-N.';

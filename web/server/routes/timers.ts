@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import * as sessionNames from "../session-names.js";
 import type { RouteContext } from "./context.js";
 import { normalizeThreadRoute } from "../thread-routing-metadata.js";
+import { threadAddress } from "../../shared/topic-thread-key.js";
 import type { TimerCreateInput } from "../timer-types.js";
 
 export function createTimerRoutes(ctx: RouteContext) {
@@ -75,7 +76,7 @@ export function createTimerRoutes(ctx: RouteContext) {
         body = { ...body, threadKey: route.threadKey };
       }
       const timer = await ctx.timerManager.createTimer(sessionId, body);
-      return c.json({ timer }, 201);
+      return c.json({ timer: withThreadAddress(timer) }, 201);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return c.json({ error: msg }, 400);
@@ -94,7 +95,7 @@ export function createTimerRoutes(ctx: RouteContext) {
     if (!ctx.timerManager) return c.json({ error: "Timer manager not available" }, 503);
 
     const timers = ctx.timerManager.listTimers(sessionId);
-    return c.json({ timers });
+    return c.json({ timers: timers.map(withThreadAddress) });
   });
 
   // DELETE /api/sessions/:id/timers/:timerId — cancel a timer
@@ -116,4 +117,9 @@ export function createTimerRoutes(ctx: RouteContext) {
   });
 
   return api;
+}
+
+/** A timer as the takode CLI prints it: its thread by address (`t-17`), as agents write it. */
+function withThreadAddress<T extends { threadKey?: string }>(timer: T): T {
+  return timer.threadKey ? { ...timer, threadKey: threadAddress(timer.threadKey) } : timer;
 }

@@ -36,7 +36,7 @@ import { awaitDelivery, printDelivery, type MessageDelivery } from "./takode-sen
 import { resolveLeaderSpawnSessionSpace, validateLeaderSpawnFlags } from "./takode-spawn-leader.js";
 
 const THREAD_HELP = `Usage: takode thread new "<name>" [--topic "<topic>"] [--json]
-       takode thread attach <quest-id|topic:<handle>> --message <index> [more-indices...] [--json]
+       takode thread attach <quest-id|t-N> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id> --message 174 175 --json
        takode thread attach <quest-id> --range 174-182
        takode thread attach <quest-id> --turn 3
@@ -53,8 +53,8 @@ Do not combine stdin and positional response text.
 Answer a pending needs-input question or approve/reject an ExitPlanMode prompt from a herded session.
 `;
 
-const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <q-N|topic:<handle>> | --quest <q-N>] [--suggest <answer>]... [--json]
-       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--no-checkpoint] [--thread <q-N|topic:<handle>> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
+const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <q-N|t-N> | --quest <q-N>] [--suggest <answer>]... [--json]
+       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--no-checkpoint] [--thread <q-N|t-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--muted] [--json]
        takode notify mute <notification-id> [--json]
        takode notify unmute <notification-id> [--json]
@@ -195,7 +195,7 @@ export async function handleThread(base: string, args: string[]): Promise<void> 
   if (!raw) err(THREAD_HELP.trim());
   const target = normalizeThreadTarget(raw);
   if (!target || target.threadKey === "main") {
-    err(`Invalid thread "${raw}": give a quest ID (q-42) or a topic thread (topic:8df94bcb)`);
+    err(`Invalid thread "${raw}": give a quest ID (q-42) or a thread (t-17)`);
   }
   const questId = target.threadKey;
 
@@ -1943,7 +1943,7 @@ async function resolveHostId(base: string, name: string): Promise<string | undef
 
 /**
  * A leader opens a thread of its own, for something it proposes or asks that belongs to no quest or
- * thread yet, and writes there (`[thread:topic:<handle>:…]`). Filed under a topic when given.
+ * thread yet, and writes there (`[thread:t-N:…]`). Filed under a topic when given.
  */
 async function handleThreadNew(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
@@ -1955,12 +1955,13 @@ async function handleThreadNew(base: string, args: string[]): Promise<void> {
     leader: getCallerSessionId(),
     name,
     ...(typeof flags.topic === "string" ? { topic: flags.topic } : {}),
-  })) as { thread: { key: string; name: string; topic?: { name: string } } };
+  })) as { thread: { key: string; address?: string; name: string; topic?: { name: string } } };
   if (flags.json === true) {
     console.log(JSON.stringify(result.thread, null, 2));
     return;
   }
-  const { key, topic } = result.thread;
+  const { topic } = result.thread;
+  const key = result.thread.address ?? result.thread.key;
   console.log(`Started the thread "${result.thread.name}" (${key})${topic ? ` under "${topic.name}"` : ""}.`);
   console.log(
     `Write in it with [thread:${key}:A] or [thread:${key}:C]; ask with takode notify needs-input --thread ${key}.`,

@@ -55,6 +55,10 @@ export interface ThreadSummary {
   id: string;
   /** Its thread key: `topic:<handle>` (threads share the topic-thread plumbing). */
   key: string;
+  /** Its number, global in the order threads started; absent only on older servers. */
+  number?: number;
+  /** Its short address for agents and people: `t-<number>`. */
+  address?: string;
   name: string;
   leaderId: string;
   /** The leader opened it, for something it proposes or asks; the user started every other. */

@@ -1,6 +1,6 @@
 import { joinThread, unjoinThread } from "../thread-join.js";
 import { questHomeLine, threadHomeLines, type HomeLine } from "../home-lines.js";
-import { topicHandle } from "../../shared/topic-thread-key.js";
+import { normalizeTopicKey, threadAddress, topicHandle } from "../../shared/topic-thread-key.js";
 import { topicInteractionAt } from "../topic-interaction.js";
 import { Hono, type Context } from "hono";
 import { getQuest, listQuests } from "../quest-store.js";
@@ -693,7 +693,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         by: caller(c) ?? leaderId,
       });
       svc.noteThreadJoined(leaderId, joined);
-      return { thread: joined.thread, into: joined.into, messages: joined.messages };
+      return { thread: threadAddress(joined.thread), into: threadAddress(joined.into), messages: joined.messages };
     }),
   );
 
@@ -817,18 +817,20 @@ function startedFromThread(quest: QuestmasterTask): string | undefined {
 /** A Home line is one plain line, at most this long. */
 const HOME_LINE_MAX = 140;
 
-/** The lines a Scribe sends: `q-N` or `topic:<handle>` keys, each a short single line. */
+/** The lines a Scribe sends: `q-N` or thread (`t-N`) keys, each a short single line. */
 function parseHomeLines(value: unknown): Array<{ key: string; text: string }> {
   if (!Array.isArray(value) || value.length === 0) throw new TopicStoreError("Send the lines.");
   return value.map((line) => {
-    const key = typeof line?.key === "string" ? line.key.trim().toLowerCase() : "";
+    const written = typeof line?.key === "string" ? line.key.trim().toLowerCase() : "";
+    // A thread is kept by its handle, whichever way it was written (`t-17`, `topic:<handle>`).
+    const key = /^q-\d+$/.test(written) ? written : (normalizeTopicKey(written) ?? "");
     const text = typeof line?.text === "string" ? line.text.trim() : "";
     if (!/^(q-\d+|topic:[0-9a-f]{8})$/.test(key)) {
-      throw new TopicStoreError(`"${key}" is not a quest (q-N) or thread (topic:<handle>).`);
+      throw new TopicStoreError(`"${written}" is not a quest (q-N) or thread (t-N).`);
     }
-    if (!text || text.includes("\n")) throw new TopicStoreError(`The line for ${key} must be one line of text.`);
+    if (!text || text.includes("\n")) throw new TopicStoreError(`The line for ${written} must be one line of text.`);
     if (text.length > HOME_LINE_MAX) {
-      throw new TopicStoreError(`Keep the line for ${key} to ${HOME_LINE_MAX} characters (it has ${text.length}).`);
+      throw new TopicStoreError(`Keep the line for ${written} to ${HOME_LINE_MAX} characters (it has ${text.length}).`);
     }
     return { key, text };
   });

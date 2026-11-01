@@ -1,4 +1,5 @@
 import type { TopicEvent } from "../shared/library-topics.js";
+import { threadAddress } from "../shared/topic-thread-key.js";
 
 /**
  * The messages Takode sends a Scribe by itself: start initialization, what changed since the last
@@ -112,7 +113,7 @@ export function updateMessage(
       });
       const num = message.sessionNum ?? "?";
       lines.push(
-        `- ${time} · to #${num} in ${message.threadKey} ([message](session:${num}:${message.index})): "${message.text}"`,
+        `- ${time} · to #${num} in ${threadAddress(message.threadKey)} ([message](session:${num}:${message.index})): "${message.text}"`,
       );
     }
   }
@@ -128,7 +129,9 @@ export function updateMessage(
       'Threads the user started that settled (their last answer was read) under no topic: file each under the topic it plainly belongs to (`takode topic set <thread> "<topic>"`; `takode topic list` shows the topics), or leave it unfiled; never make a topic for a thread:',
     );
     for (const thread of settledThreads) {
-      lines.push(`- ${thread.key} "${thread.name}"${thread.startedFrom ? `, started from ${thread.startedFrom}` : ""}`);
+      lines.push(
+        `- ${threadAddress(thread.key)} "${thread.name}"${thread.startedFrom ? `, started from ${threadAddress(thread.startedFrom)}` : ""}`,
+      );
       if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
     }
   }
@@ -138,12 +141,12 @@ export function updateMessage(
       "Threads the user just started: does one continue an earlier conversation (the same request or problem, picked up again)? Then join it onto that conversation with `takode scribe join <thread> <earlier>`, where <earlier> is another thread or a quest whose thread it is (`takode scribe quests --since 14d` lists your leader's quests). Join only when it plainly continues one; a new subject stays a thread of its own. The user sees the join and can undo it.",
     );
     for (const thread of joinChecks.threads) {
-      lines.push(`- ${thread.key} "${thread.name}"`);
+      lines.push(`- ${threadAddress(thread.key)} "${thread.name}"`);
       if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
     }
     if (joinChecks.earlier.length) {
       lines.push("Your leader's other recent threads:");
-      for (const thread of joinChecks.earlier) lines.push(`- ${thread.key} "${thread.name}"`);
+      for (const thread of joinChecks.earlier) lines.push(`- ${threadAddress(thread.key)} "${thread.name}"`);
     }
   }
   if (newTopics.length) {
@@ -213,13 +216,13 @@ export function threadJoinedNotice(
   thread: { key: string; name: string },
   into: { key: string; name?: string },
 ): string {
-  const onto = into.name ? `${into.key} "${into.name}"` : into.key;
-  return `Your Scribe #${scribeNum ?? "?"} joined the thread "${thread.name}" (${thread.key}) onto ${onto}: it continues that conversation, so answer there. The user can undo it.`;
+  const onto = into.name ? `${threadAddress(into.key)} "${into.name}"` : threadAddress(into.key);
+  return `Your Scribe #${scribeNum ?? "?"} joined the thread "${thread.name}" (${threadAddress(thread.key)}) onto ${onto}: it continues that conversation, so answer there. The user can undo it.`;
 }
 
 /** For the leader: the user undid a join, so the thread is a conversation of its own again. */
 export function threadUnjoinedNotice(thread: { key: string; name: string }, from: string): string {
-  return `The user undid joining the thread "${thread.name}" (${thread.key}) onto ${from}: it is a conversation of its own again.`;
+  return `The user undid joining the thread "${thread.name}" (${threadAddress(thread.key)}) onto ${from}: it is a conversation of its own again.`;
 }
 
 /** For the leader, once, when its Scribe's turns keep failing (often its login or the model service). */

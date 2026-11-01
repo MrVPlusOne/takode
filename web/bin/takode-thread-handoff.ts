@@ -2,7 +2,7 @@ import { isCanonicalLeaderUserMessageId } from "../shared/leader-user-message-id
 import { normalizeThreadTarget } from "../shared/thread-routing.ts";
 import { apiPost, err, getCallerSessionId } from "./takode-core.js";
 
-export const THREAD_HANDOFF_HELP = `Usage: takode thread handoff <quest-id|topic:<handle>> --user <uN> [more-ids...] [--notification <n-N> ...] [--json]
+export const THREAD_HANDOFF_HELP = `Usage: takode thread handoff <quest-id|t-N> --user <uN> [more-ids...] [--notification <n-N> ...] [--json]
 
 Transfer selected pending requests to an active quest: from Main (with their exact existing decision
 notifications) or from a topic's thread. Main requests can also go to a topic's thread.
@@ -74,7 +74,7 @@ function parseHandoffArgs(args: string[]): {
   if (!raw) err(THREAD_HANDOFF_HELP.trim());
   const target = normalizeThreadTarget(raw);
   if (!target || target.threadKey === "main") {
-    err(`Invalid destination "${raw}": give a quest ID (q-42) or a topic thread (topic:8df94bcb)`);
+    err(`Invalid destination "${raw}": give a quest ID (q-42) or a thread (t-17)`);
   }
   const questId = target.threadKey;
 

@@ -1,4 +1,5 @@
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
+import { threadAddress } from "../../shared/topic-thread-key.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { isAbsolute } from "node:path";
@@ -70,7 +71,7 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
       return c.json(
         {
           reviewId,
-          threadKey: receipt.message.threadKey,
+          threadKey: threadAddress(receipt.message.threadKey),
           files: stats.files,
           additions: stats.additions,
           deletions: stats.deletions,
@@ -124,7 +125,7 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
       return c.json(
         {
           reviewId,
-          threadKey: receipt.message.threadKey,
+          threadKey: threadAddress(receipt.message.threadKey),
           title: map.title,
           questions: map.stops.filter((stop) => stop.tier === "decide").length,
         },

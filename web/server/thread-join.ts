@@ -33,7 +33,7 @@ export interface ThreadJoined {
 
 /**
  * Joins `threadKey` (a thread of `leaderId`) onto `intoKey`: `q-N` (a quest on the leader's boards)
- * or `topic:<handle>` (another of its threads). `by` is the session that asked (its Scribe).
+ * or a thread (`t-N`, or its older `topic:<handle>`). `by` is the session that asked (its Scribe).
  */
 export function joinThread(
   bridge: Bridge,
@@ -57,7 +57,7 @@ export function joinThread(
     throw new TopicStoreError(`${questId} is not on your leader's board.`, 404);
   }
   if (!questId && !intoKey.startsWith("topic:")) {
-    throw new TopicStoreError("Join onto a quest's thread (q-N) or another thread (topic:<handle>).");
+    throw new TopicStoreError("Join onto a quest's thread (q-N) or another thread (t-N).");
   }
   // Checks the destination and records the join before anything is attached.
   const summary = store.joinThread(threadKey, intoKey);

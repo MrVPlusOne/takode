@@ -1,11 +1,11 @@
 import { apiPost } from "./takode-core.js";
 import { readMarkdownReportFile } from "./markdown-report-file.js";
 
-export const REPORT_HELP = `Usage: takode report <markdown-file> --thread <q-N|topic:<handle>|main> [--worker <session>] [--json]
+export const REPORT_HELP = `Usage: takode report <markdown-file> --thread <q-N|t-N|main> [--worker <session>] [--json]
 
 Read an exact local Markdown file under your existing permissions and publish a frozen,
 annotatable copy into your own session. The original file and its links are not rewritten.
-Leaders publish into the thread the report is about (q-N or topic:<handle>); Main, a leader's
+Leaders publish into the thread the report is about (q-N or t-N); Main, a leader's
 log, is refused. Workers publish into their own session with --thread main.
 Files above 2 MiB, invalid UTF-8, and empty files are rejected, never truncated.
 --worker names the worker whose checkout resolves the report's Takode file: links.

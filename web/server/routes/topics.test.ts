@@ -481,7 +481,8 @@ describe("topic routes", () => {
     const later = store.startThread({ space: "MSI", name: "Composer a bit high", leaderId: "leader" });
     setCaller("scribe");
     const joined = await send("/scribe/join", "POST", { thread: later.key, into: earlier.key });
-    expect(await joined.json()).toMatchObject({ thread: later.key, into: earlier.key });
+    // The Scribe reads both threads back by their addresses.
+    expect(await joined.json()).toMatchObject({ thread: later.address, into: earlier.address });
     expect((await send("/scribe/join", "POST", { thread: later.key, into: "q-2" })).status).toBe(409);
     expect(service.rideAlongNotes().take("leader")).toContain("Composer a bit high");
 
@@ -505,9 +506,15 @@ describe("topic routes", () => {
     });
     expect(await saved.json()).toEqual({ saved: 1 });
     expect((await lines())["q-1"]).toMatchObject({ text: "T7 is live; the phone check is left.", source: "scribe" });
+    // A thread's line may name it by address (`t-N`); it is kept under the thread's key.
+    const thread = store.startThread({ space: "MSI", name: "Relay", leaderId: "leader" });
+    const byAddress = await send("/scribe/lines", "POST", { lines: [{ key: thread.address, text: "Relay is up." }] });
+    expect(await byAddress.json()).toEqual({ saved: 1 });
+    expect(store.homeLines("leader")[thread.key]).toMatchObject({ text: "Relay is up." });
     // One short plain line for a quest or a thread.
     for (const bad of [
       { key: "T7", text: "x" },
+      { key: "t-999", text: "x" },
       { key: "q-1", text: "two\nlines" },
       { key: "q-1", text: "x".repeat(141) },
     ]) {

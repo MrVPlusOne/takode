@@ -8,6 +8,7 @@ import { leaderResponseProvenCurrentOwnerThreadKey } from "../../shared/leader-t
 import { extractThreadStatusMarkersFromText } from "../../shared/thread-status-marker.js";
 import { registerTakodeThreadHandoffRoute } from "./takode-thread-handoff.js";
 import { setTopicViewSource } from "../topic-views.js";
+import { rememberThreadNumbers, resetThreadNumbersForTest } from "../../shared/topic-thread-key.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { _resetThreadAttachmentBroadcastsForTest } from "./takode-thread-attachment-broadcast.js";
 import type { RouteContext } from "./context.js";
@@ -393,7 +394,7 @@ describe("handoff to a key that names no thread", () => {
     const response = await handoff({ questId: "topic:6fd2c4bc", userMessageIds: ["u1"] });
     expect(response.status).toBe(404);
     expect((await response.json()).error).toBe(
-      'No thread has the handle in topic:6fd2c4bc. Closest threads: `topic:6fd2c4bb` "Relay testing".',
+      'No thread is topic:6fd2c4bc. Closest threads: `topic:6fd2c4bb` "Relay testing".',
     );
     expect((await handoff({ questId: "topic:aa11bb22", userMessageIds: ["u1"] })).status).toBe(404);
     expect(session.messageHistory).toEqual(before);
@@ -408,6 +409,34 @@ describe("handoff to a key that names no thread", () => {
     ).toEqual(["u1"]);
     const withDecision = await handoff({ questId: "topic:6fd2c4bb", userMessageIds: ["u2"], notificationIds: ["n-1"] });
     expect((await withDecision.json()).error).toBe("Decision notifications can be handed off to a quest only");
+  });
+
+  it("hands off to a thread by its address (t-N) and names threads by address in its replies", async () => {
+    // Leaders write threads by their short address; the handoff resolves it to the thread, and its
+    // errors and result name threads the same way.
+    rememberThreadNumbers([[12, "6fd2c4bb"]]);
+    setTopicViewSource({
+      topicOf: (handle) => (handle === "6fd2c4bb" ? { id: "6fd2c4bb-0000", name: "Relay testing", thread: {} } : null),
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+      listThreads: () => [{ id: "6fd2c4bb-0000", name: "Relay testing" }],
+    });
+    try {
+      const { session, handoff } = fixture();
+      const missing = await handoff({ questId: "t-13", userMessageIds: ["u1"] });
+      expect(missing.status).toBe(404);
+      expect((await missing.json()).error).toBe('No thread is t-13. Closest threads: `t-12` "Relay testing".');
+      const accepted = await handoff({ questId: "t-12", userMessageIds: ["u1"] });
+      expect(await accepted.json()).toMatchObject({ ok: true, questId: "t-12", handedOffUserMessageIds: ["u1"] });
+      expect(
+        buildLeaderThreadResponseState(session, "topic:6fd2c4bb").projection.pendingMessages.map(
+          (row) => row.userMessageId,
+        ),
+      ).toEqual(["u1"]);
+    } finally {
+      resetThreadNumbersForTest();
+    }
   });
 });
 

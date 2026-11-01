@@ -101,10 +101,10 @@ function userSourceLabel(msg: TakodeMessageSourceLike): string {
 
 function parseThreadFilterFlag(value: string | boolean | undefined): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "string" || !value.trim()) err("--thread requires a thread key: main, q-N or topic:<handle>.");
+  if (typeof value !== "string" || !value.trim()) err("--thread requires a thread key: main, q-N or t-N.");
   const target = normalizeThreadTarget(value);
   if (target) return target.threadKey;
-  err(`Invalid --thread "${formatInlineText(value)}". Must be main, q-N or topic:<handle>.`);
+  err(`Invalid --thread "${formatInlineText(value)}". Must be main, q-N or t-N.`);
 }
 
 function appendThreadQueryParam(params: URLSearchParams, threadKey: string | undefined): void {

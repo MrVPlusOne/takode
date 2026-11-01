@@ -32,10 +32,10 @@ For the Scribe:
                                                        each (a few a day at most; they reach it with
                                                        its next delivery)
   takode scribe lines --file <path>|-                  Lines of news for your leader's Home, one per
-                                                       line: <q-N|topic:handle> | <one plain line>
+                                                       line: <q-N|t-N> | <one plain line>
                                                        (each replaces that thread's earlier line)
   takode scribe join <thread> <earlier>                A thread that continues an earlier
-                                                       conversation (a thread, topic:<handle>, or a
+                                                       conversation (a thread, t-N, or a
                                                        quest's thread, q-N): join it on, so the two
                                                        read as one
   takode scribe quests [--unsorted] [--since 30d]      Your leader's recent quests (--unsorted: those
@@ -300,14 +300,14 @@ export function lineList(text: string): string[] {
     .filter(Boolean);
 }
 
-/** `takode scribe lines` input: `<q-N|topic:handle> | <line>` per line; blank lines and bullets allowed. */
+/** `takode scribe lines` input: `<q-N|t-N> | <line>` per line; blank lines and bullets allowed. */
 export function parseHomeLineInput(text: string): Array<{ key: string; text: string }> {
   const lines: Array<{ key: string; text: string }> = [];
   for (const raw of text.split("\n")) {
     const line = raw.trim().replace(/^[-*]\s+/, "");
     if (!line) continue;
     const bar = line.indexOf("|");
-    if (bar < 0) err(`Each line is "<q-N|topic:handle> | <line>": "${line.slice(0, 60)}"`);
+    if (bar < 0) err(`Each line is "<q-N|t-N> | <line>": "${line.slice(0, 60)}"`);
     lines.push({ key: line.slice(0, bar).trim(), text: line.slice(bar + 1).trim() });
   }
   if (lines.length === 0) err("No lines given.");
