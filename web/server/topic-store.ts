@@ -191,8 +191,6 @@ interface StoredScribe {
    * isn't asked on every update; back under the target, it is cleared.
    */
   consolidationAskedAt?: number;
-  /** When the current Scribe session started; a day-old one is replaced by a fresh one. */
-  startedAt?: number;
   /** The user's messages to other leaders up to this time were sent to the Scribe. */
   elsewhereSeen?: number;
   /** Loose-ends messages to the leader today, so a Scribe can't flood it. */
@@ -347,21 +345,7 @@ export class TopicStore {
     const scribe = this.scribeRecord(leaderId);
     if (scribe.sessionId === sessionId) return;
     scribe.sessionId = sessionId;
-    scribe.startedAt = sessionId ? this.now() : undefined;
     scribe.instructionsSentAt = undefined;
-    this.dirty = true;
-  }
-
-  /** When the leader's current Scribe session started (unknown for Scribes started before this was kept). */
-  scribeStartedAt(leaderId: string): number | undefined {
-    return this.s().scribes?.[leaderId]?.startedAt;
-  }
-
-  /** Records when a running Scribe started, for one started before this was kept: from now. */
-  noteScribeRunning(leaderId: string): void {
-    const scribe = this.scribeRecord(leaderId);
-    if (scribe.startedAt !== undefined || !scribe.sessionId) return;
-    scribe.startedAt = this.now();
     this.dirty = true;
   }
 

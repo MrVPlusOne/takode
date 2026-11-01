@@ -87,6 +87,11 @@ import {
   findCodexReasoningEffortSupportIssue,
   formatCodexReasoningEffortSupportIssue,
 } from "../../shared/codex-reasoning-effort.js";
+import {
+  MAX_SCRIBE_CONTEXT_LIMIT_TOKENS,
+  MIN_SCRIBE_CONTEXT_LIMIT_TOKENS,
+  normalizeScribeContextLimit,
+} from "../../shared/scribe-context-limit.js";
 
 const restartLog = createLogger("server-restart");
 
@@ -1089,6 +1094,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sessionDefaults: settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: normalizeWorkerSlotLimits(settings.workerSlotLimits),
       scribeBackend: settings.scribeBackend ?? "leader",
+      scribeContextLimitTokens: normalizeScribeContextLimit(settings.scribeContextLimitTokens),
       leaderProfilePortraits: LEADER_PROFILE_PORTRAITS,
       leaderProfileFallbackPortrait: FALLBACK_LEADER_PROFILE_PORTRAIT,
       leaderProfilePoolOptions: LEADER_PROFILE_POOLS,
@@ -1340,6 +1346,20 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (body.scribeBackend !== undefined && !["leader", "claude", "codex"].includes(body.scribeBackend as string)) {
       return c.json({ error: 'scribeBackend must be "leader", "claude" or "codex"' }, 400);
     }
+    if (
+      body.scribeContextLimitTokens !== undefined &&
+      (typeof body.scribeContextLimitTokens !== "number" ||
+        !Number.isInteger(body.scribeContextLimitTokens) ||
+        body.scribeContextLimitTokens < MIN_SCRIBE_CONTEXT_LIMIT_TOKENS ||
+        body.scribeContextLimitTokens > MAX_SCRIBE_CONTEXT_LIMIT_TOKENS)
+    ) {
+      return c.json(
+        {
+          error: `scribeContextLimitTokens must be a whole number of tokens from ${MIN_SCRIBE_CONTEXT_LIMIT_TOKENS} to ${MAX_SCRIBE_CONTEXT_LIMIT_TOKENS}`,
+        },
+        400,
+      );
+    }
     if (body.workerSlotLimits !== undefined) {
       const limits = body.workerSlotLimits as Record<string, unknown> | null;
       const valid =
@@ -1481,6 +1501,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sessionDefaults",
       "workerSlotLimits",
       "scribeBackend",
+      "scribeContextLimitTokens",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -1559,6 +1580,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         ? normalizeWorkerSlotLimits({ ...getSettings().workerSlotLimits, ...body.workerSlotLimits })
         : undefined,
       scribeBackend: body.scribeBackend as "leader" | "claude" | "codex" | undefined,
+      scribeContextLimitTokens: body.scribeContextLimitTokens as number | undefined,
       ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
       serverTimeZone: normalizedServerTimeZone,
     };

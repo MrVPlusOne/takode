@@ -705,6 +705,8 @@ export interface AppSettings {
   workerSlotLimits: WorkerSlotLimits;
   /** Backend of leaders' Scribes: the leader's own, or a fixed one. */
   scribeBackend?: "leader" | "claude" | "codex";
+  /** Context limit of leaders' Scribes in tokens: their conversations compact before passing it. */
+  scribeContextLimitTokens?: number;
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -1398,6 +1400,7 @@ export const api = {
     sessionDefaults?: SessionDefaultsSettings;
     workerSlotLimits?: Partial<WorkerSlotLimits>;
     scribeBackend?: "leader" | "claude" | "codex";
+    scribeContextLimitTokens?: number;
   }) => put<AppSettings>("/settings", data),
   updateLeaderProfilePortrait: (sessionId: string, portraitId: string) =>
     put<{

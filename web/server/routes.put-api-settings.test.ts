@@ -1618,6 +1618,32 @@ describe("PUT /api/settings", () => {
     expect(bad.status).toBe(400);
   });
 
+  it("saves the Scribe context limit and rejects one out of range", async () => {
+    // Scribes keep running instead of being replaced; this limit is what bounds their cost.
+    const update = vi.mocked(settingsManager.updateSettings);
+    const saved = update.getMockImplementation()!;
+    update.mockImplementationOnce((patch) => ({
+      ...saved(patch),
+      scribeContextLimitTokens: patch.scribeContextLimitTokens,
+    }));
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scribeContextLimitTokens: 128_000 }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ scribeContextLimitTokens: 128_000 });
+
+    for (const scribeContextLimitTokens of [50_000, 2_000_000, 256_000.5, "256K"]) {
+      const bad = await app.request("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scribeContextLimitTokens }),
+      });
+      expect(bad.status).toBe(400);
+    }
+  });
+
   it("changes one follow-up reminder setting and keeps the others", async () => {
     // The mocked saved settings have no reminder settings, so the rest stay at their defaults.
     const res = await app.request("/api/settings", {

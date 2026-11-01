@@ -1084,8 +1084,9 @@ describe("topic service", () => {
     expect(injected[1]!.text).toContain('"Thanks"');
     expect(injected[1]!.text).not.toContain("Republish");
   });
-  it("starts a fresh Scribe once its conversation is a day old, at its next message", async () => {
-    // Its state lives in the topics, and every turn of a long conversation carries all of it again.
+  it("keeps the same Scribe however long it runs", async () => {
+    // Scribes used to be replaced by a fresh one after 20 hours to bound their cost; Jiayi rejected
+    // that. A Scribe now keeps running, and its context limit (in Settings) bounds what turns cost.
     const { service, injected, store, created, retired, leader } = await setupService();
     const scribe = await enable(service, store, "leader");
     store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
@@ -1096,19 +1097,17 @@ describe("topic service", () => {
       await vi.advanceTimersByTimeAsync(3 * 60_000);
     };
     await say("Keep 0.02");
-    expect(created).toEqual(["scribe-leader-1"]);
     writePage(store, "T7 run");
     await service.scribeTurnEnded(scribe);
 
-    vi.advanceTimersByTime(21 * 60 * 60_000);
+    vi.advanceTimersByTime(3 * 24 * 60 * 60_000);
     now = Date.now();
     await say("Launch now");
-    // Lets the delivery the timer started finish (it saves the store on the way).
     await service.deliver("leader");
-    expect(created).toEqual(["scribe-leader-1", "scribe-leader-2"]);
-    expect(retired).toEqual(["scribe-leader-1"]);
+    expect(created).toEqual(["scribe-leader-1"]);
+    expect(retired).toEqual([]);
     expect(injected.at(-1)).toMatchObject({
-      sessionId: "scribe-leader-2",
+      sessionId: "scribe-leader-1",
       text: expect.stringContaining("Launch now"),
     });
   });

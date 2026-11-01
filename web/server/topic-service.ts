@@ -153,8 +153,6 @@ function eventTiming(kind: TopicEvent["kind"]): EventTiming {
 const DEBOUNCE_MS = 3 * 60_000;
 /** No waiting event waits longer than this. */
 const MAX_WAIT_MS = 10 * 60_000;
-/** A Scribe older than this is replaced by a fresh one at its next message: its state lives in the store. */
-const SCRIBE_FRESH_MS = 20 * 60 * 60_000;
 /** The user's messages to other leaders go to a Scribe from this far back, the first time. */
 const ELSEWHERE_FIRST_MS = 24 * 60 * 60_000;
 /** At most this many of them go with one message, newest kept. */
@@ -1070,12 +1068,6 @@ export class TopicService {
   }
 
   /**
-   * The leader's Scribe, started on the leader's machine when it has none (or its session is gone).
-   * A Scribe on another machine (started before Scribes followed their leader) is replaced here, at
-   * its next message: a conversation cannot resume on another machine. The new one starts first,
-   * so a leader whose machine can't start one keeps its old Scribe. Null when none can run.
-   */
-  /**
    * The user's own messages to the other leaders since a time, newest last (the newest few):
    * something a page says is open may have been handled there (Jiayi asked another leader to do
    * a follow-up one page still listed).
@@ -1113,14 +1105,18 @@ export class TopicService {
     return found.sort((a, b) => a.at - b.at).slice(-ELSEWHERE_MAX);
   }
 
+  /**
+   * The leader's Scribe, started on the leader's machine when it has none (or its session is gone).
+   * A Scribe keeps running however long its leader does; its context limit (in Settings) bounds
+   * what its turns cost. A Scribe on another machine (started before Scribes followed their leader)
+   * is replaced here, at its next message: a conversation cannot resume on another machine. The new
+   * one starts first, so a leader whose machine can't start one keeps its old Scribe. Null when none
+   * can run.
+   */
   private async ensureScribe(leader: TopicLeaderInfo): Promise<string | null> {
     const existing = this.store.scribeSession(leader.sessionId);
     const alive = !!existing && this.deps.isScribeAlive(existing);
-    if (alive) this.store.noteScribeRunning(leader.sessionId);
-    // A day-old Scribe is replaced by a fresh one: its state is in the store, and every turn of a
-    // long conversation carries all of it again.
-    const fresh = this.now() - (this.store.scribeStartedAt(leader.sessionId) ?? this.now()) < SCRIBE_FRESH_MS;
-    if (alive && fresh && this.deps.hostOf(existing) === leader.hostId) return existing;
+    if (alive && this.deps.hostOf(existing) === leader.hostId) return existing;
     let sessionId: string;
     try {
       sessionId = await this.deps.createScribe(leader);

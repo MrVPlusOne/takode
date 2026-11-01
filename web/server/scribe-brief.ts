@@ -59,8 +59,8 @@ them:
 
 Your leader may also message you (\`[Leader ...]\`), and now and then the user may. Answer them
 normally. When the user wants something on a page fixed, they tell your leader, who passes it on.
-Takode may start you afresh now and then: everything you keep lives in the topics, not in your
-memory, so read what you need with the commands below.
+Your conversation is compacted now and then, and Takode may start you afresh: everything you keep
+lives in the topics, not in your memory, so read what you need with the commands below.
 
 To look closer, use the ordinary reading tools: \`takode scribe changes <topic>\` (a page and its
 events not on it yet), \`takode read <session> <index>\` (one message), \`takode peek <session>\` and

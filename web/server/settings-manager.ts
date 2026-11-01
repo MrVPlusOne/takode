@@ -34,6 +34,7 @@ import {
   type SessionDefaultsSettings,
 } from "../shared/session-defaults.js";
 import { normalizeGptTranscribeLanguageHints } from "../shared/transcription-language-hints.js";
+import { DEFAULT_SCRIBE_CONTEXT_LIMIT_TOKENS, normalizeScribeContextLimit } from "../shared/scribe-context-limit.js";
 import {
   DEFAULT_CODEX_LEADER_COMPACTION_MODE,
   normalizeCodexLeaderCompactionMode,
@@ -134,6 +135,8 @@ export interface CompanionSettings {
   workerSlotLimits?: WorkerSlotLimits;
   /** Backend of leaders' Scribes: the leader's own ("leader") or a fixed one. Optional for tests/mocks. */
   scribeBackend?: ScribeBackendSetting;
+  /** Context limit of leaders' Scribes, in tokens: their conversations compact before passing it. Optional for tests/mocks. */
+  scribeContextLimitTokens?: number;
   updatedAt: number;
 }
 
@@ -142,6 +145,11 @@ export type ScribeBackendSetting = "leader" | "claude" | "codex";
 
 function normalizeScribeBackend(value: unknown): ScribeBackendSetting {
   return value === "claude" || value === "codex" ? value : "leader";
+}
+
+/** The context limit a session works within when it is a leader's Scribe (`scribeContextLimitTokens`). */
+export function scribeContextLimitFor(session: { scribeFor?: string }): number | undefined {
+  return session.scribeFor ? normalizeScribeContextLimit(getSettings().scribeContextLimitTokens) : undefined;
 }
 
 /** Sessions grouped by Session Space, or one list ordered by recent interaction. */
@@ -283,6 +291,7 @@ let settings: CompanionSettings = {
   sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   workerSlotLimits: DEFAULT_WORKER_SLOT_LIMITS,
   scribeBackend: "leader",
+  scribeContextLimitTokens: DEFAULT_SCRIBE_CONTEXT_LIMIT_TOKENS,
   updatedAt: 0,
 };
 
@@ -569,6 +578,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
     workerSlotLimits: normalizeWorkerSlotLimits(raw?.workerSlotLimits),
     scribeBackend: normalizeScribeBackend(raw?.scribeBackend),
+    scribeContextLimitTokens: normalizeScribeContextLimit(raw?.scribeContextLimitTokens),
     // Retired: `leaderTopics` (topics for leaders, now always on) is dropped from older files.
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
@@ -715,6 +725,7 @@ export function updateSettings(
       | "sessionDefaults"
       | "workerSlotLimits"
       | "scribeBackend"
+      | "scribeContextLimitTokens"
       | "serverSlug"
       | "serverTimeZone"
       | "restartUpdatesCheckout"
@@ -743,6 +754,8 @@ export function updateSettings(
     defined.workerSlotLimits = normalizeWorkerSlotLimits(defined.workerSlotLimits);
   }
   if (defined.scribeBackend !== undefined) defined.scribeBackend = normalizeScribeBackend(defined.scribeBackend);
+  if (defined.scribeContextLimitTokens !== undefined)
+    defined.scribeContextLimitTokens = normalizeScribeContextLimit(defined.scribeContextLimitTokens);
   if (typeof defined.serverSlug === "string") {
     const normalizedSlug = normalizeServerSlug(defined.serverSlug);
     if (!isValidServerSlug(normalizedSlug)) {

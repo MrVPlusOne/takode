@@ -63,6 +63,11 @@ export interface ClaudeSdkAdapterOptions {
   permissionMode?: string;
   reasoningEffort?: string;
   betas?: string[];
+  /**
+   * Compact the conversation before it grows past this many tokens; Claude Code's own window when
+   * unset. Read once when the process starts: a later flag-settings change does not move it.
+   */
+  autoCompactWindow?: number;
   cliSessionId?: string;
   /** When resuming, keep only conversation history through this assistant message UUID (Revert). */
   resumeSessionAt?: string;
@@ -368,6 +373,11 @@ export class ClaudeSdkAdapter
       CLAUDE_CODE_MAX_RETRIES: CLAUDE_MAX_RETRIES_DEFAULT,
       ...inheritedLaunchEnv(process.env),
       ...(this.options.env || {}),
+      // The environment variable rather than the `settings` option, which would replace a
+      // launcher's own --settings (see the flag-settings overlay below).
+      ...(this.options.autoCompactWindow
+        ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(this.options.autoCompactWindow) }
+        : {}),
       PATH: getEnrichedPath({ serverId: this.options.env?.COMPANION_SERVER_ID }),
     });
 

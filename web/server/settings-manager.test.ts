@@ -91,6 +91,7 @@ describe("settings-manager", () => {
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
       scribeBackend: "leader",
+      scribeContextLimitTokens: 256_000,
       updatedAt: expect.any(Number),
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -773,6 +774,7 @@ describe("settings-manager", () => {
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: { claude: 8, codex: 5 },
       scribeBackend: "leader",
+      scribeContextLimitTokens: 256_000,
       updatedAt: 0,
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -809,6 +811,18 @@ describe("settings-manager", () => {
     writeFileSync(settingsPath, JSON.stringify({ scribeBackend: "gemini" }), "utf-8");
     _resetForTest(settingsPath);
     expect(getSettings().scribeBackend).toBe("leader");
+  });
+
+  it("keeps Scribes within 256K of context unless Settings give another limit in range", () => {
+    // Scribes keep running instead of being replaced, so this limit is what bounds their cost.
+    expect(getSettings().scribeContextLimitTokens).toBe(256_000);
+    expect(updateSettings({ scribeContextLimitTokens: 128_000 }).scribeContextLimitTokens).toBe(128_000);
+    writeFileSync(settingsPath, JSON.stringify({ scribeContextLimitTokens: 10 }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().scribeContextLimitTokens).toBe(100_000);
+    writeFileSync(settingsPath, JSON.stringify({ scribeContextLimitTokens: "big" }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().scribeContextLimitTokens).toBe(256_000);
   });
 
   it("normalizes per-model Codex leader recycle thresholds from disk", () => {

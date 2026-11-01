@@ -117,6 +117,20 @@ describe("ClaudeSdkAdapter launch env", () => {
     expect(options).not.toHaveProperty("settings");
   });
 
+  it("gives Claude an auto-compact window through its environment variable", async () => {
+    // Scribes keep running with a context limit. Claude Code reads the window once at start, from
+    // CLAUDE_CODE_AUTO_COMPACT_WINDOW or --settings: a later applyFlagSettings does not move it.
+    const { options } = await launchOptions({
+      autoCompactWindow: 256_000,
+      env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "1" },
+    });
+    expect(options.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe("256000");
+    expect(options).not.toHaveProperty("settings");
+
+    const { options: unset } = await launchOptions();
+    expect(unset.env).not.toHaveProperty("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+  });
+
   it("uses a configured Claude binary and a host spawn hook, else the SDK's bundled Claude", async () => {
     const spawnProcess = vi.fn();
     const { options } = await launchOptions({ claudeBinary: "claude", spawnProcess });

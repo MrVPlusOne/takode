@@ -316,6 +316,8 @@ vi.mock("./claude-sdk-adapter.js", () => ({
 import { SessionStore } from "./session-store.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { CliLauncher, type LaunchOptions } from "./cli-launcher.js";
+import { DEFAULT_SCRIBE_CONTEXT_LIMIT_TOKENS } from "../shared/scribe-context-limit.js";
+import { nonLeaderAutoCompactTokenLimitForUsableCapacity } from "./codex-context-launch-diagnostics.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import type { TakodeEvent, TakodeHerdReassignedEventData } from "./session-types.js";
@@ -645,6 +647,14 @@ describe("launch", () => {
     const { options } = sdkAdapterLaunches[0]!;
     expect(options.reasoningEffort).toBe("max");
     expect(options.betas).toEqual(["context-1m-2025-08-07"]);
+  });
+
+  it("gives a Claude Scribe the Scribe context limit as its auto-compact window", async () => {
+    // Scribes keep running; the limit (256K by default, in Settings) bounds what their turns cost.
+    await launcher.launch({ cwd: "/tmp", scribeFor: "leader" });
+    await launcher.launch({ cwd: "/tmp" });
+    expect(sdkAdapterLaunches[0]!.options.autoCompactWindow).toBe(DEFAULT_SCRIBE_CONTEXT_LIMIT_TOKENS);
+    expect(sdkAdapterLaunches[1]!.options.autoCompactWindow).toBeUndefined();
   });
 
   it("passes the permission mode to Claude when provided", async () => {
@@ -1038,6 +1048,22 @@ describe("launch", () => {
       expect(updatedConfig).toContain("[features]");
       expect(updatedConfig).toContain("multi_agent = true");
       expect(updatedConfig).not.toContain("image_generation = false");
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it("launches a Codex Scribe within the Scribe context limit", async () => {
+    // The limit becomes the Scribe's usable context, so Codex compacts before passing it.
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const { readFileSync: realReadFileSync } = require("node:fs");
+    try {
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+      await launchCodex({ codexHome: customHome, scribeFor: "leader" });
+      const config = realReadFileSync(join(customHome, "test-session-id", "config.toml"), "utf-8");
+      const limit = nonLeaderAutoCompactTokenLimitForUsableCapacity(DEFAULT_SCRIBE_CONTEXT_LIMIT_TOKENS);
+      expect(config).toContain(`model_auto_compact_token_limit = ${limit}`);
     } finally {
       rmSync(customHome, { recursive: true, force: true });
     }

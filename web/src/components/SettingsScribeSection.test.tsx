@@ -31,4 +31,21 @@ describe("Scribe settings", () => {
     render(<SettingsScribeSection settings={{ scribeBackend: "leader" } as AppSettings} />);
     expect(screen.queryByRole("switch", { name: "Library topics for leaders" })).toBeNull();
   });
+
+  it("shows the Scribe context limit in K and saves a changed one in tokens", async () => {
+    // Scribes keep running; this limit is what bounds their cost, so the user can change it here.
+    mockUpdateSettings.mockResolvedValue({ scribeBackend: "leader", scribeContextLimitTokens: 288_000 });
+    render(
+      <SettingsScribeSection
+        settings={{ scribeBackend: "leader", scribeContextLimitTokens: 256_000 } as AppSettings}
+      />,
+    );
+    const input = screen.getByLabelText("Scribe context limit");
+    expect(input).toHaveValue("256");
+
+    fireEvent.click(screen.getByRole("button", { name: "Increase Scribe context limit" }));
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ scribeContextLimitTokens: 288_000 });
+    await waitFor(() => expect(input).toHaveValue("288"));
+  });
 });

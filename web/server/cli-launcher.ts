@@ -25,6 +25,7 @@ import {
 } from "./cli-launcher-instructions.js";
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
 import { machineSettingsFor } from "./remote-host/machine-settings.js";
+import { scribeContextLimitFor } from "./settings-manager.js";
 import { onMachine } from "./remote-host/host-operations.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
@@ -1209,6 +1210,7 @@ export class CliLauncher {
       cwd: info.cwd,
       permissionMode: options.permissionMode,
       reasoningEffort: options.claudeReasoningEffort,
+      autoCompactWindow: scribeContextLimitFor(info),
       betas: options.claudeMaxContextLength === CLAUDE_1M_CONTEXT_TOKENS ? [CLAUDE_1M_CONTEXT_BETA] : undefined,
       cliSessionId: info.cliSessionId,
       resumeSessionAt: info.resumeAt,
@@ -1287,10 +1289,15 @@ export class CliLauncher {
     // The user's instructions and skills, delivered to this machine before the process reads them.
     await userContentService.syncMachine(info.hostId, `launch of session ${sessionTag(sessionId)}`);
     try {
+      // A Scribe works within the context Settings give Scribes.
+      const limited = {
+        ...options,
+        codexMaxContextLength: scribeContextLimitFor(info) ?? options.codexMaxContextLength,
+      };
       // A remote host prepares Codex with its own settings; here, this machine's apply.
       const codexOptions = info.hostId
-        ? options
-        : { ...options, codexBinary: options.codexBinary || machineSettingsFor(null).codexBinary || undefined };
+        ? limited
+        : { ...limited, codexBinary: options.codexBinary || machineSettingsFor(null).codexBinary || undefined };
       const launchInfo = {
         cwd: info.cwd,
         cliSessionId: info.cliSessionId,
