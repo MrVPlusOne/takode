@@ -4,7 +4,8 @@ import type { SessionActivityRecord } from "./activity-stream.js";
 import { authoritativeMessageOwner } from "./authoritative-message-owner.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import { isActualHumanUserMessage } from "./user-message-classification.js";
-import { topicThreadLabel } from "./topic-views.js";
+import { threadConversationKey, topicThreadLabel } from "./topic-views.js";
+import { isTopicViewKey } from "../shared/topic-thread-key.js";
 import { buildMessageSnippet, matchMessageText, userWrittenText } from "./message-search-match.js";
 import { MAIN_THREAD_KEY } from "../shared/thread-window.js";
 import { prepareSearchQuery, type PreparedSearchQuery } from "../shared/search-utils.js";
@@ -186,8 +187,10 @@ function toResult(
   words: PreparedSearchQuery | null,
 ): UserMessageSearchResult {
   const message = source.history?.[ask.index];
-  const threadKey =
+  const writtenIn =
     ask.thread ?? (source.isOrchestrator && message ? authoritativeMessageOwner(message).threadKey : MAIN_THREAD_KEY);
+  // Named and opened as the conversation it is read in now (a joined thread's earlier one).
+  const threadKey = threadConversationKey(writtenIn);
   const snippet = buildMessageSnippet(ask.text, words);
   const messageId = ask.messageId ?? `history-${ask.index}`;
   return {
@@ -206,10 +209,17 @@ function toResult(
     ...(snippet.matchRanges.length > 0 ? { matchRanges: snippet.matchRanges } : {}),
     ...(snippet.matchedText ? { matchedText: snippet.matchedText } : {}),
     routeThreadKey: threadKey,
-    sourceThreadKey: threadKey,
-    sourceLabel: threadKey === MAIN_THREAD_KEY ? "Main" : (topicThreadLabel(threadKey) ?? threadKey),
+    sourceThreadKey: writtenIn,
+    sourceLabel: placeLabel(threadKey),
     ...(/^q-\d+$/.test(threadKey) ? { questId: threadKey } : {}),
   };
+}
+
+/** A conversation by name: Main, a quest's ID, a thread's or topic's name; "Thread", never a `topic:` address. */
+function placeLabel(threadKey: string): string {
+  if (threadKey === MAIN_THREAD_KEY) return "Main";
+  if (isTopicViewKey(threadKey)) return topicThreadLabel(threadKey) ?? "Thread";
+  return threadKey;
 }
 
 function compareNewestFirst(left: CandidateAsk, right: CandidateAsk): number {

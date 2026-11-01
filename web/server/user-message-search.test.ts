@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { searchUserMessages, type UserMessageSearchSource } from "./user-message-search.js";
+import { setTopicViewSource } from "./topic-views.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { SessionActivityRecord } from "./activity-stream.js";
 import { STANDARD_COMPACTION_RECOVERY_PREFIX } from "../shared/injected-event-message.js";
@@ -119,5 +120,38 @@ describe("searchUserMessages", () => {
       ["m4", "q-7"],
     ]);
     expect(response.results[1]).toMatchObject({ archived: true, questId: "q-7", historyIndex: 4 });
+  });
+  it("names a thread's conversation, following joins, and never shows a topic: address", () => {
+    // Jiayi (Nov 1): thread links read "topic:70747109". A thread joined onto an earlier one is that
+    // conversation now; a thread the server can't name reads "Thread".
+    setTopicViewSource({
+      topicOf: (handle) =>
+        handle === "aaaa0001"
+          ? { id: "aaaa0001", name: "Seeded QA plan", thread: {} }
+          : handle === "bbbb0002"
+            ? { id: "bbbb0002", name: "Follow-up", thread: { joinedInto: "topic:aaaa0001" } }
+            : null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    try {
+      const leader = source(
+        "s1",
+        [
+          user("joined", "check the plan", 10, { threadKey: "topic:bbbb0002" }),
+          user("unknown", "check the old plan", 20, { threadKey: "topic:99999999" }),
+        ],
+        { isOrchestrator: true },
+      );
+      const results = searchUserMessages({ sources: [leader], query: "plan" }).results;
+      expect(results.map((r) => [r.messageId, r.routeThreadKey, r.sourceLabel])).toEqual([
+        ["unknown", "topic:99999999", "Thread"],
+        ["joined", "topic:aaaa0001", 'Thread "Seeded QA plan"'],
+      ]);
+      expect(results[1]!.sourceThreadKey).toBe("topic:bbbb0002");
+    } finally {
+      setTopicViewSource(null);
+    }
   });
 });

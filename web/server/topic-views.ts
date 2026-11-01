@@ -116,6 +116,23 @@ export function topicThreadLabel(threadKey: string): string | null {
   return topic.thread ? `Thread "${topic.name}"` : `Topic "${topic.name}"`;
 }
 
+/**
+ * The conversation a thread key's messages are read in now: a thread joined onto an earlier one, or
+ * that became a quest's thread, is that conversation. Other keys come back as they are.
+ */
+export function threadConversationKey(threadKey: string): string {
+  let key = threadKey;
+  // A join is onto a thread that is not itself joined, but follow a short chain to be safe.
+  for (let hop = 0; hop < 3; hop++) {
+    const handle = topicIdOfViewKey(key);
+    const thread = handle && source ? source.topicOf(handle)?.thread : undefined;
+    const next = thread?.quest ?? thread?.joinedInto;
+    if (!next) return key;
+    key = next.toLowerCase();
+  }
+  return key;
+}
+
 /** The topic conversation views showing any of these quests. */
 export function topicViewKeysOfQuests(questIds: Iterable<string>): string[] {
   if (!source) return [];
