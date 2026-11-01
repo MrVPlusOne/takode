@@ -1,4 +1,5 @@
 import { isTopicViewKey } from "../../shared/topic-thread-key.js";
+import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import type {
   AttentionAlertMessage,
   BoardRow,
@@ -1158,6 +1159,41 @@ export function markAllNotificationsDone(
     broadcastNotificationRefresh(session, deps);
   }
   return count;
+}
+
+/**
+ * Replying in a thread reads it, as in Slack: sending a message or answering a question there marks
+ * the leader's unread results in that thread (answers, reports, finished quests) read, when they
+ * came before the reply. Results the leader writes after it stay unread. Returns how many it read.
+ */
+export function readThreadOnReply(
+  session: SessionLike,
+  threadKey: string,
+  repliedAt: number,
+  deps: PersistNotificationDeps,
+): number {
+  const thread = normalizeThreadTarget(threadKey)?.threadKey;
+  if (!thread) return 0;
+  let count = 0;
+  for (const notif of session.notifications as SessionNotification[]) {
+    if (notif.done || notif.category !== "review" || notif.timestamp > repliedAt) continue;
+    if (notificationOwnerThreadKey(notif) !== thread) continue;
+    notif.done = true;
+    updateResolutionNoticeForDoneChange(notif, true, {});
+    count += 1;
+  }
+  if (count === 0) return 0;
+  touchNotificationStatus(session);
+  deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
+  clearActionAttentionIfNoNotifications(session, deps);
+  deps.persistSession(session);
+  return count;
+}
+
+/** The thread a notification belongs to: its thread, else its quest's, else Main. */
+function notificationOwnerThreadKey(notif: Pick<SessionNotification, "threadKey" | "questId">): string {
+  const target = normalizeThreadTarget(notif.threadKey?.trim() || notif.questId || "");
+  return target?.threadKey ?? "main";
 }
 
 export function markAllNotificationsDoneBySessionId(

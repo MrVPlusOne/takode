@@ -118,6 +118,7 @@ import {
   setAttention as setAttentionSessionRegistryController,
 } from "./session-registry-controller.js";
 import { getApprovalSummary, getDenialSummary, NOTABLE_APPROVALS } from "./permission-summaries.js";
+import { readThreadOnReply } from "./session-notification-controller.js";
 function findPendingExitPlanPermission(
   session: AdapterBrowserRoutingSessionLike,
   route: ThreadRouteMetadata | null,
@@ -754,6 +755,8 @@ export function ingestUserMessage(
       if (clearLeaderThreadStatusForCoveredUserMessage(session, userHistoryEntry)) {
         deps.invalidateLeaderThreadTabsForSession?.(session.id);
       }
+      // Replying in a thread (a message, or an answer to a question there) reads its earlier results.
+      readThreadOnReply(session, explicitTarget?.threadKey ?? "main", ts, deps);
     }
     let userMsgHistoryIdx = -1;
     if (commit) {
