@@ -42,6 +42,9 @@ describe("NewSideChat", () => {
     const itemId = openInSide("l1", { kind: "new-chat", startedFrom: "q-7" });
     render(<NewSideChat columnId="l1" leaderId="l1" itemId={itemId} startedFrom="q-7" />);
     expect(screen.getByTestId("new-side-chat").textContent).toContain("About name of q-7");
+    // Jiayi (Oct 31): the page named no one ("A new thread with the leader"); it names the leader,
+    // with its portrait, as it does for a chat with another leader.
+    expect(screen.getByTestId("new-side-chat-with").textContent).toBe("A new thread with leader l1");
     expect(composer.props!.draftKey).toBe(newSideChatDraftKey("l1"));
     expect(composer.props!.threadKey).toBe("q-7");
 
