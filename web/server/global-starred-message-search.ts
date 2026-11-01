@@ -1,4 +1,5 @@
 import { topicThreadLabel } from "./topic-views.js";
+import { isTopicViewKey } from "../shared/topic-thread-key.js";
 import type { BrowserIncomingMessage, ContentBlock, StarredMessageRecord } from "./session-types.js";
 import type { SearchExcerpt } from "./session-store.js";
 import { prepareSearchQuery, type PreparedSearchQuery } from "../shared/search-utils.js";
@@ -284,7 +285,7 @@ function normalizeStarredThreadKey(value: string | undefined): string {
 
 function formatThreadSourceLabel(threadKey: string): string {
   if (threadKey === MAIN_THREAD_KEY) return "Main";
-  return topicThreadLabel(threadKey) ?? `Thread ${threadKey}`;
+  return topicThreadLabel(threadKey) ?? (isTopicViewKey(threadKey) ? "Thread" : `Thread ${threadKey}`);
 }
 
 function textFromContentBlocks(blocks: ContentBlock[]): string {

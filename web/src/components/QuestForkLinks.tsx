@@ -11,9 +11,11 @@ import { fetchStartedQuests, onStartedQuestsChanged, type StartedQuest } from ".
 import { useStore } from "../store.js";
 import type { ChatMessage } from "../types.js";
 import { navigateToSessionMessageId } from "../utils/routing.js";
-import { MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
+import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { formatMessageTimestamp } from "./MessageTimestamp.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
+import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
+import { useThreadPlace } from "./side-column/thread-names.js";
 
 /** Forks this page has already listed, per leader session; a quest listed later is new to the user. */
 const listedForks = new Map<string, Set<string>>();
@@ -265,30 +267,30 @@ export function ThreadMessageLink({
   className: string;
   testId: string;
 }) {
-  const threadKey = normalizeThreadKey(target.threadKey);
-  const main = threadKey === MAIN_THREAD_KEY;
-  const questTitle = useStore((state) => (main ? undefined : state.questTitlePreviews.get(threadKey)?.title));
-  useEffect(() => {
-    if (!main && !questTitle) void useStore.getState().hydrateQuestTitles([threadKey]);
-  }, [main, questTitle, threadKey]);
+  const place = useThreadPlace(target.sessionId, target.threadKey);
   const otherSessionNum = useStore((state) =>
     sessionId && sessionId !== target.sessionId
       ? state.sdkSessions.find((session) => session.sessionId === target.sessionId)?.sessionNum
       : undefined,
   );
-  const place = `${otherSessionNum != null ? `#${otherSessionNum} ` : ""}${main ? "Main" : (questTitle ?? threadKey)}`;
   const time = formatMessageTimestamp(target.timestamp);
+  const PlaceIcon = place.kind === "thread" ? NewThreadIcon : place.kind === "topic" ? TopicIcon : null;
   return (
     <button
       type="button"
       onClick={() =>
-        navigateToSessionMessageId(target.sessionId, target.messageId, { threadKey, preserveMainThreadRoute: true })
+        navigateToSessionMessageId(target.sessionId, target.messageId, {
+          threadKey: place.key,
+          preserveMainThreadRoute: true,
+        })
       }
       className={`${className} flex max-w-full items-center gap-0.5 whitespace-pre text-left text-[12px] text-cc-muted hover:text-cc-fg`}
       data-testid={testId}
     >
       <span className="shrink-0">{lead}</span>
-      <span className="min-w-0 truncate text-cc-primary">{place}</span>
+      {otherSessionNum != null && <span className="shrink-0 text-cc-primary">#{otherSessionNum} </span>}
+      {PlaceIcon && <PlaceIcon className="mr-0.5 h-3 w-3 shrink-0 text-cc-primary" />}
+      <span className="min-w-0 truncate text-cc-primary">{place.name}</span>
       {time && <span className="shrink-0"> · {time}</span>}
       <ArrowGlyph />
     </button>

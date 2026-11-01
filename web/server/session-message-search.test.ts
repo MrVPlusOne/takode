@@ -215,8 +215,9 @@ describe("searchSessionMessages", () => {
         query: "",
         scope: "leader_all_tabs",
       });
+      // A thread the server can't name still never shows its `topic:<handle>` address (Jiayi, Nov 1).
       expect(response.results.map((result) => result.sourceLabel)).toEqual([
-        "Thread topic:99999999",
+        "Thread",
         'Topic "Chat feed"',
         'Thread "Phone cannot reach Takode"',
       ]);

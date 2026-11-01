@@ -12,6 +12,7 @@ import type { BrowserIncomingMessage, QuestmasterTask, SessionState } from "../t
 import { createWsMessageHandler } from "../ws-handlers.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { ContinuedInLinks, StartedQuestsProvider } from "./QuestForkLinks.js";
+import { rememberThreads } from "../utils/leader-topics.js";
 
 const sendToSession = vi.hoisted(() => vi.fn(() => true));
 vi.mock("../ws.js", () => ({ sendToSession }));
@@ -156,6 +157,58 @@ describe("Started from link", () => {
     fireEvent.click(link);
     expect(window.location.hash).toContain("/msg/main-ask");
     expect(window.location.hash).toContain("thread=main");
+  });
+
+  it("names a thread by its name, and a joined thread by the conversation it continues", () => {
+    // Jiayi (Nov 1): the link read "topic:70747109", a thread's raw address. It names the thread,
+    // with its icon; a thread the Scribe joined onto an earlier one is that conversation now.
+    rememberThreads(SESSION_ID, [
+      {
+        id: "aaaa0001",
+        key: "topic:aaaa0001",
+        name: "Seeded QA plan",
+        leaderId: SESSION_ID,
+        createdAt: 1,
+        activityAt: 2,
+      },
+      {
+        id: "bbbb0002",
+        key: "topic:bbbb0002",
+        name: "Follow-up",
+        leaderId: SESSION_ID,
+        createdAt: 1,
+        activityAt: 1,
+        joinedInto: "topic:aaaa0001",
+      },
+    ]);
+    const quest = (threadKey: string) =>
+      ({
+        id: "fork-quest",
+        questId: QUEST_ID,
+        version: 1,
+        title: "Relay timeout",
+        tldr: "Fix the relay timeout.",
+        status: "refined",
+        description: "Fix the relay timeout.",
+        createdAt: 1,
+        relationships: { startedFrom: { ...STARTED_FROM, threadKey } },
+      }) as QuestmasterTask;
+
+    installThread(QUEST_ID, [], quest("topic:aaaa0001"));
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    expect(screen.getByTestId("started-from-link")).toHaveTextContent(
+      "Started from your message in Seeded QA plan · 11:51 AM",
+    );
+    expect(screen.getByTestId("started-from-link").querySelector("svg")).not.toBeNull();
+    view.unmount();
+
+    installThread(QUEST_ID, [], quest("topic:bbbb0002"));
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    const link = screen.getByTestId("started-from-link");
+    expect(link).toHaveTextContent("Started from your message in Seeded QA plan");
+    expect(link.textContent).not.toContain("topic:");
+    fireEvent.click(link);
+    expect(window.location.hash).toContain("thread=topic%3Aaaaa0001");
   });
 });
 

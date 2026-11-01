@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { RecentAskBundle } from "../api.js";
 import { RecentAskBundleResult } from "./RecentAskBundleResult.js";
+import { rememberThreads } from "../utils/leader-topics.js";
 
 describe("RecentAskBundleResult", () => {
   it.each([
@@ -115,5 +116,56 @@ describe("RecentAskBundleResult", () => {
     expect(screen.getByRole("button", { name: "Open newest message in #42 Math session Main" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Open ask/ })).toBeNull();
     expect(container.querySelector(".katex")).toBeNull();
+  });
+});
+
+describe("RecentAskBundleResult thread names", () => {
+  it("names a thread conversation by its name, not its topic: address", () => {
+    // Jiayi (Nov 1): Recent rows read "topic:70747109", a thread's raw address.
+    rememberThreads("leader", [
+      {
+        id: "70747109",
+        key: "topic:70747109",
+        name: "Seeded QA plan",
+        leaderId: "leader",
+        createdAt: 1,
+        activityAt: 1,
+      },
+    ]);
+    render(
+      <RecentAskBundleResult
+        bundle={{
+          id: "leader:topic:70747109",
+          sessionId: "leader",
+          sessionNum: 2957,
+          sessionName: "Daily Leader",
+          archived: false,
+          sessionSpaceId: "default",
+          sessionSpaceName: "Default",
+          ownerThreadKey: "topic:70747109",
+          questId: "topic:70747109",
+          firstAskedAt: 100,
+          lastAskedAt: 100,
+          members: [
+            {
+              messageId: "m",
+              historyIndex: 1,
+              timestamp: 100,
+              preview: "Noted",
+              truncated: false,
+              imageCount: 0,
+              commentCount: 0,
+            },
+          ],
+          status: "responded",
+        }}
+        selected={false}
+        onPointerMove={vi.fn()}
+        onOpenMember={vi.fn()}
+        onNavigateQuest={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Seeded QA plan")).toBeInTheDocument();
+    expect(screen.queryByText(/topic:/)).toBeNull();
   });
 });

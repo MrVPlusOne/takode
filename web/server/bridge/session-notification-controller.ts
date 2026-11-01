@@ -641,7 +641,10 @@ export function recordAnswerUnreadNotifications(
     const threadKey = leaderMessageThreadKey(answer);
     const preview = answerPreview(answer);
     // A topic conversation or user thread reads by its name, not its `topic:<handle>` key.
-    const label = threadKey === "main" ? "Main" : (topicThreadLabel(threadKey) ?? threadKey);
+    const label =
+      threadKey === "main"
+        ? "Main"
+        : (topicThreadLabel(threadKey) ?? (isTopicViewKey(threadKey) ? "Thread" : threadKey));
     const timestamp = typeof answer.timestamp === "number" ? answer.timestamp : Date.now();
     const answerTo = answer.threadAnswer?.answerUserMessageIds ?? [];
     const urgent = answer.threadAnswer?.urgent === true;

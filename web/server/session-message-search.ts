@@ -1,4 +1,5 @@
 import { topicThreadLabel } from "./topic-views.js";
+import { isTopicViewKey } from "../shared/topic-thread-key.js";
 import type { BrowserIncomingMessage, ContentBlock, StarredMessageRecord } from "./session-types.js";
 import { authoritativeMessageOwner } from "./authoritative-message-owner.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
@@ -232,7 +233,7 @@ function resolveMessageSearchScope(input: {
     label:
       threadKey === MAIN_THREAD_KEY
         ? `Searching in ${sessionLabel} Main`
-        : `Searching in ${sessionLabel} ${topicThreadLabel(threadKey) ?? `thread ${threadKey}`}`,
+        : `Searching in ${sessionLabel} ${topicThreadLabel(threadKey) ?? (isTopicViewKey(threadKey) ? "a thread" : `thread ${threadKey}`)}`,
   };
 }
 
@@ -377,7 +378,8 @@ function formatSessionNumber(sessionNum: number | null): string {
 
 function formatThreadSourceLabel(threadKey: string): string {
   if (threadKey === MAIN_THREAD_KEY) return "Main";
-  return topicThreadLabel(threadKey) ?? `Thread ${threadKey}`;
+  // A thread or topic conversation reads by its name; never its `topic:<handle>` address.
+  return topicThreadLabel(threadKey) ?? (isTopicViewKey(threadKey) ? "Thread" : `Thread ${threadKey}`);
 }
 
 function textFromContentBlocks(blocks: ContentBlock[]): string {

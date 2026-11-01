@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { topicApi } from "../api/topics.js";
-import { isQuestThreadKey } from "../../shared/thread-routing.js";
-import { reloadLeaderThreads, useKnownThreadOfKey } from "../utils/leader-topics.js";
-import { useQuestRecord } from "./QuestSummaryCard.js";
+import { reloadLeaderThreads } from "../utils/leader-topics.js";
+import { useThreadPlace } from "./side-column/thread-names.js";
 
 /**
  * The marker in a leader's thread `threadKey` where the messages of `joinedFrom`, a thread the
@@ -17,8 +16,7 @@ export function JoinedThreadMarker({
   threadKey: string;
   joinedFrom: string;
 }) {
-  const quest = useQuestRecord(isQuestThreadKey(threadKey) ? threadKey : null);
-  const thread = useKnownThreadOfKey(sessionId, isQuestThreadKey(threadKey) ? "" : threadKey);
+  const earlier = useThreadPlace(sessionId, threadKey);
   const [undoing, setUndoing] = useState(false);
   const undo = () => {
     setUndoing(true);
@@ -30,9 +28,7 @@ export function JoinedThreadMarker({
         setUndoing(false);
       });
   };
-  return (
-    <ThreadJoinMarker earlierName={quest?.title ?? thread?.name ?? threadKey} onUndo={undoing ? undefined : undo} />
-  );
+  return <ThreadJoinMarker earlierName={earlier.name} onUndo={undoing ? undefined : undo} />;
 }
 
 /**

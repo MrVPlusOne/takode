@@ -2,6 +2,7 @@ import { useCallback, useId, useState } from "react";
 import { api, type RecentAskBundle, type RecentAskBundleStatus, type RecentAskMember } from "../api.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
+import { useThreadPlace } from "./side-column/thread-names.js";
 import { SEARCH_ROW_CLASS, SearchMeta, SearchRowContent } from "./SearchSheet.js";
 
 const STATUS_LABELS: Record<RecentAskBundleStatus, string> = {
@@ -98,8 +99,9 @@ export function RecentAskBundleResult({
 
   const sessionLabel = bundle.sessionNum == null ? bundle.sessionName : `#${bundle.sessionNum} ${bundle.sessionName}`;
   const compactSessionLabel = bundle.sessionNum == null ? bundle.sessionName : `#${bundle.sessionNum}`;
-  const threadLabel =
-    bundle.ownerThreadKey === "main" ? "Main" : bundle.questTitle || bundle.questId || bundle.ownerThreadKey;
+  // A thread or topic conversation reads by its name, never its `topic:<handle>` address.
+  const ownerPlace = useThreadPlace(bundle.sessionId, bundle.ownerThreadKey);
+  const threadLabel = bundle.ownerThreadKey === "main" ? "Main" : bundle.questTitle || ownerPlace.name;
   const questOwned = bundle.ownerThreadKey !== "main" && Boolean(bundle.questId && bundle.questTitle);
   const visibleStatusDetail = bundle.statusDetail && DETAIL_STATUSES.has(bundle.status) ? bundle.statusDetail : null;
   const statusColor = STATUS_COLORS[bundle.status];
