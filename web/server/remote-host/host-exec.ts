@@ -1,7 +1,8 @@
-import { mkdirSync } from "node:fs";
+import { createReadStream, mkdirSync } from "node:fs";
 import { appendFile, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Readable } from "node:stream";
+import { createInterface } from "node:readline";
+import { Readable } from "node:stream";
 import { inheritedLaunchEnv } from "../cli-launcher-env.js";
 import { getEnrichedPath } from "../path-resolver.js";
 import { LOCAL_HOST_ID } from "../../shared/host-protocol.js";
@@ -58,16 +59,30 @@ export interface ExecOutput {
 }
 
 /**
- * Runs the command (`$1`) in the machine user's login shell, as their terminal
- * would, so their profile's PATH and tools apply, in the folder `$2` (their
- * home when empty; a leading `~` is their home too). The machine's shell
- * resolves both, since only it knows its home; a missing folder fails with
- * the shell's own message.
+ * Runs the command (`$1`) as a login shell of the machine user's own shell
+ * (their passwd entry, since a node started by a scheduler may have no
+ * `$SHELL`), so their profile's PATH, tools and shell syntax apply, in the
+ * folder `$2` (their home when empty; a leading `~` is their home too). The
+ * machine's shell resolves all of these, since only it knows them; a missing
+ * folder fails with the shell's own message.
+ *
+ * For POSIX-family shells, whatever the profile prints (cluster profiles warn
+ * about completion packages, banners) is dropped: the command's own output
+ * is all that comes back. Other shells (fish, csh) run the command plainly.
  */
 const LOGIN_SHELL_SCRIPT = [
   'dir=${2:-$HOME}; case $dir in "~") dir=$HOME ;; "~/"*) dir=$HOME/${dir#"~/"} ;; esac',
   'cd -- "$dir" || exit 1',
-  'exec "${SHELL:-/bin/sh}" -lc "$1"',
+  "user=$(id -un 2>/dev/null)",
+  'sh=$(getent passwd "$user" 2>/dev/null | cut -d: -f7)',
+  '[ -n "$sh" ] || sh=$(dscl . -read "/Users/$user" UserShell 2>/dev/null | sed "s/^UserShell: *//")',
+  '[ -x "$sh" ] || sh=${SHELL:-/bin/sh}',
+  '[ -x "$sh" ] || sh=/bin/sh',
+  "SHELL=$sh; export SHELL",
+  "case ${sh##*/} in",
+  '  bash|zsh|sh|dash|ksh|mksh) exec "$sh" -lc \'exec 1>&3 2>&4 3>&- 4>&-; eval "$1"\' "$sh" "$1" 3>&1 4>&2 >/dev/null 2>&1 ;;',
+  '  *) exec "$sh" -lc "$1" ;;',
+  "esac",
 ].join("\n");
 /** How long after a foreground command ends its caller has to collect the result before the session is sent it instead. */
 const RESULT_PICKUP_MS = 15_000;
@@ -75,8 +90,8 @@ const RESULT_PICKUP_MS = 15_000;
 const MAX_FINISHED_RECORDS = 500;
 const MAX_COMMAND_LENGTH = 100_000;
 /** Output kept from the start of a command; past it only the last LOG_TAIL_BYTES are kept. */
-const LOG_HEAD_BYTES = 20 * 1024 * 1024;
-const LOG_TAIL_BYTES = 1024 * 1024;
+const LOG_HEAD_BYTES = 100 * 1024 * 1024;
+const LOG_TAIL_BYTES = 4 * 1024 * 1024;
 /** Output shown by default: this much from both ends of longer output. */
 export const EXEC_EXCERPT_BYTES = 20_000;
 const TAIL_READ_BYTES = 256 * 1024;
@@ -278,25 +293,22 @@ export class HostExec {
   }
 
   /**
-   * The job's output: by default all of it when short, else this much from
-   * both ends; `full` for all of it, `tailLines` for its last lines. The
-   * owning session reading a finished command's output has its result.
+   * The job's output as a foreground run shows it: all of it when short,
+   * else both ends with a note on reading the rest ({@link readLog});
+   * `tailLines` for its last lines. The owning session reading a finished
+   * command's output has its result.
    */
   async readOutput(
     id: string,
-    options: { full?: boolean; tailLines?: number; readerSessionId?: string } = {},
+    options: { tailLines?: number; readerSessionId?: string } = {},
   ): Promise<ExecOutput | null> {
     const job = this.jobs.get(id);
     if (!job) return null;
     if (job.status !== "running" && options.readerSessionId === job.sessionId) this.collected.add(id);
     await this.running.get(id)?.log.flush();
     const path = this.logPath(id);
-    const bytes = await stat(path).then(
-      (info) => info.size,
-      () => 0,
-    );
+    const bytes = await logSize(path);
     if (bytes === 0) return { output: "", bytes, truncated: false };
-    if (options.full) return { output: await readFile(path, "utf-8"), bytes, truncated: false };
     if (options.tailLines !== undefined) {
       const start = Math.max(0, bytes - TAIL_READ_BYTES);
       const lines = (await readRange(path, start, bytes)).split("\n");
@@ -305,11 +317,27 @@ export class HostExec {
       return { output: `${kept.join("\n")}\n`, bytes, truncated: kept.length < lines.length || start > 0 };
     }
     if (bytes <= EXEC_EXCERPT_BYTES) return { output: await readFile(path, "utf-8"), bytes, truncated: false };
-    const half = EXEC_EXCERPT_BYTES / 2;
-    const head = await readRange(path, 0, half);
-    const tail = await readRange(path, bytes - half, bytes);
-    const marker = `\n[... ${bytes - EXEC_EXCERPT_BYTES} bytes not shown; all of it: takode exec logs ${id} --full ...]\n`;
-    return { output: head + marker + tail, bytes, truncated: true };
+    return { output: await excerpt(path, bytes, id), bytes, truncated: true };
+  }
+
+  /**
+   * The job's output as a stream: all of it, or only a 1-based inclusive range
+   * of its lines or bytes. Reading a finished command counts as its owner
+   * collecting the result, as for {@link readOutput}.
+   */
+  async readLog(
+    id: string,
+    options: { lines?: [number, number]; bytes?: [number, number]; readerSessionId?: string } = {},
+  ): Promise<Readable | null> {
+    const job = this.jobs.get(id);
+    if (!job) return null;
+    if (job.status !== "running" && options.readerSessionId === job.sessionId) this.collected.add(id);
+    await this.running.get(id)?.log.flush();
+    const path = this.logPath(id);
+    if ((await logSize(path)) === 0) return Readable.from([]);
+    if (options.bytes) return createReadStream(path, { start: options.bytes[0] - 1, end: options.bytes[1] - 1 });
+    if (options.lines) return Readable.from(lineRange(path, options.lines[0], options.lines[1]));
+    return createReadStream(path);
   }
 
   private get logDir(): string {
@@ -497,6 +525,70 @@ function ended(stream: Readable): Promise<void> {
     stream.once("end", resolve);
     stream.once("close", resolve);
   });
+}
+
+async function logSize(path: string): Promise<number> {
+  return stat(path).then(
+    (info) => info.size,
+    () => 0,
+  );
+}
+
+/**
+ * Both ends of long output, about EXEC_EXCERPT_BYTES together, cut at line
+ * breaks where there are any, with a note naming exactly what was left out
+ * and the commands that show it.
+ */
+async function excerpt(path: string, bytes: number, id: string): Promise<string> {
+  const half = EXEC_EXCERPT_BYTES / 2;
+  let head = await readRange(path, 0, half);
+  let tail = await readRange(path, bytes - half, bytes);
+  const headCut = head.lastIndexOf("\n");
+  const tailCut = tail.indexOf("\n");
+  const all = `all of it: \`takode exec logs ${id}\` (for long output, save it to a file: \`takode exec logs ${id} > ${id}.log\`)`;
+  if (headCut === -1 || tailCut === -1) {
+    const from = Buffer.byteLength(head) + 1;
+    const to = bytes - Buffer.byteLength(tail);
+    return `${head}\n[... bytes ${from}-${to} not shown; just those: \`takode exec logs ${id} --bytes ${from}-${to}\`; ${all} ...]\n${tail}`;
+  }
+  head = head.slice(0, headCut + 1);
+  tail = tail.slice(tailCut + 1);
+  const totalLines = await countLines(path);
+  const from = countNewlines(head) + 1;
+  const to = totalLines - countNewlines(tail) - (tail.endsWith("\n") || tail === "" ? 0 : 1);
+  return `${head}[... lines ${from}-${to} not shown; just those: \`takode exec logs ${id} --lines ${from}-${to}\`; ${all} ...]\n${tail}`;
+}
+
+function countNewlines(text: string): number {
+  let count = 0;
+  for (let index = text.indexOf("\n"); index !== -1; index = text.indexOf("\n", index + 1)) count++;
+  return count;
+}
+
+/** Lines in the file, counting a last line without a line break. */
+async function countLines(path: string): Promise<number> {
+  let count = 0;
+  let last = 0x0a;
+  for await (const chunk of createReadStream(path) as AsyncIterable<Buffer>) {
+    for (let index = chunk.indexOf(0x0a); index !== -1; index = chunk.indexOf(0x0a, index + 1)) count++;
+    last = chunk[chunk.length - 1] ?? last;
+  }
+  return last === 0x0a ? count : count + 1;
+}
+
+/** Lines `from` to `to` (1-based, inclusive) of a file, each with its line break. */
+async function* lineRange(path: string, from: number, to: number): AsyncGenerator<string> {
+  const lines = createInterface({ input: createReadStream(path), crlfDelay: Number.POSITIVE_INFINITY });
+  let number = 0;
+  try {
+    for await (const line of lines) {
+      number++;
+      if (number > to) break;
+      if (number >= from) yield `${line}\n`;
+    }
+  } finally {
+    lines.close();
+  }
 }
 
 async function readRange(path: string, start: number, end: number): Promise<string> {

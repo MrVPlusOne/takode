@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { Readable } from "node:stream";
 import { HostExecError } from "../remote-host/host-exec.js";
 import type { ExecJob } from "../../shared/host-exec.js";
 import { createHostExecRoutes } from "./host-exec.js";
@@ -36,6 +37,7 @@ describe("takode exec routes", () => {
     get: ReturnType<typeof vi.fn>;
     kill: ReturnType<typeof vi.fn>;
     detach: ReturnType<typeof vi.fn>;
+    readLog: ReturnType<typeof vi.fn>;
   };
   let app: Hono;
 
@@ -46,6 +48,7 @@ describe("takode exec routes", () => {
       get: vi.fn(() => job()),
       kill: vi.fn(() => job()),
       detach: vi.fn(async () => job({ background: true })),
+      readLog: vi.fn(async () => Readable.from(["line 1\n", "line 2\n"])),
     };
     const ctx = {
       authenticateTakodeCaller: () => ({ callerId: caller.id, caller: { isOrchestrator: caller.isOrchestrator } }),
@@ -102,5 +105,16 @@ describe("takode exec routes", () => {
 
     exec.get.mockReturnValueOnce(null);
     expect((await post("/takode/exec/jobs/x-9/kill")).status).toBe(404);
+  });
+
+  // `takode exec logs` streams the whole log as text, or a line or byte range.
+  it("streams a command's log, whole or as a range", async () => {
+    const res = await app.request("/api/takode/exec/jobs/x-1/log?lines=200-400");
+    expect(await res.text()).toBe("line 1\nline 2\n");
+    expect(exec.readLog).toHaveBeenCalledWith("x-1", { readerSessionId: "owner", lines: [200, 400] });
+    await app.request("/api/takode/exec/jobs/x-1/log?bytes=7");
+    expect(exec.readLog).toHaveBeenLastCalledWith("x-1", { readerSessionId: "owner", bytes: [7, 7] });
+    expect((await app.request("/api/takode/exec/jobs/x-1/log?lines=9-3")).status).toBe(400);
+    expect((await app.request("/api/takode/exec/jobs/x-1/log?bytes=abc")).status).toBe(400);
   });
 });

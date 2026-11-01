@@ -1,5 +1,7 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir, userInfo } from "node:os";
+import { Readable } from "node:stream";
+import { text } from "node:stream/consumers";
 import { join } from "node:path";
 import { HostAgent } from "./host-agent.js";
 import { HostExec, HostExecError, type HostExecDeps } from "./host-exec.js";
@@ -19,8 +21,10 @@ async function waitFor(condition: () => boolean | Promise<boolean>, timeoutMs = 
 
 /**
  * `takode exec` end to end inside one process: a real HostAgent runs the
- * commands with /bin/sh over an in-memory host link, and HostExec records them
- * in a temporary folder.
+ * commands in the test user's own login shell over an in-memory host link,
+ * and HostExec records them in a temporary folder. HOME points at a
+ * temporary folder whose login profiles are noisy, the way cluster profiles
+ * are, and set a variable the command can see.
  */
 describe("HostExec", () => {
   let manager: HostLinkManager;
@@ -29,16 +33,8 @@ describe("HostExec", () => {
   let dir: string;
   let notices: Array<{ sessionId: string; text: string }>;
   let changed: string[];
-  const savedShell = process.env.SHELL;
-
-  beforeAll(() => {
-    // The login shell runs the command; a plain sh keeps the user's profile out of the test.
-    process.env.SHELL = "/bin/sh";
-  });
-
-  afterAll(() => {
-    process.env.SHELL = savedShell;
-  });
+  let home: string;
+  const saved = { SHELL: process.env.SHELL, HOME: process.env.HOME };
 
   beforeEach(async () => {
     manager = new HostLinkManager();
@@ -46,12 +42,21 @@ describe("HostExec", () => {
     notices = [];
     changed = [];
     dir = await mkdtemp(join(tmpdir(), "host-exec-"));
+    home = await mkdtemp(join(tmpdir(), "host-exec-home-"));
+    const profile = 'echo "profile banner"; echo "profile warning" >&2; export PROFILE_VAR=from-profile\n';
+    for (const name of [".profile", ".bash_profile", ".zprofile"]) await writeFile(join(home, name), profile);
+    process.env.HOME = home;
+    // A node started by a scheduler may have no SHELL at all; the passwd entry decides.
+    delete process.env.SHELL;
   });
 
   afterEach(async () => {
     agent?.stop();
     agent = null;
+    process.env.HOME = saved.HOME;
+    process.env.SHELL = saved.SHELL;
     await rm(dir, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true });
   });
 
   function connectHost(): void {
@@ -129,15 +134,60 @@ describe("HostExec", () => {
     await waitFor(() => manager.status(HOST_ID).online);
     const exec = createExec();
     const inHome = await finished(exec, (await run(exec, "pwd")).id);
-    expect((await exec.readOutput(inHome.id, { readerSessionId: "session-a" }))?.output.trim()).toBe(homedir());
+    expect((await exec.readOutput(inHome.id, { readerSessionId: "session-a" }))?.output.trim()).toBe(home);
     const tilde = await finished(exec, (await run(exec, "pwd", { cwd: "~" })).id);
     expect(tilde.cwd).toBe("~");
-    expect((await exec.readOutput(tilde.id, { readerSessionId: "session-a" }))?.output.trim()).toBe(homedir());
+    expect((await exec.readOutput(tilde.id, { readerSessionId: "session-a" }))?.output.trim()).toBe(home);
     const given = await finished(exec, (await run(exec, "pwd", { cwd: dir })).id);
     expect((await exec.readOutput(given.id, { readerSessionId: "session-a" }))?.output.trim()).toBe(dir);
     const missing = await finished(exec, (await run(exec, "pwd", { cwd: join(dir, "missing") })).id);
     expect(missing).toMatchObject({ status: "exited", exitCode: 1 });
     expect((await exec.readOutput(missing.id, { readerSessionId: "session-a" }))?.output).toContain("missing");
+  });
+
+  // Commands run as a login shell of the user's own shell from their passwd
+  // entry, even without SHELL, so their profile applies; what the profile
+  // itself prints never reaches the command's output.
+  it("runs in the user's own login shell without the profile's output", async () => {
+    connectHost();
+    await waitFor(() => manager.status(HOST_ID).online);
+    const exec = createExec();
+    const job = await finished(exec, (await run(exec, 'echo "$SHELL $PROFILE_VAR"; echo err >&2')).id);
+    const output = (await exec.readOutput(job.id, { readerSessionId: "session-a" }))?.output;
+    expect(output?.split("\n").sort()).toEqual(["", `${userInfo().shell} from-profile`, "err"]);
+  });
+
+  // Long output shows both ends and names the lines left out, and the log
+  // gives all of it or any range of lines or bytes.
+  it("shows both ends of long output and gives all of it or a range", async () => {
+    connectHost();
+    await waitFor(() => manager.status(HOST_ID).online);
+    const exec = createExec();
+    const job = await finished(exec, (await run(exec, "seq 1 20000")).id);
+    const all = Array.from({ length: 20000 }, (_, index) => `${index + 1}\n`).join("");
+    const shown = (await exec.readOutput(job.id, { readerSessionId: "session-a" }))!;
+    expect(shown.truncated).toBe(true);
+    const marker = shown.output.match(
+      /\[\.\.\. lines (\d+)-(\d+) not shown; just those: `takode exec logs x-1 --lines \1-\2`/,
+    );
+    expect(marker).not.toBeNull();
+    const [from, to] = [Number(marker![1]), Number(marker![2])];
+    // The excerpt's lines and the hidden range together are exactly the output.
+    const visible = shown.output.split("\n").filter((line) => /^\d+$/.test(line));
+    expect(visible).toEqual([
+      ...Array.from({ length: from - 1 }, (_, index) => `${index + 1}`),
+      ...Array.from({ length: 20000 - to }, (_, index) => `${to + index + 1}`),
+    ]);
+    const read = async (options: Parameters<HostExec["readLog"]>[1]) =>
+      text((await exec.readLog(job.id, options)) as Readable);
+    expect(await read({})).toBe(all);
+    expect(await read({ lines: [from, to] })).toBe(
+      all
+        .split("\n")
+        .slice(from - 1, to)
+        .join("\n") + "\n",
+    );
+    expect(await read({ bytes: [1, 6] })).toBe("1\n2\n3\n");
   });
 
   // A background command tells its session when it ends, with the outcome and

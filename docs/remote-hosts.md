@@ -222,9 +222,14 @@ takode exec status x-12; takode exec logs x-12; takode exec kill x-12
 ```
 
 A command runs over the machine's host link as the user that runs
-`takode node` there, in that user's login shell, with no input. A foreground
-run returns its output and exit code; long output shows both ends, and the
-rest is in `takode exec logs`. A `--background` run, or a foreground one whose
+`takode node` there, with no input, as a login shell of that user's own shell
+(from their passwd entry, so a node started by a scheduler without `$SHELL`
+still gets bash or zsh). The profile's PATH and settings apply, but whatever
+the profile itself prints (for example a cluster's completion warnings) is left
+out of the output. A foreground run returns its output and exit code; long
+output shows both ends and names the lines left out. `takode exec logs <id>`
+prints all of it (redirect it to a file when long) or a part with
+`--lines 200-400`, `--bytes 1-50000` or `--tail 50`. A `--background` run, or a foreground one whose
 caller is interrupted or goes away, keeps running, and its session gets a
 message when it ends. The coordinator records every call (session, quest,
 machine, command, outcome and times) and keeps its output under

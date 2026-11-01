@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { Readable } from "node:stream";
 import { HostExecError } from "../remote-host/host-exec.js";
 import type { RouteContext } from "./context.js";
 
@@ -76,10 +77,29 @@ export function createHostExecRoutes(ctx: RouteContext) {
     }
     const output = await g.exec.readOutput(c.req.param("id"), {
       readerSessionId: g.auth.callerId,
-      full: c.req.query("full") === "1",
       ...(tailLines === undefined ? {} : { tailLines }),
     });
     return output ? c.json(output) : notFound(c);
+  });
+
+  /** A command's whole output as plain text, or a 1-based inclusive range of its lines or bytes (`lines=A-B`, `bytes=A-B`). */
+  api.get("/takode/exec/jobs/:id/log", async (c) => {
+    const g = guard(c);
+    if ("response" in g) return g.response;
+    const lines = parseRange(c.req.query("lines"));
+    const bytes = parseRange(c.req.query("bytes"));
+    if (lines === "invalid" || bytes === "invalid") {
+      return c.json({ error: "lines and bytes take a range such as 200-400 (1-based, inclusive)" }, 400);
+    }
+    const log = await g.exec.readLog(c.req.param("id"), {
+      readerSessionId: g.auth.callerId,
+      ...(lines ? { lines } : {}),
+      ...(bytes ? { bytes } : {}),
+    });
+    if (!log) return notFound(c);
+    return new Response(Readable.toWeb(log) as unknown as ReadableStream, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   });
 
   /** The foreground caller stops waiting; the session is told when the command ends. */
@@ -108,4 +128,14 @@ export function createHostExecRoutes(ctx: RouteContext) {
 
 function notFound(c: Context) {
   return c.json({ error: `No command ${c.req.param("id")}; list them with takode exec list` }, 404);
+}
+
+/** `A-B` (or `A` for one) as 1-based inclusive bounds; undefined when absent. */
+function parseRange(value: string | undefined): [number, number] | "invalid" | undefined {
+  if (value === undefined) return undefined;
+  const match = /^(\d+)(?:-(\d+))?$/.exec(value.trim());
+  if (!match) return "invalid";
+  const from = Number(match[1]);
+  const to = Number(match[2] ?? match[1]);
+  return from >= 1 && to >= from ? [from, to] : "invalid";
 }

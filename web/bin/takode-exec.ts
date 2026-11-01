@@ -13,7 +13,7 @@ import { apiPost, err, takodeAuthHeaders } from "./takode-core.js";
 export const EXEC_USAGE = [
   "Usage: takode exec --host <machine> [--cwd <dir>] [--background] [--json] -- <command...>",
   "       takode exec status <id> [--json]",
-  "       takode exec logs <id> [--full | --tail <lines>]",
+  "       takode exec logs <id> [--lines <from>-<to> | --bytes <from>-<to> | --tail <lines>]",
   "       takode exec kill <id>",
   "       takode exec list [--all] [--json]",
 ].join("\n");
@@ -22,18 +22,22 @@ export const EXEC_HELP = `${EXEC_USAGE}
 
 Run a command on another machine that has a Takode node: a registered host
 (takode host list) or the Takode server's own machine, by its name. It runs as
-that machine's user, in their login shell, in --cwd or their home directory
-(quote a leading ~ so your own shell does not expand it), with no input.
-Output (stdout and stderr together) and the exit code come back as if it ran
-here; long output shows both ends, with the rest in takode exec logs <id>.
+that machine's user, as a login shell of their own shell (bash, zsh...), in
+--cwd or their home directory (quote a leading ~ so your own shell does not
+expand it), with no input. Output (stdout and stderr together) and the exit
+code come back as if it ran here; whatever the login profile itself prints is
+left out. Long output shows both ends and names the lines left out, which
+takode exec logs shows.
 
   --background  Return a job id at once. The command keeps running if this
                 session stops or disconnects, and you get a message when it
                 finishes. A foreground run that is interrupted or times out
                 becomes a background run the same way.
   status <id>   The command's state, exit code and times.
-  logs <id>     Its output: both ends when long, --full for all of it,
-                --tail <lines> for the last lines.
+  logs <id>     All of its output; save a long one to a file
+                (takode exec logs <id> > out.log). --lines 200-400 or
+                --bytes 1-50000 for a part (1-based, inclusive), --tail <n>
+                for the last lines.
   kill <id>     Stop it and everything it started (SIGTERM, then SIGKILL).
   list          Your recent commands; --all for every session's.
 
@@ -148,19 +152,35 @@ async function showStatus(base: string, args: string[]): Promise<void> {
 }
 
 async function showLogs(base: string, args: string[]): Promise<void> {
-  const id = jobId(args);
-  const tailIndex = args.indexOf("--tail");
-  const query = args.includes("--full")
-    ? "?full=1"
-    : tailIndex !== -1
-      ? `?tail=${encodeURIComponent(args[tailIndex + 1] ?? "")}`
-      : "";
-  const output = (await getWithRetry(
-    base,
-    `/takode/exec/jobs/${encodeURIComponent(id)}/output${query}`,
-  )) as OutputResponse;
-  process.stdout.write(output.output);
-  if (output.output && !output.output.endsWith("\n")) process.stdout.write("\n");
+  const id = encodeURIComponent(jobId(args));
+  const tail = valueOf(args, "--tail");
+  if (tail !== undefined) {
+    const output = (await getWithRetry(
+      base,
+      `/takode/exec/jobs/${id}/output?tail=${encodeURIComponent(tail)}`,
+    )) as OutputResponse;
+    process.stdout.write(output.output);
+    return;
+  }
+  // `--full` named everything before logs did so by default; it still works.
+  const lines = valueOf(args, "--lines");
+  const bytes = valueOf(args, "--bytes");
+  const query =
+    lines !== undefined
+      ? `?lines=${encodeURIComponent(lines)}`
+      : bytes !== undefined
+        ? `?bytes=${encodeURIComponent(bytes)}`
+        : "";
+  const response = await fetchWithRetry(base, `/takode/exec/jobs/${id}/log${query}`);
+  // Streamed, so output of any size reaches stdout (or a file) whole.
+  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+    if (!process.stdout.write(chunk)) await new Promise((resolve) => process.stdout.once("drain", resolve));
+  }
+}
+
+function valueOf(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  return index === -1 ? undefined : (args[index + 1] ?? "");
 }
 
 async function killJob(base: string, args: string[]): Promise<void> {
@@ -208,13 +228,20 @@ function exitCodeOf(job: ExecJob): number {
 }
 
 function jobId(args: string[]): string {
-  const id = args.find((arg, index) => !arg.startsWith("--") && args[index - 1] !== "--tail");
+  const id = args.find(
+    (arg, index) => !arg.startsWith("--") && !["--tail", "--lines", "--bytes"].includes(args[index - 1] ?? ""),
+  );
   if (!id) err(`Name the command, e.g. x-12\n${EXEC_USAGE}`);
   return id;
 }
 
-/** A GET that waits out a coordinator that is briefly unreachable, such as during a restart. */
+/** A GET's JSON answer, waiting out a coordinator that is briefly unreachable (see {@link fetchWithRetry}). */
 async function getWithRetry(base: string, path: string): Promise<unknown> {
+  return (await fetchWithRetry(base, path)).json();
+}
+
+/** A successful GET response, waiting out a coordinator that is briefly unreachable, such as during a restart. */
+async function fetchWithRetry(base: string, path: string): Promise<Response> {
   const deadline = Date.now() + RECONNECT_MS;
   for (;;) {
     let response: Response;
@@ -229,9 +256,9 @@ async function getWithRetry(base: string, path: string): Promise<unknown> {
       await Bun.sleep(1_000);
       continue;
     }
+    if (response.ok) return response;
     const body = (await response.json().catch(() => ({}))) as { error?: string };
-    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-    return body;
+    throw new Error(body.error || `HTTP ${response.status}`);
   }
 }
 
