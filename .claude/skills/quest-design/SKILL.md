@@ -77,7 +77,7 @@ When you only need quest text approval and dispatch is not in scope, use the sam
 
 ### Proposed Quest
 
-- Title, when ready.
+- Title, when ready, by the quest skill's Titles rule: the subject first (not a task), 3 to 7 words, one subject.
 - Tags, when useful.
 - Relationship, when relevant.
 

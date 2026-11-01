@@ -585,7 +585,7 @@ When the user asks you to work on a quest — whether via the Companion "Assign"
    - If the quest is a true follow-up to earlier work, persist that with `quest edit q-N --follow-up-of q-M` after approval; if a follow-up relationship was recorded by mistake, clear it with `quest edit q-N --clear-follow-up-of`.
    - Apply confirmed updates with `quest edit q-N --title "..." --desc "..." --tags "t1,t2"`.
    - Immediately re-run `quest show q-N` and verify the final title/description/tags are clean.
-   - Title rule: concise, **less than 10 words**. Move details to description.
+   - Title: follow the Titles rule below; move details to the description.
    - Prefer the two-axis taxonomy over long-tail precedent. Use new tags only for rare, justified durable categories not covered by the default sets.
 4. **Work**: Implement the changes. Use TodoWrite for sub-step tracking if needed. If a reviewer or human review requires additional code changes, keep the same quest in Work, checkpoint the current worktree state when useful, and make the fixes in a separate follow-up commit so any separate review quest can inspect a clean incremental diff. Reviewers do not commit, and purely read-only follow-up review discussion does not reopen Work. **If there is human feedback**, inspect it with `quest feedback list q-N --author human --unaddressed`, address each entry, explain what you did in an agent feedback entry, then mark it with `quest address q-N <index>`. Prefer one consolidated feedback entry when the same update can both summarize the work and explain how human feedback was addressed, for example `quest feedback q-N --text "Summary: fixed the layout issue and addressed feedback #0 by adding flex-wrap"` for short replies, or `quest feedback q-N --text-file -` / `--text-file <path>` when your response includes copied logs or shell-like text. Add separate feedback entries only when the updates are materially different or separation makes the quest easier to read. Run `quest feedback list q-N --author human --unaddressed` to confirm no unaddressed entries remain.
 5. **Self-check**: Before submitting, verify everything you can yourself. While iterating, run focused tests for what you change. For tracked code/test changes, the current full automated gate is `cd web && bun --no-install run typecheck`, `cd web && bun --no-install run test`, and `cd web && bun --no-install run format:check`; run it where `/port-changes` says (for a shared remote branch: the landing queue's batch gate, after a `takode land test` check of the tests relevant to your change; otherwise once at the port gate), not also during Work iteration. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your summary or handoff before submitting. Do not turn self-verifiable agent evidence into User review checks. **Verify all human feedback entries are marked addressed** by running `quest feedback list q-N --author human --unaddressed` and checking that it returns no entries.
@@ -647,6 +647,23 @@ Read `memory-completion.md` when you are finalizing a quest, running final Memor
 
 Be concise. Quest titles, descriptions, User review checks, and closure notes should be short and scannable. Avoid verbose text — write for someone skimming quickly.
 
+## Titles
+
+A quest's title, and a reopened quest's round title, says what the quest is about, so it can be found at a glance in a short list. Lists cut titles to about 20 to 40 characters, so the first words carry it.
+
+1. **Subject first, not a task.** Name the thing it is about (a feature, dataset, benchmark, run, someone's request) in the first two or three words, as a phrase rather than an instruction to the worker. Keep a verb only when the change itself is the point ("Always run transcript enhancement").
+2. **3 to 7 plain words**, about 40 characters at most: the same rule the Scribe uses for thread names, so quests and threads read alike.
+3. **One subject.** No "and" joining two tasks and no parentheses; which tiers, which model, why and when go in the TLDR or description.
+
+| Instead of | Write |
+|---|---|
+| Reconcile the T10 QA-mix PRs and guide Jiayi's review | T10 QA-mix PRs: overlap with Junhong's |
+| Build the harder Lean eval tiers (Tiers 1-4) | Harder Lean eval tiers |
+| Run VeriSoftBench in our Lean harness | VeriSoftBench in our Lean harness |
+| Rebase the seeded-QA pipeline PR and fix regressions | Seeded-QA pipeline PR rebase |
+| Answer Lingxiao's GPU quota and squad account question | Lingxiao's GPU quota question |
+| Active quests in the session hover card open their thread | Hover card quests open their thread |
+
 ## Status flow and transition guidelines
 
 ```
@@ -657,7 +674,7 @@ idea → refined → in_progress → done
 
 Use `quest complete` for final completion to `done` with review metadata when Memory closes the quest. In Quest Journey v2, Work transitions to Memory only after the request supplies synchronized selected-target code SHAs or explicit zero-code evidence; final Memory normally completes the quest after that Work-owned evidence is already structured metadata and debrief, memory, and User review checks are settled. Do not use `quest transition --status done` as a shortcut for completion handoff or first-attach Work code SHAs during Memory.
 
-**Title rule for refined and later:** Whenever a quest is `refined`, `in_progress`, or `done`, the title must be **less than 10 words**. If not, shorten it first with `quest edit` before other updates.
+**Title rule for refined and later:** Whenever a quest is `refined`, `in_progress`, or `done`, its title must follow the Titles rule (3 to 7 words, subject first). If not, fix it first with `quest edit` before other updates.
 
 ### idea → refined
 **Must polish the quest.** Follow this order:
@@ -665,7 +682,7 @@ Use `quest complete` for final completion to `done` with review metadata when Me
 - Draft the refined title, description, and tags, then invoke `/quest-design`.
 - Wait for user confirmation or correction. If the user corrects the draft and ambiguity remains, repeat `/quest-design` before writing the quest.
 - If this is a true follow-up, bug fix, successor, redesign, or user-approved next quest from earlier findings, include `Relationship: follow-up of [q-M](quest:q-M)` in the draft and persist it with `quest edit <id> --follow-up-of q-M` after approval. Leave incidental mentions to auto-detected backlinks instead.
-- Title: concise, less than 10 words. Move detail to description.
+- Title: by the Titles rule (subject first, 3 to 7 words, one subject). Move detail to description.
 - Description: clear, actionable, intent-first, and self-contained. State the requested outcome, user-supplied, confirmed, or mandatory constraints, and useful hard-to-recover context; define non-obvious terms and explain how a true follow-up differs from or builds on its predecessor. Do not turn unconfirmed leader ideas or detailed planning into binding acceptance criteria.
 - Tags: run `quest tags` for awareness, then prefer the two-axis taxonomy in the Tags section. For `refined` and later quests, generally use one area tag followed by one work-type tag.
 - Apply confirmed updates via `quest edit <id> --title "..." --desc "..." --tags "t1,t2"` and add `--follow-up-of q-M` only when the relationship was confirmed.
@@ -689,7 +706,7 @@ Use `quest complete` for final completion to `done` with review metadata when Me
 
 Sequential follow-up work on a quest's own deliverable continues in the same quest, so a quest can be reopened many times. Each opening is a **round**: round 1 opens with the quest, and `quest reopen` closes the current round (keeping a done quest's debrief as that round's outcome) and opens the next with its own title, brief and requests. The quest stays one quest, one thread and one conversation, but reads as a sequence of small quests: `quest show` puts the open round first and earlier rounds one line each, and `[q-42 round 3](quest:q-42:round:3)` links one round.
 
-- **Leaders reopen with `quest reopen`**, not `quest transition --status refined`: `quest reopen q-N --title "<short round name>" --brief-file - --requests "81,84" <<'BRIEF' ... BRIEF`. The brief says what this round asks for and where it stops; `--requests` names the feedback entries that asked for it. Then dispatch as usual (`takode board set`, claim), naming the round by its title ("q-N's open round, <title>"), not its number. Reopen before setting the board row. `--handoff uN` hands the user's request off to the quest when the board row is set, as `quest create --handoff` does.
+- **Leaders reopen with `quest reopen`**, not `quest transition --status refined`: `quest reopen q-N --title "<round title, by the Titles rule>" --brief-file - --requests "81,84" <<'BRIEF' ... BRIEF`. The brief says what this round asks for and where it stops; `--requests` names the feedback entries that asked for it. Then dispatch as usual (`takode board set`, claim), naming the round by its title ("q-N's open round, <title>"), not its number. Reopen before setting the board row. `--handoff uN` hands the user's request off to the quest when the board row is set, as `quest create --handoff` does.
 - **The description is the standing brief**: what the whole quest is and the decisions that still stand. Replace stale parts instead of appending a section per round; round-specific asks belong in the round brief (`quest round edit q-N <n> --brief-file -` when it changes, such as at a User Checkpoint).
 - **The debrief is the round's outcome.** Final Memory writes what this round changed, not the whole quest again; touch the quest TLDR or description only when the round changed the overall picture.
 - **Workers read the open round first.** Open an earlier round (`--round <n>`, `quest feedback list --round <n>`) only when the brief or the work points at it.
