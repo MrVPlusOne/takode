@@ -284,6 +284,9 @@ export interface AppState {
   setChatMessageLineHeight: (lineHeight: number) => void;
   /** Apply the scheme locally and persist it server-side; reverts if the save fails. */
   setSendKeyScheme: (scheme: import("../shared/send-key-scheme.js").SendKeyScheme) => void;
+  /** Remind me later's custom unit, the user's last choice, saved in the server's settings. */
+  remindLaterUnit: import("../shared/remind-later-unit.js").RemindLaterUnit;
+  setRemindLaterUnit: (unit: import("../shared/remind-later-unit.js").RemindLaterUnit) => void;
   setShortcutsEnabled: (enabled: boolean) => void;
   setTypeToCompose: (typeToCompose: boolean) => void;
   setOpenInSideModifier: (modifier: import("../shared/shortcut-settings.js").OpenInSideModifier) => void;

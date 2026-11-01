@@ -5,11 +5,13 @@ import type { SessionNotification } from "../types.js";
 
 const mockSnoozeNotification = vi.fn();
 const mockSetNotificationMuted = vi.fn();
+const mockUpdateSettings = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
     snoozeNotification: (...args: unknown[]) => mockSnoozeNotification(...args),
     setNotificationMuted: (...args: unknown[]) => mockSetNotificationMuted(...args),
+    updateSettings: (...args: unknown[]) => mockUpdateSettings(...args),
   },
 }));
 
@@ -37,6 +39,8 @@ function storedNotification(): SessionNotification | undefined {
 beforeEach(() => {
   mockSnoozeNotification.mockReset();
   mockSetNotificationMuted.mockReset();
+  mockUpdateSettings.mockReset().mockResolvedValue({});
+  useStore.setState({ remindLaterUnit: "hours" });
 });
 
 afterEach(() => {
@@ -71,6 +75,27 @@ describe("NeedsInputSnoozeControl", () => {
     fireEvent.click(snoozeButton);
 
     await waitFor(() => expect(mockSnoozeNotification).toHaveBeenCalledWith("s1", "n-1", 7_200_000));
+  });
+
+  it("starts the custom unit at hours and remembers the user's last unit on the server", async () => {
+    // Jiayi (Oct 31): the unit started at minutes every time. It starts at hours, and a chosen unit
+    // is saved in the server's settings, so the next Remind me later on any device starts there.
+    mockSnoozeNotification.mockResolvedValue({ ok: true, notification: { ...prompt, snoozedUntil: 1 } });
+    const first = renderControl(prompt);
+    fireEvent.click(screen.getByRole("button", { name: /Remind me later/ }));
+    expect(screen.getByLabelText("Custom snooze unit")).toHaveValue("hours");
+    fireEvent.change(screen.getByLabelText("Custom snooze unit"), { target: { value: "minutes" } });
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ remindLaterUnit: "minutes" });
+    first.unmount();
+
+    renderControl(prompt);
+    fireEvent.click(screen.getByRole("button", { name: /Remind me later/ }));
+    expect(screen.getByLabelText("Custom snooze unit")).toHaveValue("minutes");
+    fireEvent.change(screen.getByLabelText("Custom snooze amount"), { target: { value: "5" } });
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Remind me in" })).getByRole("button", { name: "Snooze" }),
+    );
+    await waitFor(() => expect(mockSnoozeNotification).toHaveBeenCalledWith("s1", "n-1", 300_000));
   });
 
   it("snoozes until a picked day, at 9 AM unless another time is chosen", async () => {

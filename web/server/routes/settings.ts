@@ -59,6 +59,7 @@ import {
   normalizeChatMessageLineHeight,
 } from "../../shared/chat-display-settings.js";
 import { isSendKeyScheme, normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
+import { normalizeRemindLaterUnit } from "../../shared/remind-later-unit.js";
 import {
   CLAUDE_1M_CONTEXT_TOKENS,
   DEFAULT_SESSION_DEFAULTS,
@@ -1083,6 +1084,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       codexLeaderCompactionMode: normalizeCodexLeaderCompactionMode(settings.codexLeaderCompactionMode),
       leaderProfilePools: normalizeLeaderProfilePoolSettings(settings.leaderProfilePools),
       leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(settings.leaderProfileCollapsedPools),
+      remindLaterUnit: normalizeRemindLaterUnit(settings.remindLaterUnit),
       ...(settings.shortcutSettings ? { shortcutSettings: settings.shortcutSettings } : {}),
       sessionDefaults: settings.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS,
       workerSlotLimits: normalizeWorkerSlotLimits(settings.workerSlotLimits),
@@ -1428,6 +1430,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
         }
       }
     }
+    if (body.remindLaterUnit !== undefined && body.remindLaterUnit !== "minutes" && body.remindLaterUnit !== "hours") {
+      return c.json({ error: 'remindLaterUnit must be "minutes" or "hours"' }, 400);
+    }
     if (body.leaderProfileCollapsedPools !== undefined) {
       if (!Array.isArray(body.leaderProfileCollapsedPools)) {
         return c.json({ error: "leaderProfileCollapsedPools must be an array of pool ids" }, 400);
@@ -1471,6 +1476,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "codexLeaderCompactionMode",
       "leaderProfilePools",
       "leaderProfileCollapsedPools",
+      "remindLaterUnit",
       "shortcutSettings",
       "sessionDefaults",
       "workerSlotLimits",
@@ -1542,6 +1548,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       leaderProfileCollapsedPools: Array.isArray(body.leaderProfileCollapsedPools)
         ? normalizeLeaderProfileCollapsedPools(body.leaderProfileCollapsedPools)
         : undefined,
+      remindLaterUnit: body.remindLaterUnit === undefined ? undefined : normalizeRemindLaterUnit(body.remindLaterUnit),
       shortcutSettings:
         body.shortcutSettings && typeof body.shortcutSettings === "object"
           ? parseShortcutSettingsFromBody(body.shortcutSettings as Record<string, unknown>)

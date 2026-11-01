@@ -45,6 +45,7 @@ import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
 import type { NeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
 import type { SendKeyScheme } from "../shared/send-key-scheme.js";
+import type { RemindLaterUnit } from "../shared/remind-later-unit.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 import type { WorkerSlotLimits } from "../shared/takode-constants.js";
 
@@ -689,6 +690,7 @@ export interface AppSettings {
   codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   leaderProfilePools: LeaderProfilePoolSettings;
   leaderProfileCollapsedPools?: LeaderProfilePoolId[];
+  remindLaterUnit?: RemindLaterUnit;
   leaderProfilePortraits: LeaderProfilePortrait[];
   leaderProfileFallbackPortrait: LeaderProfilePortrait;
   leaderProfilePoolOptions: LeaderProfilePool[];
@@ -1384,6 +1386,7 @@ export const api = {
     codexLeaderCompactionMode?: CodexLeaderCompactionMode;
     leaderProfilePools?: LeaderProfilePoolSettings;
     leaderProfileCollapsedPools?: LeaderProfilePoolId[];
+    remindLaterUnit?: RemindLaterUnit;
     shortcutSettings?: ShortcutSettings;
     sessionDefaults?: SessionDefaultsSettings;
     workerSlotLimits?: Partial<WorkerSlotLimits>;

@@ -1,4 +1,6 @@
 import { useState, type KeyboardEvent, type SyntheticEvent } from "react";
+import { useStore } from "../store.js";
+import type { RemindLaterUnit } from "../../shared/remind-later-unit.js";
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -62,7 +64,9 @@ export function snoozeUntilParts(until: number, now = Date.now()): { day: string
  */
 export function RemindLaterChoices({ busy, onChoose }: { busy: boolean; onChoose: (durationMs: number) => void }) {
   const [customAmount, setCustomAmount] = useState("");
-  const [customUnit, setCustomUnit] = useState<"minutes" | "hours">("minutes");
+  // Hours at first, then the unit the user last chose, kept in the server's settings.
+  const customUnit = useStore((state) => state.remindLaterUnit);
+  const setCustomUnit = useStore((state) => state.setRemindLaterUnit);
   const [day, setDay] = useState(() => toDateInputValue(new Date(Date.now() + DAY_MS)));
   const [dayTime, setDayTime] = useState(DEFAULT_DAY_TIME);
 
@@ -110,7 +114,7 @@ export function RemindLaterChoices({ busy, onChoose }: { busy: boolean; onChoose
           />
           <select
             value={customUnit}
-            onChange={(event) => setCustomUnit(event.target.value as "minutes" | "hours")}
+            onChange={(event) => setCustomUnit(event.target.value as RemindLaterUnit)}
             aria-label="Custom snooze unit"
             className="rounded border border-cc-border bg-cc-bg/70 px-1 py-1 text-[11px] text-cc-fg outline-none"
           >

@@ -84,6 +84,7 @@ describe("settings-manager", () => {
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",
+      remindLaterUnit: "hours",
       leaderProfilePools: { tako: false, shmi: false, animals: true },
       leaderProfileCollapsedPools: undefined,
       shortcutSettings: undefined,
@@ -765,6 +766,7 @@ describe("settings-manager", () => {
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       sendKeyScheme: "enter",
+      remindLaterUnit: "hours",
       leaderProfilePools: { tako: false, shmi: false, animals: true },
       leaderProfileCollapsedPools: undefined,
       shortcutSettings: undefined,
@@ -1094,6 +1096,20 @@ describe("chatMessageLineHeight settings", () => {
     writeFileSync(settingsPath, JSON.stringify({ chatMessageLineHeight: 2.2, updatedAt: 0 }), "utf-8");
     _resetForTest(settingsPath);
     expect(getSettings().chatMessageLineHeight).toBe(1.45);
+  });
+});
+
+describe("remindLaterUnit settings", () => {
+  it("starts at hours, keeps the user's last choice, and reads anything else as hours", async () => {
+    // Jiayi (Oct 31): Remind me later's custom unit started at minutes and forgot her choice; it now
+    // starts at hours and the server remembers the unit she last picked, for every device.
+    expect(getSettings().remindLaterUnit).toBe("hours");
+    expect(updateSettings({ remindLaterUnit: "minutes" }).remindLaterUnit).toBe("minutes");
+    await _flushForTest();
+    expect(JSON.parse(readFileSync(settingsPath, "utf-8")).remindLaterUnit).toBe("minutes");
+    writeFileSync(settingsPath, JSON.stringify({ remindLaterUnit: "days", updatedAt: 0 }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().remindLaterUnit).toBe("hours");
   });
 });
 

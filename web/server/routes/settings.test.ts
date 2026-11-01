@@ -124,6 +124,23 @@ describe("settings routes", () => {
     expect(getSettings().sendKeyScheme).toBe("mod-enter");
   });
 
+  it("remembers Remind me later's custom unit for every device and rejects unknown units", async () => {
+    // Hours by default; the last unit the user picks is saved here and read back by every browser.
+    const app = createApp();
+    const put = (remindLaterUnit: unknown) =>
+      app.request("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remindLaterUnit }),
+      });
+    expect((await (await app.request("/api/settings")).json()).remindLaterUnit).toBe("hours");
+    const ok = await put("minutes");
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).remindLaterUnit).toBe("minutes");
+    expect((await put("days")).status).toBe(400);
+    expect(getSettings().remindLaterUnit).toBe("minutes");
+  });
+
   it("keeps one sidebar view for every browser and rejects unknown views", async () => {
     // The Spaces/Recent choice is a single server-side setting, so every browser reads the same view.
     const app = createApp();

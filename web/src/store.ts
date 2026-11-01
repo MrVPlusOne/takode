@@ -122,6 +122,7 @@ export function isDarkTheme(theme: ColorTheme): boolean {
 import { scopedGetItem, scopedSetItem, scopedRemoveItem, setLocalStorageItem } from "./utils/scoped-storage.js";
 import { forgetReceivedLists } from "./utils/synced-lists.js";
 import { DEFAULT_SEND_KEY_SCHEME } from "../shared/send-key-scheme.js";
+import { DEFAULT_REMIND_LATER_UNIT } from "../shared/remind-later-unit.js";
 import {
   DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS,
   normalizeLeaderProfileCollapsedPools,
@@ -274,6 +275,7 @@ export const useStore = create<AppState>((set, get) => ({
     typeof window !== "undefined" ? localStorage.getItem("cc-compact-tool-activity") !== "false" : true,
   chatMessageLineHeight: getInitialChatMessageLineHeight(),
   sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
+  remindLaterUnit: DEFAULT_REMIND_LATER_UNIT,
   shortcutSettings: getInitialShortcutSettings(),
   sidebarOpen: typeof window !== "undefined" ? isDesktopShellLayout(getInitialZoomLevel()) : true,
   sidebarLocked: typeof window !== "undefined" ? localStorage.getItem("cc-sidebar-locked") !== "false" : true,
@@ -521,6 +523,15 @@ export const useStore = create<AppState>((set, get) => ({
     api.updateSettings({ sidebarViewMode: mode }).catch((err) => {
       console.warn("[store] failed to save sidebar view:", err);
       if (get().sidebarViewMode === mode) set({ sidebarViewMode: previous });
+    });
+  },
+  setRemindLaterUnit: (unit) => {
+    const previous = get().remindLaterUnit;
+    if (previous === unit) return;
+    set({ remindLaterUnit: unit });
+    api.updateSettings({ remindLaterUnit: unit }).catch((err) => {
+      console.warn("[store] failed to save the remind-later unit:", err);
+      if (get().remindLaterUnit === unit) set({ remindLaterUnit: previous });
     });
   },
   setLeaderProfilePoolCollapsed: (poolId, collapsed) => {
@@ -1776,6 +1787,7 @@ export const useStore = create<AppState>((set, get) => ({
         typeof window !== "undefined" ? localStorage.getItem("cc-compact-tool-activity") !== "false" : true,
       chatMessageLineHeight: getInitialChatMessageLineHeight(),
       sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
+      remindLaterUnit: DEFAULT_REMIND_LATER_UNIT,
       shortcutSettings: DEFAULT_SHORTCUT_SETTINGS,
       annotationEditor: null,
       annotationHover: null,

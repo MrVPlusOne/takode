@@ -18,6 +18,7 @@ import {
 } from "../store.js";
 import { api } from "../api.js";
 import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
+import { normalizeRemindLaterUnit } from "../../shared/remind-later-unit.js";
 import { normalizeLeaderProfileCollapsedPools } from "../../shared/leader-profile-portraits.js";
 import { normalizeSidebarViewMode } from "../../shared/sidebar-view-mode.js";
 import { connectSession, syncedProjectionsLive } from "../ws.js";
@@ -284,6 +285,7 @@ export function Sidebar({
           sendKeyScheme: normalizeSendKeyScheme(s.sendKeyScheme),
           sidebarViewMode: normalizeSidebarViewMode(s.sidebarViewMode),
           leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(s.leaderProfileCollapsedPools),
+          remindLaterUnit: normalizeRemindLaterUnit(s.remindLaterUnit),
         });
       })
       .catch(() => {});
