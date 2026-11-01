@@ -189,11 +189,20 @@ export function noteSideItemUsed(id: string): void {
   if (!item || !isConversationItem(item)) return;
   const order = [id, ...used.filter((other) => other !== id && items.some((candidate) => candidate.id === other))];
   if (order.join() !== used.join()) update((column) => ({ ...column, used: order }));
-  const open = order.filter((other) => {
-    const candidate = items.find((entry) => entry.id === other);
-    return candidate && isConversationItem(candidate) && !isRememberedFolded(sideFoldId(other));
-  });
-  for (const extra of open.slice(MAX_OPEN_CONVERSATIONS)) setRememberedFolded(sideFoldId(extra), true);
+  foldBeyondOpenLimit();
+}
+
+/**
+ * Folds the open conversations past `MAX_OPEN_CONVERSATIONS`, least recently used first. One never
+ * used here (opened before the limit existed) counts as older than any used one.
+ */
+function foldBeyondOpenLimit(): void {
+  const { items, used = [] } = useSideColumnStore.getState();
+  const rank = (id: string) => (used.includes(id) ? used.indexOf(id) : used.length);
+  const open = items
+    .filter((item) => isConversationItem(item) && !isRememberedFolded(sideFoldId(item.id)))
+    .sort((a, b) => rank(a.id) - rank(b.id));
+  for (const extra of open.slice(MAX_OPEN_CONVERSATIONS)) setRememberedFolded(sideFoldId(extra.id), true);
 }
 
 /** Unfolds an item and scrolls the column to it. */
@@ -487,3 +496,6 @@ export function canOpenInSide(): boolean {
 export function openConversationInSide(leaderId: string, threadKey: string): boolean {
   return openInSideOnScreen({ kind: "conversation", threadKey: threadKey.toLowerCase(), leaderId });
 }
+
+// A column saved with more conversations open (from before the limit) starts within it.
+foldBeyondOpenLimit();

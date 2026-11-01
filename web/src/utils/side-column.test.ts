@@ -30,7 +30,7 @@ const items = () => useSideColumnStore.getState().items;
 const keys = () => items().map((item) => (item.kind === "conversation" ? item.threadKey : item.kind));
 
 afterEach(() => {
-  useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
+  useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined, used: undefined });
   useTopicPanel.setState({ open: true, sheet: false, focus: null });
   useStore.setState({ currentSessionId: null, sdkSessions: [] } as never);
   localStorage.clear();
@@ -133,6 +133,18 @@ describe("at most three open conversations", () => {
     replaceSideItem(chat, { kind: "conversation", threadKey: "topic:aaaa0001", leaderId: "l1" });
     expect(isRememberedFolded(sideFoldId(convs[0]!))).toBe(true);
     expect(isRememberedFolded(sideFoldId(chat))).toBe(false);
+  });
+
+  it("starts a column saved with more open within the limit, keeping the most recently used", async () => {
+    // A column from before the limit has five open and no use order beyond the last one used.
+    const saved = ["a", "b", "c", "d", "e"].map((id) => ({ id, kind: "conversation", threadKey: id, leaderId: "l1" }));
+    localStorage.setItem("cc-side-column", JSON.stringify({ items: saved, used: ["e"] }));
+    vi.resetModules();
+    const fresh = await import("./side-column.js");
+    const folds = await import("./remembered-folds.js");
+    const open = saved.map((item) => item.id).filter((id) => !folds.isRememberedFolded(fresh.sideFoldId(id)));
+    // The used one stays; the others never used keep the column's order.
+    expect(open).toEqual(["a", "b", "e"]);
   });
 });
 
