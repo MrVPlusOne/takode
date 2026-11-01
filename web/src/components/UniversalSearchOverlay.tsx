@@ -5,6 +5,7 @@ import {
   type MessageSearchResponse,
   type MessageSearchScopeKind,
   type RecentAskBundlesResponse,
+  type UserMessageSearchResponse,
 } from "../api.js";
 import type { QuestListPreview, SdkSessionInfo } from "../types.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
@@ -26,7 +27,7 @@ import { HIDDEN_SCROLLBAR_CLASS, SEARCH_ROW_CLASS, SearchField, SearchModeSwitch
 
 export type UniversalSearchMode = "recent" | "quests" | "sessions" | "messages" | "starred";
 
-type MessageFilter = "user" | "assistant" | "event";
+type MessageFilter = "assistant" | "event";
 type MessageFilters = Record<MessageFilter, boolean>;
 type MessageSearchSettings = {
   scope: MessageSearchScopeKind;
@@ -41,6 +42,7 @@ export interface UniversalSearchOverlayProps {
   leaderSessionId?: string;
   recentAskPreviewResponse?: RecentAskBundlesResponse;
   messageSearchPreviewResponse?: MessageSearchResponse;
+  userMessageSearchPreviewResponse?: UserMessageSearchResponse;
   starredSearchPreviewResponse?: GlobalStarredMessageSearchResponse;
   presentation?: "fixed" | "inline";
   initialMode?: UniversalSearchMode;
@@ -61,24 +63,22 @@ const SESSION_FILTERS: Array<{ id: "includeArchived" | "leadersOnly"; label: str
 ];
 
 const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string; title: string }> = [
-  { id: "recent", label: "Recent", title: "Browse recent conversations" },
+  { id: "recent", label: "Recent", title: "Your recent messages, and a search of them in every session" },
   { id: "quests", label: "Quests", title: "Search quests" },
   { id: "sessions", label: "Sessions", title: "Search sessions" },
-  { id: "messages", label: "Messages", title: "Search messages" },
+  { id: "messages", label: "Assistant", title: "Search one leader's replies and events" },
   { id: "starred", label: "Starred", title: "Search starred messages" },
 ];
 
 const MESSAGE_FILTERS: Array<{ id: MessageFilter; label: string }> = [
-  { id: "user", label: "User" },
-  { id: "assistant", label: "Assistant" },
+  { id: "assistant", label: "Replies" },
   { id: "event", label: "Events" },
 ];
 
 const DEFAULT_MESSAGE_SEARCH_SETTINGS: MessageSearchSettings = {
   scope: "current_thread",
   filters: {
-    user: true,
-    assistant: false,
+    assistant: true,
     event: false,
   },
 };
@@ -148,52 +148,50 @@ function normalizeStoredMessageSearchSettings(settings: Partial<MessageSearchSet
     settings.scope === "session" || settings.scope === "current_thread" || settings.scope === "leader_all_tabs"
       ? settings.scope
       : DEFAULT_MESSAGE_SEARCH_SETTINGS.scope;
-  return {
-    scope,
-    filters: {
-      user:
-        typeof settings.filters?.user === "boolean"
-          ? settings.filters.user
-          : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.user,
-      assistant:
-        typeof settings.filters?.assistant === "boolean"
-          ? settings.filters.assistant
-          : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.assistant,
-      event:
-        typeof settings.filters?.event === "boolean"
-          ? settings.filters.event
-          : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.event,
-    },
-  };
+  // Settings saved when this tab also searched the user's messages may have neither kind on.
+  const event = settings.filters?.event === true;
+  const assistant = settings.filters?.assistant === true || !event;
+  return { scope, filters: { assistant, event } };
 }
 
 interface InitialSearchState {
   mode: UniversalSearchMode;
   query: string;
-  recentSearchOrigin: boolean;
 }
 
 function resolveInitialSearchState(
   initialMode: UniversalSearchMode | undefined,
   initialQuery: string | undefined,
 ): InitialSearchState {
-  const query = initialQuery ?? readLastQuery();
-  const requestedMode = initialMode ?? readLastMode() ?? "recent";
-  const recentSearchOrigin = requestedMode === "recent" && query.trim().length > 0;
-  return {
-    mode: recentSearchOrigin ? "messages" : requestedMode,
-    query,
-    recentSearchOrigin,
-  };
+  return { mode: initialMode ?? readLastMode() ?? "recent", query: initialQuery ?? readLastQuery() };
 }
 
+/**
+ * The leaders the Assistant tab can search, most recently active first. One leader is searched at
+ * a time: a leader's history can be very large.
+ */
+function searchableLeaders(sessions: SdkSessionInfo[]): SdkSessionInfo[] {
+  return sessions
+    .filter((session) => session.isOrchestrator === true && !session.archived)
+    .sort((left, right) => sessionRecency(right) - sessionRecency(left));
+}
+
+/** The leader the Assistant tab starts on: the one on screen, else the leader of the session on screen. */
+function defaultSearchLeader(sessions: SdkSessionInfo[], currentSessionId: string | null): string | null {
+  const leaders = searchableLeaders(sessions);
+  const current = sessions.find((session) => session.sessionId === currentSessionId);
+  const preferred = current?.isOrchestrator ? current.sessionId : current?.herdedBy;
+  return leaders.find((leader) => leader.sessionId === preferred)?.sessionId ?? leaders[0]?.sessionId ?? null;
+}
+
+/** A leader's tab on screen when chosen (only for the leader on screen), else all its tabs. */
 function normalizeMessageSearchScope(input: {
   preferredScope: MessageSearchScopeKind;
-  isLeaderSession: boolean;
+  leaderOnScreen: boolean;
   currentThreadKey?: string | null;
 }): MessageSearchScopeKind {
-  if (!input.isLeaderSession) return "session";
   if (
+    !input.leaderOnScreen ||
     input.preferredScope === "leader_all_tabs" ||
     !input.currentThreadKey ||
     isAllThreadsKey(input.currentThreadKey)
@@ -273,6 +271,7 @@ export function UniversalSearchOverlay({
   onOpenMessage,
   recentAskPreviewResponse,
   messageSearchPreviewResponse,
+  userMessageSearchPreviewResponse,
   starredSearchPreviewResponse,
   initialMode,
   initialQuery,
@@ -284,22 +283,23 @@ export function UniversalSearchOverlay({
   // Message results already loaded for one search, so scrolling fetches only the next page.
   const messagePagesRef = useRef<{ key: string; loaded: number; total: number } | null>(null);
   const sessionByIdRef = useRef<Map<string, SdkSessionInfo>>(new Map());
+  // Read when the panel opens, which shouldn't reset its state whenever a session changes.
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
   const searchKeyRef = useRef("");
   const copiedResetTimerRef = useRef<number | null>(null);
   const initialSearchStateRef = useRef<InitialSearchState | null>(null);
   if (initialSearchStateRef.current == null) {
     initialSearchStateRef.current = resolveInitialSearchState(initialMode, initialQuery);
   }
-  const currentSessionAvailable = Boolean(currentSessionId);
-
   const [mode, setMode] = useState<UniversalSearchMode>(initialSearchStateRef.current.mode);
   const [query, setQuery] = useState(initialSearchStateRef.current.query);
-  const [recentSearchOrigin, setRecentSearchOrigin] = useState(initialSearchStateRef.current.recentSearchOrigin);
   const debouncedQuery = useDebouncedValue(query, DEBOUNCE_MS);
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentSessionSpaceId, setRecentSessionSpaceId] = useState<string | null>(null);
   const [messageSettings, setMessageSettings] = useState<MessageSearchSettings>(() => readMessageSearchSettings());
+  const [searchLeaderId, setSearchLeaderId] = useState(() => defaultSearchLeader(sessions, currentSessionId));
   const [sessionFilters, setSessionFilters] = useState({ includeArchived: false, leadersOnly: false });
   const [copiedQuestId, setCopiedQuestId] = useState<string | null>(null);
   const [questActionMenu, setQuestActionMenu] = useState<{ resultId: string; selectedActionIndex: number } | null>(
@@ -311,39 +311,41 @@ export function UniversalSearchOverlay({
     results: UniversalSearchResult[];
     total: number;
     scopeLabel?: string;
-    recentMeta?: Omit<RecentAskBundlesResponse, "groups">;
     query?: string;
   }>({ mode: null, status: "idle", results: [], total: 0 });
+  // Kept while Recent searches, so its Session Space choice stays.
+  const [recentMeta, setRecentMeta] = useState<Omit<RecentAskBundlesResponse, "groups"> | undefined>();
 
   const sessionById = useMemo(
     () => new Map(sessions.map((session) => [session.sessionId, session] as const)),
     [sessions],
   );
-  const currentSession = currentSessionId ? sessionById.get(currentSessionId) : undefined;
-  const isLeaderSession = currentSession?.isOrchestrator === true;
+  const leaders = useMemo(() => searchableLeaders(sessions), [sessions]);
+  const searchLeader = searchLeaderId ? sessionById.get(searchLeaderId) : undefined;
+  // The tab on screen can be chosen only while searching the leader on screen.
+  const leaderOnScreen = searchLeaderId !== null && searchLeaderId === currentSessionId;
   const effectiveMessageScope = normalizeMessageSearchScope({
     preferredScope: messageSettings.scope,
-    isLeaderSession,
+    leaderOnScreen,
     currentThreadKey,
   });
   const topicKeyNamer = useTopicKeyNamer();
   const currentTopicKeyName =
-    currentSessionId && currentThreadKey ? topicKeyNamer(currentSessionId, currentThreadKey) : undefined;
+    leaderOnScreen && currentSessionId && currentThreadKey
+      ? topicKeyNamer(currentSessionId, currentThreadKey)
+      : undefined;
   // Read by the search effect, which shouldn't search again when the name arrives.
   const currentTopicKeyNameRef = useRef(currentTopicKeyName);
   currentTopicKeyNameRef.current = currentTopicKeyName;
   const messageScopeLabel =
     remoteState.mode === "messages" && remoteState.scopeLabel
       ? remoteState.scopeLabel
-      : currentSessionId
-        ? localMessageScopeLabel(
-            currentSession?.sessionNum ?? null,
-            effectiveMessageScope,
-            currentThreadKey,
-            currentTopicKeyName,
-          )
-        : "Open a session to search messages";
-  const recentMeta = remoteState.mode === "recent" ? remoteState.recentMeta : undefined;
+      : localMessageScopeLabel(
+          searchLeader?.sessionNum ?? null,
+          effectiveMessageScope,
+          currentThreadKey,
+          currentTopicKeyName,
+        );
   const archivedSessionMatches = useArchivedSessionMatches(
     debouncedQuery,
     mode === "sessions" && sessionFilters.includeArchived,
@@ -384,30 +386,14 @@ export function UniversalSearchOverlay({
   );
 
   const setUserMode = useCallback((next: UniversalSearchMode) => {
-    setRecentSearchOrigin(false);
     setMode(next);
     writeLastMode(next);
-    if (next === "recent") {
-      setQuery("");
-      writeLastQuery("");
-    }
   }, []);
 
-  const setUserQuery = useCallback(
-    (next: string) => {
-      const hasQuery = next.trim().length > 0;
-      setQuery(next);
-      writeLastQuery(next);
-      if (mode === "recent" && hasQuery) {
-        setRecentSearchOrigin(true);
-        setMode("messages");
-      } else if (mode === "messages" && recentSearchOrigin && !hasQuery) {
-        setRecentSearchOrigin(false);
-        setMode("recent");
-      }
-    },
-    [mode, recentSearchOrigin],
-  );
+  const setUserQuery = useCallback((next: string) => {
+    setQuery(next);
+    writeLastQuery(next);
+  }, []);
 
   useEffect(() => {
     if (!open || presentation !== "fixed") return;
@@ -429,8 +415,8 @@ export function UniversalSearchOverlay({
     // Opening searches afresh: no page of an earlier search is kept.
     messagePagesRef.current = null;
     setMode(initialState.mode);
-    setRecentSearchOrigin(initialState.recentSearchOrigin);
     setMessageSettings(readMessageSearchSettings());
+    setSearchLeaderId(defaultSearchLeader(sessionsRef.current, currentSessionId));
     setQuery(initialState.query);
     setVisibleLimit(PAGE_SIZE);
     setSelectedIndex(0);
@@ -454,29 +440,32 @@ export function UniversalSearchOverlay({
     effectiveMessageScope,
     messageSettings.filters.assistant,
     messageSettings.filters.event,
-    messageSettings.filters.user,
     mode,
     recentSessionSpaceId,
+    searchLeaderId,
   ]);
 
   const liveMessageQuery = mode === "messages" ? query.trim() : "";
   const resultQuery = mode === "messages" ? liveMessageQuery : debouncedQuery.trim();
-  const searchKey = `${mode}:${resultQuery}:scope=${effectiveMessageScope}:thread=${currentThreadKey ?? ""}:user=${messageSettings.filters.user}:assistant=${messageSettings.filters.assistant}:event=${messageSettings.filters.event}:space=${recentSessionSpaceId ?? ""}`;
+  const recentQuery = mode === "recent" ? debouncedQuery.trim() : "";
+  const searchKey = `${mode}:${resultQuery}:leader=${searchLeaderId ?? ""}:scope=${effectiveMessageScope}:thread=${currentThreadKey ?? ""}:assistant=${messageSettings.filters.assistant}:event=${messageSettings.filters.event}:space=${recentSessionSpaceId ?? ""}`;
 
   useEffect(() => {
     if (!open) return;
     const trimmedQuery = debouncedQuery.trim();
     const requestSeq = ++requestSeqRef.current;
 
-    if (mode === "recent") {
-      if (recentAskPreviewResponse) {
-        const { groups, ...recentMeta } = recentAskPreviewResponse;
+    if (mode === "recent" && recentQuery) {
+      // Typed into Recent: every message the user wrote, in every session.
+      const toResults = (response: UserMessageSearchResponse) =>
+        response.results.map((message) => ({ kind: "message" as const, id: message.id, message }));
+      if (userMessageSearchPreviewResponse) {
         setRemoteState({
           mode: "recent",
           status: "idle",
-          total: recentAskPreviewResponse.totalMatches,
-          results: groups.map((bundle) => ({ kind: "recent_ask" as const, id: bundle.id, bundle })),
-          recentMeta,
+          total: userMessageSearchPreviewResponse.totalMatches,
+          results: toResults(userMessageSearchPreviewResponse),
+          query: recentQuery,
         });
         return;
       }
@@ -485,7 +474,57 @@ export function UniversalSearchOverlay({
         ...current,
         mode: "recent",
         status: "loading",
-        results: current.mode === "recent" ? current.results : [],
+        results: current.mode === "recent" && current.query === recentQuery ? current.results : [],
+        query: recentQuery,
+      }));
+      void api
+        .searchUserMessages({
+          query: recentQuery,
+          sessionSpaceId: recentSessionSpaceId,
+          limit: visibleLimit,
+          signal: controller.signal,
+        })
+        .then((response) => {
+          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
+          setRemoteState({
+            mode: "recent",
+            status: "idle",
+            total: response.totalMatches,
+            results: toResults(response),
+            query: recentQuery,
+          });
+        })
+        .catch((err) => {
+          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
+          console.warn("[universal-search] user message search failed:", err);
+          setRemoteState({ mode: "recent", status: "error", total: 0, results: [], query: recentQuery });
+        });
+      return () => controller.abort();
+    }
+
+    if (mode === "recent") {
+      const showBundles = (response: RecentAskBundlesResponse) => {
+        const { groups, ...meta } = response;
+        setRecentMeta(meta);
+        setRemoteState({
+          mode: "recent",
+          status: "idle",
+          total: response.totalMatches,
+          results: groups.map((bundle) => ({ kind: "recent_ask" as const, id: bundle.id, bundle })),
+          query: "",
+        });
+      };
+      if (recentAskPreviewResponse) {
+        showBundles(recentAskPreviewResponse);
+        return;
+      }
+      const controller = new AbortController();
+      setRemoteState((current) => ({
+        ...current,
+        mode: "recent",
+        status: "loading",
+        results: current.mode === "recent" && !current.query ? current.results : [],
+        query: "",
       }));
       void api
         .fetchRecentAskBundles({
@@ -494,19 +533,12 @@ export function UniversalSearchOverlay({
         })
         .then((response: RecentAskBundlesResponse) => {
           if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
-          const { groups, ...recentMeta } = response;
-          setRemoteState({
-            mode: "recent",
-            status: "idle",
-            total: response.totalMatches,
-            results: groups.map((bundle) => ({ kind: "recent_ask" as const, id: bundle.id, bundle })),
-            recentMeta,
-          });
+          showBundles(response);
         })
         .catch((err) => {
           if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
           console.warn("[universal-search] recent asks failed:", err);
-          setRemoteState({ mode: "recent", status: "error", total: 0, results: [] });
+          setRemoteState({ mode: "recent", status: "error", total: 0, results: [], query: "" });
         });
       return () => controller.abort();
     }
@@ -547,15 +579,13 @@ export function UniversalSearchOverlay({
     }
 
     if (mode === "messages") {
-      const nextScopeLabel = currentSessionId
-        ? localMessageScopeLabel(
-            currentSession?.sessionNum ?? null,
-            effectiveMessageScope,
-            currentThreadKey,
-            currentTopicKeyNameRef.current,
-          )
-        : "Current session required";
-      if (!currentSessionId) {
+      const nextScopeLabel = localMessageScopeLabel(
+        sessionByIdRef.current.get(searchLeaderId ?? "")?.sessionNum ?? null,
+        effectiveMessageScope,
+        currentThreadKey,
+        currentTopicKeyNameRef.current,
+      );
+      if (!searchLeaderId) {
         setRemoteState({
           mode: "messages",
           status: "idle",
@@ -611,11 +641,11 @@ export function UniversalSearchOverlay({
             },
       );
       void api
-        .searchSessionMessages(currentSessionId, {
+        .searchSessionMessages(searchLeaderId, {
           query: liveMessageQuery,
           scope: effectiveMessageScope,
           threadKey: effectiveMessageScope === "current_thread" ? currentThreadKey || "main" : undefined,
-          filters: messageSettings.filters,
+          filters: { user: false, ...messageSettings.filters },
           limit: visibleLimit - offset,
           ...(offset ? { offset } : {}),
           signal: controller.signal,
@@ -692,8 +722,6 @@ export function UniversalSearchOverlay({
       return () => controller.abort();
     }
   }, [
-    currentSessionId,
-    currentSession?.sessionNum,
     currentThreadKey,
     debouncedQuery,
     effectiveMessageScope,
@@ -703,22 +731,27 @@ export function UniversalSearchOverlay({
     mode,
     open,
     recentAskPreviewResponse,
+    recentQuery,
     recentSessionSpaceId,
     searchKey,
+    searchLeaderId,
     starredSearchPreviewResponse,
+    userMessageSearchPreviewResponse,
     visibleLimit,
   ]);
 
+  // Recent shows what was fetched for the query it has now: conversations, or a search of the user's messages.
+  const recentRemoteCurrent = remoteState.mode === "recent" && (remoteState.query ?? "") === recentQuery;
   const results = useMemo(() => {
-    if (mode === "recent") return remoteState.mode === "recent" ? remoteState.results : [];
+    if (mode === "recent") return recentRemoteCurrent ? remoteState.results : [];
     if (mode === "quests") return remoteState.mode === "quests" ? remoteState.results : [];
     if (mode === "sessions") return sessionResults;
     if (mode === "starred") return remoteState.mode === "starred" ? remoteState.results : [];
     return remoteState.mode === "messages" && remoteState.query === liveMessageQuery ? remoteState.results : [];
-  }, [liveMessageQuery, mode, remoteState, sessionResults]);
+  }, [liveMessageQuery, mode, recentRemoteCurrent, remoteState, sessionResults]);
 
   const totalResults = useMemo(() => {
-    if (mode === "recent" && remoteState.mode === "recent") return remoteState.total;
+    if (mode === "recent" && recentRemoteCurrent) return remoteState.total;
     if (mode === "quests" && remoteState.mode === "quests") return remoteState.total;
     if (mode === "sessions") return totalSessionResults;
     if (mode === "messages" && remoteState.mode === "messages" && remoteState.query === liveMessageQuery) {
@@ -726,11 +759,11 @@ export function UniversalSearchOverlay({
     }
     if (mode === "starred" && remoteState.mode === "starred") return remoteState.total;
     return 0;
-  }, [liveMessageQuery, mode, remoteState, totalSessionResults]);
+  }, [liveMessageQuery, mode, recentRemoteCurrent, remoteState, totalSessionResults]);
 
   const messageQueryWaitingForDebounce =
     mode === "messages" &&
-    currentSessionAvailable &&
+    searchLeaderId !== null &&
     liveMessageQuery.length > 0 &&
     debouncedQuery.trim() !== liveMessageQuery;
   const loading =
@@ -744,7 +777,8 @@ export function UniversalSearchOverlay({
     remoteState.mode === mode &&
     remoteState.status === "error" &&
     (mode !== "messages" || remoteState.query === liveMessageQuery);
-  const hasMore = mode !== "recent" && results.length < totalResults;
+  // Recent's conversations are one bounded list; a search of the user's messages pages like the others.
+  const hasMore = (mode !== "recent" || recentQuery.length > 0) && results.length < totalResults;
   const selectedResultIndex = results.length === 0 ? -1 : clampSelection(selectedIndex, results.length);
 
   useEffect(() => {
@@ -924,18 +958,16 @@ export function UniversalSearchOverlay({
   const modeLabel = MODE_OPTIONS.find((option) => option.id === mode)?.label ?? "Search";
   const placeholder =
     mode === "recent"
-      ? currentSessionAvailable
-        ? "Search this session's messages"
-        : "Browse recent conversations"
+      ? "Search your messages in every session"
       : mode === "quests"
         ? "Search quests"
         : mode === "sessions"
           ? "Search sessions"
           : mode === "starred"
             ? "Search starred messages"
-            : currentSessionAvailable
-              ? "Search messages"
-              : "Open a session to search messages";
+            : searchLeader
+              ? `Search ${typeof searchLeader.sessionNum === "number" ? `#${searchLeader.sessionNum}` : "the leader"}'s replies`
+              : "No leader to search";
 
   return (
     <SearchSheet
@@ -979,12 +1011,12 @@ export function UniversalSearchOverlay({
           ) : null
         }
       />
-      {/* Recent browses the user's own messages, so it offers no attention filters; only
+      {/* Recent lists and searches the user's own messages, so it offers no attention filters; only
           the Session Space choice, when there is more than one. */}
       {mode === "recent" && (recentMeta?.sessionSpaces.length ?? 0) > 1 && (
         <SearchFilterRow>
           <select
-            aria-label="Filter recent conversations by Session Space"
+            aria-label="Filter your messages by Session Space"
             value={recentSessionSpaceId ?? ""}
             onChange={(event) => setRecentSessionSpaceId(event.target.value || null)}
             className={`${FILTER_CHIP_CLASS} max-w-48 bg-transparent outline-none ${
@@ -1017,9 +1049,23 @@ export function UniversalSearchOverlay({
           ))}
         </SearchFilterRow>
       )}
-      {mode === "messages" && currentSessionAvailable && (
+      {mode === "messages" && searchLeader && (
         <SearchFilterRow>
-          {isLeaderSession && (
+          <select
+            aria-label="Leader to search"
+            value={searchLeaderId ?? ""}
+            onChange={(event) => setSearchLeaderId(event.target.value || null)}
+            className={`${FILTER_CHIP_CLASS} ${FILTER_CHIP_ACTIVE_CLASS} max-w-56 bg-transparent outline-none`}
+            data-testid="universal-search-leader"
+          >
+            {leaders.map((leader) => (
+              <option key={leader.sessionId} value={leader.sessionId}>
+                {typeof leader.sessionNum === "number" ? `#${leader.sessionNum} ` : ""}
+                {sessionDisplayName(leader)}
+              </option>
+            ))}
+          </select>
+          {leaderOnScreen && (
             <>
               <FilterChip
                 active={effectiveMessageScope === "current_thread"}
@@ -1066,10 +1112,10 @@ export function UniversalSearchOverlay({
       )}
 
       <div ref={listRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto pb-6">
-        {mode === "messages" && !currentSessionAvailable ? (
+        {mode === "messages" && !searchLeader ? (
           <EmptySearchState
-            title="Current session required"
-            detail="Open a session to search its messages. Recent, Quests, Sessions, and Starred remain available."
+            title="No leader to search"
+            detail="Assistant searches one leader's replies at a time. Recent searches your own messages everywhere."
           />
         ) : error ? (
           <EmptySearchState title="Search failed" detail="Try again or switch modes." />
@@ -1080,17 +1126,23 @@ export function UniversalSearchOverlay({
             title="No results"
             detail={
               mode === "recent"
-                ? recentSessionSpaceId
-                  ? "No recent conversations match these filters."
-                  : "No recent conversations are available yet."
-                : mode === "messages" && !liveMessageQuery
-                  ? "No messages here yet."
+                ? recentQuery
+                  ? recentSessionSpaceId
+                    ? "None of your messages in this Session Space match."
+                    : "None of your messages match."
+                  : recentSessionSpaceId
+                    ? "No recent conversations match these filters."
+                    : "No recent conversations are available yet."
+                : mode === "messages"
+                  ? liveMessageQuery
+                    ? "Nothing here matches. Your own messages are searched in Recent."
+                    : "No messages here yet."
                   : mode === "starred"
                     ? debouncedQuery.trim()
                       ? "No starred messages match."
                       : "No starred messages yet."
                     : debouncedQuery.trim()
-                      ? "Try a shorter query."
+                      ? "Nothing matches."
                       : "Nothing to show yet."
             }
           />

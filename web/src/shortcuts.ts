@@ -107,7 +107,7 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
     id: "search_session",
     label: "Universal Search",
     description:
-      "Browse recent conversations or search quests, sessions, current-session messages, and starred results.",
+      "Browse recent conversations or search your messages, quests, sessions, a leader's replies, and starred results.",
   },
   {
     id: "toggle_sidebar",

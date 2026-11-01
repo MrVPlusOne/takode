@@ -22,7 +22,7 @@ import {
 describe("shortcuts", () => {
   it("describes both Recent browsing and the searchable Universal Search modes", () => {
     expect(SHORTCUT_ACTIONS.find((action) => action.id === "search_session")?.description).toBe(
-      "Browse recent conversations or search quests, sessions, current-session messages, and starred results.",
+      "Browse recent conversations or search your messages, quests, sessions, a leader's replies, and starred results.",
     );
   });
 

@@ -2,7 +2,12 @@ import { useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import { UniversalSearchOverlay } from "../UniversalSearchOverlay.js";
 import { TreeViewGroup } from "../TreeViewGroup.js";
-import type { GlobalStarredMessageSearchResponse, MessageSearchResponse, RecentAskBundlesResponse } from "../../api.js";
+import type {
+  GlobalStarredMessageSearchResponse,
+  MessageSearchResponse,
+  RecentAskBundlesResponse,
+  UserMessageSearchResponse,
+} from "../../api.js";
 import type { SdkSessionInfo } from "../../types.js";
 import type { SidebarSessionItem } from "../../utils/sidebar-session-item.js";
 import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
@@ -141,12 +146,72 @@ const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
   tookMs: 2,
 };
 
+/** Typing in Recent: the user's own messages, from a leader, a worker and an archived session. */
+const PLAYGROUND_USER_MESSAGE_RESPONSE: UserMessageSearchResponse = {
+  query: "search",
+  totalMatches: 3,
+  nextOffset: null,
+  hasMore: false,
+  tookMs: 4,
+  results: [
+    {
+      id: "playground-universal:21:mine-leader",
+      sessionId: "playground-universal",
+      sessionNum: 1277,
+      sessionName: "Universal search implementation",
+      archived: false,
+      messageId: "mine-leader",
+      historyIndex: 21,
+      role: "user",
+      category: "user",
+      timestamp: Date.now() - 4 * 60_000,
+      snippet: "Search my messages in every session, not just this leader.",
+      routeThreadKey: "q-1931",
+      sourceThreadKey: "q-1931",
+      sourceLabel: "q-1931",
+      questId: "q-1931",
+    },
+    {
+      id: "playground-review:3:mine-worker",
+      sessionId: "playground-review",
+      sessionNum: 1278,
+      sessionName: "Review search overlay states",
+      archived: false,
+      messageId: "mine-worker",
+      historyIndex: 3,
+      role: "user",
+      category: "user",
+      timestamp: Date.now() - 50 * 60_000,
+      snippet: "The search box should keep its focus while results load.",
+      routeThreadKey: "main",
+      sourceThreadKey: "main",
+      sourceLabel: "Main",
+    },
+    {
+      id: "playground-archived:9:mine-archived",
+      sessionId: "playground-archived",
+      sessionNum: 1102,
+      sessionName: "Search ranking experiments",
+      archived: true,
+      messageId: "mine-archived",
+      historyIndex: 9,
+      role: "user",
+      category: "user",
+      timestamp: Date.now() - 3 * 24 * 60 * 60_000,
+      snippet: "Rank whole-word search matches before prefixes.",
+      routeThreadKey: "main",
+      sourceThreadKey: "main",
+      sourceLabel: "Main",
+    },
+  ],
+};
+
 const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
   sessionId: "playground-universal",
   sessionNum: 1277,
   query: "search",
   scope: { kind: "leader_all_tabs", label: "Searching in #1277 across tabs" },
-  filters: { user: true, assistant: false, event: false },
+  filters: { user: false, assistant: true, event: false },
   totalMatches: 3,
   nextOffset: null,
   hasMore: false,
@@ -158,11 +223,11 @@ const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
       sessionNum: 1277,
       messageId: "search-new",
       historyIndex: 11,
-      role: "user",
-      category: "user",
+      role: "assistant",
+      category: "assistant",
       starred: true,
       timestamp: Date.now() - 2 * 60_000,
-      snippet: "Search should return every matching message in scope instead of one result per destination.",
+      snippet: "Search now returns every matching message in scope instead of one result per destination.",
       routeThreadKey: "q-1931",
       sourceThreadKey: "q-1931",
       sourceLabel: "Thread q-1931",
@@ -174,11 +239,11 @@ const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
       sessionNum: 1277,
       messageId: "search-older-same-tab",
       historyIndex: 8,
-      role: "user",
-      category: "user",
+      role: "assistant",
+      category: "assistant",
       starred: false,
       timestamp: Date.now() - 14 * 60_000,
-      snippet: "When a search has two matching messages in this tab, keep both results.",
+      snippet: "When a search has two matching messages in this tab, both results are kept.",
       routeThreadKey: "q-1931",
       sourceThreadKey: "q-1931",
       sourceLabel: "Thread q-1931",
@@ -190,11 +255,11 @@ const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
       sessionNum: 1277,
       messageId: "search-other-tab",
       historyIndex: 4,
-      role: "user",
-      category: "user",
+      role: "assistant",
+      category: "assistant",
       starred: false,
       timestamp: Date.now() - 30 * 60_000,
-      snippet: "Search filters should remain available when inspecting another tab.",
+      snippet: "Search filters remain available when you inspect another tab.",
       routeThreadKey: "q-1927",
       sourceThreadKey: "q-1927",
       sourceLabel: "Thread q-1927",
@@ -345,10 +410,10 @@ export function PlaygroundUniversalSearchStates() {
   return (
     <Section
       title="Universal Search"
-      description="App-level command palette with Recent text, comment-only and image-only previews, exhaustive Messages search within the selected scope, and explicit Quests, Sessions, and Starred modes."
+      description="App-level command palette: Recent lists your recent conversations and, when you type, searches your messages in every session; Assistant searches one leader's replies; plus Quests, Sessions and Starred modes."
     >
       <div className="space-y-4">
-        <Card label="Recent browsing versus scoped Messages search">
+        <Card label="Recent, a search of your messages, and Assistant search">
           <div className="space-y-4">
             <div data-testid="playground-universal-recent-preview">
               <p className="mb-2 text-xs text-cc-muted">
@@ -358,6 +423,7 @@ export function PlaygroundUniversalSearchStates() {
                 open
                 presentation="inline"
                 initialMode="recent"
+                initialQuery=""
                 currentSessionId="playground-universal"
                 currentThreadKey="main"
                 sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
@@ -368,9 +434,28 @@ export function PlaygroundUniversalSearchStates() {
                 onOpenMessage={() => {}}
               />
             </div>
+            <div data-testid="playground-universal-user-search-preview">
+              <p className="mb-2 text-xs text-cc-muted">
+                Typing in Recent searches every message you wrote, in any session, archived ones included.
+              </p>
+              <UniversalSearchOverlay
+                open
+                presentation="inline"
+                initialMode="recent"
+                initialQuery="search"
+                currentSessionId="playground-universal"
+                currentThreadKey="main"
+                sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
+                leaderSessionId="playground-universal"
+                userMessageSearchPreviewResponse={PLAYGROUND_USER_MESSAGE_RESPONSE}
+                onClose={() => {}}
+                onOpenQuest={() => {}}
+                onOpenMessage={() => {}}
+              />
+            </div>
             <div data-testid="playground-universal-messages-preview">
               <p className="mb-2 text-xs text-cc-muted">
-                Messages keeps every match in the selected scope, including multiple messages from the same destination.
+                Assistant searches one leader's replies, keeping every match in the chosen scope.
               </p>
               <UniversalSearchOverlay
                 open

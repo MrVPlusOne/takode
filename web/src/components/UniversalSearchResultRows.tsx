@@ -23,10 +23,13 @@ import { SEARCH_ROW_CLASS, SearchMeta, SearchRowContent } from "./SearchSheet.js
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 
 /** Universal Search's result rows: quests, sessions, messages and Recent conversations. */
+/** A message found by any search: in one session, among starred messages, or among the user's own. */
+type AnyMessageResult = MessageSearchResult | GlobalStarredMessageSearchResult | UserMessageSearchResult;
+
 export type UniversalSearchResult =
   | { kind: "quest"; id: string; quest: QuestListPreview }
   | { kind: "session"; id: string; session: SdkSessionInfo; rank: SearchRank | null }
-  | { kind: "message"; id: string; message: MessageSearchResult | GlobalStarredMessageSearchResult }
+  | { kind: "message"; id: string; message: AnyMessageResult }
   | { kind: "recent_ask"; id: string; bundle: RecentAskBundle };
 
 export type QuestResultAction =
@@ -450,7 +453,7 @@ function MessageResultRow({
   onPointerMove,
   onOpen,
 }: {
-  message: MessageSearchResult | GlobalStarredMessageSearchResult;
+  message: AnyMessageResult;
   query: string;
   selected: boolean;
   onPointerMove: () => void;
@@ -466,7 +469,7 @@ function MessageResultRow({
             truncate={1}
             items={[
               <span className="inline-flex items-center gap-1 capitalize">
-                {message.starred && <StarIcon className="h-3 w-3 text-amber-400" />}
+                {"starred" in message && message.starred && <StarIcon className="h-3 w-3 text-amber-400" />}
                 {message.category}
               </span>,
               sessionLabel,
@@ -503,7 +506,7 @@ function HighlightedText({ parts }: { parts: ReadonlyArray<{ text: string; match
   );
 }
 
-function formatMessageResultSessionLabel(message: MessageSearchResult | GlobalStarredMessageSearchResult): string {
+function formatMessageResultSessionLabel(message: AnyMessageResult): string {
   if (!("sessionName" in message) && !("archived" in message)) return "";
   const numberLabel = typeof message.sessionNum === "number" ? `#${message.sessionNum}` : "Session";
   const name = "sessionName" in message ? message.sessionName?.trim() : "";

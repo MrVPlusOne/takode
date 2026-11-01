@@ -57,8 +57,8 @@ function hoverQuotedMessage(reference: HTMLElement, index: number): HTMLElement 
 }
 
 describe("Playground", { timeout: 60_000 }, () => {
-  it("contrasts one-message-per-destination Recent browsing with exhaustive scoped Messages hits", async () => {
-    // The paired fixture makes the product boundary inspectable without relying on live session history.
+  it("shows Recent browsing, a search of the user's messages and Assistant search", async () => {
+    // The paired fixtures make the product boundary inspectable without relying on live session history.
     render(<PlaygroundUniversalSearchStates />);
 
     const recentPreview = within(screen.getByTestId("playground-universal-recent-preview"));
@@ -76,22 +76,29 @@ describe("Playground", { timeout: 60_000 }, () => {
     expect(within(recentRows[2]!).queryByTestId("recent-ask-text")).toBeNull();
     expect(within(recentRows[2]!).getByTitle("1 image attachment")).toBeInTheDocument();
 
+    // Typing in Recent: the user's messages from every session, archived ones included.
+    const userSearch = within(screen.getByTestId("playground-universal-user-search-preview"));
+    const userRows = await within(userSearch.getByRole("listbox")).findAllByRole("option");
+    expect(userRows).toHaveLength(3);
+    expect(userRows[1]).toHaveTextContent("#1278 Review search overlay states");
+    expect(within(userRows[2]!).getByText("Archived")).toBeInTheDocument();
+
     const messagesPreview = within(screen.getByTestId("playground-universal-messages-preview"));
     expect(
-      messagesPreview.getByText(
-        "Messages keeps every match in the selected scope, including multiple messages from the same destination.",
-      ),
+      messagesPreview.getByText("Assistant searches one leader's replies, keeping every match in the chosen scope."),
     ).toBeTruthy();
     expect(messagesPreview.getByText("Searching in #1277 across tabs")).toBeTruthy();
     expect(messagesPreview.getByRole("button", { name: "Current tab" })).toHaveAttribute("aria-pressed", "false");
     expect(messagesPreview.getByRole("button", { name: "Current tab" })).toBeDisabled();
     expect(messagesPreview.getByRole("button", { name: "Across tabs" })).toHaveAttribute("aria-pressed", "true");
-    const messageRows = await messagesPreview.findAllByRole("option");
+    const messageRows = await within(messagesPreview.getByRole("listbox")).findAllByRole("option");
     expect(messageRows).toHaveLength(3);
     expect(messageRows[0]).toHaveTextContent(
-      "Search should return every matching message in scope instead of one result per destination.",
+      "Search now returns every matching message in scope instead of one result per destination.",
     );
-    expect(messageRows[1]).toHaveTextContent("When a search has two matching messages in this tab, keep both results.");
+    expect(messageRows[1]).toHaveTextContent(
+      "When a search has two matching messages in this tab, both results are kept.",
+    );
     expect(messageRows.filter((row) => row.textContent?.includes("Thread q-1931"))).toHaveLength(2);
     expect(messageRows[2]).toHaveTextContent("Thread q-1927");
   });
