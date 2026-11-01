@@ -664,6 +664,8 @@ describe("UniversalSearchOverlay", () => {
     expect(option).toHaveTextContent("my universal search note");
     expect(within(option).getByText("#12 Old session")).toBeInTheDocument();
     expect(within(option).getByText("Archived")).toBeInTheDocument();
+    // Every row Recent finds is the user's own, so rows don't label themselves "user".
+    expect(within(option).queryByText("user")).toBeNull();
     expect(mockSearchUserMessages).toHaveBeenLastCalledWith(
       expect.objectContaining({ query: "universal", sessionSpaceId: "research" }),
     );

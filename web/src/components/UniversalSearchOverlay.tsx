@@ -458,7 +458,7 @@ export function UniversalSearchOverlay({
     if (mode === "recent" && recentQuery) {
       // Typed into Recent: every message the user wrote, in every session.
       const toResults = (response: UserMessageSearchResponse) =>
-        response.results.map((message) => ({ kind: "message" as const, id: message.id, message }));
+        response.results.map((message) => ({ kind: "my_message" as const, id: message.id, message }));
       if (userMessageSearchPreviewResponse) {
         setRemoteState({
           mode: "recent",

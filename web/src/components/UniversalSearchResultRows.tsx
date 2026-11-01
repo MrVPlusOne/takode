@@ -29,7 +29,9 @@ type AnyMessageResult = MessageSearchResult | GlobalStarredMessageSearchResult |
 export type UniversalSearchResult =
   | { kind: "quest"; id: string; quest: QuestListPreview }
   | { kind: "session"; id: string; session: SdkSessionInfo; rank: SearchRank | null }
-  | { kind: "message"; id: string; message: AnyMessageResult }
+  | { kind: "message"; id: string; message: MessageSearchResult | GlobalStarredMessageSearchResult }
+  /** One of the user's own messages, found by typing in Recent. */
+  | { kind: "my_message"; id: string; message: UserMessageSearchResult }
   | { kind: "recent_ask"; id: string; bundle: RecentAskBundle };
 
 export type QuestResultAction =
@@ -155,6 +157,8 @@ export function ResultRow({
   return (
     <MessageResultRow
       message={result.message}
+      // Every message Recent finds is the user's, so it doesn't say so.
+      showKind={result.kind !== "my_message"}
       query={query}
       selected={selected}
       onPointerMove={onPointerMove}
@@ -448,12 +452,14 @@ function SessionResultRow({
 
 function MessageResultRow({
   message,
+  showKind,
   query,
   selected,
   onPointerMove,
   onOpen,
 }: {
   message: AnyMessageResult;
+  showKind: boolean;
   query: string;
   selected: boolean;
   onPointerMove: () => void;
@@ -468,10 +474,12 @@ function MessageResultRow({
           <SearchMeta
             truncate={1}
             items={[
-              <span className="inline-flex items-center gap-1 capitalize">
-                {"starred" in message && message.starred && <StarIcon className="h-3 w-3 text-amber-400" />}
-                {message.category}
-              </span>,
+              showKind ? (
+                <span className="inline-flex items-center gap-1 capitalize">
+                  {"starred" in message && message.starred && <StarIcon className="h-3 w-3 text-amber-400" />}
+                  {message.category}
+                </span>
+              ) : null,
               sessionLabel,
               "archived" in message && message.archived ? "Archived" : null,
               "reviewerOf" in message && typeof message.reviewerOf === "number" ? "Reviewer" : null,
