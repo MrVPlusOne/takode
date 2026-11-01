@@ -3,6 +3,7 @@ import { api, type RecentAskBundle, type RecentAskBundleStatus, type RecentAskMe
 import { timeAgo } from "../utils/quest-helpers.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { useThreadPlace } from "./side-column/thread-names.js";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { SEARCH_ROW_CLASS, SearchMeta, SearchRowContent } from "./SearchSheet.js";
 
 const STATUS_LABELS: Record<RecentAskBundleStatus, string> = {
@@ -99,9 +100,16 @@ export function RecentAskBundleResult({
 
   const sessionLabel = bundle.sessionNum == null ? bundle.sessionName : `#${bundle.sessionNum} ${bundle.sessionName}`;
   const compactSessionLabel = bundle.sessionNum == null ? bundle.sessionName : `#${bundle.sessionNum}`;
-  // A thread or topic conversation reads by its name, never its `topic:<handle>` address.
-  const ownerPlace = useThreadPlace(bundle.sessionId, bundle.ownerThreadKey);
-  const threadLabel = bundle.ownerThreadKey === "main" ? "Main" : bundle.questTitle || ownerPlace.name;
+  // A thread or topic conversation reads by its name, never its `topic:<handle>` address. (A
+  // quest's title comes with the bundle.)
+  const ownerTopic = isTopicViewKey(bundle.ownerThreadKey);
+  const ownerPlace = useThreadPlace(bundle.sessionId, ownerTopic ? bundle.ownerThreadKey : "main");
+  const threadLabel =
+    bundle.ownerThreadKey === "main"
+      ? "Main"
+      : ownerTopic
+        ? ownerPlace.name
+        : bundle.questTitle || bundle.questId || bundle.ownerThreadKey;
   const questOwned = bundle.ownerThreadKey !== "main" && Boolean(bundle.questId && bundle.questTitle);
   const visibleStatusDetail = bundle.statusDetail && DETAIL_STATUSES.has(bundle.status) ? bundle.statusDetail : null;
   const statusColor = STATUS_COLORS[bundle.status];
