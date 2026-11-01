@@ -130,7 +130,7 @@ export function CodexAutoPauseRecoverySummary({ summary }: { summary: RecoverySu
             )}
             <ul
               key={page}
-              className="max-h-96 space-y-1.5 overflow-y-auto overscroll-contain pr-1"
+              className="max-h-96 space-y-1.5 overflow-y-auto pr-1"
               aria-label="Held input outcomes"
               data-testid="codex-auto-pause-recovery-outcome-page"
             >

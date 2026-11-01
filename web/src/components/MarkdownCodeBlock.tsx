@@ -91,13 +91,16 @@ export function CodeBlock({
           <CodeCopyButton getText={getText} />
         </div>
       )}
+      {/* No overscroll containment: a wheel over a block that fits passes on to the page (Chrome
+          stops it at a contained box even with nothing to scroll), and a capped block scrolled to
+          its edge hands further scrolling to the page. */}
       <pre
         ref={preRef}
         className={`bg-cc-code-bg px-2 py-2 font-mono-code text-[12px] leading-relaxed text-cc-code-fg sm:px-3 sm:py-2.5 sm:text-[13px] ${
           wrapLongContent
             ? "overflow-x-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
             : "overflow-x-auto"
-        } ${expanded ? "" : "max-h-[22rem] overflow-y-auto overscroll-y-contain"}`}
+        } ${expanded ? "" : "max-h-[22rem] overflow-y-auto"}`}
         data-testid="code-block-pre"
       >
         {highlighted ? (

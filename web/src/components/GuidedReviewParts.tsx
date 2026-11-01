@@ -578,7 +578,9 @@ function ReviewSnippet({ codeRef, full, reviewId }: { codeRef: GuidedReviewCodeR
     <div className="overflow-hidden rounded-[10px] text-[12px] sm:[&_.diff-viewer]:text-[13px]">
       <div
         ref={frameRef}
-        className={open ? "" : "max-h-[22rem] overflow-y-auto overscroll-y-contain"}
+        // No overscroll containment, as for chat code blocks: scrolling past the snippet's edge, or
+        // over one that fits, moves the page.
+        className={open ? "" : "max-h-[22rem] overflow-y-auto"}
         data-testid="guided-review-snippet"
       >
         <DiffViewer

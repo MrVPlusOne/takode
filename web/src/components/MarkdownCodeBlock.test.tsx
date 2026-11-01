@@ -87,4 +87,20 @@ describe("long code blocks", () => {
     expect(within(block).queryByTestId("code-block-line-count")).not.toBeInTheDocument();
     expect(block).not.toHaveAttribute("data-expanded");
   });
+
+  it("never contains overscroll, so the page scrolls past a block that fits or one at its edge", () => {
+    // Jiayi (Nov 1): a wheel over a code block that fit (all lines showing) did nothing. Chrome
+    // stops a wheel at a box with overscroll containment even when it has nothing to scroll, and
+    // a capped block scrolled to its end kept the page from scrolling too. Neither contains it now.
+    render(<MarkdownContent text={"```\nshort block\nsecond line\n```"} />);
+    expect(screen.getByTestId("code-block-pre").className).not.toContain("overscroll");
+    cleanup();
+    render(<MarkdownContent text={`\`\`\`json\n${json(1200)}\n\`\`\``} />);
+    const block = screen.getByTestId("code-block");
+    const pre = within(block).getByTestId("code-block-pre");
+    expect(pre.className).toContain("max-h-");
+    expect(pre.className).not.toContain("overscroll");
+    fireEvent.click(within(block).getByTestId("code-block-toggle"));
+    expect(pre.className).not.toContain("overscroll");
+  });
 });
