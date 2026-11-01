@@ -16,23 +16,47 @@ import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 
 /** A line of news per thread (`GET /topics/home-lines`), loaded again every minute. */
 export function useHomeLines(leaderId: string, questIds: readonly string[]): (threadKey: string) => string | undefined {
-  const [lines, setLines] = useState<Record<string, { text: string }>>({});
-  const key = [...questIds].sort().join(",");
+  const lineOf = useLeadersHomeLines([{ leaderId, questIds }]);
+  return (threadKey) => lineOf(leaderId, threadKey);
+}
+
+/**
+ * A line of news per thread of several leaders at once (Home's lines, for the sessions panel's
+ * Threads view): the Scribe's line when written, else a stand-in from what agents wrote. Each
+ * leader's lines load again every minute; nothing loads while `active` is false.
+ */
+export function useLeadersHomeLines(
+  leaders: readonly { leaderId: string; questIds: readonly string[] }[],
+  active = true,
+): (leaderId: string, threadKey: string) => string | undefined {
+  const [lines, setLines] = useState<Record<string, Record<string, { text: string }>>>({});
+  const key = leaders
+    .map(({ leaderId, questIds }) => `${leaderId}:${[...questIds].sort().join(",")}`)
+    .sort()
+    .join(";");
   useEffect(() => {
+    if (!active || !key) return;
     let cancelled = false;
-    const load = () =>
-      topicApi
-        .homeLines(leaderId, key ? key.split(",") : [])
-        .then((response) => !cancelled && setLines(response.lines))
-        .catch((error: Error) => console.warn("[home] Could not load the threads' news:", error.message));
-    void load();
+    const requests = key.split(";").map((entry) => {
+      const [leaderId, quests] = entry.split(":") as [string, string];
+      return { leaderId, questIds: quests ? quests.split(",") : [] };
+    });
+    const load = () => {
+      for (const { leaderId, questIds } of requests) {
+        topicApi
+          .homeLines(leaderId, questIds)
+          .then((response) => !cancelled && setLines((all) => ({ ...all, [leaderId]: response.lines })))
+          .catch((error: Error) => console.warn("[home] Could not load the threads' news:", error.message));
+      }
+    };
+    load();
     const timer = setInterval(load, 60_000);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [leaderId, key]);
-  return (threadKey) => lines[normalizeThreadKey(threadKey)]?.text;
+  }, [key, active]);
+  return (leaderId, threadKey) => lines[leaderId]?.[normalizeThreadKey(threadKey)]?.text;
 }
 
 export type IdleView = "recent" | "topic";

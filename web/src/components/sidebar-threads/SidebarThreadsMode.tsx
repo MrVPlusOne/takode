@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "r
 import { useShallow } from "zustand/react/shallow";
 import type { ThreadSummary } from "../../../shared/library-topics.js";
 import type { LeaderThreadTabsProjectionTab } from "../../../shared/leader-thread-tabs-projection.js";
-import { getQuestJourneyPhase } from "../../../shared/quest-journey.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { useNextAttention } from "../../hooks/useNextAttention.js";
 import { useStore } from "../../store.js";
-import { useLeadersThreads, useQuestTopicsOf } from "../../utils/leader-topics.js";
+import { useLeadersThreads } from "../../utils/leader-topics.js";
+import { timeAgo } from "../../utils/quest-helpers.js";
+import { useLeadersHomeLines } from "../home/HomeExtras.js";
 import { resolveLeaderThreadTabsProjection } from "../../utils/leader-thread-tabs-resolver.js";
 import type { NextAttentionItem } from "../../utils/next-attention.js";
-import { getQuestPhaseAccentValue } from "../../utils/quest-phase-theme.js";
 import type { RecentSessionNode } from "../../utils/recent-sessions.js";
 import { sessionInteractionAt } from "../../utils/recent-sessions.js";
 import { navigateToSessionThread, threadRouteFromHash } from "../../utils/routing.js";
@@ -18,7 +18,7 @@ import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../../util
 import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
 import { TOUCH_MENU_ITEM_CLASS } from "../ContextMenu.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
-import { NewThreadIcon, TopicIcon } from "../library/library-icons.js";
+import { NewThreadIcon } from "../library/library-icons.js";
 import { questOf } from "../library/topic-questions.js";
 import { listedSpaces, useAnchoredPopover } from "../RecentSessionList.js";
 import { StatusCountDots } from "../SessionItem.js";
@@ -47,11 +47,11 @@ export interface ThreadRow {
   threadKey: string;
   questId: string | null;
   title: string;
-  /** What the second line says after the leader: the quest and its phase, or that it is a thread. */
-  detail: string;
-  /** The phase color of a quest at work; none for threads and finished quests. */
-  accent?: string;
-  topic: { id: string; name: string } | null;
+  /**
+   * What the second line says when there is no news line yet: a short label for a thread or the
+   * leader log; none for a quest, whose number and status dot already say what it is.
+   */
+  label?: string;
   counts: ThreadCounts;
   group: ThreadGroupId;
   /** When the user and it last dealt with each other: the order within a group. */
@@ -83,11 +83,7 @@ export interface LeaderThreadsInput {
  * of its quests counts in that quest. Main's questions and results are read in the leader log, which
  * is a row while they wait, as in the status row.
  */
-export function threadRows(
-  leaders: readonly LeaderThreadsInput[],
-  queue: readonly NextAttentionItem[],
-  topicOf: (leaderId: string, threadKey: string) => { id: string; name: string } | null | undefined,
-): ThreadRow[] {
+export function threadRows(leaders: readonly LeaderThreadsInput[], queue: readonly NextAttentionItem[]): ThreadRow[] {
   const rows: ThreadRow[] = [];
   for (const { node, tabs, runningQuestIds, threads, writingThreadKey } of leaders) {
     const leaderId = node.leader.id;
@@ -107,15 +103,11 @@ export function threadRows(
     for (const tab of tabs) {
       const threadKey = normalizeThreadKey(tab.threadKey);
       const running = !!tab.questId && runningQuestIds.includes(normalizeThreadKey(tab.questId));
-      const phase = tab.completed ? null : getQuestJourneyPhase(tab.journey?.currentPhaseId);
       rows.push(
         row({
           threadKey,
           questId: tab.questId,
           title: tab.title ?? tab.questId ?? threadKey,
-          detail: [tab.questId, tab.completed ? "Done" : (phase?.label ?? tab.boardStatus)].filter(Boolean).join(" · "),
-          ...(phase ? { accent: getQuestPhaseAccentValue(phase.color) } : {}),
-          topic: topicOf(leaderId, threadKey) ?? null,
           counts: counts(threadKey, running),
           at: tab.groupChangedAt || tab.updatedAt,
         }),
@@ -129,8 +121,7 @@ export function threadRows(
           threadKey,
           questId: null,
           title: thread.name,
-          detail: "Thread",
-          topic: thread.topic ?? null,
+          label: "Thread",
           counts: counts(threadKey),
           at: thread.interactionAt ?? thread.activityAt,
         }),
@@ -143,8 +134,7 @@ export function threadRows(
           threadKey: ALL_THREADS_KEY,
           questId: null,
           title: "Leader log",
-          detail: "Main's messages",
-          topic: null,
+          label: "Main's messages",
           counts: main,
           at: sessionInteractionAt(node.leader),
         }),
@@ -307,11 +297,16 @@ export function SidebarThreadsMode({
       ),
     [leaders],
   );
-  const topicOf = useQuestTopicsOf(questKeys);
-  const rows = useMemo(
-    () => threadRows(leaders, queue, (leaderId, key) => (isTopicViewKey(key) ? null : topicOf(leaderId, key))),
-    [leaders, queue, topicOf],
+  const linesFor = useMemo(
+    () =>
+      leaders.map(({ node }) => ({
+        leaderId: node.leader.id,
+        questIds: questKeys.filter((quest) => quest.leaderId === node.leader.id).map((quest) => quest.questId),
+      })),
+    [leaders, questKeys],
   );
+  const lineOf = useLeadersHomeLines(linesFor);
+  const rows = useMemo(() => threadRows(leaders, queue), [leaders, queue]);
   const [allIdle, setAllIdle] = useState(false);
   const idle = rows.filter((row) => row.group === "idle");
   const shown = allIdle ? rows : rows.filter((row) => row.group !== "idle" || idle.indexOf(row) < IDLE_SHOWN);
@@ -336,6 +331,7 @@ export function SidebarThreadsMode({
                 <ThreadRowButton
                   key={row.key}
                   row={row}
+                  line={lineOf(row.leader.leader.id, row.threadKey)}
                   current={row.leader.leader.id === currentSessionId && routeThread === row.threadKey}
                   onOpen={(event) => open(row.leader.leader.id, row.threadKey, event)}
                 />
@@ -382,12 +378,20 @@ export function SidebarThreadsMode({
   );
 }
 
+/**
+ * One thread: its status dot, quest number and name, counts, then its leader and its news line
+ * (Jiayi, Oct 31: the most informative recent update, not its phase or topic; the dot's color
+ * already says where it stands).
+ */
 function ThreadRowButton({
   row,
+  line,
   current,
   onOpen,
 }: {
   row: ThreadRow;
+  /** The thread's news line, as on its leader's Home, when there is one. */
+  line?: string;
   current: boolean;
   onOpen: (event: MouseEvent) => void;
 }) {
@@ -417,6 +421,11 @@ function ThreadRowButton({
           <NewThreadIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
         )}
         <span className={`min-w-0 flex-1 truncate text-[13px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
+          {row.questId && (
+            <span className="font-mono-code text-[12px] text-cc-muted" data-testid="threads-mode-quest">
+              {row.questId}{" "}
+            </span>
+          )}
           {row.title}
         </span>
         <StatusCountDots counts={row.counts} />
@@ -428,15 +437,9 @@ function ThreadRowButton({
             <LeaderProfilePortraitImage portrait={leader.leaderProfilePortrait} size="sm" />
           </span>
         )}
-        <span className="shrink-0 truncate" style={row.accent ? { color: row.accent } : undefined}>
-          {row.detail}
+        <span className="min-w-0 truncate" data-testid="threads-mode-line">
+          {line ?? row.label ?? (row.at ? `Updated ${timeAgo(row.at)}` : "")}
         </span>
-        {row.topic && (
-          <span className="flex min-w-0 items-center gap-1" data-testid="threads-mode-topic">
-            <TopicIcon className="h-3 w-3 shrink-0" />
-            <span className="min-w-0 truncate">{row.topic.name}</span>
-          </span>
-        )}
       </div>
     </button>
   );

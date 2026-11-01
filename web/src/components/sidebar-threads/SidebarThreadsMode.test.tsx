@@ -11,11 +11,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const queue = vi.hoisted(() => ({ items: [] as unknown[] }));
 vi.mock("../../hooks/useNextAttention.js", () => ({ useNextAttention: () => ({ queue: queue.items }) }));
 vi.mock("../library/topic-questions.js", () => ({ questOf: (entry: { questId?: string }) => entry.questId ?? null }));
-vi.mock("../../utils/leader-topics.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../utils/leader-topics.js")>()),
-  useQuestTopicsOf: () => (_leaderId: string, questId: string) =>
-    questId === "q-1" ? { id: "t1", name: "Library" } : null,
-}));
+// Home's news lines (`GET /topics/home-lines`), per leader: q-1 has the Scribe's line, q-4 none.
+const homeLines = vi.hoisted(() =>
+  vi.fn(async (leader: string, _quests: readonly string[]) => ({
+    lines:
+      leader === "takode" ? { "q-1": { text: "Waiting on your pick of the layout", at: 1, source: "scribe" } } : {},
+  })),
+);
+vi.mock("../../api/topics.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/topics.js")>();
+  return { ...actual, topicApi: { ...actual.topicApi, homeLines } };
+});
 const navigateToSessionThread = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/routing.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../utils/routing.js")>()),
@@ -104,7 +110,7 @@ describe("threadRows", () => {
       // Main's answer waits in the leader log.
       { kind: "unread", key: "m", sessionId: "takode", threadKey: "main" },
     ];
-    const rows = threadRows(LEADERS, queue.items as never, () => null);
+    const rows = threadRows(LEADERS, queue.items as never);
     expect(rows.map((row) => [row.threadKey, row.group])).toEqual([
       ["q-1", "needs-input"],
       ["q-3", "new-results"],
@@ -122,8 +128,9 @@ describe("threadRows", () => {
     expect(counts["q-4"]).toEqual({ permission: 0, unread: 0, running: 1 });
     // The thread the leader is answering in shows as running.
     expect(counts["topic:aa"]).toEqual({ permission: 0, unread: 0, running: 1 });
-    expect(rows.find((row) => row.threadKey === "q-4")!.detail).toBe("q-4 · Work");
-    expect(rows.find((row) => row.threadKey === "topic:aa")!.detail).toBe("Thread");
+    // No phase words: a quest has no label (its dot says where it stands); a thread says so.
+    expect(rows.find((row) => row.threadKey === "q-4")!.label).toBeUndefined();
+    expect(rows.find((row) => row.threadKey === "topic:aa")!.label).toBe("Thread");
   });
 });
 
@@ -135,14 +142,13 @@ describe("threadRows across leaders", () => {
         { node: MSI, tabs: [tab("q-7", { ownership: "own" })], runningQuestIds: [], threads: [] },
       ],
       [],
-      () => null,
     );
     expect(rows.map((row) => [row.threadKey, row.leader.leader.id])).toEqual([["q-7", "msi"]]);
   });
 });
 
 describe("SidebarThreadsMode", () => {
-  it("lists the threads with their leader, topic and counts, then the leaders and other sessions", () => {
+  it("lists the threads with their quest number, news line and counts, then the leaders and other sessions", async () => {
     queue.items = [{ kind: "needs-input", key: "n", sessionId: "takode", entry: { questId: "q-1" }, threadKey: "q-1" }];
     const onOpened = vi.fn();
     render(
@@ -155,7 +161,13 @@ describe("SidebarThreadsMode", () => {
     );
     const rows = within(screen.getByTestId("threads-mode-threads")).getAllByTestId("threads-mode-row");
     expect(rows[0]!.dataset.threadKey).toBe("q-1");
-    expect(within(rows[0]!).getByTestId("threads-mode-topic").textContent).toBe("Library");
+    // Jiayi (Oct 31): the quest number on the first line, the most informative recent update on the
+    // second, and no topic or phase label (the dot's color says where it stands).
+    expect(within(rows[0]!).getByTestId("threads-mode-quest").textContent?.trim()).toBe("q-1");
+    expect(await within(rows[0]!).findByText("Waiting on your pick of the layout")).toBeTruthy();
+    expect(homeLines).toHaveBeenCalledWith("takode", expect.arrayContaining(["q-1"]));
+    expect(rows[0]!.textContent).not.toContain("Work");
+    expect(within(rows[0]!).queryByTestId("threads-mode-topic")).toBeNull();
     expect(within(rows[0]!).getByTestId("status-count-permission").textContent).toBe("1");
     // A quest's dot has its status group's color, never its phase's (Jiayi, Oct 31).
     expect(within(rows[0]!).getByTestId("threads-mode-row-dot").className).toContain("bg-cc-attention");
