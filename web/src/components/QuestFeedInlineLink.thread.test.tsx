@@ -19,6 +19,7 @@ import {
 import { QuestFeedInlineLink } from "./QuestFeedInlineLink.js";
 import { useSideColumnStore } from "../utils/side-column.js";
 import { markLeaderThreadDisplayed } from "../utils/thread-viewport.js";
+import { showMainView } from "../utils/side-column.js";
 
 vi.mock("../api.js", () => ({
   api: {
@@ -347,8 +348,9 @@ describe("QuestInlineLink chat-feed quest thread", () => {
       currentSessionId: "leader-496",
     });
     const shown = markLeaderThreadDisplayed("leader-496", "main");
+    const mainView = showMainView("leader-496", "main");
     const hashBefore = window.location.hash;
-    const items = () => useSideColumnStore.getState().columns["leader-496"]!.items;
+    const items = () => useSideColumnStore.getState().items;
     try {
       render(
         <>
@@ -369,7 +371,8 @@ describe("QuestInlineLink chat-feed quest thread", () => {
       expect(window.location.hash).toBe(hashBefore);
     } finally {
       shown();
-      useSideColumnStore.setState({ columns: {} });
+      mainView();
+      useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
       useStore.setState({ currentSessionId: null });
       localStorage.clear();
     }

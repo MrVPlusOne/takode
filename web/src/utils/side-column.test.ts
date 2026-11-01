@@ -6,6 +6,8 @@ import {
   HOME_ITEM,
   handleOpenInSideClick,
   isOpenInSideClick,
+  mergeLeaderColumns,
+  newSideChat,
   notePaneClick,
   openConversationInSide,
   openInSideClickLabel,
@@ -13,7 +15,7 @@ import {
   openSessionInSide,
   openInSide,
   replaceSideItem,
-  sideChatOrigin,
+  showMainView,
   sideFoldId,
   useSideColumnStore,
   wantsSideClick,
@@ -22,76 +24,115 @@ import { useTopicPanel } from "./topic-panel.js";
 import { isRememberedFolded, resetRememberedFoldsForTest, setRememberedFolded } from "./remembered-folds.js";
 import { markLeaderThreadDisplayed } from "./thread-viewport.js";
 
-const column = (leaderId: string) => useSideColumnStore.getState().columns[leaderId];
-const keys = (leaderId: string) =>
-  column(leaderId)?.items.map((item) => (item.kind === "conversation" ? item.threadKey : item.kind));
+const items = () => useSideColumnStore.getState().items;
+const keys = () => items().map((item) => (item.kind === "conversation" ? item.threadKey : item.kind));
 
 afterEach(() => {
-  useSideColumnStore.setState({ columns: {} });
-  useTopicPanel.setState({ panels: {}, sheets: [], focus: null });
+  useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
+  useTopicPanel.setState({ open: true, sheet: false, focus: null });
+  useStore.setState({ currentSessionId: null, sdkSessions: [] } as never);
   localStorage.clear();
   resetRememberedFoldsForTest();
 });
 
 /**
- * A leader's side column (Logseq's right sidebar): what the user put beside the conversation,
- * newest first, each folding on its own, remembered per leader in this browser.
+ * The side column (Logseq's right sidebar): what the user put beside the conversation, newest
+ * first, each folding on its own, remembered in this browser. One column for every leader (Jiayi,
+ * Nov 1): each conversation in it names its leader.
  */
 describe("side column items", () => {
   it("puts things at the top and opens them, bringing back what is already there", () => {
-    openInSide("l1", { kind: "conversation", threadKey: "q-1" });
-    const second = openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0001" });
-    expect(keys("l1")).toEqual(["topic:aaaa0001", "q-1"]);
-    expect(column("l1")!.focus).toBe(second);
+    openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+    const second = openInSide({ kind: "conversation", threadKey: "topic:aaaa0001", leaderId: "l1" });
+    expect(keys()).toEqual(["topic:aaaa0001", "q-1"]);
+    expect(useSideColumnStore.getState().focus).toBe(second);
     // The same conversation again (any case) moves up and opens rather than being added twice.
     // It unfolds if the user had folded it; the column scrolls to it (its focus).
-    const first = column("l1")!.items[1]!.id;
-    setRememberedFolded(sideFoldId("l1", first), true);
-    const again = openInSide("l1", { kind: "conversation", threadKey: "Q-1" });
+    const first = items()[1]!.id;
+    setRememberedFolded(sideFoldId(first), true);
+    const again = openInSide({ kind: "conversation", threadKey: "Q-1", leaderId: "l1" });
     expect(again).toBe(first);
-    expect(keys("l1")).toEqual(["Q-1", "topic:aaaa0001"]);
-    expect(column("l1")!.focus).toBe(again);
-    expect(isRememberedFolded(sideFoldId("l1", again))).toBe(false);
+    expect(keys()).toEqual(["Q-1", "topic:aaaa0001"]);
+    expect(useSideColumnStore.getState().focus).toBe(again);
+    expect(isRememberedFolded(sideFoldId(again))).toBe(false);
     // Opening something shows the column, collapsed on desktop or closed on a phone.
-    expect(useTopicPanel.getState().panels.l1).toBe(true);
-    expect(useTopicPanel.getState().sheets).toContain("l1");
+    expect(useTopicPanel.getState().open).toBe(true);
+    expect(useTopicPanel.getState().sheet).toBe(true);
     // Remembered for the next visit.
-    expect(JSON.parse(localStorage.getItem("cc-side-columns")!).l1.items).toHaveLength(2);
+    expect(JSON.parse(localStorage.getItem("cc-side-column")!).items).toHaveLength(2);
+  });
+
+  it("keeps the same thread of two leaders as two items", () => {
+    const one = openInSide({ kind: "conversation", threadKey: "main", leaderId: "l1" });
+    const two = openInSide({ kind: "conversation", threadKey: "main", leaderId: "l2" });
+    expect(two).not.toBe(one);
+    expect(items().map((item) => item.id)).toEqual([two, one]);
   });
 
   it("removes items freely, leaving the others as they were", () => {
-    const first = openInSide("l1", { kind: "conversation", threadKey: "q-1" });
-    const second = openInSide("l1", { kind: "topic", topicId: "t1" });
-    closeSideItem("l1", second);
-    expect(column("l1")!.items.map((item) => item.id)).toEqual([first]);
-    closeSideItem("l1", first);
-    expect(column("l1")!.items).toEqual([]);
+    const first = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+    const second = openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
+    closeSideItem(second);
+    expect(items().map((item) => item.id)).toEqual([first]);
+    closeSideItem(first);
+    expect(items()).toEqual([]);
     expect(HOME_ITEM).toBe("home");
   });
 
-  it("keeps one new side chat, turning it into its thread once started", () => {
-    const chat = openInSide("l1", { kind: "new-chat", startedFrom: "q-1" });
-    expect(openInSide("l1", { kind: "new-chat", startedFrom: null })).toBe(chat);
-    replaceSideItem("l1", chat, { kind: "conversation", threadKey: "topic:aaaa0002" });
-    expect(column("l1")!.items).toEqual([{ id: chat, kind: "conversation", threadKey: "topic:aaaa0002" }]);
-    expect(column("l1")!.focus).toBe(chat);
-  });
-
-  it("keeps a side chat with another leader apart from one with the column's own", () => {
-    // A chat with the column's leader names no leader, however it was asked for, so it stays the
-    // same item; a chat with another leader is its own item, and its thread stays that leader's.
-    const own = openInSide("l1", { kind: "new-chat", startedFrom: null });
-    expect(openInSide("l1", { kind: "new-chat", startedFrom: null, leaderId: "l1" })).toBe(own);
-    const other = openInSide("l1", { kind: "new-chat", startedFrom: null, leaderId: "l2" });
-    expect(other).not.toBe(own);
-    replaceSideItem("l1", other, { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" });
-    expect(openInSide("l1", { kind: "conversation", threadKey: "topic:bbbb0001" })).not.toBe(other);
-    expect(openInSide("l1", { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" })).toBe(other);
-    expect(column("l1")!.items.find((item) => item.id === own)).toEqual({
-      id: own,
-      kind: "new-chat",
-      startedFrom: null,
+  it("keeps one new thread per leader, turning it into its conversation once started", () => {
+    const chat = openInSide({ kind: "new-chat", startedFrom: "q-1", leaderId: "l1" });
+    expect(openInSide({ kind: "new-chat", startedFrom: null, leaderId: "l1" })).toBe(chat);
+    expect(openInSide({ kind: "new-chat", startedFrom: null, leaderId: "l2" })).not.toBe(chat);
+    replaceSideItem(chat, { kind: "conversation", threadKey: "topic:aaaa0002", leaderId: "l1" });
+    expect(items().find((item) => item.id === chat)).toEqual({
+      id: chat,
+      kind: "conversation",
+      threadKey: "topic:aaaa0002",
+      leaderId: "l1",
     });
+  });
+});
+
+describe("one column from the leaders' columns", () => {
+  it("keeps everything each leader's column held, named with its leader, with its folds and heights", () => {
+    // Before Nov 1 each leader had a column of its own; the first load merges them (Jiayi: what the
+    // user put on the side stays when switching leaders).
+    setRememberedFolded("side:l2:b", true);
+    localStorage.setItem(
+      "cc-stacked-panes",
+      JSON.stringify({
+        "side:l1": { weights: {}, heights: { a: 300 } },
+        "side:l2": { weights: {}, heights: { b: 200 } },
+      }),
+    );
+    const merged = mergeLeaderColumns(
+      JSON.stringify({
+        l1: {
+          items: [
+            { id: "a", kind: "conversation", threadKey: "q-1" },
+            { id: "n", kind: "new-chat", startedFrom: "q-1" },
+          ],
+        },
+        l2: {
+          items: [
+            { id: "b", kind: "conversation", threadKey: "topic:bbbb0001" },
+            // l2's chat with l1 about q-1: the same conversation as l1's own, so it is kept once.
+            { id: "c", kind: "conversation", threadKey: "q-1", leaderId: "l1" },
+            { id: "d", kind: "quest", questId: "q-9" },
+          ],
+        },
+      }),
+    );
+    expect(merged.items).toEqual([
+      { id: "a", kind: "conversation", threadKey: "q-1", leaderId: "l1" },
+      { id: "n", kind: "new-chat", startedFrom: "q-1", leaderId: "l1", startedIn: "l1" },
+      { id: "b", kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" },
+      { id: "d", kind: "quest", questId: "q-9" },
+    ]);
+    expect(isRememberedFolded(sideFoldId("b"))).toBe(true);
+    expect(isRememberedFolded(sideFoldId("a"))).toBe(false);
+    expect(JSON.parse(localStorage.getItem("cc-stacked-panes")!).side.heights).toEqual({ a: 300, b: 200 });
+    expect(JSON.parse(localStorage.getItem("cc-side-column")!).items).toHaveLength(4);
   });
 });
 
@@ -109,30 +150,39 @@ describe("opening in the side", () => {
     expect(isOpenInSideClick({ ...click, ctrlKey: true })).toBe(false);
   });
 
-  it("opens a leader's conversation in its column only while that leader is on screen", () => {
+  it("opens any leader's conversation while a conversation is on screen", () => {
     // Elsewhere the column isn't visible, so the click does what it would without the modifier.
     expect(openConversationInSide("l1", "q-1")).toBe(false);
-    expect(column("l1")).toBeUndefined();
-    const shown = markLeaderThreadDisplayed("l1", "main");
+    expect(items()).toEqual([]);
+    const shown = showMainView("worker-1", null);
     try {
       expect(openConversationInSide("l1", "Q-1")).toBe(true);
-      expect(keys("l1")).toEqual(["q-1"]);
+      expect(items()).toEqual([expect.objectContaining({ threadKey: "q-1", leaderId: "l1" })]);
     } finally {
       shown();
     }
   });
 
-  it("starts a side chat from the quest or topic on screen, and from nothing in Main or All", () => {
-    const cases: Array<[string, string | null]> = [
-      ["q-7", "q-7"],
-      ["topic:aaaa0001", "topic:aaaa0001"],
-      ["main", null],
-      ["all", null],
+  it("starts a thread about the quest or topic on screen; another leader's only about a quest", () => {
+    const cases: Array<[string, string, string | null]> = [
+      ["l1", "q-7", "q-7"],
+      ["l1", "topic:aaaa0001", "topic:aaaa0001"],
+      ["l1", "main", null],
+      ["l1", "all", null],
+      ["l2", "q-7", "q-7"],
+      ["l2", "topic:aaaa0001", null],
     ];
-    for (const [onScreen, origin] of cases) {
-      const shown = markLeaderThreadDisplayed("l1", onScreen);
-      expect(sideChatOrigin("l1")).toBe(origin);
+    for (const [leaderId, onScreen, origin] of cases) {
+      const displayed = markLeaderThreadDisplayed("l1", onScreen);
+      const shown = showMainView("l1", onScreen);
+      expect(newSideChat(leaderId)).toEqual({
+        kind: "new-chat",
+        leaderId,
+        startedFrom: origin,
+        ...(origin ? { startedIn: "l1" } : {}),
+      });
       shown();
+      displayed();
     }
   });
 
@@ -161,28 +211,28 @@ describe("opening in the side", () => {
     // A link in a side chat used to open in the main view.
     vi.useFakeTimers();
     try {
-      const chat = openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0001" });
-      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+      const chat = openInSide({ kind: "conversation", threadKey: "topic:aaaa0001", leaderId: "l1" });
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
       const click = (shiftKey: boolean) => ({ shiftKey, altKey: false, metaKey: false, ctrlKey: false });
       // A plain click on a link in the chat replaces the chat with what it opens.
-      notePaneClick("l1", chat, click(false));
+      notePaneClick(chat, click(false));
       expect(wantsSideClick()).toBe(true);
       const main = vi.fn();
       expect(
         handleOpenInSideClick(
           { ...click(false), preventDefault: vi.fn() },
           () => {
-            openInSide("l1", { kind: "conversation", threadKey: "q-9" });
+            openInSide({ kind: "conversation", threadKey: "q-9", leaderId: "l1" });
             return true;
           },
           main,
         ),
       ).toBe(true);
-      expect(keys("l1")).toEqual(["q-2", "q-9"]);
-      expect(column("l1")?.focus).toBe(chat);
+      expect(keys()).toEqual(["q-2", "q-9"]);
+      expect(useSideColumnStore.getState().focus).toBe(chat);
       expect(main).not.toHaveBeenCalled();
       // The open-in-side click there opens in the main view instead.
-      notePaneClick("l1", chat, click(true));
+      notePaneClick(chat, click(true));
       expect(wantsSideClick()).toBe(false);
       expect(handleOpenInSideClick({ ...click(true), preventDefault: vi.fn() }, () => true, main)).toBe(true);
       expect(main).toHaveBeenCalledOnce();
@@ -194,20 +244,22 @@ describe("opening in the side", () => {
     }
   });
 
-  it("opens a quest's details or a session's conversation in the side column of the leader on screen", () => {
+  it("opens a quest's details or a session's conversation in the side column", () => {
     expect(openQuestInSide("Q-5")).toBe(false);
-    useStore.setState({ currentSessionId: "l1" });
-    const shown = markLeaderThreadDisplayed("l1", "main");
+    useStore.setState({
+      sdkSessions: [{ sessionId: "l1", isOrchestrator: true, state: "connected", cwd: "/", createdAt: 1 }],
+    } as never);
+    const shown = showMainView("l1", "main");
     try {
       expect(openQuestInSide("Q-5")).toBe(true);
       expect(openSessionInSide("worker-9")).toBe(true);
       // The leader on screen itself opens as its Main thread.
       expect(openSessionInSide("l1")).toBe(true);
-      expect(column("l1")!.items.map((item) => item.kind)).toEqual(["conversation", "session", "quest"]);
-      expect(column("l1")!.items[2]).toEqual(expect.objectContaining({ questId: "q-5" }));
+      expect(items().map((item) => item.kind)).toEqual(["conversation", "session", "quest"]);
+      expect(items()[0]).toEqual(expect.objectContaining({ threadKey: "main", leaderId: "l1" }));
+      expect(items()[2]).toEqual(expect.objectContaining({ questId: "q-5" }));
     } finally {
       shown();
-      useStore.setState({ currentSessionId: null });
     }
   });
 });

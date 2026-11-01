@@ -15,22 +15,11 @@ import { openInSide, wantsSideClick } from "../../utils/side-column.js";
 import { useChatFocused, useChatFocusId } from "../../utils/chat-focus.js";
 
 /**
- * One of the leader's conversations in the side column: a thread or a quest's thread, with its own
- * message box under it. It reads and sends
- * like the main view, and what is read there on screen counts as read.
- *
- * It may be another leader's (a side chat the user started with that leader from this column,
- * `columnId`): it then reads and sends over that leader's connection, which the column holds open.
+ * A leader's conversation in the side column: a thread or a quest's thread, with its own message box
+ * under it. It reads and sends like the main view, over its leader's connection (which the column
+ * holds open, whichever session the main view shows), and what is read there on screen counts as read.
  */
-export function SideConversation({
-  leaderId,
-  threadKey,
-  columnId = leaderId,
-}: {
-  leaderId: string;
-  threadKey: string;
-  columnId?: string;
-}) {
+export function SideConversation({ leaderId, threadKey }: { leaderId: string; threadKey: string }) {
   const key = threadKey.toLowerCase();
   const thread = useKnownThreadOfKey(leaderId, isTopicViewKey(key) ? key : "");
   const notifications = useStore((state) => state.sessionNotifications.get(leaderId));
@@ -48,7 +37,7 @@ export function SideConversation({
   // click opens it in the main view.
   const openThread = (next: string) =>
     wantsSideClick()
-      ? openInSide(columnId, { kind: "conversation", threadKey: next, leaderId })
+      ? openInSide({ kind: "conversation", threadKey: next, leaderId })
       : navigateToSessionThread(leaderId, next);
   const questId = /^q-\d+$/.test(key) ? key : undefined;
   const draftKey = sideComposerDraftKey(leaderId, key);

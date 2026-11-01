@@ -39,7 +39,7 @@ afterEach(() => {
 describe("QuestTopicLink", () => {
   it("names the quest's topic and opens the quest's thread with the topic's page beside", async () => {
     mockTopics();
-    useSideColumnStore.setState({ columns: {} });
+    useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
     const onNavigate = vi.fn();
     render(<QuestTopic leader="l1" onNavigate={onNavigate} />);
     const link = await screen.findByTestId("quest-topic-link");
@@ -50,9 +50,7 @@ describe("QuestTopicLink", () => {
     fireEvent.click(link);
     expect(onNavigate).toHaveBeenCalledOnce();
     expect(window.location.hash).toBe("#/session/l1?thread=q-7");
-    expect(useSideColumnStore.getState().columns.l1?.items).toEqual([
-      expect.objectContaining({ kind: "topic", topicId: "t1" }),
-    ]);
+    expect(useSideColumnStore.getState().items).toEqual([expect.objectContaining({ kind: "topic", topicId: "t1" })]);
   });
 
   it("shows nothing for a quest under no topic or without a leader, which asks nothing", async () => {

@@ -9,8 +9,9 @@ import {
   HOME_ITEM,
   notePaneClick,
   openInSide,
+  newSideChat,
   replaceSideItem,
-  sideChatOrigin,
+  SIDE_HEIGHTS_STACK,
   sideFoldId,
   sideItemLeader,
   useSideColumn,
@@ -29,6 +30,7 @@ import { CollapseIcon, NewThreadIcon, TopicIcon } from "../library/library-icons
 import { TopicSidePanel } from "../library/TopicSidePanel.js";
 import { ThreadOriginName } from "./thread-names.js";
 import { useQuestRecord } from "../QuestSummaryCard.js";
+import { getQuestLeaderSessionId } from "../../utils/quest-helpers.js";
 import { QuestInlineLink } from "../QuestInlineLink.js";
 import { THREAD_GROUP_DOT, type ThreadGroupId } from "../ThreadTabGroups.js";
 import { SideConversation } from "./SideConversation.js";
@@ -59,31 +61,33 @@ const KEPT_MOUNTED = 3;
 const ROW_HEIGHT = 36;
 
 /**
- * A leader's side column (Logseq's right sidebar), from the top: whatever the user put beside the
- * conversation (threads, other conversations, topic pages, artifacts), newest first; then the
- * leader's topics, for browsing (the topic page of the thread on screen, else the list). Each
- * section folds on its own from its header row, any number can be open, and the column scrolls when
- * they don't fit. An open section's bottom edge drags to set its height (Jiayi's choice, Oct 31:
- * like Logseq, the panel scrolls rather than squeezing each section). Folds and heights are
- * remembered in this browser. On a phone it is the same column in a sheet.
+ * The side column (Logseq's right sidebar), from the top: whatever the user put beside the
+ * conversation (threads, other conversations, topic pages, artifacts), newest first, each with its
+ * own leader; then the main view's leader's topics, for browsing (the topic page of the thread on
+ * screen, else the list). One column for the whole app: what is in it stays when the main view
+ * switches leader or session (Jiayi, Nov 1). Each section folds on its own from its header row,
+ * any number can be open, and the column scrolls when they don't fit. An open section's bottom edge
+ * drags to set its height (Jiayi's choice, Oct 31: like Logseq, the panel scrolls rather than
+ * squeezing each section). Folds and heights are remembered in this browser. On a phone it is the
+ * same column in a sheet.
  */
 export function SideColumn({
   leaderId,
   threadKey,
   variant,
 }: {
-  leaderId: string;
-  /** The thread on screen in the main view: the topic page follows it, and side chats start from it. */
+  /** The main view's leader, whose topics the column ends with; none for a session without a leader. */
+  leaderId: string | null;
+  /** The thread on screen in the main view: the topic page follows it. */
   threadKey: string;
   variant: "docked" | "sheet";
 }) {
-  const { items, focus, focusAt } = useSideColumn(leaderId);
+  const { items, focus, focusAt } = useSideColumn();
   const folds = useRememberedFolds();
-  const foldId = (id: string) => sideFoldId(leaderId, id);
-  const isOpen = (id: string) => !folds.isFolded(foldId(id));
-  const toggle = (id: string) => folds.toggle(foldId(id));
-  const heights = useSectionHeights(`side:${leaderId}`);
-  const sectionIds = [...items.map((item) => item.id), HOME_ITEM];
+  const isOpen = (id: string) => !folds.isFolded(sideFoldId(id));
+  const toggle = (id: string) => folds.toggle(sideFoldId(id));
+  const heights = useSectionHeights(SIDE_HEIGHTS_STACK);
+  const sectionIds = [...items.map((item) => item.id), ...(leaderId ? [HOME_ITEM] : [])];
   const idsKey = sectionIds.join(",");
   useEffect(() => heights.keepOnly(idsKey.split(",")), [idsKey]);
   // The scrolling area's height: one open section fits it beside every header row by default.
@@ -109,7 +113,7 @@ export function SideColumn({
     sectionElements.current.get(focus)?.scrollIntoView?.({ block: "nearest" });
     // Opening a conversation beside the main view focuses it, as opening a window does.
     const opened = items.find((item) => item.id === focus);
-    if (variant === "docked" && opened && isChatItem(opened)) focusChat(sideChatId(leaderId, focus));
+    if (variant === "docked" && opened && isChatItem(opened)) focusChat(sideChatId(focus));
   }, [focus, focusAt]);
   // Open sections stay mounted, and so do the last few folded ones, like kept conversations.
   const keptRef = useRef<string[]>([]);
@@ -118,31 +122,28 @@ export function SideColumn({
     .filter((id) => sectionIds.includes(id))
     .slice(0, openIds.length + KEPT_MOUNTED);
   const kept = keptRef.current;
-  const close = () => (variant === "sheet" ? setTopicSheetOpen(leaderId, false) : setTopicPanelOpen(leaderId, false));
-  useEffect(() => loadLeaderNamesOnce(leaderId), [leaderId]);
-  // Side chats with other leaders read and send over those leaders' connections, which the main
-  // view doesn't keep open. Held per leader, so a new chat turning into its thread keeps the same
-  // connection: dropping it in between loses the live messages of the chat's first turn.
-  const otherLeaders = [...new Set(items.map((item) => sideItemLeader(leaderId, item)))]
-    .filter((other) => other !== leaderId)
-    .sort()
-    .join(",");
+  const close = () => (variant === "sheet" ? setTopicSheetOpen(false) : setTopicPanelOpen(false));
   useEffect(() => {
-    const releases = otherLeaders ? otherLeaders.split(",").map((other) => holdSessionConnection(other)) : [];
+    if (leaderId) loadLeaderNamesOnce(leaderId);
+  }, [leaderId]);
+  // The column's conversations read and send over their leaders' connections, which the main view
+  // keeps open only for the session it shows. Held per leader, so a new chat turning into its
+  // thread keeps the same connection: dropping it in between loses the live messages of its first turn.
+  const itemLeaders = [...new Set(items.flatMap((item) => sideItemLeader(item) ?? []))].sort().join(",");
+  useEffect(() => {
+    const releases = itemLeaders ? itemLeaders.split(",").map((other) => holdSessionConnection(other)) : [];
     return () => {
       for (const release of releases) release();
     };
-  }, [otherLeaders]);
+  }, [itemLeaders]);
   // The server sends this browser the live messages of the conversations in the column too, each
-  // over its leader's connection (a side chat with another leader is that leader's conversation).
+  // over its leader's connection.
   const conversationViews = items
-    .flatMap((item) =>
-      item.kind === "conversation" ? [`${sideItemLeader(leaderId, item)} ${item.threadKey.toLowerCase()}`] : [],
-    )
+    .flatMap((item) => (item.kind === "conversation" ? [`${item.leaderId} ${item.threadKey.toLowerCase()}`] : []))
     .join(",");
   useEffect(() => {
     const owner = {};
-    const byLeader = new Map<string, string[]>([[leaderId, []]]);
+    const byLeader = new Map<string, string[]>();
     for (const view of conversationViews ? conversationViews.split(",") : []) {
       const [viewLeader, key] = view.split(" ");
       byLeader.set(viewLeader!, [...(byLeader.get(viewLeader!) ?? []), key!]);
@@ -151,7 +152,7 @@ export function SideColumn({
     return () => {
       for (const viewLeader of byLeader.keys()) setSideViewsOf(viewLeader, owner, []);
     };
-  }, [conversationViews, leaderId]);
+  }, [conversationViews]);
 
   /**
    * One section: its header row (sticky while its body scrolls past), then, while open, its body at
@@ -227,21 +228,21 @@ export function SideColumn({
   const itemSection = (entry: SideItem | null) => {
     const id = entry?.id ?? HOME_ITEM;
     const conversation = !!entry && isChatItem(entry);
-    const row = <SideItemRow leaderId={leaderId} item={entry} open={isOpen(id)} onOpen={() => toggle(id)} />;
+    const row = <SideItemRow mainLeaderId={leaderId} item={entry} open={isOpen(id)} onOpen={() => toggle(id)} />;
     const body = (
       // A link clicked here opens in this pane; the open-in-side click opens it in the main view.
       <div
         className="flex min-h-0 flex-1 flex-col"
         data-testid="side-item-body"
         data-item={id}
-        onClickCapture={(event) => notePaneClick(leaderId, entry?.id ?? null, event)}
+        onClickCapture={(event) => notePaneClick(entry?.id ?? null, event)}
       >
-        <SideItemBody leaderId={leaderId} threadKey={threadKey} item={entry} variant={variant} />
+        <SideItemBody mainLeaderId={leaderId} threadKey={threadKey} item={entry} variant={variant} />
       </div>
     );
     // On a phone the sheet is the single view on screen, always focused: its chats use the main
     // view's id. On a desktop each conversation pane is a chat of its own.
-    const chatId = !conversation ? undefined : variant === "sheet" ? MAIN_CHAT : sideChatId(leaderId, id);
+    const chatId = !conversation ? undefined : variant === "sheet" ? MAIN_CHAT : sideChatId(id);
     return section(id, row, body, conversation, fill, chatId);
   };
 
@@ -249,17 +250,19 @@ export function SideColumn({
     <div className="flex h-full min-h-0 flex-col" data-testid="side-column">
       {/* As tall as the strip under the top bar, so their lines meet. */}
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-cc-border/80 px-2">
-        <button
-          type="button"
-          onClick={() => openInSide(leaderId, { kind: "new-chat", startedFrom: sideChatOrigin(leaderId) })}
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[13px] text-cc-primary hover:bg-cc-hover"
-          title="Start a thread with the leader about what's on screen"
-          data-testid="side-new-chat"
-        >
-          <NewThreadIcon className="h-4 w-4" />
-          New thread
-        </button>
-        <SideChatLeaderMenu columnId={leaderId} />
+        {leaderId && (
+          <button
+            type="button"
+            onClick={() => openInSide(newSideChat(leaderId))}
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[13px] text-cc-primary hover:bg-cc-hover"
+            title="Start a thread with the leader about what's on screen"
+            data-testid="side-new-chat"
+          >
+            <NewThreadIcon className="h-4 w-4" />
+            New thread
+          </button>
+        )}
+        <SideChatLeaderMenu mainLeaderId={leaderId} />
         <span className="flex-1" />
         <button
           type="button"
@@ -273,7 +276,7 @@ export function SideColumn({
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
         {items.map(itemSection)}
-        {itemSection(null)}
+        {leaderId && itemSection(null)}
       </div>
     </div>
   );
@@ -332,18 +335,20 @@ function SideChatFocus({ chatId, onScreen, children }: { chatId: string; onScree
 
 /** One item's header in the stack: its kind, its name, and its actions. */
 function SideItemRow({
-  leaderId,
+  mainLeaderId,
   item,
   open,
   onOpen,
 }: {
-  leaderId: string;
+  mainLeaderId: string | null;
   item: SideItem | null;
   open: boolean;
   onOpen: () => void;
 }) {
-  // A side chat with another leader reads as that leader's: its names, unread answers and portrait.
-  const owner = item ? sideItemLeader(leaderId, item) : leaderId;
+  // A conversation reads as its leader's: its names, unread answers and portrait. A quest's details
+  // read as its leader's; the Topics section as the main view's leader's.
+  const questLeader = useQuestLeader(item?.kind === "quest" ? item.questId : null);
+  const owner = (item ? (sideItemLeader(item) ?? questLeader) : null) ?? mainLeaderId ?? "";
   // The thread whose status the row shows: its conversation, or the quest whose details it shows.
   const statusKey = item?.kind === "conversation" ? item.threadKey : item?.kind === "quest" ? item.questId : null;
   const unread = useOpenIn(owner, statusKey, "review");
@@ -357,8 +362,8 @@ function SideItemRow({
   );
   useEffect(() => {
     if (item && becameQuest)
-      replaceSideItem(leaderId, item.id, { kind: "conversation", threadKey: becameQuest, leaderId: owner });
-  }, [becameQuest, item, leaderId, owner]);
+      replaceSideItem(item.id, { kind: "conversation", threadKey: becameQuest, leaderId: owner });
+  }, [becameQuest, item, owner]);
   const running = useStore((state) => (statusKey ? isLeaderThreadRunning(state, owner, statusKey) : false));
   // The row's status group, by the status row's rule: a question for the user, then unread
   // answers, then work going on, else Idle. Its dot has that group's color and no other.
@@ -411,7 +416,7 @@ function SideItemRow({
           </span>
         )}
       </div>
-      <ItemActions leaderId={leaderId} item={item} />
+      <ItemActions item={item} />
     </div>
   );
 }
@@ -428,14 +433,14 @@ function LeaderIcon({ leaderId }: { leaderId: string }) {
   );
 }
 
-function ItemActions({ leaderId, item }: { leaderId: string; item: SideItem | null }) {
+function ItemActions({ item }: { item: SideItem | null }) {
   if (!item) return null;
   // A conversation moves to the main view, an artifact to the Library; either leaves the column.
   const moveOut =
     item.kind === "conversation"
       ? {
           label: "Open in the main view",
-          go: () => navigateToSessionThread(sideItemLeader(leaderId, item), item.threadKey),
+          go: () => navigateToSessionThread(item.leaderId, item.threadKey),
         }
       : item.kind === "session"
         ? { label: "Open in the main view", go: () => navigateToSession(item.sessionId) }
@@ -451,7 +456,7 @@ function ItemActions({ leaderId, item }: { leaderId: string; item: SideItem | nu
           type="button"
           onClick={() => {
             moveOut.go();
-            closeSideItem(leaderId, item.id);
+            closeSideItem(item.id);
           }}
           className="flex h-7 w-7 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
           aria-label={moveOut.label}
@@ -462,7 +467,7 @@ function ItemActions({ leaderId, item }: { leaderId: string; item: SideItem | nu
       )}
       <button
         type="button"
-        onClick={() => closeSideItem(leaderId, item.id)}
+        onClick={() => closeSideItem(item.id)}
         className="flex h-7 w-7 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
         aria-label="Remove from the side column"
         title="Remove from the side column"
@@ -475,41 +480,36 @@ function ItemActions({ leaderId, item }: { leaderId: string; item: SideItem | nu
 }
 
 function SideItemBody({
-  leaderId,
+  mainLeaderId,
   threadKey,
   item,
   variant,
 }: {
-  leaderId: string;
+  mainLeaderId: string | null;
   threadKey: string;
   item: SideItem | null;
   variant: "docked" | "sheet";
 }): ReactNode {
-  if (!item) return <TopicSidePanel leaderId={leaderId} threadKey={threadKey} variant={variant} inColumn />;
+  if (!item)
+    return mainLeaderId ? (
+      <TopicSidePanel leaderId={mainLeaderId} threadKey={threadKey} variant={variant} inColumn />
+    ) : null;
   switch (item.kind) {
     case "topic":
       return (
         <TopicSidePanel
-          leaderId={leaderId}
-          threadKey={threadKey}
+          leaderId={item.leaderId}
+          // Another leader's topic page doesn't follow the main view's thread.
+          threadKey={item.leaderId === mainLeaderId ? threadKey : "main"}
           variant={variant}
           inColumn
           pinnedTopicId={item.topicId}
         />
       );
     case "conversation":
-      return (
-        <SideConversation leaderId={sideItemLeader(leaderId, item)} columnId={leaderId} threadKey={item.threadKey} />
-      );
+      return <SideConversation leaderId={item.leaderId} threadKey={item.threadKey} />;
     case "new-chat":
-      return (
-        <NewSideChat
-          columnId={leaderId}
-          leaderId={sideItemLeader(leaderId, item)}
-          itemId={item.id}
-          startedFrom={item.startedFrom}
-        />
-      );
+      return <NewSideChat item={item} />;
     case "artifact":
       return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -540,7 +540,7 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
         <ThreadOriginName leaderId={leaderId} threadKey={item.threadKey} />
       );
     case "new-chat":
-      return item.leaderId ? <NewChatWithTitle leaderId={item.leaderId} /> : <>New thread</>;
+      return <NewChatWithTitle leaderId={item.leaderId} />;
     case "artifact":
       return <>{item.title ?? "Artifact"}</>;
     case "quest":
@@ -621,6 +621,12 @@ function SideItemIcon({
       />
     </span>
   );
+}
+
+/** The leader a quest belongs to, once its record is here. */
+function useQuestLeader(questId: string | null): string | null {
+  const quest = useQuestRecord(questId);
+  return quest ? getQuestLeaderSessionId(quest) : null;
 }
 
 /** Open notifications of a kind (unread answers, questions) in one of the leader's threads. */

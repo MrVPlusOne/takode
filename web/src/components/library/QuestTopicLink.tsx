@@ -55,7 +55,7 @@ export function QuestTopicLink({
         event.preventDefault();
         event.stopPropagation();
         navigateToSessionThread(leaderSessionId, questId, false, routeSessionId);
-        openInSide(leaderSessionId, { kind: "topic", topicId: topic.id });
+        openInSide({ kind: "topic", topicId: topic.id, leaderId: leaderSessionId });
         onNavigate?.();
       }}
       className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-cc-primary/40 bg-cc-primary/10 px-2 py-0.5 text-[11px] text-cc-primary transition-colors hover:bg-cc-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 ${className}`}

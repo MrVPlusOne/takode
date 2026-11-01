@@ -45,7 +45,7 @@ export function LeaderHomePage({ leaderId }: { leaderId: string }) {
             <button
               type="button"
               className="hover:text-cc-fg"
-              onClick={() => openTopicsInSide(leaderId)}
+              onClick={() => openTopicsInSide()}
               data-testid="leader-home-topics"
             >
               Browse topics
@@ -114,7 +114,7 @@ function HomeThreads({ leaderId }: { leaderId: string }) {
     currentThreadKey: "main",
     activeOutputThreadKey: writing,
     onSelect: (threadKey: string) => navigateToSessionThread(leaderId, threadKey),
-    onOpenInSide: (threadKey: string) => openInSide(leaderId, { kind: "conversation" as const, threadKey }),
+    onOpenInSide: (threadKey: string) => openInSide({ kind: "conversation" as const, threadKey, leaderId }),
     lineOf,
   };
   return (

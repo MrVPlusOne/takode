@@ -57,6 +57,16 @@ function writeState(stackId: string, state: StackState): void {
   }
 }
 
+/**
+ * Moves the section heights of several scrolling stacks into one (merging them), for a stack that
+ * replaced several: the leaders' side columns became one column.
+ */
+export function mergeSectionHeights(fromStackIds: readonly string[], toStackId: string): void {
+  const merged = { ...(readState(toStackId).heights ?? {}) };
+  for (const stackId of fromStackIds) Object.assign(merged, readState(stackId).heights ?? {});
+  writeState(toStackId, { ...readState(toStackId), heights: merged });
+}
+
 /** The least height a section of a scrolling stack keeps while its edge is dragged. */
 const MIN_SECTION_HEIGHT = 120;
 

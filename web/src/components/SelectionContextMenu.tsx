@@ -7,7 +7,7 @@ import { htmlFragmentToMarkdown, htmlFragmentToRichText } from "../utils/html-to
 import { selectionCopyForSlack } from "../utils/slack-copy.js";
 import type { TextSelectionState } from "../hooks/useTextSelection.js";
 import { useLeaderNavigation } from "../utils/top-bar-slots.js";
-import { openInSide, sideChatOrigin, sideColumnOnScreen } from "../utils/side-column.js";
+import { newSideChat, openInSide } from "../utils/side-column.js";
 import { newSideChatDraftKey } from "./side-column/NewSideChat.js";
 import { useComposerTarget } from "./composer-target.js";
 
@@ -96,10 +96,8 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
   const canStartThread = useLeaderNavigation(sessionId);
   const handleAskInSideChat = useCallback(() => {
     if (!selection.plainText.trim()) return;
-    // In the column on screen, which may show another leader's chat: the new one is with this
-    // passage's leader either way.
-    const column = sideColumnOnScreen() ?? sessionId;
-    openInSide(column, { kind: "new-chat", startedFrom: sideChatOrigin(column), leaderId: sessionId });
+    // The new thread is with this passage's leader, whichever view or pane the passage is in.
+    openInSide(newSideChat(sessionId));
     const store = useStore.getState();
     const draftKey = newSideChatDraftKey(sessionId);
     const current = store.composerDrafts.get(draftKey);

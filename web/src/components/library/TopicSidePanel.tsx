@@ -30,6 +30,7 @@ import { navigateToSession, navigateToSessionThread } from "../../utils/routing.
 import type { ScribeActivity } from "../../../shared/library-topics.js";
 import { CollapseIcon, GalleryIcon, SettingsIcon, TopicIcon } from "./library-icons.js";
 import { SideColumn } from "../side-column/SideColumn.js";
+import { useMainViewLeader, useMainViewStore } from "../../utils/side-column.js";
 
 const REFRESH_MS = 20_000;
 
@@ -121,7 +122,7 @@ export function TopicSidePanel({
   // Recently shown pages stay mounted, hidden, so going back to one keeps its scroll position.
   const keptRef = useRef<ReturnType<typeof nextKeptTopicPages>>([]);
   const kept = (keptRef.current = nextKeptTopicPages(keptRef.current, shown || null));
-  const close = () => (variant === "sheet" ? setTopicSheetOpen(leaderId, false) : setTopicPanelOpen(leaderId, false));
+  const close = () => (variant === "sheet" ? setTopicSheetOpen(false) : setTopicPanelOpen(false));
   const sheetRef = useRef<HTMLDivElement | null>(null);
   // On phones the back gesture closes the sheet (the side column's own sheet, when in it).
   usePreviewSheetHistoryEntry(variant === "sheet" && !inColumn && (phone?.open ?? true), sheetRef, close);
@@ -272,49 +273,21 @@ export function TopicSidePanel({
 }
 
 /**
- * The topic panel's place beside a leader's conversation: on desktop the panel with a draggable
- * divider, or the slim rail when collapsed; on phones a sheet, while open.
+ * The side column beside the main view on desktop: the column with a draggable divider, or the slim
+ * rail when collapsed. One for the whole app (App renders it beside every conversation), so what is
+ * in it stays when the main view switches session. Its Topics follow the main view's leader.
  */
-export function LeaderTopicPanel({
-  leaderId,
-  threadKey,
-  desktop,
-  phoneTopRef,
-}: {
-  leaderId: string;
-  threadKey: string;
-  desktop: boolean;
-  /** On phones: an element whose top is where the panel starts (just under the thread strip). */
-  phoneTopRef?: RefObject<HTMLElement | null>;
-}) {
-  const open = useTopicPanelOpen(leaderId);
-  const sheetOpen = useTopicSheetOpen(leaderId);
+export function SideColumnDock() {
+  const open = useTopicPanelOpen();
+  const sessionId = useMainViewStore((state) => state.sessionId);
+  const threadKey = useMainViewStore((state) => state.threadKey) ?? "main";
+  const leaderId = useMainViewLeader();
   const split = useSplitWidth("topic-panel", {
     ...{ defaultWidth: 440, min: 320, max: 820, side: "right" },
     // Kept as a share of the window once the user drags it, so it follows the window.
     share: true,
   });
-  // Once opened, the phone sheet stays mounted while dismissed, so reopening shows the same page
-  // where it was left; hidden, it runs no effects (no refreshes, no back-gesture entry).
-  const [sheetMounted, setSheetMounted] = useState(sheetOpen);
-  if (sheetOpen && !sheetMounted) setSheetMounted(true);
-  // A closed sheet stays shown while it slides away.
-  const [leaving, setLeaving] = useState(false);
-  const [wasOpen, setWasOpen] = useState(sheetOpen);
-  if (wasOpen !== sheetOpen) {
-    setWasOpen(sheetOpen);
-    setLeaving(!sheetOpen);
-  }
-  const onHidden = useCallback(() => setLeaving(false), []);
-  const top = usePhoneTop(phoneTopRef, !desktop && (sheetOpen || leaving));
-  if (!desktop) {
-    if (!sheetMounted) return null;
-    return (
-      <Activity mode={sheetOpen || leaving ? "visible" : "hidden"}>
-        <SideSheet leaderId={leaderId} threadKey={threadKey} open={sheetOpen} top={top} onHidden={onHidden} />
-      </Activity>
-    );
-  }
+  if (!sessionId) return null;
   if (!open) return <TopicRail leaderId={leaderId} threadKey={threadKey} />;
   return (
     <>
@@ -333,6 +306,43 @@ export function LeaderTopicPanel({
   );
 }
 
+/**
+ * The side column on a phone, as a sheet over the conversation, while open. The conversation on
+ * screen renders it: `leaderId` is its leader (none for a session without one), whose Topics the
+ * column ends with.
+ */
+export function SideColumnPhoneSheet({
+  leaderId,
+  threadKey,
+  phoneTopRef,
+}: {
+  leaderId: string | null;
+  threadKey: string;
+  /** An element whose top is where the sheet starts (just under the thread strip). */
+  phoneTopRef?: RefObject<HTMLElement | null>;
+}) {
+  const sheetOpen = useTopicSheetOpen();
+  // Once opened, the sheet stays mounted while dismissed, so reopening shows the same page
+  // where it was left; hidden, it runs no effects (no refreshes, no back-gesture entry).
+  const [sheetMounted, setSheetMounted] = useState(sheetOpen);
+  if (sheetOpen && !sheetMounted) setSheetMounted(true);
+  // A closed sheet stays shown while it slides away.
+  const [leaving, setLeaving] = useState(false);
+  const [wasOpen, setWasOpen] = useState(sheetOpen);
+  if (wasOpen !== sheetOpen) {
+    setWasOpen(sheetOpen);
+    setLeaving(!sheetOpen);
+  }
+  const onHidden = useCallback(() => setLeaving(false), []);
+  const top = usePhoneTop(phoneTopRef, sheetOpen || leaving);
+  if (!sheetMounted) return null;
+  return (
+    <Activity mode={sheetOpen || leaving ? "visible" : "hidden"}>
+      <SideSheet leaderId={leaderId} threadKey={threadKey} open={sheetOpen} top={top} onHidden={onHidden} />
+    </Activity>
+  );
+}
+
 /** The side column on a phone: a page sliding in from the right; back and a swipe right close it. */
 function SideSheet({
   leaderId,
@@ -341,14 +351,14 @@ function SideSheet({
   top,
   onHidden,
 }: {
-  leaderId: string;
+  leaderId: string | null;
   threadKey: string;
   open: boolean;
   top: number;
   onHidden: () => void;
 }) {
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  const close = () => setTopicSheetOpen(leaderId, false);
+  const close = () => setTopicSheetOpen(false);
   usePreviewSheetHistoryEntry(open, sheetRef, close);
   return (
     <PhoneTopicFrame open={open} top={top} onClose={close} onHidden={onHidden} frameRef={sheetRef}>
@@ -361,8 +371,8 @@ function SideSheet({
  * The collapsed topic panel: a slim rail at the right edge naming the topic of the tab on screen,
  * so it is always there to find and says what it would show. Its gallery icon opens the artifacts.
  */
-function TopicRail({ leaderId, threadKey }: { leaderId: string; threadKey: string }) {
-  const topic = useQuestTopic(leaderId, threadKey);
+function TopicRail({ leaderId, threadKey }: { leaderId: string | null; threadKey: string }) {
+  const topic = useQuestTopic(leaderId ?? "", leaderId ? threadKey : "");
   return (
     <div
       className="flex w-10 shrink-0 flex-col items-center gap-2 border-l border-cc-border bg-cc-bg py-2"
@@ -370,7 +380,7 @@ function TopicRail({ leaderId, threadKey }: { leaderId: string; threadKey: strin
     >
       <button
         type="button"
-        onClick={() => setTopicPanelOpen(leaderId, true)}
+        onClick={() => setTopicPanelOpen(true)}
         className="flex min-h-0 flex-1 flex-col items-center gap-2 rounded-md px-1 py-1 text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
         aria-label={topic ? `Show the topic ${topic.name}` : "Show topics"}
         title={topic ? `Topic: ${topic.name}` : "Topics"}
@@ -380,15 +390,17 @@ function TopicRail({ leaderId, threadKey }: { leaderId: string; threadKey: strin
           {topic ? topic.name : "Topics"}
         </span>
       </button>
-      <button
-        type="button"
-        onClick={() => openLeaderLibrary(leaderId)}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-        aria-label="Open the artifact gallery"
-        title="Artifacts"
-      >
-        <GalleryIcon className="h-4 w-4" />
-      </button>
+      {leaderId && (
+        <button
+          type="button"
+          onClick={() => openLeaderLibrary(leaderId)}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+          aria-label="Open the artifact gallery"
+          title="Artifacts"
+        >
+          <GalleryIcon className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }

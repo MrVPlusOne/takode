@@ -33,9 +33,9 @@ vi.mock("./SideConversation.js", () => ({
   ),
 }));
 vi.mock("./NewSideChat.js", () => ({
-  NewSideChat: ({ startedFrom, leaderId }: { startedFrom: string | null; leaderId: string }) => (
-    <div data-testid="mock-new-chat" data-leader={leaderId}>
-      {startedFrom ?? "none"}
+  NewSideChat: ({ item }: { item: { startedFrom: string | null; leaderId: string } }) => (
+    <div data-testid="mock-new-chat" data-leader={item.leaderId}>
+      {item.startedFrom ?? "none"}
     </div>
   ),
 }));
@@ -69,6 +69,7 @@ import { closeSideItem, openInSide, replaceSideItem, useSideColumnStore } from "
 import { rememberThreads } from "../../utils/leader-topics.js";
 import { useLibraryNav } from "../../utils/library-nav.js";
 import { markLeaderThreadDisplayed } from "../../utils/thread-viewport.js";
+import { showMainView } from "../../utils/side-column.js";
 import { useTopicPanel } from "../../utils/topic-panel.js";
 import { useStore } from "../../store.js";
 import { isRememberedFolded } from "../../utils/remembered-folds.js";
@@ -80,9 +81,9 @@ afterEach(() => {
   setSideViewsOf.mockClear();
   sendToSession.mockClear();
   useStore.setState({ threadWindows: new Map(), threadWindowMessages: new Map() } as never);
-  useSideColumnStore.setState({ columns: {} });
+  useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
   useChatFocusStore.setState({ focused: MAIN_CHAT, sideChats: [] });
-  useTopicPanel.setState({ panels: {}, sheets: [], focus: null });
+  useTopicPanel.setState({ open: true, sheet: false, focus: null });
   localStorage.clear();
   threads.list = [];
   rememberThreads("l1", []);
@@ -112,10 +113,25 @@ const openBodies = () =>
   screen.getAllByTestId("side-item-body").filter((body) => body.closest("[style*='display: none']") === null);
 
 describe("SideColumn", () => {
+  it("keeps what was put there when the main view switches leader; Topics follow the main view", () => {
+    // Jiayi (Nov 1): one column across leaders. A chat put on the side to follow its next update
+    // stays when the main view switches to another leader or to a worker's session.
+    const view = render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+    });
+    view.rerender(<SideColumn leaderId="l2" threadKey="main" variant="docked" />);
+    expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining("q-1"), "Topics"]);
+    expect(within(openBodies()[0]!).getByTestId("mock-conversation").dataset.leader).toBe("l1");
+    // A worker's session with no leader: no Topics, the chat still there.
+    view.rerender(<SideColumn leaderId={null} threadKey="main" variant="docked" />);
+    expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining("q-1")]);
+  });
+
   it("shows a side chat that became a quest's thread as that quest", () => {
     // Jiayi (Oct 31): once the chat's whole request is a quest's work, the chat and the quest are
     // one conversation; the column shows the quest instead of the chat.
-    openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0001" });
+    openInSide({ kind: "conversation", threadKey: "topic:aaaa0001", leaderId: "l1" });
     rememberThreads("l1", [
       {
         id: "aaaa0001-0000",
@@ -130,7 +146,7 @@ describe("SideColumn", () => {
     render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
     // Jiayi (Oct 31): the pane went to a loading page as the chat turned into the quest. It keeps
     // showing the chat while the quest's messages are fetched, then turns into the quest in place.
-    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+    expect(useSideColumnStore.getState().items).toEqual([
       expect.objectContaining({ kind: "conversation", threadKey: "topic:aaaa0001" }),
     ]);
     expect(sendToSession).toHaveBeenCalledWith(
@@ -138,7 +154,7 @@ describe("SideColumn", () => {
       expect.objectContaining({ type: "thread_window_request", thread_key: "q-9", activate_view: false }),
     );
     landThreadWindow("l1", "q-9");
-    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+    expect(useSideColumnStore.getState().items).toEqual([
       expect.objectContaining({ kind: "conversation", threadKey: "q-9" }),
     ]);
   });
@@ -146,10 +162,10 @@ describe("SideColumn", () => {
   it("turns a merged thread into its conversation in place, and drops another pane already showing it", () => {
     // A thread the Scribe joined onto an earlier one stays where the user had it in the column;
     // the earlier thread's own pane goes, so the conversation shows once, where the user was reading.
-    openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0002" });
-    openInSide("l1", { kind: "topic", topicId: "t9" });
-    openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0003" });
-    const chat = useSideColumnStore.getState().columns.l1!.items[0]!.id;
+    openInSide({ kind: "conversation", threadKey: "topic:aaaa0002", leaderId: "l1" });
+    openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
+    openInSide({ kind: "conversation", threadKey: "topic:aaaa0003", leaderId: "l1" });
+    const chat = useSideColumnStore.getState().items[0]!.id;
     rememberThreads("l1", [
       { id: "aaaa0002-0000", key: "topic:aaaa0002", name: "Earlier", leaderId: "l1", createdAt: 1, activityAt: 1 },
       {
@@ -164,7 +180,7 @@ describe("SideColumn", () => {
     ]);
     landThreadWindow("l1", "topic:aaaa0002");
     render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
-    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+    expect(useSideColumnStore.getState().items).toEqual([
       expect.objectContaining({ id: chat, kind: "conversation", threadKey: "topic:aaaa0002" }),
       expect.objectContaining({ kind: "topic", topicId: "t9" }),
     ]);
@@ -181,15 +197,15 @@ describe("SideColumn", () => {
     expect(openSections()).toEqual(["home"]);
     fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
     expect(openSections()).toEqual([]);
-    expect(isRememberedFolded("side:l1:home")).toBe(true);
+    expect(isRememberedFolded("side:home")).toBe(true);
   });
 
   it("stacks items newest first with the topic page last, each folding on its own", () => {
     // Jiayi (Oct 31): like Logseq, any number can be open; the column scrolls when they don't fit.
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
-      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
-      openInSide("l1", { kind: "topic", topicId: "t9" });
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+      openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
     });
     // The topic page it follows is last.
     expect(rows().map((row) => row.textContent)).toEqual(["Topic", "q-2 name of q-2", "Topics"]);
@@ -202,7 +218,7 @@ describe("SideColumn", () => {
     fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: true }));
     expect(rows().map((row) => row.dataset.open)).toEqual(["true", "false", "true"]);
     act(() => {
-      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     });
     expect(rows().map((row) => row.dataset.open)).toEqual(["true", "true", "true"]);
   });
@@ -210,46 +226,46 @@ describe("SideColumn", () => {
   it("sets an open section's height from its bottom edge, remembered, and back with a double-click", () => {
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
-      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     });
-    const id = useSideColumnStore.getState().columns.l1!.items[0]!.id;
+    const id = useSideColumnStore.getState().items[0]!.id;
     const section = screen.getAllByTestId("side-section")[0]!;
     const body = within(section).getByTestId("side-section-body");
     body.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
     const edge = within(section).getByRole("separator");
     fireEvent.keyDown(edge, { key: "ArrowDown" });
     expect(body.style.height).toBe("324px");
-    expect(JSON.parse(localStorage.getItem("cc-stacked-panes")!)["side:l1"].heights).toEqual({ [id]: 324 });
+    expect(JSON.parse(localStorage.getItem("cc-stacked-panes")!).side.heights).toEqual({ [id]: 324 });
     fireEvent.doubleClick(edge);
-    expect(JSON.parse(localStorage.getItem("cc-stacked-panes")!)["side:l1"].heights).toEqual({});
+    expect(JSON.parse(localStorage.getItem("cc-stacked-panes")!).side.heights).toEqual({});
   });
 
   it("removes an item with its ×, and moves a conversation to the main view", () => {
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
-      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     });
     fireEvent.click(screen.getByRole("button", { name: "Open in the main view" }));
     // It leaves the column: the main view shows it now.
-    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([]);
+    expect(useSideColumnStore.getState().items).toEqual([]);
     expect(window.location.hash).toContain("thread=q-2");
     act(() => {
-      openInSide("l1", { kind: "topic", topicId: "t9" });
+      openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
     });
     fireEvent.click(within(rows()[0]!).getByTestId("side-item-close"));
-    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([]);
+    expect(useSideColumnStore.getState().items).toEqual([]);
   });
 
   it("shows an artifact at its version, and moves it to the Library from its row", () => {
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
-      openInSide("l1", { kind: "artifact", artifactId: "0f1e2d3c", version: 2, title: "Memory peak report" });
+      openInSide({ kind: "artifact", artifactId: "0f1e2d3c", version: 2, title: "Memory peak report" });
     });
     expect(rows()[0]!.textContent).toBe("Memory peak report");
     expect(within(openBodies()[0]!).getByTestId("mock-artifact").textContent).toBe("0f1e2d3c v2");
     fireEvent.click(screen.getByRole("button", { name: "Open in the Library" }));
     expect(useLibraryNav.getState()).toEqual(expect.objectContaining({ artifactId: "0f1e2d3c", version: 2 }));
-    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([]);
+    expect(useSideColumnStore.getState().items).toEqual([]);
   });
 
   it("shows a quest's details and another session's conversation, each moving out to its own view", () => {
@@ -261,8 +277,8 @@ describe("SideColumn", () => {
     } as never);
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
-      openInSide("l1", { kind: "session", sessionId: "worker-9" });
-      openInSide("l1", { kind: "quest", questId: "q-7" });
+      openInSide({ kind: "session", sessionId: "worker-9" });
+      openInSide({ kind: "quest", questId: "q-7" });
     });
     expect(within(openBodies()[0]!).getByTestId("mock-quest").textContent).toBe("q-7");
     expect(rows()[1]!.textContent).toContain("#9 Probe");
@@ -276,14 +292,14 @@ describe("SideColumn", () => {
     const view = render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     let id = "";
     act(() => {
-      id = openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0001" });
-      openInSide("l1", { kind: "topic", topicId: "t9" });
+      id = openInSide({ kind: "conversation", threadKey: "topic:aaaa0001", leaderId: "l1" });
+      openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
     });
     expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), ["topic:aaaa0001"]);
-    act(() => closeSideItem("l1", id));
+    act(() => closeSideItem(id));
     expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), []);
     act(() => {
-      openInSide("l1", { kind: "conversation", threadKey: "q-5" });
+      openInSide({ kind: "conversation", threadKey: "q-5", leaderId: "l1" });
     });
     view.unmount();
     expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), []);
@@ -291,6 +307,7 @@ describe("SideColumn", () => {
 
   it("starts a side chat from the quest on screen", () => {
     const shown = markLeaderThreadDisplayed("l1", "q-7");
+    const mainView = showMainView("l1", "q-7");
     try {
       render(<SideColumn leaderId="l1" threadKey="q-7" variant="docked" />);
       fireEvent.click(screen.getByTestId("side-new-chat"));
@@ -298,6 +315,7 @@ describe("SideColumn", () => {
       expect(rows()[0]!.textContent).toContain("New thread");
     } finally {
       shown();
+      mainView();
     }
   });
 
@@ -354,6 +372,7 @@ describe("SideColumn", () => {
       ],
     } as never);
     const shown = markLeaderThreadDisplayed("l1", "q-7");
+    const mainView = showMainView("l1", "q-7");
     try {
       render(<SideColumn leaderId="l1" threadKey="q-7" variant="docked" />);
       fireEvent.click(screen.getByTestId("side-new-chat-leader"));
@@ -369,21 +388,21 @@ describe("SideColumn", () => {
       // A new chat with this page's leader is a separate item, as before.
       fireEvent.click(screen.getByTestId("side-new-chat"));
       expect(within(openBodies()[0]!).getByTestId("mock-new-chat").dataset.leader).toBe("l1");
-      expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
-        expect.objectContaining({ kind: "new-chat", startedFrom: "q-7" }),
-        expect.objectContaining({ kind: "new-chat", startedFrom: "q-7", leaderId: "l2" }),
+      expect(useSideColumnStore.getState().items).toEqual([
+        expect.objectContaining({ kind: "new-chat", startedFrom: "q-7", leaderId: "l1" }),
+        expect.objectContaining({ kind: "new-chat", startedFrom: "q-7", leaderId: "l2", startedIn: "l1" }),
       ]);
-      expect(useSideColumnStore.getState().columns.l1!.items[0]).not.toHaveProperty("leaderId");
       // The chat with l2 keeps l2's connection open, through the same hold once it starts: dropping
       // it in between lost the live messages of the chat's first turn.
       expect(held.count.get("l2")).toBe(1);
       const holds = held.holds;
-      const chatId = useSideColumnStore.getState().columns.l1!.items[1]!.id;
-      act(() => replaceSideItem("l1", chatId, { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" }));
+      const chatId = useSideColumnStore.getState().items[1]!.id;
+      act(() => replaceSideItem(chatId, { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" }));
       expect(held.holds).toBe(holds);
       expect(held.count.get("l2")).toBe(1);
     } finally {
       shown();
+      mainView();
       useStore.setState({ sdkSessions: [] } as never);
     }
   });
@@ -418,7 +437,7 @@ describe("SideColumn", () => {
     try {
       render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
       act(() => {
-        openInSide("l1", { kind: "conversation", threadKey: "q-5" });
+        openInSide({ kind: "conversation", threadKey: "q-5", leaderId: "l1" });
       });
       const row = rows()[0]!;
       expect(within(row).getByTestId("side-item-dot")).toBeTruthy();
@@ -457,13 +476,12 @@ describe("SideColumn", () => {
     } as never);
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
-      openInSide("l1", { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" });
+      openInSide({ kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" });
     });
     expect(within(openBodies()[0]!).getByTestId("mock-conversation").dataset.leader).toBe("l2");
     expect(within(rows()[0]!).getByTestId("side-item-leader").getAttribute("title")).toBe("With #2 Takode");
     // The server sends its live messages over l2's connection, as one of l2's side views.
     expect(setSideViewsOf).toHaveBeenCalledWith("l2", expect.any(Object), ["topic:bbbb0001"]);
-    expect(setSideViewsOf).toHaveBeenCalledWith("l1", expect.any(Object), []);
     // It reads over l2's connection, which the column keeps open while it holds an l2 item.
     expect(held.count.get("l2")).toBe(1);
     // Moving it out opens it in l2's own view.
@@ -481,7 +499,7 @@ describe("SideColumn", () => {
       ]);
       landThreadWindow("l2", "q-11");
     });
-    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+    expect(useSideColumnStore.getState().items).toEqual([
       expect.objectContaining({ kind: "conversation", threadKey: "q-11", leaderId: "l2" }),
     ]);
     fireEvent.click(screen.getByRole("button", { name: "Open in the main view" }));
@@ -509,9 +527,9 @@ describe("SideColumn", () => {
     try {
       render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
       act(() => {
-        openInSide("l1", { kind: "conversation", threadKey: "q-3" });
-        openInSide("l1", { kind: "conversation", threadKey: "q-2" });
-        openInSide("l1", { kind: "conversation", threadKey: "q-1" });
+        openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
+        openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+        openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
       });
       const groups = rows()
         .slice(0, 3)
@@ -540,8 +558,8 @@ describe("SideColumn", () => {
     try {
       render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
       act(() => {
-        openInSide("l1", { kind: "conversation", threadKey: "q-8" });
-        openInSide("l1", { kind: "conversation", threadKey: "q-7" });
+        openInSide({ kind: "conversation", threadKey: "q-8", leaderId: "l1" });
+        openInSide({ kind: "conversation", threadKey: "q-7", leaderId: "l1" });
       });
       const groups = rows()
         .slice(0, 2)
@@ -564,8 +582,8 @@ describe("SideColumn", () => {
     try {
       render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
       act(() => {
-        openInSide("l1", { kind: "quest", questId: "q-6" });
-        openInSide("l1", { kind: "conversation", threadKey: "q-5" });
+        openInSide({ kind: "quest", questId: "q-6" });
+        openInSide({ kind: "conversation", threadKey: "q-5", leaderId: "l1" });
       });
       for (const row of rows().slice(0, 2)) {
         const dot = within(row).getByTestId("side-item-dot");
@@ -602,7 +620,7 @@ describe("SideColumn", () => {
     fireEvent.wheel(strip, { deltaY: -1, deltaMode: 2 });
     expect(scrollBy.mock.calls.map(([options]) => options.top)).toEqual([120, 48, -400]);
     view.unmount();
-    useTopicPanel.setState({ sheets: ["l1"] });
+    useTopicPanel.setState({ sheet: true });
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="sheet" />);
     expect(screen.queryByTestId("side-scroll-strip")).toBeNull();
   });
@@ -613,29 +631,29 @@ describe("SideColumn", () => {
     // focused pane is marked; a pane that leaves the screen hands focus back to the main view.
     render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
     act(() => {
-      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
-      openInSide("l1", { kind: "conversation", threadKey: "q-3" });
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+      openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
     });
-    const [newer, older] = useSideColumnStore.getState().columns.l1!.items;
-    expect(focusedChat()).toBe(sideChatId("l1", newer!.id));
+    const [newer, older] = useSideColumnStore.getState().items;
+    expect(focusedChat()).toBe(sideChatId(newer!.id));
     const chats = () =>
       screen.getAllByTestId("side-section").map((section) => section.querySelector("[data-chat-focused]"));
     expect(chats().map((chat) => chat?.getAttribute("data-chat-focused"))).toEqual(["true", "false", undefined]);
 
     fireEvent.wheel(within(openBodies()[1]!).getByTestId("mock-conversation"));
-    expect(focusedChat()).toBe(sideChatId("l1", newer!.id));
+    expect(focusedChat()).toBe(sideChatId(newer!.id));
     fireEvent.pointerDown(within(openBodies()[1]!).getByTestId("mock-conversation"));
-    expect(focusedChat()).toBe(sideChatId("l1", older!.id));
+    expect(focusedChat()).toBe(sideChatId(older!.id));
 
     fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: true }));
     expect(focusedChat()).toBe(MAIN_CHAT);
   });
 
   it("keeps the main view focused on a phone, where the sheet is the one view on screen", () => {
-    useTopicPanel.setState({ sheets: ["l1"] });
+    useTopicPanel.setState({ sheet: true });
     render(<SideColumn leaderId="l1" threadKey="main" variant="sheet" />);
     act(() => {
-      openInSide("l1", { kind: "conversation", threadKey: "q-2" });
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     });
     fireEvent.pointerDown(within(openBodies()[0]!).getByTestId("mock-conversation"));
     expect(useChatFocusStore.getState()).toMatchObject({ focused: MAIN_CHAT, sideChats: [] });
@@ -644,11 +662,11 @@ describe("SideColumn", () => {
   it("collapses on desktop and closes on a phone", () => {
     const view = render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     fireEvent.click(screen.getByRole("button", { name: "Collapse the side column" }));
-    expect(useTopicPanel.getState().panels.l1).toBe(false);
+    expect(useTopicPanel.getState().open).toBe(false);
     view.unmount();
-    useTopicPanel.setState({ sheets: ["l1"] });
+    useTopicPanel.setState({ sheet: true });
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="sheet" />);
     fireEvent.click(screen.getByRole("button", { name: "Close the side column" }));
-    expect(useTopicPanel.getState().sheets).toEqual([]);
+    expect(useTopicPanel.getState().sheet).toBe(false);
   });
 });

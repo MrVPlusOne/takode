@@ -1,9 +1,4 @@
-import {
-  handleOpenInSideClick,
-  openInSideOnScreen,
-  openSessionInSide,
-  sideColumnOnScreen,
-} from "../utils/side-column.js";
+import { handleOpenInSideClick, openInSideOnScreen, openSessionInSide } from "../utils/side-column.js";
 import { useRef, useMemo, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
@@ -153,11 +148,15 @@ export function SessionInlineLink({
             }
             onNavigate?.();
           };
-          // The open-in-side click shows the session's conversation (a thread of the leader on screen
-          // as that thread) in the side column, as a plain click shows it in the main view.
+          // The open-in-side click shows the session's conversation (a leader's thread as that thread)
+          // in the side column, as a plain click shows it in the main view.
           const openInSideColumn = () =>
-            threadKey && resolvedSessionId === sideColumnOnScreen()
-              ? openInSideOnScreen({ kind: "conversation", threadKey: threadKey.toLowerCase() })
+            threadKey
+              ? openInSideOnScreen({
+                  kind: "conversation",
+                  threadKey: threadKey.toLowerCase(),
+                  leaderId: resolvedSessionId,
+                })
               : openSessionInSide(resolvedSessionId);
           if (e.button === 0 && handleOpenInSideClick(e, openInSideColumn, open)) return;
           open();

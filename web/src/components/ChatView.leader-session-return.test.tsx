@@ -450,12 +450,12 @@ describe("ChatView topics as tags", () => {
     // Topics are tags nobody writes in: a link or history entry naming a topic's conversation
     // (`topic:<handle>` of a topic, not a thread) leads to the leader's Home and the topic's page.
     mockLibraryTopic();
-    useSideColumnStore.setState({ columns: {} });
+    useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
     navigate(`#/session/${LEADER_SESSION_ID}?thread=${topicViewKey("t1")}`);
     render(<RouteAwareChatView />);
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-home", "true"));
-    expect(useSideColumnStore.getState().columns[LEADER_SESSION_ID]?.items).toEqual([
-      expect.objectContaining({ kind: "topic", topicId: "t1" }),
+    expect(useSideColumnStore.getState().items).toEqual([
+      expect.objectContaining({ kind: "topic", topicId: "t1", leaderId: LEADER_SESSION_ID }),
     ]);
   });
 
@@ -476,26 +476,21 @@ describe("ChatView topics as tags", () => {
   it("moves a quest's thread to the side column, mirroring the side's move-to-main", async () => {
     // Desktop (jsdom's 1024 px): the thread goes into the side column and the main view goes Home;
     // its tab stays (no close operation is sent).
-    useSideColumnStore.setState({ columns: {} });
+    useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
     const view = render(<RouteAwareChatView />);
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
     fireEvent.click(screen.getByTestId("thread-move-to-side"));
-    expect(useSideColumnStore.getState().columns[LEADER_SESSION_ID]?.items).toEqual([
-      expect.objectContaining({ kind: "conversation", threadKey: QUEST_ID }),
+    expect(useSideColumnStore.getState().items).toEqual([
+      expect.objectContaining({ kind: "conversation", threadKey: QUEST_ID, leaderId: LEADER_SESSION_ID }),
     ]);
-    // The main view is Home; the side column now shows the quest's conversation.
-    await waitFor(() =>
-      expect(screen.getAllByTestId("message-feed").map((feed) => feed.getAttribute("data-thread-key"))).toEqual([
-        "main",
-        QUEST_ID,
-      ]),
-    );
+    // The main view is Home; the side column (beside every conversation, in App) shows the quest's.
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
     expect(mockSendToSession).not.toHaveBeenCalledWith(
       LEADER_SESSION_ID,
       expect.objectContaining({ operation: expect.objectContaining({ type: "close" }) }),
     );
     view.unmount();
-    useSideColumnStore.setState({ columns: {} });
+    useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
   });
 
   it("opens a thread the Scribe joined onto another as that conversation", async () => {

@@ -81,7 +81,7 @@ export function TopicThreadLabel({
     <TopicLabelButton
       name={topic?.name ?? "Topic"}
       title={topic ? `Written in the topic ${topic.name}: open its page` : "Written in a topic"}
-      onClick={() => topic && openInSide(sessionId, { kind: "topic", topicId: topic.id })}
+      onClick={() => topic && openInSide({ kind: "topic", topicId: topic.id, leaderId: sessionId })}
     />
   );
 }

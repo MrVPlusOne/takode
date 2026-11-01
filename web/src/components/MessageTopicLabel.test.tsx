@@ -28,7 +28,7 @@ const MOVED = {
 
 afterEach(() => {
   resetLeaderTopicsForTest();
-  useSideColumnStore.setState({ columns: {} });
+  useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
   useStore.setState({ quests: [] } as never);
   vi.restoreAllMocks();
   window.location.hash = "";
@@ -74,7 +74,7 @@ describe("a message written in a topic's own thread", () => {
     const label = await screen.findByTestId("message-topic-label");
     expect(label.textContent).toContain("Relay");
     fireEvent.click(label.querySelector("button")!);
-    expect(useSideColumnStore.getState().columns.l1?.items).toEqual([
+    expect(useSideColumnStore.getState().items).toEqual([
       expect.objectContaining({ kind: "topic", topicId: "aaaaaaaa-1111" }),
     ]);
   });

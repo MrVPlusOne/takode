@@ -16,6 +16,7 @@ import { useStore } from "../store.js";
 import { useLibraryNav } from "../utils/library-nav.js";
 import { useSideColumnStore } from "../utils/side-column.js";
 import { markLeaderThreadDisplayed } from "../utils/thread-viewport.js";
+import { showMainView } from "../utils/side-column.js";
 
 /**
  * How library artifacts show inside conversations: an older version arrives from the server as a
@@ -99,6 +100,7 @@ describe("artifacts in the feed", () => {
     // Beside the conversation instead of the Library; only while a leader's conversation is on screen.
     useStore.setState({ currentSessionId: "l1" });
     const shown = markLeaderThreadDisplayed("l1", "q-7");
+    const mainView = showMainView("l1", "q-7");
     try {
       render(
         <ArtifactMarkersContext.Provider value={[POST]}>
@@ -111,19 +113,20 @@ describe("artifacts in the feed", () => {
       );
       fireEvent.click(screen.getByTestId("card-more-menu"));
       fireEvent.click(screen.getByRole("button", { name: "Open in side column" }));
-      expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+      expect(useSideColumnStore.getState().items).toEqual([
         expect.objectContaining({ kind: "artifact", artifactId: "artifact-1", version: 2, title: "T7 thread update" }),
       ]);
 
       // Shift-click on an artifact link (the default open-in-side click) leaves the Library closed.
       fireEvent.click(screen.getByTestId("artifact-inline-link"), { shiftKey: true });
-      expect(useSideColumnStore.getState().columns.l1!.items[0]).toEqual(
+      expect(useSideColumnStore.getState().items[0]).toEqual(
         expect.objectContaining({ kind: "artifact", artifactId: "0f1e2d3c", version: 4 }),
       );
       expect(useLibraryNav.getState().artifactId).toBeNull();
     } finally {
       shown();
-      useSideColumnStore.setState({ columns: {} });
+      mainView();
+      useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
       useStore.setState({ currentSessionId: null });
       localStorage.clear();
     }

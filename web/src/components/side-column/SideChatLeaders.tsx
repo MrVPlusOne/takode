@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { topicApi } from "../../api/topics.js";
 import { useOutsidePress } from "../../hooks/useOutsidePress.js";
 import { useStore } from "../../store.js";
-import { openInSide, sideChatOrigin } from "../../utils/side-column.js";
+import { newSideChat, openInSide } from "../../utils/side-column.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 
 /** A leader as a side chat names it: its number, name and portrait. */
@@ -25,10 +25,10 @@ export function LeaderName({ sessionId }: { sessionId: string }) {
 }
 
 /**
- * The leaders a side chat can be started with: those with topics started that are not archived, the
- * column's own first, then the rest by when the user last wrote to them. Read when `enabled`.
+ * The leaders a thread can be started with: those with topics started that are not archived, the
+ * main view's first, then the rest by when the user last wrote to them. Read when `enabled`.
  */
-function useSideChatLeaders(columnId: string, enabled: boolean): string[] | null {
+function useSideChatLeaders(mainLeaderId: string | null, enabled: boolean): string[] | null {
   const [topicsOn, setTopicsOn] = useState<string[] | null>(null);
   useEffect(() => {
     if (!enabled) return;
@@ -46,27 +46,27 @@ function useSideChatLeaders(columnId: string, enabled: boolean): string[] | null
   const sessions = useStore((state) => state.sdkSessions);
   if (!topicsOn) return null;
   const others = sessions
-    .filter((session) => session.isOrchestrator && !session.archived && session.sessionId !== columnId)
+    .filter((session) => session.isOrchestrator && !session.archived && session.sessionId !== mainLeaderId)
     .filter((session) => topicsOn.includes(session.sessionId))
     .sort((a, b) => (b.lastUserMessageAt ?? 0) - (a.lastUserMessageAt ?? 0))
     .map((session) => session.sessionId);
-  return [columnId, ...others];
+  return mainLeaderId ? [mainLeaderId, ...others] : others;
 }
 
 /**
  * Beside "New side chat": picks the leader a new side chat is with. The plain button starts one
- * with the column's leader; this starts one with another leader, kept in this column, about what is
+ * with the main view's leader; this starts one with another leader, kept in this column, about what is
  * on screen. The chat is that leader's: it answers there and lists it with its own side chats.
  */
-export function SideChatLeaderMenu({ columnId }: { columnId: string }) {
+export function SideChatLeaderMenu({ mainLeaderId }: { mainLeaderId: string | null }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   useOutsidePress([listRef, triggerRef], () => setOpen(false), open);
-  const leaders = useSideChatLeaders(columnId, open);
+  const leaders = useSideChatLeaders(mainLeaderId, open);
   const start = (leaderId: string) => {
     setOpen(false);
-    openInSide(columnId, { kind: "new-chat", startedFrom: sideChatOrigin(columnId), leaderId });
+    openInSide(newSideChat(leaderId));
   };
   return (
     <span className="relative flex">
@@ -107,7 +107,7 @@ export function SideChatLeaderMenu({ columnId }: { columnId: string }) {
               <span className="min-w-0 flex-1">
                 <LeaderName sessionId={leaderId} />
               </span>
-              {leaderId === columnId && <span className="shrink-0 text-[11px] text-cc-muted">this page</span>}
+              {leaderId === mainLeaderId && <span className="shrink-0 text-[11px] text-cc-muted">this page</span>}
             </button>
           ))}
         </div>

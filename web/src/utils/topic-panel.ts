@@ -2,65 +2,59 @@ import { create } from "zustand";
 import { setLocalStorageItem } from "./scoped-storage.js";
 
 /**
- * A leader's topic panel. On desktop it is part of the layout beside the conversation, open by
- * default and collapsible to a slim rail; whether it is collapsed is remembered per leader in this
- * browser. On phones it is a page that slides in from the right, opened from the top bar. Someone can
- * also ask to show a topic in it, such as from the Done list or an artifact. Local UI state.
+ * The side column (with the main view's leader's topics at its foot). On desktop it is part of the
+ * layout beside the conversation, open by default and collapsible to a slim rail; whether it is
+ * collapsed is remembered in this browser. On phones it is a page that slides in from the right,
+ * opened from the top bar. Someone can also ask to show a topic in a leader's topic page, such as
+ * from the Done list or an artifact. Local UI state. One column for every leader (Nov 1, 2026);
+ * each leader used to have its own.
  */
 interface TopicPanelState {
-  /** Desktop, per leader: open (true) or collapsed to the rail (false); unset means open. */
-  panels: Record<string, boolean>;
-  /** Phones: leaders whose sheet is open. */
-  sheets: string[];
-  /** A topic to show in a leader's panel instead of the one the tab on screen follows. */
+  /** Desktop: open (true) or collapsed to the rail (false). */
+  open: boolean;
+  /** Phones: whether the sheet is open. */
+  sheet: boolean;
+  /** A topic to show in a leader's topic page instead of the one the tab on screen follows. */
   focus: { leaderId: string; topicId: string; at: number } | null;
 }
 
-const PANELS_KEY = "cc-topic-panels";
+const OPEN_KEY = "cc-side-column-open";
+/** Where each leader's column remembered being collapsed, before there was one column. */
+const LEADER_PANELS_KEY = "cc-topic-panels";
 
-function storedPanels(): Record<string, boolean> {
-  const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(PANELS_KEY);
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"),
-    );
-  } catch (error) {
-    console.warn("[library] Ignoring unreadable topic panel state:", error);
-    return {};
-  }
+function storedOpen(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  localStorage.removeItem(LEADER_PANELS_KEY);
+  return localStorage.getItem(OPEN_KEY) !== "false";
 }
 
-export const useTopicPanel = create<TopicPanelState>(() => ({ panels: storedPanels(), sheets: [], focus: null }));
+export const useTopicPanel = create<TopicPanelState>(() => ({ open: storedOpen(), sheet: false, focus: null }));
 
-/** Expands the desktop panel or collapses it to the rail. */
-export function setTopicPanelOpen(leaderId: string, open: boolean): void {
-  const panels = { ...useTopicPanel.getState().panels, [leaderId]: open };
-  useTopicPanel.setState({ panels });
-  setLocalStorageItem(PANELS_KEY, JSON.stringify(panels));
+/** Expands the desktop column or collapses it to the rail. */
+export function setTopicPanelOpen(open: boolean): void {
+  useTopicPanel.setState({ open });
+  setLocalStorageItem(OPEN_KEY, String(open));
 }
 
 /** Opens or closes the phone sheet. */
-export function setTopicSheetOpen(leaderId: string, open: boolean): void {
-  const others = useTopicPanel.getState().sheets.filter((id) => id !== leaderId);
-  useTopicPanel.setState({ sheets: open ? [...others, leaderId] : others });
+export function setTopicSheetOpen(open: boolean): void {
+  useTopicPanel.setState({ sheet: open });
 }
 
-/** Shows a topic in a leader's panel (or sheet), opening it. */
+/** Shows a topic in a leader's topic page, opening the column. */
 export function openTopicInPanel(leaderId: string, topicId: string): void {
-  setTopicPanelOpen(leaderId, true);
-  setTopicSheetOpen(leaderId, true);
+  setTopicPanelOpen(true);
+  setTopicSheetOpen(true);
   useTopicPanel.setState({ focus: { leaderId, topicId, at: Date.now() } });
 }
 
-/** Whether the desktop panel is expanded (rather than collapsed to the rail). */
-export function useTopicPanelOpen(leaderId: string | null | undefined): boolean {
-  return useTopicPanel((state) => !!leaderId && state.panels[leaderId] !== false);
+/** Whether the desktop column is expanded (rather than collapsed to the rail). */
+export function useTopicPanelOpen(): boolean {
+  return useTopicPanel((state) => state.open);
 }
 
-export function useTopicSheetOpen(leaderId: string | null | undefined): boolean {
-  return useTopicPanel((state) => !!leaderId && state.sheets.includes(leaderId));
+export function useTopicSheetOpen(): boolean {
+  return useTopicPanel((state) => state.sheet);
 }
 
 /**

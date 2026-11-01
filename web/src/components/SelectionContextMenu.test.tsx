@@ -13,6 +13,7 @@ vi.mock("../utils/top-bar-slots.js", async (importOriginal) => ({
 import { useStore } from "../store.js";
 import { useSideColumnStore } from "../utils/side-column.js";
 import { markLeaderThreadDisplayed } from "../utils/thread-viewport.js";
+import { showMainView } from "../utils/side-column.js";
 import { newSideChatDraftKey } from "./side-column/NewSideChat.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { ComposerTargetContext } from "./composer-target.js";
@@ -117,6 +118,7 @@ describe("Ask in new thread", () => {
     // Only leaders with topics on have side chats.
     topicsOn.value = true;
     const shown = markLeaderThreadDisplayed("s1", "q-7");
+    const mainView = showMainView("s1", "q-7");
     const message = document.createElement("p");
     message.textContent = "A passage";
     document.body.appendChild(message);
@@ -141,7 +143,7 @@ describe("Ask in new thread", () => {
       );
       fireEvent.click(screen.getByRole("button", { name: "Ask in new thread" }));
 
-      const [item] = useSideColumnStore.getState().columns.s1!.items;
+      const [item] = useSideColumnStore.getState().items;
       expect(item).toEqual(expect.objectContaining({ kind: "new-chat", startedFrom: "q-7" }));
       const draft = useStore.getState().composerDrafts.get(newSideChatDraftKey("s1"));
       expect(draft?.annotations).toEqual([expect.objectContaining({ selectedText: "A passage", comment: "" })]);
@@ -151,8 +153,9 @@ describe("Ask in new thread", () => {
       expect(onClose).toHaveBeenCalled();
     } finally {
       shown();
+      mainView();
       message.remove();
-      useSideColumnStore.setState({ columns: {} });
+      useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
       localStorage.clear();
     }
   });
@@ -165,6 +168,7 @@ describe("Ask in side chat from another leader's chat", () => {
     topicsOn.value = true;
     useStore.setState({ currentSessionId: "a1" } as never);
     const shown = markLeaderThreadDisplayed("a1", "main");
+    const mainView = showMainView("a1", "main");
     const message = document.createElement("p");
     message.textContent = "A passage";
     document.body.appendChild(message);
@@ -186,17 +190,17 @@ describe("Ask in side chat from another leader's chat", () => {
         />,
       );
       fireEvent.click(screen.getByRole("button", { name: "Ask in new thread" }));
-      expect(useSideColumnStore.getState().columns.s2).toBeUndefined();
-      expect(useSideColumnStore.getState().columns.a1!.items).toEqual([
+      expect(useSideColumnStore.getState().items).toEqual([
         expect.objectContaining({ kind: "new-chat", startedFrom: null, leaderId: "s2" }),
       ]);
       const draft = useStore.getState().composerDrafts.get(newSideChatDraftKey("s2"));
       expect(draft?.annotations).toEqual([expect.objectContaining({ selectedText: "A passage" })]);
     } finally {
       shown();
+      mainView();
       message.remove();
       useStore.setState({ currentSessionId: null } as never);
-      useSideColumnStore.setState({ columns: {} });
+      useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
       localStorage.clear();
     }
   });

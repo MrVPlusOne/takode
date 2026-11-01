@@ -316,7 +316,7 @@ export function ThreadTabRail({
         threadStatuses={threadStatuses}
         onSelect={openThread}
         // The open-in-side click on a listed thread puts its conversation in the side column.
-        onOpenInSide={(threadKey) => openInSide(sessionId, { kind: "conversation", threadKey })}
+        onOpenInSide={(threadKey) => openInSide({ kind: "conversation", threadKey, leaderId: sessionId })}
         onOpenMenu={(tab) =>
           tabMenuItems(tab).length > 0
             ? (x: number, y: number) => setTabMenu({ threadKey: normalizeThreadKey(tab.threadKey), x, y })

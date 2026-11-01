@@ -156,7 +156,7 @@ export function TopBar({
     leaderProfilePortrait,
     paused,
   } = useStore(useShallow(getCurrentTopBarSessionState));
-  const topicSheetOpen = useTopicSheetOpen(currentSessionId);
+  const topicSheetOpen = useTopicSheetOpen();
   const [infoOpen, setInfoOpen] = useState(false);
   const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
   const [sessionMenu, setSessionMenu] = useState<SessionMenuTarget | null>(null);
@@ -510,11 +510,8 @@ export function TopBar({
         {/* The conversation's Board button. */}
         {leaderView && <div ref={topBarHelpersRef} className="flex items-center" data-testid="topbar-thread-helpers" />}
         {/* Phones open the side column's sheet here; desktop keeps the column beside the conversation. */}
-        {currentSessionId && isSessionView && isCurrentLeaderSession && compact && (
-          <LeaderTopicsTopBarButton
-            open={topicSheetOpen}
-            onToggle={() => setTopicSheetOpen(currentSessionId, !topicSheetOpen)}
-          />
+        {currentSessionId && isSessionView && compact && (
+          <LeaderTopicsTopBarButton open={topicSheetOpen} onToggle={() => setTopicSheetOpen(!topicSheetOpen)} />
         )}
         {/* Search and Quests live in the sessions panel; needs input and Notify Me in the attention list. */}
         <GlobalAttentionMenu compact={compact} />

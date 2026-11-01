@@ -25,9 +25,9 @@ interface ChatFocusState {
 
 export const useChatFocusStore = create<ChatFocusState>(() => ({ focused: MAIN_CHAT, sideChats: [] }));
 
-/** The focus id of a side pane: its leader's column and its item. */
-export function sideChatId(leaderId: string, itemId: string): string {
-  return `side:${leaderId}:${itemId}`;
+/** The focus id of a side pane: its item. */
+export function sideChatId(itemId: string): string {
+  return `side:${itemId}`;
 }
 
 export function focusChat(id: string): void {

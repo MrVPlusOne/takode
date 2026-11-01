@@ -7,26 +7,28 @@ import type { OpenInSideModifier } from "../../shared/shortcut-settings.js";
 import { openLibraryArtifact } from "./library-nav.js";
 import { isNewWindowClick, openArtifactWindow } from "./artifact-window.js";
 import { setLocalStorageItem } from "./scoped-storage.js";
-import { setRememberedFolded } from "./remembered-folds.js";
+import { isRememberedFolded, setRememberedFolded } from "./remembered-folds.js";
+import { mergeSectionHeights } from "../components/StackedPanes.js";
 
 /**
- * What a leader's side column holds besides the topic page it follows: things the user put there
- * to keep beside the main conversation (Logseq's right sidebar). Newest first; each folds and
+ * What the side column holds besides the topic page it follows: things the user put there to keep
+ * beside the main conversation (Logseq's right sidebar). One column for the whole app: what the
+ * user put there stays when the main view switches to another leader or a worker's session (Jiayi,
+ * Nov 1, 2026), and each conversation in it names its own leader. Newest first; each folds and
  * unfolds on its own (remembered folds, `sideFoldId`), and the column scrolls when the open ones
- * don't fit. Remembered per leader in this browser: local UI state, like the column's width.
+ * don't fit. Remembered in this browser: local UI state, like the column's width.
  */
 export type SideItem =
-  | { id: string; kind: "topic"; topicId: string }
+  /** A topic's page, of its leader. */
+  | { id: string; kind: "topic"; topicId: string; leaderId: string }
+  /** A conversation of a leader: a quest's thread, a topic's conversation, or a thread. */
+  | { id: string; kind: "conversation"; threadKey: string; leaderId: string }
   /**
-   * A conversation of the leader: a quest, a topic's conversation, or a side chat (a thread). With
-   * `leaderId`, another leader's: a side chat the user started with that leader from this column.
+   * A thread being started with a leader: its first message starts the thread. `startedFrom` is
+   * the quest or thread the main view showed (`startedIn`, that view's leader); the new thread's
+   * leader is told about it when it is its own thread, or a quest, the one kind every leader knows.
    */
-  | { id: string; kind: "conversation"; threadKey: string; leaderId?: string }
-  /**
-   * A side chat being started: its first message starts the thread, from `startedFrom`, with the
-   * column's leader or, with `leaderId`, the leader the user chose.
-   */
-  | { id: string; kind: "new-chat"; startedFrom: string | null; leaderId?: string }
+  | { id: string; kind: "new-chat"; leaderId: string; startedFrom: string | null; startedIn?: string }
   /** A Library artifact (a report, post, figure...), at a version when one was linked. */
   | {
       id: string;
@@ -42,10 +44,10 @@ export type SideItem =
 
 export type SideItemInput = SideItem extends infer Item ? (Item extends SideItem ? Omit<Item, "id"> : never) : never;
 
-/** The topic page the column follows (the tab's topic, or the leader's topic list). */
+/** The topic page the column follows (the topic of the main view's tab, or its leader's topic list). */
 export const HOME_ITEM = "home";
 
-interface LeaderColumn {
+export interface SideColumnState {
   items: SideItem[];
   /** The item opened last (an item's ID or HOME_ITEM), which the column scrolls into view. */
   focus?: string;
@@ -53,61 +55,92 @@ interface LeaderColumn {
   focusAt?: number;
 }
 
-interface SideColumnState {
-  columns: Record<string, LeaderColumn>;
-}
+const STORAGE_KEY = "cc-side-column";
+/** Where each leader kept a column of its own, before there was one column. */
+const LEADER_COLUMNS_KEY = "cc-side-columns";
+const MAX_ITEMS = 16;
+/** The section heights of the column, by item (`useSectionHeights`). */
+export const SIDE_HEIGHTS_STACK = "side";
 
-const STORAGE_KEY = "cc-side-columns";
-const MAX_ITEMS = 12;
-const EMPTY: LeaderColumn = { items: [] };
-
-function stored(): Record<string, LeaderColumn> {
-  const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(STORAGE_KEY);
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as Record<string, LeaderColumn>;
-  } catch (error) {
-    console.warn("[side-column] Ignoring unreadable side column state:", error);
-    return {};
+function stored(): SideColumnState {
+  if (typeof localStorage === "undefined") return { items: [] };
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as SideColumnState;
+      return { ...parsed, items: Array.isArray(parsed.items) ? parsed.items : [] };
+    } catch (error) {
+      console.warn("[side-column] Ignoring unreadable side column state:", error);
+      return { items: [] };
+    }
   }
+  return mergeLeaderColumns(localStorage.getItem(LEADER_COLUMNS_KEY));
 }
 
-export const useSideColumnStore = create<SideColumnState>(() => ({
-  columns: stored(),
-}));
-
-function update(leaderId: string, change: (column: LeaderColumn) => LeaderColumn): void {
-  const columns = { ...useSideColumnStore.getState().columns };
-  columns[leaderId] = change(columns[leaderId] ?? EMPTY);
-  useSideColumnStore.setState({ columns });
-  setLocalStorageItem(STORAGE_KEY, JSON.stringify(columns));
+/**
+ * The one column made from the columns leaders had of their own: everything any of them held,
+ * leader by leader in the order they were first used, each item named with its leader, keeping
+ * the folds and heights it had; the same thing kept twice stays once. The leaders' columns go.
+ */
+export function mergeLeaderColumns(raw: string | null): SideColumnState {
+  if (!raw) return { items: [] };
+  let columns: Record<string, { items?: Array<Record<string, unknown>> }>;
+  try {
+    columns = JSON.parse(raw) as typeof columns;
+  } catch (error) {
+    console.warn("[side-column] Ignoring the unreadable side columns of leaders:", error);
+    return { items: [] };
+  }
+  const items: SideItem[] = [];
+  for (const [columnId, column] of Object.entries(columns)) {
+    for (const old of column?.items ?? []) {
+      const kind = old.kind;
+      const owned = kind === "conversation" || kind === "new-chat" || kind === "topic";
+      const item = {
+        ...old,
+        ...(owned && typeof old.leaderId !== "string" ? { leaderId: columnId } : {}),
+        ...(kind === "new-chat" ? { startedIn: columnId } : {}),
+      } as SideItem;
+      if (typeof item.id !== "string" || items.some((kept) => sameTarget(kept, item))) continue;
+      items.push(item);
+      if (isRememberedFolded(`side:${columnId}:${item.id}`)) setRememberedFolded(sideFoldId(item.id), true);
+    }
+  }
+  const kept = items.slice(0, MAX_ITEMS);
+  mergeSectionHeights(
+    Object.keys(columns).map((columnId) => `side:${columnId}`),
+    SIDE_HEIGHTS_STACK,
+  );
+  setLocalStorageItem(STORAGE_KEY, JSON.stringify({ items: kept }));
+  localStorage.removeItem(LEADER_COLUMNS_KEY);
+  return { items: kept };
 }
 
-/** The leader an item talks to: its own `leaderId` (another leader's chat), else the column's. */
-export function sideItemLeader(columnId: string, item: SideItemInput): string {
-  return (item.kind === "conversation" || item.kind === "new-chat") && item.leaderId ? item.leaderId : columnId;
+export const useSideColumnStore = create<SideColumnState>(() => stored());
+
+function update(change: (column: SideColumnState) => SideColumnState): void {
+  const next = change(useSideColumnStore.getState());
+  useSideColumnStore.setState(next, true);
+  setLocalStorageItem(STORAGE_KEY, JSON.stringify(next));
 }
 
-/** An item as the column keeps it: a chat with the column's own leader names no `leaderId`. */
-function ownItem(columnId: string, input: SideItemInput): SideItemInput {
-  if ((input.kind !== "conversation" && input.kind !== "new-chat") || input.leaderId !== columnId) return input;
-  const { leaderId: _own, ...rest } = input;
-  return rest;
+/** The leader an item belongs to: a conversation's, a thread being started's or a topic's; none for others. */
+export function sideItemLeader(item: SideItemInput): string | null {
+  return item.kind === "conversation" || item.kind === "new-chat" || item.kind === "topic" ? item.leaderId : null;
 }
 
 function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
   if (a.kind !== b.kind) return false;
   switch (a.kind) {
     case "topic":
-      return a.topicId === (b as typeof a).topicId;
+      return a.topicId === (b as typeof a).topicId && a.leaderId === (b as typeof a).leaderId;
     case "conversation":
       return (
-        a.threadKey.toLowerCase() === (b as typeof a).threadKey.toLowerCase() &&
-        (a.leaderId ?? "") === ((b as typeof a).leaderId ?? "")
+        a.threadKey.toLowerCase() === (b as typeof a).threadKey.toLowerCase() && a.leaderId === (b as typeof a).leaderId
       );
     case "new-chat":
-      // One side chat being started per leader it is with.
-      return (a.leaderId ?? "") === ((b as typeof a).leaderId ?? "");
+      // One thread being started per leader it is with.
+      return a.leaderId === (b as typeof a).leaderId;
     case "artifact":
       return a.artifactId === (b as typeof a).artifactId;
     case "quest":
@@ -117,32 +150,31 @@ function sameTarget(a: SideItemInput, b: SideItemInput): boolean {
   }
 }
 
-/** The remembered fold of an item of a leader's column, or of the topic page it follows (HOME_ITEM). */
-export function sideFoldId(leaderId: string, itemId: string): string {
-  return `side:${leaderId}:${itemId}`;
+/** The remembered fold of an item of the column, or of the topic page it follows (HOME_ITEM). */
+export function sideFoldId(itemId: string): string {
+  return `side:${itemId}`;
 }
 
 /** Unfolds an item and scrolls the column to it. */
-function focusSideItem(leaderId: string, id: string): void {
-  setRememberedFolded(sideFoldId(leaderId, id), false);
-  update(leaderId, (column) => ({ ...column, focus: id, focusAt: Date.now() }));
+function focusSideItem(id: string): void {
+  setRememberedFolded(sideFoldId(id), false);
+  update((column) => ({ ...column, focus: id, focusAt: Date.now() }));
 }
 
 /**
- * Puts something in a leader's side column, or brings it back to the top if it is there already,
- * unfolds it, scrolls the column to it and shows the column (on phones, its sheet).
+ * Puts something in the side column, or brings it back to the top if it is there already, unfolds
+ * it, scrolls the column to it and shows the column (on phones, its sheet).
  */
-export function openInSide(leaderId: string, target: SideItemInput): string {
-  const input = ownItem(leaderId, target);
+export function openInSide(input: SideItemInput): string {
   // A link clicked in one of the column's panes opens in that pane, in place of what it showed.
-  const pane = paneClick?.leaderId === leaderId ? paneClick.itemId : null;
-  if (pane && useSideColumnStore.getState().columns[leaderId]?.items.some((item) => item.id === pane)) {
-    replaceSideItem(leaderId, pane, input);
-    focusSideItem(leaderId, pane);
+  const pane = paneClick?.itemId ?? null;
+  if (pane && useSideColumnStore.getState().items.some((item) => item.id === pane)) {
+    replaceSideItem(pane, input);
+    focusSideItem(pane);
     return pane;
   }
   let id = "";
-  update(leaderId, (column) => {
+  update((column) => {
     const existing = column.items.find((item) => sameTarget(item, input));
     const item = existing ? ({ ...existing, ...input } as SideItem) : ({ ...input, id: newId() } as SideItem);
     id = item.id;
@@ -151,31 +183,30 @@ export function openInSide(leaderId: string, target: SideItemInput): string {
       items: [item, ...column.items.filter((other) => other.id !== item.id)].slice(0, MAX_ITEMS),
     };
   });
-  focusSideItem(leaderId, id);
-  setTopicPanelOpen(leaderId, true);
-  setTopicSheetOpen(leaderId, true);
+  focusSideItem(id);
+  setTopicPanelOpen(true);
+  setTopicSheetOpen(true);
   return id;
 }
 
-/** Shows the leader's topics (the column's Topics section, below what was put there), for browsing. */
-export function openTopicsInSide(leaderId: string): void {
-  focusSideItem(leaderId, HOME_ITEM);
-  setTopicPanelOpen(leaderId, true);
-  setTopicSheetOpen(leaderId, true);
+/** Shows the main view's leader's topics (the column's Topics section, below what was put there). */
+export function openTopicsInSide(): void {
+  focusSideItem(HOME_ITEM);
+  setTopicPanelOpen(true);
+  setTopicSheetOpen(true);
 }
 
 /** Takes an item out of the column. */
-export function closeSideItem(leaderId: string, id: string): void {
-  update(leaderId, (column) => ({ ...column, items: column.items.filter((item) => item.id !== id) }));
+export function closeSideItem(id: string): void {
+  update((column) => ({ ...column, items: column.items.filter((item) => item.id !== id) }));
 }
 
 /**
- * Turns an item into another in place, such as a new side chat into its thread once it started.
+ * Turns an item into another in place, such as a new thread into its conversation once it started.
  * Another item showing the same thing goes, so the column never holds it twice.
  */
-export function replaceSideItem(leaderId: string, id: string, target: SideItemInput): void {
-  const input = ownItem(leaderId, target);
-  update(leaderId, (column) => {
+export function replaceSideItem(id: string, input: SideItemInput): void {
+  update((column) => {
     const twin = column.items.find((item) => item.id !== id && sameTarget(item, input));
     return {
       ...column,
@@ -187,8 +218,8 @@ export function replaceSideItem(leaderId: string, id: string, target: SideItemIn
   });
 }
 
-export function useSideColumn(leaderId: string): LeaderColumn {
-  return useSideColumnStore((state) => state.columns[leaderId] ?? EMPTY);
+export function useSideColumn(): SideColumnState {
+  return useSideColumnStore((state) => state);
 }
 
 function newId(): string {
@@ -196,12 +227,56 @@ function newId(): string {
 }
 
 /**
- * What a side chat started now is about: the quest or topic the main view shows (its leader is told);
- * none from Main or All.
+ * What a thread started now with a leader is about: the quest or topic thread the main view shows
+ * when that is the leader on screen (a quest from any leader's view, since every leader knows
+ * quests); none from Main or All.
  */
-export function sideChatOrigin(leaderId: string): string | null {
-  const key = readDisplayedLeaderThreadKey(leaderId)?.toLowerCase() ?? "";
-  return /^q-\d+$/.test(key) || key.startsWith("topic:") ? key : null;
+export function newSideChat(leaderId: string): SideItemInput {
+  // A leader's conversation in the main view says which of its threads it shows.
+  const onScreen = useMainViewStore.getState().sessionId;
+  const key = onScreen ? (readDisplayedLeaderThreadKey(onScreen)?.toLowerCase() ?? "") : "";
+  const quest = /^q-\d+$/.test(key);
+  const startedFrom = quest || (onScreen === leaderId && key.startsWith("topic:")) ? key : null;
+  return { kind: "new-chat", leaderId, startedFrom, ...(startedFrom && onScreen ? { startedIn: onScreen } : {}) };
+}
+
+/** The conversation the main view shows, as its view reports it while on screen (`showMainView`). */
+export const useMainViewStore = create<{ sessionId: string | null; threadKey: string | null }>(() => ({
+  sessionId: null,
+  threadKey: null,
+}));
+
+/** The main view shows this session's thread; returns the cleanup for when it no longer does. */
+export function showMainView(sessionId: string, threadKey: string | null): () => void {
+  useMainViewStore.setState({ sessionId, threadKey });
+  return () => {
+    const now = useMainViewStore.getState();
+    if (now.sessionId === sessionId && now.threadKey === threadKey)
+      useMainViewStore.setState({ sessionId: null, threadKey: null });
+  };
+}
+
+/** The leader of a session: itself when a leader, else the leader that herds it; null for neither. */
+function leaderOfSession(sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  const session = useStore.getState().sdkSessions.find((candidate) => candidate.sessionId === sessionId);
+  if (session?.isOrchestrator) return sessionId;
+  return session?.herdedBy ?? null;
+}
+
+/** The leader the column's leader-dependent sections (Topics) follow: the main view's. */
+export function mainViewLeader(): string | null {
+  return leaderOfSession(useMainViewStore.getState().sessionId);
+}
+
+/** `mainViewLeader`, as it changes. */
+export function useMainViewLeader(): string | null {
+  const sessionId = useMainViewStore((state) => state.sessionId);
+  return useStore((state) => {
+    if (!sessionId) return null;
+    const session = state.sdkSessions.find((candidate) => candidate.sessionId === sessionId);
+    return session?.isOrchestrator ? sessionId : (session?.herdedBy ?? null);
+  });
 }
 
 /** The modifier keys of a click, enough to tell whether it opens something in the side column. */
@@ -212,8 +287,8 @@ export interface OpenInSideEvent {
   ctrlKey: boolean;
 }
 
-/** A click being dispatched inside one of a side column's panes (`notePaneClick`). */
-let paneClick: { leaderId: string; itemId: string | null; event: OpenInSideEvent } | null = null;
+/** A click being dispatched inside one of the side column's panes (`notePaneClick`). */
+let paneClick: { itemId: string | null; event: OpenInSideEvent } | null = null;
 
 /**
  * Records that a click is happening in a side column's pane (its item, or null for the topic page
@@ -221,8 +296,8 @@ let paneClick: { leaderId: string; itemId: string | null; event: OpenInSideEvent
  * click opens it in the main view instead. Called in the capture phase; forgotten once the click
  * is handled.
  */
-export function notePaneClick(leaderId: string, itemId: string | null, event: OpenInSideEvent): void {
-  const click = { leaderId, itemId, event: { ...pickModifiers(event) } };
+export function notePaneClick(itemId: string | null, event: OpenInSideEvent): void {
+  const click = { itemId, event: { ...pickModifiers(event) } };
   paneClick = click;
   setTimeout(() => {
     if (paneClick === click) paneClick = null;
@@ -302,24 +377,21 @@ export function handleOpenInSideClick(
   return true;
 }
 
-/** The leader whose side column is on screen: the session on screen, when a leader's conversation. */
-export function sideColumnOnScreen(): string | null {
-  const leaderId = useStore.getState().currentSessionId;
-  return leaderId && readDisplayedLeaderThreadKey(leaderId) !== null ? leaderId : null;
+/** Whether a side column is on screen to open things in: a session's conversation is in the main view. */
+export function sideColumnOnScreen(): boolean {
+  return useMainViewStore.getState().sessionId !== null;
 }
 
-/** Opens something in the side column on screen; false when there is none. */
+/** Opens something in the side column; false when there is none on screen. */
 export function openInSideOnScreen(input: SideItemInput): boolean {
-  const leaderId = sideColumnOnScreen();
-  if (!leaderId) return false;
-  openInSide(leaderId, input);
+  if (!sideColumnOnScreen()) return false;
+  openInSide(input);
   return true;
 }
 
 /**
  * Opens an artifact where a click asks: in a window of its own on Cmd/Ctrl-click, in the side
- * column of the leader on screen on an open-in-side click, else in the Library (also when no
- * leader's conversation is on screen).
+ * column on an open-in-side click, else in the Library (also when no conversation is on screen).
  */
 export function openArtifact(target: { id: string; version?: number; title?: string }, event?: OpenInSideEvent): void {
   if (isNewWindowClick(event)) {
@@ -330,7 +402,7 @@ export function openArtifact(target: { id: string; version?: number; title?: str
   openLibraryArtifact(target.id, target.version);
 }
 
-/** Opens an artifact in the side column on screen; false when there is none. */
+/** Opens an artifact in the side column; false when there is none on screen. */
 export function openArtifactInSide(target: { id: string; version?: number; title?: string }): boolean {
   return openInSideOnScreen({
     kind: "artifact",
@@ -340,39 +412,31 @@ export function openArtifactInSide(target: { id: string; version?: number; title
   });
 }
 
-/** Opens a quest's details in the side column on screen; false when there is none. */
+/** Opens a quest's details in the side column; false when there is none on screen. */
 export function openQuestInSide(questId: string): boolean {
   return openInSideOnScreen({ kind: "quest", questId: questId.toLowerCase() });
 }
 
 /**
- * Opens a session's conversation in the side column on screen; false when there is none. The
- * leader on screen itself opens as its Main thread.
+ * Opens a session's conversation in the side column; false when there is none on screen. The
+ * leader in the main view opens as its Main thread.
  */
 export function openSessionInSide(sessionId: string): boolean {
-  const leaderId = sideColumnOnScreen();
-  if (!leaderId) return false;
-  openInSide(
-    leaderId,
-    sessionId === leaderId ? { kind: "conversation", threadKey: "main" } : { kind: "session", sessionId },
+  const onScreen = useMainViewStore.getState().sessionId === sessionId && mainViewLeader() === sessionId;
+  return openInSideOnScreen(
+    onScreen ? { kind: "conversation", threadKey: "main", leaderId: sessionId } : { kind: "session", sessionId },
   );
-  return true;
 }
 
-/** Whether something can open in a side column now: a leader's conversation is on screen. */
+/** Whether something can open in the side column now: a conversation is on screen. */
 export function canOpenInSide(): boolean {
-  return sideColumnOnScreen() !== null;
+  return sideColumnOnScreen();
 }
 
 /**
- * Opens a leader's quest or thread in its side column, when that leader's conversation is on screen
- * (the side column belongs to it). Returns false when it isn't, so the click does what it would.
+ * Opens a leader's quest or thread in the side column. Returns false when no conversation is on
+ * screen, so the click does what it would.
  */
 export function openConversationInSide(leaderId: string, threadKey: string): boolean {
-  if (readDisplayedLeaderThreadKey(leaderId) === null) return false;
-  openInSide(leaderId, {
-    kind: "conversation",
-    threadKey: threadKey.toLowerCase(),
-  });
-  return true;
+  return openInSideOnScreen({ kind: "conversation", threadKey: threadKey.toLowerCase(), leaderId });
 }

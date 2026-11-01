@@ -1,8 +1,8 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { useLeaderNavigation } from "../utils/top-bar-slots.js";
 import { LeaderHomePage, NewThreadComposer } from "./LeaderHomePage.js";
-import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
-import { openInSide } from "../utils/side-column.js";
+import { SideColumnPhoneSheet } from "./library/TopicSidePanel.js";
+import { openInSide, showMainView } from "../utils/side-column.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
 import { loadLeaderNamesOnce, useKnownThreadOfKey, useKnownTopicOfKey } from "../utils/leader-topics.js";
 import { useReadyThreadDestination } from "../utils/ready-thread-destination.js";
@@ -565,7 +565,7 @@ export function ChatView({
   // Its leader log (All threads) is for checking what happened: writing there starts a thread too.
   const leaderLog = leaderNav && isLeaderSession && normalizeThreadKey(selectedThreadKey) === ALL_THREADS_KEY;
   // On a phone the open topic panel starts right under the tabs: the thread's strips step aside.
-  const phoneTopicsOpen = useTopicSheetOpen(sessionId) && !desktopShell && !preview;
+  const phoneTopicsOpen = useTopicSheetOpen() && !desktopShell && !preview;
   const selectedSideChat = selectedSideChatId ? slackThreads[selectedSideChatId] : undefined;
 
   useLayoutEffect(() => {
@@ -671,11 +671,14 @@ export function ChatView({
   );
   useEffect(() => {
     if (!addressedTopic) return;
-    openInSide(sessionId, { kind: "topic", topicId: addressedTopic.id });
+    openInSide({ kind: "topic", topicId: addressedTopic.id, leaderId: sessionId });
     // Named in the address, so the topic's key, still the saved selection, doesn't come back.
     navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true, sessionId, { preserveMainThreadRoute: true });
   }, [addressedTopic, sessionId]);
   const feedThreadKey = selectedThreadKey;
+  // The side column, one for the app, follows the conversation on screen (its Topics, what a new
+  // thread is about). Effects run only while this view is shown, not while it is kept hidden.
+  useEffect(() => (preview ? undefined : showMainView(sessionId, feedThreadKey)), [feedThreadKey, preview, sessionId]);
   // The main view is one of the chats on screen; one of them is focused (chat-focus.ts). Opening
   // a conversation here focuses it, except when the view returns Home because its conversation
   // moved to the side column: focus follows the conversation there.
@@ -913,7 +916,7 @@ export function ChatView({
   const moveSelectedToSide =
     leaderNav && desktopShell
       ? () => {
-          openInSide(sessionId, { kind: "conversation", threadKey: selectedThreadKey });
+          openInSide({ kind: "conversation", threadKey: selectedThreadKey, leaderId: sessionId });
           movedToSideRef.current = selectedThreadKey !== MAIN_THREAD_KEY;
           handleSelectThread(MAIN_THREAD_KEY);
         }
@@ -1371,11 +1374,11 @@ export function ChatView({
           )}
         </ComposerFeedLayout>
       </div>
-      {!preview && isLeaderSession && (
-        <LeaderTopicPanel
-          leaderId={sessionId}
+      {/* On desktop the side column sits beside every conversation (App); on a phone it is a sheet. */}
+      {!preview && !desktopShell && (
+        <SideColumnPhoneSheet
+          leaderId={isLeaderSession ? sessionId : (herdedBy ?? null)}
           threadKey={feedThreadKey}
-          desktop={desktopShell}
           phoneTopRef={phoneTopicTopRef}
         />
       )}

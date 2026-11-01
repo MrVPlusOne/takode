@@ -30,7 +30,7 @@ import { NewSideChat, newSideChatDraftKey } from "./NewSideChat.js";
 afterEach(() => {
   cleanup();
   startThread.mockReset();
-  useSideColumnStore.setState({ columns: {} });
+  useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
   localStorage.clear();
 });
 
@@ -39,8 +39,9 @@ describe("NewSideChat", () => {
     startThread.mockResolvedValue({
       thread: { id: "aaaa0001", key: "topic:aaaa0001", name: "named", leaderId: "l1", createdAt: 1, activityAt: 1 },
     });
-    const itemId = openInSide("l1", { kind: "new-chat", startedFrom: "q-7" });
-    render(<NewSideChat columnId="l1" leaderId="l1" itemId={itemId} startedFrom="q-7" />);
+    const item = { kind: "new-chat" as const, startedFrom: "q-7", leaderId: "l1", startedIn: "l1" };
+    const itemId = openInSide(item);
+    render(<NewSideChat item={{ ...item, id: itemId }} />);
     expect(screen.getByTestId("new-side-chat").textContent).toContain("About name of q-7");
     // Jiayi (Oct 31): the page named no one ("A new thread with the leader"); it names the leader,
     // with its portrait, as it does for a chat with another leader.
@@ -51,9 +52,9 @@ describe("NewSideChat", () => {
     await expect(composer.props!.newThread.start("Why does it settle?")).resolves.toBe("topic:aaaa0001");
     expect(startThread).toHaveBeenCalledWith("l1", "named: Why does it settle?", "q-7", "Why does it settle?");
     composer.props!.newThread.started("topic:aaaa0001");
-    expect(useSideColumnStore.getState().columns.l1).toEqual(
+    expect(useSideColumnStore.getState()).toEqual(
       expect.objectContaining({
-        items: [{ id: itemId, kind: "conversation", threadKey: "topic:aaaa0001" }],
+        items: [{ id: itemId, kind: "conversation", threadKey: "topic:aaaa0001", leaderId: "l1" }],
         focus: itemId,
       }),
     );
@@ -65,8 +66,9 @@ describe("NewSideChat", () => {
     startThread.mockResolvedValue({
       thread: { id: "bbbb0001", key: "topic:bbbb0001", name: "named", leaderId: "l2", createdAt: 1, activityAt: 1 },
     });
-    const itemId = openInSide("l1", { kind: "new-chat", startedFrom: "q-7", leaderId: "l2" });
-    render(<NewSideChat columnId="l1" leaderId="l2" itemId={itemId} startedFrom="q-7" />);
+    const item = { kind: "new-chat" as const, startedFrom: "q-7", leaderId: "l2", startedIn: "l1" };
+    const itemId = openInSide(item);
+    render(<NewSideChat item={{ ...item, id: itemId }} />);
     expect(screen.getByTestId("new-side-chat-with").textContent).toBe("A new thread with leader l2");
     expect(composer.props!.draftKey).toBe(newSideChatDraftKey("l2"));
     expect(composer.props!.threadKey).toBe("main");
@@ -75,7 +77,7 @@ describe("NewSideChat", () => {
     // A quest is a place any leader can look up, so l2 is told the chat started there.
     expect(startThread).toHaveBeenCalledWith("l2", "named: Tweak the breadcrumb", "q-7", "Tweak the breadcrumb");
     composer.props!.newThread.started("topic:bbbb0001");
-    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+    expect(useSideColumnStore.getState().items).toEqual([
       { id: itemId, kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" },
     ]);
   });
@@ -84,8 +86,9 @@ describe("NewSideChat", () => {
     startThread.mockResolvedValue({
       thread: { id: "bbbb0002", key: "topic:bbbb0002", name: "named", leaderId: "l2", createdAt: 1, activityAt: 1 },
     });
-    const itemId = openInSide("l1", { kind: "new-chat", startedFrom: "topic:aaaa0009", leaderId: "l2" });
-    render(<NewSideChat columnId="l1" leaderId="l2" itemId={itemId} startedFrom="topic:aaaa0009" />);
+    const item = { kind: "new-chat" as const, startedFrom: "topic:aaaa0009", leaderId: "l2", startedIn: "l1" };
+    const itemId = openInSide(item);
+    render(<NewSideChat item={{ ...item, id: itemId }} />);
     expect(screen.getByTestId("new-side-chat").textContent).toContain("The conversation on the left stays as it is.");
     await composer.props!.newThread.start("Hello");
     expect(startThread).toHaveBeenCalledWith("l2", "named: Hello", undefined, "Hello");

@@ -7,6 +7,7 @@ import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { useSideColumnStore } from "../utils/side-column.js";
 import { markLeaderThreadDisplayed } from "../utils/thread-viewport.js";
+import { showMainView } from "../utils/side-column.js";
 
 vi.mock("../api.js", () => ({
   api: {
@@ -281,21 +282,23 @@ describe("QuestInlineLink", () => {
     // does what a plain click does, still never the browser's new window.
     useStore.setState({ currentSessionId: "leader-1" });
     const shown = markLeaderThreadDisplayed("leader-1", "main");
+    const mainView = showMainView("leader-1", "main");
     try {
       render(<QuestInlineLink questId="q-12">q-12</QuestInlineLink>);
       const link = screen.getByRole("link", { name: "q-12" });
       expect(fireEvent.click(link, { shiftKey: true })).toBe(false);
-      expect(useSideColumnStore.getState().columns["leader-1"]!.items).toEqual([
+      expect(useSideColumnStore.getState().items).toEqual([
         expect.objectContaining({ kind: "quest", questId: "q-12" }),
       ]);
       expect(useStore.getState().questOverlayId).toBeNull();
       shown();
+      mainView();
       // No leader on screen: the quest opens as a plain click opens it.
       expect(fireEvent.click(link, { shiftKey: true })).toBe(false);
       expect(useStore.getState().questOverlayId).toBe("q-12");
     } finally {
       shown();
-      useSideColumnStore.setState({ columns: {} });
+      useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
       localStorage.clear();
     }
   });

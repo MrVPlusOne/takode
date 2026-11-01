@@ -26,7 +26,11 @@ vi.mock("../utils/viewport-handoff-client.js", () => ({
   createViewportHandoffEntryId: () => "test-viewport-entry",
   noteViewportSelectionActivity: vi.fn(),
 }));
-vi.mock("../ws.js", () => ({ connectSession: vi.fn(), sendToSession: vi.fn(() => true) }));
+vi.mock("../ws.js", () => ({
+  connectSession: vi.fn(),
+  sendToSession: vi.fn(() => true),
+  holdSessionConnection: vi.fn(() => () => {}),
+}));
 vi.mock("../api.js", () => ({
   api: {
     getQuestTitles: vi.fn().mockResolvedValue({ quests: [], missingQuestIds: [] }),
@@ -61,6 +65,7 @@ vi.mock("../utils/view-history.js", async (importOriginal) => ({
 import { useStore } from "../store.js";
 import { threadRouteFromHash } from "../utils/routing.js";
 import { ChatView } from "./ChatView.js";
+import { SideColumnDock } from "./library/TopicSidePanel.js";
 import { THREAD_READ_DWELL_MS } from "../hooks/use-thread-read-on-screen.js";
 import { KeptConversationViews } from "./KeptConversationViews.js";
 import { readDisplayedLeaderThreadKey } from "../utils/thread-viewport.js";
@@ -306,12 +311,14 @@ describe("ChatView focus when a thread moves to the side column", () => {
     // view opening Home is a by-product of the move, not the user turning to Home.
     installLeader([]);
     renderLeader("#/session/leader?thread=q-1");
+    // The side column sits beside every conversation (App renders it once).
+    render(<SideColumnDock />);
     act(() => {
       screen.getByRole("button", { name: "Move to the side column" }).click();
     });
     act(() => vi.advanceTimersByTime(100));
-    const item = useSideColumnStore.getState().columns.leader!.items[0]!;
-    expect(focusedChat()).toBe(sideChatId("leader", item.id));
+    const item = useSideColumnStore.getState().items[0]!;
+    expect(focusedChat()).toBe(sideChatId(item.id));
     expect(screen.getAllByTestId("message-feed")[0]).toHaveAttribute("data-thread-key", "main");
   });
 });

@@ -21,7 +21,8 @@ import type { SdkSessionInfo, SessionNotification } from "../../types.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { setTopicSheetOpen, useTopicPanel } from "../../utils/topic-panel.js";
 
-import { LeaderTopicPanel, TopicSidePanel } from "./TopicSidePanel.js";
+import { SideColumnDock, SideColumnPhoneSheet, TopicSidePanel } from "./TopicSidePanel.js";
+import { showMainView } from "../../utils/side-column.js";
 
 /**
  * A leader's topic panel against a mocked API: a leader past about 20 quests gets the hint to
@@ -143,7 +144,7 @@ const DETAIL: TopicDetail = {
 afterEach(() => {
   vi.restoreAllMocks();
   localStorage.clear();
-  useTopicPanel.setState({ panels: {}, sheets: [], focus: null });
+  useTopicPanel.setState({ open: true, sheet: false, focus: null });
   useStore.getState().reset();
 });
 
@@ -493,21 +494,27 @@ describe("TopicSidePanel", () => {
 
   it("is part of the desktop layout (the side column): open by default, collapsing to a rail naming the topic", async () => {
     mockApi();
-    render(<LeaderTopicPanel leaderId="l1" threadKey="q-2713" desktop />);
+    // The column sits beside whatever conversation the main view shows; its Topics are its leader's.
+    useStore.setState({
+      sdkSessions: [{ sessionId: "l1", isOrchestrator: true, state: "connected", cwd: "/", createdAt: 1 }],
+    } as never);
+    const shown = showMainView("l1", "q-2713");
+    render(<SideColumnDock />);
     expect(await screen.findByTestId("topic-side-panel")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Collapse the side column" }));
     const rail = await screen.findByTestId("topic-rail");
     await waitFor(() => expect(rail).toHaveTextContent("T7 run"));
     fireEvent.click(within(rail).getByRole("button", { name: "Show the topic T7 run" }));
     expect(await screen.findByTestId("topic-side-panel")).toBeInTheDocument();
+    shown();
   });
 
   it("opens as a sheet on phones and stays closed until asked", async () => {
     mockApi();
-    const { rerender } = render(<LeaderTopicPanel leaderId="l1" threadKey="main" desktop={false} />);
+    const { rerender } = render(<SideColumnPhoneSheet leaderId="l1" threadKey="main" />);
     expect(screen.queryByTestId("topic-side-panel")).toBeNull();
-    act(() => setTopicSheetOpen("l1", true));
-    rerender(<LeaderTopicPanel leaderId="l1" threadKey="main" desktop={false} />);
+    act(() => setTopicSheetOpen(true));
+    rerender(<SideColumnPhoneSheet leaderId="l1" threadKey="main" />);
     expect(await screen.findByTestId("topic-side-panel")).toHaveAttribute("data-variant", "sheet");
   });
 
@@ -518,16 +525,16 @@ describe("TopicSidePanel", () => {
     vi.mocked(topicApi.get).mockImplementation(async (id: string) =>
       id === "qa" ? { ...DETAIL, id: "qa", name: "Seeded QA", page: "QA seeds." } : DETAIL,
     );
-    act(() => setTopicSheetOpen("l1", true));
-    render(<LeaderTopicPanel leaderId="l1" threadKey="q-2713" desktop={false} />);
+    act(() => setTopicSheetOpen(true));
+    render(<SideColumnPhoneSheet leaderId="l1" threadKey="q-2713" />);
     const view = await screen.findByTestId("topic-view");
     await waitFor(() => expect(within(view).getByTestId("topic-lead")).toHaveTextContent("T7 is the 12B"));
     view.scrollTop = 240;
 
-    act(() => setTopicSheetOpen("l1", false));
+    act(() => setTopicSheetOpen(false));
     // It slides away first, then hides.
     await waitFor(() => expect(screen.queryByTestId("topic-side-panel")).not.toBeVisible());
-    act(() => setTopicSheetOpen("l1", true));
+    act(() => setTopicSheetOpen(true));
     expect(screen.getByTestId("topic-side-panel")).toBeVisible();
     expect(screen.getAllByTestId("topic-view")[0]).toBe(view);
     expect(view.scrollTop).toBe(240);
@@ -538,9 +545,9 @@ describe("TopicSidePanel", () => {
     fireEvent.click(await within(screen.getByTestId("topic-panel-list")).findByText("Seeded QA"));
     await waitFor(() => expect(screen.getByText("QA seeds.")).toBeVisible());
     // A topic picked over the tab's own stays picked when the sheet is dismissed and reopened.
-    act(() => setTopicSheetOpen("l1", false));
+    act(() => setTopicSheetOpen(false));
     await waitFor(() => expect(screen.queryByTestId("topic-side-panel")).not.toBeVisible());
-    act(() => setTopicSheetOpen("l1", true));
+    act(() => setTopicSheetOpen(true));
     expect(screen.getByText("QA seeds.")).toBeVisible();
     expect(view).not.toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: /All topics/ }));

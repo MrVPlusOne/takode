@@ -65,6 +65,7 @@ import { Sidebar } from "./components/Sidebar.js";
 import { SidebarFoldStrip, useElementHeight, useSidebarDropDown } from "./components/SidebarFold.js";
 import { useDrawerSwipeClose } from "./hooks/useDrawerSwipeClose.js";
 import { ChatView } from "./components/ChatView.js";
+import { SideColumnDock } from "./components/library/TopicSidePanel.js";
 import { CodexSubagentInspector } from "./components/CodexSubagentInspector.js";
 import { TopBar } from "./components/TopBar.js";
 import { SERVER_TODO_ITEM_SUMMARIES, watchTodoItemSummaries } from "./components/todo-item-summaries.js";
@@ -1213,18 +1214,23 @@ export default function App() {
               {/* Chat tab: the primary view. It stays mounted, hidden, while the diff or a
                   secondary page covers it, so returning to it does not rebuild the feed;
                   recently viewed conversations stay mounted, hidden, beside it. */}
-              <div className={`absolute inset-0 ${primaryHidden ? "invisible" : ""}`} inert={primaryHidden}>
-                <KeptConversationViews
-                  conversations={keptConversationViews}
-                  visibleSessionId={visibleConversationSessionId}
-                />
-                {displayedSessionId && isPendingId(displayedSessionId) ? (
-                  <SessionCreationView pendingId={displayedSessionId} />
-                ) : searchPreviewSessionId ? (
-                  previewView
-                ) : !displayedSessionId ? (
-                  <EmptyState />
-                ) : null}
+              <div className={`absolute inset-0 flex ${primaryHidden ? "invisible" : ""}`} inert={primaryHidden}>
+                <div className="relative min-w-0 flex-1">
+                  <KeptConversationViews
+                    conversations={keptConversationViews}
+                    visibleSessionId={visibleConversationSessionId}
+                  />
+                  {displayedSessionId && isPendingId(displayedSessionId) ? (
+                    <SessionCreationView pendingId={displayedSessionId} />
+                  ) : searchPreviewSessionId ? (
+                    previewView
+                  ) : !displayedSessionId ? (
+                    <EmptyState />
+                  ) : null}
+                </div>
+                {/* One side column beside every conversation: what is in it stays when switching
+                    session. On phones each conversation opens it as a sheet. */}
+                {isDesktopShell && <SideColumnDock />}
               </div>
 
               {/* Diff tab, covering the conversation where there is no right-hand area */}

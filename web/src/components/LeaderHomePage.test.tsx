@@ -59,7 +59,7 @@ afterEach(() => {
   resetLeaderTopicsForTest();
   cleanup();
   useLeaderThreadMembers.setState({ byLeader: {} });
-  useSideColumnStore.setState({ columns: {} });
+  useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
   startThread.mockReset();
   navigateToSessionThread.mockReset();
 });
@@ -103,7 +103,7 @@ describe("LeaderHomePage", () => {
     expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "all");
     // Topics are browsed beside: the side column opens on their list.
     fireEvent.click(screen.getByTestId("leader-home-topics"));
-    expect(useTopicPanel.getState().panels.l1).toBe(true);
+    expect(useTopicPanel.getState().open).toBe(true);
   });
 
   it("starts a new thread from its message box and opens it in the main view", async () => {
