@@ -1,6 +1,9 @@
 import { sideComposerDraftKey } from "../../draft-sync-bridge.js";
 import { api } from "../../api.js";
+import { useEffect } from "react";
 import { useStore } from "../../store.js";
+import { sendToSession } from "../../ws.js";
+import { latestThreadWindowRequest } from "../../utils/latest-thread-window-request.js";
 import { useUnreadMessagesSeen } from "../../hooks/use-unread-messages-seen.js";
 import { useKnownThreadOfKey } from "../../utils/leader-topics.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
@@ -39,6 +42,12 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
     wantsSideClick()
       ? openInSide({ kind: "conversation", threadKey: next, leaderId })
       : navigateToSessionThread(leaderId, next);
+  // A folded conversation got no live messages (the column's open limit unmounts it): opening it
+  // again catches its held newest window up, in a delta the server sends against its hash.
+  useEffect(() => {
+    const held = useStore.getState().threadWindows.get(leaderId)?.get(key);
+    if (held && !held.has_newer_items) sendToSession(leaderId, latestThreadWindowRequest(leaderId, key, false));
+  }, [key, leaderId]);
   const questId = /^q-\d+$/.test(key) ? key : undefined;
   const draftKey = sideComposerDraftKey(leaderId, key);
   return (

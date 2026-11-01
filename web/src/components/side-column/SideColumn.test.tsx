@@ -305,6 +305,28 @@ describe("SideColumn", () => {
     expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), []);
   });
 
+  it("keeps at most three conversations open, and a folded one unmounted, unsubscribed and disconnected", () => {
+    // Jiayi (Nov 1): every open conversation costs a mounted feed, live messages and its leader's
+    // connection. A fourth folds the oldest, which then costs nothing until it is opened again.
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+      openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
+      openInSide({ kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" });
+    });
+    const mounted = () => screen.queryAllByTestId("mock-conversation").map((element) => element.textContent);
+    expect(mounted().sort()).toEqual(["q-2", "q-3", "topic:bbbb0001"]);
+    expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), ["q-3", "q-2"]);
+    expect(held.count.get("l2")).toBe(1);
+    // Folding l2's conversation drops its leader's live messages and connection too.
+    const l2Row = rows().find((row) => row.textContent?.includes("topic:bbbb0001"))!;
+    fireEvent.click(within(l2Row).getByRole("button", { expanded: true }));
+    expect(mounted().sort()).toEqual(["q-2", "q-3"]);
+    expect(setSideViewsOf.mock.calls.filter(([leader]) => leader === "l2").at(-1)?.[2]).toEqual([]);
+    expect(held.count.get("l2")).toBe(0);
+  });
+
   it("starts a side chat from the quest on screen", () => {
     const shown = markLeaderThreadDisplayed("l1", "q-7");
     const mainView = showMainView("l1", "q-7");
@@ -375,6 +397,11 @@ describe("SideColumn", () => {
     const mainView = showMainView("l1", "q-7");
     try {
       render(<SideColumn leaderId="l1" threadKey="q-7" variant="docked" />);
+      // The chooser's button names whose thread plain New thread starts (Jiayi, Nov 1: a lone
+      // triangle didn't), here this page's leader.
+      expect(screen.getByTestId("side-new-chat-leader").getAttribute("aria-label")).toBe(
+        "New thread with #1 Daily: choose another leader",
+      );
       fireEvent.click(screen.getByTestId("side-new-chat-leader"));
       const choices = await screen.findAllByTestId("side-new-chat-leader-row");
       // This page's leader first; leaders with topics off, archived leaders and workers are not offered.

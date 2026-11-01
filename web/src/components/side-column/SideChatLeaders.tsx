@@ -54,9 +54,9 @@ function useSideChatLeaders(mainLeaderId: string | null, enabled: boolean): stri
 }
 
 /**
- * Beside "New side chat": picks the leader a new side chat is with. The plain button starts one
- * with the main view's leader; this starts one with another leader, kept in this column, about what is
- * on screen. The chat is that leader's: it answers there and lists it with its own side chats.
+ * Beside "New thread": the portrait of the leader the plain button starts a thread with (the main
+ * view's), which opens a chooser to start one with another leader instead, kept in this column,
+ * about what is on screen. The thread is that leader's: it answers there and lists it.
  */
 export function SideChatLeaderMenu({ mainLeaderId }: { mainLeaderId: string | null }) {
   const [open, setOpen] = useState(false);
@@ -64,6 +64,7 @@ export function SideChatLeaderMenu({ mainLeaderId }: { mainLeaderId: string | nu
   const listRef = useRef<HTMLDivElement>(null);
   useOutsidePress([listRef, triggerRef], () => setOpen(false), open);
   const leaders = useSideChatLeaders(mainLeaderId, open);
+  const mainLeader = useLeaderCard(mainLeaderId ?? "");
   const start = (leaderId: string) => {
     setOpen(false);
     openInSide(newSideChat(leaderId));
@@ -76,14 +77,28 @@ export function SideChatLeaderMenu({ mainLeaderId }: { mainLeaderId: string | nu
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label="Choose the leader for a new thread"
-        title="Start a thread with another leader"
-        className={`-ml-1 inline-flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-[10px] text-cc-primary hover:bg-cc-hover ${
-          open ? "bg-cc-hover" : ""
+        aria-label={
+          mainLeader
+            ? `New thread with #${mainLeader.sessionNum ?? "?"} ${mainLeader.name ?? "Leader"}: choose another leader`
+            : "Choose the leader for a new thread"
+        }
+        title={
+          mainLeader
+            ? `New thread goes to ${mainLeader.name ?? "this leader"}. Click to choose another leader`
+            : "Start a thread with a leader"
+        }
+        className={`-ml-1 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md px-1 text-cc-muted hover:bg-cc-hover hover:text-cc-fg ${
+          open ? "bg-cc-hover text-cc-fg" : ""
         }`}
         data-testid="side-new-chat-leader"
       >
-        ▾
+        {/* Whose thread New thread starts (Jiayi, Nov 1: a lone triangle didn't say), and a cue that it opens a chooser. */}
+        {mainLeader?.leaderProfilePortrait ? (
+          <LeaderProfilePortraitImage portrait={mainLeader.leaderProfilePortrait} />
+        ) : null}
+        <svg viewBox="0 0 10 10" className="h-2.5 w-2.5" fill="none" aria-hidden="true">
+          <path d="M2.5 4L5 6.5 7.5 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
       </button>
       {open && (
         <div

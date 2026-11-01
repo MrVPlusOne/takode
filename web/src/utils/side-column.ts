@@ -49,6 +49,11 @@ export const HOME_ITEM = "home";
 
 export interface SideColumnState {
   items: SideItem[];
+  /**
+   * Conversation items by when they were last opened or used, most recent first: the one folded
+   * when a fourth would be open (`MAX_OPEN_CONVERSATIONS`).
+   */
+  used?: string[];
   /** The item opened last (an item's ID or HOME_ITEM), which the column scrolls into view. */
   focus?: string;
   /** When it was opened, so opening it again scrolls to it again. */
@@ -155,9 +160,45 @@ export function sideFoldId(itemId: string): string {
   return `side:${itemId}`;
 }
 
+/**
+ * How many conversations the column keeps open (unfolded) at once. Each open one keeps its feed
+ * mounted and its leader sending its live messages, so more open would cost memory and traffic for
+ * conversations the user isn't reading (Jiayi, Nov 1: like the main view keeping at most three
+ * recent conversations mounted). Opening a fourth folds the one least recently opened or used.
+ */
+export const MAX_OPEN_CONVERSATIONS = 3;
+
+/** Items with a live feed of their own: what counts toward `MAX_OPEN_CONVERSATIONS`. */
+export function isConversationItem(item: Pick<SideItem, "kind">): boolean {
+  return item.kind === "conversation" || item.kind === "session";
+}
+
+/**
+ * Unfolds an item, or marks it used (`noteSideItemUsed`); a conversation beyond the open limit
+ * folds the least recently used other one.
+ */
+export function unfoldSideItem(id: string): void {
+  setRememberedFolded(sideFoldId(id), false);
+  noteSideItemUsed(id);
+}
+
+/** A conversation item was opened, unfolded or used (its pane focused): it is the last folded. */
+export function noteSideItemUsed(id: string): void {
+  const { items, used = [] } = useSideColumnStore.getState();
+  const item = items.find((candidate) => candidate.id === id);
+  if (!item || !isConversationItem(item)) return;
+  const order = [id, ...used.filter((other) => other !== id && items.some((candidate) => candidate.id === other))];
+  if (order.join() !== used.join()) update((column) => ({ ...column, used: order }));
+  const open = order.filter((other) => {
+    const candidate = items.find((entry) => entry.id === other);
+    return candidate && isConversationItem(candidate) && !isRememberedFolded(sideFoldId(other));
+  });
+  for (const extra of open.slice(MAX_OPEN_CONVERSATIONS)) setRememberedFolded(sideFoldId(extra), true);
+}
+
 /** Unfolds an item and scrolls the column to it. */
 function focusSideItem(id: string): void {
-  setRememberedFolded(sideFoldId(id), false);
+  unfoldSideItem(id);
   update((column) => ({ ...column, focus: id, focusAt: Date.now() }));
 }
 
@@ -198,7 +239,11 @@ export function openTopicsInSide(): void {
 
 /** Takes an item out of the column. */
 export function closeSideItem(id: string): void {
-  update((column) => ({ ...column, items: column.items.filter((item) => item.id !== id) }));
+  update((column) => ({
+    ...column,
+    items: column.items.filter((item) => item.id !== id),
+    used: column.used?.filter((other) => other !== id),
+  }));
 }
 
 /**
@@ -216,6 +261,8 @@ export function replaceSideItem(id: string, input: SideItemInput): void {
       ...(twin && column.focus === twin.id ? { focus: id } : {}),
     };
   });
+  // A new thread that became its conversation now counts toward the open limit.
+  if (!isRememberedFolded(sideFoldId(id))) noteSideItemUsed(id);
 }
 
 export function useSideColumn(): SideColumnState {

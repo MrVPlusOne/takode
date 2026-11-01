@@ -9,8 +9,11 @@ import {
   HOME_ITEM,
   notePaneClick,
   openInSide,
+  isConversationItem,
   newSideChat,
+  noteSideItemUsed,
   replaceSideItem,
+  unfoldSideItem,
   SIDE_HEIGHTS_STACK,
   sideFoldId,
   sideItemLeader,
@@ -51,6 +54,7 @@ import {
   MAIN_CHAT,
   sideChatId,
   useChatFocusMarked,
+  useChatFocusStore,
   useSideChat,
 } from "../../utils/chat-focus.js";
 import { ChatFocusMark } from "../ChatFocusMark.js";
@@ -86,7 +90,8 @@ export function SideColumn({
   const { items, focus, focusAt } = useSideColumn();
   const folds = useRememberedFolds();
   const isOpen = (id: string) => !folds.isFolded(sideFoldId(id));
-  const toggle = (id: string) => folds.toggle(sideFoldId(id));
+  // Unfolding goes through the column's open limit: a fourth open conversation folds the oldest.
+  const toggle = (id: string) => (isOpen(id) ? folds.toggle(sideFoldId(id)) : unfoldSideItem(id));
   const heights = useSectionHeights(SIDE_HEIGHTS_STACK);
   const sectionIds = [...items.map((item) => item.id), ...(leaderId ? [HOME_ITEM] : [])];
   const idsKey = sectionIds.join(",");
@@ -116,13 +121,20 @@ export function SideColumn({
     const opened = items.find((item) => item.id === focus);
     if (variant === "docked" && opened && isChatItem(opened)) focusChat(sideChatId(focus));
   }, [focus, focusAt]);
-  // Open sections stay mounted, and so do the last few folded ones, like kept conversations.
+  // Open sections stay mounted, and so do the last few folded pages. A folded conversation unmounts:
+  // its feed and live messages are what the open limit saves, and it reopens where it was left.
+  const conversationIds = new Set(items.filter(isConversationItem).map((item) => item.id));
   const keptRef = useRef<string[]>([]);
   const openIds = sectionIds.filter(isOpen);
-  keptRef.current = [...openIds, ...keptRef.current.filter((id) => !openIds.includes(id))]
+  keptRef.current = [...openIds, ...keptRef.current.filter((id) => !openIds.includes(id) && !conversationIds.has(id))]
     .filter((id) => sectionIds.includes(id))
     .slice(0, openIds.length + KEPT_MOUNTED);
   const kept = keptRef.current;
+  // Using a pane (focusing it) makes it the last conversation the open limit folds.
+  const focusedChat = useChatFocusStore((state) => state.focused);
+  useEffect(() => {
+    if (focusedChat.startsWith("side:")) noteSideItemUsed(focusedChat.slice("side:".length));
+  }, [focusedChat]);
   const close = () => (variant === "sheet" ? setTopicSheetOpen(false) : setTopicPanelOpen(false));
   useEffect(() => {
     if (leaderId) loadLeaderNamesOnce(leaderId);
@@ -130,17 +142,28 @@ export function SideColumn({
   // The column's conversations read and send over their leaders' connections, which the main view
   // keeps open only for the session it shows. Held per leader, so a new chat turning into its
   // thread keeps the same connection: dropping it in between loses the live messages of its first turn.
-  const itemLeaders = [...new Set(items.flatMap((item) => sideItemLeader(item) ?? []))].sort().join(",");
+  // Only open conversations and new threads need theirs: a folded one shows nothing live.
+  const itemLeaders = [
+    ...new Set(
+      items.flatMap((item) =>
+        (item.kind === "conversation" || item.kind === "new-chat") && isOpen(item.id) ? [item.leaderId] : [],
+      ),
+    ),
+  ]
+    .sort()
+    .join(",");
   useEffect(() => {
     const releases = itemLeaders ? itemLeaders.split(",").map((other) => holdSessionConnection(other)) : [];
     return () => {
       for (const release of releases) release();
     };
   }, [itemLeaders]);
-  // The server sends this browser the live messages of the conversations in the column too, each
-  // over its leader's connection.
+  // The server sends this browser the live messages of the column's open conversations too, each
+  // over its leader's connection; a folded one's stop until it is opened again.
   const conversationViews = items
-    .flatMap((item) => (item.kind === "conversation" ? [`${item.leaderId} ${item.threadKey.toLowerCase()}`] : []))
+    .flatMap((item) =>
+      item.kind === "conversation" && isOpen(item.id) ? [`${item.leaderId} ${item.threadKey.toLowerCase()}`] : [],
+    )
     .join(",");
   useEffect(() => {
     const owner = {};

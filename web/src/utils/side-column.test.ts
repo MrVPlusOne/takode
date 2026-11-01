@@ -9,6 +9,7 @@ import {
   mergeLeaderColumns,
   newSideChat,
   notePaneClick,
+  noteSideItemUsed,
   openConversationInSide,
   openInSideClickLabel,
   openQuestInSide,
@@ -17,6 +18,7 @@ import {
   replaceSideItem,
   showMainView,
   sideFoldId,
+  unfoldSideItem,
   useSideColumnStore,
   wantsSideClick,
 } from "./side-column.js";
@@ -90,6 +92,47 @@ describe("side column items", () => {
       threadKey: "topic:aaaa0002",
       leaderId: "l1",
     });
+  });
+});
+
+describe("at most three open conversations", () => {
+  it("folds the least recently opened or used conversation when a fourth opens", () => {
+    // Jiayi (Nov 1): each open conversation keeps its feed and live messages; three at most.
+    const open = () =>
+      items()
+        .filter((item) => !isRememberedFolded(sideFoldId(item.id)))
+        .map((item) => item.id);
+    const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+    const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    const c = openInSide({ kind: "session", sessionId: "worker-1" });
+    // Pages and quest details don't count.
+    const page = openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
+    const details = openInSide({ kind: "quest", questId: "q-9" });
+    expect(open()).toEqual(expect.arrayContaining([a, b, c, page, details]));
+    // Using the oldest makes it the last to fold.
+    noteSideItemUsed(a);
+    const d = openInSide({ kind: "conversation", threadKey: "q-4", leaderId: "l2" });
+    expect(isRememberedFolded(sideFoldId(b))).toBe(true);
+    expect(open()).toEqual(expect.arrayContaining([a, c, d, page, details]));
+    // Unfolding a folded one folds the next oldest.
+    unfoldSideItem(b);
+    expect(isRememberedFolded(sideFoldId(c))).toBe(true);
+    expect(
+      open()
+        .filter((id) => [a, b, c, d].includes(id))
+        .sort(),
+    ).toEqual([a, b, d].sort());
+  });
+
+  it("counts a new thread once it becomes its conversation", () => {
+    const convs = ["q-1", "q-2", "q-3"].map((threadKey) =>
+      openInSide({ kind: "conversation", threadKey, leaderId: "l1" }),
+    );
+    const chat = openInSide({ kind: "new-chat", leaderId: "l1", startedFrom: null });
+    expect(convs.every((id) => !isRememberedFolded(sideFoldId(id)))).toBe(true);
+    replaceSideItem(chat, { kind: "conversation", threadKey: "topic:aaaa0001", leaderId: "l1" });
+    expect(isRememberedFolded(sideFoldId(convs[0]!))).toBe(true);
+    expect(isRememberedFolded(sideFoldId(chat))).toBe(false);
   });
 });
 
