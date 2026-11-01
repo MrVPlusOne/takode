@@ -29,3 +29,12 @@ export function normalizeNotifyThreadRoute(
   const target = threadTarget ?? questTarget;
   return target ? { ok: true, route: threadRouteForTarget(target.threadKey) } : { ok: true };
 }
+
+/**
+ * Why a leader's question or result is refused in Main: Main is only the leader's log, which the
+ * user reads to check what happened; their Home lists threads. Says where it goes instead.
+ */
+export const LEADER_NOTIFY_IN_MAIN_ERROR =
+  "Leaders don't ask or report in Main: Main is your log, and the user's Home lists threads, not Main. " +
+  "Ask in the thread it is about (--thread q-N or --thread topic:<handle>), or open one first: " +
+  'takode thread new "<subject>" --topic "<topic>", then takode notify ... --thread topic:<handle>.';

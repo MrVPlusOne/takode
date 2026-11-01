@@ -53,8 +53,8 @@ Do not combine stdin and positional response text.
 Answer a pending needs-input question or approve/reject an ExitPlanMode prompt from a herded session.
 `;
 
-const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <main|q-N> | --quest <q-N>] [--suggest <answer>]... [--json]
-       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--no-checkpoint] [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
+const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <q-N|topic:<handle>> | --quest <q-N>] [--suggest <answer>]... [--json]
+       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--no-checkpoint] [--thread <q-N|topic:<handle>> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--muted] [--json]
        takode notify mute <notification-id> [--json]
        takode notify unmute <notification-id> [--json]

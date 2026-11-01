@@ -153,3 +153,59 @@ describe("leader output to a topic thread no topic has", () => {
     expect(buildThreadRoutingReminderForCompletedTurn(turn("topic:6fd2c4bb"))).toBeNull();
   });
 });
+
+describe("leader answers left in Main", () => {
+  // Main is only the leader's log; the user's Home lists threads. An answer or new result left in
+  // Main gets a reminder (the answer is kept); answers routed to the threads that own their
+  // requests, and commentary, don't.
+  function turn(answer: { threadKey: string; role: "answer" | "commentary"; ids?: string[] }, requestThread = "main") {
+    const reply = semanticRejectedAnswer();
+    delete reply.threadRoutingError;
+    return {
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "user-1",
+          content: "Is the eval stalled?",
+          timestamp: 1,
+          leaderResponseCoverageVersion: 1,
+          leaderUserMessageId: "u1",
+          threadKey: requestThread,
+          ...(requestThread.startsWith("q-") ? { questId: requestThread } : {}),
+        },
+        {
+          ...reply,
+          threadKey: answer.threadKey,
+          questId: undefined,
+          threadRefs: undefined,
+          leaderThreadRole: answer.role,
+          ...(answer.ids ? { leaderAnswerUserMessageIds: answer.ids } : {}),
+        },
+      ] as BrowserIncomingMessage[],
+      userMessageIdsThisTurn: [0],
+      messageCountAtTurnStart: 0,
+    };
+  }
+
+  it("reminds the leader about a new result or an answer to a Main request left in Main", () => {
+    const result = buildThreadRoutingReminderForCompletedTurn(turn({ threadKey: "main", role: "answer" }));
+    expect(result?.content).toContain("You posted a new result in Main");
+    expect(result?.content).toContain("takode thread new");
+    const request = buildThreadRoutingReminderForCompletedTurn(
+      turn({ threadKey: "main", role: "answer", ids: ["u1"] }),
+    );
+    expect(request?.content).toContain("You answered a request in Main");
+    expect(request?.content).toContain("takode thread handoff");
+  });
+
+  it("stays quiet for commentary in Main, answers in a thread, and answers routed to a quest's request", () => {
+    expect(buildThreadRoutingReminderForCompletedTurn(turn({ threadKey: "main", role: "commentary" }))).toBeNull();
+    expect(
+      buildThreadRoutingReminderForCompletedTurn(turn({ threadKey: "q-7", role: "answer", ids: ["u1"] }, "q-7")),
+    ).toBeNull();
+    // Written with a Main marker, but the request is q-7's: the answer goes to q-7 by itself.
+    expect(
+      buildThreadRoutingReminderForCompletedTurn(turn({ threadKey: "main", role: "answer", ids: ["u1"] }, "q-7")),
+    ).toBeNull();
+  });
+});

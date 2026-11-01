@@ -366,7 +366,7 @@ describe("takode notify needs-input left-panel visibility", () => {
     try {
       const res = await app.request("/api/sessions/orch-1/notify", {
         method: "POST",
-        body: JSON.stringify({ category: "needs-input", summary: "Need routing decision" }),
+        body: JSON.stringify({ category: "needs-input", summary: "Need routing decision", threadKey: "q-7" }),
       });
 
       expect(res.status).toBe(200);

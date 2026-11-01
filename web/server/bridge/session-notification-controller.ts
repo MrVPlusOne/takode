@@ -364,6 +364,46 @@ export function broadcastNotificationRefresh(session: SessionLike, deps: Persist
   deps.persistSession(session);
 }
 
+/**
+ * Where a notification would go: the thread it names, else the thread of the turn that asks, else
+ * the thread of the message it anchors to (Main when nothing says).
+ */
+function notificationPlacement(
+  session: SessionLike,
+  category: SessionNotification["category"],
+  deps: Pick<NotifyUserDeps, "getLauncherSessionInfo" | "isHerdedWorkerSession">,
+  threadRoute: ThreadRouteMetadata | undefined,
+): {
+  preferredThreadRoute: ThreadRouteMetadata | null;
+  anchorIndex: number | undefined;
+  threadRoute: ThreadRouteMetadata;
+} {
+  const preferredThreadRoute = threadRoute ?? activeNotificationThreadRoute(session);
+  const isLeaderSession = deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
+  const preferVisibleTextAnchor =
+    isLeaderSession && category === "needs-input" && !deps.isHerdedWorkerSession?.(session);
+  const anchorIndex = findLastNotificationAnchorIndex(session, { preferredThreadRoute, preferVisibleTextAnchor });
+  return {
+    preferredThreadRoute,
+    anchorIndex,
+    threadRoute:
+      preferredThreadRoute ?? resolveConsistentNotificationThreadRoute(session.messageHistory, anchorIndex, "pending"),
+  };
+}
+
+/**
+ * The thread a notification would be filed in (see `notifyUser`): `main` when it would land in
+ * Main. Leaders' questions and results must not, since Main is only their log.
+ */
+export function notificationThreadKey(
+  session: SessionLike,
+  category: SessionNotification["category"],
+  deps: Pick<NotifyUserDeps, "getLauncherSessionInfo" | "isHerdedWorkerSession">,
+  threadRoute: ThreadRouteMetadata | undefined,
+): string {
+  return notificationPlacement(session, category, deps, threadRoute).threadRoute.threadKey;
+}
+
 export function notifyUser(
   session: SessionLike,
   category: SessionNotification["category"],
@@ -372,14 +412,12 @@ export function notifyUser(
   options: NotifyUserOptions = {},
 ): NotifyUserResult {
   const timestamp = Date.now();
-  const preferredThreadRoute = options.threadRoute ?? activeNotificationThreadRoute(session);
   const isLeaderSession = deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
-  const preferVisibleTextAnchor =
-    isLeaderSession && category === "needs-input" && !deps.isHerdedWorkerSession?.(session);
-  let anchorIndex = findLastNotificationAnchorIndex(session, { preferredThreadRoute, preferVisibleTextAnchor });
+  const placement = notificationPlacement(session, category, deps, options.threadRoute);
+  const preferredThreadRoute = placement.preferredThreadRoute;
+  let anchorIndex = placement.anchorIndex;
   let anchor = anchorIndex !== undefined ? getNotificationAnchor(session.messageHistory[anchorIndex]) : undefined;
-  const candidateThreadRoute =
-    preferredThreadRoute ?? resolveConsistentNotificationThreadRoute(session.messageHistory, anchorIndex, "pending");
+  const candidateThreadRoute = placement.threadRoute;
   const suggestedAnswers =
     category === "needs-input" && options.suggestedAnswers?.length ? options.suggestedAnswers : undefined;
   const questions = category === "needs-input" && options.questions?.length ? options.questions : undefined;

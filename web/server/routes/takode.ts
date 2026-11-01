@@ -68,7 +68,8 @@ import { registerThreadMonitoringRoutes } from "./thread-monitoring.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
-import { normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
+import { LEADER_NOTIFY_IN_MAIN_ERROR, normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
+import { notificationThreadKey } from "../bridge/session-notification-controller.js";
 import { registerTakodeReconnectRoute } from "./takode-reconnect.js";
 import { registerTakodeActivityRoute } from "./takode-activity-route.js";
 import { publishWorkerReport } from "../worker-report.js";
@@ -1846,6 +1847,13 @@ export function createTakodeRoutes(ctx: RouteContext) {
         notificationId: null,
         rawNotificationId: null,
       });
+    }
+    // A leader's Main is only its log: its questions and results go in the thread they are about.
+    if (
+      launcher.getSession(id)?.isOrchestrator === true &&
+      notificationThreadKey(session, category, notificationRouteDeps, threadRouteResult.route ?? undefined) === "main"
+    ) {
+      return c.json({ error: LEADER_NOTIFY_IN_MAIN_ERROR, code: "LEADER_NOTIFY_IN_MAIN" }, 400);
     }
     const result = notifyUserController(session, category, summary, notificationRouteDeps, {
       ...(contextResult.context ? { context: contextResult.context } : {}),

@@ -173,12 +173,24 @@ describe("Markdown report publication and human comments", () => {
 
   it("requires publication authentication, an own-session target and a related worker", async () => {
     const h = harness();
-    const body = { content: "# Report", sourcePath: "/unread/server/path.md", threadKey: "main" };
+    const body = { content: "# Report", sourcePath: "/unread/server/path.md", threadKey: "q-42" };
     expect((await h.post("/takode/reports", body)).status).toBe(403);
     expect((await h.post("/takode/reports", { ...body, sessionId: "report-worker" }, true)).status).toBe(403);
     h.sessions.get("report-worker")!.herdedBy = "another-leader";
     expect((await h.post("/takode/reports", { ...body, responsibleWorkerId: "report-worker" }, true)).status).toBe(403);
     // A valid upload succeeds even when the server has no such path: this API never reads it.
+    expect((await h.post("/takode/reports", body, true)).status).toBe(201);
+  });
+
+  it("refuses a leader's report into Main, its log, and keeps a worker's", async () => {
+    // The user's Home lists a leader's threads, not Main, so a report there would go unseen.
+    const h = harness();
+    const body = { content: "# Report", sourcePath: "/report.md", threadKey: "main" };
+    const refused = await h.post("/takode/reports", body, true);
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toContain("--thread q-N");
+    expect(h.host.messageHistory).toHaveLength(0);
+    h.sessions.get("report-host")!.isOrchestrator = false;
     expect((await h.post("/takode/reports", body, true)).status).toBe(201);
   });
 

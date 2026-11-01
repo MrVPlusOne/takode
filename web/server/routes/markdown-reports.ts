@@ -70,8 +70,17 @@ export function publishSessionReport(
     responsibleWorkerId?: unknown;
     guidedReview?: GuidedReviewMeta;
   },
-): { message: MarkdownReportMessage } | { error: string; status: 403 } {
+): { message: MarkdownReportMessage } | { error: string; status: 400 | 403 } {
   const threadKey = readThread(input.threadKey);
+  // A leader's Main is only its log: its reports go in the thread they are about.
+  if (threadKey === "main" && ctx.launcher.getSession(callerId)?.isOrchestrator === true) {
+    return {
+      error:
+        "Leaders don't publish reports in Main: Main is your log, and the user's Home lists threads. " +
+        'Publish with --thread q-N or --thread topic:<handle> (open one with takode thread new "<subject>").',
+      status: 400,
+    };
+  }
   if (input.sessionId !== undefined && input.sessionId !== callerId) {
     return { error: "Reports can only be published into the caller's own session.", status: 403 };
   }

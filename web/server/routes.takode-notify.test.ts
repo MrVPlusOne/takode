@@ -588,6 +588,8 @@ describe("Takode notify endpoint", () => {
         },
       ]),
     );
+    // The leader's turn is in a quest's thread: a leader's question or result never lands in Main.
+    bridge._sessions["orch-1"].activeTurnRoute = { threadKey: "q-1", questId: "q-1" };
     bridge.getSession.mockImplementation((sessionId: string) => bridge._sessions[sessionId] ?? null);
     return sessions;
   }
@@ -632,7 +634,7 @@ describe("Takode notify endpoint", () => {
 
   it("uses the current routed notify turn instead of a stale quest-thread assistant anchor", async () => {
     setupTakodeSessions();
-    bridge._sessions["orch-1"].activeTurnRoute = { threadKey: "main" };
+    bridge._sessions["orch-1"].activeTurnRoute = { threadKey: "q-888", questId: "q-888" };
     bridge._sessions["orch-1"].messageHistory.push({
       type: "assistant",
       message: { id: "stale-quest-anchor", content: [{ type: "text", text: "Completed unrelated thread work." }] },
@@ -665,15 +667,13 @@ describe("Takode notify endpoint", () => {
       category: "needs-input",
       summary: "Approve previous-user-message navigation quest",
       messageId: expect.stringMatching(/^leader-needs-input-/),
-      threadKey: "main",
+      threadKey: "q-888",
       done: false,
     });
-    expect(bridge._sessions["orch-1"].notifications[0].questId).toBeUndefined();
-    expect(bridge._sessions["orch-1"].notifications[0].threadRefs).toBeUndefined();
     expect(bridge._sessions["orch-1"].messageHistory[1]).toMatchObject({
       type: "leader_user_message",
-      threadKey: "main",
-      notification: expect.objectContaining({ id: "n-1", threadKey: "main" }),
+      threadKey: "q-888",
+      notification: expect.objectContaining({ id: "n-1", threadKey: "q-888" }),
     });
   });
 
@@ -724,7 +724,8 @@ describe("Takode notify endpoint", () => {
         message: { id: "approval-plan", content: [{ type: "text", text: "Approve the plan?" }] },
         parent_tool_use_id: null,
         timestamp: 1000,
-        threadKey: "main",
+        threadKey: "q-1",
+        questId: "q-1",
       },
       {
         type: "user_message",
@@ -735,7 +736,8 @@ describe("Takode notify endpoint", () => {
           sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
           sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
         },
-        threadKey: "main",
+        threadKey: "q-1",
+        questId: "q-1",
       },
     );
 
@@ -753,7 +755,8 @@ describe("Takode notify endpoint", () => {
       id: "n-1",
       category: "needs-input",
       messageId: "approval-plan",
-      threadKey: "main",
+      threadKey: "q-1",
+      questId: "q-1",
     });
     expect(bridge._sessions["orch-1"].messageHistory[1].threadOutcomeReminder).toMatchObject({
       status: "satisfied",
@@ -934,7 +937,8 @@ describe("Takode notify endpoint", () => {
       message: { id: "visible-prompt", content: [{ type: "text", text: "Please answer this prompt." }] },
       parent_tool_use_id: null,
       timestamp: 1000,
-      threadKey: "main",
+      threadKey: "q-1",
+      questId: "q-1",
     });
 
     const notifyRes = await app.request("/api/sessions/orch-1/notify", {
@@ -957,7 +961,7 @@ describe("Takode notify endpoint", () => {
       "received",
       undefined,
       undefined,
-      { threadKey: "main" },
+      expect.objectContaining({ threadKey: "q-1", questId: "q-1" }),
       expect.objectContaining({
         deliveryContent: "[reply] Need answer\n\nreceived",
         replyContext: { messageId: "visible-prompt", notificationId: "n-1", previewText: "Need answer" },
@@ -997,6 +1001,8 @@ describe("Takode notify endpoint", () => {
       type: "assistant",
       message: { id: "asst-1", content: [{ type: "text", text: "Need approval" }] },
       timestamp: 1000,
+      threadKey: "q-1",
+      questId: "q-1",
     });
 
     const res = await app.request("/api/sessions/orch-1/notify", {
@@ -1047,6 +1053,8 @@ describe("Takode notify endpoint", () => {
       type: "assistant",
       message: { id: "asst-1", content: [{ type: "text", text: "Need choices" }] },
       timestamp: 1000,
+      threadKey: "q-1",
+      questId: "q-1",
     });
 
     const res = await app.request("/api/sessions/orch-1/notify", {
@@ -1148,10 +1156,42 @@ describe("Takode notify endpoint", () => {
     expect(res.status).toBe(200);
     expect(bridge._sessions["orch-1"].messageHistory[0]).toMatchObject({
       message: { content: [{ type: "text", text: "A is faster." }] },
-      threadKey: "main",
+      threadKey: "q-1",
       leaderThreadRole: "commentary",
     });
     expect(bridge._sessions["orch-1"].messageHistory[0].leaderAnswerUserMessageIds).toBeUndefined();
+  });
+
+  it("refuses a leader's question or result that would land in Main, and keeps workers' notifications", async () => {
+    // Main is only the leader's log; the user's Home lists threads. A question asked from a turn in
+    // Main, or sent with --thread main, is refused with where to ask instead, and nothing is stored.
+    const sessions = setupTakodeSessions();
+    const post = (payload: Record<string, unknown>) =>
+      app.request("/api/sessions/orch-1/notify", {
+        method: "POST",
+        headers: authHeaders("orch-1", "tok-1"),
+        body: JSON.stringify({ summary: "Ship now?", ...payload }),
+      });
+    for (const payload of [
+      { category: "needs-input", threadKey: "main" },
+      { category: "review", threadKey: "main" },
+    ]) {
+      const res = await post(payload);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({
+        code: "LEADER_NOTIFY_IN_MAIN",
+        error: expect.stringContaining("takode thread new"),
+      });
+    }
+    bridge._sessions["orch-1"].activeTurnRoute = { threadKey: "main" };
+    expect((await post({ category: "needs-input" })).status).toBe(400);
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+    expect(bridge._sessions["orch-1"].messageHistory).toEqual([]);
+    // A thread named explicitly is fine from a turn in Main.
+    expect((await post({ category: "needs-input", threadKey: "topic:aa11bb22" })).status).toBe(200);
+    // A worker's session has no threads: its Main is its conversation.
+    sessions["orch-1"].isOrchestrator = false;
+    expect((await post({ category: "needs-input", summary: "Worker asks" })).status).toBe(200);
   });
 
   it("rejects invalid needs-input context and answers", async () => {

@@ -44,6 +44,7 @@ import {
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
 import { extractQuestThreadRemindersFromContent } from "./quest-thread-reminder.js";
+import { findLeaderUserMessageById } from "../leader-user-message-id.js";
 
 const THREAD_ROUTING_EXPECTED =
   "Start visible leader text with [thread:main:C], [thread:q-N:C], or an answer marker such as [thread:main:A:u1] / [thread:q-N:A:u1,u2] (or [thread:q-N:A] for a result nobody asked for). Bash commands must start with # thread:main or # thread:q-N.";
@@ -678,13 +679,47 @@ function findUnknownThreadKeyForCurrentTurn(session: ThreadRoutingReminderSessio
   return null;
 }
 
+/**
+ * An answer this turn's leader wrote in Main that stays there: a new result (`[thread:main:A]`), or an
+ * answer to a request Main owns. Main is only the leader's log; the user's Home lists threads, so they
+ * would see it only by opening the log. Answers to requests other threads own are routed to those
+ * threads by themselves, so they are fine. The answer is kept; the leader is told where it belongs.
+ */
+function findMainAnswerForCurrentTurn(session: ThreadRoutingReminderSessionLike): "result" | "request" | null {
+  const startIndex = firstCurrentTurnHistoryIndex(session);
+  for (let index = startIndex; index < session.messageHistory.length; index++) {
+    const entry = session.messageHistory[index];
+    if (entry?.type !== "assistant" || entry.leaderThreadRole !== "answer") continue;
+    if ((entry.threadKey ?? "main") !== "main") continue;
+    const ids = entry.threadAnswer?.answerUserMessageIds ?? entry.leaderAnswerUserMessageIds ?? [];
+    if (ids.length === 0) return "result";
+    const ownedByMain = ids.some((id) => {
+      const request = findLeaderUserMessageById(session.messageHistory, id);
+      return !!request && (leaderResponseThreadKeyForUserMessage(request.message) ?? "main") === "main";
+    });
+    if (ownedByMain) return "request";
+  }
+  return null;
+}
+
+/** The reminder for a leader's answer left in Main. */
+export function buildMainAnswerReminderContent(kind: "result" | "request"): string {
+  return [
+    THREAD_ROUTING_REMINDER_HEADER,
+    kind === "result"
+      ? "You posted a new result in Main (`[thread:main:A]`). Main is only your log: the user's Home lists threads, so they won't see it there."
+      : "You answered a request in Main. Main is only your log: the user's Home lists threads, so they see the answer only by opening the log.",
+    'Post what the user should read in the thread it is about (`[thread:q-N:A]`, `[thread:topic:<handle>:A]`), or open one first: `takode thread new "<subject>" --topic "<topic>"`. For a request still waiting in Main, hand it to that thread (`takode thread handoff <thread> --user uN`) and answer there. Commentary and shell commands in Main are fine: they are your log.',
+  ].join("\n");
+}
+
 /** The warning for leader output routed to a key that names no thread. */
 export function buildUnknownThreadReminderContent(threadKey: string): string {
   return [
     THREAD_ROUTING_REMINDER_HEADER,
     `Unknown thread \`${threadKey}\`: no thread has that handle (a topic's handle names no thread: topics are tags), so your output there shows in no thread view (only in All).`,
     describeClosestThreads(threadKey),
-    "Thread handles come from the `[thread:topic:<handle>]` tag on the user's messages in that thread and from `takode thread new`. Post again in the thread you meant (`[thread:topic:<handle>:C]`, `:A:uN`, Main or a quest); answers to requests still follow the requests they name.",
+    "Thread handles come from the `[thread:topic:<handle>]` tag on the user's messages in that thread and from `takode thread new`. Post again in the thread you meant (`[thread:topic:<handle>:C]`, `:A:uN`, or a quest); answers to requests still follow the requests they name.",
   ].join("\n");
 }
 
@@ -695,9 +730,15 @@ export function buildThreadRoutingReminderForCompletedTurn(
   const error = findThreadRoutingErrorForCurrentTurn(session);
   if (!error) {
     const unknownThread = findUnknownThreadKeyForCurrentTurn(session);
-    return unknownThread
+    const mainAnswer = unknownThread ? null : findMainAnswerForCurrentTurn(session);
+    const content = unknownThread
+      ? buildUnknownThreadReminderContent(unknownThread)
+      : mainAnswer
+        ? buildMainAnswerReminderContent(mainAnswer)
+        : null;
+    return content
       ? {
-          content: buildUnknownThreadReminderContent(unknownThread),
+          content,
           route: findTriggeringTurnRoute(session),
           agentSource: {
             sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,
