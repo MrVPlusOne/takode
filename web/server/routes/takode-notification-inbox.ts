@@ -180,7 +180,9 @@ export function registerTakodeNotificationInboxRoutes(
     if (!session) return c.json({ error: "Session not found" }, 404);
     const before = snapshotNeedsInputForDismissal(session);
     const ok = markNotificationDoneController(session, notifId, done, notificationPersistDeps, {
-      ...(done ? { resolutionNotice: "pending" as const, resolutionNoticeSource: "manual" as const } : {}),
+      ...(done
+        ? { resolutionNotice: "pending" as const, resolutionNoticeSource: "manual" as const, byUser: true }
+        : {}),
     });
     if (!ok) return c.json({ error: "Notification not found" }, 404);
     if (done) reportNeedsInputDismissals(ctx, session, before);

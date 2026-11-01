@@ -497,8 +497,16 @@ export interface AppState {
   focusComposerTrigger: number;
   /** The composer the last focus request is for, by its draft key; null: the main composer on screen. */
   focusComposerTarget: string | null;
-  /** Asks a composer to take focus: the one with this draft key, or the main one on screen. */
-  focusComposer: (draftKey?: string) => void;
+  /**
+   * A composer to focus once it appears, by its draft key: a request made while navigating to it (a
+   * new thread from the sessions panel opens a leader's Home, whose composer mounts after).
+   */
+  focusComposerPending: string | null;
+  /**
+   * Asks a composer to take focus: the one with this draft key, or the main one on screen.
+   * `whenShown` also focuses that composer when it appears, if it isn't on screen yet.
+   */
+  focusComposer: (draftKey?: string, options?: { whenShown?: boolean }) => void;
   turnActivityOverrides: Map<string, Map<string, boolean>>;
   autoExpandedTurnIds: Map<string, Set<string>>;
   toggleTurnActivity: (sessionId: string, turnId: string, defaultExpanded: boolean) => void;

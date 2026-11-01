@@ -4,6 +4,7 @@
  */
 import { fireEvent, screen, within } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { THREAD_GROUP_ORDER } from "../components/ThreadTabGroups.js";
 
 function groupChips(container?: HTMLElement): HTMLElement[] {
   const scope = container ? within(container) : screen;
@@ -24,7 +25,8 @@ const LISTED_ID = "listed-thread-tabs";
 afterEach(() => document.querySelector(`[data-testid="${LISTED_ID}"]`)?.remove());
 
 /**
- * The leader's threads, group by group in the row's order and each group's own order, each once. Only one group's list can be open, so copies of every group's rows are kept in the
+ * The leader's threads, group by group by urgency (`THREAD_GROUP_ORDER`, not the row's left-to-right
+ * order) and each group's own order, each once. Only one group's list can be open, so copies of every group's rows are kept in the
  * document until `closeAllThreadTabs`: their text and attributes can be queried, but they don't
  * act; use `listedThreadTab` to click one (its group's list stays open).
  */
@@ -32,16 +34,19 @@ export function listedThreadTabs(container?: HTMLElement): HTMLElement[] {
   // A thread can be in two groups (what it needs from the user, and whether work goes on); it is
   // listed once, at its first group.
   const seen = new Set<string>();
-  const rows = groupChips(container).flatMap((chip) =>
-    openGroupRows(chip)
-      .filter((row) => {
-        const key = row.dataset.threadKey ?? "";
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .map((row) => row.cloneNode(true) as HTMLElement),
-  );
+  const urgency = (chip: HTMLElement) => THREAD_GROUP_ORDER.indexOf(chip.dataset.group as never);
+  const rows = [...groupChips(container)]
+    .sort((left, right) => urgency(left) - urgency(right))
+    .flatMap((chip) =>
+      openGroupRows(chip)
+        .filter((row) => {
+          const key = row.dataset.threadKey ?? "";
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .map((row) => row.cloneNode(true) as HTMLElement),
+    );
   closeAllThreadTabs();
   const holder = document.createElement("div");
   holder.setAttribute("data-testid", LISTED_ID);

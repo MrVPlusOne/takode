@@ -36,10 +36,17 @@ import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 export type ThreadGroupId = "needs-input" | "new-results" | "idle" | "in-progress";
 
 /**
- * Left to right, Jiayi's order: what needs the user (questions, then unread results), then work
- * going on now, then the large, quiet Idle group (nothing running; finished quests included).
+ * The groups by urgency: what needs the user (questions, then unread results), then work going on
+ * now, then the large, quiet Idle group (nothing running; finished quests included). A thread in two
+ * groups belongs to the first here, and Home lists its sections in this order, top down.
  */
 export const THREAD_GROUP_ORDER: readonly ThreadGroupId[] = ["needs-input", "new-results", "in-progress", "idle"];
+
+/**
+ * The status row's tabs, left to right after Home: the urgent groups on the right, nearest the
+ * thumb and the bell (Jiayi, Nov 1).
+ */
+export const THREAD_GROUP_BAR_ORDER: readonly ThreadGroupId[] = [...THREAD_GROUP_ORDER].reverse();
 
 const GROUP_LABEL: Record<ThreadGroupId, string> = {
   "needs-input": "Needs you",
@@ -289,7 +296,7 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
           <span>Home</span>
           <AttentionBell tab={homeTab} />
         </BarItem>
-        {THREAD_GROUP_ORDER.map((id) =>
+        {THREAD_GROUP_BAR_ORDER.map((id) =>
           tabsOf(id).length > 0 ? (
             <BarItem
               key={id}

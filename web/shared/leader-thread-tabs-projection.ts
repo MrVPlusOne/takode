@@ -123,6 +123,36 @@ export interface LeaderThreadTabsProjectionValue {
   activePhaseDots?: string[];
   /** "Remind me later" wake times by thread key ("main" or a quest ID), including closed tabs. */
   threadReminders?: Record<string, LeaderThreadReminderProjection>;
+  /**
+   * When the user last dealt with each thread (`threadUserInteractionTimes` on the server: their own
+   * messages there and the results and questions they read or dismissed), by thread key: `main`, the
+   * tabs' threads, and the leader's other most recent ones. The sessions panel's Threads view lists
+   * threads in this order.
+   */
+  userInteractionAt?: Record<string, number>;
+}
+
+/** The most entries `userInteractionAt` holds. */
+export const LEADER_THREAD_TABS_PROJECTION_MAX_INTERACTIONS = 2 * LEADER_THREAD_TABS_PROJECTION_MAX_TABS + 1;
+
+function isUserInteractionTimes(value: unknown): value is Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value);
+  return (
+    entries.length <= LEADER_THREAD_TABS_PROJECTION_MAX_INTERACTIONS &&
+    entries.every(
+      ([key, at]) =>
+        isBoundedString(key, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
+        key === key.trim().toLowerCase() &&
+        isNonNegativeNumber(at),
+    )
+  );
+}
+
+function numberRecordsEqual(left: Record<string, number> | undefined, right: Record<string, number> | undefined) {
+  const leftKeys = Object.keys(left ?? {});
+  if (leftKeys.length !== Object.keys(right ?? {}).length) return false;
+  return leftKeys.every((key) => right?.[key] === left![key]);
 }
 
 export interface LeaderThreadReminderProjection {
@@ -347,6 +377,7 @@ export function isLeaderThreadTabsProjectionValue(value: unknown): value is Lead
     return false;
   }
   if (candidate.threadReminders !== undefined && !isThreadReminders(candidate.threadReminders)) return false;
+  if (candidate.userInteractionAt !== undefined && !isUserInteractionTimes(candidate.userInteractionAt)) return false;
 
   const tabKeys = candidate.tabs.map((tab) => tab.threadKey);
   if (new Set(tabKeys).size !== tabKeys.length) return false;
@@ -373,6 +404,8 @@ export interface LeaderThreadTabsProjectionPatch {
   q?: string[];
   /** The whole list of phase dots when it changed. */
   b?: string[];
+  /** The whole map of user interaction times when it changed. */
+  u?: Record<string, number>;
 }
 
 const STATUS_FIELDS = new Set([
@@ -433,6 +466,7 @@ export function createLeaderThreadTabsProjectionPatch(
   if (!arraysEqual(previous.activePhaseDots ?? [], next.activePhaseDots ?? [], (left, right) => left === right)) {
     patch.b = next.activePhaseDots ?? [];
   }
+  if (!numberRecordsEqual(previous.userInteractionAt, next.userInteractionAt)) patch.u = next.userInteractionAt ?? {};
   const patchBytes = jsonUtf8ByteLength(patch);
   const valueBytes = jsonUtf8ByteLength(next);
   return Object.keys(patch).length && patchBytes !== null && valueBytes !== null && patchBytes < valueBytes
@@ -455,7 +489,7 @@ export function applyLeaderThreadTabsProjectionPatch(
   }
   const patch = input as LeaderThreadTabsProjectionPatch;
   const keys = Object.keys(patch);
-  if (!keys.length || keys.some((key) => key.length !== 1 || !"dtoasprqb".includes(key))) return undefined;
+  if (!keys.length || keys.some((key) => key.length !== 1 || !"dtoasprqbu".includes(key))) return undefined;
 
   const tabMap = new Map(previous.tabs.map((tab) => [tab.threadKey, tab]));
   if (patch.t !== undefined) {
@@ -494,6 +528,7 @@ export function applyLeaderThreadTabsProjectionPatch(
     ...(patch.r !== undefined ? { threadReminders: patch.r } : {}),
     ...(patch.q !== undefined ? { runningQuestIds: patch.q } : {}),
     ...(patch.b !== undefined ? { activePhaseDots: patch.b } : {}),
+    ...(patch.u !== undefined ? { userInteractionAt: patch.u } : {}),
     tabs,
     threadStatuses,
   };
@@ -560,6 +595,9 @@ export function reconcileLeaderThreadTabsProjectionValue(
     arraysEqual(previous.activePhaseDots, next.activePhaseDots, (left, right) => left === right)
       ? previous.activePhaseDots
       : next.activePhaseDots;
+  const userInteractionAt = numberRecordsEqual(previous.userInteractionAt, next.userInteractionAt)
+    ? previous.userInteractionAt
+    : next.userInteractionAt;
   if (
     tabState === previous.tabState &&
     tabs === previous.tabs &&
@@ -568,7 +606,8 @@ export function reconcileLeaderThreadTabsProjectionValue(
     activePhaseSummary === previous.activePhaseSummary &&
     threadReminders === previous.threadReminders &&
     runningQuestIds === previous.runningQuestIds &&
-    activePhaseDots === previous.activePhaseDots
+    activePhaseDots === previous.activePhaseDots &&
+    userInteractionAt === previous.userInteractionAt
   ) {
     return previous;
   }
@@ -582,6 +621,7 @@ export function reconcileLeaderThreadTabsProjectionValue(
     ...(runningQuestIds ? { runningQuestIds } : {}),
     ...(activePhaseDots ? { activePhaseDots } : {}),
     ...(threadReminders ? { threadReminders } : {}),
+    ...(userInteractionAt ? { userInteractionAt } : {}),
   };
 }
 

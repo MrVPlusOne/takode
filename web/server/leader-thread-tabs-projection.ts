@@ -2,6 +2,7 @@ import {
   LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
   LEADER_THREAD_TABS_PROJECTION,
   LEADER_THREAD_TABS_PROJECTION_MAX_ACTIVE_PHASE_SEGMENTS,
+  LEADER_THREAD_TABS_PROJECTION_MAX_INTERACTIONS,
   LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_STATUSES,
   LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH,
@@ -46,6 +47,7 @@ import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BoardRow, BrowserIncomingMessage, SessionAttentionRecord } from "./session-types.js";
 import type { QuestStartedFrom } from "./quest-types.js";
 import { questSources } from "./quest-source-index.js";
+import { threadUserInteractionTimes } from "./thread-user-interaction.js";
 import { sideQuestSourceThreads } from "./supporting-quest.js";
 import {
   leaderMessageThreadKey,
@@ -844,6 +846,22 @@ function projectThreadReminders(session: Session): Record<string, LeaderThreadRe
   );
 }
 
+/**
+ * When the user last dealt with each thread (`threadUserInteractionTimes`), kept small: `main` and
+ * the tabs' threads, then the leader's other threads newest first.
+ */
+function projectUserInteractionTimes(
+  session: Session,
+  tabs: readonly LeaderThreadTabsProjectionTab[],
+): Record<string, number> {
+  const kept = new Set(["main", ...tabs.map((tab) => tab.threadKey)]);
+  const entries = [...threadUserInteractionTimes(session.messageHistory, session.notifications)]
+    .filter(([key]) => key.length <= LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)
+    .sort((left, right) => Number(kept.has(right[0])) - Number(kept.has(left[0])) || right[1] - left[1])
+    .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_INTERACTIONS);
+  return Object.fromEntries(entries);
+}
+
 export function buildLeaderThreadTabsProjectionValue(
   session: Session,
   options: CurrentQuestStateOptions = {},
@@ -960,6 +978,7 @@ export function buildLeaderThreadTabsProjectionValue(
       .filter((key) => /^q-\d+:/.test(key))
       .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS),
     threadReminders: projectThreadReminders(session),
+    userInteractionAt: projectUserInteractionTimes(session, tabs),
   });
 }
 

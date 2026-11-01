@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 /**
  * The sessions panel's Threads view: every leader's threads (quest threads from each leader's synced
- * tab projection, its other threads, the leader log while Main waits) in one list ordered by what
- * needs the user, each row with its leader's picture, topic and counts; then the leaders and the
- * other sessions. Jiayi: on desktop the panel is a place to see what needs attention across
- * leaders, and a thread they just started must show prominently, not only quest threads.
+ * tab projection, its other threads, the leader log while Main waits) in one list, the one the user
+ * last dealt with first, questions kept on top; each row with its leader's picture, news line and
+ * counts; then the leaders and the other sessions. Jiayi (Nov 1): the panel is for finding the
+ * thread just used, like a chat app; the bell and each leader's Home are for what needs attention.
  */
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -30,7 +30,7 @@ vi.mock("../../utils/routing.js", async (importOriginal) => ({
 import type { LeaderThreadTabsProjectionTab } from "../../../shared/leader-thread-tabs-projection.js";
 import { useStore } from "../../store.js";
 import type { RecentSessionNode } from "../../utils/recent-sessions.js";
-import { SidebarThreadsMode, threadRows, type LeaderThreadsInput } from "./SidebarThreadsMode.js";
+import { SidebarThreadsMode, ThreadsModeNewButton, threadRows, type LeaderThreadsInput } from "./SidebarThreadsMode.js";
 
 afterEach(() => {
   cleanup();
@@ -93,17 +93,20 @@ const LEADERS: LeaderThreadsInput[] = [
       },
     ],
     writingThreadKey: "topic:aa",
+    // When the user last dealt with each thread; q-2 never (the leader filed and finished it).
+    userInteractionAt: { "q-1": 10, "q-4": 70, main: 40 },
   },
   {
     node: MSI,
     tabs: [tab("q-3", { completed: true, groupChangedAt: 30 })],
     runningQuestIds: [],
     threads: [],
+    userInteractionAt: { "q-3": 60 },
   },
 ];
 
 describe("threadRows", () => {
-  it("files every leader's threads in the status row's groups: Needs you, Unread, In progress, Idle", () => {
+  it("lists every leader's threads by when the user last dealt with them, questions on top", () => {
     queue.items = [
       // A worker's question about q-1 counts in q-1.
       { kind: "needs-input", key: "n", sessionId: "worker", entry: { questId: "q-1" }, threadKey: "q-1" },
@@ -113,16 +116,18 @@ describe("threadRows", () => {
     ];
     const rows = threadRows(LEADERS, queue.items as never);
     expect(rows.map((row) => [row.threadKey, row.group])).toEqual([
+      // A question for the user stays on top, though the user dealt with q-1 longest ago.
       ["q-1", "needs-input"],
-      ["q-3", "new-results"],
-      // Leader log: Main's waiting answer, at the leader's last interaction.
-      ["all", "new-results"],
-      // In progress only while work goes on: the running quest and the thread the leader answers in.
+      // Then by the user's last dealing: the thread they just started, from its start...
       ["topic:aa", "in-progress"],
       ["q-4", "in-progress"],
-      // Idle: nothing running and nothing unread, newest interaction first.
-      ["q-2", "idle"],
+      // ...an unread result where it was (unread doesn't move a row; its dot and count say so)...
+      ["q-3", "new-results"],
+      // ...the leader log at the user's last message in Main...
+      ["all", "new-results"],
       ["topic:bb", "idle"],
+      // ...and last a thread the user never dealt with.
+      ["q-2", "idle"],
     ]);
     const counts = Object.fromEntries(rows.map((row) => [row.threadKey, row.counts]));
     expect(counts["q-1"]).toEqual({ permission: 1, unread: 0, running: 0 });
@@ -173,7 +178,9 @@ describe("SidebarThreadsMode", () => {
     // A quest's dot has its status group's color, never its phase's (Jiayi, Oct 31).
     expect(within(rows[0]!).getByTestId("threads-mode-row-dot").className).toContain("bg-cc-attention");
     fireEvent.click(rows[0]!);
-    expect(navigateToSessionThread).toHaveBeenCalledWith("takode", "q-1");
+    expect(navigateToSessionThread).toHaveBeenCalledWith("takode", "q-1", false, "takode", {
+      preserveMainThreadRoute: true,
+    });
     expect(onOpened).toHaveBeenCalled();
     expect(screen.getAllByTestId("threads-mode-leader").map((row) => row.textContent)).toEqual([
       expect.stringContaining("DevBox takode"),
@@ -264,5 +271,21 @@ describe("SidebarThreadsMode", () => {
       />,
     );
     expect((screen.getByTestId("threads-mode-leader-rename") as HTMLInputElement).value).toBe("Daily");
+  });
+
+  it("opens a leader's Home from New, its message box ready for a new thread, and closes the panel", () => {
+    // Jiayi (Nov 1): New with a leader landed on the leader's last thread (a bare leader address
+    // restores it), not on a new thread. It now names Home outright and asks Home's message box,
+    // which starts a new thread, to take focus once it appears.
+    const onOpened = vi.fn();
+    render(<ThreadsModeNewButton leaders={[TAKODE]} spaces={[]} onCreateSession={() => {}} onOpened={onOpened} />);
+    fireEvent.click(screen.getByRole("button", { name: "New thread or session" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /DevBox takode/ }));
+    expect(navigateToSessionThread).toHaveBeenCalledWith("takode", "main", false, "takode", {
+      preserveMainThreadRoute: true,
+    });
+    expect(useStore.getState().focusComposerPending).toBe("takode#side:home");
+    expect(onOpened).toHaveBeenCalled();
+    useStore.setState({ focusComposerPending: null });
   });
 });

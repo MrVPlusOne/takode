@@ -208,6 +208,40 @@ describe("mobile quest banner disclosure", () => {
 // The breadcrumb band on a phone (Jiayi's pick A of three built options): the phase chip is only
 // the phase dot and position, and the quest number goes when the title would otherwise get too
 // little room. jsdom has no layout, so the title's room and full width are stubbed per test.
+describe("the quest's chips in the feed on phones", () => {
+  beforeEach(() => {
+    useStore.getState().reset();
+    useStore
+      .getState()
+      .setSdkSessions([{ sessionId: "worker", sessionNum: 10, state: "connected", cwd: "/fixture", createdAt: 1 }]);
+  });
+
+  it("folds a working quest's chips into its phase chip, showing them all on a tap", () => {
+    // Jiayi (Nov 1): on an iPhone the Worker, commits, changes and phase chips spread over two lines
+    // and covered the conversation. A phone shows one compact chip; a tap shows the rest.
+    const width = window.innerWidth;
+    window.innerWidth = 430;
+    try {
+      render(<QuestThreadFeedChips row={bannerRow()} threadKey="q-9001" />);
+      const compact = screen.getByTestId("quest-thread-feed-chips-compact");
+      expect(within(compact).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Work");
+      expect(screen.queryByRole("link", { name: "Worker #10" })).not.toBeInTheDocument();
+      fireEvent.click(compact);
+      expect(screen.getByRole("link", { name: "Worker #10" })).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("quest-thread-feed-chips-fold"));
+      expect(screen.getByTestId("quest-thread-feed-chips-compact")).toBeInTheDocument();
+    } finally {
+      window.innerWidth = width;
+    }
+  });
+
+  it("keeps every chip on a desktop", () => {
+    render(<QuestThreadFeedChips row={bannerRow()} threadKey="q-9001" />);
+    expect(screen.queryByTestId("quest-thread-feed-chips-compact")).toBeNull();
+    expect(screen.getByRole("link", { name: "Worker #10" })).toBeInTheDocument();
+  });
+});
+
 describe("breadcrumb band on phones", () => {
   const layout = { room: 0, full: 0 };
   beforeEach(() => {

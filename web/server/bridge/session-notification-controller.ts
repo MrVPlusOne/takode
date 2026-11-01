@@ -113,6 +113,8 @@ type NotificationDoneOptions = {
   resolutionNotice?: ResolutionNoticeMode;
   resolutionNoticeSource?: "manual" | "response";
   suppressScheduledNotificationCancel?: boolean;
+  /** The user marked it done in a browser (see `SessionNotification.userDoneAt`). */
+  byUser?: boolean;
 };
 
 type NotificationMuteDeps = PersistNotificationDeps & {
@@ -1424,6 +1426,7 @@ function updateResolutionNoticeForDoneChange(
 ): void {
   if (done) notification.doneAt = Date.now();
   else delete notification.doneAt;
+  if (done && options.byUser) notification.userDoneAt = notification.doneAt;
   if (notification.category !== "needs-input") return;
   if (!done) {
     delete notification.resolutionNotice;

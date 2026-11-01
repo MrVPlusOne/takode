@@ -146,8 +146,8 @@ describe("ThreadTabRail members", () => {
       );
       expect(members).toEqual({ "topic:aa11": true, "topic:cc33": false });
       expect(screen.getAllByTestId("thread-tab-group-chip").map((chip) => chip.dataset.group)).toEqual([
-        "in-progress",
         "idle",
+        "in-progress",
       ]);
     } finally {
       useStore.setState({ sessionStatus: new Map(), activeTurnRoutes: new Map() } as never);

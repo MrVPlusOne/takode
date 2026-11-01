@@ -5,6 +5,7 @@ import type { LeaderThreadTabsProjectionTab } from "../../../shared/leader-threa
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { useNextAttention } from "../../hooks/useNextAttention.js";
 import { useStore } from "../../store.js";
+import { sideComposerDraftKey } from "../../draft-sync-bridge.js";
 import { useLeadersThreads } from "../../utils/leader-topics.js";
 import { timeAgo } from "../../utils/quest-helpers.js";
 import { useLeadersHomeLines } from "../home/HomeExtras.js";
@@ -27,14 +28,15 @@ import { questOf } from "../library/topic-questions.js";
 import { listedSpaces, useAnchoredPopover } from "../RecentSessionList.js";
 import { StatusCountDots } from "../SessionItem.js";
 import { StackedPanes } from "../StackedPanes.js";
-import { THREAD_GROUP_DOT, THREAD_GROUP_ORDER, type ThreadGroupId } from "../ThreadTabGroups.js";
+import { THREAD_GROUP_DOT, type ThreadGroupId } from "../ThreadTabGroups.js";
 
 /**
  * The sessions panel's Threads view: every leader's threads (quest threads and its other threads, as
- * its status row holds them) in one list, in the status row's groups (Needs you, Unread, In progress,
- * Idle), so on desktop the panel is also a place to see what needs attention across all
- * leaders. Idle threads come newest interaction first. Then the leaders themselves and every other session, as groups that
- * fold and share the panel's height (VS Code's side bar).
+ * its status row holds them) in one list, the one the user last dealt with first, like a chat app
+ * (Jiayi, Nov 1: finding the thread just used matters most here; the bell and each leader's Home
+ * are for going over what needs attention). Threads with a question for the user stay on top. Then
+ * the leaders themselves and every other session, as groups that fold and share the panel's height
+ * (VS Code's side bar).
  */
 
 /** What waits in a thread or a leader, as the panel's amber/blue/green counts. */
@@ -57,15 +59,17 @@ export interface ThreadRow {
    */
   label?: string;
   counts: ThreadCounts;
+  /** Its status: the dot's color, and questions (`needs-input`) stay on top. */
   group: ThreadGroupId;
-  /** When the user and it last dealt with each other: the order within a group. */
+  /**
+   * When the user last dealt with it (the projection's `userInteractionAt`; a thread the user
+   * started, from its start): the list's order. 0 when they never did.
+   */
   at: number;
+  /** Its own latest activity, for its "Updated" label and between rows the user never dealt with. */
+  activityAt: number;
 }
 
-const GROUP_RANK = Object.fromEntries(THREAD_GROUP_ORDER.map((id, index) => [id, index])) as Record<
-  ThreadGroupId,
-  number
->;
 /** The Idle rows shown before "N older". */
 const IDLE_SHOWN = 30;
 
@@ -77,19 +81,22 @@ export interface LeaderThreadsInput {
   threads: readonly ThreadSummary[];
   /** The thread the leader is writing in now, if any: it counts as running there. */
   writingThreadKey?: string | null;
+  /** When the user last dealt with each of its threads, by thread key (the tab projection's). */
+  userInteractionAt?: Readonly<Record<string, number>>;
 }
 
 /**
- * Every leader's threads as rows, in the status row's groups (Needs you, Unread, In progress,
- * Idle), each newest interaction first. A thread is In progress only while work goes on in it. A thread's counts come from the attention list (questions
- * amber, unread results blue, a running quest or the thread the leader is answering in green); a
- * question a leader's worker asks about one
- * of its quests counts in that quest. Main's questions and results are read in the leader log, which
- * is a row while they wait, as in the status row.
+ * Every leader's threads as rows, the one the user last dealt with first; threads with a question
+ * for the user stay on top, in the same order among themselves. Nothing else moves a row: an unread
+ * result or running work shows only in its dot and counts. A thread's counts come from the attention
+ * list (questions amber, unread results blue, a running quest or the thread the leader is answering
+ * in green); a question a leader's worker asks about one of its quests counts in that quest. Main's
+ * questions and results are read in the leader log, which is a row while they wait, as in the
+ * status row.
  */
 export function threadRows(leaders: readonly LeaderThreadsInput[], queue: readonly NextAttentionItem[]): ThreadRow[] {
   const rows: ThreadRow[] = [];
-  for (const { node, tabs, runningQuestIds, threads, writingThreadKey } of leaders) {
+  for (const { node, tabs, runningQuestIds, threads, writingThreadKey, userInteractionAt = {} } of leaders) {
     const leaderId = node.leader.id;
     const attention = attentionByThread(leaderId, queue, new Set(tabs.map((tab) => normalizeThreadKey(tab.threadKey))));
     const writing = writingThreadKey ? normalizeThreadKey(writingThreadKey) : null;
@@ -113,7 +120,8 @@ export function threadRows(leaders: readonly LeaderThreadsInput[], queue: readon
           questId: tab.questId,
           title: tab.title ?? tab.questId ?? threadKey,
           counts: counts(threadKey, running),
-          at: tab.groupChangedAt || tab.updatedAt,
+          at: userInteractionAt[threadKey] ?? 0,
+          activityAt: tab.groupChangedAt || tab.updatedAt,
         }),
       );
     }
@@ -127,7 +135,9 @@ export function threadRows(leaders: readonly LeaderThreadsInput[], queue: readon
           title: thread.name,
           label: "Thread",
           counts: counts(threadKey),
-          at: thread.interactionAt ?? thread.activityAt,
+          // Starting a thread is dealing with it: it is on top from the start.
+          at: Math.max(userInteractionAt[threadKey] ?? 0, thread.startedBy ? 0 : thread.createdAt),
+          activityAt: thread.interactionAt ?? thread.activityAt,
         }),
       );
     }
@@ -140,12 +150,16 @@ export function threadRows(leaders: readonly LeaderThreadsInput[], queue: readon
           title: "Leader log",
           label: "Main's messages",
           counts: main,
-          at: sessionInteractionAt(node.leader),
+          at: userInteractionAt[MAIN_THREAD_KEY] ?? 0,
+          activityAt: sessionInteractionAt(node.leader),
         }),
       );
     }
   }
-  return withoutRepeatedQuests(rows, leaders).sort((a, b) => GROUP_RANK[a.group] - GROUP_RANK[b.group] || b.at - a.at);
+  const asking = (row: ThreadRow) => (row.group === "needs-input" ? 1 : 0);
+  return withoutRepeatedQuests(rows, leaders).sort(
+    (a, b) => asking(b) - asking(a) || b.at - a.at || b.activityAt - a.activityAt,
+  );
 }
 
 /**
@@ -260,6 +274,7 @@ export function useThreadsModeData(nodes: readonly RecentSessionNode[], active: 
         runningQuestIds: (value?.runningQuestIds ?? []).map(normalizeThreadKey),
         threads: threads[node.leader.id] ?? [],
         writingThreadKey: writing[index] ?? null,
+        ...(value?.userInteractionAt ? { userInteractionAt: value.userInteractionAt } : {}),
       };
     });
     const listed = new Set(leaderNodes.map((node) => node.leader.id));
@@ -322,7 +337,9 @@ export function SidebarThreadsMode({
   const shown = allIdle ? rows : rows.filter((row) => row.group !== "idle" || idle.indexOf(row) < IDLE_SHOWN);
   const routeThread = useRouteThread();
   const open = (leaderId: string, threadKey: string, event: MouseEvent) => {
-    const plain = () => navigateToSessionThread(leaderId, threadKey);
+    // Main named outright: a bare leader address restores the thread viewed last, not Home.
+    const plain = () =>
+      navigateToSessionThread(leaderId, threadKey, false, leaderId, { preserveMainThreadRoute: true });
     handleOpenInSideClick(event, () => openInSideOnScreen({ kind: "conversation", threadKey, leaderId }), plain) ||
       plain();
     onOpened();
@@ -351,9 +368,15 @@ export function SidebarThreadsMode({
             defaultWeight: 3,
             children: (
               <div className="space-y-0.5" data-testid="threads-mode-threads">
-                {shown.map((row) => (
+                {shown.map((row, index) => (
                   <ThreadRowButton
                     key={row.key}
+                    // A line under the questions kept on top, where the order by recency starts.
+                    lastPinned={
+                      row.group === "needs-input" &&
+                      shown[index + 1]?.group !== "needs-input" &&
+                      index + 1 < shown.length
+                    }
                     row={row}
                     line={lineOf(row.leader.leader.id, row.threadKey)}
                     current={row.leader.leader.id === currentSessionId && routeThread === row.threadKey}
@@ -450,12 +473,14 @@ function threadRowMenuItems(row: ThreadRow, open: () => void): ContextMenuItem[]
  */
 function ThreadRowButton({
   row,
+  lastPinned,
   line,
   current,
   onOpen,
   onOpenMenu,
 }: {
   row: ThreadRow;
+  lastPinned?: boolean;
   /** The thread's news line, as on its leader's Home, when there is one. */
   line?: string;
   current: boolean;
@@ -465,7 +490,7 @@ function ThreadRowButton({
   const leader = row.leader.leader;
   const quiet = row.group === "idle";
   const longPress = useLongPress(onOpenMenu);
-  return (
+  const button = (
     <button
       type="button"
       onClick={onOpen}
@@ -508,10 +533,17 @@ function ThreadRowButton({
           </span>
         )}
         <span className="min-w-0 truncate" data-testid="threads-mode-line">
-          {line ?? row.label ?? (row.at ? `Updated ${timeAgo(row.at)}` : "")}
+          {line ?? row.label ?? (row.activityAt ? `Updated ${timeAgo(row.activityAt)}` : "")}
         </span>
       </div>
     </button>
+  );
+  if (!lastPinned) return button;
+  return (
+    <>
+      {button}
+      <div className="mx-2 my-1 border-t border-cc-border/60" data-testid="threads-mode-pinned-end" />
+    </>
   );
 }
 
@@ -611,15 +643,22 @@ function LeaderRow({
   );
 }
 
-/** In the Threads view, New starts a thread with a leader (at its Home), or a session as before. */
+/**
+ * In the Threads view, New starts a thread with a leader, or a session as before. A new thread is
+ * written at the leader's Home, whose message box starts one: New opens it in the main view, ready
+ * to type (Jiayi, Nov 1: it used to restore the leader's last thread instead).
+ */
 export function ThreadsModeNewButton({
   leaders,
   spaces,
   onCreateSession,
+  onOpened,
 }: {
   leaders: RecentSessionNode[];
   spaces: TreeViewGroupData[];
   onCreateSession: (spaceId: string) => void;
+  /** Called after it opened a leader's Home (closes the panel on phones, as opening a thread does). */
+  onOpened: () => void;
 }) {
   const popover = useAnchoredPopover();
   const item = `w-full px-2.5 py-1.5 flex items-center gap-2 truncate text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer ${TOUCH_MENU_ITEM_CLASS}`;
@@ -651,8 +690,12 @@ export function ThreadsModeNewButton({
               className={item}
               onClick={() => {
                 popover.close();
-                // The leader's Home, whose message box starts a new thread.
-                navigateToSessionThread(node.leader.id, MAIN_THREAD_KEY);
+                // Main named outright: a bare leader address restores the thread viewed last.
+                navigateToSessionThread(node.leader.id, MAIN_THREAD_KEY, false, node.leader.id, {
+                  preserveMainThreadRoute: true,
+                });
+                useStore.getState().focusComposer(sideComposerDraftKey(node.leader.id, "home"), { whenShown: true });
+                onOpened();
               }}
             >
               {node.leader.leaderProfilePortrait && (

@@ -25,12 +25,23 @@ export function useComposerNavigationFocus(options: {
     // none, the main composer.
     const target = useStore.getState().focusComposerTarget;
     if (target ? target !== draftKey : !enabled) return;
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.focus();
-    // A focus request means "continue typing here": put the cursor after the draft, not where it last was.
-    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    if (target && useStore.getState().focusComposerPending === target)
+      useStore.setState({ focusComposerPending: null });
+    focusAtEnd(textareaRef.current);
   }, [draftKey, enabled, focusTrigger, textareaRef]);
+
+  // A request made before this composer appeared (`focusComposer(draftKey, { whenShown: true })`).
+  // It is taken a frame later, once the view that brought the composer has settled: a composer
+  // shown and replaced at once (a remount) leaves the request to its replacement.
+  useEffect(() => {
+    if (useStore.getState().focusComposerPending !== draftKey) return;
+    const frame = requestAnimationFrame(() => {
+      if (useStore.getState().focusComposerPending !== draftKey || !textareaRef.current) return;
+      useStore.setState({ focusComposerPending: null });
+      focusAtEnd(textareaRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [draftKey, textareaRef]);
 
   useEffect(() => {
     const previous = previousNavigationRef.current;
@@ -39,4 +50,11 @@ export function useComposerNavigationFocus(options: {
     if (!usesTouchKeyboard || typeof document === "undefined") return;
     if (document.activeElement === textareaRef.current) textareaRef.current?.blur();
   }, [sessionId, textareaRef, threadKey, usesTouchKeyboard]);
+}
+
+/** A focus request means "continue typing here": the cursor goes after the draft, not where it last was. */
+function focusAtEnd(textarea: HTMLTextAreaElement | null): void {
+  if (!textarea) return;
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 }

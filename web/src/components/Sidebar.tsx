@@ -863,6 +863,9 @@ export function Sidebar({
                 leaders={threadsData.leaders.map((leader) => leader.node)}
                 spaces={treeViewGroups}
                 onCreateSession={handleCreateSessionInTreeGroup}
+                onOpened={() => {
+                  if (!isDesktopLayout) useStore.getState().setSidebarOpen(false);
+                }}
               />
             )}
             {!recentView && bulkSourceGroups.length > 0 && (

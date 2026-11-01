@@ -178,11 +178,12 @@ describe("ThreadGroupBar", () => {
     expect(screen.queryByText("Fix the relay proxy")).toBeNull();
     expect(screen.getByTestId("thread-group-home").dataset.selected).toBe("false");
     const chips = screen.getAllByTestId("thread-tab-group-chip");
-    // No question waits, so Needs you is hidden rather than showing 0.
+    // No question waits, so Needs you is hidden rather than showing 0. The urgent groups sit on the
+    // right, nearest the thumb and the bell (Jiayi, Nov 1).
     expect(chips.map((chip) => [chip.dataset.group, chip.dataset.count])).toEqual([
-      ["new-results", "1"],
-      ["in-progress", "1"],
       ["idle", "4"],
+      ["in-progress", "1"],
+      ["new-results", "1"],
     ]);
     expect(chips.map((chip) => chip.dataset.selected)).toEqual(["false", "true", "false"]);
   });
@@ -433,8 +434,8 @@ describe("ThreadGroupBar group move animation", () => {
         screen.getAllByTestId("thread-tab-group-chip").map((chip) => [chip.dataset.group, chip.dataset.selected]);
       // q-10 left In progress, its only member: the group stays while the tab is in flight.
       expect(chips()).toEqual([
-        ["in-progress", "false"],
         ["idle", "false"],
+        ["in-progress", "false"],
       ]);
       expect(screen.getByTestId("thread-tab-group-glide").dataset.group).toBe("idle");
 

@@ -12,6 +12,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
+import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { formatWaitForRefLabel, getWaitForRefKind } from "../../shared/quest-journey.js";
 import { NotifyMeControl } from "./NotifyMe.js";
 import type { BoardRowData } from "./BoardTable.js";
@@ -807,7 +808,10 @@ export function QuestThreadBanner({
 /**
  * A leader's quest thread shows its quest's state as chips floating at the top of its feed, not on
  * its strip: a thread is no longer tied to one quest or worker. The phase chip opens the Journey
- * card; the Worker and Reviewer chips open their sessions.
+ * card; the Worker and Reviewer chips open their sessions. On a phone an unfinished quest's chips
+ * fold into one compact chip at the top right, its phase (whose dot already shows work going on)
+ * and a count of open questions; tapping it shows them all (Jiayi, Nov 1: on two lines they covered the
+ * conversation). A finished quest's few chips fit on one line and stay as they are.
  */
 export function QuestThreadFeedChips({
   row,
@@ -819,6 +823,10 @@ export function QuestThreadFeedChips({
   /** Session whose diff chip this holds, as on the strip it replaces. */
   diffSessionId?: string;
 }) {
+  const phone = !useDesktopShellLayout();
+  const [expanded, setExpanded] = useState(false);
+  // A thread opens folded again.
+  useEffect(() => setExpanded(false), [threadKey]);
   if (!row) return null;
   const done = isDoneThreadRow(row);
   const waitCondition = done ? null : waitConditionForBoardRow(row.boardRow);
@@ -827,11 +835,60 @@ export function QuestThreadFeedChips({
   const ownership = row.ownership === "off-board" && done ? undefined : row.ownership;
   const questId = row.questId ?? threadKey.toLowerCase();
   const working = !done && !!(row.rowStatus?.worker || row.boardRow?.worker);
+  const folds = phone && !done;
+  const groupClass =
+    "pointer-events-auto inline-flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 self-start rounded-lg border border-cc-border/60 bg-cc-bg/90 px-1 py-0.5 text-xs shadow-sm backdrop-blur";
+  if (folds && !expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className={`${groupClass} cursor-pointer`}
+        aria-label="Show the quest's worker, commits and phase"
+        aria-expanded={false}
+        data-testid="quest-thread-feed-chips-compact"
+      >
+        {openQuestionCount > 0 && <QuestBannerOpenQuestionsPill count={openQuestionCount} />}
+        {queued ? (
+          <span className="whitespace-nowrap px-1 text-[10px] text-cc-fg">Queued</span>
+        ) : row.journey ? (
+          <QuestJourneyTimeline
+            journey={row.journey}
+            status={journeyStatusForThread(row)}
+            variant="compact"
+            showNotes={false}
+            compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
+            className="whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
+          />
+        ) : (
+          <QuestStatusFallbackPill status={row.status} />
+        )}
+      </button>
+    );
+  }
   return (
-    <div
-      className="pointer-events-auto inline-flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 self-start rounded-lg border border-cc-border/60 bg-cc-bg/90 px-1 py-0.5 text-xs shadow-sm backdrop-blur"
-      data-testid="quest-thread-feed-chips"
-    >
+    <div className={groupClass} data-testid="quest-thread-feed-chips">
+      {folds && (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+          aria-label="Fold the quest's chips"
+          aria-expanded
+          data-testid="quest-thread-feed-chips-fold"
+        >
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            className="h-3 w-3"
+            aria-hidden="true"
+          >
+            <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
       {ownership && (
         <QuestThreadOwnershipChip
           ownership={ownership}

@@ -414,8 +414,8 @@ describe("WorkBoardBar tab groups", () => {
 
     expect(onScreenGroups).toEqual([
       { selected: "in-progress", groups: ["in-progress"] },
-      { selected: "idle", groups: ["in-progress", "idle"] },
-      { selected: "idle", groups: ["in-progress", "idle"] },
+      { selected: "idle", groups: ["idle", "in-progress"] },
+      { selected: "idle", groups: ["idle", "in-progress"] },
     ]);
   });
 
