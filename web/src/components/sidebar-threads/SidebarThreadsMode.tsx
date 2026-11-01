@@ -56,7 +56,7 @@ export interface ThreadRow {
   title: string;
   /**
    * What the second line says when there is no news line yet: a short label for a thread or the
-   * leader log; none for a quest, whose number and status dot already say what it is.
+   * leader log; none for a quest, whose status dot already says what it is.
    */
   label?: string;
   counts: ThreadCounts;
@@ -478,9 +478,10 @@ function threadRowMenuItems(row: ThreadRow, open: () => void): ContextMenuItem[]
 }
 
 /**
- * One thread: its status dot, quest number and name, counts, then its leader and its news line
- * (Jiayi, Oct 31: the most informative recent update, not its phase or topic; the dot's color
- * already says where it stands).
+ * One thread: its status dot, name and counts, then its leader and its news line (Jiayi, Oct 31:
+ * the most informative recent update, not its phase or topic; the dot's color already says where
+ * it stands). A quest's number is left out so its title gets the room (Jiayi, Nov 1); hovering
+ * shows it with the whole title, and the row's menu and the thread itself open the quest.
  */
 function ThreadRowButton({
   row,
@@ -511,6 +512,7 @@ function ThreadRowButton({
         current ? "bg-cc-active" : "hover:bg-cc-hover"
       }`}
       aria-current={current ? "page" : undefined}
+      title={row.questId ? `${row.questId} ${row.title}` : row.title}
       data-testid="threads-mode-row"
       data-thread-key={row.threadKey}
       data-group={row.group}
@@ -527,11 +529,6 @@ function ThreadRowButton({
           <NewThreadIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
         )}
         <span className={`min-w-0 flex-1 truncate text-[13px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
-          {row.questId && (
-            <span className="font-mono-code text-[12px] text-cc-muted" data-testid="threads-mode-quest">
-              {row.questId}{" "}
-            </span>
-          )}
           {row.title}
         </span>
         <StatusCountDots counts={row.counts} />

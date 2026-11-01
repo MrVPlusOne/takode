@@ -183,7 +183,7 @@ describe("threadRows across leaders", () => {
 });
 
 describe("SidebarThreadsMode", () => {
-  it("lists the threads with their quest number, news line and counts, then the leaders and other sessions", async () => {
+  it("lists the threads with their title, news line and counts, then the leaders and other sessions", async () => {
     queue.items = [{ kind: "needs-input", key: "n", sessionId: "takode", entry: { questId: "q-1" }, threadKey: "q-1" }];
     const onOpened = vi.fn();
     render(
@@ -196,9 +196,11 @@ describe("SidebarThreadsMode", () => {
     );
     const rows = within(screen.getByTestId("threads-mode-threads")).getAllByTestId("threads-mode-row");
     expect(rows[0]!.dataset.threadKey).toBe("q-1");
-    // Jiayi (Oct 31): the quest number on the first line, the most informative recent update on the
-    // second, and no topic or phase label (the dot's color says where it stands).
-    expect(within(rows[0]!).getByTestId("threads-mode-quest").textContent?.trim()).toBe("q-1");
+    // Jiayi (Oct 31): the most informative recent update on the second line, and no topic or phase
+    // label (the dot's color says where it stands). Jiayi (Nov 1): no quest number before the title,
+    // so the title gets the room; hovering the row still shows the number with the whole title.
+    expect(within(rows[0]!).queryByTestId("threads-mode-quest")).toBeNull();
+    expect(rows[0]!.getAttribute("title")).toBe("q-1 Quest q-1");
     expect(await within(rows[0]!).findByText("Waiting on your pick of the layout")).toBeTruthy();
     expect(homeLines).toHaveBeenCalledWith("takode", expect.arrayContaining(["q-1"]));
     expect(rows[0]!.textContent).not.toContain("Work");
