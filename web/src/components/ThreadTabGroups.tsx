@@ -199,8 +199,6 @@ export interface ThreadGroupBarProps extends RowContext {
  */
 export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) {
   const [openGroup, setOpenGroup] = useState<ThreadGroupId | null>(null);
-  // The input of the latest press on the bar: a click on an open group differs by mouse and finger.
-  const lastPressRef = useRef<string>("mouse");
   const homeTab = home ?? quietHome;
   const currentKey = normalizeThreadKey(rows.currentThreadKey);
   const groups = groupThreads(threads.map((tab) => readOnScreen(tab, currentKey)));
@@ -272,17 +270,7 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
   // strip sits on the page background.
   const selectedSurface = onHome ? "bg-cc-card" : "bg-cc-bg";
   return (
-    <div
-      ref={barRef}
-      className="@container relative min-w-0"
-      data-testid="thread-group-bar"
-      onPointerDownCapture={(event) => {
-        lastPressRef.current = event.pointerType;
-      }}
-      onKeyDownCapture={() => {
-        lastPressRef.current = "keyboard";
-      }}
-    >
+    <div ref={barRef} className="@container relative min-w-0" data-testid="thread-group-bar">
       <div className="flex items-end gap-1 pt-0.5" role="tablist">
         <BarItem
           label="Home"
@@ -308,8 +296,11 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
               activeOutput={spinningTab === id}
               testId="thread-tab-group-chip"
               onClick={() => {
+                // A group of one opens its thread; a larger one opens its list, and a second press
+                // closes it (Jiayi, Nov 1: opening the first thread on a second click, which also
+                // marked it read, surprised more than it helped; the Next button cycles instead).
                 const first = tabsOf(id)[0]!;
-                if (tabsOf(id).length === 1 || (openGroup === id && !isTouchPress(lastPressRef.current))) {
+                if (tabsOf(id).length === 1) {
                   setOpenGroup(null);
                   if (first.onOpen) first.onOpen();
                   else select(first.threadKey);
@@ -588,10 +579,6 @@ function BarItem({
       {children}
     </button>
   );
-}
-
-function isTouchPress(pointerType: string): boolean {
-  return pointerType === "touch" || pointerType === "pen";
 }
 
 /** The group's name, shown before its count where the row has room. */

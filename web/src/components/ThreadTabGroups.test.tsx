@@ -256,19 +256,17 @@ describe("ThreadGroupBar", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("opens the list on a first click and its first thread on a second mouse click", () => {
+  it("closes an open list on a second click or tap, opening nothing", () => {
+    // Jiayi (Nov 1): a second mouse click used to open the group's first thread and mark it read,
+    // where they meant to close the list. Now mouse and finger alike close it; the Next button
+    // cycles through what needs attention.
     const { onSelect } = renderBar({ currentThreadKey: "q-14" });
     fireEvent.pointerDown(groupTab("idle"), { pointerType: "mouse" });
     fireEvent.click(groupTab("idle"));
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByTestId("thread-tab-group-list")).toBeTruthy();
     fireEvent.pointerDown(groupTab("idle"), { pointerType: "mouse" });
     fireEvent.click(groupTab("idle"));
-    expect(onSelect).toHaveBeenCalledWith("q-12");
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
-  });
-
-  it("closes the list on a second finger tap instead of switching", () => {
-    const { onSelect } = renderBar({ currentThreadKey: "q-14" });
     fingerTap(groupTab("idle"));
     expect(screen.getByTestId("thread-tab-group-list")).toBeTruthy();
     fingerTap(groupTab("idle"));
