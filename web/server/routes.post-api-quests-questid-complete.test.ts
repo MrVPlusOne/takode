@@ -537,6 +537,41 @@ describe("POST /api/quests/:questId/complete", () => {
       });
     });
 
+    it("completes when the worker's own commits are already on the target under other IDs", async () => {
+      // The landing queue rebased the change (batched with others), so the landed commits are not
+      // the worker's: the checkout is ahead and behind by name only. Merging HEAD into the target
+      // changes nothing (merge-tree gives the target's own tree), so nothing is unsynced.
+      const auth = installV2MemoryFixture({
+        row: landingRow({ outcome: "landed", deliveryId: "d".repeat(32) }),
+        workerState: { git_ahead: 2, git_behind: 3 },
+      });
+      bridge.landingHandoff = { park: vi.fn(() => null) };
+      mockExecSync.mockImplementation((cmd?: string) =>
+        cmd?.includes("merge-tree --write-tree") ? "tree-landed\n" : cmd?.includes("^{tree}") ? "tree-landed\n" : "",
+      );
+
+      const res = await postV2Complete({}, auth);
+
+      expect(res.status, await res.clone().text()).toBe(200);
+      expect(questStore.completeQuest).toHaveBeenCalled();
+    });
+
+    it("still refuses commits whose changes are not on the target", async () => {
+      const auth = installV2MemoryFixture({
+        row: landingRow({ outcome: "landed", deliveryId: "d".repeat(32) }),
+        workerState: { git_ahead: 1 },
+      });
+      bridge.landingHandoff = { park: vi.fn(() => null) };
+      mockExecSync.mockImplementation((cmd?: string) =>
+        cmd?.includes("merge-tree --write-tree") ? "tree-with-more\n" : cmd?.includes("^{tree}") ? "tree-target\n" : "",
+      );
+
+      const res = await postV2Complete({}, auth);
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: expect.stringContaining("ahead of its comparison target") });
+    });
+
     it("completes normally, with the usual git checks, once the landed commits are recorded", async () => {
       const auth = installV2MemoryFixture({
         row: landingRow({ outcome: "landed", deliveryId: "d".repeat(32) }),

@@ -62,7 +62,10 @@ import { evaluateQuestStatusMutationGuard, getQuestStatusOwnerSessionIds } from 
 import { formatLeaderRecoveryWarning, QUEST_LEADER_RECOVERY_WARNING_HEADER } from "../quest-recovery.js";
 import { getQuestSessionSpaceCandidates } from "../quest-session-space.js";
 import type { MemoryRepoOptions } from "../workstream-memory-types.js";
-import { refreshGitInfoPublic as refreshGitInfoPublicController } from "../bridge/session-git-state.js";
+import {
+  checkoutCommitsLanded,
+  refreshGitInfoPublic as refreshGitInfoPublicController,
+} from "../bridge/session-git-state.js";
 import { isBoardLeaderStopped, preferRowsOnRunningLeaders } from "../bridge/board-stale-rows.js";
 import {
   getPreviousQuestOwners,
@@ -660,9 +663,12 @@ export function createQuestRoutes(ctx: RouteContext) {
       hasServerAuthorizedLocalCompletionTarget(workerState, launcher.getSession(workerSessionId));
     // A change still in the landing queue is ahead of the target by design; the quest waits for it in Landing.
     const awaitingLanding = !!row.landing && !row.landing.deliveryId;
+    // Commits the queue landed are on the target under other IDs: the checkout is ahead only by name.
+    const commitsLanded =
+      !awaitingLanding && !localOnly && (workerState.git_ahead ?? 0) > 0 && (await checkoutCommitsLanded(workerState));
     const gitStateError = awaitingLanding
       ? undefined
-      : validateV2CompletionGitState(workerState, currentQuest.commitShas, { localOnly });
+      : validateV2CompletionGitState(workerState, currentQuest.commitShas, { localOnly, commitsLanded });
     if (gitStateError) {
       return new Response(JSON.stringify({ error: gitStateError }), {
         status: 409,

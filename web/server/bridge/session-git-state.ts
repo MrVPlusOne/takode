@@ -168,6 +168,30 @@ async function resolveAheadBehindDirect(state: SessionState): Promise<void> {
   state.git_behind = counts.behind;
 }
 
+/**
+ * Whether the checkout's commits are already in its comparison target under other commit IDs: the
+ * landing queue rebases a change onto the remote tip (batched with others, maybe squashed), so the
+ * landed commits are not the worker's. Merging HEAD into the target then changes nothing, which is
+ * what this checks; a commit whose change isn't on the target, or a merge that conflicts, is not
+ * landed. False when it cannot tell (no target, a git without `merge-tree --write-tree`).
+ */
+export async function checkoutCommitsLanded(
+  state: Pick<SessionState, "cwd" | "host_id" | "diff_base_branch" | "git_default_branch">,
+): Promise<boolean> {
+  const ref = getGitComparisonRef(state as SessionState);
+  if (!ref || !state.cwd) return false;
+  try {
+    const [merged, target] = await Promise.all([
+      runGit(state.host_id, `${SERVER_GIT_CMD} merge-tree --write-tree ${ref} HEAD`, state.cwd),
+      runGit(state.host_id, `${SERVER_GIT_CMD} rev-parse ${ref}^{tree}`, state.cwd),
+    ]);
+    const mergedTree = merged.stdout.trim().split("\n")[0];
+    return !!mergedTree && mergedTree === target.stdout.trim();
+  } catch {
+    return false;
+  }
+}
+
 export async function resolveGitInfo(state: SessionState, options: ResolveGitInfoOptions = {}): Promise<void> {
   if (!state.cwd) return;
   const computeAheadBehind = options.computeAheadBehind !== false;

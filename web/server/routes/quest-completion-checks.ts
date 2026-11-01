@@ -24,10 +24,17 @@ export function hasServerAuthorizedLocalCompletionTarget(
 export function validateV2CompletionGitState(
   state: Partial<SessionState> | undefined,
   storedCodeCommitShas: string[] | undefined,
-  options: { localOnly?: boolean } = {},
+  options: {
+    localOnly?: boolean;
+    /**
+     * The checkout's commits ahead of its target are already on it under other IDs (the landing
+     * queue rebased them, `checkoutCommitsLanded`): nothing is unsynced, ahead or behind.
+     */
+    commitsLanded?: boolean;
+  } = {},
 ): string | undefined {
   if (!state) return "Cannot verify worker git state for v2 Memory completion.";
-  if (!options.localOnly) {
+  if (!options.localOnly && !options.commitsLanded) {
     const comparisonTarget = (state.diff_base_branch || state.git_default_branch || "").trim();
     if (!comparisonTarget) {
       return "Worker git comparison target is uncertain; refresh or sync before completion.";
