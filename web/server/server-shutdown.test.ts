@@ -156,6 +156,21 @@ describe("server shutdown", () => {
     expect(h.options.cleanupFrontend).not.toHaveBeenCalled();
   });
 
+  it("logs what a timed-out stage still waits on, and asks nothing of a stage that completes", async () => {
+    // The live server's listener stop timed out in about one shutdown in four without saying why.
+    // The timeout line now carries what the stage still waits on (for the listener, Bun's pending
+    // requests and WebSockets), so the next occurrence names its cause.
+    vi.useFakeTimers();
+    const listener = gate<void>();
+    const describeStage = vi.fn((stage: string) => (stage === "listener" ? { pendingWebSockets: 1 } : undefined));
+    const h = setup({ stopListener: () => listener.promise, describeStage });
+    const operation = h.shutdown.request(42);
+    await vi.advanceTimersByTimeAsync(21);
+    await operation;
+    expect(h.options.log).toHaveBeenCalledWith("Shutdown stage timed out", { stage: "listener", pendingWebSockets: 1 });
+    expect(describeStage.mock.calls.map(([stage]) => stage)).toEqual(["listener"]);
+  });
+
   it.each(["reject", "stall"])("holds the inactive process when persistence %ss", async (kind) => {
     // Repeated restart/signal requests cannot turn the approved preservation exception into a forced exit.
     vi.useFakeTimers();

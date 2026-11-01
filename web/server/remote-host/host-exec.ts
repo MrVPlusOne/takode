@@ -270,6 +270,15 @@ export class HostExec {
     return this.get(id);
   }
 
+  /**
+   * Answers every caller waiting on a command now, with its current state, as the server shuts
+   * down. A shutdown waits for requests it already accepted, and a wait could hold it 30 s. The
+   * commands keep running and the next server takes them over, so callers simply ask again.
+   */
+  releaseWaits(): void {
+    for (const running of this.running.values()) for (const done of [...running.waiters]) done();
+  }
+
   /** The caller of a foreground command stops waiting; the session is told when it ends. */
   async detach(id: string): Promise<ExecJob | null> {
     const job = this.jobs.get(id);

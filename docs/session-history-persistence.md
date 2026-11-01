@@ -8,10 +8,21 @@ the incremental format after its first conversion, including after completion.
 The hot JSON carries a `_historyRef` identifying a version, generation, exact
 committed byte extent, revision, message/tool-result counts and logical freeze
 boundaries. The corresponding `<session>.history-<generation>.data` file stores
-bounded typed frames. User objects, property names and strings remain literal
-payloads; framing does not reserve magic strings inside user data. Strings are
-encoded in pieces of at most 16,384 UTF-16 code units, preserving NUL, Unicode,
-surrogate-pair boundaries and lone surrogates.
+bounded frames, one JSON array per line of at most 128 KiB. User objects,
+property names and strings remain literal payloads; framing does not reserve
+magic strings inside user data.
+
+Version 2, which every save writes, stores each row as its own JSON text: one
+`["value", row]` line when it fits in a frame, otherwise `["text", piece]` lines
+of at most 16,384 UTF-16 code units whose pieces join back into the text
+(JSON escapes a lone surrogate a cut leaves, so pieces may cut anywhere). A row's
+digest is the SHA-256 of its JSON text, which a reader checks against the bytes
+it already holds. Version 1 spelled every value out as a typed token, with
+strings stored once and referenced by id; it is still read, and a session's file
+turns into version 2 at the first save after a server start, which writes a
+fresh generation anyway. On real histories version 2 reads about four times
+faster at about the same size (one token per JSON value, each hashed, made
+version 1 slow to read).
 
 Promotion writes a self-contained generation. An existing legacy frozen file is
 left intact but is no longer authoritative. Changes to earlier records, reverts,
@@ -23,12 +34,11 @@ capture. At admission, the writer captures nested container structure while
 retaining immutable string values. Immediate ownership saves remain ordered
 barriers. Later nested edits cannot change an admitted revision.
 
-Within a generation, saves append only changed rows and new string values plus a
-commit record. Content hashes detect nested record changes. Writer caches retain
-only values referenced by the last committed state and the current candidate.
-Reads do not populate those caches. The first write after restoring a session
-can create a fresh self-contained generation; it does not keep decoded obsolete
-strings from an earlier journal. Successful archiving releases the writer cache.
+Within a generation, saves append only changed rows plus a commit record.
+Content hashes detect nested record changes. Writer caches retain only row
+positions and digests, never row contents. Reads do not populate those caches.
+The first write after restoring a session creates a fresh self-contained
+generation. Successful archiving releases the writer cache.
 
 An ordinary save does not read, copy or hash rows inside the committed frozen
 prefix: like the legacy frozen log, those rows change only through
@@ -44,8 +54,8 @@ The failed snapshot remains owned, flush reports the failure, and the existing
 shutdown policy continues to retain the inactive process when saving fails or
 stalls. Physical suffix bytes past the committed extent are not authoritative.
 
-A read decodes the committed extent in one sequential pass, materializing strings
-and rows as their records end. Startup reads every active session this way, so
+A read decodes the committed extent in one sequential pass, materializing rows
+(and, in version 1, strings) as their records end. Startup reads every active session this way, so
 reads must not open a separate stream per string or row: that once made restart
 take about a minute with several hundred MiB of history.
 
@@ -63,7 +73,8 @@ instead of silently skipping the session. Archived search-only startup still
 defers history loading; corruption in an unread archived payload can be discovered
 later when its full history is requested.
 
-This format is **not readable by older builds**. Downgrade requires preserved
+This format is **not readable by older builds**, and version 2 files are not
+readable by builds from before version 2. Downgrade requires preserved
 pre-change backups and must not discard later work written by the new code. The
 exceptional external-tail transition is documented separately in
 [the one-use migration instructions](experimental-session-tail-migration.md).
@@ -71,8 +82,8 @@ Production code does not recognize or convert that external format.
 
 This reduces repeated encoded copies and obsolete cached values. It does not cap
 live conversation size, implement lazy history or eviction, or bound unrelated
-large hot metadata. All active history still materializes at startup. Traversing
-record structure and hashing current strings still takes CPU time. No particular
+large hot metadata. All active history still materializes at startup, so restart
+time and memory still grow with the total active history. No particular
 RAM reduction, cross-process writer fencing or stronger physical-power-loss /
 directory-metadata durability guarantee is implied.
 

@@ -4,16 +4,23 @@ import { open, unlink } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  captureJson,
+  HISTORY_FRAME_BYTES,
   HISTORY_STRING_CHARS,
-  stringFrames,
+  rowLines,
+  textDigest,
   valueDigest,
-  valueTokens,
+  valueLineText,
   type JsonValue,
 } from "./session-history-codec.js";
 
+/**
+ * The committed state of a session's history file. Version 1 files spell every value out as typed
+ * tokens with shared strings and are only read now; version 2 files, which every save writes, keep
+ * each row as its JSON text and read about four times faster. A session's file turns into version 2
+ * at its first save after a server start, which writes a fresh file anyway.
+ */
 export interface HistoryReference {
-  version: 1;
+  version: 1 | 2;
   generation: string;
   bytes: number;
   revision: number;
@@ -34,16 +41,11 @@ interface StringRange extends Range {
 interface RowRange extends Range {
   digest: string;
 }
+/** What this process wrote last to a session's version 2 file. */
 interface JournalCache {
   head: HistoryReference;
-  /** Strings referenced by the committed frozen prefix (`head.frozenCount` / `head.frozenToolCount` rows). */
-  frozenStrings: Map<string, StringRange>;
-  frozenStringBytes: number;
-  /** Strings referenced only by rows after the frozen prefix. */
-  strings: Map<string, StringRange>;
   messages: RowRange[];
   tools: RowRange[];
-  nextId: number;
 }
 /** Leading rows the caller has not changed since its last save; they are live objects, not captured copies. */
 export interface UnchangedHistoryPrefix {
@@ -55,8 +57,12 @@ interface JournalIndex {
   messages: Map<number, RowRange>;
   tools: Map<number, RowRange>;
 }
-/** A row is decoded when its record ends; one that does not decode yet keeps its tokens until the scan ends. */
-type DecodedRow = { value: JsonValue } | { tokens: unknown[][] };
+/**
+ * A row is decoded when its record ends. A version 1 row that does not decode yet keeps its tokens
+ * until the scan ends; a version 2 row whose text does not match its digest is invalid. Either fails
+ * the read only if the row is still committed.
+ */
+type DecodedRow = { value: JsonValue } | { tokens: unknown[][] } | { invalid: true };
 /** Values materialized during the index scan, so a read needs one sequential pass instead of one stream per record. */
 interface DecodedJournal {
   strings: Map<number, string>;
@@ -88,7 +94,7 @@ function integer(value: unknown): value is number {
 export function validateHistoryReference(value: HistoryReference): void {
   if (
     !value ||
-    value.version !== 1 ||
+    (value.version !== 1 && value.version !== 2) ||
     ![value.bytes, value.revision, value.messageCount, value.toolCount, value.frozenCount, value.frozenToolCount].every(
       integer,
     ) ||
@@ -104,7 +110,7 @@ export function validateHistoryReference(value: HistoryReference): void {
 export async function* historyFrames(
   path: string,
   range: Range,
-): AsyncGenerator<{ value: unknown[]; start: number; end: number }> {
+): AsyncGenerator<{ value: unknown[]; start: number; end: number; bytes: Buffer }> {
   const input = createReadStream(path, { start: range.start, end: range.end - 1, highWaterMark: 64 * 1024 });
   let pending = Buffer.alloc(0);
   let offset = range.start;
@@ -121,16 +127,17 @@ export async function* historyFrames(
       for (;;) {
         const newline = pending.indexOf(10, start);
         if (newline < 0) break;
-        if (newline - start > 128 * 1024) throw new SessionHistoryError("Oversized history frame");
-        const value: unknown = JSON.parse(pending.subarray(start, newline).toString("utf8"));
+        if (newline - start > HISTORY_FRAME_BYTES) throw new SessionHistoryError("Oversized history frame");
+        const bytes = pending.subarray(start, newline);
+        const value: unknown = JSON.parse(bytes.toString("utf8"));
         if (!Array.isArray(value)) throw new SessionHistoryError("Invalid history frame");
         const end = offset + newline + 1 - start;
-        yield { value, start: offset, end };
+        yield { value, start: offset, end, bytes };
         offset = end;
         start = newline + 1;
       }
       pending = pending.subarray(start);
-      if (pending.length > 128 * 1024) throw new SessionHistoryError("Oversized history frame");
+      if (pending.length > HISTORY_FRAME_BYTES) throw new SessionHistoryError("Oversized history frame");
     }
     if (pending.length || offset !== range.end) throw new SessionHistoryError("Incomplete committed history extent");
   } finally {
@@ -155,13 +162,15 @@ async function indexJournal(
   let parts: string[] = [];
   let row: { kind: "message" | "tool"; index: number; range: RowRange } | undefined;
   let tokens: unknown[][] = [];
+  // A version 2 row's body: its one value line, or the pieces of its JSON text.
+  let body: { kind: "value"; row: DecodedRow } | { kind: "text"; pieces: string[] } | undefined;
   let last: unknown[] = [];
   let first = true;
   for await (const frame of historyFrames(path, { start: 0, end: head.bytes })) {
     const v = frame.value;
     if (first) {
       first = false;
-      if (JSON.stringify(v) !== JSON.stringify(["history", 1, sessionId, head.generation]))
+      if (JSON.stringify(v) !== JSON.stringify(["history", head.version, sessionId, head.generation]))
         throw new SessionHistoryError("History identity mismatch");
     } else if (string) {
       if (v[0] === "part" && v.length === 2 && typeof v[1] === "string" && v[1].length <= HISTORY_STRING_CHARS) {
@@ -179,13 +188,36 @@ async function indexJournal(
         (row.kind === "message" ? index.messages : index.tools).set(row.index, row.range);
         if (decoded) {
           const values = row.kind === "message" ? decoded.messages : decoded.tools;
-          values.set(row.index, decodeRow(tokens, row.range.digest, decoded));
+          values.set(
+            row.index,
+            head.version === 1 ? decodeRow(tokens, row.range.digest, decoded) : decodeBody(body, row.range.digest),
+          );
         }
         row = undefined;
+      } else if (head.version === 2) {
+        if (v[0] === "value" && v.length === 2 && !body) {
+          body = { kind: "value", row: decoded ? valueRow(v[1] as JsonValue, frame.bytes, row.range.digest) : INVALID };
+        } else if (
+          v[0] === "text" &&
+          v.length === 2 &&
+          typeof v[1] === "string" &&
+          v[1].length <= HISTORY_STRING_CHARS &&
+          body?.kind !== "value"
+        ) {
+          body ??= { kind: "text", pieces: [] };
+          if (decoded) body.pieces.push(v[1]);
+        } else throw new SessionHistoryError("Invalid history row record");
       } else if (!["null", "bool", "number", "ref", "array", "object"].includes(v[0] as string))
         throw new SessionHistoryError("Invalid history value token");
       else if (decoded) tokens.push(v);
-    } else if (v[0] === "string" && v.length === 3 && integer(v[1]) && integer(v[2]) && !index.strings.has(v[1])) {
+    } else if (
+      head.version === 1 &&
+      v[0] === "string" &&
+      v.length === 3 &&
+      integer(v[1]) &&
+      integer(v[2]) &&
+      !index.strings.has(v[1])
+    ) {
       string = { id: v[1], length: v[2], start: frame.start, end: 0 };
       stringChars = 0;
       parts = [];
@@ -198,6 +230,7 @@ async function indexJournal(
     ) {
       row = { kind: v[0], index: v[1], range: { start: frame.start, end: 0, digest: v[2] } };
       tokens = [];
+      body = undefined;
     } else if (v[0] === "commit" && v.length === 6 && v.slice(1).every(integer)) {
       for (const [rows, values, count] of [
         [index.messages, decoded?.messages, v[2]],
@@ -219,9 +252,33 @@ async function indexJournal(
   return index;
 }
 
+const INVALID: DecodedRow = { invalid: true };
+
+/** A version 2 row held whole in its value line, checked against the line's own bytes. */
+function valueRow(value: JsonValue, line: Uint8Array, digest: string): DecodedRow {
+  const text = valueLineText(line) ?? Buffer.from(JSON.stringify(value));
+  return textDigest(text) === digest ? { value } : INVALID;
+}
+
+/** A version 2 row once its record ends: its value line, or its text pieces joined and parsed. */
+function decodeBody(
+  body: { kind: "value"; row: DecodedRow } | { kind: "text"; pieces: string[] } | undefined,
+  digest: string,
+): DecodedRow {
+  if (!body) return INVALID;
+  if (body.kind === "value") return body.row;
+  const text = body.pieces.join("");
+  if (textDigest(text) !== digest) return INVALID;
+  try {
+    return { value: JSON.parse(text) as JsonValue };
+  } catch {
+    return INVALID;
+  }
+}
+
 /**
- * Decode and verify a row while the scan still interleaves with file reads, so a large history
- * never verifies in one long synchronous stretch.
+ * Decode and verify a version 1 row while the scan still interleaves with file reads, so a large
+ * history never verifies in one long synchronous stretch.
  */
 function decodeRow(tokens: unknown[][], digest: string, decoded: DecodedJournal): DecodedRow {
   try {
@@ -303,6 +360,7 @@ export async function readSessionHistory(
       Array.from({ length: count }, (_, i) => {
         const row = values.get(i)!;
         if ("value" in row) return row.value;
+        if ("invalid" in row) throw new SessionHistoryError("History row content mismatch");
         const value = buildRowValue(row.tokens, decoded.strings);
         if (valueDigest(value) !== ranges.get(i)!.digest) throw new SessionHistoryError("History row content mismatch");
         return value;
@@ -328,7 +386,14 @@ export async function verifySessionHistory(dir: string, sessionId: string, head:
     for (let i = 0; i < count; i++) {
       const range = rows.get(i)!;
       const hash = createHash("sha256");
-      for await (const { value } of historyFrames(path, range)) {
+      // A version 2 row's text pieces may split a surrogate pair, so they are joined before hashing.
+      const pieces: string[] = [];
+      for await (const { value, bytes } of historyFrames(path, range)) {
+        if (head.version === 2) {
+          if (value[0] === "value") hash.update(valueLineText(bytes) ?? JSON.stringify(value[1]));
+          else if (value[0] === "text") pieces.push(value[1] as string);
+          continue;
+        }
         if (["message", "tool", "endRow"].includes(value[0] as string)) continue;
         if (value[0] !== "ref") {
           hash.update(JSON.stringify(value) + "\n");
@@ -341,6 +406,7 @@ export async function verifySessionHistory(dir: string, sessionId: string, head:
           if (part.value[0] === "part") hash.update(Buffer.from(part.value[1] as string, "utf16le"));
         hash.update('["ref",0]\n');
       }
+      if (pieces.length) hash.update(pieces.join(""));
       const digest = hash.digest("hex");
       if (digest !== range.digest) throw new SessionHistoryError("Staged history content mismatch");
       digests.push(digest);
@@ -442,45 +508,21 @@ export class SessionHistoryJournal {
           values[k].length >= committedFrozen[k],
       );
     const trusted = reuse ? committedFrozen : [0, 0];
-    const freezes = frozenEnds.some((end, k) => end > trusted[k]);
-    const frozenStrings = reuse && !freezes ? previous.frozenStrings : new Map(reuse ? previous.frozenStrings : []);
-    const strings = new Map<string, StringRange>();
-    const unwritten: Array<[string, StringRange]> = [];
-    const newlyFrozen: StringRange[] = [];
-    let nextId = previous?.nextId ?? 0;
-    const reference = (text: string, frozen: boolean): number => {
-      const known = frozenStrings.get(text) ?? strings.get(text);
-      if (known) return known.id;
-      const range = previous?.frozenStrings.get(text) ??
-        previous?.strings.get(text) ?? { id: nextId++, length: text.length, start: 0, end: 0 };
-      if (!range.end) unwritten.push([text, range]);
-      if (frozen) {
-        frozenStrings.set(text, range);
-        newlyFrozen.push(range);
-      } else strings.set(text, range);
-      return range.id;
-    };
-    // Frozen rows first, so a string shared with later rows is accounted to the frozen prefix.
-    const candidates: { value: JsonValue; digest: string }[][] = [[], []];
+    // A row's JSON text is both what is written and, hashed, its identity. Text taken here is also
+    // the save's snapshot of rows the caller still holds live.
+    const candidates: { text: string; digest: string }[][] = [[], []];
     let sliceStart = performance.now();
-    for (const frozen of [true, false]) {
-      for (let kind = 0; kind < 2; kind++) {
-        const end = Math.min(frozenEnds[kind], values[kind].length);
-        for (let i = frozen ? trusted[kind] : end; i < (frozen ? end : values[kind].length); i++) {
-          if (performance.now() - sliceStart > HISTORY_SCAN_SLICE_MS) {
-            await new Promise((resolve) => setImmediate(resolve));
-            rows.onTurn?.();
-            sliceStart = performance.now();
-          }
-          const value = i < unchanged[kind] ? captureJson(values[kind][i]) : values[kind][i];
-          for (const _ of valueTokens(value, (text) => reference(text, frozen))) {
-            /* Discover this candidate's references. */
-          }
-          candidates[kind][i] = { value, digest: valueDigest(value) };
+    for (let kind = 0; kind < 2; kind++) {
+      for (let i = trusted[kind]; i < values[kind].length; i++) {
+        if (performance.now() - sliceStart > HISTORY_SCAN_SLICE_MS) {
+          await new Promise((resolve) => setImmediate(resolve));
+          rows.onTurn?.();
+          sliceStart = performance.now();
         }
+        const text = JSON.stringify(values[kind][i]) ?? "null";
+        candidates[kind][i] = { text, digest: textDigest(text) };
       }
     }
-    const idOf = (text: string) => (frozenStrings.get(text) ?? strings.get(text))!.id;
     const file = await open(path, previous ? "r+" : "wx", 0o600);
     rows.onTurn?.();
     if (!previous) created.push(path);
@@ -489,12 +531,7 @@ export class SessionHistoryJournal {
       if (previous) {
         await file.truncate(previous.head.bytes);
         rows.onTurn?.();
-      } else await writer.frame(["history", 1, sessionId, generation]);
-      for (const [text, range] of unwritten) {
-        range.start = writer.position;
-        for (const frame of stringFrames(range.id, text)) await writer.frame(frame);
-        range.end = writer.position;
-      }
+      } else await writer.frame(["history", 2, sessionId, generation]);
       const resultRows: RowRange[][] = [[], []];
       for (let kind = 0; kind < 2; kind++) {
         const old = kind === 0 ? previous?.messages : previous?.tools;
@@ -510,13 +547,13 @@ export class SessionHistoryJournal {
           }
           const start = writer.position;
           await writer.frame([kind === 0 ? "message" : "tool", i, row.digest]);
-          for (const token of valueTokens(row.value, idOf)) await writer.frame(token);
+          for (const line of rowLines(row.text)) await writer.line(line);
           await writer.frame(["endRow"]);
           resultRows[kind].push({ start, end: writer.position, digest: row.digest });
         }
       }
       const head: HistoryReference = {
-        version: 1,
+        version: 2,
         generation,
         bytes: 0,
         revision: (previous?.head.revision ?? 0) + 1,
@@ -529,8 +566,7 @@ export class SessionHistoryJournal {
       head.bytes = writer.position;
       await writer.flush();
       await file.sync();
-      const frozenStringBytes = (reuse ? previous.frozenStringBytes : 0) + rangeBytes(newlyFrozen);
-      return { head, frozenStrings, frozenStringBytes, strings, messages: resultRows[0], tools: resultRows[1], nextId };
+      return { head, messages: resultRows[0], tools: resultRows[1] };
     } finally {
       await file.close();
     }
@@ -554,9 +590,7 @@ function rangeBytes(ranges: Iterable<Range>): number {
 
 /** Saved bytes still referenced by the committed state; the rest of the generation is obsolete. */
 function liveBytes(cache: JournalCache): number {
-  return (
-    cache.frozenStringBytes + rangeBytes(cache.strings.values()) + rangeBytes(cache.messages) + rangeBytes(cache.tools)
-  );
+  return rangeBytes(cache.messages) + rangeBytes(cache.tools);
 }
 
 export class HistoryFrameWriter {
@@ -569,7 +603,10 @@ export class HistoryFrameWriter {
     private onTurn?: () => void,
   ) {}
   async frame(value: unknown[]): Promise<void> {
-    const text = JSON.stringify(value) + "\n";
+    await this.line(JSON.stringify(value) + "\n");
+  }
+  /** Writes one frame line already serialized, newline included. */
+  async line(text: string): Promise<void> {
     this.pending.push(text);
     this.size += Buffer.byteLength(text);
     this.position += Buffer.byteLength(text);

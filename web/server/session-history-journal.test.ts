@@ -181,7 +181,7 @@ it("keeps legacy frozen originals, rewrites new-format metadata without a nested
   expect((await readdir(root)).filter((p) => p.endsWith(".data"))).toHaveLength(1);
 });
 
-it("coalesces large pending saves before capture and retains only current strings after a burst", async () => {
+it("coalesces large pending saves before capture and keeps no row content cached after a burst", async () => {
   const { root, value, store } = await setup();
   const held = gate(),
     entered = gate(),
@@ -209,11 +209,10 @@ it("coalesces large pending saves before capture and retains only current string
   expect(await last).toBe(true);
   expect(commits).toBe(2);
   expect((await new SessionStore(root).load(value.id))?.messageHistory).toEqual(value.messageHistory);
-  // Cache ownership is a contractual memory property, separate from disk size/reconstruction.
-  const caches = (store as unknown as { historyJournal: { caches: Map<string, { strings: Map<string, unknown> }> } })
-    .historyJournal.caches;
-  const largeStrings = [...caches.get(value.id)!.strings.keys()].filter((s) => s.length > 500000);
-  expect(largeStrings).toEqual([(value.messageHistory[0] as { content: string }).content]);
+  // Cache ownership is a contractual memory property, separate from disk size/reconstruction: the
+  // writer's cache holds only row positions and digests, never a burst's superseded contents.
+  const caches = (store as unknown as { historyJournal: { caches: Map<string, unknown> } }).historyJournal.caches;
+  expect(JSON.stringify(caches.get(value.id)).length).toBeLessThan(2000);
   await store.setArchived(value.id, true);
   expect(caches.has(value.id)).toBe(false);
 });
@@ -400,4 +399,91 @@ it("reads a hand-written journal whose rows reference later strings and whose su
   await writer.flush();
   await file.close();
   expect(await readSessionHistory(root, "hand", ref)).toEqual({ messages: [message], tools: [] });
+});
+
+it("reads a version 1 file and turns it into version 2 at the next save, removing the old file", async () => {
+  // Histories saved before version 2 stay readable; the first save after a server start writes a
+  // fresh file anyway, now in version 2, and the old one is removed once the new one is committed.
+  const root = await mkdtemp(join(tmpdir(), "incremental-history-"));
+  roots.push(root);
+  const generation = "00000000-0000-4000-8000-000000000002";
+  const message = { type: "user_message", content: "from version 1", timestamp: 1 };
+  const file = await open(historyPath(root, "old", generation), "wx");
+  const writer = new HistoryFrameWriter(file, 0);
+  for (const frame of [
+    ["history", 1, "old", generation],
+    ...stringFrames(0, "type"),
+    ...stringFrames(1, "user_message"),
+    ...stringFrames(2, "content"),
+    ...stringFrames(3, "from version 1"),
+    ...stringFrames(4, "timestamp"),
+    ["message", 0, valueDigest(message)],
+    ["object", 3],
+    ["ref", 0],
+    ["ref", 1],
+    ["ref", 2],
+    ["ref", 3],
+    ["ref", 4],
+    ["number", 1],
+    ["endRow"],
+    ["commit", 1, 1, 0, 1, 0],
+  ])
+    await writer.frame(frame);
+  await writer.flush();
+  await file.close();
+  const ref: HistoryReference = {
+    version: 1,
+    generation,
+    bytes: writer.position,
+    revision: 1,
+    messageCount: 1,
+    toolCount: 0,
+    frozenCount: 1,
+    frozenToolCount: 0,
+  };
+  await writeFile(
+    join(root, "old.json"),
+    JSON.stringify({
+      id: "old",
+      state: { session_id: "old" },
+      pendingMessages: [],
+      pendingPermissions: [],
+      _historyRef: ref,
+    }),
+  );
+  const store = new SessionStore(root);
+  const loaded = (await store.load("old"))!;
+  expect(loaded.messageHistory).toEqual([message]);
+
+  loaded.messageHistory.push({ type: "user_message", content: "x".repeat(1_100_000), timestamp: 2 });
+  await store.saveImmediate(loaded);
+  const next = JSON.parse(await readFile(join(root, "old.json"), "utf8"))._historyRef as HistoryReference;
+  expect(next.version).toBe(2);
+  expect(next.generation).not.toBe(generation);
+  expect((await readdir(root)).filter((p) => p.endsWith(".data"))).toEqual([`old.history-${next.generation}.data`]);
+  expect((await new SessionStore(root).load("old"))?.messageHistory).toEqual(loaded.messageHistory);
+});
+
+it("fails the load when a committed version 2 row's bytes change, in a value line or in text pieces", async () => {
+  // A version 2 row's digest covers its JSON text, so one changed byte of a committed row, whether
+  // the row is one value line or split into text pieces, is corruption that fails the load.
+  const { root, value, store } = await setup();
+  value.messageHistory.push({ type: "user_message", content: "a short row", timestamp: 2 });
+  await store.saveImmediate(value);
+  const ref = await head(root);
+  expect(ref.version).toBe(2);
+  const path = historyPath(root, value.id, ref.generation);
+  const original = await readFile(path);
+  const text = original.toString("latin1");
+  // The setup row is longer than a frame, so it was split; the short row is one value line.
+  expect(text).toContain('["text",');
+  for (const marker of ["a short row", '["text","{']) {
+    const at = text.indexOf(marker) + marker.length - 1;
+    const damaged = Buffer.from(original);
+    damaged[at] = damaged[at] === 0x61 ? 0x62 : 0x61;
+    await writeFile(path, damaged);
+    await expect(new SessionStore(root).load(value.id)).rejects.toThrow("committed history");
+  }
+  await writeFile(path, original);
+  expect((await new SessionStore(root).load(value.id))?.messageHistory).toEqual(value.messageHistory);
 });

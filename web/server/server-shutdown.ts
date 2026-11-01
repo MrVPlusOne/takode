@@ -22,6 +22,8 @@ export interface ServerShutdownOptions {
   cleanupFrontend: () => Promise<void>;
   flushLogs: () => Promise<void>;
   log: (message: string, details: Record<string, unknown>) => void;
+  /** What a stage still waits on, logged when it times out, so a slow stop can be traced. */
+  describeStage?: (stage: string) => Record<string, unknown> | undefined;
   exit: (code: number) => void;
   admission?: ServerWorkAdmission;
   stageTimeoutMs?: number;
@@ -81,7 +83,8 @@ export class ServerShutdown {
           timer = setTimeout(() => resolve(false), this.timeoutMs);
         }),
       ]);
-      this.options.log(completed ? "Shutdown stage completed" : "Shutdown stage timed out", { stage });
+      if (completed) this.options.log("Shutdown stage completed", { stage });
+      else this.options.log("Shutdown stage timed out", { stage, ...this.options.describeStage?.(stage) });
       return completed;
     } catch (error) {
       this.options.log("Shutdown stage failed", { stage, error: String(error) });

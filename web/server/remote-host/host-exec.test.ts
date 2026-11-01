@@ -231,6 +231,22 @@ describe("HostExec", () => {
   });
 
   // Killing a command stops everything it started, not just its shell.
+  // A server shutdown waits for requests it accepted, and a foreground caller's wait could hold it
+  // 30 s. Released waits answer at once with the command still running; it carries on for the next server.
+  it("answers waiting callers at once when the server shuts down, leaving the command running", async () => {
+    connectHost();
+    await waitFor(() => manager.status(HOST_ID).online);
+    const exec = createExec();
+    const started = await run(exec, "sleep 30");
+    const waiting = exec.wait(started.id, 30_000);
+    const before = performance.now();
+    exec.releaseWaits();
+    expect((await waiting)?.status).toBe("running");
+    expect(performance.now() - before).toBeLessThan(1_000);
+    exec.kill(started.id);
+    await finished(exec, started.id);
+  });
+
   it("kills the command and the processes it started", async () => {
     connectHost();
     await waitFor(() => manager.status(HOST_ID).online);

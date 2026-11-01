@@ -1792,6 +1792,7 @@ const shutdown = new ServerShutdown({
     resourceLeaseManager.destroy();
     landingQueue.destroy();
     clearInterval(landingHandoffRetry);
+    hostExec.releaseWaits();
     serverWorkAdmission.track(codexWorkerV2RolloutService.destroy(), "Codex worker rollout shutdown");
   },
   cancelFrontendPreparation: () => productionFrontendRestartController?.cancelAndWait() ?? Promise.resolve(),
@@ -1806,6 +1807,15 @@ const shutdown = new ServerShutdown({
   stopListener: async () => {
     await Promise.all([hostServer?.stop(true), server.stop(true)]);
   },
+  // Bun's stop waits for handlers that have not returned and for WebSocket close handlers.
+  describeStage: (stage) =>
+    stage === "listener"
+      ? {
+          pendingRequests: server.pendingRequests + (hostServer?.pendingRequests ?? 0),
+          pendingWebSockets: server.pendingWebSockets + (hostServer?.pendingWebSockets ?? 0),
+          trackedRequests: serverWorkAdmission.pendingLabels(),
+        }
+      : undefined,
   persist: async () => {
     herdEventDispatcher.preservePendingForShutdown();
     launcher.flushState();

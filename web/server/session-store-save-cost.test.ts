@@ -93,7 +93,7 @@ it("hashes and writes only the new rows when one row is added to a 10,000-row hi
   const before = await head(root, value.id);
   expect(before.messageCount).toBe(10_000);
 
-  const digests = vi.spyOn(codec, "valueDigest");
+  const digests = vi.spyOn(codec, "textDigest");
   value.messageHistory.push({ type: "user_message", content: "one more row", timestamp: 10_000 });
   await store.saveImmediate(value);
   const after = await head(root, value.id);

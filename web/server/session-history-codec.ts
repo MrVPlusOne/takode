@@ -97,3 +97,36 @@ export function* stringFrames(id: number, value: string): Generator<unknown[]> {
   }
   yield ["endString"];
 }
+
+/** The largest frame line, newline excluded. Longer lines mean a damaged file, never a bigger row. */
+export const HISTORY_FRAME_BYTES = 128 * 1024;
+const VALUE_LINE_PREFIX = '["value",';
+
+/** A version 2 row's identity: SHA-256 of its JSON text, as UTF-8. */
+export function textDigest(text: string | Uint8Array): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+/**
+ * The frame lines that hold a version 2 row's JSON text: one `["value", row]` line when it fits in a
+ * frame, otherwise `["text", piece]` lines whose pieces join back into the text. JSON text has no
+ * raw newlines, and JSON.stringify escapes a surrogate a cut leaves alone, so pieces cut anywhere.
+ */
+export function rowLines(text: string): string[] {
+  const line = `${VALUE_LINE_PREFIX}${text}]`;
+  if (Buffer.byteLength(line) <= HISTORY_FRAME_BYTES) return [`${line}\n`];
+  const lines: string[] = [];
+  for (let i = 0; i < text.length; i += HISTORY_STRING_CHARS) {
+    lines.push(`${JSON.stringify(["text", text.slice(i, i + HISTORY_STRING_CHARS)])}\n`);
+  }
+  return lines;
+}
+
+/** The row's JSON text inside a `["value", row]` line exactly as `rowLines` writes it, else null. */
+export function valueLineText(line: Uint8Array): Uint8Array | null {
+  if (line.length <= VALUE_LINE_PREFIX.length || line[line.length - 1] !== 0x5d) return null;
+  for (let i = 0; i < VALUE_LINE_PREFIX.length; i++) {
+    if (line[i] !== VALUE_LINE_PREFIX.charCodeAt(i)) return null;
+  }
+  return line.subarray(VALUE_LINE_PREFIX.length, line.length - 1);
+}
