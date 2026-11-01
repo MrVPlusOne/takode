@@ -210,16 +210,18 @@ function splitTrailingToolBlocks(
 ): { head: ChatMessage; tail: ChatMessage } | null {
   if (msg.role !== "assistant" || msg.notification || msg.metadata?.codexSubagent) return null;
   if (isBoardProposalMessage(msg) || anchoredNotificationMessageIds?.has(msg.id)) return null;
-  // Leader thread messages and phased responses are presented as whole units
-  // (answers, previews, collapsed representatives), so keep them intact.
-  if (msg.metadata?.leaderThreadRole || msg.metadata?.threadAnswer || msg.metadata?.codexMessagePhase) return null;
+  // Answers and phased responses are presented as whole units (answer cards,
+  // collapsed representatives), so keep them intact. Leader commentary is
+  // ordinary prose: left whole, its trailing commands would stay a separate
+  // group cut off from the next run by the message's own time label.
+  const role = msg.metadata?.leaderThreadRole;
+  if ((role && role !== "commentary") || msg.metadata?.threadAnswer || msg.metadata?.codexMessagePhase) return null;
   const blocks = msg.contentBlocks ?? [];
   let start = blocks.length;
   while (start > 0 && blocks[start - 1].type === "tool_use") start--;
   if (start === 0 || start === blocks.length) return null;
   const head = blocks.slice(0, start);
   const tail = blocks.slice(start);
-  if (head.some((block) => block.type === "tool_use")) return null;
   // A head with nothing visible (e.g. only an empty thinking block) means the
   // whole message is already tool-only; splitting would leave an empty entry.
   const headMessage = { ...msg, contentBlocks: head };

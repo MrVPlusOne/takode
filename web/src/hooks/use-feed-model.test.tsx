@@ -148,6 +148,45 @@ describe("Claude notes followed by commands in the same message", () => {
     expect(entries[0].kind === "message" && entries[0].msg.contentBlocks).toHaveLength(2);
     expect(entries[1].kind === "message" && entries[1].msg.contentBlocks).toHaveLength(3);
   });
+
+  it("moves trailing commands after interleaved content into the following run", () => {
+    // Left inside the message, the last command would sit above the message's own
+    // time label, which then cut it off from the next command.
+    const interleaved = makeMessage({
+      id: "mixed",
+      role: "assistant",
+      content: "Before and after",
+      contentBlocks: [
+        { type: "text", text: "Before" },
+        { type: "tool_use", id: "mixed-tool-1", name: "Bash", input: { command: "ls" } },
+        { type: "text", text: "after" },
+        { type: "tool_use", id: "mixed-tool-2", name: "Bash", input: { command: "pwd" } },
+      ],
+    });
+    const entries = groupMessages([interleaved, bashOnly("b")]);
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["message", "tool_msg_group"]);
+    expect(entries[0].kind === "message" && entries[0].msg.contentBlocks).toHaveLength(3);
+    expect(entries[1]).toMatchObject({ items: [{ id: "mixed-tool-2" }, { id: "b-tool" }] });
+  });
+
+  it("splits leader commentary like any note but keeps answers whole", () => {
+    // Commentary is ordinary prose between leader actions, so its commands join the
+    // next run. An answer is presented as one unit (answer card, collapsed
+    // representative), so its commands stay inside it.
+    const withRole = (message: ChatMessage, leaderThreadRole: "commentary" | "answer"): ChatMessage => ({
+      ...message,
+      metadata: { ...message.metadata, leaderThreadRole },
+    });
+    const commentary = groupMessages([withRole(noteWithBash("c", "Looking into it."), "commentary"), bashOnly("b")]);
+    expect(commentary.map((entry) => entry.kind)).toEqual(["message", "tool_msg_group"]);
+    expect(commentary[1]).toMatchObject({ firstId: "c:tools", items: [{ id: "c-tool" }, { id: "b-tool" }] });
+
+    const answer = groupMessages([withRole(noteWithBash("a", "Done."), "answer"), bashOnly("b")]);
+    expect(answer.map((entry) => entry.kind)).toEqual(["message", "tool_msg_group"]);
+    expect(answer[0].kind === "message" && answer[0].msg.contentBlocks).toHaveLength(2);
+    expect(answer[1]).toMatchObject({ items: [{ id: "b-tool" }] });
+  });
 });
 
 describe("canonical native Codex child transcript grouping", () => {
