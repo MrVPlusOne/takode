@@ -633,19 +633,30 @@ export function QuestThreadBanner({
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-x-1 gap-y-0.5 text-xs sm:flex sm:items-start sm:gap-x-2">
         {/* On wider screens everything but the close button wraps here, so the button keeps the top right corner. */}
         <div
-          className="contents sm:flex sm:min-w-0 sm:flex-1 sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-0.5"
+          className={`contents sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:gap-x-2 sm:gap-y-0.5 ${
+            // One line on the breadcrumb band: the topic, then the title, give way before anything wraps.
+            singleLine ? "sm:flex-nowrap" : "sm:flex-wrap"
+          }`}
           data-testid="quest-thread-wrapping-content"
         >
           <div
             className={`col-start-1 row-start-1 inline-flex min-w-0 max-w-full gap-1.5 ${
-              // One line: the title gives way down to a few words before the details wrap.
-              singleLine ? "items-center sm:min-w-min sm:flex-[1_1_0%]" : "items-baseline sm:flex-[1_1_16rem]"
+              singleLine ? "items-center sm:min-w-0 sm:flex-[1_1_0%]" : "items-baseline sm:flex-[1_1_16rem]"
             }`}
           >
             {isSessionBanner && (
               <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">
                 Quest
               </span>
+            )}
+            {/* The topic first, as the breadcrumb reads: topic › q-N title. */}
+            {topicTag && (
+              <>
+                {topicTag}
+                <span className="shrink-0 text-cc-muted/70" aria-hidden="true">
+                  ›
+                </span>
+              </>
             )}
             {/* Boxes to measure on the breadcrumb band; elsewhere they add no layout of their own. */}
             <span
@@ -674,7 +685,6 @@ export function QuestThreadBanner({
                 </span>
               )}
             </span>
-            {topicTag}
           </div>
           {hasMobileDetails && (
             <button

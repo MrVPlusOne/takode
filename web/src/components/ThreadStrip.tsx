@@ -2,15 +2,16 @@ import type { ThreadSummary } from "../../shared/library-topics.js";
 import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
 
 /**
- * The topic a thread is filed under, after its title on the thread's strip: a quiet tag that opens
- * the topic's page beside the conversation. Topics are for browsing; the conversation stays put.
+ * The topic a thread is filed under, before its title on the thread's strip as a breadcrumb reads
+ * (topic › title): a quiet tag that opens the topic's page beside the conversation. It truncates
+ * before the title does. Topics are for browsing; the conversation stays put.
  */
 export function TopicTag({ name, onOpen }: { name: string; onOpen: () => void }) {
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="inline-flex min-w-0 max-w-[12rem] shrink items-center gap-1 rounded px-1 py-0.5 text-[12px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg max-sm:max-w-[7rem]"
+      className="inline-flex min-w-[2.25rem] max-w-[12rem] shrink-[6] items-center gap-1 rounded px-1 py-0.5 text-[12px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg max-sm:max-w-[7rem]"
       title={`Topic: ${name}. Open its page beside the conversation`}
       data-testid="thread-topic-tag"
     >
@@ -41,11 +42,18 @@ export function ThreadStrip({
       className="relative flex min-h-8 shrink-0 min-w-0 items-center gap-1.5 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-0.5 text-xs sm:px-3"
       data-testid="thread-strip"
     >
+      {topic && (
+        <>
+          <TopicTag name={topic.name} onOpen={onOpenTopic} />
+          <span className="shrink-0 text-cc-muted/70" aria-hidden="true">
+            ›
+          </span>
+        </>
+      )}
       <NewThreadIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
       <span className="min-w-0 truncate text-[13px] font-medium text-cc-fg" title={thread.name}>
         {thread.name}
       </span>
-      {topic && <TopicTag name={topic.name} onOpen={onOpenTopic} />}
       <span className="flex-1" />
       <button
         type="button"
