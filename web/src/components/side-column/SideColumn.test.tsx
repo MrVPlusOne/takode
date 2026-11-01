@@ -388,6 +388,48 @@ describe("SideColumn", () => {
     }
   });
 
+  it("puts the leader's portrait beside a conversation's status dot, not on other items", () => {
+    // Jiayi (Nov 1): a side pane's title bar names whose conversation it is with the leader's
+    // portrait, as Threads view rows do; the status dot and quest link stay.
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "l1",
+          sessionNum: 1,
+          name: "DevBox takode",
+          isOrchestrator: true,
+          state: "connected",
+          cwd: "/",
+          createdAt: 1,
+          leaderProfilePortrait: {
+            id: "tako1-01",
+            poolId: "tako",
+            label: "Tako 1.1",
+            smallUrl: "/leader-profile-portraits/tako/tako1-01.v2.96.webp",
+            largeUrl: "/leader-profile-portraits/tako/tako1-01.v2.320.webp",
+            smallSize: 96,
+            largeSize: 320,
+            smallBytes: 2912,
+            largeBytes: 19216,
+          },
+        },
+      ],
+    } as never);
+    try {
+      render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+      act(() => {
+        openInSide("l1", { kind: "conversation", threadKey: "q-5" });
+      });
+      const row = rows()[0]!;
+      expect(within(row).getByTestId("side-item-dot")).toBeTruthy();
+      expect(within(row).getByTestId("side-item-leader").getAttribute("title")).toBe("With #1 DevBox takode");
+      // The Topics section is not a conversation: no portrait.
+      expect(within(rows().at(-1)!).queryByTestId("side-item-leader")).toBeNull();
+    } finally {
+      useStore.setState({ sdkSessions: [] } as never);
+    }
+  });
+
   it("shows another leader's side chat as that leader's, over its connection, until it becomes a quest", () => {
     useStore.setState({
       sdkSessions: [
@@ -399,6 +441,17 @@ describe("SideColumn", () => {
           state: "connected",
           cwd: "/",
           createdAt: 1,
+          leaderProfilePortrait: {
+            id: "tako1-01",
+            poolId: "tako",
+            label: "Tako 1.1",
+            smallUrl: "/leader-profile-portraits/tako/tako1-01.v2.96.webp",
+            largeUrl: "/leader-profile-portraits/tako/tako1-01.v2.320.webp",
+            smallSize: 96,
+            largeSize: 320,
+            smallBytes: 2912,
+            largeBytes: 19216,
+          },
         },
       ],
     } as never);

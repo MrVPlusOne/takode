@@ -385,9 +385,9 @@ function SideItemRow({
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left"
         aria-expanded={open}
       >
-        {owner === leaderId ? (
-          <SideItemIcon leaderId={leaderId} item={item} group={group} />
-        ) : (
+        <SideItemIcon leaderId={owner} item={item} group={group} />
+        {/* Whose conversation it is (Jiayi, Nov 1): the leader's portrait, as Threads view rows show. */}
+        {(item?.kind === "conversation" || item?.kind === "new-chat" || item?.kind === "quest") && (
           <LeaderIcon leaderId={owner} />
         )}
         <span className={`min-w-0 truncate ${open ? "text-cc-fg" : "text-cc-fg/80"}`}>
@@ -416,17 +416,14 @@ function SideItemRow({
   );
 }
 
-/** The portrait of the leader a side item talks to, when it is not the column's own. */
+/** The portrait of the leader a side item's conversation is with, named on hover. */
 function LeaderIcon({ leaderId }: { leaderId: string }) {
   const leader = useLeaderCard(leaderId);
-  const name = `With #${leader?.sessionNum ?? "?"} ${leader?.name ?? "another leader"}`;
+  if (!leader?.leaderProfilePortrait) return null;
+  const name = `With #${leader.sessionNum ?? "?"} ${leader.name ?? "Leader"}`;
   return (
     <span className="inline-flex shrink-0" title={name} aria-label={name} data-testid="side-item-leader">
-      {leader?.leaderProfilePortrait ? (
-        <LeaderProfilePortraitImage portrait={leader.leaderProfilePortrait} />
-      ) : (
-        <NewThreadIcon className="h-3.5 w-3.5 text-cc-primary" />
-      )}
+      <LeaderProfilePortraitImage portrait={leader.leaderProfilePortrait} />
     </span>
   );
 }
