@@ -481,6 +481,13 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
     .join(" · ");
   const quiet = tab.completed && !tab.needsInput && !tab.blueNudge;
   const style: CSSProperties = { ...longPress.pressStyle };
+  // Home's rows (those with news lines) are two lines, as in the sessions panel's Threads view
+  // (Jiayi, Nov 1): the quest number, title and time, then the news line. Their phase line went:
+  // the group says where a thread stands, and the news line usually said it again.
+  const newsRow = context.lineOf !== undefined;
+  const questLabel = tab.questId ?? (plainThread ? null : threadKey);
+  const when =
+    tab.remindAt !== undefined ? `Remind ${formatSnoozeUntil(tab.remindAt)}` : activeAt ? timeAgo(activeAt) : null;
   return (
     <div
       className={`flex min-h-[3.25rem] items-center gap-3 px-4 py-1.5 ${selected ? "bg-cc-active" : "hover:bg-cc-hover/40"} ${openMenu ? LONG_PRESS_TARGET_CLASS : ""}`}
@@ -518,13 +525,13 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
             {isActiveOutput(tab, context.activeOutputThreadKey) && <ActiveOutputSpinner />}
             {plainThread && <NewThreadIcon className="h-3.5 w-3.5 shrink-0 text-cc-muted" />}
             {tab.ledElsewhere && (
-              // Another leader runs this quest now; the meta line names it ("Led by #N").
+              // Another leader runs this quest now; a list row's meta line names it ("Led by #N").
               <span className="inline-flex shrink-0 text-cc-muted" data-testid="thread-tab-led-elsewhere-icon">
                 <SessionRoleIcon role="Leader" />
               </span>
             )}
             {tab.remindAt !== undefined && (
-              // Snoozed with "Remind me later": read for now, back when the meta line says.
+              // Snoozed with "Remind me later": read for now, back when the row says.
               <span className="inline-flex shrink-0 text-cc-muted" data-testid="thread-tab-reminder-icon">
                 <ClockIcon />
               </span>
@@ -535,27 +542,52 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
                 <SideQuestIcon sideQuestOf={tab.sideQuestOf} />
               </span>
             )}
+            {newsRow && questLabel && (
+              <span
+                className="shrink-0 font-mono-code text-[12px] text-cc-muted"
+                data-testid="thread-tab-list-row-quest"
+              >
+                {questLabel}
+              </span>
+            )}
             <span className="truncate">{tab.title}</span>
+            {newsRow && when && (
+              <span
+                className="ml-auto shrink-0 pl-2 text-[11.5px] tabular-nums text-cc-muted"
+                data-testid="thread-tab-list-row-time"
+              >
+                {when}
+              </span>
+            )}
           </span>
-          <span className="mt-0.5 truncate text-[11.5px]">
-            <span
-              style={{ color: tab.titleColor }}
-              data-testid="thread-tab-list-row-meta"
-              data-title-color={tab.titleColor ?? ""}
-            >
-              {meta}
-            </span>
-            {summary && <span className="text-cc-muted"> — {summary}</span>}
-          </span>
-          {line && (
+          {newsRow && (
             <span className="mt-0.5 truncate text-[12.5px] text-cc-fg/75" data-testid="thread-tab-list-row-line">
-              {line}
+              {line ?? summary ?? tab.stateLabel ?? tab.detail}
+            </span>
+          )}
+          {!newsRow && (
+            <span className="mt-0.5 truncate text-[11.5px]">
+              <span
+                style={{ color: tab.titleColor }}
+                data-testid="thread-tab-list-row-meta"
+                data-title-color={tab.titleColor ?? ""}
+              >
+                {meta}
+              </span>
+              {summary && <span className="text-cc-muted"> — {summary}</span>}
             </span>
           )}
         </span>
       </button>
       {monitor && <NotifyMeIcon pending={Boolean(monitor.pendingResultId)} className="h-4 w-4" />}
-      <AttentionBell tab={tab} size="md" />
+      {newsRow ? (
+        // A fixed slot, so the times on the right line up whether or not a row has a bell.
+        <span className="flex w-4 shrink-0 justify-center">
+          <AttentionBell tab={tab} size="md" />
+        </span>
+      ) : (
+        <AttentionBell tab={tab} size="md" />
+      )}
       <span className="-mr-1.5 w-8 shrink-0" />
     </div>
   );

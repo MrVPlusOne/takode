@@ -145,6 +145,41 @@ describe("LeaderHomePage", () => {
     expect(screen.getByTestId("home-since-last-looked").textContent).toContain("1 question · 1 finished");
   });
 
+  it("shows each row in two lines: quest number, title and time, then the news line", async () => {
+    // Jiayi (Nov 1): three lines per row was too much, and the middle one (q-N · phase · time)
+    // repeated the news line ("Done" then "Done: ..."). Rows now read like the sessions panel's
+    // Threads view, with the time on the right and no phase.
+    homeLines.mockResolvedValue({ lines: { "q-2": { text: "Done: the relay reconnects.", at: 5, source: "scribe" } } });
+    useLeaderThreadMembers.setState({
+      byLeader: {
+        l1: [
+          member("q-2", {
+            questId: "q-2",
+            title: "Fix the relay",
+            stateLabel: "Done",
+            completed: true,
+            updatedAt: Date.now(),
+          }),
+          member("q-3", { questId: "q-3", title: "Search messages", stateLabel: "Work", running: true }),
+        ],
+      },
+    });
+    render(<LeaderHomePage leaderId="l1" />);
+    const row = (key: string) =>
+      screen.getAllByTestId("thread-tab-list-row").find((item) => item.dataset.threadKey === key)!;
+    await waitFor(() =>
+      expect(within(row("q-2")).getByTestId("thread-tab-list-row-line").textContent).toBe(
+        "Done: the relay reconnects.",
+      ),
+    );
+    expect(within(row("q-2")).getByTestId("thread-tab-list-row-quest").textContent).toBe("q-2");
+    expect(within(row("q-2")).getByTestId("thread-tab-list-row-time").textContent).toBe("just now");
+    expect(within(row("q-2")).queryByTestId("thread-tab-list-row-meta")).toBeNull();
+    expect(row("q-2").textContent).not.toContain("Done ·");
+    // Without a news line yet, the row's state stands in on line two.
+    expect(within(row("q-3")).getByTestId("thread-tab-list-row-line").textContent).toBe("Work");
+  });
+
   it("lists Idle newest first or by topic, remembering the choice", async () => {
     topicList.mockResolvedValue({
       topics: [{ id: "t1", name: "Relay", questIds: ["q-2"], activityAt: 1, summary: "The phone reaches it again." }],

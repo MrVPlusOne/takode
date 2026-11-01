@@ -28,8 +28,10 @@ import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThrea
 export function LeaderHomePage({ leaderId }: { leaderId: string }) {
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="leader-home">
-        <div className="mx-auto w-full max-w-3xl px-3 py-4 sm:px-6">
+      {/* Wider as the main view grows (by its own width: the side column takes room from it), so
+          rows truncate no more than they must (Jiayi, Nov 1). */}
+      <div className="@container min-h-0 flex-1 overflow-y-auto" data-testid="leader-home">
+        <div className="mx-auto w-full max-w-3xl px-3 py-4 sm:px-6 @5xl:max-w-4xl @6xl:max-w-5xl">
           <HomeThreads leaderId={leaderId} />
           <div className="mt-3 flex gap-4 px-1 text-[12.5px] text-cc-muted">
             <button
