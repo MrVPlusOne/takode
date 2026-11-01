@@ -13,6 +13,15 @@ Read this phase brief first:
 
 If the leader has genuinely useful context the worker cannot otherwise access, add it in natural prose after the phase instruction, for example: `Use [#YY msg M](session:YY:M) for the later user correction.`
 
+For a reopened quest, name the open round by its title, never by its number:
+
+```text
+Work on [q-XX](quest:q-XX)'s open round, "<round title>". Load the quest skill first, then read and re-claim the quest: `quest show q-XX && quest claim q-XX`.
+
+Read this phase brief first:
+- `~/.companion/quest-journey-phases/work/assignee.md`
+```
+
 ## Direct Worker Errand
 
 Use this only when the `leader-dispatch` direct worker errand checklist passes. It is not a Quest Journey phase handoff. Workers' own instructions already define the errand limits and the stop-and-promote rule, so naming it a direct errand is enough.
