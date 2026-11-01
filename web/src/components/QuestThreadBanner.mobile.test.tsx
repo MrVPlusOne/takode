@@ -216,20 +216,29 @@ describe("the quest's chips in the feed on phones", () => {
       .setSdkSessions([{ sessionId: "worker", sessionNum: 10, state: "connected", cwd: "/fixture", createdAt: 1 }]);
   });
 
-  it("folds a working quest's chips into its phase chip, showing them all on a tap", () => {
+  it("folds a working quest's chips into its phase chip; one tap shows the Journey with them", () => {
     // Jiayi (Nov 1): on an iPhone the Worker, commits, changes and phase chips spread over two lines
-    // and covered the conversation. A phone shows one compact chip; a tap shows the rest.
+    // and covered the conversation, so a phone shows one compact chip. One tap opens a single
+    // drop-down with the Journey and, under it, the other chips, still actionable; a tap outside or
+    // its × closes it (an earlier fold took a second tap to reach the Journey).
     const width = window.innerWidth;
     window.innerWidth = 430;
     try {
-      render(<QuestThreadFeedChips row={bannerRow()} threadKey="q-9001" />);
+      render(<QuestThreadFeedChips row={bannerRow()} threadKey="q-9001" diffSessionId="leader" />);
       const compact = screen.getByTestId("quest-thread-feed-chips-compact");
       expect(within(compact).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Work");
       expect(screen.queryByRole("link", { name: "Worker #10" })).not.toBeInTheDocument();
-      fireEvent.click(compact);
-      expect(screen.getByRole("link", { name: "Worker #10" })).toBeInTheDocument();
-      fireEvent.click(screen.getByTestId("quest-thread-feed-chips-fold"));
-      expect(screen.getByTestId("quest-thread-feed-chips-compact")).toBeInTheDocument();
+      fingerTap(within(compact).getByTestId("quest-thread-journey-hover-target"));
+      const card = screen.getByTestId("quest-thread-journey-hover-card");
+      expect(within(card).getByRole("link", { name: "Worker #10" })).toHaveAttribute("href", "#/session/10");
+      expect(within(card).getByTestId("quest-thread-pill-details")).toBeInTheDocument();
+      fireEvent.click(within(card).getByTestId("quest-thread-journey-card-close"));
+      expect(screen.queryByTestId("quest-thread-journey-hover-card")).toBeNull();
+      // A press outside closes it too.
+      fingerTap(within(compact).getByTestId("quest-thread-journey-hover-target"));
+      expect(screen.getByTestId("quest-thread-journey-hover-card")).toBeInTheDocument();
+      fireEvent.pointerDown(document.body);
+      expect(screen.queryByTestId("quest-thread-journey-hover-card")).toBeNull();
     } finally {
       window.innerWidth = width;
     }

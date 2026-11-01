@@ -59,11 +59,14 @@ function journeyStatusForThread(row: QuestThreadBannerRow): string | undefined {
 function QuestJourneyHoverTarget({
   row,
   details,
+  closable = false,
   children,
 }: {
   row: QuestThreadBannerRow;
   /** The quest's Worker, commits and Notify, shown under its Journey in the card. */
   details?: ReactNode;
+  /** The card has an × and closes on a press outside it, as a drop-down opened by a tap. */
+  closable?: boolean;
   children: ReactNode;
 }) {
   const hasCard = !!row.journey?.phaseIds?.length || !!details;
@@ -87,6 +90,19 @@ function QuestJourneyHoverTarget({
     },
     [],
   );
+
+  const targetRef = useRef<HTMLDivElement>(null);
+  const open = !!hoverRect;
+  useEffect(() => {
+    if (!closable || !open) return;
+    const onPress = (event: globalThis.PointerEvent) => {
+      const node = event.target as Node | null;
+      if (cardRef.current?.contains(node) || targetRef.current?.contains(node)) return;
+      setHoverRect(null);
+    };
+    document.addEventListener("pointerdown", onPress, true);
+    return () => document.removeEventListener("pointerdown", onPress, true);
+  }, [closable, open]);
 
   useLayoutEffect(() => {
     if (!cardRef.current || !hoverRect) return;
@@ -136,6 +152,7 @@ function QuestJourneyHoverTarget({
   return (
     <>
       <div
+        ref={targetRef}
         className="inline-flex max-w-full min-w-0"
         onPointerEnter={notePointerType}
         onPointerDown={notePointerType}
@@ -172,7 +189,29 @@ function QuestJourneyHoverTarget({
             onMouseLeave={() => setHoverRect(null)}
             data-testid="quest-thread-journey-hover-card"
           >
-            <div className="rounded-lg border border-cc-border bg-cc-card p-2.5 shadow-xl">
+            <div
+              className={`relative rounded-lg border border-cc-border bg-cc-card p-2.5 shadow-xl ${closable ? "pr-9" : ""}`}
+            >
+              {closable && (
+                <button
+                  type="button"
+                  onClick={() => setHoverRect(null)}
+                  className="absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+                  aria-label="Close"
+                  data-testid="quest-thread-journey-card-close"
+                >
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    className="h-3 w-3"
+                    aria-hidden="true"
+                  >
+                    <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
               {row.journey ? (
                 <QuestJourneyPreviewCard
                   journey={row.journey}
@@ -810,8 +849,9 @@ export function QuestThreadBanner({
  * its strip: a thread is no longer tied to one quest or worker. The phase chip opens the Journey
  * card; the Worker and Reviewer chips open their sessions. On a phone an unfinished quest's chips
  * fold into one compact chip at the top right, its phase (whose dot already shows work going on)
- * and a count of open questions; tapping it shows them all (Jiayi, Nov 1: on two lines they covered the
- * conversation). A finished quest's few chips fit on one line and stay as they are.
+ * and a count of open questions (Jiayi, Nov 1: on two lines they covered the conversation); one tap
+ * opens the Journey card with the other chips under it. A finished quest's few chips fit on one
+ * line and stay as they are.
  */
 export function QuestThreadFeedChips({
   row,
@@ -824,9 +864,6 @@ export function QuestThreadFeedChips({
   diffSessionId?: string;
 }) {
   const phone = !useDesktopShellLayout();
-  const [expanded, setExpanded] = useState(false);
-  // A thread opens folded again.
-  useEffect(() => setExpanded(false), [threadKey]);
   if (!row) return null;
   const done = isDoneThreadRow(row);
   const waitCondition = done ? null : waitConditionForBoardRow(row.boardRow);
@@ -835,60 +872,23 @@ export function QuestThreadFeedChips({
   const ownership = row.ownership === "off-board" && done ? undefined : row.ownership;
   const questId = row.questId ?? threadKey.toLowerCase();
   const working = !done && !!(row.rowStatus?.worker || row.boardRow?.worker);
-  const folds = phone && !done;
   const groupClass =
     "pointer-events-auto inline-flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1 self-start rounded-lg border border-cc-border/60 bg-cc-bg/90 px-1 py-0.5 text-xs shadow-sm backdrop-blur";
-  if (folds && !expanded) {
-    return (
-      <button
-        type="button"
-        onClick={() => setExpanded(true)}
-        className={`${groupClass} cursor-pointer`}
-        aria-label="Show the quest's worker, commits and phase"
-        aria-expanded={false}
-        data-testid="quest-thread-feed-chips-compact"
-      >
-        {openQuestionCount > 0 && <QuestBannerOpenQuestionsPill count={openQuestionCount} />}
-        {queued ? (
-          <span className="whitespace-nowrap px-1 text-[10px] text-cc-fg">Queued</span>
-        ) : row.journey ? (
-          <QuestJourneyTimeline
-            journey={row.journey}
-            status={journeyStatusForThread(row)}
-            variant="compact"
-            showNotes={false}
-            compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
-            className="whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
-          />
-        ) : (
-          <QuestStatusFallbackPill status={row.status} />
-        )}
-      </button>
+  const phaseChip = (className = "") =>
+    row.journey ? (
+      <QuestJourneyTimeline
+        journey={row.journey}
+        status={journeyStatusForThread(row)}
+        variant="compact"
+        showNotes={false}
+        compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
+        className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${className}`}
+      />
+    ) : (
+      <QuestStatusFallbackPill status={row.status} />
     );
-  }
-  return (
-    <div className={groupClass} data-testid="quest-thread-feed-chips">
-      {folds && (
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          className="inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-          aria-label="Fold the quest's chips"
-          aria-expanded
-          data-testid="quest-thread-feed-chips-fold"
-        >
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            className="h-3 w-3"
-            aria-hidden="true"
-          >
-            <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-          </svg>
-        </button>
-      )}
+  const otherChips = (
+    <>
       {ownership && (
         <QuestThreadOwnershipChip
           ownership={ownership}
@@ -924,22 +924,44 @@ export function QuestThreadFeedChips({
           testId="quest-thread-diff-chip"
         />
       )}
+    </>
+  );
+  if (phone && !done) {
+    // One tap opens one drop-down: the Journey, and under it the worker, commits, changes and
+    // waits, each still a button (Jiayi, Nov 1: folded chips that unfolded, then a second tap for
+    // the Journey, took two taps).
+    return (
+      <div className={groupClass} data-testid="quest-thread-feed-chips-compact">
+        <QuestJourneyHoverTarget
+          row={row}
+          closable
+          details={
+            <>
+              {otherChips}
+              {queued && <QuestBannerQueuedStatusChip condition={queued} />}
+            </>
+          }
+        >
+          <span className="inline-flex items-center gap-1">
+            {openQuestionCount > 0 && <QuestBannerOpenQuestionsPill count={openQuestionCount} />}
+            {queued ? <span className="whitespace-nowrap px-1 text-[10px] text-cc-fg">Queued</span> : phaseChip()}
+          </span>
+        </QuestJourneyHoverTarget>
+      </div>
+    );
+  }
+  return (
+    <div className={groupClass} data-testid="quest-thread-feed-chips">
+      {otherChips}
       {/* Last, so it always ends the group at the feed's right edge: its place is predictable. */}
       {queued ? (
         <QuestBannerQueuedStatusChip condition={queued} />
       ) : row.journey ? (
         <QuestJourneyHoverTarget row={row}>
-          <QuestJourneyTimeline
-            journey={row.journey}
-            status={journeyStatusForThread(row)}
-            variant="compact"
-            showNotes={false}
-            compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
-            className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ownership === "other-leader" ? "opacity-60" : ""}`}
-          />
+          {phaseChip(ownership === "other-leader" ? "opacity-60" : "")}
         </QuestJourneyHoverTarget>
       ) : (
-        <QuestStatusFallbackPill status={row.status} />
+        phaseChip()
       )}
     </div>
   );
