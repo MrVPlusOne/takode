@@ -464,6 +464,8 @@ export interface QuestTitlePreview {
   commitShas?: string[];
   /** The quest was cancelled (done, not delivered): a leader's Home leaves it out. */
   cancelled?: true;
+  /** A reopened quest's newest round title (`latestRoundTitle`): thread rows and strips show it first. */
+  roundTitle?: string;
 }
 
 export interface QuestTitlePreviewResponse {

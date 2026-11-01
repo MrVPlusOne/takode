@@ -34,6 +34,7 @@ import {
   updateQuestTaskEntries as updateQuestTaskEntriesController,
 } from "../bridge/session-registry-controller.js";
 import { broadcastQuestUpdate, buildQuestTitlePreview, recordQuestSource } from "./quest-helpers.js";
+import { unfinishedRoundMessage } from "./quest-reopen-guard.js";
 import { registerStartedQuestsRoute, resolveQuestStartedFrom } from "./quest-started-from.js";
 import type { OptionalAuthResult, RouteContext } from "./context.js";
 import { sessionMachineName } from "../remote-host/machines.js";
@@ -1281,6 +1282,12 @@ export function createQuestRoutes(ctx: RouteContext) {
       }
       const guardResponse = guardStatusMutation(c, auth, current, body);
       if (guardResponse) return guardResponse;
+      const boardRows = body.openRound ? findActiveV2BoardRowsForQuest(questId, launcher, wsBridge) : [];
+      const unfinishedRound = unfinishedRoundMessage(
+        current.questId,
+        boardRows.map(({ row }) => row),
+      );
+      if (unfinishedRound) return c.json({ error: unfinishedRound }, 409);
       const {
         force: _force,
         reason: _reason,

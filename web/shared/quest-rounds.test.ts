@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { QuestFeedbackEntry, QuestJourneyRun, QuestmasterTask } from "../server/quest-types.js";
 import type { QuestCodeDelivery } from "./quest-delivery.js";
-import { buildQuestRounds, editQuestRound, reopenQuestRounds, roundTitle } from "./quest-rounds.js";
+import { buildQuestRounds, editQuestRound, latestRoundTitle, reopenQuestRounds, roundTitle } from "./quest-rounds.js";
 
 const MIN = 60_000;
 
@@ -180,5 +180,16 @@ describe("quest rounds", () => {
     expect(roundTitle("#2957's new pages are good")).toBe("#2957's new pages are good");
     expect(roundTitle("## Outcome\nScribes run as continuous workers")).toBe("Scribes run as continuous workers");
     expect(roundTitle("x".repeat(30) + " " + "y".repeat(80))!.endsWith("…")).toBe(true);
+  });
+
+  // Thread lists show a reopened quest's newest round before its quest title. A quest never
+  // reopened (one round, or rounds derived from Journey runs and not stored) has none, and an
+  // untitled newest round falls back to the quest title.
+  it("names a reopened quest's newest round for thread lists", () => {
+    const rounds = reopenQuestRounds(legacyQuest(), { title: " Round-first titles " }, 100 * MIN);
+    expect(latestRoundTitle({ rounds })).toBe("Round-first titles");
+    expect(latestRoundTitle(legacyQuest())).toBeUndefined();
+    expect(latestRoundTitle({ rounds: [{ openedAt: 0, title: "Only round" }] })).toBeUndefined();
+    expect(latestRoundTitle({ rounds: [{ openedAt: 0 }, { openedAt: 1, title: "  " }] })).toBeUndefined();
   });
 });

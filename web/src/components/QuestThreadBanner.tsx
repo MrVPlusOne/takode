@@ -41,6 +41,7 @@ import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { resolveSessionNavigation, type ResolvedSessionNavigation } from "../utils/session-navigation-resolver.js";
 import type { QuestThreadBannerRow } from "../utils/session-quest-banner-row.js";
 import type { BoardRowSessionStatus } from "../types.js";
+import { useQuestRoundTitle } from "./QuestRoundTitle.js";
 
 export type { QuestThreadBannerRow } from "../utils/session-quest-banner-row.js";
 
@@ -589,6 +590,17 @@ export function QuestThreadBanner({
   // Disclosure belongs to this quest, not to its changing phase or participants.
   useEffect(() => setCollapsed(false), [questId]);
   const title = row?.title;
+  const roundTitle = useQuestRoundTitle(questId);
+  const questLink = (
+    <QuestInlineLink questId={questId} className="cc-quest-link shrink-0 font-mono-code font-medium hover:underline">
+      {questId}
+    </QuestInlineLink>
+  );
+  const sideQuestIcon = sideQuestOf && (
+    <span className="inline-flex shrink-0 self-center text-cc-muted">
+      <SideQuestIcon sideQuestOf={sideQuestOf} />
+    </span>
+  );
   const isSessionBanner = variant === "session";
   const showCommitAffordance = !!diffSessionId;
   const waitCondition = row && isDoneThreadRow(row) ? null : waitConditionForBoardRow(row?.boardRow);
@@ -685,33 +697,48 @@ export function QuestThreadBanner({
                 Quest
               </span>
             )}
-            {/* Boxes to measure on the breadcrumb band; elsewhere they add no layout of their own. */}
-            <span
-              ref={numberRef}
-              className={singleLine ? `inline-flex shrink-0 ${numberFits ? "" : "max-sm:hidden"}` : "contents"}
-            >
-              <QuestInlineLink
-                questId={questId}
-                className="cc-quest-link shrink-0 font-mono-code font-medium hover:underline"
-              >
-                {questId}
-              </QuestInlineLink>
-            </span>
-            {sideQuestOf && (
-              <span className="inline-flex shrink-0 self-center text-cc-muted">
-                <SideQuestIcon sideQuestOf={sideQuestOf} />
-              </span>
-            )}
-            <span ref={titleRef} className={singleLine ? "inline-flex min-w-0" : "contents"}>
-              {title && (
+            {roundTitle ? (
+              // A reopened quest reads by its newest round first; the quest gives way first.
+              <>
+                {sideQuestIcon}
                 <span
                   className={`truncate text-xs font-medium text-cc-fg sm:text-[13px] ${singleLine ? "min-w-[6rem]" : "min-w-0"}`}
-                  title={title}
+                  title={roundTitle}
+                  data-testid="quest-thread-round-title"
                 >
-                  {title}
+                  {roundTitle}
                 </span>
-              )}
-            </span>
+                <span className="inline-flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden text-xs text-cc-muted sm:text-[13px]">
+                  {questLink}
+                  {title && (
+                    <span className="truncate" title={title}>
+                      {title}
+                    </span>
+                  )}
+                </span>
+              </>
+            ) : (
+              <>
+                {/* Boxes to measure on the breadcrumb band; elsewhere they add no layout of their own. */}
+                <span
+                  ref={numberRef}
+                  className={singleLine ? `inline-flex shrink-0 ${numberFits ? "" : "max-sm:hidden"}` : "contents"}
+                >
+                  {questLink}
+                </span>
+                {sideQuestIcon}
+                <span ref={titleRef} className={singleLine ? "inline-flex min-w-0" : "contents"}>
+                  {title && (
+                    <span
+                      className={`truncate text-xs font-medium text-cc-fg sm:text-[13px] ${singleLine ? "min-w-[6rem]" : "min-w-0"}`}
+                      title={title}
+                    >
+                      {title}
+                    </span>
+                  )}
+                </span>
+              </>
+            )}
           </div>
           {hasMobileDetails && (
             <button

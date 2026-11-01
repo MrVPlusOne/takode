@@ -203,6 +203,29 @@ describe("mobile quest banner disclosure", () => {
     fireEvent.click(target);
     expect(card()).toBeInTheDocument();
   });
+
+  // Jiayi (Nov 1): a reopened quest's strip reads by its newest round first; the quest number and
+  // title follow, muted, and give way first on a narrow strip.
+  it("names a reopened quest by its newest round, then its number and title", () => {
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-9001",
+      title: "Banner example",
+      version: 2,
+      updatedAt: 2,
+      roundTitle: "Round-first strips",
+    });
+    render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" singleLine />);
+    const banner = screen.getByTestId("quest-thread-banner");
+    const order = [
+      screen.getByTestId("quest-thread-round-title"),
+      within(banner).getByText("q-9001"),
+      within(banner).getByText("Review the navigation comparison and next steps"),
+    ];
+    expect(order[0]).toHaveTextContent("Round-first strips");
+    for (let index = 1; index < order.length; index += 1) {
+      expect(order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
 });
 
 // The breadcrumb band on a phone (Jiayi's pick A of three built options): the phase chip is only

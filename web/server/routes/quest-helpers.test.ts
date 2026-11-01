@@ -50,4 +50,30 @@ describe("broadcastQuestUpdate", () => {
       },
     });
   });
+
+  // A reopen's broadcast carries the newest round's title, so thread rows and strips in every
+  // browser switch to it without fetching the quest.
+  it("carries a reopened quest's newest round title", () => {
+    const broadcastGlobal = vi.fn();
+    const quest = {
+      id: "q-43",
+      questId: "q-43",
+      version: 7,
+      title: "Desktop workspace",
+      status: "refined",
+      description: "Standing brief.",
+      createdAt: 10,
+      rounds: [
+        { openedAt: 10, closedAt: 40 },
+        { openedAt: 50, title: "Side column limit" },
+      ],
+    } as QuestmasterTask;
+
+    broadcastQuestUpdate({ broadcastGlobal } as unknown as Parameters<typeof broadcastQuestUpdate>[0], quest);
+
+    expect(broadcastGlobal.mock.calls[0]![0].quest).toMatchObject({
+      title: "Desktop workspace",
+      roundTitle: "Side column limit",
+    });
+  });
 });

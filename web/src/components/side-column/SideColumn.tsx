@@ -60,6 +60,7 @@ import {
   useSideChat,
 } from "../../utils/chat-focus.js";
 import { ChatFocusMark } from "../ChatFocusMark.js";
+import { useQuestRoundTitle } from "../QuestRoundTitle.js";
 
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
 const KEPT_MOUNTED = 3;
@@ -601,10 +602,7 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
       return <>{pinned?.name ?? "Topic"}</>;
     case "conversation":
       return /^q-\d+$/i.test(item.threadKey) ? (
-        <>
-          <SideQuestNumber questId={item.threadKey.toLowerCase()} />{" "}
-          <ThreadOriginName leaderId={leaderId} threadKey={item.threadKey} />
-        </>
+        <SideQuestThreadTitle leaderId={leaderId} questId={item.threadKey.toLowerCase()} />
       ) : (
         <ThreadOriginName leaderId={leaderId} threadKey={item.threadKey} />
       );
@@ -629,6 +627,22 @@ function HomeTitle({ leaderId }: { leaderId: string }) {
 function NewChatWithTitle({ leaderId }: { leaderId: string }) {
   const leader = useLeaderCard(leaderId);
   return <>New thread with {leader?.name ?? "another leader"}</>;
+}
+
+/** A quest's thread: a reopened quest by its newest round first, then the quest muted, cut first. */
+function SideQuestThreadTitle({ leaderId, questId }: { leaderId: string; questId: string }) {
+  const roundTitle = useQuestRoundTitle(questId);
+  const quest = (
+    <>
+      <SideQuestNumber questId={questId} /> <ThreadOriginName leaderId={leaderId} threadKey={questId} />
+    </>
+  );
+  if (!roundTitle) return quest;
+  return (
+    <>
+      {roundTitle} <span className="text-cc-muted">{quest}</span>
+    </>
+  );
 }
 
 function SideQuestTitle({ questId }: { questId: string }) {

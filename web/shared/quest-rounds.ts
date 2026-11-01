@@ -207,6 +207,16 @@ export function editQuestRound(quest: RoundSource, edit: QuestRoundEdit): QuestR
   return rounds;
 }
 
+/**
+ * The newest round's title of a reopened quest (more than one stored round): what the quest is
+ * doing now, which thread lists show before the quest's own, often broader, title. Undefined for a
+ * quest that was never reopened, or whose newest round has no title of its own.
+ */
+export function latestRoundTitle(quest: Pick<QuestmasterTask, "rounds">): string | undefined {
+  const rounds = quest.rounds ?? [];
+  return rounds.length > 1 ? rounds.at(-1)?.title?.trim() || undefined : undefined;
+}
+
 /** Round from a one-based number, or undefined when out of range. */
 export function findQuestRound(view: QuestRoundsView, number: number): QuestRoundView | undefined {
   return Number.isInteger(number) ? view.rounds[number - 1] : undefined;

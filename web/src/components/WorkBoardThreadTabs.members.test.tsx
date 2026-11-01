@@ -90,6 +90,25 @@ describe("ThreadTabRail members", () => {
     }
   });
 
+  it("names a reopened quest by its newest round in the row's list and on Home", () => {
+    // Jiayi (Nov 1): a reopened quest's generic title says less than its newest round of work.
+    useStore
+      .getState()
+      .upsertQuestTitlePreview({ questId: "q-8", title: "Title q-8", version: 4, roundTitle: "Side column limit" });
+    try {
+      renderRail([chip("q-7", { completed: true }), chip("q-8", { completed: true })]);
+      const members = useLeaderThreadMembers.getState().byLeader.leader!;
+      expect(members.find((member) => member.threadKey === "q-8")!.roundTitle).toBe("Side column limit");
+      expect(members.find((member) => member.threadKey === "q-7")!.roundTitle).toBeUndefined();
+      fireEvent.contextMenu(groupTab("idle")!, { clientX: 10, clientY: 10 });
+      const row = screen.getAllByTestId("thread-tab-list-row").find((item) => item.dataset.threadKey === "q-8")!;
+      expect(within(row).getByTestId("quest-round-title").textContent).toBe("Side column limit");
+      expect(within(row).getByTestId("quest-round-title-quest").textContent).toBe("Title q-8");
+    } finally {
+      useStore.setState({ questTitlePreviews: new Map() });
+    }
+  });
+
   it("puts a worker's question about one of the leader's quests under Needs you, opening the question", () => {
     // q-4 is the leader's; q-99 is not, and the leader's own questions are its tabs' already.
     needsInput.entries = [

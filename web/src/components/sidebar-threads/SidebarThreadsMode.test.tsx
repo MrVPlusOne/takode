@@ -169,6 +169,30 @@ describe("useThreadsModeData", () => {
   });
 });
 
+describe("useThreadsModeData title previews", () => {
+  it("loads the title previews it lacks for every leader's quest threads while shown", () => {
+    // Other leaders' threads have no view of theirs loading them: their cancelled marks and a
+    // reopened quest's round title come from these previews.
+    const original = useStore.getState().hydrateQuestTitles;
+    const hydrate = vi.fn(async () => {});
+    useStore.setState({ hydrateQuestTitles: hydrate });
+    useStore.getState().applySyncedProjectionSnapshot({
+      projection: LEADER_THREAD_TABS_PROJECTION,
+      key: "takode",
+      generation: "threads-view-previews",
+      revision: 1,
+      value: createLeaderThreadTabsProjectionValue({
+        tabs: [createLeaderThreadTabsProjectionTab("q-7"), createLeaderThreadTabsProjectionTab("q-8")],
+      }),
+    });
+    useStore.getState().upsertQuestTitlePreview({ questId: "q-7", title: "Loaded", version: 1 });
+    renderHook(() => useThreadsModeData([TAKODE], true));
+    expect(hydrate).toHaveBeenCalledWith(["q-8"]);
+    useStore.getState().reset();
+    useStore.setState({ hydrateQuestTitles: original });
+  });
+});
+
 describe("threadRows across leaders", () => {
   it("lists a quest in two leaders' tabs once, under the leader whose board holds it", () => {
     const rows = threadRows(
@@ -218,6 +242,30 @@ describe("SidebarThreadsMode", () => {
       expect.stringContaining("Daily Leader"),
     ]);
     expect(screen.getByTestId("other-sessions")).toBeTruthy();
+  });
+
+  // Jiayi (Nov 1): a reopened quest's generic title says less than its newest round, so its row
+  // shows the round first and the quest (number and title) second, which gives way first.
+  it("names a reopened quest by its newest round, then the quest", () => {
+    useStore
+      .getState()
+      .upsertQuestTitlePreview({ questId: "q-4", title: "Quest q-4", version: 3, roundTitle: "Side column limit" });
+    render(
+      <SidebarThreadsMode
+        data={{ leaders: LEADERS, others: [] }}
+        currentSessionId={null}
+        onOpened={() => {}}
+        otherSessions={() => null}
+      />,
+    );
+    const row = screen.getAllByTestId("threads-mode-row").find((candidate) => candidate.dataset.threadKey === "q-4")!;
+    expect(within(row).getByTestId("quest-round-title").textContent).toBe("Side column limit");
+    expect(within(row).getByTestId("quest-round-title-quest").textContent).toBe("q-4 Quest q-4");
+    expect(row.getAttribute("title")).toBe("q-4 Quest q-4: Side column limit");
+    // A quest never reopened keeps its own title alone.
+    const plain = screen.getAllByTestId("threads-mode-row").find((candidate) => candidate.dataset.threadKey === "q-1")!;
+    expect(within(plain).queryByTestId("quest-round-title")).toBeNull();
+    useStore.getState().reset();
   });
 
   it("shows the newest Idle threads, the rest behind N older", () => {

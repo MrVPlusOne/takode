@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useStore } from "../../store.js";
 import { QuestThreadBanner, QuestThreadFeedChips, type QuestThreadBannerRow } from "../QuestThreadBanner.js";
 import {
   PLAYGROUND_HANDOFF_LEADER_SESSION_ID,
@@ -371,6 +372,42 @@ export function PlaygroundQuestBannerExamples() {
           </div>
         </div>
       </div>
+
+      <PlaygroundReopenedQuestStrip row={compactQuestThreadBannerRows[0].row} />
     </>
+  );
+}
+
+const REOPENED_QUEST_ID = "q-9050";
+
+/** A reopened quest's strip: its newest round first, then the quest number and title, muted. */
+function PlaygroundReopenedQuestStrip({ row }: { row: QuestThreadBannerRow }) {
+  useEffect(() => {
+    useStore.getState().upsertQuestTitlePreview({
+      questId: REOPENED_QUEST_ID,
+      title: "Desktop workspace: breadcrumb, side column, side chats",
+      version: 1,
+      roundTitle: "Side column conversation limit",
+    });
+  }, []);
+  return (
+    <div
+      data-testid="playground-quest-banner-reopened"
+      className="w-full max-w-[430px] overflow-hidden rounded-lg border border-cc-border bg-cc-card"
+    >
+      <div className="border-b border-cc-border/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
+        Reopened quest: newest round first
+      </div>
+      <QuestThreadBanner
+        row={{
+          ...row,
+          threadKey: REOPENED_QUEST_ID,
+          questId: REOPENED_QUEST_ID,
+          title: "Desktop workspace: breadcrumb, side column, side chats",
+        }}
+        threadKey={REOPENED_QUEST_ID}
+        singleLine
+      />
+    </div>
   );
 }

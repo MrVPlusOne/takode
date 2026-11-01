@@ -970,6 +970,79 @@ describe("POST /api/quests/:questId/transition", () => {
     expect(res.status).toBe(200);
   });
 
+  // A round still in Memory or waiting in Landing is unfinished: reopening then lost its Memory's
+  // debrief, or let its landing complete the quest and close the new round before work began.
+  // Takode refuses the new round until that board row moves on; with no such row it opens.
+  it.each([
+    { status: "MEMORY", expected: 409, message: "is still in Memory" },
+    { status: "LANDING", expected: 409, message: "is still waiting in Landing" },
+    { status: null, expected: 200, message: null },
+  ])("handles a new round while the board row is $status", async ({ status, expected, message }) => {
+    launcher.listSessions.mockReturnValue([{ sessionId: "leader-1", isOrchestrator: true }]);
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: sessionId === "leader-1",
+    }));
+    if (status) {
+      bridge._sessions["leader-1"] = {
+        id: "leader-1",
+        board: new Map([
+          [
+            "q-1",
+            {
+              questId: "q-1",
+              title: "Quest",
+              worker: "worker-1",
+              status,
+              journey: { phaseIds: ["work", "memory", "landing"], activePhaseIndex: status === "MEMORY" ? 1 : 2 },
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+          ],
+        ]),
+      };
+    }
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-1",
+      leaderSessionId: "leader-1",
+    } as any);
+    const transition = vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "refined",
+      createdAt: Date.now(),
+      description: "Ready",
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-companion-session-id": "leader-1",
+        "x-companion-auth-token": "tok",
+      },
+      body: JSON.stringify({ status: "refined", openRound: { title: "Next step" } }),
+    });
+
+    expect(res.status).toBe(expected);
+    if (message) {
+      const body = await res.json();
+      expect(body.error).toContain(message);
+      expect(body.error).toContain("quest create --follow-up-of q-1");
+      expect(transition).not.toHaveBeenCalled();
+    } else {
+      expect(transition).toHaveBeenCalledWith("q-1", expect.objectContaining({ openRound: { title: "Next step" } }));
+    }
+  });
+
   it("rejects stale previous owner authority after an in-progress reassignment", async () => {
     launcher.getSession.mockImplementation((sessionId: string) => ({
       sessionId,
