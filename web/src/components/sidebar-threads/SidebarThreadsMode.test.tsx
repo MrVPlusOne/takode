@@ -6,7 +6,7 @@
  * counts; then the leaders and the other sessions. Jiayi (Nov 1): the panel is for finding the
  * thread just used, like a chat app; the bell and each leader's Home are for what needs attention.
  */
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 const queue = vi.hoisted(() => ({ items: [] as unknown[] }));
 vi.mock("../../hooks/useNextAttention.js", () => ({ useNextAttention: () => ({ queue: queue.items }) }));
@@ -30,7 +30,18 @@ vi.mock("../../utils/routing.js", async (importOriginal) => ({
 import type { LeaderThreadTabsProjectionTab } from "../../../shared/leader-thread-tabs-projection.js";
 import { useStore } from "../../store.js";
 import type { RecentSessionNode } from "../../utils/recent-sessions.js";
-import { SidebarThreadsMode, ThreadsModeNewButton, threadRows, type LeaderThreadsInput } from "./SidebarThreadsMode.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
+import {
+  createLeaderThreadTabsProjectionTab,
+  createLeaderThreadTabsProjectionValue,
+} from "../../test-fixtures/leader-thread-tabs-projection.js";
+import {
+  SidebarThreadsMode,
+  ThreadsModeNewButton,
+  threadRows,
+  useThreadsModeData,
+  type LeaderThreadsInput,
+} from "./SidebarThreadsMode.js";
 
 afterEach(() => {
   cleanup();
@@ -137,6 +148,24 @@ describe("threadRows", () => {
     // No phase words: a quest has no label (its dot says where it stands); a thread says so.
     expect(rows.find((row) => row.threadKey === "q-4")!.label).toBeUndefined();
     expect(rows.find((row) => row.threadKey === "topic:aa")!.label).toBe("Thread");
+  });
+});
+
+describe("useThreadsModeData", () => {
+  it("leaves cancelled quests out, as each leader's status row and Home do", () => {
+    useStore.getState().applySyncedProjectionSnapshot({
+      projection: LEADER_THREAD_TABS_PROJECTION,
+      key: "takode",
+      generation: "threads-view",
+      revision: 1,
+      value: createLeaderThreadTabsProjectionValue({
+        tabs: [createLeaderThreadTabsProjectionTab("q-7"), createLeaderThreadTabsProjectionTab("q-8")],
+      }),
+    });
+    useStore.getState().upsertQuestTitlePreview({ questId: "q-7", title: "Dropped", version: 2, cancelled: true });
+    const { result } = renderHook(() => useThreadsModeData([TAKODE], false));
+    expect(result.current.leaders[0]!.tabs.map((item) => item.threadKey)).toEqual(["q-8"]);
+    useStore.getState().reset();
   });
 });
 

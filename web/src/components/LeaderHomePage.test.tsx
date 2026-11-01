@@ -117,15 +117,6 @@ describe("LeaderHomePage", () => {
     ]);
   });
 
-  it("leaves cancelled quests out", () => {
-    useStore.getState().upsertQuestTitlePreview({ questId: "q-7", title: "Dropped", version: 2, cancelled: true });
-    useLeaderThreadMembers.setState({
-      byLeader: { l1: [member("q-7", { questId: "q-7" }), member("q-8", { questId: "q-8" })] },
-    });
-    render(<LeaderHomePage leaderId="l1" />);
-    expect(screen.getAllByTestId("home-thread-row").map((row) => row.dataset.threadKey)).toEqual(["q-8"]);
-  });
-
   it("shows the question asked, a running quest's worker at work, and a finished quest's commits", async () => {
     // Home has room the sessions panel lacks: what the thread asks, what its worker is doing now.
     activityPreview.mockResolvedValue({

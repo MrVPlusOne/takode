@@ -14,6 +14,8 @@ import {
 
 interface MockStoreState {
   sessionNotifications: Map<string, unknown[]>;
+  /** Quest title previews: the row leaves out quests they mark cancelled. */
+  questTitlePreviews: Map<string, unknown>;
   sessionBoards: Map<string, BoardRowData[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
@@ -51,6 +53,7 @@ const mockSetExpandAllInTurn = vi.fn();
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
     sessionNotifications: new Map(),
+    questTitlePreviews: new Map(),
     sessionBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
     sessionCompletedBoards: new Map(),

@@ -7,7 +7,6 @@
  * the worker and what it is doing now for a running quest, and a finished quest's commits.
  */
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
-import { useShallow } from "zustand/react/shallow";
 import { api } from "../../api.js";
 import { useStore } from "../../store.js";
 import type { SessionActivityPreview } from "../../../server/session-activity-preview.js";
@@ -53,16 +52,14 @@ export interface HomeThread {
 /**
  * The leader's threads in Home's order: questions for the user first, then by when the user last
  * dealt with them (`userInteractionAt` from the leader's tab projection; a thread the user started,
- * from its start). Cancelled quests are left out.
+ * from its start). Cancelled quests are already left out of the members (`ThreadTabRail`).
  */
 export function homeThreadOrder(
   threads: readonly PrimaryThreadChip[],
   userInteractionAt: Readonly<Record<string, number>>,
-  isCancelled: (questId: string) => boolean = () => false,
 ): HomeThread[] {
   const asking = (thread: HomeThread) => (thread.tab.needsInput ? 1 : 0);
   return threads
-    .filter((tab) => !(tab.questId && isCancelled(normalizeThreadKey(tab.questId))))
     .map((tab) => {
       const key = normalizeThreadKey(tab.threadKey);
       const own = userInteractionAt[key === ALL_THREADS_KEY ? MAIN_THREAD_KEY : key] ?? 0;
@@ -99,18 +96,7 @@ export function HomeThreadList({
   const userInteractionAt = useStore(
     (state) => resolveLeaderThreadTabsProjection(state, leaderId).value?.userInteractionAt ?? EMPTY_TIMES,
   );
-  const cancelledKey = useStore(
-    useShallow((state) =>
-      threads.flatMap((tab) => {
-        const questId = tab.questId ? normalizeThreadKey(tab.questId) : null;
-        return questId && state.questTitlePreviews.get(questId)?.cancelled ? [questId] : [];
-      }),
-    ),
-  );
-  const ordered = useMemo(() => {
-    const cancelled = new Set(cancelledKey);
-    return homeThreadOrder(threads, userInteractionAt, (questId) => cancelled.has(questId));
-  }, [threads, userInteractionAt, cancelledKey]);
+  const ordered = useMemo(() => homeThreadOrder(threads, userInteractionAt), [threads, userInteractionAt]);
   const [filter, setFilter] = useState<HomeFilter>("all");
   const [view, setView] = useHomeView();
   const [all, setAll] = useState(false);

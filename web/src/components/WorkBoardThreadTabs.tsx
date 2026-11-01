@@ -18,6 +18,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
+import { useCancelledQuestIds } from "../utils/cancelled-quests.js";
 import { plainThreadChip, ThreadGroupBar } from "./ThreadTabGroups.js";
 import { useLeaderThreads } from "../utils/leader-topics.js";
 import { openInSide } from "../utils/side-column.js";
@@ -193,10 +194,14 @@ export function ThreadTabRail({
   const activeTurnRoute = useStore((state) => state.activeTurnRoutes.get(sessionId));
   const runningRoute = sessionStatus === "running" ? activeTurnRoute : null;
   const [tabMenu, setTabMenu] = useState<{ threadKey: string; x: number; y: number } | null>(null);
-  const displayedTabs = tabs.map((tab) => {
-    const titleColor = displayThreadTabTitleColor(tab, cachedQuestForId(tab.questId), threadStatuses);
-    return titleColor === tab.titleColor ? tab : { ...tab, titleColor };
-  });
+  // Cancelled quests leave the row (and Home, which lists the same members).
+  const cancelled = useCancelledQuestIds(tabs.map((tab) => tab.questId));
+  const displayedTabs = tabs
+    .filter((tab) => !(tab.questId && cancelled.has(normalizeThreadKey(tab.questId))))
+    .map((tab) => {
+      const titleColor = displayThreadTabTitleColor(tab, cachedQuestForId(tab.questId), threadStatuses);
+      return titleColor === tab.titleColor ? tab : { ...tab, titleColor };
+    });
 
   // Only actions that apply to a thread are offered: Notify Me for a quest, then opening it beside,
   // its worker, a reminder and a link. The leader log and a question from another session (which

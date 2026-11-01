@@ -77,6 +77,19 @@ const groupTab = (group: string) =>
   screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === group);
 
 describe("ThreadTabRail members", () => {
+  it("leaves cancelled quests out of the row and the members Home lists", () => {
+    // Jiayi (Nov 1): a cancelled quest showed as "Not on board" in Idle. It leaves every thread
+    // list; search, Questmaster, links and its own thread still reach it.
+    useStore.getState().upsertQuestTitlePreview({ questId: "q-7", title: "Dropped", version: 2, cancelled: true });
+    try {
+      renderRail([chip("q-7", { completed: true }), chip("q-8", { completed: true })]);
+      expect(groupTab("idle")!.dataset.count).toBe("1");
+      expect(useLeaderThreadMembers.getState().byLeader.leader!.map((member) => member.threadKey)).toEqual(["q-8"]);
+    } finally {
+      useStore.setState({ questTitlePreviews: new Map() });
+    }
+  });
+
   it("puts a worker's question about one of the leader's quests under Needs you, opening the question", () => {
     // q-4 is the leader's; q-99 is not, and the leader's own questions are its tabs' already.
     needsInput.entries = [

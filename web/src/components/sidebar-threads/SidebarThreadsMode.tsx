@@ -7,6 +7,7 @@ import { useNextAttention } from "../../hooks/useNextAttention.js";
 import { useStore } from "../../store.js";
 import { sideComposerDraftKey } from "../../draft-sync-bridge.js";
 import { useLeadersThreads } from "../../utils/leader-topics.js";
+import { useCancelledQuestIds } from "../../utils/cancelled-quests.js";
 import { timeAgo } from "../../utils/quest-helpers.js";
 import { useLeadersHomeLines } from "../home/HomeExtras.js";
 import { resolveLeaderThreadTabsProjection } from "../../utils/leader-thread-tabs-resolver.js";
@@ -262,15 +263,25 @@ export function useThreadsModeData(nodes: readonly RecentSessionNode[], active: 
   );
   const projections = useStore((state) => state.syncedProjectionValues);
   const projectionKeys = useStore((state) => state.syncedProjectionKeys);
+  const values = useMemo(
+    () =>
+      leaderNodes.map(
+        (node) =>
+          resolveLeaderThreadTabsProjection(
+            { syncedProjectionValues: projections, syncedProjectionKeys: projectionKeys },
+            node.leader.id,
+          ).value,
+      ),
+    [leaderNodes, projections, projectionKeys],
+  );
+  // Cancelled quests are left out, as in each leader's status row and Home.
+  const cancelled = useCancelledQuestIds(values.flatMap((value) => (value?.tabs ?? []).map((tab) => tab.questId)));
   return useMemo(() => {
     const leaders = leaderNodes.map((node, index) => {
-      const value = resolveLeaderThreadTabsProjection(
-        { syncedProjectionValues: projections, syncedProjectionKeys: projectionKeys },
-        node.leader.id,
-      ).value;
+      const value = values[index];
       return {
         node,
-        tabs: value?.tabs ?? [],
+        tabs: (value?.tabs ?? []).filter((tab) => !(tab.questId && cancelled.has(normalizeThreadKey(tab.questId)))),
         runningQuestIds: (value?.runningQuestIds ?? []).map(normalizeThreadKey),
         threads: threads[node.leader.id] ?? [],
         writingThreadKey: writing[index] ?? null,
@@ -279,7 +290,7 @@ export function useThreadsModeData(nodes: readonly RecentSessionNode[], active: 
     });
     const listed = new Set(leaderNodes.map((node) => node.leader.id));
     return { leaders, others: nodes.filter((node) => !listed.has(node.leader.id)) };
-  }, [nodes, leaderNodes, threads, projections, projectionKeys, writing]);
+  }, [nodes, leaderNodes, threads, values, cancelled, writing]);
 }
 
 /** The thread on screen, as the route says. */
