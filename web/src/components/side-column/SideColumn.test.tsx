@@ -462,7 +462,12 @@ describe("SideColumn", () => {
         .slice(0, 3)
         .map((row) => within(row).getByTestId("side-item-dot").dataset.tone);
       expect(tones).toEqual(["question", "unread", "none"]);
-      expect(within(rows()[0]!).getByTestId("side-item-questions").textContent).toBe("question");
+      // The amber bell that marks questions elsewhere, not a text label (Jiayi, Oct 31).
+      expect(within(rows()[0]!).getByTestId("side-item-questions").getAttribute("aria-label")).toBe(
+        "A question for you",
+      );
+      expect(within(rows()[0]!).getByTestId("side-item-questions").className).toContain("text-cc-attention");
+      expect(within(rows()[0]!).getByTestId("side-item-questions").querySelector("svg")).not.toBeNull();
       expect(within(rows()[1]!).queryByTestId("side-item-questions")).toBeNull();
       expect(within(rows()[2]!).getByTestId("side-item-dot").className).not.toContain("success");
     } finally {

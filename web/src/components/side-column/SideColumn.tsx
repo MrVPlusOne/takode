@@ -37,6 +37,7 @@ import { SideQuest } from "./SideQuest.js";
 import { SideSession } from "./SideSession.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
+import { BellIcon } from "../AttentionKind.js";
 import { openLibraryArtifact } from "../../utils/library-nav.js";
 
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
@@ -287,12 +288,15 @@ function SideItemRow({
           <SideItemTitle leaderId={owner} item={item} />
         </span>
         {questions > 0 && (
-          // A question waits on the user here: amber, like a question anywhere else.
+          // A question waits on the user here: the amber bell that marks questions everywhere else
+          // (Needs you rows, the bell list). Jiayi (Oct 31): a "question" label read badly in light.
           <span
-            className="shrink-0 rounded-full bg-[var(--color-cc-phase-accent-amber)]/15 px-1.5 text-[11px] tabular-nums text-[var(--color-cc-phase-accent-amber)]"
+            className="inline-flex shrink-0 text-cc-attention"
+            title={questions === 1 ? "A question for you" : `${questions} questions for you`}
+            aria-label={questions === 1 ? "A question for you" : `${questions} questions for you`}
             data-testid="side-item-questions"
           >
-            {questions === 1 ? "question" : `${questions} questions`}
+            <BellIcon className="h-3.5 w-3.5" />
           </span>
         )}
         {unread > 0 && (
