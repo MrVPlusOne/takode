@@ -26,13 +26,22 @@ export interface UpdateContent {
   unsorted: Array<{ questId: string; title: string }>;
   /** Threads the user started that just settled under no topic: file each where it plainly belongs. */
   settledThreads?: Array<{ key: string; name: string; startedFrom?: string; firstMessage?: string }>;
+  /** Threads the user just started, still called by their first words: the Scribe names them now. */
+  newThreads?: Array<{ key: string; name: string; firstMessage?: string }>;
   /**
-   * Threads the user just started: join each onto the earlier conversation it plainly continues.
-   * `earlier` lists the leader's other recent threads; its quests come from `takode scribe quests`.
+   * Threads that settled: join each onto the earlier conversation it plainly continues. `earlier`
+   * lists the leader's other recent threads; its quests come from `takode scribe quests`.
    */
   joinChecks?: {
-    /** `unnamed`: still called by the user's first words, waiting for the Scribe to name it. */
-    threads: Array<{ key: string; name: string; firstMessage?: string; unnamed?: boolean }>;
+    threads: Array<{
+      key: string;
+      name: string;
+      firstMessage?: string;
+      /** Where the user was when they opened it: not what it continues. */
+      openedFrom?: string;
+      /** The quests its requests went to (filed from it, or handed off): the only quests it may join. */
+      wentTo?: string[];
+    }>;
     earlier: Array<{ key: string; name: string }>;
   };
   /** Quests with news in this message: the Scribe writes each a line for its leader's Home. */
@@ -79,10 +88,12 @@ export function updateMessage(
   const settledThreads = content.settledThreads ?? [];
   const newTopics = content.newTopics ?? [];
   const joinChecks = content.joinChecks?.threads.length ? content.joinChecks : undefined;
+  const newThreads = content.newThreads ?? [];
   if (
     !topics.length &&
     !unsorted.length &&
     !settledThreads.length &&
+    !newThreads.length &&
     !joinChecks &&
     !instructions &&
     !forced.length &&
@@ -96,7 +107,10 @@ export function updateMessage(
     `What changed for your leader ${label(leader)} since my last message (work through it as your brief describes):`,
   ];
   // New threads come first: their names show in the leader's first answer, its alert and lists.
-  if (joinChecks) lines.push(...newThreadLines(joinChecks));
+  if (newThreads.length) {
+    lines.push("", "Threads the user just started (name each):");
+    for (const thread of newThreads) lines.push(...threadLines(thread));
+  }
   if (rewritePages) {
     lines.push(
       "",
@@ -127,6 +141,7 @@ export function updateMessage(
     const hidden = topic.events.length - MAX_EVENTS_PER_TOPIC;
     if (hidden > 0) lines.push(`- and ${hidden} earlier (\`takode scribe changes ${topic.id.slice(0, 8)}\`)`);
   }
+  if (joinChecks) lines.push(...joinCheckLines(joinChecks));
   if (settledThreads.length) {
     lines.push("", "Threads that settled under no topic (file or leave each):");
     for (const thread of settledThreads) {
@@ -190,14 +205,25 @@ export function threadJoinedNotice(
   scribeNum: number | null,
   thread: { key: string; name: string },
   into: { key: string; name?: string },
+  movedFrom?: string,
 ): string {
   const onto = into.name ? `${threadAddress(into.key)} "${into.name}"` : threadAddress(into.key);
-  return `Your Scribe #${scribeNum ?? "?"} joined the thread "${thread.name}" (${threadAddress(thread.key)}) onto ${onto}: it continues that conversation, so answer there. The user can undo it.`;
+  const moved = movedFrom ? `, moving it from ${threadAddress(movedFrom)} where it was joined by mistake` : "";
+  return `Your Scribe #${scribeNum ?? "?"} joined the thread "${thread.name}" (${threadAddress(thread.key)}) onto ${onto}${moved}: it continues that conversation, so answer there. The user can undo it.`;
 }
 
-/** For the leader: the user undid a join, so the thread is a conversation of its own again. */
-export function threadUnjoinedNotice(thread: { key: string; name: string }, from: string): string {
-  return `The user undid joining the thread "${thread.name}" (${threadAddress(thread.key)}) onto ${from}: it is a conversation of its own again.`;
+/**
+ * For the leader: a join was undone, by the user or by the Scribe that found it wrong, so the thread
+ * is a conversation of its own again (the Scribe may join it where it belongs next).
+ */
+export function threadUnjoinedNotice(
+  thread: { key: string; name: string },
+  from: string,
+  scribe?: { scribeNum: number | null; reason: string },
+): string {
+  const who = scribe ? `Your Scribe #${scribe.scribeNum ?? "?"} undid its join of` : "The user undid joining";
+  const why = scribe ? ` (${scribe.reason})` : "";
+  return `${who} the thread "${thread.name}" (${threadAddress(thread.key)}) onto ${from}${why}: it is a conversation of its own again.`;
 }
 
 /** For the leader, once, when its Scribe's turns keep failing (often its login or the model service). */
@@ -260,20 +286,29 @@ function label(leader: LeaderLabel): string {
   return `#${leader.sessionNum ?? "?"} "${leader.name}"`;
 }
 
+/** A thread's line and its first words. */
+function threadLines(thread: { key: string; name: string; firstMessage?: string }, extra = ""): string[] {
+  const lines = [`- ${threadAddress(thread.key)} "${thread.name}"${extra}`];
+  if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
+  return lines;
+}
+
 /**
- * The threads the user just started: the Scribe names the ones still called by the user's first
- * words, first (Jiayi, Nov 1), and joins any that continue an earlier conversation; how is in its
- * brief's Naming and joining threads.
+ * Settled threads to check for continuing an earlier conversation, with where each was opened
+ * (not what it continues) and where its requests went (the only quests it may join); how is in the
+ * Scribe's brief (Naming and joining threads).
  */
-function newThreadLines(joinChecks: NonNullable<UpdateContent["joinChecks"]>): string[] {
-  const naming = joinChecks.threads.some((thread) => thread.unnamed) ? "name the (unnamed) ones first, then " : "";
-  const lines: string[] = ["", `Threads the user just started (${naming}check whether each continues an earlier one):`];
+function joinCheckLines(joinChecks: NonNullable<UpdateContent["joinChecks"]>): string[] {
+  const lines = ["", "Threads that settled (check whether each continues an earlier conversation):"];
   for (const thread of joinChecks.threads) {
-    lines.push(`- ${threadAddress(thread.key)} "${thread.name}"${thread.unnamed ? " (unnamed)" : ""}`);
-    if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
+    const facts = [
+      thread.openedFrom ? `opened while viewing ${threadAddress(thread.openedFrom)}` : null,
+      thread.wentTo?.length ? `its requests went to ${thread.wentTo.join(", ")}` : null,
+    ].filter(Boolean);
+    lines.push(...threadLines(thread, facts.length ? `; ${facts.join("; ")}` : ""));
   }
   if (joinChecks.earlier.length) {
-    // Its own heading, apart from the new threads' list (it read as part of the last one's bullet).
+    // Its own heading, apart from the threads' list (it read as part of the last one's bullet).
     lines.push("", "Earlier threads they might continue:");
     for (const thread of joinChecks.earlier) lines.push(`- ${threadAddress(thread.key)} "${thread.name}"`);
   }

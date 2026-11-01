@@ -38,6 +38,8 @@ For the Scribe:
                                                        conversation (a thread, t-N, or a
                                                        quest's thread, q-N): join it on, so the two
                                                        read as one
+  takode scribe unjoin <thread> --reason "<why>"       Undo a join you made by mistake; then join it
+                                                       where it belongs, or leave it on its own
   takode scribe quests [--unsorted] [--since 30d]      Your leader's recent quests (--unsorted: those
                                                        with no topic yet)
 
@@ -97,6 +99,19 @@ export async function handleScribe(base: string, args: string[]): Promise<void> 
       };
       console.log(
         `Joined ${joined.thread} onto ${joined.into}: its ${joined.messages} message${joined.messages === 1 ? "" : "s"} now read after that conversation.`,
+      );
+      return;
+    }
+    case "unjoin": {
+      const usage = 'takode scribe unjoin <thread> --reason "<why>"';
+      const thread = need(positionals[0], usage);
+      if (typeof flags.reason !== "string" || !flags.reason.trim()) err(`Usage: ${usage}`);
+      const { thread: address, from } = (await apiPost(base, `/scribe/unjoin${leaderQuery}`, {
+        thread,
+        reason: flags.reason,
+      })) as { thread: string; from: string };
+      console.log(
+        `${address} is a conversation of its own again (it left ${from}). Join it where it belongs with \`takode scribe join\`, or leave it.`,
       );
       return;
     }

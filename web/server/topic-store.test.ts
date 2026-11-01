@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestmasterTask } from "./quest-types.js";
+import { questSources } from "./quest-source-index.js";
 import { CHANGE_SHOWN_MS, TopicStore, pageSummary } from "./topic-store.js";
 import { PAGE_FORMAT, TopicService, historyMessageText, pageImages, type TopicSessionLike } from "./topic-service.js";
 import { TOPIC_TENTATIVE_MS, type TopicRenameSuggestion } from "../shared/library-topics.js";
@@ -1008,9 +1009,39 @@ describe("topic service", () => {
     expect(notes.take("leader")).toBeNull();
   });
 
-  it("asks the Scribe once whether each thread the user just started continues an earlier one", async () => {
-    // A user often picks a request up again in a new thread; the Scribe joins it onto the earlier
-    // conversation. It is asked with the leader's other recent threads to choose from.
+  it("asks the Scribe to name a thread the user just started at once, and reminds it until named", async () => {
+    // The leader answers a new thread right away, so its name has to come quickly; other activity
+    // waits the usual few minutes to arrive in one message.
+    const { service, injected, store, leader } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    injected.length = 0;
+    const fresh = store.startThread({
+      space: "MSI",
+      name: "Sidebar is slow",
+      leaderId: "leader",
+      firstMessage: "The sidebar is slow to open on my phone.",
+    });
+    leader.messageHistory.push(userMessage("The sidebar is slow to open on my phone.", fresh.address!, Date.now()));
+    service.sessionSaved("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    const text = injected.at(-1)!.text;
+    expect(text).toContain(`Threads the user just started (name each):\n- ${fresh.address} "Sidebar is slow"`);
+    expect(text).toContain('It began: "The sidebar is slow to open on my phone."');
+    // Not asked to join yet: where its request goes isn't known before the leader answers.
+    expect(text).not.toContain("Threads that settled");
+    // A Scribe that ends its turn without naming it is reminded; once named, nothing is left.
+    await service.scribeTurnEnded(scribe);
+    expect(injected.at(-1)!.text).toContain(`${fresh.address} has no name yet`);
+    store.rename(fresh.id, "Sidebar slow to open on the phone", "agent", true);
+    await service.scribeTurnEnded(scribe);
+    injected.length = 0;
+    expect(await service.deliver("leader")).toBe("nothing");
+  });
+
+  it("asks once a thread settled whether it continues an earlier one, with where it was opened", async () => {
+    // Jiayi (Nov 1): asked at once, the Scribe joined a thread onto the quest it was opened from
+    // before the leader filed its request elsewhere. Joins wait until the thread settles, and the
+    // Scribe hears where it was opened (not what it continues). Earlier threads are the candidates.
     const { service, injected, store } = await setupService();
     const scribe = await enable(service, store, "leader");
     const earlier = store.startThread({ space: "MSI", name: "Collapsed composer sits low", leaderId: "leader" });
@@ -1020,49 +1051,39 @@ describe("topic service", () => {
     store.threadWritten(opened.id, Date.now());
     const fresh = store.startThread({
       space: "MSI",
-      name: "The composer is a little high",
+      name: "Composer height",
       leaderId: "leader",
+      startedFrom: "q-2938",
       firstMessage: "The composer is a little high now when the keyboard is closed.",
     });
     store.threadWritten(fresh.id, Date.now() + 1);
+    store.rename(fresh.id, "Composer height with the keyboard closed", "agent", true);
+    // A side quest filed from its message: its request went there, the one quest it may join.
+    questSources.record([
+      {
+        questId: "q-5",
+        relationships: { startedFrom: { sessionId: "leader", messageId: "m", threadKey: fresh.key, timestamp: 1 } },
+      },
+    ]);
     injected.length = 0;
-    expect(await service.deliver("leader")).toBe("sent");
+    expect(await service.deliver("leader")).toBe("nothing");
+
+    service.threadRead("leader", fresh.address!);
+    await vi.advanceTimersByTimeAsync(0);
     const text = injected.at(-1)!.text;
-    expect(text).toContain("Threads the user just started");
-    expect(text).toContain(`- ${fresh.address} "The composer is a little high"`);
-    expect(text).toContain('It began: "The composer is a little high now when the keyboard is closed."');
-    // Asked about: only the new thread. A thread the leader opened is its own subject, and the
+    expect(text).toContain(
+      `Threads that settled (check whether each continues an earlier conversation):\n- ${fresh.address} "Composer height with the keyboard closed"; opened while viewing q-2938; its requests went to q-5`,
+    );
+    // Asked about: only the settled thread. A thread the leader opened is its own subject, and the
     // earlier one was asked about before; both are among the threads it may continue.
     const [asked, candidates] = text.split("Earlier threads they might continue:");
     expect(asked).not.toContain(opened.address!);
     expect(asked).not.toContain(earlier.address!);
     expect(candidates).toContain(`- ${earlier.address} "Collapsed composer sits low"`);
     expect(candidates).toContain(opened.address!);
-    // Still called by the user's first words, so the Scribe names it first.
-    expect(asked).toContain(`- ${fresh.address} "The composer is a little high" (unnamed)`);
-    expect(text).toContain("Threads the user just started (name the (unnamed) ones first, then check");
-    // The threads come before anything else in the message.
-    expect(text.split("\n").slice(2, 3)).toEqual([expect.stringContaining("Threads the user just started")]);
-    // A Scribe that ends its turn without naming it is reminded; once named, nothing is left.
-    await service.scribeTurnEnded(scribe);
-    expect(injected.at(-1)!.text).toContain(`${fresh.address} has no name yet`);
-    store.rename(fresh.id, "Composer height with the keyboard closed", "agent", true);
     await service.scribeTurnEnded(scribe);
     injected.length = 0;
     expect(await service.deliver("leader")).toBe("nothing");
-  });
-
-  it("tells the Scribe at once about a thread the user just started, without the usual batching", async () => {
-    // The leader answers a new thread right away, and the Scribe names it, so that name has to
-    // come quickly; other activity waits the usual few minutes to arrive in one message.
-    const { service, injected, store, leader } = await setupService();
-    await enable(service, store, "leader");
-    injected.length = 0;
-    const fresh = store.startThread({ space: "MSI", name: "Sidebar is slow", leaderId: "leader" });
-    leader.messageHistory.push(userMessage("Sidebar is slow", fresh.address!, Date.now()));
-    service.sessionSaved("leader");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(injected.at(-1)?.text).toContain(`- ${fresh.address} "Sidebar is slow" (unnamed)`);
   });
 
   it("asks the Scribe for a Home line for each of its leader's quests with news, in the same message", async () => {

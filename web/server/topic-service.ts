@@ -1,4 +1,5 @@
 import { threadInteractionTimes } from "./topic-interaction.js";
+import { questsOfThread } from "./thread-requests.js";
 import { threadAddress, topicIdOfViewKey } from "../shared/topic-thread-key.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
@@ -308,7 +309,7 @@ export class TopicService {
     if (!recorded) return;
     // A thread the user just started goes to the Scribe at once, to be named while the leader
     // answers (Jiayi, Nov 1), instead of waiting out the usual pause; other news waits for it.
-    if (this.store.threadsToCheckForJoin(sessionId).length) this.changed(sessionId);
+    if (this.store.threadsToName(sessionId).length) this.changed(sessionId);
     else this.schedule(sessionId, "user");
   }
 
@@ -467,7 +468,10 @@ export class TopicService {
   }
 
   /** The leader's Scribe joined a thread onto an earlier conversation: the leader hears with its next delivery. */
-  noteThreadJoined(leaderId: string, joined: { thread: string; into: string; summary: ThreadSummary }): void {
+  noteThreadJoined(
+    leaderId: string,
+    joined: { thread: string; into: string; summary: ThreadSummary; movedFrom?: string },
+  ): void {
     const intoName = joined.into.startsWith("q-") ? undefined : this.store.thread(joined.into)?.name;
     this.noteForLeader(
       leaderId,
@@ -475,15 +479,25 @@ export class TopicService {
         this.deps.sessionNum(this.store.scribeSession(leaderId) ?? ""),
         { key: joined.thread, name: joined.summary.name },
         { key: joined.into, name: intoName },
+        joined.movedFrom,
       ),
     );
   }
 
-  /** The user undid a join: the leader hears with its next delivery. */
-  noteThreadUnjoined(leaderId: string, thread: ThreadSummary & { from?: string }): void {
+  /**
+   * A join was undone, by the user (the marker's Undo) or by the Scribe that made it (`reason`):
+   * the leader hears with its next delivery.
+   */
+  noteThreadUnjoined(leaderId: string, thread: ThreadSummary & { from?: string }, scribe?: { reason: string }): void {
     this.noteForLeader(
       leaderId,
-      threadUnjoinedNotice({ key: thread.key, name: thread.name }, thread.from ? threadAddress(thread.from) : "it"),
+      threadUnjoinedNotice(
+        { key: thread.key, name: thread.name },
+        thread.from ? threadAddress(thread.from) : "it",
+        scribe
+          ? { scribeNum: this.deps.sessionNum(this.store.scribeSession(leaderId) ?? ""), reason: scribe.reason }
+          : undefined,
+      ),
     );
   }
 
@@ -532,15 +546,17 @@ export class TopicService {
   }
 
   /**
-   * The user read the last unread answer in one of a leader's threads: it settles, and one under no
-   * topic goes to the leader's Scribe to be filed where it plainly belongs.
+   * The user read the last unread answer in one of a leader's threads: it settles. The leader's
+   * Scribe then checks whether it continues an earlier conversation (where its request went is known
+   * now), and files one under no topic where it plainly belongs.
    */
   threadRead(leaderId: string, threadKey: string): void {
     if (!this.store.thread(threadKey)) return;
     const settled = this.store.settleThread(threadKey);
     void this.store.flush();
     this.deps.broadcastChanged();
-    if (settled && this.store.isLeaderEnabled(leaderId)) void this.deliver(leaderId);
+    if (!this.store.isLeaderEnabled(leaderId)) return;
+    if (settled || this.store.threadsToCheckForJoin(leaderId).length) void this.deliver(leaderId);
   }
 
   /** Something the leader's Scribe should hear about changed (instructions, a resume, a filing). */
@@ -697,7 +713,9 @@ export class TopicService {
     );
     // Threads that settled under no topic: the Scribe files them where they belong, now.
     const settledThreads = this.store.settledUnfiledThreads(leaderId);
-    // Threads the user just started: the Scribe joins each onto an earlier conversation it continues.
+    // Threads the user just started: the Scribe names them at once.
+    const newThreads = this.store.threadsToName(leaderId);
+    // Threads that settled: does each continue an earlier conversation? Where its request went is known now.
     const joinChecks = this.store.threadsToCheckForJoin(leaderId);
     // What the user told other leaders meanwhile: it may settle something this Scribe's pages say is open.
     const elsewhereSince = this.store.elsewhereSeen(leaderId) ?? this.now() - ELSEWHERE_FIRST_MS;
@@ -711,6 +729,7 @@ export class TopicService {
       forcedNames.length > 0 ||
       unsorted.length > 0 ||
       settledThreads.length > 0 ||
+      newThreads.length > 0 ||
       joinChecks.length > 0 ||
       (rewritePages && !this.stalled.has(leaderId)) ||
       (sendInstructions && !!instructions) ||
@@ -731,6 +750,15 @@ export class TopicService {
           ...(thread.startedFrom ? { startedFrom: thread.startedFrom } : {}),
           ...(thread.firstMessage ? { firstMessage: thread.firstMessage } : {}),
         })),
+        ...(newThreads.length
+          ? {
+              newThreads: newThreads.map((thread) => ({
+                key: thread.key,
+                name: thread.name,
+                ...(thread.firstMessage ? { firstMessage: thread.firstMessage } : {}),
+              })),
+            }
+          : {}),
         ...(joinChecks.length ? { joinChecks: this.joinCheckContent(leaderId, joinChecks) } : {}),
         ...homeLineQuests(topics, ownQuests),
         rewritePages,
@@ -753,6 +781,7 @@ export class TopicService {
     this.store.markInstructionsSent(leaderId);
     this.store.setElsewhereSeen(leaderId, this.now());
     this.store.markThreadsSortAsked(settledThreads.map((thread) => thread.id));
+    this.store.markThreadsNameAsked(newThreads.map((thread) => thread.id));
     this.store.markThreadsJoinChecked(joinChecks.map((thread) => thread.id));
     this.store.reviewed(newTopics.map((topic) => topic.id));
     if (consolidate) this.store.setConsolidationAskedAt(leaderId, consolidate.count);
@@ -776,7 +805,7 @@ export class TopicService {
       throughSeq,
       topics: names,
       reminded: false,
-      unnamed: joinChecks.filter((thread) => thread.unnamed).map((thread) => thread.key),
+      unnamed: newThreads.map((thread) => thread.key),
     });
     return this.sent();
   }
@@ -892,11 +921,15 @@ export class TopicService {
   }
 
   /** Everything a message asked for is done. */
-  /** New threads to check, with the leader's other recent threads they might continue. */
+  /**
+   * Settled threads to check, each with where it was opened and where its requests went, with the
+   * leader's other recent threads they might continue.
+   */
   private joinCheckContent(
     leaderId: string,
-    threads: ReadonlyArray<ThreadSummary & { firstMessage?: string; unnamed?: boolean }>,
+    threads: ReadonlyArray<ThreadSummary & { firstMessage?: string }>,
   ): NonNullable<UpdateContent["joinChecks"]> {
+    const history = this.deps.getSession(leaderId)?.messageHistory ?? [];
     const checking = new Set(threads.map((thread) => thread.key));
     const since = this.now() - JOIN_CANDIDATE_WINDOW_MS;
     const earlier = this.store
@@ -906,12 +939,16 @@ export class TopicService {
       )
       .slice(0, MAX_JOIN_CANDIDATES);
     return {
-      threads: threads.map((thread) => ({
-        key: thread.key,
-        name: thread.name,
-        ...(thread.firstMessage ? { firstMessage: thread.firstMessage } : {}),
-        ...(thread.unnamed ? { unnamed: true } : {}),
-      })),
+      threads: threads.map((thread) => {
+        const wentTo = questsOfThread(history, thread.key);
+        return {
+          key: thread.key,
+          name: thread.name,
+          ...(thread.firstMessage ? { firstMessage: thread.firstMessage } : {}),
+          ...(thread.startedFrom ? { openedFrom: thread.startedFrom } : {}),
+          ...(wentTo.length ? { wentTo } : {}),
+        };
+      }),
       earlier: earlier.map((thread) => ({ key: thread.key, name: thread.name })),
     };
   }

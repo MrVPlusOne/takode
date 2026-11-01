@@ -345,30 +345,36 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   );
 });
 
+/** A thread joined onto the conversation on screen, and where the Scribe had first joined it by mistake. */
+export interface JoinedThreadStart {
+  joinedFrom: string;
+  movedFrom?: string;
+}
+
 /**
  * The first turn of each thread joined onto `threadKey` (see `server/thread-join.ts`): its messages
- * carry a ref to `threadKey` naming the thread they were written in. Turn ID -> that thread's key.
+ * carry a ref to `threadKey` naming the thread they were written in. Turn ID -> that thread.
  */
-export function joinedThreadStarts(turns: readonly Turn[], threadKey: string): Map<string, string> | null {
+export function joinedThreadStarts(turns: readonly Turn[], threadKey: string): Map<string, JoinedThreadStart> | null {
   const key = normalizeThreadKey(threadKey);
-  const starts = new Map<string, string>();
+  const starts = new Map<string, JoinedThreadStart>();
   const seen = new Set<string>();
   for (const turn of turns) {
-    const from = turnJoinedFrom(turn, key);
-    if (!from || seen.has(from)) continue;
-    seen.add(from);
-    starts.set(turn.id, from);
+    const start = turnJoinedFrom(turn, key);
+    if (!start || seen.has(start.joinedFrom)) continue;
+    seen.add(start.joinedFrom);
+    starts.set(turn.id, start);
   }
   return starts.size ? starts : null;
 }
 
-function turnJoinedFrom(turn: Turn, threadKey: string): string | undefined {
+function turnJoinedFrom(turn: Turn, threadKey: string): JoinedThreadStart | undefined {
   for (const entry of [turn.userEntry, ...turnPresentationEntries(turn)]) {
     if (entry?.kind !== "message") continue;
     const ref = entry.msg.metadata?.threadRefs?.find(
       (candidate) => candidate.joinedFrom && normalizeThreadKey(candidate.threadKey) === threadKey,
     );
-    if (ref) return ref.joinedFrom;
+    if (ref?.joinedFrom) return { joinedFrom: ref.joinedFrom, ...(ref.movedFrom ? { movedFrom: ref.movedFrom } : {}) };
   }
   return undefined;
 }
@@ -589,11 +595,7 @@ export const TurnEntries = memo(function TurnEntries({
                 />
               )}
               {joinStarts?.has(turn.id) && (
-                <JoinedThreadMarker
-                  sessionId={sessionId}
-                  threadKey={currentThreadKey}
-                  joinedFrom={joinStarts.get(turn.id)!}
-                />
+                <JoinedThreadMarker sessionId={sessionId} threadKey={currentThreadKey} {...joinStarts.get(turn.id)!} />
               )}
               {mainStrips?.[turnIndex] && sessionId && (
                 <MainQuestStrip sessionId={sessionId} quest={mainStrips[turnIndex]!.quest} />

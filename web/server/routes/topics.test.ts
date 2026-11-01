@@ -493,6 +493,21 @@ describe("topic routes", () => {
     expect((await send("/topics/threads/unjoin", "POST", { leader: "leader" })).status).toBe(400);
   });
 
+  // The Scribe can undo a join of its own it found wrong, saying why; its leader hears the reason.
+  it("lets a Scribe undo its own wrong join, with a reason its leader hears", async () => {
+    const { store, service, send, setCaller } = await setup();
+    store.enableLeader("leader");
+    const earlier = store.startThread({ space: "MSI", name: "Composer sits low", leaderId: "leader" });
+    const later = store.startThread({ space: "MSI", name: "Composer a bit high", leaderId: "leader" });
+    setCaller("scribe");
+    await send("/scribe/join", "POST", { thread: later.key, into: earlier.key });
+    service.rideAlongNotes().take("leader");
+    expect((await send("/scribe/unjoin", "POST", { thread: later.key })).status).toBe(400);
+    const undone = await send("/scribe/unjoin", "POST", { thread: later.key, reason: "its request went to q-2896" });
+    expect(await undone.json()).toMatchObject({ thread: later.address, from: earlier.address });
+    expect(service.rideAlongNotes().take("leader")).toContain("undid its join of");
+  });
+
   // Home shows a line of news per thread: the Scribe's once written, a stand-in before that.
   it("takes a Scribe's lines for its leader's Home, which win over the stand-ins", async () => {
     const { app, store, send, setCaller } = await setup();

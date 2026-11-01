@@ -41,8 +41,8 @@ describe("joinedThreadStarts", () => {
     ];
     expect(joinedThreadStarts(turns, "topic:aa11")).toEqual(
       new Map([
-        ["t2", "topic:bb22"],
-        ["t5", "topic:dd44"],
+        ["t2", { joinedFrom: "topic:bb22" }],
+        ["t5", { joinedFrom: "topic:dd44" }],
       ]),
     );
     expect(joinedThreadStarts([turn("t1")], "topic:aa11")).toBeNull();

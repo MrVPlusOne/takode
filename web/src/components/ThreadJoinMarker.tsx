@@ -5,18 +5,22 @@ import { useThreadPlace } from "./side-column/thread-names.js";
 
 /**
  * The marker in a leader's thread `threadKey` where the messages of `joinedFrom`, a thread the
- * Scribe joined onto it, begin. Undo makes `joinedFrom` a thread of its own again.
+ * Scribe joined onto it, begin. Undo makes `joinedFrom` a thread of its own again. `movedFrom`: the
+ * Scribe had joined it onto that conversation by mistake and moved it here.
  */
 export function JoinedThreadMarker({
   sessionId,
   threadKey,
   joinedFrom,
+  movedFrom,
 }: {
   sessionId: string;
   threadKey: string;
   joinedFrom: string;
+  movedFrom?: string;
 }) {
   const earlier = useThreadPlace(sessionId, threadKey);
+  const previous = useThreadPlace(sessionId, movedFrom ?? threadKey);
   const [undoing, setUndoing] = useState(false);
   const undo = () => {
     setUndoing(true);
@@ -28,7 +32,13 @@ export function JoinedThreadMarker({
         setUndoing(false);
       });
   };
-  return <ThreadJoinMarker earlierName={earlier.name} onUndo={undoing ? undefined : undo} />;
+  return (
+    <ThreadJoinMarker
+      earlierName={earlier.name}
+      {...(movedFrom ? { movedFromName: previous.name } : {})}
+      onUndo={undoing ? undefined : undo}
+    />
+  );
 }
 
 /**
@@ -39,10 +49,13 @@ export function JoinedThreadMarker({
 export function ThreadJoinMarker({
   earlierName,
   joinedBy = "the Scribe",
+  movedFromName,
   onUndo,
 }: {
   earlierName: string;
   joinedBy?: string;
+  /** The conversation the Scribe had joined it onto by mistake, before moving it here. */
+  movedFromName?: string;
   onUndo?: () => void;
 }) {
   return (
@@ -54,6 +67,7 @@ export function ThreadJoinMarker({
         </svg>
         <span className="min-w-0 truncate">
           Continues <span className="text-cc-fg">“{earlierName}”</span> · joined by {joinedBy}
+          {movedFromName && <span data-testid="thread-join-moved-from"> · moved from “{movedFromName}”</span>}
         </span>
         {onUndo && (
           <button type="button" onClick={onUndo} className="shrink-0 text-cc-primary hover:underline">

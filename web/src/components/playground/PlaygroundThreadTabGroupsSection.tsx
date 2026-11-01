@@ -210,6 +210,11 @@ export function PlaygroundThreadTabGroupsSection() {
               <MessageBubble message={JOIN_EARLIER_USER} />
               <MessageBubble message={JOIN_EARLIER_ANSWER} />
               <ThreadJoinMarker earlierName="Collapsed phone composer sits a little higher" onUndo={() => {}} />
+              <ThreadJoinMarker
+                earlierName="Desktop workspace: breadcrumb, side column, side chats"
+                movedFromName="Leaders hold threads; topics become tags"
+                onUndo={() => {}}
+              />
               <MessageBubble message={JOIN_NEW_USER} />
             </div>
           </Card>

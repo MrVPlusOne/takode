@@ -413,6 +413,8 @@ export interface ThreadRef {
    * continues the conversation `threadKey` names (see `server/thread-join.ts`).
    */
   joinedFrom?: string;
+  /** With `joinedFrom`: the conversation the Scribe had joined that thread onto by mistake before. */
+  movedFrom?: string;
 }
 
 export interface ThreadAttachmentMarker {

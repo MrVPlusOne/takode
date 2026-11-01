@@ -26,6 +26,12 @@ export class QuestSourceIndex {
   get(questId: string): QuestStartedFrom | undefined {
     return this.sources.get(questId.toLowerCase());
   }
+
+  /** The quests filed from messages written in this thread, by its key (`topic:<handle>`). */
+  startedIn(threadKey: string): string[] {
+    const key = threadKey.toLowerCase();
+    return [...this.sources].flatMap(([questId, source]) => (source.threadKey?.toLowerCase() === key ? [questId] : []));
+  }
 }
 
 export const questSources = new QuestSourceIndex();

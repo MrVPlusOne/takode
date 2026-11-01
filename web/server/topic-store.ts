@@ -113,8 +113,18 @@ interface StoredThread {
   joinedInto?: string;
   /** The quest or thread it was joined onto by the Scribe (for Undo; a handoff is not undone). */
   joinedBy?: string;
-  /** When its leader's Scribe was asked whether it continues an earlier conversation. */
+  /**
+   * When its leader's Scribe was asked whether it continues an earlier conversation: once it
+   * settled, when where its request went is known. (Before Nov 1 2026 this was also the naming ask.)
+   */
   joinCheckedAt?: number;
+  /** When its leader's Scribe was asked to name it, as soon as the user started it. */
+  nameAskedAt?: number;
+  /**
+   * The conversation the Scribe moved it out of after joining it there by mistake: its next join
+   * says so, so the user sees the move.
+   */
+  movedFrom?: string;
 }
 
 interface LegacyNowEntry {
@@ -797,8 +807,11 @@ export class TopicStore {
     return this.threadSummary(thread);
   }
 
-  /** Undoes a join the Scribe made; returns where the thread had been joined, or throws. */
-  unjoinThread(threadKey: string): { thread: ThreadSummary; from: string } {
+  /**
+   * Undoes a join the Scribe made; returns where the thread had been joined, or throws. `byScribe`:
+   * the Scribe itself undid a wrong join, so a join it makes next says where the thread came from.
+   */
+  unjoinThread(threadKey: string, byScribe = false): { thread: ThreadSummary; from: string } {
     const thread = this.thread(threadKey);
     const own = thread?.thread;
     if (!thread || !own?.joinedBy) throw new TopicStoreError(`${threadKey} was not joined onto another conversation.`);
@@ -806,42 +819,83 @@ export class TopicStore {
     delete own.quest;
     delete own.joinedInto;
     delete own.joinedBy;
+    if (byScribe) own.movedFrom = from;
+    else delete own.movedFrom;
     this.dirty = true;
     this.onThreadChange?.(own.leaderId);
     return { thread: this.threadSummary(thread), from };
   }
 
   /**
-   * A leader's threads with a first message that its Scribe wasn't asked about yet: does each
-   * continue an earlier conversation? Recent ones only, so an old install isn't asked about all.
+   * Threads the user just started, still called by their first words, that the Scribe wasn't asked
+   * to name yet: it names them at once, since the leader is answering. Recent ones only.
    */
-  threadsToCheckForJoin(leaderId: string): Array<ThreadSummary & { firstMessage?: string; unnamed?: boolean }> {
-    const since = this.now() - JOIN_CHECK_WINDOW_MS;
-    return Object.values(this.s().topics)
-      .filter(
-        (topic) =>
-          topic.thread?.leaderId === leaderId &&
-          !topic.mergedInto &&
-          topic.thread.startedBy !== "leader" &&
-          !topic.thread.quest &&
-          !topic.thread.joinedInto &&
-          topic.thread.lastMessageAt !== undefined &&
-          !topic.thread.joinCheckedAt &&
-          topic.createdAt >= since,
-      )
-      .map((topic) => ({
-        ...this.threadSummary(topic),
-        ...(topic.thread?.firstMessage ? { firstMessage: topic.thread.firstMessage } : {}),
-        // Never renamed: still the placeholder from the user's first words.
-        ...(topic.aliases.length === 0 ? { unnamed: true } : {}),
-      }));
+  threadsToName(leaderId: string): Array<ThreadSummary & { firstMessage?: string }> {
+    return this.recentUserThreads(leaderId)
+      .filter((topic) => topic.aliases.length === 0 && !topic.thread!.nameAskedAt && !topic.thread!.joinCheckedAt)
+      .map((topic) => this.withFirstMessage(topic));
+  }
+
+  /**
+   * Threads to ask the Scribe about: does each continue an earlier conversation? Only once a
+   * thread settled (the user read its leader's answer), when where its request went is known (a
+   * request handed off to a quest makes the thread that quest's, so it isn't asked about at all).
+   * Joining isn't urgent, unlike naming (Jiayi, Nov 1: a join made while the leader was still
+   * filing the request put a thread into the quest it was opened from, not the one it went to).
+   */
+  threadsToCheckForJoin(leaderId: string): Array<ThreadSummary & { firstMessage?: string }> {
+    return this.recentUserThreads(leaderId)
+      .filter((topic) => topic.thread!.settledAt && !topic.thread!.joinCheckedAt)
+      .map((topic) => this.withFirstMessage(topic));
+  }
+
+  /** Where the Scribe moved a thread out of before this join (see `StoredThread.movedFrom`), once. */
+  takeMovedFrom(threadKey: string): string | undefined {
+    const own = this.thread(threadKey)?.thread;
+    const movedFrom = own?.movedFrom;
+    if (own && movedFrom) {
+      delete own.movedFrom;
+      this.dirty = true;
+    }
+    return movedFrom;
+  }
+
+  /** Records that the Scribe was asked to name these threads. */
+  markThreadsNameAsked(threadIds: readonly string[]): void {
+    this.markThreads(threadIds, (thread) => (thread.nameAskedAt = this.now()));
   }
 
   /** Records that the Scribe was asked whether these threads continue earlier conversations. */
   markThreadsJoinChecked(threadIds: readonly string[]): void {
+    this.markThreads(threadIds, (thread) => (thread.joinCheckedAt = this.now()));
+  }
+
+  /** A leader's recent threads the user started that are conversations of their own. */
+  private recentUserThreads(leaderId: string): StoredTopic[] {
+    const since = this.now() - JOIN_CHECK_WINDOW_MS;
+    return Object.values(this.s().topics).filter(
+      (topic) =>
+        topic.thread?.leaderId === leaderId &&
+        !topic.mergedInto &&
+        topic.thread.startedBy !== "leader" &&
+        !topic.thread.quest &&
+        !topic.thread.joinedInto &&
+        topic.thread.lastMessageAt !== undefined &&
+        topic.createdAt >= since,
+    );
+  }
+
+  private withFirstMessage(topic: StoredTopic): ThreadSummary & { firstMessage?: string } {
+    return {
+      ...this.threadSummary(topic),
+      ...(topic.thread?.firstMessage ? { firstMessage: topic.thread.firstMessage } : {}),
+    };
+  }
+
+  private markThreads(threadIds: readonly string[], mark: (thread: StoredThread) => void): void {
     for (const id of threadIds) {
       const thread = this.s().topics[id]?.thread;
-      if (thread) thread.joinCheckedAt = this.now();
+      if (thread) mark(thread);
     }
     if (threadIds.length) this.dirty = true;
   }

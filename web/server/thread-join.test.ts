@@ -107,4 +107,40 @@ describe("joining a thread", () => {
     // Only a join can be undone this way.
     expect(() => unjoinThread(bridge, store, { leaderId: "leader", threadKey: later.key })).toThrow(/was not joined/);
   });
+
+  it("joins a thread whose requests went to a quest only onto that quest", () => {
+    // Jiayi (Nov 1): a thread opened while viewing q-2938 sent its request to q-2896, but the
+    // Scribe joined it onto q-2938. Where its requests went is where its work continues.
+    const { later, session, bridge } = fixture();
+    session.board.set("q-8", { questId: "q-8" });
+    (session.messageHistory[1] as { threadRefs?: unknown[] }).threadRefs = [
+      { threadKey: "q-8", questId: "q-8", source: "explicit", attachedAt: 2 },
+    ];
+    const join = (intoKey: string) => () =>
+      joinThread(bridge, store, { leaderId: "leader", threadKey: later.key, intoKey, by: "scribe" });
+    expect(join("q-7")).toThrow(/requests went to q-8/);
+    expect(join("q-8")()).toMatchObject({ into: "q-8" });
+  });
+
+  it("lets the Scribe move a wrong join, and the next join says where the thread came from", () => {
+    const { earlier, later, session, bridge } = fixture();
+    joinThread(bridge, store, { leaderId: "leader", threadKey: later.key, intoKey: "q-7", by: "scribe" });
+    const undone = unjoinThread(bridge, store, { leaderId: "leader", threadKey: later.key, byScribe: true });
+    expect(undone.from).toBe("q-7");
+    const rejoined = joinThread(bridge, store, {
+      leaderId: "leader",
+      threadKey: later.key,
+      intoKey: earlier.key,
+      by: "scribe",
+    });
+    expect(rejoined.movedFrom).toBe("q-7");
+    expect((session.messageHistory[1] as { threadRefs?: unknown[] }).threadRefs).toEqual([
+      expect.objectContaining({ threadKey: earlier.key, joinedFrom: later.key, movedFrom: "q-7" }),
+    ]);
+    // Said once: a later join after the user's own Undo says nothing of it.
+    unjoinThread(bridge, store, { leaderId: "leader", threadKey: later.key });
+    expect(
+      joinThread(bridge, store, { leaderId: "leader", threadKey: later.key, intoKey: "q-7", by: "scribe" }).movedFrom,
+    ).toBeUndefined();
+  });
 });

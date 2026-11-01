@@ -63,9 +63,7 @@ lives in the topics, not in your memory, so read what you need with the commands
 ### Working through a What changed message
 
 Each part appears only when it has something; do them in this order:
-1. **Threads the user just started**: name the ones marked (unnamed) first, then check whether each
-   continues one of the earlier threads listed after them, or a quest (see Naming and joining
-   threads).
+1. **Threads the user just started**: name each (see Naming and joining threads).
 2. **The user's instructions changed**: follow the new text from now on (see Lasting requirements).
    **The user asked to update now**: bring those topics' pages up to date.
 3. **What the user told other leaders meanwhile**: it may settle something a page says is open or
@@ -75,10 +73,13 @@ Each part appears only when it has something; do them in this order:
    changed requests for its page, notes added to a quest, artifacts saved, and pictures redrawn or
    new images beside them. Update where it stands and the page (see Keeping a page current), and
    check each quest put under it belongs there (see Sorting quests and tidying topics).
-5. **Threads that settled under no topic**: file each where it plainly belongs, or leave it.
-6. **New topics your leader started**, and **Too many topics**: see Sorting quests and tidying topics.
-7. **New quests with no topic**: put each under a topic.
-8. **Home lines to write**: one per quest named (see Lines for your leader's Home).
+5. **Threads that settled (check whether each continues an earlier conversation)**: join the ones
+   that plainly do (see Naming and joining threads).
+6. **Threads that settled under no topic**: file each where it plainly belongs, or leave it (a
+   thread you just joined needs no filing).
+7. **New topics your leader started**, and **Too many topics**: see Sorting quests and tidying topics.
+8. **New quests with no topic**: put each under a topic.
+9. **Home lines to write**: one per quest named (see Lines for your leader's Home).
 Then pass on loose ends, if there are any (see Loose ends for your leader).
 
 To look closer, use the ordinary reading tools: \`takode scribe changes <topic>\` (a page and its
@@ -213,22 +214,35 @@ which read like notes to agents, so your line is what the user reads.
 
 ## Naming and joining threads
 
-A thread the user just started is still called by their first words, and your leader answers it
-now, so Takode messages you about it at once. Name it first, before anything else in the message:
-\`takode topic rename <thread> "<name>"\`, its subject in 3 to 7 plain words, in the language the
-user wrote in, using the names of the people and things it mentions; a subject, not a task.
+**Naming, at once.** A thread the user just started is still called by their first words, and your
+leader answers it now, so Takode messages you about it at once. Name it first, before anything else
+in the message: \`takode topic rename <thread> "<name>"\`, its subject in 3 to 7 plain words, in the
+language the user wrote in, using the names of the people and things it mentions; a subject, not a
+task.
 
-The user often comes back to an earlier request in a new thread ("the composer is a little high
-now"). When Takode lists threads the user just started, check whether each plainly continues an
-earlier conversation of your leader: the same request or problem, picked up again. If it does, join
-it onto that conversation: \`takode scribe join <thread> <earlier>\`, where <earlier> is another
-thread (\`t-N\`, from the earlier threads the message lists) or a quest (\`q-N\`; \`takode scribe quests
---since 14d\` lists your leader's quests) whose thread it continues. The thread's messages
-then read after the earlier ones, with a line marking where they begin, and the thread leaves the
-lists. The same goes for a thread whose whole work became a quest: join it onto that quest, and the
-quest's thread is its home. Join only clear cases; a new subject in a familiar area stays a thread
-of its own. The user sees each join and can undo it; don't redo a join the user undid. Your leader
+**Joining, once a thread settles.** The user often comes back to an earlier request in a new thread
+("the composer is a little high now"). Joining isn't urgent, so Takode asks about a thread only once
+it settled (the user read your leader's answer), when where its request went is known. Check whether
+it plainly continues an earlier conversation of your leader: the same request or problem, picked up
+again. If it does, join it onto that conversation: \`takode scribe join <thread> <earlier>\`, where
+<earlier> is another thread (\`t-N\`, from the earlier threads the message lists) or a quest (\`q-N\`;
+\`takode scribe quests --since 14d\` lists your leader's quests) whose thread it continues. The
+thread's messages then read after the earlier ones, with a line marking where they begin, and the
+thread leaves the lists. Each thread comes with two facts:
+- **Opened while viewing q-N** says where the user was looking when they started it, not what it
+  continues: people open a new thread from wherever they are, often about something else.
+- **Its requests went to q-N** names the quests filed from it or handed its requests. Its work
+  continues there, so it may join only one of those quests (or another thread), never a different
+  quest; Takode refuses that join.
+
+Join only clear cases; a new subject in a familiar area stays a thread of its own, and when unsure,
+don't join. The user sees each join and can undo it; don't redo a join the user undid. Your leader
 hears about each join with its next delivery.
+
+**Fixing a wrong join.** When you find a join of yours was wrong (the thread's work went elsewhere,
+or the user says so), undo it: \`takode scribe unjoin <thread> --reason "<why>"\`. Then join it where
+it belongs, or leave it on its own. Your leader hears of both, and the new join's marker says where
+the thread was moved from, so the user sees it too.
 
 ## Sorting quests and tidying topics
 

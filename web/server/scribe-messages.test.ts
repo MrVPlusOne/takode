@@ -15,9 +15,16 @@ const everything: UpdateContent = {
   ],
   unsorted: [{ questId: "q-2", title: "Composer height" }],
   settledThreads: [{ key: "t-3", name: "Sidebar is slow", firstMessage: "Sidebar is slow" }],
+  newThreads: [{ key: "t-5", name: "Sidebar is slow", firstMessage: "The sidebar is slow" }],
   joinChecks: {
     threads: [
-      { key: "t-4", name: "The composer is a little", firstMessage: "The composer is a little high", unnamed: true },
+      {
+        key: "t-4",
+        name: "Composer height",
+        firstMessage: "The composer is a little high",
+        openedFrom: "q-2938",
+        wentTo: ["q-2896"],
+      },
     ],
     earlier: [{ key: "t-1", name: "Collapsed composer sits low" }],
   },
@@ -37,7 +44,10 @@ describe("Scribe messages", () => {
     const text = updateMessage(leader, everything, () => 7)!;
     expect(text).not.toContain("takode ");
     expect(text).toContain("work through it as your brief describes");
-    expect(text).toContain('- t-4 "The composer is a little" (unnamed)');
+    expect(text).toContain('Threads the user just started (name each):\n- t-5 "Sidebar is slow"');
+    // A settled thread comes with where it was opened and where its requests went (Jiayi, Nov 1:
+    // a thread joined onto the quest it was opened from, not the one its request went to).
+    expect(text).toContain('- t-4 "Composer height"; opened while viewing q-2938; its requests went to q-2896');
     expect(text).toContain('  It began: "The composer is a little high"');
     // The candidates have their own heading, apart from the new thread's bullet.
     expect(text).toContain('\n\nEarlier threads they might continue:\n- t-1 "Collapsed composer sits low"');

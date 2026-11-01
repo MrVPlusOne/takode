@@ -3,10 +3,13 @@
  * thread picks up an earlier one (another thread, or a quest's thread) and joins them: the newer
  * thread's messages are attached to the earlier conversation, which shows them after its own with a
  * marker where they begin, and the newer thread leaves the lists (its address opens the earlier
- * conversation). The user can undo a wrong join from the marker. The same attachment machinery as
- * `takode thread handoff` carries the messages, so live views move at once.
+ * conversation). The user can undo a wrong join from the marker, and the Scribe can undo its own
+ * when it notices one, then join the thread where it belongs. A thread whose requests went to a
+ * quest joins only that quest. The same attachment machinery as `takode thread handoff` carries the
+ * messages, so live views move at once.
  */
 import { messageThreadKeys } from "../shared/message-threads.js";
+import { questsOfThread } from "./thread-requests.js";
 import { normalizeThreadKey } from "../shared/leader-projection.js";
 import type { ThreadSummary } from "../shared/library-topics.js";
 import { broadcastNotificationRefresh } from "./bridge/session-notification-controller.js";
@@ -29,6 +32,8 @@ export interface ThreadJoined {
   /** How many of the thread's messages now read in the earlier conversation. */
   messages: number;
   summary: ThreadSummary;
+  /** The conversation the Scribe had joined it onto by mistake before this join. */
+  movedFrom?: string;
 }
 
 /**
@@ -59,9 +64,18 @@ export function joinThread(
   if (!questId && !intoKey.startsWith("topic:")) {
     throw new TopicStoreError("Join onto a quest's thread (q-N) or another thread (t-N).");
   }
+  // Its requests went to a quest: that quest is where the thread's work continues, not another.
+  const wentTo = questsOfThread(session.messageHistory, threadKey);
+  if (questId && wentTo.length && !wentTo.includes(questId)) {
+    throw new TopicStoreError(
+      `${input.threadKey}'s requests went to ${wentTo.join(", ")}: join it onto ${wentTo.length === 1 ? "that quest" : "one of those"}, or leave it on its own.`,
+      409,
+    );
+  }
   // Checks the destination and records the join before anything is attached.
   const summary = store.joinThread(threadKey, intoKey);
   const into = summary.quest ?? summary.joinedInto ?? intoKey;
+  const movedFrom = store.takeMovedFrom(threadKey);
 
   const indices = threadMessageIndices(session.messageHistory, threadKey);
   const timestamp = Date.now();
@@ -72,6 +86,7 @@ export function joinThread(
     attachedAt: timestamp,
     attachedBy: input.by,
     joinedFrom: threadKey,
+    ...(movedFrom ? { movedFrom } : {}),
   };
   for (const index of indices) {
     const message = session.messageHistory[index]!;
@@ -124,22 +139,23 @@ export function joinThread(
   } else {
     bridge.persistSessionById(input.leaderId, indices);
   }
-  return { thread: threadKey, into, messages: indices.length, summary };
+  return { thread: threadKey, into, messages: indices.length, summary, ...(movedFrom ? { movedFrom } : {}) };
 }
 
 /**
- * Undoes a join the Scribe made (the user's Undo on the marker): the thread is a conversation of
- * its own again and its messages leave the earlier one.
+ * Undoes a join the Scribe made (the user's Undo on the marker, or the Scribe's own when it finds
+ * the join wrong): the thread is a conversation of its own again and its messages leave the earlier
+ * one.
  */
 export function unjoinThread(
   bridge: Bridge,
   store: TopicStore,
-  input: { leaderId: string; threadKey: string },
+  input: { leaderId: string; threadKey: string; byScribe?: boolean },
 ): { thread: ThreadSummary; from: string } {
   const threadKey = normalizeThreadKey(input.threadKey);
   const thread = store.thread(threadKey)?.thread;
   if (!thread || thread.leaderId !== input.leaderId) throw new TopicStoreError("Thread not found.", 404);
-  const { thread: summary, from } = store.unjoinThread(threadKey);
+  const { thread: summary, from } = store.unjoinThread(threadKey, input.byScribe);
   const session = bridge.getSession(input.leaderId);
   if (!session) return { thread: summary, from };
   const indices: number[] = [];

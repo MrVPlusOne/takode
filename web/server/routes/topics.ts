@@ -697,6 +697,28 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
     }),
   );
 
+  /**
+   * A Scribe undoes a join it made by mistake (the user can't be relied on to notice); it may then
+   * join the thread where it belongs. Its leader hears of it, with the reason.
+   */
+  api.post("/scribe/unjoin", (c) =>
+    run(c, async (svc) => {
+      const leaderId = leaderFor(svc, c);
+      if (!leaderId) throw new TopicStoreError("Name the leader (--leader).", 404);
+      const body = await c.req.json().catch(() => ({}));
+      if (typeof body.thread !== "string") throw new TopicStoreError("Name the thread.");
+      const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+      if (!reason) throw new TopicStoreError("Say why the join was wrong (--reason).");
+      const { thread, from } = unjoinThread(ctx.wsBridge, svc.store, {
+        leaderId,
+        threadKey: body.thread,
+        byScribe: true,
+      });
+      svc.noteThreadUnjoined(leaderId, { ...thread, from }, { reason });
+      return { thread: threadAddress(thread.key), from: threadAddress(from) };
+    }),
+  );
+
   /** The user undoes a join (the marker's Undo): the thread is a conversation of its own again. */
   api.post("/topics/threads/unjoin", (c) =>
     run(c, async (svc) => {
