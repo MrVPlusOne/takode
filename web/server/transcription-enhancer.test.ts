@@ -27,7 +27,6 @@ const {
   extractAssistantText,
   isSystemNoise,
   MAX_TURNS,
-  MIN_CHARS_FOR_ENHANCEMENT,
   STT_PROMPT_MAX_CHARS,
 } = _testHelpers;
 
@@ -645,32 +644,37 @@ describe("enhanceTranscript", () => {
     expect(result.rawText).toBeUndefined();
   });
 
-  it("skips enhancement for short transcripts", async () => {
-    // Less than MIN_CHARS_FOR_ENHANCEMENT characters
-    const result = await enhanceTranscript("yes sure", [userMsg("hello")], defaultConfig, "key");
-    expect(result.enhanced).toBe(false);
-    expect(result.text).toBe("yes sure");
+  it("enhances short transcripts and transcripts without any context", async () => {
+    // Jiayi (Nov 1, 2026): short clips (under 100 characters) and clips with no context used to be
+    // skipped, so their misspellings stayed; the pass fixes spelling without context too.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () =>
+        Response.json({ choices: [{ message: { content: "Yes, sure." }, finish_reason: "stop" }] }),
+      );
+    try {
+      for (const history of [[userMsg("hello")], [], null]) {
+        const result = await enhanceTranscript("yes shure", history, defaultConfig, "key");
+        expect(result.enhanced).toBe(true);
+        expect(result.text).toBe("Yes, sure.");
+        expect(result._debug?.skipReason).toBeUndefined();
+      }
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
-  it("skips enhancement with null history", async () => {
-    const result = await enhanceTranscript("fix the auth token refresh bug", null, defaultConfig, "key");
-    expect(result.enhanced).toBe(false);
-  });
-
-  it("skips enhancement with empty history and no extra context", async () => {
-    const result = await enhanceTranscript("fix the auth token refresh bug", [], defaultConfig, "key");
-    expect(result.enhanced).toBe(false);
-  });
-
-  it("does not skip when extra context is provided even with empty history", async () => {
-    // This will attempt the LLM call (which will fail in tests since there's no real API),
-    // but the important thing is it doesn't return the "no context" skip
-    const result = await enhanceTranscript("fix the auth token refresh bug", [], defaultConfig, "key", {
-      taskTitles: ["Fix auth middleware"],
-      sessionName: "Debug session",
-    });
-    // Should NOT have skipReason "no context" — it should attempt the call
-    expect(result._debug?.skipReason).not.toBe("no context");
+  it("keeps the raw transcript when the enhancement call fails", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("boom", { status: 500 }));
+    try {
+      const result = await enhanceTranscript("yes shure", null, defaultConfig, "key");
+      expect(result.enhanced).toBe(false);
+      expect(result.text).toBe("yes shure");
+      expect(result._debug?.skipReason).toMatch(/^API error/);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("uses the enhancer output as returned, however much longer than the transcript", async () => {
@@ -725,21 +729,13 @@ describe("custom enhancer instructions", () => {
   });
 
   it("enhances short transcripts without context when instructions are set", async () => {
-    // Without instructions this transcript is skipped as too short and context-free; with
-    // "always translate" the user expects every transcription to be translated.
+    // "Always translate": the user expects every transcription to be translated, however short.
     const requests = mockLlm("Fix the bug.");
     const result = await enhanceTranscript("修复这个错误", null, config, "key");
     expect(result.enhanced).toBe(true);
     expect(result.text).toBe("Fix the bug.");
     expect(requests()[0].messages[0].content).toContain("Always translate the result into English.");
     expect(requests()[0].messages[1].content).not.toContain("Always translate");
-  });
-
-  it("keeps the too-short skip when no instructions are set", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const result = await enhanceTranscript("修复这个错误", null, { ...config, enhancementInstructions: "" }, "key");
-    expect(result._debug?.skipReason).toBe("too short");
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("adds instructions to voice edit and voice append system prompts", async () => {

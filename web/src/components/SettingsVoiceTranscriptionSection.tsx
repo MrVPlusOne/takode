@@ -449,7 +449,7 @@ export function SettingsVoiceTranscriptionSection({
             />
             <p className="mt-1 text-xs text-cc-muted">
               Added to the enhancement model's prompt (not the STT model), for example an output style or a language to
-              translate into. When set, every transcription is enhanced, including short ones.
+              translate into.
             </p>
           </div>
         )}

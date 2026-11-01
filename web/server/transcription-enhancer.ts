@@ -88,10 +88,6 @@ const ENHANCER_MSG_FLOOR = 600;
 /** Max total characters for the enhancer conversation context. */
 const ENHANCER_CONTEXT_MAX_CHARS = 10_000;
 
-/** Minimum character count to attempt enhancement. Short utterances
- *  don't benefit from the enhancer — skip to avoid added latency. */
-const MIN_CHARS_FOR_ENHANCEMENT = 100;
-
 /** Max total characters for the STT prompt.
  *  gpt-4o-mini-transcribe is a GPT-4o variant and accepts much longer prompts
  *  than the old Whisper 1024-token limit. We match the enhancer's budget so both
@@ -965,11 +961,10 @@ export interface EnhancementResult {
 /**
  * Enhance a raw transcript using conversation context from the active session.
  *
- * Returns the raw text unchanged (with enhanced=false) when:
- * - The transcript is too short (under MIN_CHARS_FOR_ENHANCEMENT) and no custom instructions are set
- * - No context is available (no conversation turns, supplementary context or custom instructions)
- * - Enhancement is disabled in config
- * - The LLM call fails
+ * Returns the raw text unchanged (with enhanced=false) only when enhancement is disabled in config
+ * or the LLM call fails. Every other transcript is enhanced, however short and even with no context:
+ * the pass also fixes obvious misspellings, which the speech-to-text model leaves (Jiayi, Nov 1,
+ * 2026; short clips and clips without context used to be skipped, and their errors stayed).
  */
 export async function enhanceTranscript(
   rawText: string,
@@ -995,41 +990,11 @@ export async function enhanceTranscriptFromReplayContext(
     extra?.annotationContext ? ANNOTATION_VOICE_SYSTEM_PROMPT : getDictationSystemPrompt(config.enhancementMode),
     config,
   );
-  // Custom instructions (e.g. "always translate into English") must shape every transcription,
-  // so the latency and no-context skips only apply without them.
-  const hasCustomInstructions = !!config.enhancementInstructions?.trim();
-
   if (!config.enhancementEnabled) {
     return {
       text: rawText,
       enhanced: false,
       _debug: { model, systemPrompt, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "disabled" },
-    };
-  }
-
-  if (!hasCustomInstructions && rawText.trim().length < MIN_CHARS_FOR_ENHANCEMENT) {
-    return {
-      text: rawText,
-      enhanced: false,
-      _debug: { model, systemPrompt, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "too short" },
-    };
-  }
-
-  const hasExtra = !!(
-    extra?.annotationContext ||
-    extra?.composerText ||
-    extra?.taskTitles?.length ||
-    extra?.sessionName ||
-    extra?.activeSessionNames?.length ||
-    extra?.customVocabulary?.trim() ||
-    extra?.workspace?.questTitles.length ||
-    extra?.workspace?.activity.length
-  );
-  if (!conversationContext && !hasExtra && !hasCustomInstructions) {
-    return {
-      text: rawText,
-      enhanced: false,
-      _debug: { model, systemPrompt, userMessage: "", enhancedText: null, durationMs: 0, skipReason: "no context" },
     };
   }
 
@@ -1922,7 +1887,6 @@ export const _testHelpers = {
   ENHANCER_MSG_STEP,
   ENHANCER_MSG_FLOOR,
   ENHANCER_CONTEXT_MAX_CHARS,
-  MIN_CHARS_FOR_ENHANCEMENT,
   STT_PROMPT_MAX_CHARS,
   STT_CONVO_BUDGET_RATIO,
   STT_MSG_START,
