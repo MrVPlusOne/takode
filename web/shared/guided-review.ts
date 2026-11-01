@@ -104,6 +104,11 @@ export const MAX_GUIDED_REVIEW_DIFF_BYTES = 8 * 1024 * 1024;
 /** Reviews keep only their stops' code; this caps it so history stays light. */
 export const MAX_GUIDED_REVIEW_SNIPPET_BYTES = 1024 * 1024;
 export const MAX_GUIDED_REVIEW_STOPS = 40;
+/**
+ * Lines of surrounding code a stop's snippet shows above and below the lines it points at, so the
+ * reader sees where a change sits. The CLI reads the diff with this much context.
+ */
+export const GUIDED_REVIEW_CONTEXT_LINES = 10;
 const MAX_ANSWER_CHARS = 40;
 
 export interface DiffLine {
@@ -420,14 +425,19 @@ export function prepareGuidedReview(
 
 /**
  * The part of a file's diff a code reference points at, as unified diff text the diff viewer
- * renders: changed lines in the range, with the context lines between them. Hunks are rebuilt
- * with correct headers so line numbers stay true.
+ * renders: the lines in its range, with up to `context` lines of the diff around them (unchanged
+ * code, and other changes nearby). Hunks are rebuilt with correct headers so line numbers stay true.
  */
-export function guidedReviewSnippet(file: DiffFile, ref: GuidedReviewCodeRef): string {
+export function guidedReviewSnippet(
+  file: DiffFile,
+  ref: GuidedReviewCodeRef,
+  context = GUIDED_REVIEW_CONTEXT_LINES,
+): string {
   const out = [...file.header];
   for (const hunk of file.hunks) {
-    const kept = hunk.lines.filter((line) => !ref.lines || inRange(ref.lines, line));
-    if (!kept.length) continue;
+    const inside = hunk.lines.flatMap((line, index) => (!ref.lines || inRange(ref.lines, line) ? [index] : []));
+    if (!inside.length) continue;
+    const kept = hunk.lines.slice(Math.max(0, inside[0]! - context), inside.at(-1)! + context + 1);
     const oldStart = kept.find((line) => line.oldNo !== undefined)?.oldNo ?? 0;
     const newStart = kept.find((line) => line.newNo !== undefined)?.newNo ?? 0;
     const oldCount = kept.filter((line) => line.kind !== "add").length;
@@ -440,25 +450,52 @@ export function guidedReviewSnippet(file: DiffFile, ref: GuidedReviewCodeRef): s
 
 /**
  * The map with each stop's code cut from the change, which is all of the diff a published review
- * keeps; the full change is read from git when asked for. Throws when the stops show too much.
+ * keeps; the full change is read from git when asked for. Each snippet shows up to `context` lines
+ * around the stop's own lines; when that is more than the size budget allows, the stops keep only
+ * their own lines. Throws when even those are too much.
  */
-export function withGuidedReviewSnippets(map: GuidedReviewMap, files: DiffFile[]): GuidedReviewMap {
+export function withGuidedReviewSnippets(
+  map: GuidedReviewMap,
+  files: DiffFile[],
+  context = GUIDED_REVIEW_CONTEXT_LINES,
+): GuidedReviewMap {
   let bytes = 0;
   const stops = map.stops.map((stop) => ({
     ...stop,
     code: stop.code.map((ref) => {
       const file = files.find((entry) => entry.path === ref.path || entry.oldPath === ref.path);
-      const snippet = file ? guidedReviewSnippet(file, ref) : "";
+      const snippet = file ? guidedReviewSnippet(file, ref, context) : "";
       bytes += new TextEncoder().encode(snippet).byteLength;
       return { ...ref, snippet };
     }),
   }));
   if (bytes > MAX_GUIDED_REVIEW_SNIPPET_BYTES) {
+    if (context > 0) return withGuidedReviewSnippets(map, files, 0);
     throw new Error(
       "The stops show more than 1 MiB of code; point them at the lines that matter and summarize the rest.",
     );
   }
   return { ...map, stops };
+}
+
+/**
+ * The lines of a stop's snippet that the stop is about (its `lines`): new-file numbers of kept and
+ * added lines, old-file numbers of removed ones. Null when there is nothing to set apart: the
+ * reference names the whole file, or its snippet shows no code around its lines (as in reviews
+ * published before snippets kept their surroundings).
+ */
+export function guidedReviewFocus(ref: GuidedReviewCodeRef): { newLines: Set<number>; oldLines: Set<number> } | null {
+  if (!ref.lines || !ref.snippet) return null;
+  const focus = { newLines: new Set<number>(), oldLines: new Set<number>() };
+  let around = false;
+  for (const file of parseGuidedReviewDiff(ref.snippet)) {
+    for (const line of file.hunks.flatMap((hunk) => hunk.lines)) {
+      if (!inRange(ref.lines, line)) around = true;
+      else if (line.kind === "del") focus.oldLines.add(line.oldNo!);
+      else focus.newLines.add(line.newNo!);
+    }
+  }
+  return around ? focus : null;
 }
 
 /**
@@ -474,13 +511,16 @@ export function outlineGuidedReviewDiff(files: DiffFile[]): string {
     lines.push(`${file.path}${renamed}  +${adds} -${changed.length - adds}`);
     if (!changed.length) lines.push("  no line changes; name the path in a stop or summary");
     for (const hunk of file.hunks) {
-      const hunkChanged = hunk.lines.filter((line) => line.kind !== "context");
-      if (!hunkChanged.length) continue;
-      const numbers = hunkChanged.map((line) => line.newNo ?? line.anchor!);
-      const [start, end] = [Math.min(...numbers), Math.max(...numbers)];
-      const onlyRemoved = hunkChanged.every((line) => line.kind === "del");
-      const range = onlyRemoved ? `removed before ${start}` : start === end ? `${start}` : `${start}-${end}`;
-      lines.push(`  ${range}${hunk.section.trim() ? `  ${hunk.section.trim()}` : ""}`);
+      // The diff carries wide context, which merges nearby changes into one hunk; list them apart as
+      // git's usual 3-line context would.
+      for (const [index, group] of changeGroups(hunk).entries()) {
+        const numbers = group.map((line) => line.newNo ?? line.anchor!);
+        const [start, end] = [Math.min(...numbers), Math.max(...numbers)];
+        const onlyRemoved = group.every((line) => line.kind === "del");
+        const range = onlyRemoved ? `removed before ${start}` : start === end ? `${start}` : `${start}-${end}`;
+        const section = index === 0 ? hunk.section.trim() : "";
+        lines.push(`  ${range}${section ? `  ${section}` : ""}`);
+      }
     }
   }
   return lines.join("\n");
@@ -541,6 +581,22 @@ export function guidedReviewSummaryFiles(
 function fileCounts(file: Partial<GuidedReviewSummaryFile>): string {
   if (file.additions === undefined) return "";
   return ` +${file.additions} −${file.deletions}${file.alsoInStops ? " (more in stops)" : ""}`;
+}
+
+/** A hunk's changed lines in groups that more than 6 unchanged lines keep apart. */
+function changeGroups(hunk: DiffHunk): DiffLine[][] {
+  const groups: DiffLine[][] = [];
+  let gap = Number.POSITIVE_INFINITY;
+  for (const line of hunk.lines) {
+    if (line.kind === "context") {
+      gap += 1;
+      continue;
+    }
+    if (gap > 6) groups.push([]);
+    groups.at(-1)!.push(line);
+    gap = 0;
+  }
+  return groups;
 }
 
 /** Every added or removed line of a file. */

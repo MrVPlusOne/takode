@@ -1261,6 +1261,16 @@ select {
 .dark .diff-line-del {
   background: rgba(252, 129, 129, 0.08);
 }
+/*
+ * A guided review stop's code: the lines it is about carry a quiet bar at the left edge; the code
+ * around them, shown so the reader sees where the change sits, is dimmed.
+ */
+.diff-line.diff-line-focus {
+  box-shadow: inset 3px 0 0 color-mix(in oklab, var(--color-cc-fg) 45%, transparent);
+}
+.diff-line.diff-line-context {
+  opacity: 0.45;
+}
 /* Lines with a comment (guided reviews): a bar at the left edge and a tint over the add/remove colour. */
 .diff-line.diff-line-marked {
   box-shadow: inset 3px 0 0 var(--color-cc-primary);

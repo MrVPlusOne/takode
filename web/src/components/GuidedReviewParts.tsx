@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   GUIDED_REVIEW_TIERS,
+  guidedReviewFocus,
   guidedReviewSummaryFiles,
   type GuidedReviewCodeRef,
   type GuidedReviewMap,
@@ -19,7 +20,7 @@ import {
   type GuidedReviewTarget,
 } from "../guided-review-state.js";
 import { sendGuidedReviewAnswers } from "../guided-review-send.js";
-import { DiffViewer, type DiffLineNumbers } from "./DiffViewer.js";
+import { DiffViewer, type DiffLineEmphasis, type DiffLineNumbers } from "./DiffViewer.js";
 import { reviewCodeAttributes } from "./GuidedReviewLineComments.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { VoiceAnswerField } from "./NeedsInputAnswerField.js";
@@ -521,7 +522,7 @@ export function ReviewCode({
     <div className="space-y-2">
       {refs.map((ref, index) => (
         <div key={`${ref.path}:${ref.lines?.join("-") ?? "all"}:${index}`} {...reviewCodeAttributes(stop, ref.path)}>
-          <ReviewSnippet diff={ref.snippet!} full={full} reviewId={target.meta.reviewId} path={ref.path} />
+          <ReviewSnippet codeRef={ref} full={full} reviewId={target.meta.reviewId} />
         </div>
       ))}
     </div>
@@ -531,19 +532,20 @@ export function ReviewCode({
 /**
  * One snippet, shown like the chat feed's code blocks: long lines scroll sideways instead of
  * wrapping, and a tall snippet shows a scrollable window with a bar below that expands it to full
- * height. `full` shows all of it from the start.
+ * height. `full` shows all of it from the start. The lines the stop is about carry a bar and the
+ * code around them is dimmed.
  */
-function ReviewSnippet({
-  diff,
-  full,
-  reviewId,
-  path,
-}: {
-  diff: string;
-  full: boolean;
-  reviewId: string;
-  path: string;
-}) {
+function ReviewSnippet({ codeRef, full, reviewId }: { codeRef: GuidedReviewCodeRef; full: boolean; reviewId: string }) {
+  const diff = codeRef.snippet!;
+  const path = codeRef.path;
+  const lineEmphasis = useMemo(() => {
+    const focus = guidedReviewFocus(codeRef);
+    if (!focus) return undefined;
+    return (_file: string, line: DiffLineNumbers): DiffLineEmphasis =>
+      (line.newLineNo !== undefined ? focus.newLines.has(line.newLineNo) : focus.oldLines.has(line.oldLineNo!))
+        ? "focus"
+        : "context";
+  }, [codeRef]);
   const frameRef = useRef<HTMLDivElement>(null);
   const comments = useGuidedReviewState((state) => state.drafts[reviewId]?.lineComments);
   const isLineMarked = useMemo(() => {
@@ -579,7 +581,14 @@ function ReviewSnippet({
         className={open ? "" : "max-h-[22rem] overflow-y-auto overscroll-y-contain"}
         data-testid="guided-review-snippet"
       >
-        <DiffViewer unifiedDiff={diff} mode="full" showLineNumbers stickyFileHeaders isLineMarked={isLineMarked} />
+        <DiffViewer
+          unifiedDiff={diff}
+          mode="full"
+          showLineNumbers
+          stickyFileHeaders
+          isLineMarked={isLineMarked}
+          lineEmphasis={lineEmphasis}
+        />
       </div>
       {!full && (overflows || expanded) && (
         <button

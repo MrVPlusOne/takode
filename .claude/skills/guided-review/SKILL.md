@@ -72,4 +72,4 @@ Rules that keep summaries honest:
 
 Coverage rule: every added or removed line is in exactly one stop, or in a file listed by exactly one summary. A code entry without `lines` covers the whole file. Two stops may not claim the same line, and a stop range must contain changed lines. A file listed in a summary may also have stops; the summary covers the rest of it. A removed line belongs to the range that contains the new-file line it sat before, or, when none does, to a range ending just above it.
 
-The review keeps only the code your stops show (at most 1 MiB in total), so point stops at the lines that matter and summarize the rest; the user reads summarized code in the full diff, which Takode reads from git.
+The review keeps only the code your stops show (at most 1 MiB in total), so point stops at the lines that matter and summarize the rest; the user reads summarized code in the full diff, which Takode reads from git. Takode shows about 10 lines of the diff around each stop's lines, dimmed, so the reader sees where they sit; don't widen a range just for context.

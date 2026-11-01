@@ -32,7 +32,7 @@ export function PlaygroundGuidedReviewSection() {
   return (
     <Section
       title="Guided review"
-      description="A review published with takode review: the feed card, and the walkthrough it opens (Full diff needs a real repository). Its second stop starts with a comment on two lines of code; select lines in any stop's code to comment on them."
+      description="A review published with takode review: the feed card, and the walkthrough it opens (Full diff needs a real repository). Each stop shows the code around its own lines dimmed, its own lines with a bar at the left. Its second stop starts with a comment on two lines of code; select lines in any stop's code to comment on them."
     >
       <div className="max-w-3xl">
         <Card label="Guided review card">

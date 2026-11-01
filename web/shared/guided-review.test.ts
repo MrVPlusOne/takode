@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkGuidedReviewCoverage,
   formatGuidedReviewMarkdown,
+  guidedReviewFocus,
   guidedReviewSnippet,
   outlineGuidedReviewDiff,
   parseGuidedReviewDiff,
@@ -120,7 +121,7 @@ describe("checkGuidedReviewCoverage", () => {
 describe("guidedReviewSnippet", () => {
   it("cuts a range into a diff with true line numbers, including removed lines", () => {
     const client = files.find((file) => file.path === "src/client.ts")!;
-    const snippet = guidedReviewSnippet(client, { path: "src/client.ts", lines: [10, 10] });
+    const snippet = guidedReviewSnippet(client, { path: "src/client.ts", lines: [10, 10] }, 0);
     expect(snippet.split("\n").slice(4)).toEqual([
       "@@ -7,2 +10,1 @@",
       "-",
@@ -128,6 +129,24 @@ describe("guidedReviewSnippet", () => {
       "+export const PROFILE_TIMEOUT_MS = 15_000;",
       "",
     ]);
+  });
+
+  it("shows the code around a stop's lines and tells which lines are the stop's", () => {
+    // Jiayi (Oct 31): a stop's code was only the lines it pointed at, so the reader couldn't see
+    // where the change sat. The snippet now takes up to 10 lines of the diff on each side.
+    const client = files.find((file) => file.path === "src/client.ts")!;
+    const ref = { path: "src/client.ts", lines: [10, 10] as [number, number] };
+    const snippet = guidedReviewSnippet(client, ref);
+    expect(snippet.split("\n").slice(4, 6)).toEqual(["@@ -1,8 +1,10 @@", ' import { fetchJson } from "./http.js";']);
+    expect(snippet).toContain("+  profileCache.set(id, profile, { ttlMs: 86_400_000 });");
+    // The stop is about new line 10 and the two removed lines before it, not the code around them.
+    const focus = guidedReviewFocus({ ...ref, snippet })!;
+    expect([...focus.newLines]).toEqual([10]);
+    expect([...focus.oldLines]).toEqual([7, 8]);
+    // Nothing is set apart for a whole-file reference, or a snippet without surroundings (as saved
+    // by reviews published before this).
+    expect(guidedReviewFocus({ path: "src/client.ts", snippet })).toBeNull();
+    expect(guidedReviewFocus({ ...ref, snippet: guidedReviewSnippet(client, ref, 0) })).toBeNull();
   });
 });
 
@@ -146,6 +165,40 @@ describe("withGuidedReviewSnippets and outlineGuidedReviewDiff", () => {
       stops: [{ tier: "check", title: "All", note: "N", code: [{ path: "big.ts" }] }],
     };
     expect(() => withGuidedReviewSnippets(whole, huge)).toThrow("The stops show more than 1 MiB of code");
+  });
+
+  it("keeps stops to their own lines when the code around them would pass the size budget", () => {
+    // Ten one-line stops among very long unchanged lines: with surroundings they would show over
+    // 1 MiB, so the review keeps only the stops' lines rather than failing to publish.
+    const long = " ".concat("y".repeat(6000));
+    const body = Array.from({ length: 220 }, (_, i) => (i % 20 === 10 ? "+short" : long)).join("\n");
+    const big = parseGuidedReviewDiff(
+      `diff --git a/big.ts b/big.ts\n--- a/big.ts\n+++ b/big.ts\n@@ -1,209 +1,220 @@\n${body}\n`,
+    );
+    const changedAt = big[0]!.hunks[0]!.lines.filter((line) => line.kind === "add").map((line) => line.newNo!);
+    const map: GuidedReviewMap = {
+      title: "T",
+      overview: "O",
+      summaries: [],
+      stops: changedAt.map((line) => ({
+        tier: "check" as const,
+        title: `Line ${line}`,
+        note: "N",
+        code: [{ path: "big.ts", lines: [line, line] as [number, number] }],
+      })),
+    };
+    const published = withGuidedReviewSnippets(map, big);
+    expect(published.stops.every((stop) => !stop.code[0]!.snippet!.includes("yyyy"))).toBe(true);
+  });
+
+  it("lists nearby changes apart, though the wide context joins them in one hunk", () => {
+    // The CLI reads the diff with 10 lines of context, which merges changes up to 20 lines apart;
+    // the outline still lists them as git's usual 3-line context would.
+    const context = Array.from({ length: 8 }, (_, i) => ` line ${i}`).join("\n");
+    const diff = parseGuidedReviewDiff(
+      `diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,8 +1,10 @@ fn\n+first\n${context}\n+second\n`,
+    );
+    expect(outlineGuidedReviewDiff(diff).split("\n")).toEqual(["a.ts  +2 -0", "  1  fn", "  10"]);
   });
 
   it("lists each file's changed new-file ranges with git's context", () => {
