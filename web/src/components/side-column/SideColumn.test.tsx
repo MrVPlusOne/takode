@@ -10,7 +10,9 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 const setSideViewsOf = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/side-views.js", () => ({ setSideViewsOf, getSideViews: () => [] }));
 const held = vi.hoisted(() => ({ count: new Map<string, number>(), holds: 0 }));
+const sendToSession = vi.hoisted(() => vi.fn(() => true));
 vi.mock("../../ws.js", () => ({
+  sendToSession,
   holdSessionConnection: (sessionId: string) => {
     held.holds++;
     held.count.set(sessionId, (held.count.get(sessionId) ?? 0) + 1);
@@ -75,6 +77,8 @@ import { SideColumn } from "./SideColumn.js";
 afterEach(() => {
   cleanup();
   setSideViewsOf.mockClear();
+  sendToSession.mockClear();
+  useStore.setState({ threadWindows: new Map(), threadWindowMessages: new Map() } as never);
   useSideColumnStore.setState({ columns: {} });
   useTopicPanel.setState({ panels: {}, sheets: [], focus: null });
   localStorage.clear();
@@ -87,6 +91,21 @@ afterEach(() => {
 topicList.mockImplementation(noTopicList);
 
 const rows = () => screen.queryAllByTestId("side-item-row");
+/** The server's answer to a request for a conversation's newest window, as it lands in the store. */
+const landThreadWindow = (sessionId: string, threadKey: string) =>
+  act(() =>
+    useStore.getState().setThreadWindow(sessionId, threadKey, {
+      thread_key: threadKey,
+      from_item: 0,
+      item_count: 0,
+      total_items: 0,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: 0,
+      section_item_count: 10,
+      visible_item_count: 3,
+    }),
+  );
 const openBodies = () =>
   screen.getAllByTestId("side-item-body").filter((body) => body.closest("[style*='display: none']") === null);
 
@@ -107,8 +126,46 @@ describe("SideColumn", () => {
       },
     ]);
     render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
-    const items = useSideColumnStore.getState().columns.l1!.items;
-    expect(items).toEqual([expect.objectContaining({ kind: "conversation", threadKey: "q-9" })]);
+    // Jiayi (Oct 31): the pane went to a loading page as the chat turned into the quest. It keeps
+    // showing the chat while the quest's messages are fetched, then turns into the quest in place.
+    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+      expect.objectContaining({ kind: "conversation", threadKey: "topic:aaaa0001" }),
+    ]);
+    expect(sendToSession).toHaveBeenCalledWith(
+      "l1",
+      expect.objectContaining({ type: "thread_window_request", thread_key: "q-9", activate_view: false }),
+    );
+    landThreadWindow("l1", "q-9");
+    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+      expect.objectContaining({ kind: "conversation", threadKey: "q-9" }),
+    ]);
+  });
+
+  it("turns a merged thread into its conversation in place, and drops another pane already showing it", () => {
+    // A thread the Scribe joined onto an earlier one stays where the user had it in the column;
+    // the earlier thread's own pane goes, so the conversation shows once, where the user was reading.
+    openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0002" });
+    openInSide("l1", { kind: "topic", topicId: "t9" });
+    openInSide("l1", { kind: "conversation", threadKey: "topic:aaaa0003" });
+    const chat = useSideColumnStore.getState().columns.l1!.items[0]!.id;
+    rememberThreads("l1", [
+      { id: "aaaa0002-0000", key: "topic:aaaa0002", name: "Earlier", leaderId: "l1", createdAt: 1, activityAt: 1 },
+      {
+        id: "aaaa0003-0000",
+        key: "topic:aaaa0003",
+        name: "Later",
+        leaderId: "l1",
+        createdAt: 2,
+        activityAt: 2,
+        joinedInto: "topic:aaaa0002",
+      },
+    ]);
+    landThreadWindow("l1", "topic:aaaa0002");
+    render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+    expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
+      expect.objectContaining({ id: chat, kind: "conversation", threadKey: "topic:aaaa0002" }),
+      expect.objectContaining({ kind: "topic", topicId: "t9" }),
+    ]);
   });
 
   it("shows the topic page it follows, folding on its own and remembered", () => {
@@ -367,6 +424,7 @@ describe("SideColumn", () => {
           quest: "q-11",
         },
       ]);
+      landThreadWindow("l2", "q-11");
     });
     expect(useSideColumnStore.getState().columns.l1!.items).toEqual([
       expect.objectContaining({ kind: "conversation", threadKey: "q-11", leaderId: "l2" }),

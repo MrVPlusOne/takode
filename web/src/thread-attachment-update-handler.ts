@@ -3,7 +3,7 @@ import {
   HISTORY_WINDOW_SECTION_TURN_COUNT,
   HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
 } from "../shared/history-window.js";
-import { getThreadWindowItemCount, MAIN_THREAD_KEY } from "../shared/thread-window.js";
+import { MAIN_THREAD_KEY } from "../shared/thread-window.js";
 import { useStore } from "./store.js";
 import type { ChatMessage, ThreadAttachmentUpdate } from "./types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
@@ -11,6 +11,8 @@ import { invalidateHistoryWindowCache, invalidateThreadWindowCache } from "./uti
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 import { isAllThreadsKey, isMainThreadKey, normalizeThreadKey } from "./utils/thread-projection.js";
 import { readDisplayedLeaderThreadKey, readLeaderSelectedThreadKey } from "./utils/thread-viewport.js";
+import { latestThreadWindowRequest } from "./utils/latest-thread-window-request.js";
+import { getSideViews } from "./utils/side-views.js";
 import type { WsMessageHandlerDeps } from "./ws-handlers.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 
@@ -45,7 +47,7 @@ export function applyThreadAttachmentUpdate(
   if (!normalized.ok) {
     const affectedThreadKeys = normalized.affectedThreadKeys;
     invalidateThreadAttachmentWindows(sessionId, affectedThreadKeys);
-    const requested = requestVisibleConversationWindow(sessionId, deps);
+    const requested = requestVisibleConversationWindow(sessionId, deps, affectedThreadKeys);
     recordFrontendPerfEntry({
       kind: "thread_attachment_update_apply",
       timestamp: Date.now(),
@@ -110,7 +112,7 @@ export function applyThreadAttachmentUpdate(
       return;
     }
     invalidateThreadAttachmentWindows(sessionId, safeUpdate.affectedThreadKeys);
-    const requested = requestVisibleConversationWindow(sessionId, deps);
+    const requested = requestVisibleConversationWindow(sessionId, deps, safeUpdate.affectedThreadKeys);
     recordFrontendPerfEntry({
       kind: "thread_attachment_update_apply",
       timestamp: Date.now(),
@@ -135,7 +137,7 @@ export function applyThreadAttachmentUpdate(
   invalidateThreadAttachmentWindows(sessionId, safeUpdate.affectedThreadKeys);
   patchLoadedThreadRefs(sessionId, safeUpdate);
   appendThreadAttachmentMarkers(sessionId, safeUpdate);
-  const requested = requestVisibleConversationWindow(sessionId, deps);
+  const requested = requestVisibleConversationWindow(sessionId, deps, safeUpdate.affectedThreadKeys);
 
   recordFrontendPerfEntry({
     kind: "thread_attachment_update_apply",
@@ -298,12 +300,18 @@ function rememberAppliedThreadAttachmentUpdate(sessionId: string, updateId: stri
   appliedUpdateIdsBySession.set(sessionId, existing);
 }
 
+/**
+ * Drops the windows the moved messages make stale. A window on screen (the main view's thread or
+ * one in a side column) stays shown instead, and its refresh comes back as changes to it: throwing
+ * it away blanked the conversation into a loading page while messages were still arriving.
+ */
 function invalidateThreadAttachmentWindows(sessionId: string, affectedThreadKeys: string[]): void {
   const store = useStore.getState();
   invalidateHistoryWindowCache(sessionId);
   store.setHistoryWindow(sessionId, null);
+  const shown = new Set([...getSideViews(sessionId), mainViewThreadKey(sessionId)]);
   for (const threadKey of uniqueThreadKeys(affectedThreadKeys)) {
-    if (isMainThreadKey(threadKey) || isAllThreadsKey(threadKey)) continue;
+    if (isMainThreadKey(threadKey) || isAllThreadsKey(threadKey) || shown.has(threadKey)) continue;
     invalidateThreadWindowCache(sessionId, threadKey);
     store.setThreadWindow(sessionId, threadKey, null);
   }
@@ -350,31 +358,27 @@ function appendThreadAttachmentMarkers(sessionId: string, update: SafeThreadAtta
   }
 }
 
+/**
+ * Refreshes the conversations on screen that the moved messages changed: the main view's (it stays
+ * the view the server keeps live) and those in side columns.
+ */
 function requestVisibleConversationWindow(
   sessionId: string,
   deps: WsMessageHandlerDeps,
+  affectedThreadKeys: string[],
 ): { history: number; thread: number } {
-  const store = useStore.getState();
-  if (store.currentSessionId !== sessionId) return { history: 0, thread: 0 };
-  const sdkSession = store.sdkSessions.find((session) => session.sessionId === sessionId);
-  const isLeader = store.sessions.get(sessionId)?.isOrchestrator === true || sdkSession?.isOrchestrator === true;
-  const selectedThreadKey = isLeader
-    ? normalizeThreadKey(
-        readDisplayedLeaderThreadKey(sessionId) ?? readLeaderSelectedThreadKey(sessionId) ?? MAIN_THREAD_KEY,
-      )
-    : MAIN_THREAD_KEY;
-
-  if (isLeader && !isAllThreadsKey(selectedThreadKey)) {
-    deps.sendToSession(sessionId, {
-      type: "thread_window_request",
-      thread_key: selectedThreadKey,
-      from_item: -1,
-      item_count: getThreadWindowItemCount(HISTORY_WINDOW_VISIBLE_SECTION_COUNT, HISTORY_WINDOW_SECTION_TURN_COUNT),
-      section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
-      visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-      activate_view: true,
-    });
-    return { history: 0, thread: 1 };
+  const mainKey = mainViewThreadKey(sessionId);
+  const sideViews = getSideViews(sessionId);
+  let thread = 0;
+  for (const threadKey of uniqueThreadKeys(affectedThreadKeys)) {
+    if (threadKey === mainKey || !sideViews.includes(threadKey)) continue;
+    deps.sendToSession(sessionId, latestThreadWindowRequest(sessionId, threadKey, false));
+    thread += 1;
+  }
+  if (mainKey === null) return { history: 0, thread };
+  if (isLeaderSession(sessionId) && !isAllThreadsKey(mainKey)) {
+    deps.sendToSession(sessionId, latestThreadWindowRequest(sessionId, mainKey, true));
+    return { history: 0, thread: thread + 1 };
   }
 
   deps.sendToSession(sessionId, {
@@ -385,7 +389,22 @@ function requestVisibleConversationWindow(
     visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
     activate_view: true,
   });
-  return { history: 1, thread: 0 };
+  return { history: 1, thread };
+}
+
+/** The thread the main view shows for the session, or null when another session is on screen. */
+function mainViewThreadKey(sessionId: string): string | null {
+  if (useStore.getState().currentSessionId !== sessionId) return null;
+  if (!isLeaderSession(sessionId)) return MAIN_THREAD_KEY;
+  return normalizeThreadKey(
+    readDisplayedLeaderThreadKey(sessionId) ?? readLeaderSelectedThreadKey(sessionId) ?? MAIN_THREAD_KEY,
+  );
+}
+
+function isLeaderSession(sessionId: string): boolean {
+  const store = useStore.getState();
+  const sdkSession = store.sdkSessions.find((session) => session.sessionId === sessionId);
+  return store.sessions.get(sessionId)?.isOrchestrator === true || sdkSession?.isOrchestrator === true;
 }
 
 function uniqueThreadKeys(threadKeys: string[]): string[] {

@@ -5,6 +5,7 @@ import { LeaderTopicPanel, useQuestTopic } from "./library/TopicSidePanel.js";
 import { openInSide } from "../utils/side-column.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
 import { loadLeaderNamesOnce, useKnownThreadOfKey, useKnownTopicOfKey } from "../utils/leader-topics.js";
+import { useReadyThreadDestination } from "../utils/ready-thread-destination.js";
 import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { ThreadStrip, TopicTag } from "./ThreadStrip.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
@@ -653,7 +654,10 @@ export function ChatView({
   }, [topicKeyOnScreen, sessionId]);
   // A thread that became a quest's thread, or that the Scribe joined onto an earlier one, is that
   // conversation now: its address opens it (also when the join happens while it is on screen).
-  const selectedThreadDestination = selectedThread?.quest ?? selectedThread?.joinedInto;
+  const selectedThreadDestination = useReadyThreadDestination(
+    sessionId,
+    selectedThread?.quest ?? selectedThread?.joinedInto,
+  );
   useEffect(() => {
     if (selectedThreadDestination) navigateToSessionThread(sessionId, selectedThreadDestination, true);
   }, [selectedThreadDestination, sessionId]);

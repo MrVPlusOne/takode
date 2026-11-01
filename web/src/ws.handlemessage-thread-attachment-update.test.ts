@@ -242,7 +242,7 @@ describe("handleMessage: thread_attachment_update", () => {
     expect(filterMessagesForThread(messages, "q-2").map((message) => message.id)).toEqual([]);
   });
 
-  it("patches visible threadRefs, appends movement markers, invalidates windows, and requests bounded refreshes", async () => {
+  it("patches visible threadRefs, appends movement markers, keeps the window on screen, and requests its refresh", async () => {
     connectAndHydrateSession();
     useStore.getState().setMessages(
       "s1",
@@ -275,6 +275,7 @@ describe("handleMessage: thread_attachment_update", () => {
         source_history_length: 42,
         section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        window_hash: "held-1087",
       },
       [],
     );
@@ -290,17 +291,20 @@ describe("handleMessage: thread_attachment_update", () => {
       metadata: { threadAttachmentMarker: expect.objectContaining({ threadKey: "q-1087" }) },
     });
     expect(useStore.getState().historyWindows.has("s1")).toBe(false);
-    expect(useStore.getState().threadWindows.get("s1")?.has("q-1087")).toBeFalsy();
+    // Jiayi (Oct 31): the conversation on screen blanked into a loading page while messages moved.
+    // It stays shown, and its refresh names the window held so only the changes come back.
+    expect(useStore.getState().threadWindows.get("s1")?.has("q-1087")).toBe(true);
 
     expect(lastWs.send).toHaveBeenCalledTimes(1);
     expect(JSON.parse(lastWs.send.mock.calls[0]![0])).toEqual({
       type: "thread_window_request",
       thread_key: "q-1087",
       from_item: -1,
-      item_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      item_count: 1,
       section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       activate_view: true,
+      cached_window_hash: "held-1087",
     });
 
     const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
@@ -389,7 +393,7 @@ describe("handleMessage: thread_attachment_update", () => {
     );
   });
 
-  it("invalidates source and target caches but refreshes only the visible thread", () => {
+  it("keeps the thread on screen and drops the other affected window, refreshing only the visible thread", () => {
     connectAndHydrateSession("q-1086");
     useStore
       .getState()
@@ -428,7 +432,7 @@ describe("handleMessage: thread_attachment_update", () => {
       }),
     );
 
-    expect(useStore.getState().threadWindows.get("s1")?.has("q-1086")).toBeFalsy();
+    expect(useStore.getState().threadWindows.get("s1")?.has("q-1086")).toBe(true);
     expect(useStore.getState().threadWindows.get("s1")?.has("q-1087")).toBeFalsy();
     expect(lastWs.send).toHaveBeenCalledTimes(1);
     expect(JSON.parse(lastWs.send.mock.calls[0]![0])).toMatchObject({
@@ -477,6 +481,58 @@ describe("handleMessage: thread_attachment_update", () => {
         }),
       ]),
     );
+  });
+
+  it("keeps and refreshes a side column's conversation the moved messages change, even with another session on screen", async () => {
+    // Jiayi (Oct 31): a side chat showed a loading page while the leader handed its request to a
+    // quest. Both the chat and the quest it joined stay on screen; each refreshes as a side view,
+    // which doesn't move the server's live view of the main view.
+    const { setSideViewsOf } = await import("./utils/side-views.js");
+    connectAndHydrateSession("q-1087", false);
+    setPatchSentinelMessages();
+    const owner = {};
+    setSideViewsOf("s1", owner, ["q-1086", "q-1087"]);
+    lastWs.send.mockClear();
+    for (const threadKey of ["q-1086", "q-1087"]) {
+      useStore.getState().setThreadWindow(
+        "s1",
+        threadKey,
+        {
+          thread_key: threadKey,
+          from_item: 0,
+          item_count: 30,
+          total_items: 30,
+          has_older_items: false,
+          has_newer_items: false,
+          source_history_length: 42,
+          section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+          visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+          window_hash: `held-${threadKey}`,
+        },
+        [],
+      );
+    }
+    const baseUpdate = threadAttachmentUpdate();
+    try {
+      fireMessage(
+        threadAttachmentUpdate({
+          affectedThreadKeys: ["q-1086", "q-1087"],
+          updates: [{ ...baseUpdate.updates[0]!, source: { threadKey: "q-1086", questId: "q-1086" } }],
+        }),
+      );
+    } finally {
+      setSideViewsOf("s1", owner, []);
+    }
+
+    expect(useStore.getState().threadWindows.get("s1")?.has("q-1086")).toBe(true);
+    expect(useStore.getState().threadWindows.get("s1")?.has("q-1087")).toBe(true);
+    const requests = lastWs.send.mock.calls
+      .map((call) => JSON.parse(call[0]))
+      .filter((message) => message.type === "thread_window_request");
+    expect(requests).toEqual([
+      expect.objectContaining({ thread_key: "q-1086", activate_view: false, cached_window_hash: "held-q-1086" }),
+      expect.objectContaining({ thread_key: "q-1087", activate_view: false, cached_window_hash: "held-q-1087" }),
+    ]);
   });
 
   it("refreshes only the explicitly viewed All Threads history window", () => {

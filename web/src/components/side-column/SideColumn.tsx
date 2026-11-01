@@ -18,6 +18,7 @@ import {
 } from "../../utils/side-column.js";
 import { setTopicPanelOpen, setTopicSheetOpen } from "../../utils/topic-panel.js";
 import { loadLeaderNamesOnce, useKnownThreadOfKey, useThreadDestinations } from "../../utils/leader-topics.js";
+import { useReadyThreadDestination } from "../../utils/ready-thread-destination.js";
 import { navigateToSession, navigateToSessionThread, openQuestOverlayRouteAware } from "../../utils/routing.js";
 import { resolveNotificationOwnerThreadKey } from "../../utils/notification-thread.js";
 import { normalizeThreadKey } from "../../utils/thread-projection.js";
@@ -250,9 +251,11 @@ function SideItemRow({
   const unread = useOpenIn(owner, item?.kind === "conversation" ? item.threadKey : null, "review");
   const questions = useOpenIn(owner, item?.kind === "conversation" ? item.threadKey : null, "needs-input");
   useEffect(() => loadLeaderNamesOnce(owner), [owner]);
-  // A thread whose whole request became a quest's work, or that joined an earlier one, is that conversation now.
-  const becameQuest = useThreadDestinations(owner).get(
-    item?.kind === "conversation" ? item.threadKey.toLowerCase() : "",
+  // A thread whose whole request became a quest's work, or that joined an earlier one, is that
+  // conversation now: the pane turns into it in place, once its messages are here to show.
+  const becameQuest = useReadyThreadDestination(
+    owner,
+    useThreadDestinations(owner).get(item?.kind === "conversation" ? item.threadKey.toLowerCase() : ""),
   );
   useEffect(() => {
     if (item && becameQuest)
