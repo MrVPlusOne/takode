@@ -4,7 +4,9 @@ import { threadAddress } from "../shared/topic-thread-key.js";
 /**
  * The messages Takode sends a Scribe by itself: start initialization, what changed since the last
  * message, a reminder when it stopped before finishing, and the notice its leader gets when even
- * the reminder didn't help. Each is built from data, so it says exactly what happened.
+ * the reminder didn't help. Each is built from data, so it says exactly what happened. What the
+ * Scribe does with each part is in its brief (`scribe-brief.ts`): a message carries what changed,
+ * under short headings, not the same instructions every time (Jiayi, Nov 1).
  */
 
 export interface LeaderLabel {
@@ -90,7 +92,9 @@ export function updateMessage(
   ) {
     return null;
   }
-  const lines = [`What changed for your leader ${label(leader)} since my last message:`];
+  const lines = [
+    `What changed for your leader ${label(leader)} since my last message (work through it as your brief describes):`,
+  ];
   // New threads come first: their names show in the leader's first answer, its alert and lists.
   if (joinChecks) lines.push(...newThreadLines(joinChecks));
   if (rewritePages) {
@@ -103,10 +107,7 @@ export function updateMessage(
   if (forced.length) lines.push("", `The user asked to update now: ${forced.map((name) => `"${name}"`).join(", ")}`);
   const elsewhere = content.elsewhere ?? [];
   if (elsewhere.length) {
-    lines.push(
-      "",
-      "What the user told other leaders meanwhile (it may settle something a page says is open: then rewrite that line):",
-    );
+    lines.push("", "What the user told other leaders meanwhile:");
     for (const message of elsewhere) {
       const time = new Date(message.at).toLocaleString("en-US", {
         month: "short",
@@ -127,10 +128,7 @@ export function updateMessage(
     if (hidden > 0) lines.push(`- and ${hidden} earlier (\`takode scribe changes ${topic.id.slice(0, 8)}\`)`);
   }
   if (settledThreads.length) {
-    lines.push(
-      "",
-      'Threads the user started that settled (their last answer was read) under no topic: file each under the topic it plainly belongs to (`takode topic set <thread> "<topic>"`; `takode topic list` shows the topics), or leave it unfiled; never make a topic for a thread:',
-    );
+    lines.push("", "Threads that settled under no topic (file or leave each):");
     for (const thread of settledThreads) {
       lines.push(
         `- ${threadAddress(thread.key)} "${thread.name}"${thread.startedFrom ? `, started from ${threadAddress(thread.startedFrom)}` : ""}`,
@@ -139,10 +137,7 @@ export function updateMessage(
     }
   }
   if (newTopics.length) {
-    lines.push(
-      "",
-      "Your leader started new topics. Check each is a distinct subject, one the user would look for apart from every other topic. If it isn't, merge it into the topic it plainly belongs to (`takode topic merge <new> <topic> --fold`); never widen a topic to take it in. If no topic fits, keep it.",
-    );
+    lines.push("", "New topics your leader started (check each is distinct):");
     for (const topic of newTopics) {
       lines.push(`- "${topic.name}" (${topic.id.slice(0, 8)}), with ${topic.questIds.join(", ") || "no quests yet"}`);
     }
@@ -150,37 +145,28 @@ export function updateMessage(
   if (consolidate) {
     lines.push(
       "",
-      `Your leader has ${consolidate.count} topics, more than the soft target of ${consolidate.target} (or the range in the user's instructions). Merge quiet topics into the topic each plainly belongs to until it is back near the target, quietest first; leave a topic that has no such home as it is. Never stretch a topic into a generic one to take others in: keep every topic distinct, so the user can tell where a new quest goes; split or rename instead when that keeps them clearer. Quietest topics (quests your leader filed since the topic's last activity; quests in the topic):`,
+      `Too many topics: ${consolidate.count}, over the target of ${consolidate.target}. Quietest first (quests your leader filed since the topic's last activity; quests in it):`,
     );
     for (const topic of consolidate.quiet) {
       lines.push(`- "${topic.name}" (${topic.id.slice(0, 8)}): ${topic.questsSince} since, ${topic.quests} in it`);
     }
   }
   if (unsorted.length) {
-    lines.push("", "New quests with no topic:");
+    lines.push("", "New quests with no topic (file each):");
     for (const quest of unsorted.slice(0, MAX_UNSORTED)) lines.push(`- ${quest.questId} ${quest.title}`);
     if (unsorted.length > MAX_UNSORTED) lines.push(`- and ${unsorted.length - MAX_UNSORTED} more`);
   }
   if (content.homeLines?.length) {
-    lines.push(
-      "",
-      `Lines for your leader's Home: for each of ${content.homeLines.join(", ")}, write one plain line (at most 140 characters) of what is newest in it for the user: what was decided, delivered, or is waiting on whom. Not its title again, no links. Send them together: \`takode scribe lines --file -\` with \`q-N | <line>\` per line.`,
-    );
+    lines.push("", `Home lines to write: ${content.homeLines.join(", ")}`);
   }
-  lines.push(
-    "",
-    "Update what these touch: where each topic stands (`takode scribe stands`) and its page. `takode scribe changes <topic>` shows a page with everything not on it yet. Then tell your leader about loose ends if there are any (`takode scribe loose-ends`).",
-  );
   return lines.join("\n");
 }
 
 /** The reminder after the Scribe stopped with work of the last message left. */
 export function reminderMessage(left: string[]): string {
   return [
-    "You stopped before finishing what my last message asked for:",
+    "You stopped before finishing what my last message asked for; finish these (see A reminder in your brief):",
     ...left.map((item) => `- ${item}`),
-    "",
-    "Finish these. If nothing on a page needs to change, mark its events read with `takode scribe write-page <topic> --unchanged`. If something stops you, tell your leader with `takode notify needs-input`.",
   ].join("\n");
 }
 
@@ -275,26 +261,20 @@ function label(leader: LeaderLabel): string {
 }
 
 /**
- * The threads the user just started: name the ones still called by the user's first words (Jiayi,
- * Nov 1: the Scribe names them, right away, instead of the leader), and join any that continue an
- * earlier conversation.
+ * The threads the user just started: the Scribe names the ones still called by the user's first
+ * words, first (Jiayi, Nov 1), and joins any that continue an earlier conversation; how is in its
+ * brief's Naming and joining threads.
  */
 function newThreadLines(joinChecks: NonNullable<UpdateContent["joinChecks"]>): string[] {
-  const lines: string[] = [""];
-  if (joinChecks.threads.some((thread) => thread.unnamed)) {
-    lines.push(
-      'Do this first: the user just started the threads below marked (unnamed), still called by their first words, and your leader is answering now. Name each after its subject with `takode topic rename <thread> "<name>"`: the subject in 3 to 7 plain words, in the language the user wrote in, using the names of the people and things it mentions; a subject, not a task. Then:',
-    );
-  }
-  lines.push(
-    "Threads the user just started: does one continue an earlier conversation (the same request or problem, picked up again)? Then join it onto that conversation with `takode scribe join <thread> <earlier>`, where <earlier> is another thread or a quest whose thread it is (`takode scribe quests --since 14d` lists your leader's quests). Join only when it plainly continues one; a new subject stays a thread of its own. The user sees the join and can undo it.",
-  );
+  const naming = joinChecks.threads.some((thread) => thread.unnamed) ? "name the (unnamed) ones first, then " : "";
+  const lines: string[] = ["", `Threads the user just started (${naming}check whether each continues an earlier one):`];
   for (const thread of joinChecks.threads) {
     lines.push(`- ${threadAddress(thread.key)} "${thread.name}"${thread.unnamed ? " (unnamed)" : ""}`);
     if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
   }
   if (joinChecks.earlier.length) {
-    lines.push("Your leader's other recent threads:");
+    // Its own heading, apart from the new threads' list (it read as part of the last one's bullet).
+    lines.push("", "Earlier threads they might continue:");
     for (const thread of joinChecks.earlier) lines.push(`- ${threadAddress(thread.key)} "${thread.name}"`);
   }
   return lines;

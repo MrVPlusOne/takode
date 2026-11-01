@@ -60,7 +60,7 @@ export function LeaderHomePage({ leaderId }: { leaderId: string }) {
 
 /**
  * The message box of a leader's Home and leader log: what you write starts a new thread with the
- * leader (named after its first words until the leader names it), which then opens in the main view.
+ * leader (named after its first words until its Scribe names it), which then opens in the main view.
  */
 export function NewThreadComposer({ leaderId }: { leaderId: string }) {
   const newThread = useMemo(

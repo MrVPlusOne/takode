@@ -1057,7 +1057,7 @@ export class TopicService {
         at,
         kind: "picture",
         leaderId,
-        text: `the picture ${image.path} on this page was redrawn (${clockOf(image.mtimeMs)}): look at it again and bring the text that describes it up to date`,
+        text: `the picture ${image.path} on this page was redrawn (${clockOf(image.mtimeMs)})`,
       });
     }
     for (const image of added) {
@@ -1065,7 +1065,7 @@ export class TopicService {
         at,
         kind: "picture",
         leaderId,
-        text: `a new image appeared beside this page's pictures: ${image.path} (${clockOf(image.mtimeMs)}); show it if the page should`,
+        text: `a new image appeared beside this page's pictures: ${image.path} (${clockOf(image.mtimeMs)})`,
       });
     }
     if (redrawn.length || added.length) {

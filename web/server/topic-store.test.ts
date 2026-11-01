@@ -630,7 +630,7 @@ describe("topic service", () => {
     service.topicCreated(topic.id, "leader");
     // Like the leader's other activity, it waits a few minutes for a burst to settle.
     await vi.advanceTimersByTimeAsync(3 * 60_000);
-    expect(injected.at(-1)?.text).toContain("Your leader started new topics");
+    expect(injected.at(-1)?.text).toContain("New topics your leader started");
     expect(injected.at(-1)?.text).toContain('- "Eval stalls"');
     expect(store.topicsToReview("leader")).toEqual([]);
     await service.scribeTurnEnded(scribe);
@@ -657,7 +657,7 @@ describe("topic service", () => {
     service.changed("leader");
     await vi.advanceTimersByTimeAsync(0);
     const asked = injected.at(-1)?.text ?? "";
-    expect(asked).toContain("Your leader has 16 topics, more than the soft target of 15");
+    expect(asked).toContain("Too many topics: 16, over the target of 15");
     // The oldest area had all 15 later quests filed elsewhere: it comes first.
     expect(asked).toContain('- "Area 0"');
     // The most active areas aren't offered.
@@ -673,7 +673,7 @@ describe("topic service", () => {
     fileTopics(16, 17);
     service.changed("leader");
     await vi.advanceTimersByTimeAsync(0);
-    expect(injected.at(-1)?.text).toContain("Your leader has 17 topics");
+    expect(injected.at(-1)?.text).toContain("Too many topics: 17");
   });
 
   it("tells the Scribe when a picture its page shows is redrawn, or a new one appears beside it", async () => {
@@ -852,7 +852,7 @@ describe("topic service", () => {
     await service.scribeTurnEnded(scribe);
     expect(injected).toHaveLength(1);
     expect(injected[0].text).toContain('"T7 run": 1 event not on its page yet');
-    expect(injected[0].text).toContain("--unchanged");
+    expect(injected[0].text).toContain("see A reminder in your brief");
 
     await service.scribeTurnEnded(scribe);
     expect(notices).toHaveLength(1);
@@ -1033,14 +1033,16 @@ describe("topic service", () => {
     expect(text).toContain('It began: "The composer is a little high now when the keyboard is closed."');
     // Asked about: only the new thread. A thread the leader opened is its own subject, and the
     // earlier one was asked about before; both are among the threads it may continue.
-    const [asked, candidates] = text.split("Your leader's other recent threads:");
+    const [asked, candidates] = text.split("Earlier threads they might continue:");
     expect(asked).not.toContain(opened.address!);
     expect(asked).not.toContain(earlier.address!);
     expect(candidates).toContain(`- ${earlier.address} "Collapsed composer sits low"`);
     expect(candidates).toContain(opened.address!);
     // Still called by the user's first words, so the Scribe names it first.
     expect(asked).toContain(`- ${fresh.address} "The composer is a little high" (unnamed)`);
-    expect(text.indexOf("Do this first")).toBeLessThan(text.indexOf("Threads the user just started"));
+    expect(text).toContain("Threads the user just started (name the (unnamed) ones first, then check");
+    // The threads come before anything else in the message.
+    expect(text.split("\n").slice(2, 3)).toEqual([expect.stringContaining("Threads the user just started")]);
     // A Scribe that ends its turn without naming it is reminded; once named, nothing is left.
     await service.scribeTurnEnded(scribe);
     expect(injected.at(-1)!.text).toContain(`${fresh.address} has no name yet`);
@@ -1075,8 +1077,7 @@ describe("topic service", () => {
     service.sessionSaved("leader");
     await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(injected).toHaveLength(1);
-    expect(injected[0]!.text).toContain("Lines for your leader's Home: for each of q-1,");
-    expect(injected[0]!.text).toContain("takode scribe lines --file -");
+    expect(injected[0]!.text).toContain("Home lines to write: q-1");
   });
 
   it("tells the Scribe what the user told other leaders since its last message, once", async () => {
