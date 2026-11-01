@@ -96,7 +96,7 @@ export type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta> &
 export type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta> &
   CompactRequestedAwareAdapter &
   ClaudeTurnAwareAdapter &
-  Partial<BackgroundTaskAwareAdapter>;
+  Partial<BackgroundTaskAwareAdapter> & { readonly autoCompactWindow?: number };
 
 export interface Session {
   id: string;

@@ -38,9 +38,18 @@ export function inferContextWindowFromModel(model: string | undefined): number |
   return undefined;
 }
 
+/**
+ * A session launched with an auto-compact window (a Scribe's context limit) compacts before the
+ * model's window fills, so its context is measured against that window: 100% is about to compact.
+ */
+function capWindow(window: number | undefined, autoCompactWindow: number | undefined): number | undefined {
+  return window && autoCompactWindow ? Math.min(window, autoCompactWindow) : window;
+}
+
 export function resolveResultContextWindow(
   model: string | undefined,
   modelUsage: CLIResultMessage["modelUsage"] | undefined,
+  autoCompactWindow?: number,
 ): number | undefined {
   let fromUsage = 0;
   if (modelUsage) {
@@ -52,7 +61,7 @@ export function resolveResultContextWindow(
   }
   const fromModel = inferContextWindowFromModel(model) ?? 0;
   const resolved = Math.max(fromUsage, fromModel);
-  return resolved > 0 ? resolved : undefined;
+  return capWindow(resolved > 0 ? resolved : undefined, autoCompactWindow);
 }
 
 export interface TokenUsage {
@@ -74,8 +83,9 @@ export function computeResultContextUsedPercent(
   model: string | undefined,
   msg: CLIResultMessage,
   lastAssistantUsage: TokenUsage | undefined,
+  autoCompactWindow?: number,
 ): number | undefined {
-  const contextWindow = resolveResultContextWindow(model, msg.modelUsage);
+  const contextWindow = resolveResultContextWindow(model, msg.modelUsage, autoCompactWindow);
   if (!contextWindow) return undefined;
 
   if (lastAssistantUsage) {
@@ -92,6 +102,7 @@ export function computeResultContextUsedPercent(
 export function extractClaudeTokenDetails(
   modelUsage: CLIResultMessage["modelUsage"],
   model?: string,
+  autoCompactWindow?: number,
 ): SessionState["claude_token_details"] | undefined {
   if (!modelUsage) return undefined;
   // modelUsage has one entry per model the CLI called (for example a Haiku
@@ -106,7 +117,7 @@ export function extractClaudeTokenDetails(
     outputTokens += Number(usage.outputTokens || 0);
     cachedInputTokens += Number(usage.cacheReadInputTokens || 0) + Number(usage.cacheCreationInputTokens || 0);
   }
-  const modelContextWindow = resolveResultContextWindow(model, modelUsage) ?? 0;
+  const modelContextWindow = resolveResultContextWindow(model, modelUsage, autoCompactWindow) ?? 0;
 
   if (inputTokens <= 0 && outputTokens <= 0 && cachedInputTokens <= 0 && modelContextWindow <= 0) {
     return undefined;
@@ -129,9 +140,10 @@ export function extractClaudeTokenDetails(
 export function resolveLiveClaudeContextWindow(
   model: string | undefined,
   tokenDetails: SessionState["claude_token_details"] | undefined,
+  autoCompactWindow?: number,
 ): number | undefined {
   const reported = tokenDetails?.modelContextWindow ?? 0;
-  return reported > 0 ? reported : inferContextWindowFromModel(model);
+  return capWindow(reported > 0 ? reported : inferContextWindowFromModel(model), autoCompactWindow);
 }
 
 interface ContextUsageHistorySessionLike {

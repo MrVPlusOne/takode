@@ -134,6 +134,36 @@ describe("context-usage helpers", () => {
     ).toBe(1_000_000);
   });
 
+  it("measures a session launched with an auto-compact window against that window", () => {
+    // A Scribe's context limit makes Claude compact at 256K on a 1M model, so its context reads
+    // as a share of 256K (100% is about to compact); a window above the model's changes nothing.
+    const modelUsage = {
+      "claude-opus-5.5": {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        contextWindow: 1_000_000,
+        maxOutputTokens: 4096,
+        costUSD: 0,
+      },
+    };
+    expect(extractClaudeTokenDetails(modelUsage, "claude-opus-5.5", 256_000)?.modelContextWindow).toBe(256_000);
+    expect(extractClaudeTokenDetails(modelUsage, "claude-opus-5.5", 2_000_000)?.modelContextWindow).toBe(1_000_000);
+    expect(
+      computeResultContextUsedPercent(
+        "claude-opus-5.5",
+        { type: "result", modelUsage } as unknown as Parameters<typeof computeResultContextUsedPercent>[1],
+        { input_tokens: 128_000 },
+        256_000,
+      ),
+    ).toBe(50);
+    // Mid-turn, and before any report (inferred 200K stays under a larger window).
+    const stored = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, modelContextWindow: 1_000_000 };
+    expect(resolveLiveClaudeContextWindow("claude-opus-5.5", stored, 256_000)).toBe(256_000);
+    expect(resolveLiveClaudeContextWindow("claude-opus-5.5", undefined, 256_000)).toBe(200_000);
+  });
+
   it("overrides modelContextWindow with 1M for [1m] model variants", () => {
     // CLI reports contextWindow: 200000 for the base model, but the session
     // model string contains [1m] indicating the 1M context variant.

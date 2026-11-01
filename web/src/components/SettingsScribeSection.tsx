@@ -68,7 +68,7 @@ export function SettingsScribeSection({
       <SettingsRow
         label="Scribe context limit"
         htmlFor="scribe-context-limit"
-        description={`A Scribe keeps running and compacts its conversation before it grows past this, which keeps each update cheap. A change applies when each Scribe next starts. Default ${DEFAULT_SCRIBE_CONTEXT_LIMIT_TOKENS / 1000}K.`}
+        description={`A Scribe keeps running and compacts its conversation before it grows past this, which keeps each update cheap. A change restarts running Scribes at once, a busy one when it finishes its turn; their conversations continue. Default ${DEFAULT_SCRIBE_CONTEXT_LIMIT_TOKENS / 1000}K.`}
       >
         <NumberStepper
           id="scribe-context-limit"

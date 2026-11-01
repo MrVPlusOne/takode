@@ -286,6 +286,11 @@ export class ClaudeSdkAdapter
     return this.connected;
   }
 
+  /** The auto-compact window the process was launched with (a Scribe's context limit), if any. */
+  get autoCompactWindow(): number | undefined {
+    return this.options.autoCompactWindow;
+  }
+
   /** Whether this adapter took over a running Claude process (see `reattach`). */
   get reattached(): boolean {
     return !!this.options.reattach;

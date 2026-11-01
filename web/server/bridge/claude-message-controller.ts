@@ -135,6 +135,8 @@ export interface AssistantMessageSessionLike {
     slackThreadChild?: SessionState["slackThreadChild"];
   };
   contextUsageHistory?: import("../session-types.js").ContextUsageHistoryEntry[];
+  /** The Claude process's auto-compact window, when it was launched with one (a Scribe). */
+  claudeSdkAdapter?: { readonly autoCompactWindow?: number } | null;
 }
 
 interface HandleAssistantMessageDeps {
@@ -251,6 +253,7 @@ export interface ResultMessageSessionLike {
     | "slackThreadChild"
   >;
   contextUsageHistory?: import("../session-types.js").ContextUsageHistoryEntry[];
+  claudeSdkAdapter?: { readonly autoCompactWindow?: number } | null;
   notifications?: SessionNotification[];
   leaderThreadOutcomeValidatedHistoryLength?: number;
   diffStatsDirty: boolean;
@@ -943,11 +946,17 @@ export function handleResultMessage(
     (entry) =>
       entry.type === "assistant" && (entry as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
   ) as { message?: { usage?: TokenUsage } } | undefined;
-  const nextContextPct = computeResultContextUsedPercent(session.state.model, msg, lastAssistant?.message?.usage);
+  const autoCompactWindow = session.claudeSdkAdapter?.autoCompactWindow;
+  const nextContextPct = computeResultContextUsedPercent(
+    session.state.model,
+    msg,
+    lastAssistant?.message?.usage,
+    autoCompactWindow,
+  );
   if (typeof nextContextPct === "number") {
     session.state.context_used_percent = nextContextPct;
   }
-  const nextClaudeTokenDetails = extractClaudeTokenDetails(msg.modelUsage, session.state.model);
+  const nextClaudeTokenDetails = extractClaudeTokenDetails(msg.modelUsage, session.state.model, autoCompactWindow);
   if (nextClaudeTokenDetails) {
     session.state.claude_token_details = nextClaudeTokenDetails;
   }
@@ -1786,7 +1795,11 @@ function maybeUpdateContextUsedPercentFromAssistantUsage(
 ): void {
   if (!usage) return;
   const model = session.state.model || modelHint;
-  const contextWindow = resolveLiveClaudeContextWindow(model, session.state.claude_token_details);
+  const contextWindow = resolveLiveClaudeContextWindow(
+    model,
+    session.state.claude_token_details,
+    session.claudeSdkAdapter?.autoCompactWindow,
+  );
   if (!contextWindow) return;
   const nextContextPct = computeContextUsedPercent(usage, contextWindow);
   if (typeof nextContextPct !== "number" || session.state.context_used_percent === nextContextPct) return;

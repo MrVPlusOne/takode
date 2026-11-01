@@ -75,6 +75,8 @@ async function setup() {
     hostOf: () => undefined,
     isScribeAlive: () => true,
     isScribeBusy: () => false,
+    isScribeRunning: () => false,
+    relaunchScribe: async () => {},
     retireScribe: async () => {},
     notifyLeader: () => {},
     messageText: (sessionNum, index) => (sessionNum === 7 && index === 4 ? "Keep 0.02, launch now" : null),

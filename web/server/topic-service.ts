@@ -76,6 +76,10 @@ export interface TopicServiceDeps {
   hostOf: (sessionId: string) => string | undefined;
   /** Whether the Scribe is working on a turn now. */
   isScribeBusy: (sessionId: string) => boolean;
+  /** Whether the Scribe's backend process is running (not stopped, exited or still starting). */
+  isScribeRunning: (sessionId: string) => boolean;
+  /** Restarts a Scribe's process; its conversation continues. */
+  relaunchScribe: (sessionId: string) => Promise<unknown>;
   /** Archives a Scribe (replaced, or of a retired design). */
   retireScribe: (sessionId: string) => Promise<void>;
   /** Tells a leader something about its Scribe that needs it. */
@@ -215,6 +219,8 @@ export class TopicService {
    */
   private failing = new Map<string, { count: number; retryAt: number; resend?: Delivery; told: boolean }>();
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Scribes to restart when their turn ends, so a changed context limit applies (`restartScribes`). */
+  private restartWhenIdle = new Set<string>();
   /** Per leader: when its waiting events are due to go, and when the first of them came. */
   private dueAt = new Map<string, number>();
   private firstPendingAt = new Map<string, number>();
@@ -839,6 +845,8 @@ export class TopicService {
    * leader is told. Then whatever changed meanwhile is sent.
    */
   async scribeTurnEnded(sessionId: string, outcome: ScribeTurnOutcome = { unfinished: false }): Promise<void> {
+    // Before anything is sent to it again, so its next message reaches the restarted process.
+    if (this.restartWhenIdle.delete(sessionId)) await this.relaunchScribe(sessionId);
     const leaderId = this.store.leaderOfScribe(sessionId);
     if (!leaderId) return;
     const delivery = this.awaiting.get(leaderId);
@@ -1055,6 +1063,28 @@ export class TopicService {
       if (this.store.pageFormat(leaderId) < PAGE_FORMAT && !this.store.needsInitialization(leaderId)) {
         this.changed(leaderId);
       }
+    }
+  }
+
+  /**
+   * Restarts every running Scribe so a changed context limit (Settings) applies at once, since
+   * backends read it only when their process starts: idle ones now, busy ones when their turn ends.
+   * The conversation continues; a Scribe that isn't running takes the limit at its next start.
+   */
+  async restartScribes(): Promise<void> {
+    for (const leader of this.deps.listLeaders()) {
+      const scribe = this.store.scribeSession(leader.sessionId);
+      if (!scribe || !this.deps.isScribeAlive(scribe) || !this.deps.isScribeRunning(scribe)) continue;
+      if (this.deps.isScribeBusy(scribe)) this.restartWhenIdle.add(scribe);
+      else await this.relaunchScribe(scribe);
+    }
+  }
+
+  private async relaunchScribe(sessionId: string): Promise<void> {
+    try {
+      await this.deps.relaunchScribe(sessionId);
+    } catch (error) {
+      console.warn(`[library-topics] Could not restart Scribe ${sessionId} for its new context limit:`, error);
     }
   }
 

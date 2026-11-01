@@ -188,6 +188,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
 import { _resetModelCache } from "./routes/system.js";
+import { setTopicService } from "./routes/topics.js";
+import type { TopicService } from "./topic-service.js";
 import { trafficStats } from "./traffic-stats.js";
 import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
 import * as serverLoggerModule from "./server-logger.js";
@@ -1618,8 +1620,11 @@ describe("PUT /api/settings", () => {
     expect(bad.status).toBe(400);
   });
 
-  it("saves the Scribe context limit and rejects one out of range", async () => {
-    // Scribes keep running instead of being replaced; this limit is what bounds their cost.
+  it("saves the Scribe context limit, restarts running Scribes when it changes, and rejects one out of range", async () => {
+    // Scribes keep running instead of being replaced; this limit is what bounds their cost. Backends
+    // read it only at start, so a change restarts the running Scribes; the same value does not.
+    const restartScribes = vi.fn(async () => {});
+    setTopicService({ restartScribes } as unknown as TopicService);
     const update = vi.mocked(settingsManager.updateSettings);
     const saved = update.getMockImplementation()!;
     update.mockImplementationOnce((patch) => ({
@@ -1633,6 +1638,18 @@ describe("PUT /api/settings", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ scribeContextLimitTokens: 128_000 });
+    expect(restartScribes).toHaveBeenCalledTimes(1);
+
+    // The mocked saved settings hold the default, so saving the default again changes nothing.
+    update.mockImplementationOnce((patch) => ({ ...saved(patch), scribeContextLimitTokens: 256_000 }));
+    const same = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scribeContextLimitTokens: 256_000 }),
+    });
+    expect(same.status).toBe(200);
+    expect(restartScribes).toHaveBeenCalledTimes(1);
+    setTopicService(null);
 
     for (const scribeContextLimitTokens of [50_000, 2_000_000, 256_000.5, "256K"]) {
       const bad = await app.request("/api/settings", {

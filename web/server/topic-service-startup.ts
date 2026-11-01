@@ -104,6 +104,11 @@ export async function startLibraryTopics(input: {
       return !!info && !info.archived;
     },
     isScribeBusy: (sessionId) => wsBridge.getSession(sessionId)?.isGenerating === true,
+    isScribeRunning: (sessionId) => {
+      const state = launcher.getSession(sessionId)?.state;
+      return state === "connected" || state === "running";
+    },
+    relaunchScribe: (sessionId) => launcher.relaunch(sessionId),
     retireScribe: (sessionId) => archiveLibrarySession(sessionId),
     notifyLeader: (leaderId, text) => {
       wsBridge.injectUserMessage(leaderId, text, { ...LIBRARY_MESSAGE_SOURCE });

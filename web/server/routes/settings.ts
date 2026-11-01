@@ -87,6 +87,7 @@ import {
   findCodexReasoningEffortSupportIssue,
   formatCodexReasoningEffortSupportIssue,
 } from "../../shared/codex-reasoning-effort.js";
+import { getTopicService } from "./topics.js";
 import {
   MAX_SCRIBE_CONTEXT_LIMIT_TOKENS,
   MIN_SCRIBE_CONTEXT_LIMIT_TOKENS,
@@ -1584,7 +1585,14 @@ export function createSettingsRoutes(ctx: RouteContext) {
       ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
       serverTimeZone: normalizedServerTimeZone,
     };
+    const previousScribeLimit = normalizeScribeContextLimit(getSettings().scribeContextLimitTokens);
     const settings = updateSettings(settingsPatch);
+    // Backends read the limit only at start, so running Scribes restart to use a changed one.
+    if (normalizeScribeContextLimit(settings.scribeContextLimitTokens) !== previousScribeLimit) {
+      getTopicService()
+        ?.restartScribes()
+        .catch((error) => console.warn("[settings] Restarting Scribes for the new context limit failed:", error));
+    }
     if (normalizedServerSlug !== undefined && typeof launcher.setServerSlug === "function") {
       launcher.setServerSlug(settings.serverSlug);
     }

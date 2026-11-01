@@ -454,6 +454,9 @@ async function setupService() {
   const created: string[] = [];
   const busy = new Set<string>();
   const retired: string[] = [];
+  // Scribes whose process is not running, and the ones restarted (same session).
+  const stopped = new Set<string>();
+  const relaunched: string[] = [];
   const messages = new Map<string, string>();
   // The remote host each session and leader runs on; absent means the coordinator's machine.
   const hosts = new Map<string, string>();
@@ -488,6 +491,10 @@ async function setupService() {
     isScribeAlive: (id) => sessions.has(id),
     hostOf: (id) => hosts.get(id),
     isScribeBusy: (id) => busy.has(id),
+    isScribeRunning: (id) => sessions.has(id) && !stopped.has(id),
+    relaunchScribe: async (id) => {
+      relaunched.push(id);
+    },
     retireScribe: async (id) => {
       retired.push(id);
       sessions.delete(id);
@@ -504,7 +511,7 @@ async function setupService() {
   });
   return {
     ...{ store, service, leader, sessions, quests, injected, notices, created, busy, retired, messages },
-    ...{ leaderHosts, unstartable, files },
+    ...{ leaderHosts, unstartable, files, stopped, relaunched },
   };
 }
 
@@ -1084,6 +1091,33 @@ describe("topic service", () => {
     expect(injected[1]!.text).toContain('"Thanks"');
     expect(injected[1]!.text).not.toContain("Republish");
   });
+  it("restarts running Scribes for a new context limit: idle ones now, busy ones when their turn ends", async () => {
+    // Backends read the limit only when their process starts, and Jiayi wants a change in Settings
+    // to apply at once. A restart keeps the session and its conversation; a Scribe whose process
+    // isn't running needs none, since it takes the limit at its next start.
+    const { service, store, created, retired, relaunched, busy, stopped } = await setupService();
+    const idle = await enable(service, store, "leader");
+    const working = await enable(service, store, "other");
+    busy.add(working);
+
+    await service.restartScribes();
+    expect(relaunched).toEqual([idle]);
+
+    // The busy one restarts when its turn ends, before its next message goes, and only once.
+    busy.delete(working);
+    await service.scribeTurnEnded(working);
+    expect(relaunched).toEqual([idle, working]);
+    await service.scribeTurnEnded(working);
+    expect(relaunched).toEqual([idle, working]);
+
+    // A stopped Scribe is left alone, and no Scribe was replaced.
+    stopped.add(idle);
+    await service.restartScribes();
+    expect(relaunched).toEqual([idle, working, working]);
+    expect(created).toEqual(["scribe-leader-1", "scribe-other-2"]);
+    expect(retired).toEqual([]);
+  });
+
   it("keeps the same Scribe however long it runs", async () => {
     // Scribes used to be replaced by a fresh one after 20 hours to bound their cost; Jiayi rejected
     // that. A Scribe now keeps running, and its context limit (in Settings) bounds what turns cost.
