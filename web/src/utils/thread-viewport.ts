@@ -62,6 +62,31 @@ export function restorableViewportPosition(
   return entry.at - position.savedAt <= KEEP_READING_POSITION_MS ? position : null;
 }
 
+/**
+ * Threads that merged into another conversation (a handoff to a quest, a Scribe join) while a feed
+ * showed them: the feed switching to that conversation carries its place over (`takeThreadMerge`),
+ * so the same messages stay where they were and a reader following the newest keeps following.
+ * By `<session> <thread>`; forgotten after a few seconds if no feed was there to carry it.
+ */
+const mergedThreads = new Map<string, { into: string; at: number }>();
+const MERGE_CARRY_MS = 10_000;
+
+/** A feed showing `threadKey` is about to switch to `intoKey`, the conversation it merged into. */
+export function noteThreadMerged(sessionId: string, threadKey: string, intoKey: string): void {
+  mergedThreads.set(`${sessionId} ${normalizeThreadKey(threadKey)}`, {
+    into: normalizeThreadKey(intoKey),
+    at: Date.now(),
+  });
+}
+
+/** The conversation `threadKey` just merged into, once: the feed leaving it carries its place there. */
+export function takeThreadMerge(sessionId: string, threadKey: string): string | null {
+  const key = `${sessionId} ${normalizeThreadKey(threadKey)}`;
+  const merge = mergedThreads.get(key);
+  mergedThreads.delete(key);
+  return merge && Date.now() - merge.at <= MERGE_CARRY_MS ? merge.into : null;
+}
+
 type ViewportHandoffPublisher = (
   sessionId: string,
   threadKey: string,

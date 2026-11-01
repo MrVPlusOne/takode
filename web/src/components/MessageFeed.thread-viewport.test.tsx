@@ -126,6 +126,7 @@ vi.mock("../store.js", () => {
 
 import {
   getFeedViewportKey,
+  noteThreadMerged,
   persistLeaderViewportPosition,
   readLeaderViewportPosition,
   requestThreadViewportSnapshot,
@@ -1671,6 +1672,82 @@ describe("MessageFeed thread viewport restoration", () => {
         }),
       ),
     );
+  });
+
+  it("keeps following the newest messages when the thread on screen merges into another conversation", () => {
+    // Jiayi (Nov 1): watching a reply stream in, the thread was handed off to a quest; the view
+    // switched to the quest's conversation at an older spot and stopped following. The feed now
+    // carries its place over to the conversation the thread merged into.
+    const sid = "test-thread-merge-follow";
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    const threadMessages = [makeMessage({ id: "u-thread", role: "user", content: "Side question", historyIndex: 1 })];
+    const questMessages = [
+      makeMessage({ id: "a-quest", role: "assistant", content: "Quest answer", historyIndex: 0 }),
+      ...threadMessages,
+    ];
+    setStoreMessages(sid, []);
+    mockStoreValues.threadWindows = new Map([
+      [
+        sid,
+        new Map([
+          ["topic:aaaa0001", makeThreadWindow({ thread_key: "topic:aaaa0001", item_count: 1, total_items: 1 })],
+          ["q-7", makeThreadWindow({ thread_key: "q-7", item_count: 2, total_items: 2 })],
+        ]),
+      ],
+    ]);
+    mockStoreValues.threadWindowMessages = new Map([
+      [
+        sid,
+        new Map([
+          ["topic:aaaa0001", threadMessages],
+          ["q-7", questMessages],
+        ]),
+      ],
+    ]);
+    // The quest's own older reading place, left a moment ago.
+    persistLeaderViewportPosition(sid, "q-7", {
+      scrollTop: 100,
+      scrollHeight: 1800,
+      isAtBottom: false,
+      savedAt: Date.now(),
+    });
+
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    let scrollTopValue = 0;
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 1800 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollTopValue : 0;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+
+    try {
+      const { rerender } = render(<MessageFeed sessionId={sid} threadKey="topic:aaaa0001" />);
+      // Following the newest at the bottom.
+      scrollTopValue = 1800;
+      fireEvent.scroll(screen.getByTestId("message-feed-scroll-container"));
+
+      noteThreadMerged(sid, "topic:aaaa0001", "q-7");
+      rerender(<MessageFeed sessionId={sid} threadKey="q-7" />);
+
+      expect(readLeaderViewportPosition(sid, "q-7")).toEqual(expect.objectContaining({ isAtBottom: true }));
+      expect(scrollTopValue).toBe(1800);
+    } finally {
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+    }
   });
 
   it("keeps All Threads scroll independent from Main", () => {

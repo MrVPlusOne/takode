@@ -4,8 +4,10 @@ import {
   SAVE_THREAD_VIEWPORT_EVENT,
   type FeedViewportPosition,
   type ThreadViewportSnapshotDetail,
+  getFeedViewportKey,
   persistLeaderViewportPosition,
   readLeaderViewportPosition,
+  takeThreadMerge,
 } from "../utils/thread-viewport.js";
 import { publishViewportHandoff } from "../utils/viewport-handoff-client.js";
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
@@ -78,6 +80,18 @@ export function useMessageFeedViewportPersistence({
     };
     useStore.getState().setFeedScrollPosition(viewportKey, position);
     if (isLeaderSession) persistLeaderViewportPosition(sessionId, normalizedThreadKey, position);
+    // The thread merged into another conversation, which this feed shows next: the same place
+    // there, since its messages are now that conversation's (Jiayi, Nov 1: it jumped to an older
+    // spot and stopped following a streaming reply).
+    const mergedInto = takeThreadMerge(sessionId, normalizedThreadKey);
+    if (mergedInto) {
+      const intoViewportKey = viewportKey.replace(
+        getFeedViewportKey(sessionId, normalizedThreadKey),
+        getFeedViewportKey(sessionId, mergedInto),
+      );
+      useStore.getState().setFeedScrollPosition(intoViewportKey, position);
+      if (isLeaderSession) persistLeaderViewportPosition(sessionId, mergedInto, position);
+    }
     return position;
   }, [
     autoFollowEnabledRef,

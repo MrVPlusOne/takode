@@ -25,6 +25,7 @@ import { resolveNotificationOwnerThreadKey } from "../../utils/notification-thre
 import { normalizeThreadKey } from "../../utils/thread-projection.js";
 import { isLeaderThreadRunning } from "../../utils/leader-thread-tabs-resolver.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
+import { noteThreadMerged } from "../../utils/thread-viewport.js";
 import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { CollapseIcon, NewThreadIcon, TopicIcon } from "../library/library-icons.js";
 import { TopicSidePanel } from "../library/TopicSidePanel.js";
@@ -361,8 +362,10 @@ function SideItemRow({
     useThreadDestinations(owner).get(item?.kind === "conversation" ? item.threadKey.toLowerCase() : ""),
   );
   useEffect(() => {
-    if (item && becameQuest)
-      replaceSideItem(item.id, { kind: "conversation", threadKey: becameQuest, leaderId: owner });
+    if (!item || !becameQuest) return;
+    // The pane keeps its place in the conversation the thread merged into.
+    if (item.kind === "conversation") noteThreadMerged(owner, item.threadKey, becameQuest);
+    replaceSideItem(item.id, { kind: "conversation", threadKey: becameQuest, leaderId: owner });
   }, [becameQuest, item, owner]);
   const running = useStore((state) => (statusKey ? isLeaderThreadRunning(state, owner, statusKey) : false));
   // The row's status group, by the status row's rule: a question for the user, then unread

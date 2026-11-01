@@ -56,6 +56,7 @@ import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/t
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import {
   markLeaderThreadDisplayed,
+  noteThreadMerged,
   persistLeaderSelectedThreadKey,
   readLeaderSelectedThreadKey,
   requestThreadViewportSnapshot,
@@ -661,8 +662,11 @@ export function ChatView({
     selectedThread?.quest ?? selectedThread?.joinedInto,
   );
   useEffect(() => {
-    if (selectedThreadDestination) navigateToSessionThread(sessionId, selectedThreadDestination, true);
-  }, [selectedThreadDestination, sessionId]);
+    if (!selectedThreadDestination) return;
+    // The feed keeps its place in the conversation the thread merged into.
+    noteThreadMerged(sessionId, selectedThreadKey, selectedThreadDestination);
+    navigateToSessionThread(sessionId, selectedThreadDestination, true);
+  }, [selectedThreadDestination, selectedThreadKey, sessionId]);
   // Topics are tags, not places to write: an address of a topic's former conversation (a link, an
   // old history entry) opens the topic's page beside the leader's Home.
   const addressedTopic = useKnownTopicOfKey(
