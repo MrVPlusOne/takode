@@ -1,4 +1,12 @@
 import { useMemo } from "react";
+import {
+  IdleByTopic,
+  IdleViewSwitch,
+  SinceLastLooked,
+  useHomeLines,
+  useIdleView,
+  useLastLooked,
+} from "./home/HomeExtras.js";
 import { topicApi } from "../api/topics.js";
 import { useStore } from "../store.js";
 import { rememberThreads } from "../utils/leader-topics.js";
@@ -79,13 +87,20 @@ export function NewThreadComposer({ leaderId }: { leaderId: string }) {
   );
 }
 
-/** The leader's threads by what they need, as its status row lists them. */
+/**
+ * The leader's threads by what they need, as its status row lists them, each with a line of news
+ * (`useHomeLines`), under a line about what changed since the user last looked. Idle is listed
+ * newest first or by topic, as the user chose last.
+ */
 function HomeThreads({ leaderId }: { leaderId: string }) {
   const threads = useLeaderThreadMembers((state) => state.byLeader[leaderId]) ?? EMPTY_THREADS;
   const writing = useStore((state) =>
     state.sessionStatus.get(leaderId) === "running" ? (state.activeTurnRoutes.get(leaderId)?.threadKey ?? null) : null,
   );
-  const open = (threadKey: string) => navigateToSessionThread(leaderId, threadKey);
+  const questIds = useMemo(() => threads.flatMap((tab) => (tab.questId ? [tab.questId] : [])), [threads]);
+  const lineOf = useHomeLines(leaderId, questIds);
+  const [idleView, setIdleView] = useIdleView();
+  const lastLooked = useLastLooked(leaderId);
   if (threads.length === 0) {
     return (
       <p className="px-1 py-6 text-center text-[13px] text-cc-muted" data-testid="leader-home-empty">
@@ -93,22 +108,31 @@ function HomeThreads({ leaderId }: { leaderId: string }) {
       </p>
     );
   }
+  const context = {
+    currentThreadKey: "main",
+    activeOutputThreadKey: writing,
+    onSelect: (threadKey: string) => navigateToSessionThread(leaderId, threadKey),
+    onOpenInSide: (threadKey: string) => openInSide(leaderId, { kind: "conversation" as const, threadKey }),
+    lineOf,
+  };
   return (
-    <section
-      className="overflow-hidden rounded-xl border border-cc-border bg-cc-card pb-1"
-      data-testid="leader-home-threads"
-    >
-      <ThreadGroupSections
-        threads={threads}
-        context={{
-          currentThreadKey: "main",
-          activeOutputThreadKey: writing,
-          onSelect: open,
-          onOpenInSide: (threadKey) => openInSide(leaderId, { kind: "conversation", threadKey }),
-        }}
-        idleLimit={5}
-      />
-    </section>
+    <>
+      <SinceLastLooked threads={threads} since={lastLooked} />
+      <section
+        className="overflow-hidden rounded-xl border border-cc-border bg-cc-card pb-1"
+        data-testid="leader-home-threads"
+      >
+        <ThreadGroupSections
+          threads={threads}
+          context={context}
+          idleLimit={6}
+          idleExtra={<IdleViewSwitch value={idleView} onChange={setIdleView} />}
+          {...(idleView === "topic"
+            ? { renderIdle: (tabs) => <IdleByTopic leaderId={leaderId} tabs={tabs} context={context} /> }
+            : {})}
+        />
+      </section>
+    </>
   );
 }
 

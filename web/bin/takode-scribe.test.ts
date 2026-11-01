@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatScribeStatus, type ScribeStatusResponse } from "./takode-scribe.js";
+import { formatScribeStatus, parseHomeLineInput, type ScribeStatusResponse } from "./takode-scribe.js";
 
 /**
  * `takode scribe status` for a leader: a few lines naming the Scribe by session number, what it is
@@ -33,5 +33,17 @@ describe("formatScribeStatus", () => {
     expect(formatScribeStatus({ ...STATUS, enabled: false })).toBe(
       "Topics haven't started for #2957 yet, so it has no Scribe: they start with its next message.",
     );
+  });
+});
+
+describe("parseHomeLineInput", () => {
+  it("reads one `<key> | <line>` per line; bullets and blank lines are fine", () => {
+    // `takode scribe lines --file -`: the Scribe's lines of news for its leader's Home.
+    expect(
+      parseHomeLineInput("- q-12 | Grading picked: strict.\n\ntopic:8df94bcb | The phone reaches it again.\n"),
+    ).toEqual([
+      { key: "q-12", text: "Grading picked: strict." },
+      { key: "topic:8df94bcb", text: "The phone reaches it again." },
+    ]);
   });
 });

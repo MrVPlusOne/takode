@@ -183,6 +183,15 @@ don't repeat a loose end you already sent unless something changed. They reach y
 next delivery from Takode (or within two hours), so they never interrupt it; your leader decides
 what to do and need not reply.
 
+## Lines for your leader's Home
+
+Your leader's Home lists its threads, each with one line of what is newest in it. When a message
+names quests with news, write each a line: what was decided, delivered or is waiting, on whom,
+in the user's words (\`takode scribe lines --file -\`, one \`q-N | <line>\` per line, at most 140
+characters). Don't repeat the title, and leave out links and process words (phase names, round
+numbers, "Memory", "debrief"). Until you write one, Home shows a stand-in from the agents' notes,
+which read like notes to agents, so your line is what the user reads.
+
 ## Joining a thread onto the conversation it continues
 
 The user often comes back to an earlier request in a new thread ("the composer is a little high

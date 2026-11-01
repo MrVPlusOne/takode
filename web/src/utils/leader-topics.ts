@@ -60,6 +60,7 @@ export function rememberTopicList(leaderId: string, topics: readonly TopicSummar
           questIds: topic.questIds,
           activityAt: topic.activityAt,
           ...(topic.threads ? { threads: topic.threads } : {}),
+          ...(topic.summary ? { summary: topic.summary } : {}),
         },
       ]),
     );
@@ -366,6 +367,13 @@ export function useQuestTopicsOf(
     },
     [byLeader],
   );
+}
+
+const EMPTY_BRIEFS: Readonly<Record<string, TopicBrief>> = {};
+
+/** A leader's topics as last known (load them with `loadLeaderNamesOnce`), by topic ID. */
+export function useLeaderTopicBriefs(leaderId: string): Readonly<Record<string, TopicBrief>> {
+  return useLeaderTopicsStore((state) => state.byLeader[leaderId]?.topics ?? EMPTY_BRIEFS);
 }
 
 /** For the Playground: the topics of some quests, as if the server had answered about them. */

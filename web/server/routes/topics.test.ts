@@ -489,4 +489,27 @@ describe("topic routes", () => {
     expect(service.rideAlongNotes().take("leader")).toContain("undid");
     expect((await send("/topics/threads/unjoin", "POST", { leader: "leader" })).status).toBe(400);
   });
+
+  // Home shows a line of news per thread: the Scribe's once written, a stand-in before that.
+  it("takes a Scribe's lines for its leader's Home, which win over the stand-ins", async () => {
+    const { app, store, send, setCaller } = await setup();
+    store.enableLeader("leader");
+    const lines = async () => (await (await app.request("/topics/home-lines?leader=leader&quests=q-1")).json()).lines;
+    // q-1 is done with a debrief summary: its stand-in.
+    expect((await lines())["q-1"]).toMatchObject({ text: "Launched; not tried on an iPhone.", source: "debrief" });
+    setCaller("scribe");
+    const saved = await send("/scribe/lines", "POST", {
+      lines: [{ key: "Q-1", text: "T7 is live; the phone check is left." }],
+    });
+    expect(await saved.json()).toEqual({ saved: 1 });
+    expect((await lines())["q-1"]).toMatchObject({ text: "T7 is live; the phone check is left.", source: "scribe" });
+    // One short plain line for a quest or a thread.
+    for (const bad of [
+      { key: "T7", text: "x" },
+      { key: "q-1", text: "two\nlines" },
+      { key: "q-1", text: "x".repeat(141) },
+    ]) {
+      expect((await send("/scribe/lines", "POST", { lines: [bad] })).status).toBe(400);
+    }
+  });
 });

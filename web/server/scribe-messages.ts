@@ -31,6 +31,8 @@ export interface UpdateContent {
     threads: Array<{ key: string; name: string; firstMessage?: string }>;
     earlier: Array<{ key: string; name: string }>;
   };
+  /** Quests with news in this message: the Scribe writes each a line for its leader's Home. */
+  homeLines?: string[];
   /** The user's instructions for topics and pages, when they changed since this Scribe was last told. */
   instructions?: string;
   /** Topics the user asked to update now (Update now). */
@@ -166,6 +168,12 @@ export function updateMessage(
     lines.push("", "New quests with no topic:");
     for (const quest of unsorted.slice(0, MAX_UNSORTED)) lines.push(`- ${quest.questId} ${quest.title}`);
     if (unsorted.length > MAX_UNSORTED) lines.push(`- and ${unsorted.length - MAX_UNSORTED} more`);
+  }
+  if (content.homeLines?.length) {
+    lines.push(
+      "",
+      `Lines for your leader's Home: for each of ${content.homeLines.join(", ")}, write one plain line (at most 140 characters) of what is newest in it for the user: what was decided, delivered, or is waiting on whom. Not its title again, no links. Send them together: \`takode scribe lines --file -\` with \`q-N | <line>\` per line.`,
+    );
   }
   lines.push(
     "",

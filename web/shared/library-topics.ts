@@ -240,6 +240,8 @@ export interface TopicBrief {
   activityAt: number;
   /** Threads filed under it (see `TopicSummary.threads`). */
   threads?: TopicThreadRef[];
+  /** Where it stands, in a line (see `TopicSummary.summary`); known from a topic list. */
+  summary?: string;
 }
 
 /** The quest-map answer: each named quest's topic, and those topics in brief. */

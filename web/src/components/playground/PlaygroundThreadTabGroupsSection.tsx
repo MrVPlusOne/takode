@@ -81,6 +81,12 @@ const NOTIFICATIONS = [
   notification("n-2", "needs-input", "topic:4e5f6a7b"),
 ] as SessionNotification[];
 const WRITING_THREAD = "topic:0a1b2c3d";
+/** Home's line of news under a row: what is newest in the thread (the Scribe's, in the app). */
+const HOME_LINES: Record<string, string> = {
+  "q-9482": "Status row and Home built; screenshots are next.",
+  "q-9481": "Waiting on your pick: bottom bar or top bar on phones.",
+  "topic:1b2c3d4e": "Lean has the larger library; Rocq the older proofs.",
+};
 
 const MEMBERS: PrimaryThreadChip[] = [
   ...QUESTS,
@@ -192,11 +198,16 @@ export function PlaygroundThreadTabGroupsSection() {
           <Card label="Desktop">
             <LeaderFrame width={1000} />
           </Card>
-          <Card label="Home: the same groups at full width">
+          <Card label="Home: the same groups at full width, each row with its line of news">
             <div className="w-[44rem] max-w-full rounded-xl border border-cc-border bg-cc-card pb-1">
               <ThreadGroupSections
                 threads={MEMBERS}
-                context={{ currentThreadKey: "main", activeOutputThreadKey: WRITING_THREAD, onSelect: () => {} }}
+                context={{
+                  currentThreadKey: "main",
+                  activeOutputThreadKey: WRITING_THREAD,
+                  onSelect: () => {},
+                  lineOf: (key) => HOME_LINES[key],
+                }}
                 idleLimit={2}
               />
             </div>

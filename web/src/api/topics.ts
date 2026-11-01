@@ -40,6 +40,11 @@ export const topicApi = {
       method: "POST",
       body: { leader, name, ...(startedFrom ? { startedFrom } : {}), ...(firstMessage ? { firstMessage } : {}) },
     }),
+  /** A line of news per thread for a leader's Home: its quests' (`quests`) and its own threads'. */
+  homeLines: (leader: string, quests: readonly string[]) =>
+    request<{ lines: Record<string, { text: string; at: number; source: string }> }>(
+      `/topics/home-lines?leader=${encodeURIComponent(leader)}&quests=${encodeURIComponent(quests.join(","))}`,
+    ),
   /** A leader's threads, newest activity first. */
   threads: (leader: string) =>
     request<{ threads: ThreadSummary[] }>(`/topics/threads?leader=${encodeURIComponent(leader)}`),

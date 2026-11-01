@@ -196,6 +196,11 @@ interface StoredScribe {
   elsewhereSeen?: number;
   /** Loose-ends messages to the leader today, so a Scribe can't flood it. */
   looseEnds?: { day: string; count: number };
+  /**
+   * The Scribe's line of news per quest or thread for the leader's Home (`q-N` / `topic:<handle>`
+   * to its newest line), newest kept; see `setHomeLines`.
+   */
+  homeLines?: Record<string, { text: string; at: number }>;
 }
 
 /** What of a quest was already reported to Scribes: ticked checks (by text) and feedback count. */
@@ -208,6 +213,9 @@ export interface ScribeInstructions {
   text: string;
   updatedAt: number;
 }
+
+/** The Scribe's Home lines kept per leader: enough for every thread its Home lists. */
+const HOME_LINES_KEPT = 300;
 
 /** New threads younger than this are checked for continuing an earlier conversation. */
 const JOIN_CHECK_WINDOW_MS = 2 * 24 * 60 * 60_000;
@@ -364,6 +372,27 @@ export class TopicStore {
   setElsewhereSeen(leaderId: string, at: number): void {
     this.scribeRecord(leaderId).elsewhereSeen = at;
     this.dirty = true;
+  }
+
+  /**
+   * Saves the Scribe's lines of news for its leader's Home, one per quest or thread, replacing each
+   * one's earlier line. Keeps the newest HOME_LINES_KEPT.
+   */
+  setHomeLines(leaderId: string, lines: ReadonlyArray<{ key: string; text: string }>): void {
+    const scribe = this.scribeRecord(leaderId);
+    const at = this.now();
+    const all = { ...scribe.homeLines };
+    for (const line of lines) all[line.key] = { text: line.text, at };
+    const kept = Object.entries(all)
+      .sort(([, a], [, b]) => b.at - a.at)
+      .slice(0, HOME_LINES_KEPT);
+    scribe.homeLines = Object.fromEntries(kept);
+    this.dirty = true;
+  }
+
+  /** The Scribe's lines of news for the leader's Home, by quest or thread key. */
+  homeLines(leaderId: string): Readonly<Record<string, { text: string; at: number }>> {
+    return this.s().scribes?.[leaderId]?.homeLines ?? {};
   }
 
   /**

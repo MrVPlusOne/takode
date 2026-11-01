@@ -719,6 +719,7 @@ export class TopicService {
           ...(thread.firstMessage ? { firstMessage: thread.firstMessage } : {}),
         })),
         ...(joinChecks.length ? { joinChecks: this.joinCheckContent(leaderId, joinChecks) } : {}),
+        ...homeLineQuests(topics, ownQuests),
         rewritePages,
         ...(sendInstructions && instructions ? { instructions: instructions.text } : {}),
         forced: forcedNames,
@@ -1323,4 +1324,18 @@ export function historyMessageText(message: BrowserIncomingMessage): string {
   }
   if (message.type !== "assistant") return "";
   return (message.message?.content ?? []).map((block) => (block.type === "text" ? block.text : "")).join("\n");
+}
+
+/** The leader's quests with news in a message, for their Home lines (`UpdateContent.homeLines`). */
+function homeLineQuests(
+  topics: ReadonlyArray<{ events: readonly TopicEvent[] }>,
+  ownQuests: ReadonlySet<string>,
+): { homeLines?: string[] } {
+  const quests = new Set<string>();
+  for (const topic of topics) {
+    for (const event of topic.events) {
+      if (event.questId && ownQuests.has(event.questId)) quests.add(event.questId);
+    }
+  }
+  return quests.size ? { homeLines: [...quests] } : {};
 }

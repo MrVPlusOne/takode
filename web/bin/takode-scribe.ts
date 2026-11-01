@@ -31,6 +31,9 @@ For the Scribe:
   takode scribe loose-ends --file <path>|-             Tell your leader about loose ends, one line
                                                        each (a few a day at most; they reach it with
                                                        its next delivery)
+  takode scribe lines --file <path>|-                  Lines of news for your leader's Home, one per
+                                                       line: <q-N|topic:handle> | <one plain line>
+                                                       (each replaces that thread's earlier line)
   takode scribe join <thread> <earlier>                A thread that continues an earlier
                                                        conversation (a thread, topic:<handle>, or a
                                                        quest's thread, q-N): join it on, so the two
@@ -74,6 +77,13 @@ export async function handleScribe(base: string, args: string[]): Promise<void> 
           ? `Told your leader about ${lines.length} loose end${lines.length === 1 ? "" : "s"}.`
           : "Not sent: today's loose-ends messages are used up. Keep the rest for tomorrow if they still matter.",
       );
+      return;
+    }
+    case "lines": {
+      if (typeof flags.file !== "string") err("Usage: takode scribe lines --file <path>|-");
+      const lines = parseHomeLineInput(await readOptionTextFile(flags.file, "--file"));
+      const { saved } = (await apiPost(base, `/scribe/lines${leaderQuery}`, { lines })) as { saved: number };
+      console.log(`Saved ${saved} line${saved === 1 ? "" : "s"} for your leader's Home.`);
       return;
     }
     case "join": {
@@ -288,4 +298,18 @@ export function lineList(text: string): string[] {
     .split("\n")
     .map((line) => line.trim().replace(/^[-*] +/, ""))
     .filter(Boolean);
+}
+
+/** `takode scribe lines` input: `<q-N|topic:handle> | <line>` per line; blank lines and bullets allowed. */
+export function parseHomeLineInput(text: string): Array<{ key: string; text: string }> {
+  const lines: Array<{ key: string; text: string }> = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim().replace(/^[-*]\s+/, "");
+    if (!line) continue;
+    const bar = line.indexOf("|");
+    if (bar < 0) err(`Each line is "<q-N|topic:handle> | <line>": "${line.slice(0, 60)}"`);
+    lines.push({ key: line.slice(0, bar).trim(), text: line.slice(bar + 1).trim() });
+  }
+  if (lines.length === 0) err("No lines given.");
+  return lines;
 }

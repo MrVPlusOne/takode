@@ -148,6 +148,8 @@ export interface RowContext {
   /** A list row's open-in-side click: the thread goes in the side column instead of the main view. */
   onOpenInSide?: (threadKey: string) => void;
   onOpenMenu?: (tab: PrimaryThreadChip) => OpenContextMenu | undefined;
+  /** A line of news under a row (Home's wide rows): what is newest in the thread. */
+  lineOf?: (threadKey: string) => string | undefined;
 }
 
 export interface ThreadGroupBarProps extends RowContext {
@@ -326,17 +328,39 @@ export function ThreadGroupSections({
   threads,
   context,
   idleLimit = 8,
+  only = THREAD_GROUP_ORDER,
+  idleExtra,
+  renderIdle,
 }: {
   threads: readonly PrimaryThreadChip[];
   context: RowContext;
   idleLimit?: number;
+  /** The groups to list, in order (all of them by default). */
+  only?: readonly ThreadGroupId[];
+  /** Beside Idle's heading: a control for how Idle is listed. */
+  idleExtra?: ReactNode;
+  /** Lists Idle's threads another way (by topic) instead of newest first. */
+  renderIdle?: (tabs: readonly PrimaryThreadChip[]) => ReactNode;
 }) {
   const groups = groupThreads(threads);
   const [allIdle, setAllIdle] = useState(false);
   return (
     <>
-      {THREAD_GROUP_ORDER.map((id) => {
+      {only.map((id) => {
         if (groups[id].length === 0) return null;
+        if (id === "idle" && renderIdle) {
+          return (
+            <section
+              key={id}
+              className="border-t border-cc-border/60 first:border-t-0"
+              data-testid="thread-group-section"
+              data-group={id}
+            >
+              <GroupHeading id={id} count={groups[id].length} extra={idleExtra} />
+              {renderIdle(groups.idle)}
+            </section>
+          );
+        }
         const shown = id === "idle" && !allIdle ? groups.idle.slice(0, idleLimit) : groups[id];
         return (
           <section
@@ -345,7 +369,7 @@ export function ThreadGroupSections({
             data-testid="thread-group-section"
             data-group={id}
           >
-            <GroupHeading id={id} count={groups[id].length} />
+            <GroupHeading id={id} count={groups[id].length} extra={id === "idle" ? idleExtra : undefined} />
             {shown.map((tab) => (
               <ThreadTabListRow key={tab.threadKey} tab={tab} context={context} />
             ))}
@@ -412,6 +436,7 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
   const status = context.threadStatuses?.[threadStatusKey(threadKey)];
   const summary = status?.kind === "ready" ? status.summary : undefined;
   const activeAt = lastActivityAt(tab);
+  const line = context.lineOf?.(threadKey);
   // A thread that is not a quest's is named by its title and state; its key means nothing.
   const plainThread = isTopicViewKey(threadKey) && !tab.questId;
   const meta = [
@@ -489,6 +514,11 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
             </span>
             {summary && <span className="text-cc-muted"> — {summary}</span>}
           </span>
+          {line && (
+            <span className="mt-0.5 truncate text-[12.5px] text-cc-fg/75" data-testid="thread-tab-list-row-line">
+              {line}
+            </span>
+          )}
         </span>
       </button>
       {monitor && <NotifyMeIcon pending={Boolean(monitor.pendingResultId)} className="h-4 w-4" />}
@@ -639,12 +669,13 @@ function GroupContent({ id, tabs }: { id: ThreadGroupId; tabs: readonly PrimaryT
   );
 }
 
-function GroupHeading({ id, count }: { id: ThreadGroupId; count: number }) {
+function GroupHeading({ id, count, extra }: { id: ThreadGroupId; count: number; extra?: ReactNode }) {
   const tone = id === "needs-input" ? "text-cc-attention" : id === "new-results" ? "text-cc-info" : "text-cc-muted";
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 bg-cc-card/95 px-4 pb-1 pt-2.5 backdrop-blur">
       <span className={`text-[11px] uppercase tracking-wide ${tone}`}>{GROUP_LABEL[id]}</span>
       <span className="text-[11px] tabular-nums text-cc-muted">{count}</span>
+      {extra && <span className="ml-auto">{extra}</span>}
     </div>
   );
 }

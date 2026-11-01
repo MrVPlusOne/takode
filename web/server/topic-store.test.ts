@@ -1036,6 +1036,22 @@ describe("topic service", () => {
     expect(await service.deliver("leader")).toBe("nothing");
   });
 
+  it("asks the Scribe for a Home line for each of its leader's quests with news, in the same message", async () => {
+    // Home shows a line of news per thread; the Scribe writes them with the update it already gets,
+    // so they cost no extra message.
+    const { service, injected, store, leader } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
+    await service.scribeTurnEnded(scribe);
+    injected.length = 0;
+    leader.messageHistory.push(userMessage("Keep 0.02", "q-1", Date.now()));
+    service.sessionSaved("leader");
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain("Lines for your leader's Home: for each of q-1,");
+    expect(injected[0]!.text).toContain("takode scribe lines --file -");
+  });
+
   it("tells the Scribe what the user told other leaders since its last message, once", async () => {
     // Jiayi handled a follow-up through another leader and the page kept listing it: the Scribe saw
     // only its own leader. Each message now brings the user's messages to the other leaders.
