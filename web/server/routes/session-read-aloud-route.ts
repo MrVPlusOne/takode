@@ -15,6 +15,12 @@ import {
 } from "../read-aloud.js";
 import { ReadAloudRecordStore } from "../read-aloud-records.js";
 import { describeReadAloudLinks } from "../read-aloud-links.js";
+import { mp3Seconds } from "../read-aloud-speech.js";
+import {
+  READ_ALOUD_STREAM_CONTENT_TYPE,
+  encodeReadAloudFrame,
+  type ReadAloudStreamFrame,
+} from "../../shared/read-aloud-stream.js";
 
 const MAX_MESSAGE_CHARS = 60_000;
 const MAX_SETTING_CHARS = 20_000;
@@ -30,7 +36,8 @@ export interface SessionReadAloudRouteDeps {
 }
 
 /**
- * Read aloud: POST /sessions/:id/read-aloud returns MP3 audio of one assistant message.
+ * Read aloud: POST /sessions/:id/read-aloud streams the MP3 audio of one assistant message piece by
+ * piece as it is made (shared/read-aloud-stream.ts), so playback starts with the first piece.
  * The browser sends the text it shows (so merged or thread-prefixed messages read as
  * displayed); the server adds the conversation context and calls OpenAI with the
  * Voice key. For one slide of a deck being played, the browser also sends `slide`, what
@@ -77,7 +84,11 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
       return null;
     });
     const cachedAudio = cached ? await records.readAudio(cached.id).catch(() => null) : null;
-    if (cached && cachedAudio) return audioResponse(cachedAudio, cached.id, true);
+    if (cached && cachedAudio)
+      return streamResponse(async (send) => {
+        send({ type: "piece", mp3: cachedAudio, seconds: mp3Seconds(cachedAudio.length) });
+        send({ type: "done", recordId: cached.id, cached: true });
+      }, c.req.raw.signal);
 
     const conversationContext = slide ? "" : buildReadAloudContext(session.messageHistory, messageId, historyIndex);
     const linkDetails = await describeLinks(text);
@@ -87,36 +98,46 @@ export function registerSessionReadAloudRoute(api: Hono, deps: SessionReadAloudR
     const spokenSource = plain(text);
     // A slide without notes is narrated from its own text, which then needs no second copy.
     const onScreen = slide && slide.shown.trim() && slide.shown.trim() !== text ? plain(slide.shown) : undefined;
-    const result = await run(
-      { messageText: spokenSource, conversationContext, linkDetails, ...(onScreen ? { onScreen } : {}) },
-      config,
-      settings,
-    );
-    // Saved before answering so the browser can attach its own timing to this record.
-    const record = await records
-      .create(
-        {
-          sessionId,
-          messageId,
-          messageText: text,
-          conversationContext,
-          linkDetails,
-          ...(onScreen ? { onScreen } : {}),
-          cacheKey,
-          trace: result.trace,
-          error: result.error,
+    // Pieces go to the browser as soon as each is spoken, so playback starts with the first.
+    return streamResponse(async (send, signal) => {
+      let sentPieces = 0;
+      const result = await run(
+        { messageText: spokenSource, conversationContext, linkDetails, ...(onScreen ? { onScreen } : {}) },
+        { ...config, signal },
+        settings,
+        (segment) => {
+          sentPieces++;
+          send({ type: "piece", ...segment });
         },
-        result.audio,
-      )
-      .catch((error) => {
-        console.warn(`[read-aloud] Could not save the debug record: ${error}`);
-        return null;
-      });
-    if (!result.audio) {
-      console.warn(`[read-aloud] Session ${sessionId.slice(0, 8)} failed: ${result.error}`);
-      return c.json({ error: `Read aloud failed. ${result.error}` }, 502);
-    }
-    return audioResponse(result.audio, record?.id, false);
+      );
+      const record = await records
+        .create(
+          {
+            sessionId,
+            messageId,
+            messageText: text,
+            conversationContext,
+            linkDetails,
+            ...(onScreen ? { onScreen } : {}),
+            cacheKey,
+            trace: result.trace,
+            error: result.error,
+          },
+          result.audio,
+        )
+        .catch((error) => {
+          console.warn(`[read-aloud] Could not save the debug record: ${error}`);
+          return null;
+        });
+      if (!result.audio) {
+        console.warn(`[read-aloud] Session ${sessionId.slice(0, 8)} failed: ${result.error}`);
+        send({ type: "error", message: `Read aloud failed. ${result.error}` });
+        return;
+      }
+      // A pipeline that only returns the whole audio (none today but test doubles) still plays.
+      if (sentPieces === 0) send({ type: "piece", mp3: result.audio, seconds: mp3Seconds(result.audio.length) });
+      send({ type: "done", recordId: record?.id ?? null, cached: false });
+    }, c.req.raw.signal);
   });
 
   /** The browser's side of one playback: waiting, download and start times. */
@@ -200,13 +221,42 @@ function readSlide(value: unknown): { shown: string } | null | "invalid" {
   return { shown };
 }
 
-function audioResponse(audio: Uint8Array<ArrayBuffer>, recordId: string | undefined, cached: boolean): Response {
-  return new Response(audio, {
+/**
+ * A streamed Read aloud response (see shared/read-aloud-stream.ts). `produce` sends frames as it
+ * goes; a failure it throws becomes an error frame. The browser going away, or cancelling the
+ * stream, aborts `signal`, which cancels the OpenAI requests still running.
+ */
+function streamResponse(
+  produce: (send: (frame: ReadAloudStreamFrame) => void, signal: AbortSignal) => Promise<void>,
+  requestSignal: AbortSignal,
+): Response {
+  const cancelled = new AbortController();
+  const signal = AbortSignal.any([requestSignal, cancelled.signal]);
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (frame: ReadAloudStreamFrame) => {
+        if (!signal.aborted) controller.enqueue(encodeReadAloudFrame(frame));
+      };
+      try {
+        await produce(send, signal);
+      } catch (error) {
+        send({
+          type: "error",
+          message: `Read aloud failed. ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+      if (!signal.aborted) controller.close();
+    },
+    cancel() {
+      cancelled.abort();
+    },
+  });
+  return new Response(body, {
     headers: {
-      "Content-Type": "audio/mpeg",
+      "Content-Type": READ_ALOUD_STREAM_CONTENT_TYPE,
       "Cache-Control": "no-store",
-      ...(recordId ? { "X-Read-Aloud-Record": recordId } : {}),
-      "X-Read-Aloud-Cached": cached ? "1" : "0",
+      // Proxies must pass each piece on as it comes instead of holding the whole response.
+      "X-Accel-Buffering": "no",
     },
   });
 }

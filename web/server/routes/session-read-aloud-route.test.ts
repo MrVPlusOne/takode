@@ -13,6 +13,7 @@ vi.mock("../settings-manager.js", () => ({
 }));
 
 import { DEFAULT_READ_ALOUD_SETTINGS } from "../read-aloud.js";
+import { READ_ALOUD_STREAM_CONTENT_TYPE, ReadAloudStreamDecoder } from "../../shared/read-aloud-stream.js";
 import { ReadAloudRecordStore } from "../read-aloud-records.js";
 import { registerSessionReadAloudRoute } from "./session-read-aloud-route.js";
 
@@ -20,28 +21,55 @@ const history: BrowserIncomingMessage[] = [
   { type: "user_message", id: "u1", content: "Please fix the timer", timestamp: 1 } as BrowserIncomingMessage,
 ];
 
-/** A fake pipeline: "audio" is the voice name, so tests can tell reads apart. */
+/**
+ * A fake pipeline: "audio" is the voice name, so tests can tell reads apart. Like the real one it
+ * hands the audio on as a piece (here one, a second long) before it returns.
+ */
 function fakeRun(fail = false) {
   return vi.fn(
     async (
       input: { messageText: string },
       _config: unknown,
       settings: ReadAloudSettings = DEFAULT_READ_ALOUD_SETTINGS,
-    ): Promise<ReadAloudRun> => ({
-      trace: {
-        settings,
-        rewriteUserPrompt: settings.rewriteSystemPrompt === null ? null : `<MESSAGE>\n${input.messageText}\n</MESSAGE>`,
-        rewriteOutput: settings.rewriteSystemPrompt === null ? null : "Spoken version.",
-        rewriteCached: false,
-        spokenText: "Spoken version.",
-        speechParts: 1,
-        rewriteMs: 5,
-        speechMs: 7,
-      },
-      audio: fail ? null : new TextEncoder().encode(settings.voice),
-      error: fail ? "OpenAI /audio/speech failed with 500: boom" : null,
-    }),
+      onSegment?: (segment: { mp3: Uint8Array<ArrayBuffer>; seconds: number }) => void,
+    ): Promise<ReadAloudRun> => {
+      if (!fail) onSegment?.({ mp3: new TextEncoder().encode(settings.voice), seconds: 1 });
+      return {
+        trace: {
+          settings,
+          rewriteUserPrompt:
+            settings.rewriteSystemPrompt === null ? null : `<MESSAGE>\n${input.messageText}\n</MESSAGE>`,
+          rewriteOutput: settings.rewriteSystemPrompt === null ? null : "Spoken version.",
+          rewriteCached: false,
+          spokenText: "Spoken version.",
+          speechParts: 1,
+          rewriteMs: 5,
+          speechMs: 7,
+        },
+        audio: fail ? null : new TextEncoder().encode(settings.voice),
+        error: fail ? "OpenAI /audio/speech failed with 500: boom" : null,
+      };
+    },
   );
+}
+
+/** Every frame of a streamed read; pieces with their audio as text. */
+async function frames(res: Response) {
+  expect(res.headers.get("Content-Type")).toBe(READ_ALOUD_STREAM_CONTENT_TYPE);
+  const decoder = new ReadAloudStreamDecoder();
+  const out = decoder.push(new Uint8Array(await res.arrayBuffer()));
+  expect(decoder.pending).toBe(false);
+  return out.map((frame) =>
+    frame.type === "piece"
+      ? { type: "piece", seconds: frame.seconds, audio: new TextDecoder().decode(frame.mp3) }
+      : frame,
+  );
+}
+
+/** The record a streamed read was saved as. */
+async function recordIdOf(res: Response): Promise<string | null> {
+  const done = (await frames(res)).find((frame) => frame.type === "done") as { recordId: string | null } | undefined;
+  return done?.recordId ?? null;
 }
 
 let root: string;
@@ -88,13 +116,17 @@ describe("POST /sessions/:id/read-aloud", () => {
     expect(input.messageText).not.toContain("tk-flow");
   });
 
-  it("returns MP3 audio of the message with the conversation as context, and records it", async () => {
+  it("streams the message's audio with the conversation as context, and records it", async () => {
     const { post, run, records } = makeApp();
     const res = await post("/sessions/12/read-aloud", { messageId: "a1", text: " Fixed it. ", historyIndex: 1 });
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toBe("audio/mpeg");
-    expect(new TextDecoder().decode(await res.arrayBuffer())).toBe("marin");
+    const received = await frames(res);
+    const [summaryId] = (await records.listRecent()).map((record) => record.id);
+    expect(received).toEqual([
+      { type: "piece", seconds: 1, audio: "marin" },
+      { type: "done", recordId: summaryId, cached: false },
+    ]);
     const [input, config] = run.mock.calls[0] as unknown as [
       { messageText: string; conversationContext: string },
       { apiKey: string; baseUrl: string },
@@ -132,10 +164,50 @@ describe("POST /sessions/:id/read-aloud", () => {
       text: "Here is why it matters.",
       slide: { shown: "## Another slide" },
     });
-    expect(again.headers.get("X-Read-Aloud-Cached")).toBe("0");
+    expect((await frames(again)).at(-1)).toMatchObject({ type: "done", cached: false });
     expect((await post("/sessions/s1/read-aloud", { messageId: "deck", text: "Hi", slide: { shown: 3 } })).status).toBe(
       400,
     );
+  });
+
+  it("sends each piece as soon as it is ready, before the read is done", async () => {
+    // Playback starts with the first piece, so it must not wait for the rest.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const run = vi.fn(async (_input: unknown, _config: unknown, settings: ReadAloudSettings, onSegment?: any) => {
+      onSegment({ mp3: new TextEncoder().encode("first"), seconds: 2 });
+      await held;
+      onSegment({ mp3: new TextEncoder().encode("second"), seconds: 3 });
+      return {
+        ...(await fakeRun()({ messageText: "x" }, null, settings)),
+        audio: new TextEncoder().encode("firstsecond"),
+      };
+    });
+    const { post } = makeApp(run as never);
+    const res = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Two pieces." });
+    const reader = res.body!.getReader();
+    const decoder = new ReadAloudStreamDecoder();
+    const firstFrames = decoder.push((await reader.read()).value!);
+    expect(firstFrames).toEqual([{ type: "piece", seconds: 2, mp3: new TextEncoder().encode("first") }]);
+    release();
+    const rest: ReturnType<ReadAloudStreamDecoder["push"]> = [];
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read())
+      rest.push(...decoder.push(chunk.value));
+    expect(rest.map((frame) => frame.type)).toEqual(["piece", "done"]);
+  });
+
+  it("stops the OpenAI requests when the browser cancels the stream", async () => {
+    let seen: AbortSignal | undefined;
+    const run = vi.fn(async (_input: unknown, config: { signal: AbortSignal }) => {
+      seen = config.signal;
+      await new Promise((resolve) => config.signal.addEventListener("abort", resolve));
+      return { ...(await fakeRun(true)({ messageText: "x" }, null)), error: "Read aloud was cancelled" };
+    });
+    const { post } = makeApp(run as never);
+    const res = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Stop me." });
+    await vi.waitFor(() => expect(seen).toBeDefined());
+    await res.body!.cancel();
+    expect(seen!.aborted).toBe(true);
   });
 
   it("explains where to add a key when none is set", async () => {
@@ -153,11 +225,13 @@ describe("POST /sessions/:id/read-aloud", () => {
     expect((await post("/sessions/s1/read-aloud", { messageId: "a1", text: "   " })).status).toBe(400);
   });
 
-  it("reports provider failures as a readable error and records them", async () => {
+  it("reports provider failures in the stream as a readable error and records them", async () => {
     const { post, records } = makeApp(fakeRun(true));
     const res = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Hi" });
-    expect(res.status).toBe(502);
-    expect((await res.json()).error).toBe("Read aloud failed. OpenAI /audio/speech failed with 500: boom");
+    // The response has started by then, so the failure comes as the stream's last frame.
+    expect(await frames(res)).toEqual([
+      { type: "error", message: "Read aloud failed. OpenAI /audio/speech failed with 500: boom" },
+    ]);
     const [summary] = await waitForRecords(records, 1);
     expect(summary.error).toContain("boom");
   });
@@ -167,13 +241,15 @@ describe("playing a message again", () => {
   it("sends the recorded audio for the same message, text and voice instead of making it again", async () => {
     const { post, run } = makeApp();
     const first = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it.", voice: "cedar" });
-    const recordId = first.headers.get("X-Read-Aloud-Record");
-    expect(first.headers.get("X-Read-Aloud-Cached")).toBe("0");
+    const recordId = await recordIdOf(first);
+    expect(recordId).toEqual(expect.any(String));
 
     const again = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it.", voice: "cedar" });
-    expect(again.headers.get("X-Read-Aloud-Cached")).toBe("1");
-    expect(again.headers.get("X-Read-Aloud-Record")).toBe(recordId);
-    expect(new TextDecoder().decode(await again.arrayBuffer())).toBe("cedar");
+    // The saved whole-message audio comes as one piece; its length follows from its size.
+    expect(await frames(again)).toEqual([
+      { type: "piece", seconds: expect.any(Number), audio: "cedar" },
+      { type: "done", recordId, cached: true },
+    ]);
     expect(run).toHaveBeenCalledTimes(1);
 
     // Another voice is new audio.
@@ -183,21 +259,22 @@ describe("playing a message again", () => {
 
   it("finds earlier audio after a restart, and never reuses a failed read", async () => {
     const failing = makeApp(fakeRun(true));
-    await failing.post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." });
+    // Each read is saved by the time its stream ends.
+    await frames(await failing.post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." }));
     const ok = makeApp();
-    await ok.post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." });
+    await frames(await ok.post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." }));
     expect(ok.run).toHaveBeenCalledTimes(1);
     // A new store over the same folder stands in for a restarted server.
     const restarted = makeApp();
     const res = await restarted.post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." });
-    expect(res.headers.get("X-Read-Aloud-Cached")).toBe("1");
+    expect((await frames(res)).at(-1)).toMatchObject({ type: "done", cached: true });
     expect(restarted.run).not.toHaveBeenCalled();
   });
 
   it("keeps the browser's timing on the record", async () => {
     const { api, post } = makeApp();
     const res = await post("/sessions/s1/read-aloud", { messageId: "a1", text: "Fixed it." });
-    const id = res.headers.get("X-Read-Aloud-Record")!;
+    const id = (await recordIdOf(res))!;
     const timing = { waitMs: 7012.4, downloadMs: 840, startMs: 120, cached: false };
     expect((await post(`/read-aloud/records/${id}/client-timing`, timing)).status).toBe(200);
     expect((await post(`/read-aloud/records/${id}/client-timing`, { waitMs: -1 })).status).toBe(400);

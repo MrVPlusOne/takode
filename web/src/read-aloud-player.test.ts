@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { READ_ALOUD_STREAM_CONTENT_TYPE, encodeReadAloudFrame } from "../shared/read-aloud-stream.js";
 
 const input = { sessionId: "s1", messageId: "m1", text: "Hello there.", historyIndex: 4 };
 
@@ -11,11 +12,44 @@ function deferredFetch() {
     (_url: string, _init: RequestInit) => new Promise<Response>((resolve) => responders.push(resolve)),
   );
   vi.stubGlobal("fetch", fetchMock);
-  const respond = (res: Response) => act(async () => responders.shift()!(res));
+  // The body is read after the response resolves, so let it arrive before the test looks.
+  const respond = (res: Response) =>
+    act(async () => {
+      responders.shift()!(res);
+      for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   return { fetchMock, respond };
 }
 
-const mp3 = () => new Response(new Blob(["mp3"]), { headers: { "Content-Type": "audio/mpeg" } });
+/** A streamed read (shared/read-aloud-stream.ts): pieces of the given lengths, then done. */
+const mp3 = (...seconds: number[]) => {
+  const pieces = (seconds.length ? seconds : [60]).map((length) =>
+    encodeReadAloudFrame({ type: "piece", seconds: length, mp3: new TextEncoder().encode(`mp3-${length}`) }),
+  );
+  // No record id, so no timing report joins the requests these tests count.
+  const done = encodeReadAloudFrame({ type: "done", recordId: null, cached: false });
+  const frames = [...pieces, done];
+  const body = new Uint8Array(frames.reduce((total, frame) => total + frame.length, 0));
+  frames.reduce((offset, frame) => (body.set(frame, offset), offset + frame.length), 0);
+  return new Response(body, { headers: { "Content-Type": READ_ALOUD_STREAM_CONTENT_TYPE } });
+};
+
+/** A read whose frames the test sends one by one. */
+function controlledRead() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) });
+  const send = (frame: Parameters<typeof encodeReadAloudFrame>[0]) =>
+    act(async () => {
+      controller.enqueue(encodeReadAloudFrame(frame));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  return {
+    response: new Response(body, { headers: { "Content-Type": READ_ALOUD_STREAM_CONTENT_TYPE } }),
+    piece: (seconds: number) => send({ type: "piece", seconds, mp3: new TextEncoder().encode(`mp3-${seconds}`) }),
+    done: () => send({ type: "done", recordId: "rec-1", cached: false }),
+    fail: (message: string) => send({ type: "error", message }),
+  };
+}
 
 let srcAtPlay: string[];
 let player: typeof import("./read-aloud-player.js");
@@ -122,9 +156,8 @@ describe("read-aloud player", () => {
   it("seeks, skips 5 seconds within the audio, and applies the speed", async () => {
     const { respond } = deferredFetch();
     act(() => player.startReadAloud(input));
-    await respond(mp3());
+    await respond(mp3(60));
     const audio = lastAudio();
-    Object.defineProperty(audio, "duration", { configurable: true, value: 60 });
 
     act(() => player.seekReadAloud(30));
     expect(audio.currentTime).toBe(30);
@@ -138,6 +171,98 @@ describe("read-aloud player", () => {
 
     act(() => player.setReadAloudPlaybackRate(1.5));
     expect(audio.playbackRate).toBe(1.5);
+  });
+
+  it("starts playing the first piece while the rest is still being made, then plays the pieces back to back", async () => {
+    // The point of streaming: audio starts with the first piece instead of after the whole message.
+    const { respond } = deferredFetch();
+    const read = controlledRead();
+    const state = renderHook(() => player.useReadAloudState("m1"));
+    const playback = renderHook(() => player.useReadAloudPlayback());
+    act(() => player.startReadAloud(input));
+    await respond(read.response);
+    expect(state.result.current?.status).toBe("preparing");
+
+    await read.piece(2);
+    expect(state.result.current?.status).toBe("ready");
+    expect(srcAtPlay.at(-1)).toBe("blob:reply-audio-1");
+    // The seek bar covers what has arrived so far.
+    expect(playback.result.current.duration).toBe(2);
+
+    await read.piece(3);
+    expect(playback.result.current.duration).toBe(5);
+    const audio = lastAudio();
+    act(() => {
+      audio.dispatchEvent(new Event("ended"));
+    });
+    await vi.waitFor(() => expect(srcAtPlay.at(-1)).toBe("blob:reply-audio-2"));
+    audio.currentTime = 1;
+    act(() => {
+      audio.dispatchEvent(new Event("timeupdate"));
+    });
+    // Two seconds of the first piece plus one of the second.
+    expect(playback.result.current.currentTime).toBe(3);
+    // When the read is complete, the browser's timing goes to its debug record.
+    const fetchMock = vi.mocked(fetch);
+    await read.done();
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === "/api/read-aloud/records/rec-1/client-timing")).toBe(true),
+    );
+  });
+
+  it("waits at the end of a piece for the next one, and goes on by itself when it arrives", async () => {
+    const { respond } = deferredFetch();
+    const read = controlledRead();
+    const playback = renderHook(() => player.useReadAloudPlayback());
+    act(() => player.startReadAloud(input));
+    await respond(read.response);
+    await read.piece(2);
+    act(() => {
+      lastAudio().dispatchEvent(new Event("ended"));
+    });
+    // Still counts as playing, not paused, while the next piece is on its way.
+    expect(playback.result.current.paused).toBe(false);
+    await read.piece(4);
+    await vi.waitFor(() => expect(srcAtPlay.at(-1)).toBe("blob:reply-audio-2"));
+    await read.done();
+  });
+
+  it("seeks across pieces, within the audio received so far", async () => {
+    const { respond } = deferredFetch();
+    act(() => player.startReadAloud(input));
+    await respond(mp3(10, 20, 30));
+    const audio = lastAudio();
+
+    act(() => player.seekReadAloud(15));
+    expect(audio.src).toBe("blob:reply-audio-2");
+    await act(async () => {
+      audio.dispatchEvent(new Event("loadedmetadata"));
+    });
+    expect(audio.currentTime).toBe(5);
+    act(() => player.seekReadAloud(500));
+    await act(async () => {
+      audio.dispatchEvent(new Event("loadedmetadata"));
+    });
+    expect(audio.src).toBe("blob:reply-audio-3");
+    expect(audio.currentTime).toBe(30);
+  });
+
+  it("plays what arrived when a read fails midway, then shows the error", async () => {
+    const { respond } = deferredFetch();
+    const read = controlledRead();
+    const { result } = renderHook(() => player.useReadAloudState("m1"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    act(() => player.startReadAloud(input));
+    await respond(read.response);
+    await read.piece(2);
+    await read.fail("Read aloud failed. quota");
+    expect(result.current?.status).toBe("ready");
+    act(() => {
+      lastAudio().dispatchEvent(new Event("ended"));
+    });
+    await vi.waitFor(() =>
+      expect(result.current).toMatchObject({ status: "error", error: "Read aloud failed. quota" }),
+    );
   });
 
   it("remembers voice and speed for the next visit", async () => {
@@ -154,14 +279,13 @@ describe("read-aloud player", () => {
   it("changing the voice reads the same message again from the same point", async () => {
     const { fetchMock, respond } = deferredFetch();
     act(() => player.startReadAloud(input));
-    await respond(mp3());
+    await respond(mp3(40));
     const audio = lastAudio();
-    Object.defineProperty(audio, "duration", { configurable: true, value: 40 });
     audio.currentTime = 10;
 
     act(() => player.setReadAloudVoice("cedar"));
     expect(JSON.parse(String(fetchMock.mock.calls[1][1].body)).voice).toBe("cedar");
-    await respond(mp3());
+    await respond(mp3(40));
     audio.currentTime = 0;
     // The new audio resumes a quarter of the way in, once its length is known.
     await act(async () => {
@@ -174,9 +298,8 @@ describe("read-aloud player", () => {
   it("changing the voice after the end reads the message again from the start", async () => {
     const { respond } = deferredFetch();
     act(() => player.startReadAloud(input));
-    await respond(mp3());
+    await respond(mp3(40));
     const audio = lastAudio();
-    Object.defineProperty(audio, "duration", { configurable: true, value: 40 });
     Object.defineProperty(audio, "ended", { configurable: true, value: true });
     audio.currentTime = 40;
 

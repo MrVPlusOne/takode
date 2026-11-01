@@ -335,10 +335,16 @@ function ReadAloudTimings({ record }: { record: ReadAloudRecord }) {
         {requests}
         {encoding}) · {formatBytes(record.audioBytes)}
       </div>
+      {trace.firstPieceMs !== undefined && (
+        <div>
+          First audio ready after <span className="text-cc-fg">{formatMs(trace.firstPieceMs)}</span>; the rest followed
+          while it played
+        </div>
+      )}
       {(record.clientTimings ?? []).map((timing) => (
         <div key={timing.at}>
           Played {new Date(timing.at).toLocaleTimeString()}
-          {timing.cached ? " (saved audio)" : ""}: waited {formatMs(timing.waitMs)}, downloaded in{" "}
+          {timing.cached ? " (saved audio)" : ""}: first audio after {formatMs(timing.waitMs)}, the rest in{" "}
           {formatMs(timing.downloadMs)}, started playing after {formatMs(timing.startMs)}
         </div>
       ))}

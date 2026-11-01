@@ -24,10 +24,18 @@ const MP3_ENCODE_BLOCK_SAMPLES = 1152 * 50;
 
 export type FetchSpeechPcm = (text: string, signal: AbortSignal) => Promise<Uint8Array>;
 
+/** One piece's audio, ready to play on its own: a complete MP3 and how long it lasts. */
+export interface SpeechSegment {
+  mp3: Uint8Array<ArrayBuffer>;
+  seconds: number;
+}
+
 /**
  * Speech for one message, built piece by piece: each piece is requested as soon as it
- * is added (with hedged duplicates) and encoded into one MP3 in text order as soon as
- * it and every earlier piece have arrived.
+ * is added (with hedged duplicates) and encoded as soon as it and every earlier piece
+ * have arrived. Each piece is its own complete MP3 (its own encoder, so a piece never
+ * depends on bytes of the one before), handed to `onSegment` in text order so playback
+ * can start with the first; the whole message's MP3 is the pieces one after another.
  */
 export class SpeechJob {
   /** Speech requests sent, including duplicates. */
@@ -36,17 +44,18 @@ export class SpeechJob {
   encodeMs = 0;
   pieces = 0;
   private readonly controller = new AbortController();
-  private readonly encoder = new Mp3Encoder(1, SPEECH_SAMPLE_RATE, MP3_KBPS);
-  private readonly frames: Uint8Array[] = [];
+  private readonly segments: Uint8Array[] = [];
   private encoded: Promise<void> = Promise.resolve();
 
   private readonly initialRequests: number;
+  private readonly onSegment?: (segment: SpeechSegment) => void;
 
   constructor(
     private readonly fetchPcm: FetchSpeechPcm,
-    options: { signal?: AbortSignal; initialRequests?: number } = {},
+    options: { signal?: AbortSignal; initialRequests?: number; onSegment?: (segment: SpeechSegment) => void } = {},
   ) {
     this.initialRequests = options.initialRequests ?? 2;
+    this.onSegment = options.onSegment;
     options.signal?.addEventListener("abort", () => this.controller.abort(options.signal?.reason), { once: true });
   }
 
@@ -59,7 +68,7 @@ export class SpeechJob {
     this.encoded = this.encoded.then(async () => this.encode(await pcm));
   }
 
-  /** The finished MP3, once every piece has arrived and been encoded. */
+  /** The whole message's MP3, once every piece has arrived and been encoded. */
   async finish(): Promise<Uint8Array<ArrayBuffer>> {
     try {
       await this.encoded;
@@ -67,8 +76,7 @@ export class SpeechJob {
       this.cancel();
       throw error;
     }
-    this.frames.push(this.encoder.flush());
-    return concatBytes(this.frames);
+    return concatBytes(this.segments);
   }
 
   /** Stop every request still running, for example when the rewrite failed. */
@@ -114,15 +122,21 @@ export class SpeechJob {
     });
   }
 
-  /** Encode 24 kHz 16-bit mono PCM, yielding between blocks so other requests keep flowing. */
+  /** Encode one piece's 24 kHz 16-bit mono PCM, yielding between blocks so other requests keep flowing. */
   private async encode(pcm: Uint8Array): Promise<void> {
+    const encoder = new Mp3Encoder(1, SPEECH_SAMPLE_RATE, MP3_KBPS);
+    const frames: Uint8Array[] = [];
     const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
     for (let start = 0; start < samples.length; start += MP3_ENCODE_BLOCK_SAMPLES) {
       const startedAt = performance.now();
-      this.frames.push(this.encoder.encodeBuffer(samples.subarray(start, start + MP3_ENCODE_BLOCK_SAMPLES)));
+      frames.push(encoder.encodeBuffer(samples.subarray(start, start + MP3_ENCODE_BLOCK_SAMPLES)));
       this.encodeMs += performance.now() - startedAt;
       await new Promise((resolve) => setImmediate(resolve));
     }
+    frames.push(encoder.flush());
+    const mp3 = concatBytes(frames);
+    this.segments.push(mp3);
+    this.onSegment?.({ mp3, seconds: samples.length / SPEECH_SAMPLE_RATE });
   }
 }
 
@@ -134,4 +148,9 @@ export function concatBytes(parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
     offset += part.length;
   }
   return out;
+}
+
+/** How long an MP3 made here lasts, from its size (constant bitrate), for audio saved before pieces were timed. */
+export function mp3Seconds(bytes: number): number {
+  return (bytes * 8) / (MP3_KBPS * 1000);
 }

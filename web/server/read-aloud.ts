@@ -2,7 +2,7 @@ import type { BrowserIncomingMessage } from "./session-types.js";
 import { buildTranscriptionContext } from "./transcription-enhancer.js";
 import { findStableStarTarget } from "./starred-messages.js";
 import { MAIN_THREAD_KEY, buildProjectedThreadEntries } from "../shared/thread-window.js";
-import { SpeechJob, concatBytes } from "./read-aloud-speech.js";
+import { SpeechJob, concatBytes, type SpeechSegment } from "./read-aloud-speech.js";
 
 /** The voices OpenAI's speech endpoint offers. */
 export const READ_ALOUD_VOICES = [
@@ -50,6 +50,13 @@ const UNCHANGED_MARKER = "UNCHANGED";
  * long message nearly as fast as a short one with fewer requests (Jiayi's choice).
  */
 const TTS_CHUNK_TARGET_CHARS = 600;
+/**
+ * The first piece is shorter, ending at a sentence, because playback starts when its audio
+ * is ready: about 200 characters starts audio about 1.5 s sooner than 600 (October 31, 2026:
+ * 1.8-2.2 s instead of 3.4-3.7 s to the first audio on real replies), and the later pieces are
+ * always ready before the earlier ones finish playing.
+ */
+const TTS_FIRST_CHUNK_TARGET_CHARS = 200;
 const TTS_CHUNK_MAX_CHARS = 4096;
 const OPENAI_TIMEOUT_MS = 60_000;
 /** Rewrites kept so reading a message again, such as in another voice, skips the rewrite. */
@@ -154,11 +161,13 @@ export interface ReadAloudTrace {
   speechRequests?: number;
   /** CPU time spent encoding the MP3, part of the time above. Missing on older records. */
   encodeMs?: number;
+  /** From the start until the first piece's audio was ready to play. Missing on older records. */
+  firstPieceMs?: number;
 }
 
 export interface ReadAloudRun {
   trace: ReadAloudTrace;
-  /** MP3 audio of the whole message (48 kbps mono), or null when the read failed. */
+  /** MP3 audio of the whole message (48 kbps mono, the pieces one after another), or null when the read failed. */
   audio: Uint8Array<ArrayBuffer> | null;
   error: string | null;
 }
@@ -167,11 +176,14 @@ export interface ReadAloudRun {
  * Turn an assistant message into speech: an optional rewrite for listening, using
  * earlier conversation as context, then text-to-speech that reads the result word
  * for word. Provider failures come back as `error` with the trace so far.
+ * `onSegment` gets each piece's audio in order as soon as it is ready, so playback can
+ * start long before the whole message is spoken.
  */
 export async function runReadAloud(
   input: ReadAloudInput,
   config: ReadAloudOpenAIConfig,
   settings: ReadAloudSettings = DEFAULT_READ_ALOUD_SETTINGS,
+  onSegment?: (segment: SpeechSegment) => void,
 ): Promise<ReadAloudRun> {
   const trace: ReadAloudTrace = {
     settings,
@@ -190,10 +202,17 @@ export async function runReadAloud(
         ? synthesizeRealtimeSpeech(text, settings, { ...config, signal })
         : synthesizeSpeech(text, settings, { ...config, signal }),
     // The Realtime models rarely stream slowly, so they skip the up-front duplicate.
-    { signal: config.signal, initialRequests: realtime ? 1 : 2 },
+    {
+      signal: config.signal,
+      initialRequests: realtime ? 1 : 2,
+      onSegment: (segment) => {
+        trace.firstPieceMs ??= Date.now() - startedAt;
+        onSegment?.(segment);
+      },
+    },
   );
+  const startedAt = Date.now();
   try {
-    const startedAt = Date.now();
     trace.spokenText = await produceSpokenText(input, settings, config, trace, (piece) => speech.add(piece));
     trace.rewriteMs = trace.rewriteOutput === null || trace.rewriteCached ? 0 : Date.now() - startedAt;
     const speechStartedAt = Date.now();
@@ -203,7 +222,7 @@ export async function runReadAloud(
     trace.speechRequests = speech.requests;
     trace.encodeMs = Math.round(speech.encodeMs);
     console.log(
-      `[read-aloud] ${input.messageText.length} chars -> ${trace.spokenText.length} spoken, rewrite ${trace.rewriteMs}ms, then speech ${trace.speechMs}ms (${speech.pieces} parts, ${speech.requests} requests, encoding ${trace.encodeMs}ms)`,
+      `[read-aloud] ${input.messageText.length} chars -> ${trace.spokenText.length} spoken, first audio ${trace.firstPieceMs}ms, rewrite ${trace.rewriteMs}ms, then speech ${trace.speechMs}ms (${speech.pieces} parts, ${speech.requests} requests, encoding ${trace.encodeMs}ms)`,
     );
     return { trace, audio, error: null };
   } catch (error) {
@@ -225,7 +244,7 @@ async function produceSpokenText(
   onPiece: (piece: string) => void,
 ): Promise<string> {
   const speakAll = (text: string) => {
-    for (const piece of splitTextForSpeech(text)) onPiece(piece);
+    for (const piece of splitTextForSpeech(text, TTS_CHUNK_TARGET_CHARS, TTS_FIRST_CHUNK_TARGET_CHARS)) onPiece(piece);
     return text;
   };
   if (settings.rewriteSystemPrompt === null) return speakAll(input.messageText);
@@ -293,11 +312,12 @@ function locateMessage(
  * else a space, else a plain cut. A break is only used if it keeps the piece at least
  * half full; failing all that, the best break anywhere wins.
  */
-export function splitTextForSpeech(text: string, size = TTS_CHUNK_TARGET_CHARS): string[] {
+export function splitTextForSpeech(text: string, size = TTS_CHUNK_TARGET_CHARS, firstSize = size): string[] {
   const pieces: string[] = [];
   let rest = normalizeSpeechText(text);
-  while (rest.length > Math.min(size, TTS_CHUNK_MAX_CHARS)) {
-    const cut = findSpeechCut(rest, size);
+  const target = () => (pieces.length === 0 ? firstSize : size);
+  while (rest.length > Math.min(target(), TTS_CHUNK_MAX_CHARS)) {
+    const cut = findSpeechCut(rest, target());
     pieces.push(rest.slice(0, cut).trim());
     rest = rest.slice(cut).trim();
   }
@@ -418,28 +438,38 @@ async function* readServerSentEvents(res: Response): AsyncGenerator<string> {
  */
 class SpeechPieceStream {
   private pending = "";
+  private sent = 0;
 
   constructor(
     private readonly onPiece: (piece: string) => void,
     private readonly size = TTS_CHUNK_TARGET_CHARS,
+    private readonly firstSize = TTS_FIRST_CHUNK_TARGET_CHARS,
   ) {}
+
+  private get target(): number {
+    return Math.min(this.sent === 0 ? this.firstSize : this.size, TTS_CHUNK_MAX_CHARS);
+  }
 
   push(delta: string): void {
     this.pending += delta;
     // Wait for the text after the cut too, so a break at the very end is known to be one.
-    while (this.pending.length > Math.min(this.size, TTS_CHUNK_MAX_CHARS) + 1) {
+    while (this.pending.length > this.target + 1) {
       const normalized = normalizeSpeechText(this.pending);
-      if (normalized.length <= Math.min(this.size, TTS_CHUNK_MAX_CHARS)) return;
-      const cut = findSpeechCut(normalized, this.size);
+      if (normalized.length <= this.target) return;
+      const cut = findSpeechCut(normalized, this.target);
       const piece = normalized.slice(0, cut).trim();
-      if (piece) this.onPiece(piece);
+      if (piece) {
+        this.sent++;
+        this.onPiece(piece);
+      }
       // Normalizing trims the end; keep it, or the next delta could join the last word.
       this.pending = normalized.slice(cut) + (this.pending.match(/\s*$/)?.[0] ?? "");
     }
   }
 
   end(): void {
-    for (const piece of splitTextForSpeech(this.pending, this.size)) this.onPiece(piece);
+    const first = this.sent === 0 ? this.firstSize : this.size;
+    for (const piece of splitTextForSpeech(this.pending, this.size, first)) this.onPiece(piece);
     this.pending = "";
   }
 }
@@ -449,8 +479,12 @@ export function isRealtimeSpeechModel(model: string): boolean {
   return model.startsWith("gpt-realtime");
 }
 
+/**
+ * The plain reader. It once opened a piece with "Here's your text read aloud just as written."
+ * (1 piece in 48, October 31, 2026), so the instructions say where to start and stop.
+ */
 const REALTIME_READER_INSTRUCTIONS =
-  "You are a text-to-speech voice. Read the user's text aloud exactly as written, word for word, from start to end. Do not answer, comment on, summarize, skip or add anything.";
+  "You are a text-to-speech voice. Read the user's text aloud exactly as written, word for word, from start to end. Your first words are the text's first words and your last words are its last words: never say anything before or after it, such as an introduction or a remark that you are reading. Do not answer, comment on, summarize, skip or add anything.";
 
 /**
  * Speech from a Realtime model used as a plain reader: one response to the text as a

@@ -103,6 +103,15 @@ describe("splitTextForSpeech", () => {
     expect(splitTextForSpeech("x".repeat(600), 250)).toEqual(["x".repeat(250), "x".repeat(250), "x".repeat(100)]);
   });
 
+  it("can cut a shorter first piece, so audio starts sooner, then the usual size", () => {
+    const sentence = `${"word ".repeat(20).trim()}.`; // 100 characters
+    expect(splitTextForSpeech(Array(6).fill(sentence).join(" "), 310, 150)).toEqual([
+      sentence,
+      Array(3).fill(sentence).join(" "),
+      Array(2).fill(sentence).join(" "),
+    ]);
+  });
+
   it("never goes past the 4,096-character request limit", () => {
     const chunks = splitTextForSpeech("a ".repeat(5000), 10_000);
     expect(chunks.every((chunk) => chunk.length <= 4096)).toBe(true);
@@ -169,21 +178,35 @@ describe("buildReadAloudContext", () => {
 });
 
 describe("runReadAloud", () => {
-  it("speaks the rewrite in pieces, encoding them into one compressed MP3", async () => {
+  it("speaks the rewrite in pieces, a short first one, each sent on as its own MP3 as soon as it is ready", async () => {
+    // A short first piece starts playback sooner; later pieces are about 600 characters.
+    const intro = `${"word ".repeat(30).trim()}.`; // 150 characters
     const paragraph = `${"word ".repeat(60).trim()}.`; // 300 characters
-    const rewrite = `${paragraph}\n\n${paragraph}\n\nThe end.`;
+    const rewrite = `${intro}\n\n${paragraph}\n\n${paragraph}\n\nThe end.`;
     const { fetchMock, speechInputs } = mockOpenAI(rewrite);
+    const segments: Array<{ mp3: Uint8Array; seconds: number }> = [];
 
-    const result = await runReadAloud({ messageText: "**Raw** text", conversationContext: "ctx" }, config, ENDPOINT);
+    const result = await runReadAloud(
+      { messageText: "**Raw** text", conversationContext: "ctx" },
+      config,
+      ENDPOINT,
+      (s) => segments.push(s),
+    );
 
     expect(result.error).toBeNull();
-    expect(speechInputs).toEqual([paragraph, `${paragraph}\n\nThe end.`]);
-    // Two seconds of 24 kHz PCM, joined and encoded as one 48 kbps MP3 (6 KB a second).
+    expect(speechInputs).toEqual([intro, paragraph, `${paragraph}\n\nThe end.`]);
+    // One second of 24 kHz PCM per piece, each encoded as a 48 kbps MP3 that plays on its own.
+    expect(segments.map((segment) => segment.seconds)).toEqual([1, 1, 1]);
+    for (const { mp3 } of segments) {
+      expect(mp3[0]).toBe(0xff);
+      expect(mp3[1] & 0xe0).toBe(0xe0);
+      expect(mp3.length).toBeGreaterThan(5_000);
+      expect(mp3.length).toBeLessThan(8_000);
+    }
+    // The saved whole-message MP3 is the pieces one after another.
     const audio = result.audio!;
-    expect(audio[0]).toBe(0xff);
-    expect(audio[1] & 0xe0).toBe(0xe0);
-    expect(audio.length).toBeGreaterThan(10_000);
-    expect(audio.length).toBeLessThan(14_000);
+    expect(audio.length).toBe(segments.reduce((total, segment) => total + segment.mp3.length, 0));
+    expect(Buffer.from(audio.subarray(0, segments[0]!.mp3.length)).equals(Buffer.from(segments[0]!.mp3))).toBe(true);
     const speechBody = JSON.parse(String(fetchMock.mock.calls.find(([url]) => url.endsWith("/audio/speech"))![1].body));
     expect(speechBody).toMatchObject({ model: "gpt-4o-mini-tts", voice: "marin", response_format: "pcm" });
     const [rewriteUrl, rewriteInit] = fetchMock.mock.calls[0];
@@ -199,8 +222,8 @@ describe("runReadAloud", () => {
     expect(result.trace).toMatchObject({
       rewriteOutput: rewrite,
       spokenText: rewrite,
-      speechParts: 2,
-      speechRequests: 4,
+      speechParts: 3,
+      speechRequests: 6,
     });
   });
 
@@ -221,22 +244,24 @@ describe("runReadAloud", () => {
   });
 
   it("starts speaking the first piece while the rewrite is still streaming", async () => {
-    // Four distinct sentences of about 250 characters; two fit in one 600-character piece.
+    // Five distinct sentences: a short first one (the first piece is about 200 characters), then
+    // four of about 250, two to each later 600-character piece.
+    const intro = `${"intro ".repeat(25).trim()}.`;
     const [a, b, c, d] = ["alpha", "bravo", "charlie", "delta"].map(
       (word) => `${`${word} `.repeat(Math.floor(250 / (word.length + 1))).trim()}.`,
     );
-    const rewrite = [a, b, c, d].join(" ");
+    const rewrite = [intro, a, b, c, d].join(" ");
     let release!: () => void;
     const until = new Promise<void>((resolve) => (release = resolve));
-    const { speechInputs } = mockOpenAI(rewrite, "stop", { chars: 700, until });
+    const { speechInputs } = mockOpenAI(rewrite, "stop", { chars: 900, until });
 
     const run = runReadAloud({ messageText: "Stream me", conversationContext: "" }, config, ENDPOINT);
-    // The first two sentences go to speech while the stream is held.
-    await vi.waitFor(() => expect(speechInputs).toEqual([`${a} ${b}`]));
+    // The short first piece, then the next two sentences, go to speech while the stream is held.
+    await vi.waitFor(() => expect(speechInputs).toEqual([intro, `${a} ${b}`]));
     release();
     const result = await run;
     expect(result.error).toBeNull();
-    expect(speechInputs).toEqual([`${a} ${b}`, `${c} ${d}`]);
+    expect(speechInputs).toEqual([intro, `${a} ${b}`, `${c} ${d}`]);
   });
 
   it("reuses the rewrite when the same message is read again", async () => {
