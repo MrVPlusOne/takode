@@ -277,6 +277,57 @@ describe("assistant-message-controller", () => {
     expect(finalizeRoutedLeaderResponseMessage(session, answer)).toMatchObject({ finalized: true });
   });
 
+  it("accepts an answer whose text arrives after a newer request landed between its chunks", () => {
+    // Daily Leader (Oct 31): its answer to u493 was rejected as "invalid answer metadata or message
+    // shape". The thinking chunk made its row before Jiayi's next message u494 arrived mid-turn;
+    // the text chunk then took that row's place, but its metadata counted u494 as seen, so the
+    // answer sat before input it claimed to have observed. One model response sees only the input
+    // from before it began, so a mid-turn message after its row was not observed by it.
+    const session = makeSession() as AssistantMessageSessionLike & {
+      userMessageIdsThisTurn: number[];
+      messageCountAtTurnStart: number;
+      queuedTurnUserMessageIds: number[][];
+    };
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "user_message",
+      id: "raw-u1",
+      leaderUserMessageId: "u1",
+      content: "Is that the change?",
+      timestamp: 1,
+      threadKey: "q-7",
+      questId: "q-7",
+      leaderResponseCoverageVersion: 1,
+    });
+    session.userMessageIdsThisTurn = [0];
+    session.messageCountAtTurnStart = 1;
+    session.queuedTurnUserMessageIds = [];
+    const deps = { hasAssistantReplay: () => false, broadcastToBrowsers: () => {}, persistSession: () => {} };
+    const thinking = { type: "thinking", thinking: "", signature: "sig" } as ContentBlock;
+    handleAssistantMessage(session, makeAssistant([thinking], "answer-u1"), deps);
+    // The newer request arrives mid-turn: Claude gets it at once, as input for its next request.
+    session.messageHistory.push({
+      type: "user_message",
+      id: "raw-u2",
+      leaderUserMessageId: "u2",
+      content: "Could you also draft a DM?",
+      timestamp: 2,
+      threadKey: "q-7",
+      questId: "q-7",
+      leaderResponseCoverageVersion: 1,
+    });
+    session.queuedTurnUserMessageIds.push([session.messageHistory.length - 1]);
+    handleAssistantMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:q-7:A:u1]\nYes, that's the change." }], "answer-u1"),
+      deps,
+    );
+
+    const answer = session.messageHistory[1] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    expect(answer).toMatchObject({ leaderThreadRole: "answer", leaderAnswerUserMessageIds: ["u1"] });
+    expect(finalizeRoutedLeaderResponseMessage(session, answer)).toMatchObject({ finalized: true });
+  });
+
   it("emits quest-to-quest transition markers when routing is deferred past a thinking chunk", () => {
     // The unrouted thinking row must not act as an implicit Main boundary that
     // suppresses the source-thread handoff marker.

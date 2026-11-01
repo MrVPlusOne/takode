@@ -80,7 +80,10 @@ export interface ThreadRoutingReminderSessionLike {
   queuedTurnUserMessageIds?: number[][];
 }
 
-export function leaderTurnObservedHistoryLength(session: ThreadRoutingReminderSessionLike): number | undefined {
+export function leaderTurnObservedHistoryLength(
+  session: ThreadRoutingReminderSessionLike,
+  historyLimit = session.messageHistory.length,
+): number | undefined {
   // The Claude SDK adapter sends input that arrives mid-turn to the CLI at once,
   // and the CLI folds it into the running turn; its "queued" turns are drained
   // unstarted at the result. That input is therefore visible to later answers
@@ -88,15 +91,20 @@ export function leaderTurnObservedHistoryLength(session: ThreadRoutingReminderSe
   const inlineQueuedIndexes =
     session.backendType === "claude-sdk" ? (session.queuedTurnUserMessageIds ?? []).flat() : [];
   const indexes = [...(session.userMessageIdsThisTurn ?? []), ...inlineQueuedIndexes].filter(
-    (value) => Number.isInteger(value) && value >= 0 && value < session.messageHistory.length,
+    (value) => Number.isInteger(value) && value >= 0 && value < historyLimit,
   );
   if (indexes.length > 0) return Math.max(...indexes) + 1;
   const turnStart = session.messageCountAtTurnStart;
-  return Number.isInteger(turnStart) && turnStart! >= 0 && turnStart! <= session.messageHistory.length
-    ? turnStart
-    : undefined;
+  return Number.isInteger(turnStart) && turnStart! >= 0 && turnStart! <= historyLimit ? turnStart : undefined;
 }
 
+/**
+ * The routing metadata of a leader's assistant row. `rowIndex` is the history place of a row that
+ * takes the place of the message's earlier row (Claude streams a thinking block as its own first
+ * chunk, and the text arriving later rewrites that row in place): one model response sees only the
+ * input that came before it began, so input committed after its row was not observed by it.
+ * Counting it rejected a valid answer whose request had a newer message after it.
+ */
 export function leaderAssistantControlMetadata(
   session: ThreadRoutingReminderSessionLike,
   routed: Pick<
@@ -104,6 +112,7 @@ export function leaderAssistantControlMetadata(
     "leaderThreadRole" | "leaderAnswerUserMessageIds" | "leaderAnswerUrgent" | "threadStatusMarkers"
   >,
   hasStableMessageId: boolean,
+  rowIndex?: number,
 ): Pick<
   BrowserIncomingMessage,
   | "leaderThreadRole"
@@ -113,7 +122,9 @@ export function leaderAssistantControlMetadata(
   | "deferredThreadStatusMarkers"
 > {
   const observedHistoryLength =
-    routed.leaderThreadRole === "answer" && hasStableMessageId ? leaderTurnObservedHistoryLength(session) : undefined;
+    routed.leaderThreadRole === "answer" && hasStableMessageId
+      ? leaderTurnObservedHistoryLength(session, rowIndex)
+      : undefined;
   return {
     ...(routed.leaderThreadRole ? { leaderThreadRole: routed.leaderThreadRole } : {}),
     ...(routed.leaderThreadRole === "answer" && routed.leaderAnswerUserMessageIds

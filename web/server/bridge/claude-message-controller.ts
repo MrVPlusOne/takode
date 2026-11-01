@@ -715,7 +715,7 @@ function emitRoutedAssistantSegments(
       ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
       ...(slackThreadId ? { slackThreadId } : {}),
       ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
-      ...leaderAssistantControlMetadata(session, routed, true),
+      ...leaderAssistantControlMetadata(session, routed, true, replacesRow ? replaceIndex : undefined),
     };
     // A replaced row is taken out before the transition check so it cannot act
     // as an implicit Main boundary; the routed row then takes its index.

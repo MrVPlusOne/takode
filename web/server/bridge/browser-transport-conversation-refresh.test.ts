@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 import { refreshBrowserConversationViews, type BrowserTransportSessionLike } from "./browser-transport-controller.js";
-import { recordBoundedConversationViewUpdate } from "./browser-conversation-window-policy.js";
+import {
+  recordBoundedConversationRequest,
+  recordBoundedConversationViewUpdate,
+  setSideViews,
+} from "./browser-conversation-window-policy.js";
 import { createThreadWindowReceiver } from "../test-fixtures/thread-window-receiver.js";
 
 function threadSocket(threadKey: string) {
@@ -240,5 +244,47 @@ describe("browser conversation refresh", () => {
     expect(deliveredIds(older)).toEqual(expect.arrayContaining(["earlier-2", "earlier-3", "earlier-4"]));
     expect(deliveredIds(older)).not.toContain("new-activity");
     expect(socket.data.conversationView.request).toMatchObject({ fromItem: 2, itemCount: 3 });
+  });
+
+  it("refreshes a side view's window with its answer state, as it does the main view's", () => {
+    // Jiayi (Oct 31): a leader's answer showed in the main view but not in a side pane showing the
+    // same thread. Answers are accepted by rewriting history in place when the turn ends, so their
+    // answer state reaches a view only in a refreshed window. A side pane's window was never
+    // refreshed, and without that state its turn hid the answer (it came after a routing reminder).
+    const socket = threadSocket("main");
+    const session = sessionWithTwelveRanges(socket);
+    setSideViews(socket.data, ["q-1"]);
+    // The side pane asks for its window without making it the main view, as the browser does.
+    recordBoundedConversationRequest(socket.data, {
+      type: "thread_window_request",
+      thread_key: "q-1",
+      from_item: -1,
+      item_count: 30,
+      section_item_count: 10,
+      visible_item_count: 3,
+      activate_view: false,
+    });
+    expect(socket.data.conversationView.request.threadKey).toBe("main");
+
+    session.messageHistory.push(directUser());
+    const answer = assistant("new-answer");
+    answer.leaderThreadRole = "answer";
+    answer.leaderAnswerUserMessageIds = ["u1"];
+    answer.leaderAnswerObservedHistoryLength = session.messageHistory.length;
+    session.messageHistory.push(answer);
+    expect(finalizeRoutedLeaderResponseMessage(session, answer)).toMatchObject({ finalized: true });
+
+    socket.send.mockClear();
+    refreshBrowserConversationViews(session);
+    const syncs = parseCalls(socket).filter((message) => message.type === "thread_window_sync");
+    expect(syncs.map((message) => message.thread_key)).toEqual(["main", "q-1"]);
+    const side = syncs[1] as Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>;
+    expect(side.response_state?.currentAnswers.map((item) => item.currentMessageId)).toContain("new-answer");
+
+    // A side view the browser no longer shows is not refreshed.
+    setSideViews(socket.data, []);
+    socket.send.mockClear();
+    refreshBrowserConversationViews(session);
+    expect(parseCalls(socket).filter((message) => message.type === "thread_window_sync")).toHaveLength(1);
   });
 });

@@ -69,6 +69,7 @@ import {
   recordBoundedConversationRequest,
   recordBoundedConversationViewUpdate,
   setSideViews,
+  sideViewRequestsToRefresh,
   shouldDeliverBrowserEventToSocket,
   withMessageViewKeys,
   type BoundedConversationView,
@@ -1357,7 +1358,10 @@ function sendBoundedConversationView(
   else sendHistoryWindowSync(session, ws, view.request);
 }
 
-/** Refresh each subscribed current-build browser from its own bounded selected view. */
+/**
+ * Refresh each subscribed current-build browser from its own bounded selected view, and the side
+ * views it shows beside it, so a side view gets the same answer state as the main view.
+ */
 export function refreshBrowserConversationViews(session: BrowserConversationRefreshSessionLike): void {
   const throughSeq = session.nextEventSeq++;
   for (const ws of session.browserSockets) {
@@ -1366,6 +1370,7 @@ export function refreshBrowserConversationViews(session: BrowserConversationRefr
     if (!socketData.subscribed || !socketData.conversationView) continue;
     try {
       sendBoundedConversationView(session, socket, socketData.conversationView);
+      for (const request of sideViewRequestsToRefresh(socketData)) sendThreadWindowSync(session, socket, request);
       sendToBrowser(socket, {
         type: "conversation_sync_complete",
         through_seq: throughSeq,

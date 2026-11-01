@@ -104,11 +104,14 @@ export function heldWindowMayHave(
 
 /**
  * The socket's browser now holds the window just sent, so a later refresh of
- * the same thread view validates against it (a small cache hit, or only what
+ * the same thread view (the main view or a side view) validates against it (a small cache hit, or only what
  * changed) instead of against the window named when the view was opened.
  */
 function noteThreadWindowHeld(ws: { data?: unknown }, threadKey: string, windowHash: string): void {
-  const view = ((ws.data ??= {}) as BrowserConversationWindowSocketData).conversationView;
+  const data = (ws.data ??= {}) as BrowserConversationWindowSocketData;
+  const side = data.sideViewRequests?.get(threadKey);
+  if (side) data.sideViewRequests!.set(threadKey, { ...side, cachedWindowHash: windowHash });
+  const view = data.conversationView;
   if (view?.kind !== "thread" || normalizeSelectedFeedThreadKey(view.request.threadKey) !== threadKey) return;
   view.request = { ...view.request, cachedWindowHash: windowHash };
 }

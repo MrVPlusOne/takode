@@ -47,6 +47,12 @@ export interface BrowserConversationWindowSocketData {
    * (`side_views_update`, or with its subscribe): their live messages reach it too.
    */
   sideViews?: Set<string>;
+  /**
+   * The window each side view last asked for. A refresh re-sends it along with the main view's
+   * (`sideViewRequestsToRefresh`): answers are accepted by rewriting history in place, so their
+   * answer state reaches a view only in a refreshed window, not with the live messages.
+   */
+  sideViewRequests?: Map<string, BoundedThreadViewRequest>;
 }
 
 export function hasConnectedCurrentBuildBrowserViewingThread(
@@ -295,13 +301,28 @@ export function setSideViews(socketData: BrowserConversationWindowSocketData, th
   const keys = threadKeys.filter((key) => typeof key === "string" && key).map(normalizeSelectedFeedThreadKey);
   if (keys.length === 0) delete socketData.sideViews;
   else socketData.sideViews = new Set(keys);
+  for (const key of socketData.sideViewRequests?.keys() ?? []) {
+    if (!socketData.sideViews?.has(key)) socketData.sideViewRequests!.delete(key);
+  }
+}
+
+/** The side views' windows a refresh re-sends: each shown side view's last request, unless the main view shows it. */
+export function sideViewRequestsToRefresh(socketData: BrowserConversationWindowSocketData): BoundedThreadViewRequest[] {
+  const view = socketData.conversationView;
+  const mainKey = view?.kind === "thread" ? normalizeSelectedFeedThreadKey(view.request.threadKey) : null;
+  return [...(socketData.sideViewRequests?.entries() ?? [])]
+    .filter(([key]) => key !== mainKey && socketData.sideViews?.has(key))
+    .map(([, request]) => request);
 }
 
 export function recordBoundedConversationRequest(
   socketData: BrowserConversationWindowSocketData,
   request: Extract<BrowserOutgoingMessage, { type: "history_window_request" | "thread_window_request" }>,
 ): void {
-  if (!request.activate_view) return;
+  if (!request.activate_view) {
+    if (request.type === "thread_window_request") recordSideViewRequest(socketData, request);
+    return;
+  }
   if (request.type === "history_window_request") {
     setBoundedHistoryView(socketData, {
       fromTurn: request.from_turn,
@@ -316,6 +337,24 @@ export function recordBoundedConversationRequest(
   }
   setBoundedThreadView(socketData, {
     threadKey: request.thread_key,
+    fromItem: request.from_item,
+    itemCount: request.item_count,
+    sectionItemCount: request.section_item_count,
+    visibleItemCount: request.visible_item_count,
+    cachedWindowHash: request.cached_window_hash,
+    targetMessageId: request.target_message_id,
+  });
+}
+
+/** A window asked for without making it the main view: a side view's, kept for refreshes. */
+function recordSideViewRequest(
+  socketData: BrowserConversationWindowSocketData,
+  request: Extract<BrowserOutgoingMessage, { type: "thread_window_request" }>,
+): void {
+  const threadKey = normalizeSelectedFeedThreadKey(request.thread_key);
+  if (!isConversationThreadKey(threadKey)) return;
+  (socketData.sideViewRequests ??= new Map()).set(threadKey, {
+    threadKey,
     fromItem: request.from_item,
     itemCount: request.item_count,
     sectionItemCount: request.section_item_count,
