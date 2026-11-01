@@ -475,6 +475,28 @@ describe("SideColumn", () => {
     }
   });
 
+  it("shows a running conversation's dot green, as its status group does", () => {
+    // Jiayi (Oct 31): the side copy of a thread working in the main view showed the idle grey dot.
+    // The leader writing in the thread counts as running, as in the status row.
+    useStore.setState({
+      activeTurnRoutes: new Map([["l1", { threadKey: "q-7" }]]),
+      sessionStatus: new Map([["l1", "running"]]),
+    } as never);
+    try {
+      render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+      act(() => {
+        openInSide("l1", { kind: "conversation", threadKey: "q-8" });
+        openInSide("l1", { kind: "conversation", threadKey: "q-7" });
+      });
+      const tones = rows()
+        .slice(0, 2)
+        .map((row) => within(row).getByTestId("side-item-dot").dataset.tone);
+      expect(tones).toEqual(["running", "none"]);
+    } finally {
+      useStore.setState({ activeTurnRoutes: new Map(), sessionStatus: new Map() } as never);
+    }
+  });
+
   it("collapses on desktop and closes on a phone", () => {
     const view = render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     fireEvent.click(screen.getByRole("button", { name: "Collapse the side column" }));

@@ -23,6 +23,7 @@ export function MessageFeedTopControls({
   onDismissSubagent,
   showCodexSubagents = true,
   dayPill,
+  questChips,
   belowPinnedStrip = false,
 }: {
   sessionId: string;
@@ -35,6 +36,8 @@ export function MessageFeedTopControls({
   showCodexSubagents?: boolean;
   /** The feed's day pill (`MessageFeedDayPill`), which renders nothing when it has no day to show. */
   dayPill?: ReactNode;
+  /** A leader's quest thread: its quest's phase, worker and waits, floating at the feed's top left. */
+  questChips?: ReactNode;
   /**
    * In a topic conversation: start below the quest strip pinned at the feed's top (its height is
    * the overlay's `--feed-pinned-top`), also below the first strip where it sits at the top of the
@@ -50,13 +53,15 @@ export function MessageFeedTopControls({
   const hasLiveActivity = terminals.length > 0 || subagents.length > 0;
   const desktop = useDesktopShellLayout();
 
-  const hasRow = hasCodexSubagents || hasLiveActivity;
+  const hasRow = hasCodexSubagents || hasLiveActivity || !!questChips;
   if (!hasRow && !dayPill) return null;
-  // Desktop has room for the pill beside the Codex subagent control; a phone does not.
-  const pillOnOwnLine = !hasRow || hasLiveActivity || (hasCodexSubagents && !desktop);
+  // Desktop has room for the pill beside the Codex subagent control; a phone does not. Quest chips
+  // can be as wide as the pill's place, so the pill goes under them.
+  const pillOnOwnLine = !hasRow || hasLiveActivity || !!questChips || (hasCodexSubagents && !desktop);
 
   const row = hasRow && (
     <div className="flex min-w-0 items-start gap-2" data-testid="message-feed-top-controls">
+      {questChips}
       {hasLiveActivity && (
         <LiveActivityRail
           terminals={terminals}

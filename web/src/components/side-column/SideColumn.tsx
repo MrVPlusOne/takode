@@ -22,6 +22,7 @@ import { useReadyThreadDestination } from "../../utils/ready-thread-destination.
 import { navigateToSession, navigateToSessionThread, openQuestOverlayRouteAware } from "../../utils/routing.js";
 import { resolveNotificationOwnerThreadKey } from "../../utils/notification-thread.js";
 import { normalizeThreadKey } from "../../utils/thread-projection.js";
+import { isLeaderThreadRunning } from "../../utils/leader-thread-tabs-resolver.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { CollapseIcon, NewThreadIcon, TopicIcon } from "../library/library-icons.js";
@@ -262,9 +263,12 @@ function SideItemRow({
     if (item && becameQuest)
       replaceSideItem(leaderId, item.id, { kind: "conversation", threadKey: becameQuest, leaderId: owner });
   }, [becameQuest, item, leaderId, owner]);
-  // The status the row's dot shows, by the colors used everywhere: a question for the user is
-  // amber, unread answers blue.
-  const tone: SideTone = questions > 0 ? "question" : unread > 0 ? "unread" : null;
+  const running = useStore((state) =>
+    item?.kind === "conversation" ? isLeaderThreadRunning(state, owner, item.threadKey) : false,
+  );
+  // The status the row's dot shows, by the colors and order of the status groups: a question for
+  // the user is amber, unread answers blue, a running thread green.
+  const tone: SideTone = questions > 0 ? "question" : unread > 0 ? "unread" : running ? "running" : null;
   return (
     <div
       className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-1.5 text-[13px] ${
@@ -471,12 +475,13 @@ function SideSessionTitle({ sessionId }: { sessionId: string }) {
   );
 }
 
-/** What a row's status dot shows: a question for the user, unread answers, or none. */
-type SideTone = "question" | "unread" | null;
+/** What a row's status dot shows: a question for the user, unread answers, running work, or none. */
+type SideTone = "question" | "unread" | "running" | null;
 
 const TONE_DOT: Record<Exclude<SideTone, null>, string> = {
   question: "bg-[var(--color-cc-phase-accent-amber)]",
   unread: "bg-blue-500",
+  running: "bg-emerald-500",
 };
 
 function SideItemIcon({ leaderId, item, tone = null }: { leaderId: string; item: SideItem | null; tone?: SideTone }) {
@@ -488,10 +493,12 @@ function SideItemIcon({ leaderId, item, tone = null }: { leaderId: string; item:
   if (item.kind === "artifact") return <LibraryIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "session") return <SessionIcon className={`${className} text-cc-muted`} />;
   if (item.kind === "quest") return <SideQuestIcon questId={item.questId} />;
-  if (item.kind === "new-chat" || thread) return <NewThreadIcon className={`${className} text-cc-primary`} />;
-  if (isTopicViewKey(key)) return <TopicIcon className={`${className} text-cc-primary`} />;
-  // A quest: what waits on the user there, else its status color as in the quest lists. An
-  // unfinished quest is not green: green means running, which the status row shows.
+  if (item.kind === "new-chat" || (thread && !tone))
+    return <NewThreadIcon className={`${className} text-cc-primary`} />;
+  if (isTopicViewKey(key) && !thread) return <TopicIcon className={`${className} text-cc-primary`} />;
+  // A quest, or a thread with something to show: what waits on the user there or that it runs,
+  // else a quest's status color as in the quest lists. An unfinished quest that isn't running is
+  // grey, as in the Idle group; a thread with nothing to show keeps its icon.
   const status = quest?.status ?? "in_progress";
   const dot = tone ? TONE_DOT[tone] : status === "in_progress" ? "bg-cc-muted/60" : getQuestStatusTheme(status).dot;
   return (

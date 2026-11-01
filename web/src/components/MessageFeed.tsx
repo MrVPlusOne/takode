@@ -148,6 +148,7 @@ export function MessageFeed({
   showCodexSubagentControl = true,
   markSharedResultsRead = false,
   unreadAboveIndicator,
+  questChips,
 }: {
   sessionId: string;
   threadKey?: string;
@@ -163,6 +164,8 @@ export function MessageFeed({
   markSharedResultsRead?: boolean;
   /** Says how many unread messages wait above; it takes the day pill's place while shown. */
   unreadAboveIndicator?: ReactNode;
+  /** A leader's quest thread: its quest's state as chips floating at the feed's top (`QuestThreadFeedChips`). */
+  questChips?: ReactNode;
 }) {
   const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
@@ -1790,6 +1793,7 @@ export function MessageFeed({
         setDismissedSubagentChips((prev) => new Map(prev).set(taskToolUseId, freshnessToken));
       }}
       showCodexSubagents={showCodexSubagentControl}
+      questChips={questChips}
       dayPill={
         unreadAboveIndicator ?? (
           <MessageFeedDayPill

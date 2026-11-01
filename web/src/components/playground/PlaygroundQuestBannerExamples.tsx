@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { QuestThreadBanner, type QuestThreadBannerRow } from "../QuestThreadBanner.js";
+import { QuestThreadBanner, QuestThreadFeedChips, type QuestThreadBannerRow } from "../QuestThreadBanner.js";
 import {
   PLAYGROUND_HANDOFF_LEADER_SESSION_ID,
   PLAYGROUND_HANDOFF_LEADER_SESSION_NUM,
@@ -347,19 +347,29 @@ export function PlaygroundQuestBannerExamples() {
       </div>
 
       <div
-        data-testid="playground-quest-banner-close-tab"
+        data-testid="playground-quest-banner-leader-thread"
         className="w-full overflow-hidden rounded-lg border border-cc-border bg-cc-card"
       >
         <div className="border-b border-cc-border/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
-          Closable tab: close button stays top right at any width
+          A leader's quest thread: name and actions on the strip, the quest's state floating in the feed
         </div>
         <QuestThreadBanner
           row={compactQuestThreadBannerRows[8].row}
           threadKey={compactQuestThreadBannerRows[8].threadKey}
           monitorSessionId="playground-mobile-banner"
           diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
-          onCloseTab={() => {}}
+          singleLine
+          onMoveToSide={() => {}}
         />
+        <div className="relative h-20 bg-cc-bg">
+          <div className="absolute inset-x-3 top-2 flex">
+            <QuestThreadFeedChips
+              row={compactQuestThreadBannerRows[8].row}
+              threadKey={compactQuestThreadBannerRows[8].threadKey}
+              diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
+            />
+          </div>
+        </div>
       </div>
     </>
   );

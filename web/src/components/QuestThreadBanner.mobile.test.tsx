@@ -7,7 +7,7 @@ import { buildThreadMonitoringProjection } from "../../server/thread-monitoring-
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { useStore } from "../store.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
-import { QuestThreadBanner } from "./QuestThreadBanner.js";
+import { QuestThreadBanner, QuestThreadFeedChips } from "./QuestThreadBanner.js";
 import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 
 vi.mock("../api/thread-monitoring.js", () => ({ updateThreadMonitoring: vi.fn().mockResolvedValue({}) }));
@@ -170,21 +170,6 @@ describe("mobile quest banner disclosure", () => {
     expect(screen.getByTestId("quest-thread-details")).not.toHaveClass("hidden");
   });
 
-  it("keeps the close button outside the content that wraps on wider screens", () => {
-    // The strip's title and chips wrap onto more lines as the window narrows. The close
-    // button must not be one of the wrapping items, or it drops onto its own line at the
-    // left; as the row's last direct child it keeps the top right corner at every width.
-    // Real widths are covered in browser validation.
-    render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" diffSessionId="leader" onCloseTab={() => {}} />);
-    const wrapping = screen.getByTestId("quest-thread-wrapping-content");
-    const close = screen.getByTestId("quest-thread-close-tab");
-    expect(within(wrapping).getByText("q-9001")).toBeInTheDocument();
-    expect(within(wrapping).getByTestId("quest-thread-meta-strip")).toBeInTheDocument();
-    expect(wrapping).not.toContainElement(close);
-    expect(close.parentElement).toBe(wrapping.parentElement);
-    expect(close.parentElement?.lastElementChild).toBe(close);
-  });
-
   it("does not offer an empty disclosure on a session banner with only a Journey", () => {
     render(
       <QuestThreadBanner
@@ -249,18 +234,17 @@ describe("breadcrumb band on phones", () => {
   });
   const numberBox = () => screen.getByText("q-9001").closest("span")!;
 
-  it("shows only the phase dot and position on phones, and names the phase on hover", () => {
+  it("keeps the quest's state off a leader's strip, naming the phase in the feed's chips", () => {
+    // A leader's thread is not tied to one quest or worker: its strip holds the name and actions,
+    // and the phase (named, with its position) floats in the feed.
     layout.room = 300;
     layout.full = 300;
     render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" singleLine />);
+    expect(screen.queryByTestId("quest-journey-compact-summary")).toBeNull();
+    render(<QuestThreadFeedChips row={bannerRow(true)} threadKey="q-9001" />);
     const chip = screen.getByTestId("quest-journey-compact-summary");
-    expect(chip).toHaveAttribute("title", "User Checkpoint 3/5");
-    expect(within(chip).getByText("User Checkpoint")).toHaveClass("max-sm:hidden");
+    expect(chip).toHaveTextContent("User Checkpoint");
     expect(within(chip).getByTestId("quest-journey-compact-position")).toHaveTextContent("3/5");
-    // A worker's own quest banner keeps the named chip.
-    render(<QuestThreadBanner row={bannerRow(true)} threadKey="q-9001" variant="session" />);
-    const named = screen.getAllByTestId("quest-journey-compact-summary")[1]!;
-    expect(within(named).getByText("User Checkpoint")).not.toHaveClass("max-sm:hidden");
   });
 
   it("keeps the quest number while the title fits or has room, and drops it when the title is cut short", () => {

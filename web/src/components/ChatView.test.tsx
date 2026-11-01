@@ -169,6 +169,7 @@ vi.mock("./MessageFeed.js", () => ({
     latestIndicatorMode,
     onSelectThread,
     additionalAttentionRecords = [],
+    questChips,
   }: {
     sessionId: string;
     threadKey?: string;
@@ -176,22 +177,27 @@ vi.mock("./MessageFeed.js", () => ({
     latestIndicatorMode?: string;
     onSelectThread?: (threadKey: string) => void;
     additionalAttentionRecords?: Array<import("../types.js").SessionAttentionRecord>;
+    questChips?: import("react").ReactNode;
   }) => (
-    <div
-      data-testid="message-feed"
-      data-thread-key={threadKey}
-      data-project-thread-routes={String(projectThreadRoutes)}
-      data-latest-indicator-mode={latestIndicatorMode}
-      data-additional-attention-count={additionalAttentionRecords.length}
-      data-additional-attention-types={additionalAttentionRecords.map((record) => record.type).join(",")}
-    >
-      {sessionId}
-      {onSelectThread && (
-        <button type="button" data-testid="mock-feed-thread-jump" onClick={() => onSelectThread("q-941")}>
-          Jump to q-941
-        </button>
-      )}
-    </div>
+    <>
+      <div
+        data-testid="message-feed"
+        data-thread-key={threadKey}
+        data-project-thread-routes={String(projectThreadRoutes)}
+        data-latest-indicator-mode={latestIndicatorMode}
+        data-additional-attention-count={additionalAttentionRecords.length}
+        data-additional-attention-types={additionalAttentionRecords.map((record) => record.type).join(",")}
+      >
+        {sessionId}
+        {onSelectThread && (
+          <button type="button" data-testid="mock-feed-thread-jump" onClick={() => onSelectThread("q-941")}>
+            Jump to q-941
+          </button>
+        )}
+      </div>
+      {/* A leader's quest thread carries its quest's state as chips at the feed's top. */}
+      {questChips}
+    </>
   ),
 }));
 
@@ -1357,14 +1363,14 @@ describe("ChatView chat surface and leader routing", () => {
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("implement");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveAttribute("data-journey-mode", "active");
     expect(scope.queryByTestId("quest-thread-banner-return-main")).not.toBeInTheDocument();
-    // The strip stays one line: Worker and Reviewer are one hover away, in the phase pill's card.
-    expect(scope.queryByLabelText("Worker #1321 Clear Mesa")).not.toBeInTheDocument();
-
-    fireEvent.mouseEnter(scope.getByTestId("quest-thread-journey-hover-target"));
-    const card = within(document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!);
-    expect(card.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
-    expect(card.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("data-testid", "quest-thread-participant");
-    expect(card.getByLabelText("Reviewer #1306")).toHaveAttribute("href", "#session-1306");
+    // The strip holds the thread's name and actions; the phase, Worker and Reviewer float in the feed.
+    const banner = within(scope.getByTestId("quest-thread-banner"));
+    expect(banner.queryByTestId("quest-journey-compact-summary")).not.toBeInTheDocument();
+    expect(banner.queryByLabelText("Worker #1321 Clear Mesa")).not.toBeInTheDocument();
+    const chips = within(scope.getByTestId("quest-thread-feed-chips"));
+    expect(chips.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
+    expect(chips.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("data-testid", "quest-thread-participant");
+    expect(chips.getByLabelText("Reviewer #1306")).toHaveAttribute("href", "#session-1306");
   });
 
   it("shows queued Work Board wait reasons in the quest-thread banner", () => {
@@ -1580,9 +1586,9 @@ describe("ChatView chat surface and leader routing", () => {
     const card = document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!;
     expect(card).toBeInTheDocument();
     expect(document.body.querySelector('[data-testid="quest-journey-preview-card"]')).toHaveTextContent("1 note");
-    // Worker and Reviewer sit under the Journey in the same card.
-    expect(within(card).getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
-    expect(within(card).getByLabelText("Reviewer #1323")).toBeInTheDocument();
+    // A finished quest has no active Worker or Reviewer to show.
+    expect(scope.queryByLabelText("Worker #1321 Clear Mesa")).not.toBeInTheDocument();
+    expect(scope.queryByLabelText("Reviewer #1323")).not.toBeInTheDocument();
   });
 
   it("renders a current quest banner for worker sessions with leader and reviewer chips", () => {

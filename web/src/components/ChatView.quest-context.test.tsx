@@ -103,10 +103,22 @@ vi.mock("../api.js", () => ({
 vi.mock("../ws.js", () => ({ sendToSession: vi.fn() }));
 vi.mock("./SearchBar.js", () => ({ SearchBar: () => null }));
 vi.mock("./MessageFeed.js", () => ({
-  MessageFeed: ({ sessionId, threadKey }: { sessionId: string; threadKey?: string }) => (
-    <div data-testid="message-feed" data-thread-key={threadKey}>
-      {sessionId}
-    </div>
+  MessageFeed: ({
+    sessionId,
+    threadKey,
+    questChips,
+  }: {
+    sessionId: string;
+    threadKey?: string;
+    questChips?: import("react").ReactNode;
+  }) => (
+    <>
+      <div data-testid="message-feed" data-thread-key={threadKey}>
+        {sessionId}
+      </div>
+      {/* A leader's quest thread carries its quest's state as chips at the feed's top. */}
+      {questChips}
+    </>
   ),
 }));
 vi.mock("./Composer.js", () => ({
@@ -358,10 +370,9 @@ describe("ChatView session quest context", () => {
 
     const banner = await scope.findByTestId("quest-thread-banner");
     expect(banner).toHaveTextContent("q-1452");
-    // The worker is in the phase pill's card.
-    fireEvent.mouseEnter(scope.getByTestId("quest-thread-journey-hover-target"));
-    const card = within(document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!);
-    expect(card.getByLabelText("Worker #1952 Fresh Worker")).toBeInTheDocument();
-    expect(card.queryByLabelText("Worker #1950 Previous Worker")).not.toBeInTheDocument();
+    // The worker is a chip in the feed, beside the quest's phase.
+    const chips = within(scope.getByTestId("quest-thread-feed-chips"));
+    expect(chips.getByLabelText("Worker #1952 Fresh Worker")).toBeInTheDocument();
+    expect(chips.queryByLabelText("Worker #1950 Previous Worker")).not.toBeInTheDocument();
   });
 });

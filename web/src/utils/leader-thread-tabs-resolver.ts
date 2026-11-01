@@ -15,6 +15,7 @@ import type { AppState } from "../store-types.js";
 import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { resolveSessionNavigation, type SessionNavigationResolverSource } from "./session-navigation-resolver.js";
+import { normalizeThreadKey } from "./thread-projection.js";
 
 export interface LeaderThreadTabsProjectionSource {
   syncedProjectionValues?: Map<string, unknown>;
@@ -112,4 +113,20 @@ export function resolveWorkBoardIsOrchestrator(
     resolveLeaderThreadTabsProjection(source, sessionId).projectionState === "accepted" ||
     resolveSessionNavigation(source, sessionId)?.viewModel.isOrchestrator === true
   );
+}
+
+/**
+ * Whether one of a leader's threads is running, by the rule the status groups use: a quest whose
+ * work is running (the board's `runningQuestIds`), or the thread the leader is writing in now.
+ */
+export function isLeaderThreadRunning(
+  state: Pick<AppState, "syncedProjectionValues" | "syncedProjectionKeys" | "sessionStatus" | "activeTurnRoutes">,
+  leaderId: string,
+  threadKey: string,
+): boolean {
+  const key = normalizeThreadKey(threadKey);
+  const writing = state.sessionStatus.get(leaderId) === "running" ? state.activeTurnRoutes.get(leaderId) : null;
+  if (writing?.threadKey && normalizeThreadKey(writing.threadKey) === key) return true;
+  const running = resolveLeaderThreadTabsProjection(state, leaderId).value?.runningQuestIds ?? [];
+  return running.some((questId) => normalizeThreadKey(questId) === key);
 }

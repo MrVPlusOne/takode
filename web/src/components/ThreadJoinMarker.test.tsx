@@ -66,9 +66,10 @@ describe("JoinedThreadMarker", () => {
 });
 
 describe("ThreadStrip", () => {
-  it("names the thread, tags its topic (opening the topic's page), and goes Home", () => {
-    const onOpenTopic = vi.fn();
-    const onLeave = vi.fn();
+  it("names the thread without its topic, and moves it to the side column", () => {
+    // Topics stay off the strip (no room); the move button shows only when the view can move it,
+    // and there is no × (threads don't close; Home in the status row is the way back).
+    const onMoveToSide = vi.fn();
     const thread = {
       id: "aa11",
       key: "topic:aa11",
@@ -76,24 +77,14 @@ describe("ThreadStrip", () => {
       leaderId: "l1",
       createdAt: 1,
       activityAt: 1,
+      topic: { id: "t1", name: "Remote access" },
     };
-    const { rerender } = render(
-      <ThreadStrip thread={thread} topic={null} onOpenTopic={onOpenTopic} onLeave={onLeave} />,
-    );
-    expect(screen.getByTestId("thread-strip").textContent).toContain("Phone can't reach Takode");
-    // Unfiled: no tag yet.
-    expect(screen.queryByTestId("thread-topic-tag")).toBeNull();
-    rerender(
-      <ThreadStrip
-        thread={thread}
-        topic={{ id: "t1", name: "Remote access" }}
-        onOpenTopic={onOpenTopic}
-        onLeave={onLeave}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("thread-topic-tag"));
-    expect(onOpenTopic).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByTestId("thread-strip-leave"));
-    expect(onLeave).toHaveBeenCalledTimes(1);
+    const { rerender } = render(<ThreadStrip thread={thread} />);
+    expect(screen.getByTestId("thread-strip").textContent).toBe("Phone can't reach Takode");
+    expect(screen.queryByTestId("thread-move-to-side")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    rerender(<ThreadStrip thread={thread} onMoveToSide={onMoveToSide} />);
+    fireEvent.click(screen.getByTestId("thread-move-to-side"));
+    expect(onMoveToSide).toHaveBeenCalledTimes(1);
   });
 });

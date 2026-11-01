@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
 import type { SessionState } from "./types.js";
@@ -129,8 +129,20 @@ vi.mock("./components/PermissionBanner.js", () => ({
   PermissionsCollapsedChip: () => null,
 }));
 vi.mock("./components/MessageFeed.js", () => ({
-  MessageFeed: ({ sessionId, threadKey }: { sessionId: string; threadKey?: string }) => (
-    <div data-testid="message-feed" data-session-id={sessionId} data-thread-key={threadKey} />
+  MessageFeed: ({
+    sessionId,
+    threadKey,
+    questChips,
+  }: {
+    sessionId: string;
+    threadKey?: string;
+    questChips?: ReactNode;
+  }) => (
+    <>
+      <div data-testid="message-feed" data-session-id={sessionId} data-thread-key={threadKey} />
+      {/* A leader's quest thread carries its quest's state, commits included, as chips at the feed's top. */}
+      {questChips}
+    </>
   ),
 }));
 vi.mock("./components/QuestInlineLink.js", () => ({
@@ -401,16 +413,15 @@ it("shows an explicit no-recorded-commits state for quest threads without code c
   expect(screen.queryByTestId("diff-panel")).not.toBeInTheDocument();
 });
 
-// The quest banner chip replaced the top-bar Diff button: it opens the quest's diff for the thread it sits
-// in, and the diff view's back button returns to that same thread's chat.
-it("opens the quest diff from the banner chip and returns to the chat", async () => {
+// The quest's commits chip replaced the top-bar Diff button: it opens the quest's diff for the thread it
+// sits in, and the diff view's back button returns to that same thread's chat.
+it("opens the quest diff from the commits chip and returns to the chat", async () => {
   render(<App />);
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(screen.queryByRole("button", { name: /Show diffs|recorded commits/ })).not.toBeInTheDocument();
-  // The commits chip is in the phase pill's card, one hover away.
-  fireEvent.mouseEnter(screen.getByTestId("quest-thread-journey-hover-target"));
-  const chip = screen.getByTestId("quest-thread-diff-chip-commits");
+  // The commits chip floats in the thread's feed with the quest's other chips.
+  const chip = within(screen.getByTestId("quest-thread-feed-chips")).getByTestId("quest-thread-diff-chip-commits");
   expect(chip).toHaveTextContent("2 commits");
 
   fireEvent.click(chip);

@@ -160,8 +160,18 @@ vi.mock("./PermissionBanner.js", () => ({
   PermissionsCollapsedChip: () => null,
 }));
 vi.mock("./MessageFeed.js", () => ({
-  MessageFeed: ({ sessionId, threadKey }: { sessionId: string; threadKey?: string }) => (
-    <div data-testid="message-feed" data-session-id={sessionId} data-thread-key={threadKey} />
+  MessageFeed: ({
+    sessionId,
+    threadKey,
+    questChips,
+  }: {
+    sessionId: string;
+    threadKey?: string;
+    questChips?: ReactNode;
+  }) => (
+    <div data-testid="message-feed" data-session-id={sessionId} data-thread-key={threadKey}>
+      {questChips}
+    </div>
   ),
 }));
 // A topic leader's Main is its Home, drawn instead of a feed; it stands in for the Main view here,
@@ -449,23 +459,43 @@ describe("ChatView topics as tags", () => {
     ]);
   });
 
-  it("tags a quest's strip with its topic, and its × goes Home", async () => {
-    // The strip's topic tag opens the topic's page beside; leaving the quest goes to Home, and its
-    // tab stays (tabs never closed with the strip).
+  it("keeps a quest's strip to its name and actions, its state in the feed's chips", async () => {
+    // Topics stay off the strip (no room); the quest's phase and worker float in its feed, since a
+    // thread is no longer tied to one quest or worker. No × either: threads don't close.
     mockLibraryTopic();
-    useSideColumnStore.setState({ columns: {} });
-    render(<RouteAwareChatView />);
+    const view = render(<RouteAwareChatView />);
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
-    fireEvent.click(await screen.findByTestId("thread-topic-tag"));
+    const strip = screen.getByTestId("quest-thread-banner");
+    expect(strip.querySelector('[data-testid="quest-thread-meta-strip"]')).toBeNull();
+    expect(screen.queryByTestId("thread-topic-tag")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back to Home" })).toBeNull();
+    expect(screen.getByTestId("message-feed").querySelector('[data-testid="quest-thread-feed-chips"]')).not.toBeNull();
+    view.unmount();
+  });
+
+  it("moves a quest's thread to the side column, mirroring the side's move-to-main", async () => {
+    // Desktop (jsdom's 1024 px): the thread goes into the side column and the main view goes Home;
+    // its tab stays (no close operation is sent).
+    useSideColumnStore.setState({ columns: {} });
+    const view = render(<RouteAwareChatView />);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    fireEvent.click(screen.getByTestId("thread-move-to-side"));
     expect(useSideColumnStore.getState().columns[LEADER_SESSION_ID]?.items).toEqual([
-      expect.objectContaining({ kind: "topic", topicId: "t1" }),
+      expect.objectContaining({ kind: "conversation", threadKey: QUEST_ID }),
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "Back to Home" }));
-    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    // The main view is Home; the side column now shows the quest's conversation.
+    await waitFor(() =>
+      expect(screen.getAllByTestId("message-feed").map((feed) => feed.getAttribute("data-thread-key"))).toEqual([
+        "main",
+        QUEST_ID,
+      ]),
+    );
     expect(mockSendToSession).not.toHaveBeenCalledWith(
       LEADER_SESSION_ID,
       expect.objectContaining({ operation: expect.objectContaining({ type: "close" }) }),
     );
+    view.unmount();
+    useSideColumnStore.setState({ columns: {} });
   });
 
   it("opens a thread the Scribe joined onto another as that conversation", async () => {

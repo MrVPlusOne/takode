@@ -1,13 +1,13 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { useLeaderNavigation } from "../utils/top-bar-slots.js";
 import { LeaderHomePage, NewThreadComposer } from "./LeaderHomePage.js";
-import { LeaderTopicPanel, useQuestTopic } from "./library/TopicSidePanel.js";
+import { LeaderTopicPanel } from "./library/TopicSidePanel.js";
 import { openInSide } from "../utils/side-column.js";
 import { useTopicSheetOpen } from "../utils/topic-panel.js";
 import { loadLeaderNamesOnce, useKnownThreadOfKey, useKnownTopicOfKey } from "../utils/leader-topics.js";
 import { useReadyThreadDestination } from "../utils/ready-thread-destination.js";
 import { isTopicViewKey } from "../../shared/topic-thread-key.js";
-import { ThreadStrip, TopicTag } from "./ThreadStrip.js";
+import { ThreadStrip } from "./ThreadStrip.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useShallow } from "zustand/react/shallow";
@@ -86,7 +86,7 @@ import {
   getLiveSessionConnectionStatus,
   getRecoverableSessionConnectionPresentation,
 } from "../utils/recoverable-session-connection.js";
-import { QuestThreadBanner } from "./QuestThreadBanner.js";
+import { QuestThreadBanner, QuestThreadFeedChips } from "./QuestThreadBanner.js";
 import { SessionDiffBanner } from "./DiffChip.js";
 import { buildSessionQuestBannerRow, type QuestThreadBannerRow } from "../utils/session-quest-banner-row.js";
 import { resolveChatSessionNavigationSummary } from "../utils/chat-session-navigation-summary.js";
@@ -661,15 +661,6 @@ export function ChatView({
   useEffect(() => {
     if (selectedThreadDestination) navigateToSessionThread(sessionId, selectedThreadDestination, true);
   }, [selectedThreadDestination, sessionId]);
-  // The topic a thread on screen is filed under: a tag on its strip that opens the topic's page.
-  const selectedTopic = useQuestTopic(
-    sessionId,
-    isLeaderSession && !preview && (showQuestThreadBanner || selectedThread) ? selectedThreadKey : "",
-  );
-  const openSelectedTopic = useCallback(
-    () => selectedTopic && openInSide(sessionId, { kind: "topic", topicId: selectedTopic.id }),
-    [selectedTopic, sessionId],
-  );
   // Topics are tags, not places to write: an address of a topic's former conversation (a link, an
   // old history entry) opens the topic's page beside the leader's Home.
   const addressedTopic = useKnownTopicOfKey(
@@ -904,15 +895,17 @@ export function ChatView({
     },
     [cachedThreadWindows, isLeaderSession, openThreadTab, preview, selectedThreadKey, sessionId],
   );
+  // The mirror of a side pane's move-to-main button: the thread goes into the side column and the
+  // main view returns to the leader's Home. Desktop only, where the column sits beside the view.
+  const moveSelectedToSide =
+    leaderNav && desktopShell
+      ? () => {
+          openInSide(sessionId, { kind: "conversation", threadKey: selectedThreadKey });
+          handleSelectThread(MAIN_THREAD_KEY);
+        }
+      : undefined;
   const questStripRef = useRef<HTMLDivElement | null>(null);
   const phoneTopicTopRef = useRef<HTMLDivElement | null>(null);
-  const selectedTabKey = normalizeThreadKey(selectedThreadKey);
-  // Tabs don't close (every place stays in the menus): the band's × leaves the quest for where it
-  // lives, its topic's conversation, else the leader's Home.
-  const leaveSelectedQuest: { run: () => void; label: string } | undefined =
-    leaderNav && isQuestThreadKey(selectedTabKey)
-      ? { run: () => handleSelectThread(MAIN_THREAD_KEY), label: "Back to Home" }
-      : undefined;
 
   useEffect(() => {
     locallySelectedRouteThreadKeyRef.current = null;
@@ -1181,12 +1174,7 @@ export function ChatView({
                 <div className="flex min-w-0 flex-1 flex-col">
                   {!preview && !phoneTopicsOpen && selectedThread && (
                     <div ref={questStripRef} className="contents">
-                      <ThreadStrip
-                        thread={selectedThread}
-                        topic={selectedTopic}
-                        onOpenTopic={openSelectedTopic}
-                        onLeave={() => handleSelectThread(MAIN_THREAD_KEY)}
-                      />
+                      <ThreadStrip thread={selectedThread} onMoveToSide={moveSelectedToSide} />
                     </div>
                   )}
                   {!preview && !phoneTopicsOpen && showQuestThreadBanner && (
@@ -1197,12 +1185,8 @@ export function ChatView({
                         sideQuestOf={selectedSideQuestOf}
                         monitorSessionId={sessionId}
                         diffSessionId={sessionId}
-                        onCloseTab={leaveSelectedQuest?.run}
-                        closeLabel={leaveSelectedQuest?.label}
                         singleLine={leaderNav}
-                        topicTag={
-                          selectedTopic ? <TopicTag name={selectedTopic.name} onOpen={openSelectedTopic} /> : undefined
-                        }
+                        onMoveToSide={moveSelectedToSide}
                       />
                     </div>
                   )}
@@ -1249,6 +1233,15 @@ export function ChatView({
                             showCodexSubagentControl={!preview}
                             markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
                             unreadAboveIndicator={unreadAboveIndicator}
+                            questChips={
+                              leaderNav && showQuestThreadBanner ? (
+                                <QuestThreadFeedChips
+                                  row={selectedThreadRow}
+                                  threadKey={selectedThreadKey}
+                                  diffSessionId={sessionId}
+                                />
+                              ) : undefined
+                            }
                           />
                         </StartedQuestsProvider>
                       </ViewportHandoffThreadEntryGate>

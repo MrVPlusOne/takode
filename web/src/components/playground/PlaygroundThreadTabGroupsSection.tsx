@@ -12,7 +12,7 @@ import { LeaderBoardButton } from "../leader-workboard-controls.js";
 import { MessageBubble } from "../MessageBubble.js";
 import { QuestThreadBanner } from "../QuestThreadBanner.js";
 import { ThreadJoinMarker } from "../ThreadJoinMarker.js";
-import { ThreadStrip, TopicTag } from "../ThreadStrip.js";
+import { ThreadStrip } from "../ThreadStrip.js";
 import { plainThreadChip, ThreadGroupBar, ThreadGroupSections } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
@@ -142,20 +142,13 @@ function LeaderFrame({ width }: { width: number }) {
       />
       {boardOpen && <div className="border-b border-cc-border px-4 py-2 text-[12px] text-cc-muted">(work board)</div>}
       {thread ? (
-        <ThreadStrip
-          thread={thread}
-          topic={thread.topic ?? null}
-          onOpenTopic={() => {}}
-          onLeave={() => setCurrent("main")}
-        />
+        <ThreadStrip thread={thread} onMoveToSide={width > 600 ? () => {} : undefined} />
       ) : quest ? (
         <QuestThreadBanner
           threadKey={current}
           row={{ threadKey: current, questId: current, title: quest.title } as never}
           singleLine
-          topicTag={<TopicTag name="Leader navigation" onOpen={() => {}} />}
-          onCloseTab={() => setCurrent("main")}
-          closeLabel="Back to Home"
+          onMoveToSide={width > 600 ? () => {} : undefined}
         />
       ) : (
         <div className="border-b border-cc-border bg-cc-card px-4 py-1.5 text-[12px] text-cc-muted">Home</div>

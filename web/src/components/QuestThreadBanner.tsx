@@ -34,6 +34,7 @@ import {
 import { SessionRoleLabel } from "./SessionRoleLabel.js";
 import { DiffChip, QuestDiffChips } from "./DiffChip.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
+import { MoveToSideButton } from "./ThreadStrip.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { resolveSessionNavigation, type ResolvedSessionNavigation } from "../utils/session-navigation-resolver.js";
@@ -330,10 +331,6 @@ const QUEST_HEADER_JOURNEY_OPTIONS = {
   hidePhaseTotalOnNarrow: true,
 } as const;
 
-// On a phone's breadcrumb band the chip is only the phase dot and position ("2/4"); tapping it
-// opens the card that names the phase (Jiayi's pick of three built options).
-const BREADCRUMB_JOURNEY_OPTIONS = { ...QUEST_HEADER_JOURNEY_OPTIONS, dotOnlyOnNarrow: true } as const;
-
 /**
  * On a phone's breadcrumb band, the quest number goes when the title would get less than this
  * room (Jiayi: "hide quest number when space is not enough"); the quest's lists and card name it.
@@ -525,19 +522,17 @@ export function QuestThreadBanner({
   currentSessionId,
   monitorSessionId,
   diffSessionId,
-  onCloseTab,
-  closeLabel,
   sideQuestOf,
-  topicTag,
   singleLine = false,
+  onMoveToSide,
 }: {
-  /** After the title: the topic the quest is filed under, which opens its page. */
-  topicTag?: ReactNode;
   /**
-   * Desktop with the thread navigation in the top bar: keep the strip to one line. The title
-   * truncates first; in a narrow chat column the details drop words their icons already say.
+   * A leader's quest thread: the strip is one line holding only the thread's name and actions.
+   * The quest's state (phase, worker, waits) floats in the feed instead (`QuestThreadFeedChips`).
    */
   singleLine?: boolean;
+  /** Moves the thread into the side column; passed on desktop, where the column sits beside it. */
+  onMoveToSide?: () => void;
   row?: QuestThreadBannerRow;
   threadKey: string;
   /** Set when this quest is a side quest: the thread ("main" or a quest ID) where its answer is given. */
@@ -547,10 +542,6 @@ export function QuestThreadBanner({
   monitorSessionId?: string;
   /** Session whose diff chip this banner holds; the chip opens that session's diff target for this thread. */
   diffSessionId?: string;
-  /** Closes the thread tab this strip names; only passed while that tab can close. */
-  onCloseTab?: () => void;
-  /** What the close button does, when it leaves the quest rather than closing its tab. */
-  closeLabel?: string;
 }) {
   const questId = row?.questId ?? threadKey.toLowerCase();
   const [collapsed, setCollapsed] = useState(false);
@@ -572,6 +563,8 @@ export function QuestThreadBanner({
   const ownership =
     isSessionBanner || (row?.ownership === "off-board" && isDoneThreadRow(row)) ? undefined : row?.ownership;
   const ledElsewhere = ownership === "other-leader";
+  // A leader's thread carries its quest's state in the feed's chips, not on its strip.
+  const metaInFeed = singleLine && !isSessionBanner;
   // A quest thread's strip keeps one line: its Worker and commits are in the phase pill's card,
   // one hover or tap away, and Notify Me is an icon. A worker's own quest banner keeps its chips.
   // A status pill shows (and can hold the details card) once the quest's status or wait is known.
@@ -607,18 +600,21 @@ export function QuestThreadBanner({
     </>
   );
   const hasMeta =
-    !!waitCondition ||
-    openQuestionCount > 0 ||
-    !!row?.journey ||
-    !!row?.status ||
-    !!ownership ||
-    hasParticipantContext ||
-    showCommitAffordance;
+    !metaInFeed &&
+    (!!waitCondition ||
+      openQuestionCount > 0 ||
+      !!row?.journey ||
+      !!row?.status ||
+      !!ownership ||
+      hasParticipantContext ||
+      showCommitAffordance);
   const hasMobileDetails =
-    (showCommitAffordance && isSessionBanner) ||
-    !!queuedWaitCondition ||
-    openQuestionCount > 0 ||
-    (isSessionBanner && (!!inputWaitCondition || !!(row?.leaderSessionId && row.leaderSessionId !== currentSessionId)));
+    !metaInFeed &&
+    ((showCommitAffordance && isSessionBanner) ||
+      !!queuedWaitCondition ||
+      openQuestionCount > 0 ||
+      (isSessionBanner &&
+        (!!inputWaitCondition || !!(row?.leaderSessionId && row.leaderSessionId !== currentSessionId))));
   const numberRef = useRef<HTMLSpanElement>(null);
   const titleRef = useRef<HTMLSpanElement>(null);
   const numberFits = useQuestNumberFits(singleLine, numberRef, titleRef, title);
@@ -648,15 +644,6 @@ export function QuestThreadBanner({
               <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">
                 Quest
               </span>
-            )}
-            {/* The topic first, as the breadcrumb reads: topic › q-N title. */}
-            {topicTag && (
-              <>
-                {topicTag}
-                <span className="shrink-0 text-cc-muted/70" aria-hidden="true">
-                  ›
-                </span>
-              </>
             )}
             {/* Boxes to measure on the breadcrumb band; elsewhere they add no layout of their own. */}
             <span
@@ -743,7 +730,7 @@ export function QuestThreadBanner({
                         status={journeyStatusForThread(row)}
                         variant="compact"
                         showNotes={false}
-                        compactOptions={singleLine ? BREADCRUMB_JOURNEY_OPTIONS : QUEST_HEADER_JOURNEY_OPTIONS}
+                        compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
                         className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ledElsewhere ? "opacity-60" : ""}`}
                       />
                     ) : (
@@ -806,23 +793,95 @@ export function QuestThreadBanner({
             </div>
           )}
         </div>
-        {onCloseTab && (
-          // Closing the tab on screen without opening its group to find it.
-          <button
-            type="button"
-            // 32 px to tap easily on a phone; the negative margin keeps the strip's height.
-            className="col-start-5 row-start-1 -my-1 -mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
-            aria-label={closeLabel ?? `Close the ${questId} tab`}
-            title={closeLabel ?? "Close tab"}
-            onClick={onCloseTab}
-            data-testid="quest-thread-close-tab"
-          >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-            </svg>
-          </button>
+        {onMoveToSide && (
+          <span className="col-start-4 row-start-1 inline-flex shrink-0 justify-self-end">
+            <MoveToSideButton onMove={onMoveToSide} />
+          </span>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A leader's quest thread shows its quest's state as chips floating at the top of its feed, not on
+ * its strip: a thread is no longer tied to one quest or worker. The phase chip opens the Journey
+ * card; the Worker and Reviewer chips open their sessions.
+ */
+export function QuestThreadFeedChips({
+  row,
+  threadKey,
+  diffSessionId,
+}: {
+  row?: QuestThreadBannerRow;
+  threadKey: string;
+  /** Session whose diff chip this holds, as on the strip it replaces. */
+  diffSessionId?: string;
+}) {
+  if (!row) return null;
+  const done = isDoneThreadRow(row);
+  const waitCondition = done ? null : waitConditionForBoardRow(row.boardRow);
+  const queued = waitCondition?.kind === "queued" ? waitCondition : null;
+  const openQuestionCount = waitCondition || done ? 0 : compactStringList(row.boardRow?.openQuestions).length;
+  const ownership = row.ownership === "off-board" && done ? undefined : row.ownership;
+  const questId = row.questId ?? threadKey.toLowerCase();
+  const working = !done && !!(row.rowStatus?.worker || row.boardRow?.worker);
+  return (
+    <div
+      className="pointer-events-auto inline-flex min-w-0 max-w-full flex-wrap items-center gap-1 self-start rounded-lg border border-cc-border/60 bg-cc-bg/90 px-1 py-0.5 text-xs shadow-sm backdrop-blur"
+      data-testid="quest-thread-feed-chips"
+    >
+      {ownership && (
+        <QuestThreadOwnershipChip
+          ownership={ownership}
+          leaderSessionId={row.leaderSessionId}
+          fallbackLeaderSessionNum={row.leaderSessionNum}
+          questId={questId}
+        />
+      )}
+      {queued ? (
+        <QuestBannerQueuedStatusChip condition={queued} />
+      ) : row.journey ? (
+        <QuestJourneyHoverTarget row={row}>
+          <QuestJourneyTimeline
+            journey={row.journey}
+            status={journeyStatusForThread(row)}
+            variant="compact"
+            showNotes={false}
+            compactOptions={QUEST_HEADER_JOURNEY_OPTIONS}
+            className={`whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 ${ownership === "other-leader" ? "opacity-60" : ""}`}
+          />
+        </QuestJourneyHoverTarget>
+      ) : (
+        <QuestStatusFallbackPill status={row.status} />
+      )}
+      {openQuestionCount > 0 && <QuestBannerOpenQuestionsPill count={openQuestionCount} />}
+      {working && (
+        <QuestBannerParticipantChip
+          role="Worker"
+          variant="thread"
+          participant={boardWorkerParticipantForRow(row)}
+          fallbackSessionId={row.boardRow?.worker}
+          fallbackSessionNum={row.boardRow?.workerNum}
+          showDisplayName={false}
+        />
+      )}
+      {!done && (
+        <QuestBannerParticipantChip
+          role="Reviewer"
+          participant={row.rowStatus?.reviewer}
+          showDisplayName={false}
+          variant="thread"
+        />
+      )}
+      {diffSessionId && (
+        <QuestDiffChips
+          sessionId={diffSessionId}
+          threadKey={threadKey}
+          fallbackCommitShas={row.commitShas}
+          testId="quest-thread-diff-chip"
+        />
+      )}
     </div>
   );
 }
