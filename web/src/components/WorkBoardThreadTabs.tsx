@@ -116,6 +116,11 @@ export interface PrimaryThreadChip {
    * leader's quest opens that question.
    */
   onOpen?: () => void;
+  /**
+   * Not a thread whose work goes on (the leader log, a question about a quest without a tab): listed
+   * under Needs you or Unread only, never In progress or Idle.
+   */
+  attentionOnly?: boolean;
   /** Server time the tab last changed status group; the phone groups list the newest first. */
   groupChangedAt?: number;
   /** Set for a side quest: the thread ("main" or a quest ID) where its answer is given. */
@@ -264,7 +269,13 @@ export function ThreadTabRail({
     }
     // A question or answer still in Main (from before Home) is read in the leader log.
     if (mainState && (mainState.needsInput || mainState.blueNudge)) {
-      members.push({ ...mainState, threadKey: ALL_THREADS_KEY, title: "Leader log", stateLabel: "Main's messages" });
+      members.push({
+        ...mainState,
+        threadKey: ALL_THREADS_KEY,
+        title: "Leader log",
+        stateLabel: "Main's messages",
+        attentionOnly: true,
+      });
     }
     for (const question of questionOf.values()) {
       members.push({
@@ -278,6 +289,7 @@ export function ThreadTabRail({
         canClose: false,
         updatedAt: question.timestamp,
         onOpen: question.open,
+        attentionOnly: true,
       });
     }
     return members;

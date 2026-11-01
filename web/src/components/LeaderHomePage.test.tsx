@@ -78,8 +78,20 @@ describe("LeaderHomePage", () => {
     });
     render(<LeaderHomePage leaderId="l1" />);
     const sections = screen.getAllByTestId("thread-group-section");
-    expect(sections.map((section) => section.dataset.group)).toEqual(["needs-input", "new-results", "idle"]);
+    // The question and the unread answer are in threads still at work, so they are listed again
+    // under In progress (Jiayi, Oct 31: attention and activity are separate questions).
+    expect(sections.map((section) => section.dataset.group)).toEqual([
+      "needs-input",
+      "new-results",
+      "in-progress",
+      "idle",
+    ]);
     expect(sections[1]!.textContent).toContain("Quick question");
+    expect(
+      within(sections[2]!)
+        .getAllByTestId("thread-tab-list-row")
+        .map((row) => row.dataset.threadKey),
+    ).toEqual(["q-4", "topic:aaaa0001"]);
     fireEvent.click(within(sections[0]!).getByTestId("thread-tab-list-row-select"));
     expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-4");
   });
@@ -124,7 +136,10 @@ describe("LeaderHomePage", () => {
     });
     render(<LeaderHomePage leaderId="l1" />);
     await waitFor(() =>
-      expect(screen.getByTestId("thread-tab-list-row-line").textContent).toBe("Waiting on your pick of the grading."),
+      // q-4 is listed under Needs you and In progress, with its line in both.
+      expect(screen.getAllByTestId("thread-tab-list-row-line")[0]!.textContent).toBe(
+        "Waiting on your pick of the grading.",
+      ),
     );
     expect(homeLines).toHaveBeenCalledWith("l1", ["q-2", "q-3", "q-4"]);
     expect(screen.getByTestId("home-since-last-looked").textContent).toContain("1 question · 1 finished");

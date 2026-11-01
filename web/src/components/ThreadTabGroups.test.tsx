@@ -60,15 +60,46 @@ const groupTab = (group: string) =>
   screen.getAllByTestId("thread-tab-group-chip").find((chip) => chip.dataset.group === group)!;
 
 describe("groupThreads", () => {
-  it("files threads by question, unread result, then whether work goes on in them", () => {
-    // A question outranks an unread result, and a finished thread with an unread result stays
-    // under Unread until it is read.
+  it("files threads by what needs the user, and separately by whether work goes on in them", () => {
+    // Jiayi (Oct 31): two questions, so the groups may overlap. Needs you and Unread hold what
+    // needs the user (a question outranks an unread result); In progress and Idle split every
+    // thread by whether work goes on and never overlap each other, so In progress always shows
+    // everything running. q-11 (a question, still running) is under Needs you and In progress;
+    // q-12 (finished, unread) under Unread and Idle.
     const groups = groupThreads(TABS);
     const keys = (id: keyof typeof groups) => groups[id].map((item) => item.threadKey);
     expect(keys("needs-input")).toEqual(["q-11"]);
     expect(keys("new-results")).toEqual(["q-12"]);
-    expect(keys("in-progress")).toEqual(["q-10"]);
-    expect(keys("idle")).toEqual(["q-13", "q-14", "q-15"]);
+    expect(keys("in-progress")).toEqual(["q-10", "q-11"]);
+    expect(keys("idle")).toEqual(["q-12", "q-13", "q-14", "q-15"]);
+  });
+
+  it("keeps an unread running quest under Unread and In progress, and never in both In progress and Idle", () => {
+    // The report: 3 of 6 Unread rows were quests in Work, missing from In progress.
+    const threads = [
+      tab("q-40", { running: true, blueNudge: true }),
+      tab("q-41", { running: true, needsInput: true, blueNudge: true }),
+      tab("q-42", { running: false }),
+    ];
+    const groups = groupThreads(threads);
+    const keys = (id: keyof typeof groups) => groups[id].map((item) => item.threadKey);
+    expect(keys("needs-input")).toEqual(["q-41"]);
+    expect(keys("new-results")).toEqual(["q-40"]);
+    expect(keys("in-progress")).toEqual(["q-40", "q-41"]);
+    expect(keys("idle")).toEqual(["q-42"]);
+    // Counts are memberships, so they can add up to more than the threads.
+    expect(Object.values(groups).flat()).toHaveLength(5);
+  });
+
+  it("lists the leader log and other sessions' questions under their attention group only", () => {
+    // They are not threads with work of their own, so they are never In progress or Idle.
+    const groups = groupThreads([
+      tab("all", { questId: undefined, blueNudge: true, attentionOnly: true }),
+      tab("q-43", { needsInput: true, attentionOnly: true }),
+    ]);
+    expect(groups["new-results"].map((item) => item.threadKey)).toEqual(["all"]);
+    expect(groups["needs-input"].map((item) => item.threadKey)).toEqual(["q-43"]);
+    expect([...groups["in-progress"], ...groups.idle]).toEqual([]);
   });
 
   it("puts only threads with work going on under In progress; idle ones go to Idle", () => {
@@ -150,7 +181,7 @@ describe("ThreadGroupBar", () => {
     expect(chips.map((chip) => [chip.dataset.group, chip.dataset.count])).toEqual([
       ["new-results", "1"],
       ["in-progress", "1"],
-      ["idle", "3"],
+      ["idle", "4"],
     ]);
     expect(chips.map((chip) => chip.dataset.selected)).toEqual(["false", "true", "false"]);
   });
@@ -176,6 +207,16 @@ describe("ThreadGroupBar", () => {
     expect(mark.getAttribute("style")).toBeNull();
   });
 
+  it("marks a thread that needs the user with its amber or blue dot in In progress too", () => {
+    // In the activity groups a thread keeps the colour of what it needs from the user.
+    renderBar({ threads: [tab("q-50", { running: true, blueNudge: true }), tab("q-51", { running: true })] });
+    fireEvent.contextMenu(groupTab("in-progress"), { clientX: 10, clientY: 10 });
+    const marks = within(screen.getByTestId("thread-tab-group-list"))
+      .getAllByTestId("thread-tab-list-row-status")
+      .map((mark) => mark.dataset.group);
+    expect(marks).toEqual(["new-results", "in-progress"]);
+  });
+
   it("opens a larger group's list without switching, and switches from the list", () => {
     const { onSelect } = renderBar();
     fireEvent.click(groupTab("idle"));
@@ -185,8 +226,8 @@ describe("ThreadGroupBar", () => {
       within(list)
         .getAllByTestId("thread-tab-list-row")
         .map((row) => row.dataset.threadKey),
-    ).toEqual(["q-13", "q-14", "q-15"]);
-    fireEvent.click(within(list).getAllByTestId("thread-tab-list-row-select")[1]!);
+    ).toEqual(["q-12", "q-13", "q-14", "q-15"]);
+    fireEvent.click(within(list).getAllByTestId("thread-tab-list-row-select")[2]!);
     expect(onSelect).toHaveBeenLastCalledWith("q-14");
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
   });
@@ -220,7 +261,7 @@ describe("ThreadGroupBar", () => {
     expect(onSelect).not.toHaveBeenCalled();
     fireEvent.pointerDown(groupTab("idle"), { pointerType: "mouse" });
     fireEvent.click(groupTab("idle"));
-    expect(onSelect).toHaveBeenCalledWith("q-13");
+    expect(onSelect).toHaveBeenCalledWith("q-12");
     expect(screen.queryByTestId("thread-tab-group-list")).toBeNull();
   });
 
@@ -302,8 +343,9 @@ describe("ThreadGroupBar", () => {
         .getAllByRole("tab")
         .filter((item) => item.dataset.activeOutput === "true")
         .map((item) => item.dataset.group ?? "home");
+    // Writing is work going on: q-11 is under Needs you and In progress, and In progress spins.
     renderBar({ activeOutputThreadKey: "q-11" });
-    expect(spinning()).toEqual(["needs-input"]);
+    expect(spinning()).toEqual(["in-progress"]);
     cleanup();
     renderBar({ activeOutputThreadKey: "q-11", currentThreadKey: "q-11" });
     expect(spinning()).toEqual([]);
@@ -374,6 +416,17 @@ describe("ThreadGroupBar group move animation", () => {
     expect(played).toEqual(["idle"]);
   });
 
+  it("stays still while the thread on screen sits in two groups", () => {
+    // A thread with a question that is still running is under Needs you and In progress; the bar
+    // selects Needs you for it, and re-renders must not read that as a move.
+    const played = trackAnimations();
+    const asking = [tab("q-10", { needsInput: true }), tab("q-13", { completed: true })];
+    const { rerender } = render(<ThreadGroupBar {...props(asking, "q-10")} />);
+    rerender(<ThreadGroupBar {...props(asking, "q-10")} />);
+    rerender(<ThreadGroupBar {...props(asking, "q-10")} />);
+    expect(played).toEqual([]);
+  });
+
   it("stays still when the user opens a thread that stays in its group, or prefers reduced motion", () => {
     const played = trackAnimations();
     const { rerender } = render(<ThreadGroupBar {...props(working, "q-10")} />);
@@ -407,7 +460,7 @@ describe("ThreadGroupSections", () => {
     const idle = sections[3]!;
     expect(within(idle).getAllByTestId("thread-tab-list-row")).toHaveLength(2);
     fireEvent.click(within(idle).getByTestId("thread-group-more"));
-    expect(within(idle).getAllByTestId("thread-tab-list-row")).toHaveLength(3);
+    expect(within(idle).getAllByTestId("thread-tab-list-row")).toHaveLength(4);
     fireEvent.click(within(sections[0]!).getByTestId("thread-tab-list-row-select"));
     expect(onSelect).toHaveBeenCalledWith("q-11");
   });

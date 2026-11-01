@@ -1,5 +1,7 @@
 /**
- * A leader's threads, grouped by what the user looks for: Needs you, Unread, In progress and Idle. Every thread is a member: a quest's, and the leader's other threads alike. The status row
+ * A leader's threads, grouped by what the user looks for: Needs you and Unread for what needs them,
+ * In progress and Idle for whether work goes on, so a thread can be in two groups. Every thread is a
+ * member: a quest's, and the leader's other threads alike. The status row
  * under the top bar (`ThreadGroupBar`) is the leader's navigation; its Home lists the same groups
  * at full width (`ThreadGroupSections`). Topics are tags on a thread, not places.
  */
@@ -35,8 +37,7 @@ export type ThreadGroupId = "needs-input" | "new-results" | "idle" | "in-progres
 
 /**
  * Left to right, Jiayi's order: what needs the user (questions, then unread results), then work
- * going on now, then the large, quiet Idle group (nothing running, nothing unread; finished quests
- * included).
+ * going on now, then the large, quiet Idle group (nothing running; finished quests included).
  */
 export const THREAD_GROUP_ORDER: readonly ThreadGroupId[] = ["needs-input", "new-results", "in-progress", "idle"];
 
@@ -56,28 +57,44 @@ const WIDE_BAR_PX = 672;
 const WIDE_LIST_WIDTH_PX = 448;
 
 /**
- * Splits threads by what the user looks for. A question outranks an unread result; without either,
- * a thread is In progress only while work goes on in it (`isRunning`), else Idle. Within a group,
- * the thread that entered it or was chatted in most recently comes first.
+ * Splits threads by two questions (Jiayi, Oct 31): does it need the user (Needs you for a question,
+ * else Unread for an unread result), and is work going on in it (In progress while `isRunning`,
+ * else Idle). Every thread is in exactly one of In progress and Idle, so In progress always shows
+ * everything running; a thread that needs the user is in its attention group as well, so an unread
+ * running quest is under Unread and In progress. A member that is not a thread with work of its
+ * own (`attentionOnly`: the leader log, a question about a quest without a tab) is in its attention
+ * group only. Within a group, the thread that entered it or was
+ * chatted in most recently comes first. The groups come in `THREAD_GROUP_ORDER`.
  */
 export function groupThreads(threads: readonly PrimaryThreadChip[]): Record<ThreadGroupId, PrimaryThreadChip[]> {
-  const groups: Record<ThreadGroupId, PrimaryThreadChip[]> = {
-    "needs-input": [],
-    "new-results": [],
-    idle: [],
-    "in-progress": [],
-  };
-  for (const thread of threads) groups[threadGroupOf(thread)].push(thread);
+  const groups = Object.fromEntries(THREAD_GROUP_ORDER.map((id) => [id, [] as PrimaryThreadChip[]])) as Record<
+    ThreadGroupId,
+    PrimaryThreadChip[]
+  >;
+  for (const thread of threads) {
+    const attention = threadGroupOf(thread);
+    if (attention === "needs-input" || attention === "new-results") groups[attention].push(thread);
+    if (!thread.attentionOnly) groups[activityGroupOf(thread)].push(thread);
+  }
   for (const group of Object.values(groups)) {
     group.sort((left, right) => lastActivityAt(right) - lastActivityAt(left));
   }
   return groups;
 }
 
-/** The group a thread is in: a question outranks an unread result, then work going on, else Idle. */
+/**
+ * A thread's status, the colour of its dot wherever it is listed: a question outranks an unread
+ * result, then work going on, else Idle. In In progress and Idle a thread that needs the user keeps
+ * its amber or blue dot.
+ */
 export function threadGroupOf(thread: PrimaryThreadChip): ThreadGroupId {
   if (thread.needsInput) return "needs-input";
   if (thread.blueNudge) return "new-results";
+  return activityGroupOf(thread);
+}
+
+/** Whether work goes on in a thread: In progress or Idle. */
+export function activityGroupOf(thread: PrimaryThreadChip): "in-progress" | "idle" {
   return isRunning(thread) ? "in-progress" : "idle";
 }
 
@@ -183,14 +200,19 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
   const groups = groupThreads(threads.map((tab) => readOnScreen(tab, currentKey)));
   // The leader log is reached from Home, so Home is the selected tab there too.
   const onHome = currentKey === MAIN_THREAD_KEY || currentKey === ALL_THREADS_KEY;
-  const groupOf = (threadKey: string) =>
-    THREAD_GROUP_ORDER.find((id) => groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === threadKey)) ?? null;
+  // A thread can be in two groups; the first in order (its attention group) holds it here.
+  const groupOf = (threadKey: string, among: readonly ThreadGroupId[] = THREAD_GROUP_ORDER) =>
+    among.find((id) => groups[id].some((tab) => normalizeThreadKey(tab.threadKey) === threadKey)) ?? null;
   // Which tab spins: only one, and none for writing already on screen (the feed's "Active here"
   // shows it). The writing is on screen in its own thread and in the leader log.
   const writingKey = rows.activeOutputThreadKey ? normalizeThreadKey(rows.activeOutputThreadKey) : null;
   const writingOnScreen = !!writingKey && (writingKey === currentKey || currentKey === ALL_THREADS_KEY);
   const spinningTab: "home" | ThreadGroupId | null =
-    !writingKey || writingOnScreen ? null : writingKey === MAIN_THREAD_KEY ? "home" : groupOf(writingKey);
+    !writingKey || writingOnScreen
+      ? null
+      : writingKey === MAIN_THREAD_KEY
+        ? "home"
+        : groupOf(writingKey, ["in-progress", "idle"]);
   const currentGroup = onHome ? null : groupOf(currentKey);
   const barRef = useRef<HTMLDivElement | null>(null);
   useGroupMoveAnimation(barRef, currentKey, currentGroup, groups);

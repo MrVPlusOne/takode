@@ -195,7 +195,8 @@ describe("WorkBoardBar tab groups", () => {
 
   it("files every open tab under its group and selects a tab from a group's list", () => {
     // q-3 waits for input and the leader is writing in q-4, so Needs you holds q-3 and
-    // the in-progress group carries the writing marker.
+    // the in-progress group carries the writing marker. q-3's quest still runs, so In progress
+    // lists it too (Jiayi, Oct 31: what needs the user and what is running are separate questions).
     const onSelectThread = vi.fn();
     resetStore({
       sessionStatus: new Map([["s1", "running"]]),
@@ -216,12 +217,18 @@ describe("WorkBoardBar tab groups", () => {
     );
 
     expect(groupChip("needs-input")).toHaveAttribute("data-count", "1");
-    expect(groupChip("in-progress")).toHaveAttribute("data-count", "4");
+    expect(groupChip("in-progress")).toHaveAttribute("data-count", "5");
     expect(groupChip("in-progress")).toHaveAttribute("data-active-output", "true");
 
     fireEvent.click(groupChip("in-progress"));
     const rows = within(screen.getByTestId("thread-tab-group-list")).getAllByTestId("thread-tab-list-row");
-    expect(rows.map((candidate) => candidate.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2", "q-4", "q-5"]);
+    expect(rows.map((candidate) => candidate.getAttribute("data-thread-key"))).toEqual([
+      "q-3",
+      "q-1",
+      "q-2",
+      "q-4",
+      "q-5",
+    ]);
     expect(row(rows, "q-4")).toHaveAttribute("data-active-output", "true");
 
     fireEvent.click(within(row(rows, "q-4")).getByTestId("thread-tab-list-row-select"));

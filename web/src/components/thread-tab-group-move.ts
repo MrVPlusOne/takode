@@ -21,6 +21,7 @@ export function useGroupMoveAnimation(
   barRef: RefObject<HTMLDivElement | null>,
   currentKey: string,
   currentGroup: string | null,
+  /** The groups in the bar's order; a tab may be in more than one. */
   groups: Readonly<Record<string, ReadonlyArray<{ threadKey: string }>>>,
 ): void {
   // Each render records which group held every tab and where every group's tab sits, so a
@@ -34,8 +35,12 @@ export function useGroupMoveAnimation(
       if (chip.dataset.group) lefts.set(chip.dataset.group, chip.getBoundingClientRect().left);
     }
     const groupOf = new Map<string, string>();
+    // A tab in two groups counts as in the first, the one the bar selects for it.
     for (const [group, tabs] of Object.entries(groups)) {
-      for (const tab of tabs) groupOf.set(normalizeThreadKey(tab.threadKey), group);
+      for (const tab of tabs) {
+        const key = normalizeThreadKey(tab.threadKey);
+        if (!groupOf.has(key)) groupOf.set(key, group);
+      }
     }
     const before = previous.current;
     previous.current = { groupOf, lefts };

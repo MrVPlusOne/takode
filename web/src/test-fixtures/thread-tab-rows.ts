@@ -24,13 +24,23 @@ const LISTED_ID = "listed-thread-tabs";
 afterEach(() => document.querySelector(`[data-testid="${LISTED_ID}"]`)?.remove());
 
 /**
- * The leader's threads, group by group in the row's order and each group's own order. Only one group's list can be open, so copies of every group's rows are kept in the
+ * The leader's threads, group by group in the row's order and each group's own order, each once. Only one group's list can be open, so copies of every group's rows are kept in the
  * document until `closeAllThreadTabs`: their text and attributes can be queried, but they don't
  * act; use `listedThreadTab` to click one (its group's list stays open).
  */
 export function listedThreadTabs(container?: HTMLElement): HTMLElement[] {
+  // A thread can be in two groups (what it needs from the user, and whether work goes on); it is
+  // listed once, at its first group.
+  const seen = new Set<string>();
   const rows = groupChips(container).flatMap((chip) =>
-    openGroupRows(chip).map((row) => row.cloneNode(true) as HTMLElement),
+    openGroupRows(chip)
+      .filter((row) => {
+        const key = row.dataset.threadKey ?? "";
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((row) => row.cloneNode(true) as HTMLElement),
   );
   closeAllThreadTabs();
   const holder = document.createElement("div");
