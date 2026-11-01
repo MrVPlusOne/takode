@@ -67,17 +67,32 @@ export function groupThreads(threads: readonly PrimaryThreadChip[]): Record<Thre
     idle: [],
     "in-progress": [],
   };
-  for (const thread of threads) {
-    if (thread.needsInput) groups["needs-input"].push(thread);
-    else if (thread.blueNudge) groups["new-results"].push(thread);
-    else if (isRunning(thread)) groups["in-progress"].push(thread);
-    else groups.idle.push(thread);
-  }
+  for (const thread of threads) groups[threadGroupOf(thread)].push(thread);
   for (const group of Object.values(groups)) {
     group.sort((left, right) => lastActivityAt(right) - lastActivityAt(left));
   }
   return groups;
 }
+
+/** The group a thread is in: a question outranks an unread result, then work going on, else Idle. */
+export function threadGroupOf(thread: PrimaryThreadChip): ThreadGroupId {
+  if (thread.needsInput) return "needs-input";
+  if (thread.blueNudge) return "new-results";
+  return isRunning(thread) ? "in-progress" : "idle";
+}
+
+/**
+ * The one set of status dot colors, one per group and the same as the group's tab: amber needs you,
+ * blue unread, green in progress, grey idle. Every status dot of a thread (the status row, Home, the side column, the sessions
+ * panel's Threads view) uses it. Jiayi (Oct 31): a finished quest's row showed Questmaster's purple
+ * "done" color, which means nothing here; a quest's phase is named in words, not by its dot.
+ */
+export const THREAD_GROUP_DOT: Record<ThreadGroupId, string> = {
+  "needs-input": "bg-cc-attention",
+  "new-results": "bg-cc-info",
+  "in-progress": "bg-cc-success",
+  idle: "bg-cc-muted/60",
+};
 
 /** Work goes on in a thread now: as its member says, else (no word) an unfinished quest. */
 export function isRunning(thread: PrimaryThreadChip): boolean {
@@ -127,11 +142,6 @@ export function plainThreadChip(
 
 function isHome(tab: PrimaryThreadChip): boolean {
   return normalizeThreadKey(tab.threadKey) === MAIN_THREAD_KEY;
-}
-
-function tabDotColor(tab: PrimaryThreadChip): string {
-  if (isHome(tab)) return "var(--color-cc-fg)";
-  return tab.accentColor ?? tab.titleColor ?? "var(--color-cc-muted)";
 }
 
 /** When a thread last saw activity: a chat, a question or result, or a board change. */
@@ -477,8 +487,9 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
         data-testid="thread-tab-list-row-select"
       >
         <span
-          className="h-8 w-1 shrink-0 rounded-full"
-          style={{ backgroundColor: tabDotColor(tab), opacity: quiet ? 0.4 : 1 }}
+          className={`h-8 w-1 shrink-0 rounded-full ${THREAD_GROUP_DOT[threadGroupOf(tab)]}`}
+          data-testid="thread-tab-list-row-status"
+          data-group={threadGroupOf(tab)}
         />
         <span className="flex min-w-0 flex-1 flex-col leading-tight">
           <span className={`flex min-w-0 items-center gap-1.5 text-[14px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
@@ -532,20 +543,14 @@ function isActiveOutput(tab: PrimaryThreadChip, activeOutputThreadKey: string | 
   return !!activeOutputThreadKey && normalizeThreadKey(tab.threadKey) === normalizeThreadKey(activeOutputThreadKey);
 }
 
-/** The phase colors of the first few threads: the color the user scans for. */
-export function PhaseDots({ tabs }: { tabs: readonly PrimaryThreadChip[] }) {
-  if (tabs.length === 0) return null;
+/** The In progress group's dot: its status color, like every other thread status dot. */
+function InProgressDot() {
   return (
-    <span className="flex shrink-0 gap-0.5" aria-hidden="true">
-      {tabs.slice(0, 4).map((tab) => (
-        <span
-          key={tab.threadKey}
-          className="h-1.5 w-1.5 rounded-full"
-          style={{ backgroundColor: tabDotColor(tab) }}
-          data-testid="thread-tab-group-dot"
-        />
-      ))}
-    </span>
+    <span
+      className={`h-1.5 w-1.5 shrink-0 rounded-full ${THREAD_GROUP_DOT["in-progress"]}`}
+      aria-hidden="true"
+      data-testid="thread-tab-group-dot"
+    />
   );
 }
 
@@ -660,7 +665,7 @@ function GroupContent({ id, tabs }: { id: ThreadGroupId; tabs: readonly PrimaryT
   }
   return (
     <>
-      <PhaseDots tabs={tabs} />
+      {tabs.length > 0 && <InProgressDot />}
       <span>
         <WideLabel id={id} />
         {tabs.length}

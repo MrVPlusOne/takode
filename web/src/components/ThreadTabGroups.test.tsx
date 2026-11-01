@@ -155,6 +155,27 @@ describe("ThreadGroupBar", () => {
     expect(chips.map((chip) => chip.dataset.selected)).toEqual(["false", "true", "false"]);
   });
 
+  it("colors every thread's status mark by its group alone, never by its phase", () => {
+    // Jiayi (Oct 31): status colors are the four groups' only. A quest in Memory (a purple phase)
+    // or a finished one marks its row with its group's color; the In progress tab shows that
+    // group's green rather than its threads' phase colors.
+    renderBar({
+      threads: [
+        tab("q-20", { accentColor: "#8b5cf6", stateLabel: "Memory", running: true }),
+        tab("q-21", { completed: true, accentColor: "#8b5cf6" }),
+        tab("q-22", { needsInput: true, accentColor: "#8b5cf6" }),
+      ],
+    });
+    const dot = within(groupTab("in-progress")).getByTestId("thread-tab-group-dot");
+    expect(dot.className).toContain("bg-cc-success");
+    expect(dot.getAttribute("style")).toBeNull();
+    fireEvent.contextMenu(groupTab("idle"), { clientX: 10, clientY: 10 });
+    const mark = within(screen.getByTestId("thread-tab-list-row")).getByTestId("thread-tab-list-row-status");
+    expect(mark.dataset.group).toBe("idle");
+    expect(mark.className).toContain("bg-cc-muted/60");
+    expect(mark.getAttribute("style")).toBeNull();
+  });
+
   it("opens a larger group's list without switching, and switches from the list", () => {
     const { onSelect } = renderBar();
     fireEvent.click(groupTab("idle"));

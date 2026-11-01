@@ -458,10 +458,10 @@ describe("SideColumn", () => {
         openInSide("l1", { kind: "conversation", threadKey: "q-2" });
         openInSide("l1", { kind: "conversation", threadKey: "q-1" });
       });
-      const tones = rows()
+      const groups = rows()
         .slice(0, 3)
-        .map((row) => within(row).getByTestId("side-item-dot").dataset.tone);
-      expect(tones).toEqual(["question", "unread", "none"]);
+        .map((row) => within(row).getByTestId("side-item-dot").dataset.group);
+      expect(groups).toEqual(["needs-input", "new-results", "idle"]);
       // The amber bell that marks questions elsewhere, not a text label (Jiayi, Oct 31).
       expect(within(rows()[0]!).getByTestId("side-item-questions").getAttribute("aria-label")).toBe(
         "A question for you",
@@ -488,13 +488,64 @@ describe("SideColumn", () => {
         openInSide("l1", { kind: "conversation", threadKey: "q-8" });
         openInSide("l1", { kind: "conversation", threadKey: "q-7" });
       });
-      const tones = rows()
+      const groups = rows()
         .slice(0, 2)
-        .map((row) => within(row).getByTestId("side-item-dot").dataset.tone);
-      expect(tones).toEqual(["running", "none"]);
+        .map((row) => within(row).getByTestId("side-item-dot").dataset.group);
+      expect(groups).toEqual(["in-progress", "idle"]);
     } finally {
       useStore.setState({ activeTurnRoutes: new Map(), sessionStatus: new Map() } as never);
     }
+  });
+
+  it("colors a quest's dot only by its status group, never by its Questmaster status, and links its number", () => {
+    // Jiayi (Oct 31): a finished quest's row showed a purple dot, Questmaster's "done" color. Status
+    // dots use the four group colors only; a done quest, or one in Memory, with nothing waiting is Idle.
+    useStore.setState({
+      quests: [
+        { questId: "q-5", title: "Finished", status: "done", version: 1 },
+        { questId: "q-6", title: "In Memory", status: "in_progress", version: 1 },
+      ],
+    } as never);
+    try {
+      render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+      act(() => {
+        openInSide("l1", { kind: "quest", questId: "q-6" });
+        openInSide("l1", { kind: "conversation", threadKey: "q-5" });
+      });
+      for (const row of rows().slice(0, 2)) {
+        const dot = within(row).getByTestId("side-item-dot");
+        expect(dot.dataset.group).toBe("idle");
+        expect(dot.className).toContain("bg-cc-muted/60");
+        expect(dot.className).not.toContain("status-done");
+      }
+      // The quest number is a quest link (hover preview, click opens it) and doesn't fold the row.
+      const link = within(rows()[0]!).getByRole("link", { name: "q-5" });
+      expect(link.getAttribute("href")).toContain("q-5");
+      fireEvent.click(link);
+      expect(rows()[0]!.dataset.open).toBe("true");
+      expect(within(rows()[1]!).getByRole("link", { name: "q-6" })).toBeTruthy();
+    } finally {
+      useStore.setState({ quests: [] } as never);
+    }
+  });
+
+  it("scrolls the whole column from the strip on its left edge, on desktop only", () => {
+    // Jiayi (Oct 31): the column scrolls and so does each conversation in it, and a wheel over a
+    // conversation moves only that conversation. The strip moves the column, whatever is beside it.
+    const view = render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    const scroller = screen.getByTestId("side-scroll");
+    const scrollBy = vi.fn();
+    Object.defineProperty(scroller, "scrollBy", { value: scrollBy });
+    Object.defineProperty(scroller, "clientHeight", { value: 400 });
+    const strip = screen.getByTestId("side-scroll-strip");
+    fireEvent.wheel(strip, { deltaY: 120 });
+    fireEvent.wheel(strip, { deltaY: 3, deltaMode: 1 });
+    fireEvent.wheel(strip, { deltaY: -1, deltaMode: 2 });
+    expect(scrollBy.mock.calls.map(([options]) => options.top)).toEqual([120, 48, -400]);
+    view.unmount();
+    useTopicPanel.setState({ sheets: ["l1"] });
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="sheet" />);
+    expect(screen.queryByTestId("side-scroll-strip")).toBeNull();
   });
 
   it("collapses on desktop and closes on a phone", () => {

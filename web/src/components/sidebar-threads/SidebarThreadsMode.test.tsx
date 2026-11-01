@@ -157,6 +157,8 @@ describe("SidebarThreadsMode", () => {
     expect(rows[0]!.dataset.threadKey).toBe("q-1");
     expect(within(rows[0]!).getByTestId("threads-mode-topic").textContent).toBe("Library");
     expect(within(rows[0]!).getByTestId("status-count-permission").textContent).toBe("1");
+    // A quest's dot has its status group's color, never its phase's (Jiayi, Oct 31).
+    expect(within(rows[0]!).getByTestId("threads-mode-row-dot").className).toContain("bg-cc-attention");
     fireEvent.click(rows[0]!);
     expect(navigateToSessionThread).toHaveBeenCalledWith("takode", "q-1");
     expect(onOpened).toHaveBeenCalled();

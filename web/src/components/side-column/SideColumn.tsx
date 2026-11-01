@@ -1,4 +1,4 @@
-import { Activity, useEffect, useRef, useState, type ReactNode } from "react";
+import { Activity, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { setSideViewsOf } from "../../utils/side-views.js";
 import { holdSessionConnection } from "../../ws.js";
 import { useRememberedFolds } from "../../utils/remembered-folds.js";
@@ -29,7 +29,8 @@ import { CollapseIcon, NewThreadIcon, TopicIcon } from "../library/library-icons
 import { TopicSidePanel } from "../library/TopicSidePanel.js";
 import { ThreadOriginName } from "./thread-names.js";
 import { useQuestRecord } from "../QuestSummaryCard.js";
-import { getQuestStatusTheme } from "../../utils/quest-status-theme.js";
+import { QuestInlineLink } from "../QuestInlineLink.js";
+import { THREAD_GROUP_DOT, type ThreadGroupId } from "../ThreadTabGroups.js";
 import { SideConversation } from "./SideConversation.js";
 import { NewSideChat } from "./NewSideChat.js";
 import { SideChatLeaderMenu, useLeaderCard } from "./SideChatLeaders.js";
@@ -228,10 +229,41 @@ export function SideColumn({
           {variant === "sheet" ? "✕" : <CollapseIcon className="h-4 w-4" />}
         </button>
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
-        {items.map(itemSection)}
-        {itemSection(null)}
+      <div className="flex min-h-0 flex-1">
+        {variant === "docked" && <ColumnScrollStrip scrollRef={scrollRef} />}
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
+          {items.map(itemSection)}
+          {itemSection(null)}
+        </div>
       </div>
+    </div>
+  );
+}
+
+/** Lines one wheel "line" step moves, in pixels, for wheel events counted in lines. */
+const WHEEL_LINE_PX = 16;
+
+/**
+ * A narrow strip along the column's left edge that scrolls the whole column. The column scrolls and
+ * so does each conversation in it, and a wheel over a conversation scrolls that conversation; over
+ * this strip it scrolls the column (Jiayi, Oct 31). Desktop only: a phone's sheet scrolls by touch.
+ */
+function ColumnScrollStrip({ scrollRef }: { scrollRef: RefObject<HTMLDivElement | null> }) {
+  return (
+    <div
+      className="group/strip flex w-2.5 shrink-0 items-center justify-center border-r border-cc-border/40 transition-colors hover:bg-cc-hover/60"
+      title="Scroll here to move the whole side column"
+      aria-hidden="true"
+      data-testid="side-scroll-strip"
+      onWheel={(event) => {
+        const scroller = scrollRef.current;
+        if (!scroller) return;
+        const unit = event.deltaMode === 1 ? WHEEL_LINE_PX : event.deltaMode === 2 ? scroller.clientHeight : 1;
+        scroller.scrollBy({ top: event.deltaY * unit });
+      }}
+    >
+      {/* A faint grip, brighter on hover, so the strip can be found without drawing the eye. */}
+      <div className="h-8 w-0.5 rounded-full bg-cc-muted/25 transition-colors group-hover/strip:bg-cc-muted/60" />
     </div>
   );
 }
@@ -250,8 +282,10 @@ function SideItemRow({
 }) {
   // A side chat with another leader reads as that leader's: its names, unread answers and portrait.
   const owner = item ? sideItemLeader(leaderId, item) : leaderId;
-  const unread = useOpenIn(owner, item?.kind === "conversation" ? item.threadKey : null, "review");
-  const questions = useOpenIn(owner, item?.kind === "conversation" ? item.threadKey : null, "needs-input");
+  // The thread whose status the row shows: its conversation, or the quest whose details it shows.
+  const statusKey = item?.kind === "conversation" ? item.threadKey : item?.kind === "quest" ? item.questId : null;
+  const unread = useOpenIn(owner, statusKey, "review");
+  const questions = useOpenIn(owner, statusKey, "needs-input");
   useEffect(() => loadLeaderNamesOnce(owner), [owner]);
   // A thread whose whole request became a quest's work, or that joined an earlier one, is that
   // conversation now: the pane turns into it in place, once its messages are here to show.
@@ -263,12 +297,11 @@ function SideItemRow({
     if (item && becameQuest)
       replaceSideItem(leaderId, item.id, { kind: "conversation", threadKey: becameQuest, leaderId: owner });
   }, [becameQuest, item, leaderId, owner]);
-  const running = useStore((state) =>
-    item?.kind === "conversation" ? isLeaderThreadRunning(state, owner, item.threadKey) : false,
-  );
-  // The status the row's dot shows, by the colors and order of the status groups: a question for
-  // the user is amber, unread answers blue, a running thread green.
-  const tone: SideTone = questions > 0 ? "question" : unread > 0 ? "unread" : running ? "running" : null;
+  const running = useStore((state) => (statusKey ? isLeaderThreadRunning(state, owner, statusKey) : false));
+  // The row's status group, by the status row's rule: a question for the user, then unread
+  // answers, then work going on, else Idle. Its dot has that group's color and no other.
+  const group: ThreadGroupId =
+    questions > 0 ? "needs-input" : unread > 0 ? "new-results" : running ? "in-progress" : "idle";
   return (
     <div
       className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-1.5 text-[13px] ${
@@ -277,14 +310,21 @@ function SideItemRow({
       data-testid="side-item-row"
       data-open={open}
     >
-      <button
-        type="button"
+      {/* Not a <button>: the title holds a quest link, and a link may not sit inside a button. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onOpen}
-        className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+          event.preventDefault();
+          onOpen();
+        }}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left"
         aria-expanded={open}
       >
         {owner === leaderId ? (
-          <SideItemIcon leaderId={leaderId} item={item} tone={tone} />
+          <SideItemIcon leaderId={leaderId} item={item} group={group} />
         ) : (
           <LeaderIcon leaderId={owner} />
         )}
@@ -308,7 +348,7 @@ function SideItemRow({
             {unread} new
           </span>
         )}
-      </button>
+      </div>
       <ItemActions leaderId={leaderId} item={item} />
     </div>
   );
@@ -434,7 +474,7 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
     case "conversation":
       return /^q-\d+$/i.test(item.threadKey) ? (
         <>
-          <span className="font-mono-code text-[12px] text-cc-muted">{item.threadKey.toLowerCase()}</span>{" "}
+          <SideQuestNumber questId={item.threadKey.toLowerCase()} />{" "}
           <ThreadOriginName leaderId={leaderId} threadKey={item.threadKey} />
         </>
       ) : (
@@ -460,8 +500,25 @@ function SideQuestTitle({ questId }: { questId: string }) {
   const quest = useQuestRecord(questId);
   return (
     <>
-      <span className="font-mono-code text-[12px] text-cc-muted">{questId}</span> {quest?.title ?? ""}
+      <SideQuestNumber questId={questId} /> {quest?.title ?? ""}
     </>
+  );
+}
+
+/**
+ * A row's quest number as a quest link, like the main view's strip: hovering previews the quest, a
+ * click opens it, and the open-in-side click shows its details in this column. The click does not
+ * also fold the row.
+ */
+function SideQuestNumber({ questId }: { questId: string }) {
+  return (
+    <QuestInlineLink
+      questId={questId}
+      className="cc-quest-link font-mono-code text-[12px] hover:underline"
+      stopPropagation
+    >
+      {questId}
+    </QuestInlineLink>
   );
 }
 
@@ -475,35 +532,34 @@ function SideSessionTitle({ sessionId }: { sessionId: string }) {
   );
 }
 
-/** What a row's status dot shows: a question for the user, unread answers, running work, or none. */
-type SideTone = "question" | "unread" | "running" | null;
-
-const TONE_DOT: Record<Exclude<SideTone, null>, string> = {
-  question: "bg-[var(--color-cc-phase-accent-amber)]",
-  unread: "bg-blue-500",
-  running: "bg-emerald-500",
-};
-
-function SideItemIcon({ leaderId, item, tone = null }: { leaderId: string; item: SideItem | null; tone?: SideTone }) {
+function SideItemIcon({
+  leaderId,
+  item,
+  group = "idle",
+}: {
+  leaderId: string;
+  item: SideItem | null;
+  group?: ThreadGroupId;
+}) {
   const key = item?.kind === "conversation" ? item.threadKey.toLowerCase() : "";
   const thread = useKnownThreadOfKey(leaderId, isTopicViewKey(key) ? key : "");
-  const quest = useQuestRecord(/^q-\d+$/.test(key) ? key : null);
   const className = "h-3.5 w-3.5 shrink-0";
   if (!item || item.kind === "topic") return <TopicIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "artifact") return <LibraryIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "session") return <SessionIcon className={`${className} text-cc-muted`} />;
-  if (item.kind === "quest") return <SideQuestIcon questId={item.questId} />;
-  if (item.kind === "new-chat" || (thread && !tone))
+  if (item.kind === "new-chat" || (thread && group === "idle"))
     return <NewThreadIcon className={`${className} text-cc-primary`} />;
   if (isTopicViewKey(key) && !thread) return <TopicIcon className={`${className} text-cc-primary`} />;
-  // A quest, or a thread with something to show: what waits on the user there or that it runs,
-  // else a quest's status color as in the quest lists. An unfinished quest that isn't running is
-  // grey, as in the Idle group; a thread with nothing to show keeps its icon.
-  const status = quest?.status ?? "in_progress";
-  const dot = tone ? TONE_DOT[tone] : status === "in_progress" ? "bg-cc-muted/60" : getQuestStatusTheme(status).dot;
+  // A quest (its conversation or its details), or a thread with something to show: its status
+  // group's dot, the same rule and colors as the status row's. A quest's lifecycle (done, Memory)
+  // is not a status here; a finished quest with nothing waiting is Idle.
   return (
     <span className={`${className} inline-flex items-center justify-center`}>
-      <span className={`h-2 w-2 rounded-full ${dot}`} data-testid="side-item-dot" data-tone={tone ?? "none"} />
+      <span
+        className={`h-2 w-2 rounded-full ${THREAD_GROUP_DOT[group]}`}
+        data-testid="side-item-dot"
+        data-group={group}
+      />
     </span>
   );
 }
@@ -519,16 +575,6 @@ function useOpenIn(leaderId: string, threadKey: string | null, category: "review
             resolveNotificationOwnerThreadKey(notification) === normalizeThreadKey(threadKey),
         ).length
       : 0,
-  );
-}
-
-/** A quest's status color, as in the quest lists. */
-function SideQuestIcon({ questId }: { questId: string }) {
-  const quest = useQuestRecord(questId);
-  return (
-    <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-      <span className={`h-2 w-2 rounded-full ${getQuestStatusTheme(quest?.status ?? "in_progress").dot}`} />
-    </span>
   );
 }
 

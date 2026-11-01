@@ -23,7 +23,7 @@ import { questOf } from "../library/topic-questions.js";
 import { listedSpaces, useAnchoredPopover } from "../RecentSessionList.js";
 import { StatusCountDots } from "../SessionItem.js";
 import { StackedPanes } from "../StackedPanes.js";
-import { THREAD_GROUP_ORDER, type ThreadGroupId } from "../ThreadTabGroups.js";
+import { THREAD_GROUP_DOT, THREAD_GROUP_ORDER, type ThreadGroupId } from "../ThreadTabGroups.js";
 
 /**
  * The sessions panel's Threads view: every leader's threads (quest threads and its other threads, as
@@ -409,8 +409,8 @@ function ThreadRowButton({
         {row.questId ? (
           <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
             <span
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: row.accent ?? "var(--color-cc-muted)", opacity: row.accent ? 1 : 0.5 }}
+              className={`h-2 w-2 rounded-full ${THREAD_GROUP_DOT[row.group]}`}
+              data-testid="threads-mode-row-dot"
             />
           </span>
         ) : (
