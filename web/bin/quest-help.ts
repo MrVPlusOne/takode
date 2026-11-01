@@ -14,7 +14,7 @@ Commands:
   commit-links <id> --delivery <id> [--range <base-sha>..<recorded-tip-sha>] [--commits <sha,...>] [--json]  Author fixed delivery or verified range chips
   history <id> [--json]                                  Show quest history
   tags   [--json]                                        List all existing tags with counts
-  create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] [--source-message <uN>] [--image <path>] [--images "p1,p2"] [--json]
+  create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] [--source-message <uN> [--handoff]] [--image <path>] [--images "p1,p2"] [--json]
                                                          Create a quest
   claim  <id> [--session <sid>] [--force --reason <text>] [--json]
                                                          Claim for session; --force is audited and server-auth only
@@ -28,7 +28,7 @@ Commands:
                                                          Cancel from any status
   transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "s1,s2"] [--memory-commit <sha>] [--memory-commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]
                                                          Change status
-  reopen <id> --title "..." [--brief "..." | --brief-file <path>|-] [--requests "81,84"] [--json]
+  reopen <id> --title "..." [--brief "..." | --brief-file <path>|-] [--requests "81,84"] [--handoff <uN,...>] [--json]
                                                          Reopen for the next round of sequential work
   round edit <id> <n> [--title "..."] [--brief "..." | --brief-file <path>|-] [--json]
                                                          Retitle a round or rewrite its brief

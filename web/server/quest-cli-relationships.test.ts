@@ -96,5 +96,10 @@ describe("quest CLI relationships", () => {
     expect(sessionless.status).not.toBe(0);
     expect(sessionless.stderr).toContain("--source-message needs a Takode session");
     expect(JSON.parse((await runQuest(["list", "--json"], home)).stdout)).toEqual([]);
+
+    // --handoff moves the --source-message request, so it needs one.
+    const handoffAlone = await runQuest(["create", "Forked", "--handoff"], home);
+    expect(handoffAlone.status).not.toBe(0);
+    expect(handoffAlone.stderr).toContain("give --source-message uN too");
   });
 });

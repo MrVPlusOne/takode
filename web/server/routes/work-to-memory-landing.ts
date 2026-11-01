@@ -8,6 +8,7 @@ import type { RouteContext } from "./context.js";
 import { recordLandedDelivery } from "./landed-delivery.js";
 import { latestWorkPhaseOccurrenceId } from "./work-evidence-context.js";
 import * as questStore from "../quest-store.js";
+import { deliveryCommitLink, projectQuestDelivery } from "../../shared/quest-delivery.js";
 
 /**
  * The landing-queue entry a worker hands its quest to Memory with: its own,
@@ -86,5 +87,13 @@ export function createLandingQuestHandoff(deps: {
       await wsBridge.completeLandedQuest(questId, completion, workerSessionId);
     },
     notify: (sessionId, text) => void wsBridge.injectUserMessage(sessionId, text, LANDING_QUEUE_MESSAGE_SOURCE),
+    commitLinks: async (questId, deliveryId) => {
+      const quest = await questStore.getQuest(questId);
+      const delivery = quest?.codeDeliveries?.find((item) => item.id === deliveryId);
+      if (!delivery) return [];
+      return projectQuestDelivery(questId, delivery).commits.map((commit) =>
+        deliveryCommitLink(questId, deliveryId, commit),
+      );
+    },
   });
 }

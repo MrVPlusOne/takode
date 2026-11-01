@@ -66,14 +66,14 @@ quest show   <id> [--sections <list>] [--round <n>] [--full] [--json]  Show comp
 quest status <id> [--json]                                    Show compact action-oriented status and next action
 quest history <id> [--json]                                   Show quest history (legacy backup after cutover)
 quest tags   [--json]                                         List all existing tags with counts
-quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] [--source-message <uN>] [--topic "<topic>"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
+quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] [--source-message <uN> [--handoff]] [--topic "<topic>"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
 quest claim  <id> [--session <sid>] [--force --reason <text>] [--json]  Claim for your session; force is explicit, audited, and server-auth only
 quest reassign <id> --session <worker> --reason <text> [--json]         Leader-only audited quest ownership reassignment
 quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--session <sid>] [--commit <sha>] [--commits "c1,c2"] [--memory-commit <sha>] [--memory-commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]  Mark done and submit optional User review checks
 quest done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--force --reason <text>] [--json]      Mark as done/cancelled
 quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--force --reason <text>] [--json]                Cancel from any status
 quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "c1,c2"] [--memory-commit <sha>] [--memory-commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]    Change status
-quest reopen <id> --title "..." [--brief "..." | --brief-file <path>|-] [--requests "81,84"] [--json]  Reopen for the next round of sequential work
+quest reopen <id> --title "..." [--brief "..." | --brief-file <path>|-] [--requests "81,84"] [--handoff <uN,...>] [--json]  Reopen for the next round of sequential work
 quest round edit <id> <n> [--title "..."] [--brief "..." | --brief-file <path>|-] [--json]  Retitle a round or rewrite its brief
 quest later  <id> [--json]                                    Move review-pending quest out of inbox
 quest inbox  <id> [--json]                                    Move review-pending quest back to inbox
@@ -212,7 +212,8 @@ Reviewers should check documentation quality, not just whether a comment exists.
 | `--session-space <slug>` | Override the quest's session-space metadata. Defaults from the creator session when available. |
 | `--follow-up-of "q-1,q-2"` | Persist that the new quest is a true follow-up of earlier quest(s) |
 | `--source-message <uN>` | Leader sessions: the user's message (its `id:uN`) this quest was filed from; the quest thread links back to it |
-| `--topic "<topic>"` | Leaders: the broad area the user would look for later, in their words. Topics are far fewer than quests: pick the existing topic whose scope covers the quest (`takode topic list` shows each scope; filing prints it) and start a new one (a new name) only for a genuinely new area. When two topics fit about equally, tell your Scribe (see the `takode-orchestration` skill). `quest create` reminds you when you leave it out |
+| `--handoff` | With `--source-message`, when the quest takes over the user's whole request: hands that message off to the quest when `takode board set` puts it on the board (see `takode thread handoff`) |
+| `--topic "<topic>"` | Leaders: usually leave it out, and your Scribe files the quest under a topic. Use it only when the user names the topic |
 | `--image <path>` | Attach an image (can repeat: --image a.png --image b.png) |
 | `--images "a.png,b.png"` | Attach multiple images (comma-separated) |
 | `--json` | Output JSON |
@@ -688,7 +689,7 @@ Use `quest complete` for final completion to `done` with review metadata when Me
 
 Sequential follow-up work on a quest's own deliverable continues in the same quest, so a quest can be reopened many times. Each opening is a **round**: round 1 opens with the quest, and `quest reopen` closes the current round (keeping a done quest's debrief as that round's outcome) and opens the next with its own title, brief and requests. The quest stays one quest, one thread and one conversation, but reads as a sequence of small quests: `quest show` puts the open round first and earlier rounds one line each, and `[q-42 round 3](quest:q-42:round:3)` links one round.
 
-- **Leaders reopen with `quest reopen`**, not `quest transition --status refined`: `quest reopen q-N --title "<short round name>" --brief-file - --requests "81,84" <<'BRIEF' ... BRIEF`. The brief says what this round asks for and where it stops; `--requests` names the feedback entries that asked for it. Then dispatch as usual (`takode board set`, claim). Reopen before setting the board row.
+- **Leaders reopen with `quest reopen`**, not `quest transition --status refined`: `quest reopen q-N --title "<short round name>" --brief-file - --requests "81,84" <<'BRIEF' ... BRIEF`. The brief says what this round asks for and where it stops; `--requests` names the feedback entries that asked for it. Then dispatch as usual (`takode board set`, claim). Reopen before setting the board row. `--handoff uN` hands the user's request off to the quest when the board row is set, as `quest create --handoff` does.
 - **The description is the standing brief**: what the whole quest is and the decisions that still stand. Replace stale parts instead of appending a section per round; round-specific asks belong in the round brief (`quest round edit q-N <n> --brief-file -` when it changes, such as at a User Checkpoint).
 - **The debrief is the round's outcome.** Final Memory writes what this round changed, not the whole quest again; touch the quest TLDR or description only when the round changed the overall picture.
 - **Workers read the open round first.** Open an earlier round (`--round <n>`, `quest feedback list --round <n>`) only when the brief or the work points at it.

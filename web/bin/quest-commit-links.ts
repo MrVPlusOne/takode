@@ -4,7 +4,7 @@ import { readDeliveryRange } from "../server/quest-delivery-range.js";
 import {
   DELIVERY_ID_PATTERN,
   commitComparisonLabel,
-  deliveryCommitHref,
+  deliveryCommitLink,
   projectQuestDelivery,
 } from "../shared/quest-delivery.js";
 
@@ -44,8 +44,7 @@ export async function runCommitLinksCommand(input: {
   const links = selected.map((commit) => {
     if (!view.range && !quest!.commitShas?.includes(commit.sha))
       throw new Error("Delivery references corrected or unavailable code evidence.");
-    const href = deliveryCommitHref(input.questId, delivery.id, commit.sha, view.range);
-    const title = commit.message.replace(/[\\[\]]/g, "\\$&");
+
     return {
       sha: commit.sha,
       title: commit.message,
@@ -53,7 +52,7 @@ export async function runCommitLinksCommand(input: {
       deletions: commit.deletions,
       binaryFiles: commit.binaryFiles,
       comparison: commitComparisonLabel(commit.comparison),
-      markdown: `[${title}](${href})`,
+      markdown: deliveryCommitLink(input.questId, delivery.id, commit, view.range),
     };
   });
   if (input.json)

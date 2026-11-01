@@ -52,21 +52,19 @@ describe("user message source tag", () => {
     );
   });
 
-  it("asks the leader to name a thread that still has its placeholder name", () => {
-    // Leaders often answered without renaming, leaving the user's first words as the thread's name
-    // in the Threads menu; the tag reminds them, with the exact command, until they rename it.
+  it("leaves a new thread's naming to the Scribe", () => {
+    // Jiayi (Nov 1): the leader's Scribe names new threads now, woken at once for them, so the tag
+    // no longer asks the leader to rename a thread still called by the user's first words.
     setTopicViewSource({
       topicOf: (handle) =>
-        handle === "55badbba"
-          ? { id: "55badbba-1111", name: "Quick question: how do…", thread: { placeholderName: true } }
-          : null,
+        handle === "55badbba" ? { id: "55badbba-1111", name: "Quick question: how do…", thread: {} } : null,
       questsOf: () => [],
       handlesOf: () => [],
       topicOfQuest: () => null,
     });
-    expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "topic:55badbba", "u1")).toMatch(
-      /\[user thread: "Quick question: how do…"; unnamed: name it after its subject with `takode topic rename topic:55badbba "<name>"`\] $/,
-    );
+    const prefix = buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "topic:55badbba", "u1");
+    expect(prefix).toMatch(/\[user thread: "Quick question: how do…"\] $/);
+    expect(prefix).not.toContain("rename");
   });
 
   it("tells the leader when the user answers in a thread the leader opened itself", () => {
@@ -84,7 +82,7 @@ describe("user message source tag", () => {
     );
   });
 
-  it("names the thread, where it started and the rename command by address once threads are numbered", () => {
+  it("names the thread and where it started by address once threads are numbered", () => {
     // Leaders read and write threads by their short address (`t-17`), so the tag uses it too.
     rememberThreadNumbers([
       [17, "55badbba"],
@@ -96,7 +94,7 @@ describe("user message source tag", () => {
           ? {
               id: "55badbba-1111",
               name: "Quick question: how do…",
-              thread: { startedFrom: "topic:66cafe00", placeholderName: true },
+              thread: { startedFrom: "topic:66cafe00" },
             }
           : null,
       questsOf: () => [],
@@ -104,7 +102,7 @@ describe("user message source tag", () => {
       topicOfQuest: () => null,
     });
     expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "hi", "topic:55badbba", "u1")).toMatch(
-      /\[thread:t-17\] \[user thread: "Quick question: how do…"; unnamed: name it after its subject with `takode topic rename t-17 "<name>"`; started from t-4\] $/,
+      /\[thread:t-17\] \[user thread: "Quick question: how do…"; started from t-4\] $/,
     );
   });
 

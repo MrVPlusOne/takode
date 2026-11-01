@@ -291,7 +291,9 @@ describe("landing hand-off through the real board routes", () => {
     expect(git(base, "rev-parse", "HEAD")).toBe(workerSha);
     const leaderMessage = messages.find((message) => message.session === "leader")!.text;
     expect(leaderMessage).toContain(`${questId} landed on integration and Takode completed it`);
-    expect(leaderMessage).toContain(`quest commit-links ${questId} --delivery ${quest!.codeDeliveries![0]!.id}`);
+    // The links the leader puts in its answer come with the notice.
+    const deliveryId = quest!.codeDeliveries![0]!.id;
+    expect(leaderMessage).toContain(`(quest:${questId}:delivery:${deliveryId}:commit:${workerSha})`);
     // The worker had moved on: it is not told anything.
     expect(messages.filter((message) => message.session === "worker")).toEqual([]);
   });

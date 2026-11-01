@@ -252,7 +252,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
 
   /**
    * The user starts a new thread in a leader: a lightweight conversation (not a
-   * topic) that takes the first message, named after its first words until the leader names it.
+   * topic) that takes the first message, named after its first words until the Scribe names it.
    */
   api.post("/topics/threads", (c) =>
     run(c, async (svc) => {

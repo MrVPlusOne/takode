@@ -116,4 +116,54 @@ describe("quest rounds CLI", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("asks the server to hand requests off to the reopened quest once it is on the board", async () => {
+    // `--handoff uN` replaces a separate `takode thread handoff` after `takode board set`: the
+    // server holds it until the board row exists, and the CLI says so.
+    const tmp = mkdtempSync(join(tmpdir(), "quest-cli-rounds-"));
+    const seen: Array<{ url?: string; body: JsonObject }> = [];
+    const server = createServer(async (req, res) => {
+      const body = await readJson(req);
+      seen.push({ url: req.url, body });
+      res.writeHead(200, { "content-type": "application/json" });
+      const handoff = req.url?.endsWith("/thread/handoff");
+      res.end(
+        JSON.stringify(
+          handoff
+            ? { ok: true, pending: true, sessionId: "leader", questId: "q-7", userMessageIds: ["u12", "u13"] }
+            : { id: "q-7", questId: "q-7", version: 3, title: "Library", status: "refined", createdAt: 1 },
+        ),
+      );
+    });
+    try {
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const env = {
+        ...process.env,
+        COMPANION_PORT: String((server.address() as AddressInfo).port),
+        COMPANION_SESSION_ID: "leader",
+        COMPANION_AUTH_TOKEN: "token",
+        HOME: tmp,
+      };
+      const bare = await runQuest(["reopen", "q-7", "--title", "X", "--handoff"], env, tmp);
+      expect(bare.status).not.toBe(0);
+      expect(bare.stderr).toContain("--handoff names the requests to hand off");
+      const malformed = await runQuest(["reopen", "q-7", "--title", "X", "--handoff", "12"], env, tmp);
+      expect(malformed.status).not.toBe(0);
+      expect(malformed.stderr).toContain("--handoff takes user message IDs");
+      expect(seen).toEqual([]);
+
+      const reopened = await runQuest(["reopen", "q-7", "--title", "Stars", "--handoff", "u12,u13"], env, tmp);
+      expect(reopened.stderr).toBe("");
+      expect(reopened.status).toBe(0);
+      expect(reopened.stdout).toContain("when `takode board set` puts it on your board");
+      expect(seen.at(-1)).toEqual({
+        url: "/api/sessions/leader/thread/handoff",
+        body: { questId: "q-7", userMessageIds: ["u12", "u13"], whenOnBoard: true },
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

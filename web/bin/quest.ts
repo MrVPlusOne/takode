@@ -103,7 +103,8 @@ import {
   postQuestStatusMutation,
 } from "./quest-status-mutation.js";
 import { createQuestServerClient } from "./quest-server-client.js";
-import { fileQuestUnderTopic, remindAboutTopic } from "./quest-topic.js";
+import { fileQuestUnderTopic, noteScribeFiles } from "./quest-topic.js";
+import { formatHandoffResult, type ThreadHandoffResult } from "./thread-handoff-format.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV } from "../server/memory-session-space.js";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -806,6 +807,7 @@ async function cmdCreate(): Promise<void> {
     "session-space",
     "follow-up-of",
     "source-message",
+    "handoff",
     "topic",
     "image",
     "images",
@@ -826,7 +828,7 @@ async function cmdCreate(): Promise<void> {
       'Usage: quest create [<title> | --title "..." | --title-file <path>|-] ' +
         '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] ' +
         '[--status idea|refined] [--tags "t1,t2"] [--session-space <slug>] [--follow-up-of "q-1,q-2"] ' +
-        '[--source-message <uN>] [--image <path>] [--images "p1,p2"]',
+        '[--source-message <uN> [--handoff]] [--image <path>] [--images "p1,p2"]',
     );
   }
 
@@ -853,6 +855,11 @@ async function cmdCreate(): Promise<void> {
   ].filter(Boolean);
   const relationships = parseRelationshipFlags({ option });
   const sourceMessage = sourceMessageOption();
+  // `--handoff`: the request this quest is filed from moves to it, with its thread (see handOffWhenOnBoard).
+  const handoff = flag("handoff") ? sourceMessage.startedFromUserMessageId : undefined;
+  if (flag("handoff") && !handoff)
+    die("--handoff hands off the --source-message request: give --source-message uN too.");
+  if (flag("handoff") && directCodex) die("--handoff needs a Takode leader session.");
 
   try {
     const resolvedImages =
@@ -886,11 +893,35 @@ async function cmdCreate(): Promise<void> {
     if (!directCodex) {
       const topic = option("topic");
       if (topic) await fileQuestUnderTopic(questServer, quest.questId, topic);
-      else if (!jsonOutput) await remindAboutTopic(questServer, quest.questId);
+      else if (!jsonOutput) await noteScribeFiles(questServer);
+      if (handoff) await handOffWhenOnBoard(quest.questId, [handoff]);
     }
     warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
   } catch (e) {
     die((e as Error).message);
+  }
+}
+
+/**
+ * Hands the leader's requests off to a quest it just filed or reopened, as `takode thread handoff`
+ * does: at once when the quest is already active on its board, else when `takode board set` puts
+ * it there (that command's output then says so).
+ */
+async function handOffWhenOnBoard(questId: string, userMessageIds: string[]): Promise<void> {
+  if (!currentSessionId) die("--handoff needs a Takode leader session.");
+  try {
+    const { value } = await questServer.request<ThreadHandoffResult>(
+      "POST",
+      `/sessions/${encodeURIComponent(currentSessionId)}/thread/handoff`,
+      { questId, userMessageIds, whenOnBoard: true },
+    );
+    if (!jsonOutput) console.log(formatHandoffResult({ ...value, questId }));
+  } catch (e) {
+    // The quest itself is saved: say so, and how to hand off once the problem is fixed.
+    console.error(
+      `Not handed off: ${(e as Error).message}. ${questId} is saved; hand off with \`takode thread handoff ${questId} --user ${userMessageIds.join(" ")}\`.`,
+    );
+    process.exitCode = 1;
   }
 }
 
@@ -1823,6 +1854,7 @@ function roundCommandDeps(): QuestRoundCommandDeps {
     positional,
     validateFlags,
     option,
+    flag,
     readRichText: readOptionalRichTextOption,
     questServer,
     postTransition: (questId, body) =>
@@ -1831,6 +1863,7 @@ function roundCommandDeps(): QuestRoundCommandDeps {
     jsonOutput,
     out,
     die,
+    handOff: handOffWhenOnBoard,
   };
 }
 

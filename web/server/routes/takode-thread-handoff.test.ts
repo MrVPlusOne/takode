@@ -6,7 +6,7 @@ import { updateLeaderThreadStatusesForAssistantOutput } from "../bridge/thread-r
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { leaderResponseProvenCurrentOwnerThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { extractThreadStatusMarkersFromText } from "../../shared/thread-status-marker.js";
-import { registerTakodeThreadHandoffRoute } from "./takode-thread-handoff.js";
+import { registerTakodeThreadHandoffRoute, runPendingThreadHandoff } from "./takode-thread-handoff.js";
 import { setTopicViewSource } from "../topic-views.js";
 import { rememberThreadNumbers, resetThreadNumbersForTest } from "../../shared/topic-thread-key.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
@@ -370,6 +370,42 @@ describe("Main-to-quest responsibility handoff", () => {
     expect(
       session.messageHistory.filter((entry) => entry.type === "user_message" && entry.id === "raw-u1"),
     ).toHaveLength(1);
+  });
+});
+
+describe("handoff when the quest gets on the board", () => {
+  it("waits for `takode board set` to put a new quest on the board, then hands off", async () => {
+    // `quest create --handoff` asks before the quest has a board row; the request is checked at
+    // once and moves when the row is set, so a leader can't forget it or run it too early.
+    const { session, bridge, handoff } = fixture();
+    const early = await handoff({ questId: "q-43", userMessageIds: ["u1"], whenOnBoard: true });
+    expect(early.status).toBe(200);
+    expect(await early.json()).toMatchObject({ pending: true, questId: "q-43", userMessageIds: ["u1"] });
+    expect(buildLeaderThreadResponseState(session, "main").projection.pendingMessages).toHaveLength(2);
+    // Not on the board yet: nothing happens.
+    expect(runPendingThreadHandoff({ wsBridge: bridge } as never, "leader", "q-43")).toBeUndefined();
+
+    session.board.set("q-43", { questId: "q-43", worker: "worker", status: "WORKING", createdAt: 2, updatedAt: 2 });
+    expect(runPendingThreadHandoff({ wsBridge: bridge } as never, "leader", "q-43")).toMatchObject({
+      ok: true,
+      questId: "q-43",
+    });
+    expect(
+      buildLeaderThreadResponseState(session, "q-43").projection.pendingMessages.map((row) => row.userMessageId),
+    ).toEqual(["u1"]);
+    // Done once: a later board update of the same row hands nothing off again.
+    expect(runPendingThreadHandoff({ wsBridge: bridge } as never, "leader", "q-43")).toBeUndefined();
+  });
+
+  it("refuses a request it could never hand off at once, and hands off now when the quest is already on the board", async () => {
+    const { session, handoff } = fixture();
+    const unknown = await handoff({ questId: "q-43", userMessageIds: ["u9"], whenOnBoard: true });
+    expect(unknown.status).toBe(409);
+    const now = await handoff({ questId: "q-42", userMessageIds: ["u1"], whenOnBoard: true });
+    expect(await now.json()).not.toHaveProperty("pending");
+    expect(
+      buildLeaderThreadResponseState(session, "q-42").projection.pendingMessages.map((row) => row.userMessageId),
+    ).toEqual(["u1"]);
   });
 });
 

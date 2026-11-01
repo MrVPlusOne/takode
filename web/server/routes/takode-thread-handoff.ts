@@ -55,159 +55,211 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
 
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
-    const row = destination.questId ? session.board.get(questId) : undefined;
-    if (
-      destination.questId &&
-      (!row?.worker ||
-        row.completedAt !== undefined ||
-        !["PLANNING", "WORKING", "USER_CHECKPOINTING", "MEMORY", "LANDING"].includes(row.status ?? ""))
-    ) {
-      return c.json({ error: "The destination must be an active quest on your work board" }, 409);
+    // Filed with `quest create --handoff` (or reopened with it) before the quest is on the board: the
+    // request is checked now and handed off when `takode board set` puts the quest there.
+    if (body.whenOnBoard === true && destination.questId && !activeOnBoard(session, questId)) {
+      const plan = prepareLeaderThreadHandoff(session, questId, userMessageIds);
+      if (!plan.ok) return c.json({ error: plan.error }, 409);
+      pendingHandoffs.set(pendingKey(id, questId), userMessageIds);
+      return c.json({ ok: true, pending: true, sessionId: id, questId, userMessageIds });
     }
-
-    // All preconditions precede mutation, with no await between the snapshot and commit.
-    const requestPlan = prepareLeaderThreadHandoff(session, questId, userMessageIds);
-    if (!requestPlan.ok) return c.json({ error: requestPlan.error }, 409);
-    const notificationPlan = prepareThreadHandoffNotifications(session, questId, notificationIds);
-    if (!notificationPlan.ok) return c.json({ error: notificationPlan.error }, 409);
-    const changedEntries = new Map<number, BrowserIncomingMessage>();
-    for (const request of requestPlan.requests) changedEntries.set(request.historyIndex, request.message);
-    for (const anchor of notificationPlan.anchors) changedEntries.set(anchor.historyIndex, anchor.message);
-    // A side chat whose request moves into a quest becomes that quest's thread: the rest of the
-    // chat is attached to the quest, so the two read as one conversation from its start.
-    const chatKey =
-      destination.questId && requestPlan.requests.length ? sideChatKey(requestPlan.sourceThreadKey) : null;
-    const chatIndices = chatKey
-      ? chatMessageIndices(
-          session.messageHistory,
-          chatKey,
-          questId,
-          changedEntries,
-          THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES - changedEntries.size - pendingThreadAttachmentChangedCount(id),
-        )
-      : [];
-    for (const index of chatIndices) changedEntries.set(index, session.messageHistory[index]!);
-    const changedIndices = [...changedEntries.keys()].sort((a, b) => a - b);
-    const boundError = buildThreadAttachmentBoundError({
-      questId,
-      historyLength: session.messageHistory.length,
-      selectedIndices: changedIndices,
-      changedCount: changedIndices.length,
-      pendingChangedCount: pendingThreadAttachmentChangedCount(id),
-    });
-    if (boundError) return c.json(boundError, 400);
-    const result = {
-      ok: true,
-      sessionId: id,
-      questId,
-      handedOffUserMessageIds: requestPlan.requests.map((request) => request.userMessageId),
-      alreadyHandedOffUserMessageIds: requestPlan.alreadyHandedOffUserMessageIds,
-      notificationIds: notificationPlan.notifications.map((notification) => notification.id),
-      alreadyHandedOffNotificationIds: notificationPlan.alreadyHandedOffNotificationIds,
-    };
-    if (changedIndices.length === 0) return c.json({ ...result, questId: threadAddress(questId) });
-
-    const routeSources = [
-      ...changedEntries.values(),
-      ...notificationPlan.notifications,
-      ...notificationPlan.anchors.flatMap(({ message }) =>
-        message.type === "assistant" && message.notification ? [message.notification] : [],
-      ),
-    ];
-    const previousTimes = routeSources.flatMap((entry) =>
-      (entry.threadRefs ?? []).flatMap((ref) => (typeof ref.attachedAt === "number" ? [ref.attachedAt] : [])),
-    );
-    const timestamp = Math.max(Date.now(), ...previousTimes.map((value) => value + 1));
-    if (!Number.isSafeInteger(timestamp)) {
-      return c.json({ error: "Cannot establish a newer authoritative handoff timestamp" }, 409);
-    }
-    const target = { threadKey: questId, ...(destination.questId ? { questId } : {}) };
-    const ref: ThreadRef = handoffThreadRef(questId, timestamp, id);
-    for (const request of requestPlan.requests) {
-      request.message.threadRefs = [...(request.message.threadRefs ?? []), ref];
-    }
-    for (const index of chatIndices) {
-      const message = session.messageHistory[index]!;
-      message.threadRefs = [...(message.threadRefs ?? []), { ...ref, source: "backfill" }];
-    }
-    for (const notification of notificationPlan.notifications) {
-      Object.assign(notification, target, { threadRefs: [...(notification.threadRefs ?? []), ref] });
-    }
-    for (const { message } of notificationPlan.anchors) {
-      message.threadRefs = [...(message.threadRefs ?? []), { ...ref, source: "backfill" }];
-      if (message.type === "assistant") {
-        const notification = notificationPlan.notifications.find((entry) => entry.messageId === message.message.id)!;
-        message.notification ??= {
-          id: notification.id,
-          category: notification.category,
-          summary: notification.summary,
-          body: notification.body,
-          questions: notification.questions,
-          suggestedAnswers: notification.suggestedAnswers,
-          timestamp: notification.timestamp,
-        };
-        Object.assign(message.notification, target, {
-          id: notification.id,
-          threadRefs: [...(message.notification.threadRefs ?? []), ref],
-        });
-      }
-    }
-
-    const selection = buildThreadAttachmentSelection(session.messageHistory, questId, changedIndices);
-    const markerHistoryIndex = session.messageHistory.length;
-    const marker: ThreadAttachmentMarker = {
-      type: "thread_attachment_marker",
-      id: `thread-handoff-${timestamp}-${markerHistoryIndex}`,
-      markerKey: `handoff:${selection.markerKey}`,
-      timestamp,
-      sourceThreadKey: requestPlan.sourceThreadKey,
-      ...target,
-      attachedAt: timestamp,
-      attachedBy: id,
-      messageIds: selection.messageIds,
-      messageIndices: selection.indices,
-      ranges: selection.ranges,
-      count: selection.indices.length,
-      firstMessageId: selection.firstMessageId,
-      firstMessageIndex: selection.firstMessageIndex,
-    };
-    session.messageHistory.push(marker);
-    clearLeaderThreadStatusForActivity(session, target, {
-      messageId: marker.id,
-      timestamp,
-    });
-    if (destination.questId) wsBridge.promoteLeaderThreadTabForAttachment(id, questId, timestamp);
-    scheduleThreadAttachmentUpdateBroadcast(wsBridge, id, {
-      target,
-      source: { threadKey: requestPlan.sourceThreadKey },
-      markers: [marker],
-      markerHistoryIndices: [markerHistoryIndex],
-      changedMessages: changedIndices.map((historyIndex) => {
-        const message = changedEntries.get(historyIndex)!;
-        return {
-          historyIndex,
-          messageId: messageIdForThreadAttachment(message, historyIndex),
-          threadRefs: message.threadRefs ?? [],
-        };
-      }),
-      ranges: selection.ranges,
-      count: changedIndices.length,
-    });
-    if (notificationPlan.notifications.length > 0) {
-      broadcastNotificationRefresh(session, {
-        broadcastToBrowsers: (_session, message) => wsBridge.broadcastToSession(id, message),
-        persistSession: () => wsBridge.persistSessionById(id, changedIndices),
-      });
-    } else {
-      wsBridge.persistSessionById(id, changedIndices);
-    }
-    // The leader reads threads by their numbers (`t-17`).
-    const addressed = { ...result, questId: threadAddress(result.questId) };
-    if (chatKey && getTopicService()?.store.threadBecomesQuest(chatKey, questId)) {
-      return c.json({ ...addressed, chatBecameQuestThread: threadAddress(chatKey) });
-    }
-    return c.json(addressed);
+    const outcome = performThreadHandoff(ctx, id, questId, userMessageIds, notificationIds);
+    return c.json(outcome.body, outcome.status);
   });
+}
+
+/** Handoffs waiting for their quest to reach the leader's board, by leader and quest. */
+const pendingHandoffs = new Map<string, string[]>();
+
+function pendingKey(sessionId: string, questId: string): string {
+  return `${sessionId}\u0000${questId}`;
+}
+
+/**
+ * The handoff a leader asked for when it filed or reopened this quest, now that the quest is on its
+ * board: its result for the board command's output, or undefined when none was waiting.
+ */
+export function runPendingThreadHandoff(
+  ctx: Pick<RouteContext, "wsBridge">,
+  sessionId: string,
+  questId: string,
+): Record<string, unknown> | undefined {
+  const key = pendingKey(sessionId, questId);
+  const userMessageIds = pendingHandoffs.get(key);
+  const session = ctx.wsBridge.getSession(sessionId);
+  if (!userMessageIds || !session || !activeOnBoard(session, questId)) return undefined;
+  pendingHandoffs.delete(key);
+  return performThreadHandoff(ctx, sessionId, questId, userMessageIds, []).body;
+}
+
+function activeOnBoard(
+  session: { board: Map<string, { worker?: string; completedAt?: number; status?: string }> },
+  questId: string,
+): boolean {
+  const row = session.board.get(questId);
+  return (
+    !!row?.worker &&
+    row.completedAt === undefined &&
+    ["PLANNING", "WORKING", "USER_CHECKPOINTING", "MEMORY", "LANDING"].includes(row.status ?? "")
+  );
+}
+
+/** Transfers the selected requests (and decisions) to the destination: the handoff route's work. */
+function performThreadHandoff(
+  ctx: Pick<RouteContext, "wsBridge">,
+  id: string,
+  questId: string,
+  userMessageIds: string[],
+  notificationIds: string[],
+): { status: 200 | 400 | 404 | 409; body: Record<string, unknown> } {
+  const { wsBridge } = ctx;
+  const destination = normalizeThreadTarget(questId)!;
+  const session = wsBridge.getSession(id);
+  if (!session) return { status: 404, body: { error: "Session not found in bridge" } };
+  if (destination.questId && !activeOnBoard(session, questId)) {
+    return { status: 409, body: { error: "The destination must be an active quest on your work board" } };
+  }
+  // All preconditions precede mutation, with no await between the snapshot and commit.
+  const requestPlan = prepareLeaderThreadHandoff(session, questId, userMessageIds);
+  if (!requestPlan.ok) return { status: 409, body: { error: requestPlan.error } };
+  const notificationPlan = prepareThreadHandoffNotifications(session, questId, notificationIds);
+  if (!notificationPlan.ok) return { status: 409, body: { error: notificationPlan.error } };
+  const changedEntries = new Map<number, BrowserIncomingMessage>();
+  for (const request of requestPlan.requests) changedEntries.set(request.historyIndex, request.message);
+  for (const anchor of notificationPlan.anchors) changedEntries.set(anchor.historyIndex, anchor.message);
+  // A side chat whose request moves into a quest becomes that quest's thread: the rest of the
+  // chat is attached to the quest, so the two read as one conversation from its start.
+  const chatKey = destination.questId && requestPlan.requests.length ? sideChatKey(requestPlan.sourceThreadKey) : null;
+  const chatIndices = chatKey
+    ? chatMessageIndices(
+        session.messageHistory,
+        chatKey,
+        questId,
+        changedEntries,
+        THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES - changedEntries.size - pendingThreadAttachmentChangedCount(id),
+      )
+    : [];
+  for (const index of chatIndices) changedEntries.set(index, session.messageHistory[index]!);
+  const changedIndices = [...changedEntries.keys()].sort((a, b) => a - b);
+  const boundError = buildThreadAttachmentBoundError({
+    questId,
+    historyLength: session.messageHistory.length,
+    selectedIndices: changedIndices,
+    changedCount: changedIndices.length,
+    pendingChangedCount: pendingThreadAttachmentChangedCount(id),
+  });
+  if (boundError) return { status: 400, body: boundError };
+  const result = {
+    ok: true,
+    sessionId: id,
+    questId,
+    handedOffUserMessageIds: requestPlan.requests.map((request) => request.userMessageId),
+    alreadyHandedOffUserMessageIds: requestPlan.alreadyHandedOffUserMessageIds,
+    notificationIds: notificationPlan.notifications.map((notification) => notification.id),
+    alreadyHandedOffNotificationIds: notificationPlan.alreadyHandedOffNotificationIds,
+  };
+  if (changedIndices.length === 0) return { status: 200, body: { ...result, questId: threadAddress(questId) } };
+
+  const routeSources = [
+    ...changedEntries.values(),
+    ...notificationPlan.notifications,
+    ...notificationPlan.anchors.flatMap(({ message }) =>
+      message.type === "assistant" && message.notification ? [message.notification] : [],
+    ),
+  ];
+  const previousTimes = routeSources.flatMap((entry) =>
+    (entry.threadRefs ?? []).flatMap((ref) => (typeof ref.attachedAt === "number" ? [ref.attachedAt] : [])),
+  );
+  const timestamp = Math.max(Date.now(), ...previousTimes.map((value) => value + 1));
+  if (!Number.isSafeInteger(timestamp)) {
+    return { status: 409, body: { error: "Cannot establish a newer authoritative handoff timestamp" } };
+  }
+  const target = { threadKey: questId, ...(destination.questId ? { questId } : {}) };
+  const ref: ThreadRef = handoffThreadRef(questId, timestamp, id);
+  for (const request of requestPlan.requests) {
+    request.message.threadRefs = [...(request.message.threadRefs ?? []), ref];
+  }
+  for (const index of chatIndices) {
+    const message = session.messageHistory[index]!;
+    message.threadRefs = [...(message.threadRefs ?? []), { ...ref, source: "backfill" }];
+  }
+  for (const notification of notificationPlan.notifications) {
+    Object.assign(notification, target, { threadRefs: [...(notification.threadRefs ?? []), ref] });
+  }
+  for (const { message } of notificationPlan.anchors) {
+    message.threadRefs = [...(message.threadRefs ?? []), { ...ref, source: "backfill" }];
+    if (message.type === "assistant") {
+      const notification = notificationPlan.notifications.find((entry) => entry.messageId === message.message.id)!;
+      message.notification ??= {
+        id: notification.id,
+        category: notification.category,
+        summary: notification.summary,
+        body: notification.body,
+        questions: notification.questions,
+        suggestedAnswers: notification.suggestedAnswers,
+        timestamp: notification.timestamp,
+      };
+      Object.assign(message.notification, target, {
+        id: notification.id,
+        threadRefs: [...(message.notification.threadRefs ?? []), ref],
+      });
+    }
+  }
+
+  const selection = buildThreadAttachmentSelection(session.messageHistory, questId, changedIndices);
+  const markerHistoryIndex = session.messageHistory.length;
+  const marker: ThreadAttachmentMarker = {
+    type: "thread_attachment_marker",
+    id: `thread-handoff-${timestamp}-${markerHistoryIndex}`,
+    markerKey: `handoff:${selection.markerKey}`,
+    timestamp,
+    sourceThreadKey: requestPlan.sourceThreadKey,
+    ...target,
+    attachedAt: timestamp,
+    attachedBy: id,
+    messageIds: selection.messageIds,
+    messageIndices: selection.indices,
+    ranges: selection.ranges,
+    count: selection.indices.length,
+    firstMessageId: selection.firstMessageId,
+    firstMessageIndex: selection.firstMessageIndex,
+  };
+  session.messageHistory.push(marker);
+  clearLeaderThreadStatusForActivity(session, target, {
+    messageId: marker.id,
+    timestamp,
+  });
+  if (destination.questId) wsBridge.promoteLeaderThreadTabForAttachment(id, questId, timestamp);
+  scheduleThreadAttachmentUpdateBroadcast(wsBridge, id, {
+    target,
+    source: { threadKey: requestPlan.sourceThreadKey },
+    markers: [marker],
+    markerHistoryIndices: [markerHistoryIndex],
+    changedMessages: changedIndices.map((historyIndex) => {
+      const message = changedEntries.get(historyIndex)!;
+      return {
+        historyIndex,
+        messageId: messageIdForThreadAttachment(message, historyIndex),
+        threadRefs: message.threadRefs ?? [],
+      };
+    }),
+    ranges: selection.ranges,
+    count: changedIndices.length,
+  });
+  if (notificationPlan.notifications.length > 0) {
+    broadcastNotificationRefresh(session, {
+      broadcastToBrowsers: (_session, message) => wsBridge.broadcastToSession(id, message),
+      persistSession: () => wsBridge.persistSessionById(id, changedIndices),
+    });
+  } else {
+    wsBridge.persistSessionById(id, changedIndices);
+  }
+  // The leader reads threads by their numbers (`t-17`).
+  const addressed = { ...result, questId: threadAddress(result.questId) };
+  if (chatKey && getTopicService()?.store.threadBecomesQuest(chatKey, questId)) {
+    return { status: 200, body: { ...addressed, chatBecameQuestThread: threadAddress(chatKey) } };
+  }
+  return { status: 200, body: addressed };
 }
 
 /** The source thread when it is a side chat (a thread the user started) not yet any quest's thread. */

@@ -1,6 +1,7 @@
 import { isCanonicalLeaderUserMessageId } from "../shared/leader-user-message-id.ts";
 import { normalizeThreadTarget } from "../shared/thread-routing.ts";
 import { apiPost, err, getCallerSessionId } from "./takode-core.js";
+import { formatHandoffResult, type ThreadHandoffResult } from "./thread-handoff-format.js";
 
 export const THREAD_HANDOFF_HELP = `Usage: takode thread handoff <quest-id|t-N> --user <uN> [more-ids...] [--notification <n-N> ...] [--json]
 
@@ -11,18 +12,6 @@ User IDs must use uN; notification IDs must use n-N, with positive integers and 
 Same-destination retries make no changes. Original source history is preserved.
 This transfers responsibility; thread attach only organizes prior context.
 `;
-
-interface ThreadHandoffResult {
-  ok: boolean;
-  sessionId: string;
-  questId: string;
-  handedOffUserMessageIds: string[];
-  alreadyHandedOffUserMessageIds: string[];
-  notificationIds: string[];
-  alreadyHandedOffNotificationIds: string[];
-  /** The side chat that became the quest's thread with this handoff. */
-  chatBecameQuestThread?: string;
-}
 
 /** Transfer explicitly selected Main obligations using the caller's authenticated session. */
 export async function handleThreadHandoff(base: string, args: string[]): Promise<void> {
@@ -55,13 +44,7 @@ export async function handleThreadHandoff(base: string, args: string[]): Promise
     return;
   }
 
-  const changed = formatHandoffIds(result.handedOffUserMessageIds, result.notificationIds);
-  const unchanged = formatHandoffIds(result.alreadyHandedOffUserMessageIds, result.alreadyHandedOffNotificationIds);
-  const summary = changed ? `Handed off to ${result.questId}: ${changed}.` : `No changes for ${result.questId}.`;
-  const chat = result.chatBecameQuestThread
-    ? ` The side chat ${result.chatBecameQuestThread} is now ${result.questId}'s thread: answer in ${result.questId}.`
-    : "";
-  console.log(`${summary}${unchanged ? ` Already handed off: ${unchanged}.` : ""}${chat}`);
+  console.log(formatHandoffResult(result));
 }
 
 function parseHandoffArgs(args: string[]): {
@@ -113,10 +96,4 @@ function parseHandoffArgs(args: string[]): {
     ...(notificationIds.size > 0 ? { notificationIds: [...notificationIds] } : {}),
     json,
   };
-}
-
-function formatHandoffIds(userMessageIds: string[], notificationIds: string[]): string {
-  return [userMessageIds.join(", "), notificationIds.length > 0 ? `notifications ${notificationIds.join(", ")}` : ""]
-    .filter(Boolean)
-    .join("; ");
 }

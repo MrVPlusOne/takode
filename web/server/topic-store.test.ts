@@ -1038,9 +1038,29 @@ describe("topic service", () => {
     expect(asked).not.toContain(earlier.address!);
     expect(candidates).toContain(`- ${earlier.address} "Collapsed composer sits low"`);
     expect(candidates).toContain(opened.address!);
+    // Still called by the user's first words, so the Scribe names it first.
+    expect(asked).toContain(`- ${fresh.address} "The composer is a little high" (unnamed)`);
+    expect(text.indexOf("Do this first")).toBeLessThan(text.indexOf("Threads the user just started"));
+    // A Scribe that ends its turn without naming it is reminded; once named, nothing is left.
+    await service.scribeTurnEnded(scribe);
+    expect(injected.at(-1)!.text).toContain(`${fresh.address} has no name yet`);
+    store.rename(fresh.id, "Composer height with the keyboard closed", "agent", true);
     await service.scribeTurnEnded(scribe);
     injected.length = 0;
     expect(await service.deliver("leader")).toBe("nothing");
+  });
+
+  it("tells the Scribe at once about a thread the user just started, without the usual batching", async () => {
+    // The leader answers a new thread right away, and the Scribe names it, so that name has to
+    // come quickly; other activity waits the usual few minutes to arrive in one message.
+    const { service, injected, store, leader } = await setupService();
+    await enable(service, store, "leader");
+    injected.length = 0;
+    const fresh = store.startThread({ space: "MSI", name: "Sidebar is slow", leaderId: "leader" });
+    leader.messageHistory.push(userMessage("Sidebar is slow", fresh.address!, Date.now()));
+    service.sessionSaved("leader");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected.at(-1)?.text).toContain(`- ${fresh.address} "Sidebar is slow" (unnamed)`);
   });
 
   it("asks the Scribe for a Home line for each of its leader's quests with news, in the same message", async () => {

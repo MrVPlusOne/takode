@@ -95,17 +95,13 @@ function topicTag(threadKey: string | undefined): string {
   const topic = topicOfViewForLeader(threadKey);
   if (!topic) return "";
   const quests = [...topic.questIds, ...(topic.more ? [`${topic.more} more`] : [])].join(", ");
-  // A thread the user started (New thread) is not a topic: the leader names it, may file it under
-  // a topic, and starts quests from it.
+  // A thread the user started (New thread) is not a topic: the leader may file it under a topic and
+  // starts quests from it. Its Scribe names it (Nov 1; leaders used to, prompted by this tag).
   if (topic.thread) {
     const from = topic.thread.startedFrom ? `; started from ${threadAddress(topic.thread.startedFrom)}` : "";
     const under = topic.thread.topicName ? `; filed under topic "${topic.thread.topicName}"` : "";
-    // Leaders often forgot to name a thread; the reminder stays until they do.
-    const unnamed = topic.thread.placeholderName
-      ? `; unnamed: name it after its subject with \`takode topic rename ${threadAddress(`topic:${topic.thread.handle}`)} "<name>"\``
-      : "";
     const opened = topic.thread.byLeader ? "; you opened it" : "";
-    return `[user thread: "${topic.name}"${opened}${unnamed}${from}${under}] `;
+    return `[user thread: "${topic.name}"${opened}${from}${under}] `;
   }
   return `[topic: "${topic.name}"${quests ? `; quests: ${quests}` : ""}] `;
 }

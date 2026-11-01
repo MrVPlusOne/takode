@@ -55,6 +55,7 @@ function harness(status: "MEMORY" | "LANDING" = "MEMORY") {
   const completeQuest = vi.fn<LandingQuestHandoffDeps["completeQuest"]>(async () => {
     rows.delete("q-1");
   });
+  const commitLinks = vi.fn<LandingQuestHandoffDeps["commitLinks"]>(async () => []);
   const handoff = new LandingQuestHandoff({
     activeRows: () => [...rows.values()].map((row) => ({ leaderSessionId: "leader", row })),
     updateRow: (_leader, patch) => {
@@ -66,9 +67,11 @@ function harness(status: "MEMORY" | "LANDING" = "MEMORY") {
     recordDelivery,
     completeQuest,
     notify: (session, text) => void messages.push({ session, text }),
+    commitLinks,
   });
   return {
     handoff,
+    commitLinks,
     rows,
     messages,
     recordDelivery,
@@ -114,6 +117,22 @@ describe("landing quest hand-off", () => {
     });
     expect(h.completeQuest).toHaveBeenCalledWith("q-1", completion, "worker");
     expect(h.messages.at(-1)!.text).toContain("Delivery d-1: `quest commit-links q-1 --delivery d-1`");
+  });
+
+  it("puts the delivery's commit links in the leader's landed notice", async () => {
+    // Leaders looked the links up after every landing to put them in their answer; the notice
+    // now carries them, and falls back to the command when they can't be read (test above).
+    const h = harness("LANDING");
+    h.row()!.landing!.completion = completion;
+    h.commitLinks.mockResolvedValueOnce(["[change](quest:q-1:delivery:d-1:commit:abc)"]);
+
+    expect(await h.handoff.entryResolved(h.setEntry({ ...landed, pushedTip: sha(201) }))).toBe(true);
+    expect(h.commitLinks).toHaveBeenCalledWith("q-1", "d-1");
+    const text = h.messages.at(-1)!.text;
+    expect(text).toContain(
+      "Delivery d-1. Its commit links, to put in your answer:\n[change](quest:q-1:delivery:d-1:commit:abc)",
+    );
+    expect(text).not.toContain("quest commit-links");
   });
 
   it("records a change that landed before the hand-off as a delivery of the round's Work", async () => {

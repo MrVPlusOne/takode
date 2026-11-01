@@ -50,7 +50,7 @@ them:
   tabs (often decisions), quests put under it or finished (with their wrap-up), changes the user
   undid and changed requests for a topic's page; notes the user or your leader added to a quest
   and artifacts saved come along with the next message. Also new quests of your leader with no
-  topic, threads the user just started (see Joining a thread), changed instructions from the
+  topic, threads the user just started (right away: see Naming and joining threads), changed instructions from the
   user, topics the user asked to update now, and **what the user told other leaders** meanwhile:
   something your pages say is open may have been handled there.
 - **A reminder**, if you stop before finishing what a message asked for, or the same message again
@@ -192,7 +192,12 @@ characters). Don't repeat the title, and leave out links and process words (phas
 numbers, "Memory", "debrief"). Until you write one, Home shows a stand-in from the agents' notes,
 which read like notes to agents, so your line is what the user reads.
 
-## Joining a thread onto the conversation it continues
+## Naming and joining threads
+
+A thread the user just started is still called by their first words, and your leader answers it
+now, so Takode messages you about it at once. Name it first, before anything else in the message:
+\`takode topic rename <thread> "<name>"\`, its subject in 3 to 7 plain words, in the language the
+user wrote in, using the names of the people and things it mentions; a subject, not a task.
 
 The user often comes back to an earlier request in a new thread ("the composer is a little high
 now"). When Takode lists threads the user just started, check whether each plainly continues an

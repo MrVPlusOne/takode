@@ -815,7 +815,7 @@ export class TopicStore {
    * A leader's threads with a first message that its Scribe wasn't asked about yet: does each
    * continue an earlier conversation? Recent ones only, so an old install isn't asked about all.
    */
-  threadsToCheckForJoin(leaderId: string): Array<ThreadSummary & { firstMessage?: string }> {
+  threadsToCheckForJoin(leaderId: string): Array<ThreadSummary & { firstMessage?: string; unnamed?: boolean }> {
     const since = this.now() - JOIN_CHECK_WINDOW_MS;
     return Object.values(this.s().topics)
       .filter(
@@ -832,6 +832,8 @@ export class TopicStore {
       .map((topic) => ({
         ...this.threadSummary(topic),
         ...(topic.thread?.firstMessage ? { firstMessage: topic.thread.firstMessage } : {}),
+        // Never renamed: still the placeholder from the user's first words.
+        ...(topic.aliases.length === 0 ? { unnamed: true } : {}),
       }));
   }
 

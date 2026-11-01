@@ -102,6 +102,16 @@ export function deliveryCommitHref(questId: string, deliveryId: string, sha: str
   return `quest:${questId}:delivery:${deliveryId}${selection}:commit:${sha}`;
 }
 
+/** A delivered commit's link for an answer: its message as the title, its fixed delivery address as the target. */
+export function deliveryCommitLink(
+  questId: string,
+  deliveryId: string,
+  commit: { sha: string; message: string },
+  range?: CommitRange,
+): string {
+  return `[${commit.message.replace(/[\\[\]]/g, "\\$&")}](${deliveryCommitHref(questId, deliveryId, commit.sha, range)})`;
+}
+
 export function commitRangeQuery(range?: CommitRange): string {
   return range ? `&base=${encodeURIComponent(range.baseSha)}&tip=${encodeURIComponent(range.tipSha)}` : "";
 }

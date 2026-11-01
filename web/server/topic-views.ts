@@ -23,7 +23,6 @@ export interface TopicViewSource {
     thread?: {
       startedFrom?: string;
       topicId?: string;
-      placeholderName?: boolean;
       quest?: string;
       /** The earlier thread it was joined onto. */
       joinedInto?: string;
@@ -86,7 +85,7 @@ export function topicOfViewForLeader(
   name: string;
   questIds: string[];
   more: number;
-  thread?: { handle: string; startedFrom?: string; topicName?: string; placeholderName?: boolean; byLeader?: boolean };
+  thread?: { handle: string; startedFrom?: string; topicName?: string; byLeader?: boolean };
 } | null {
   const handle = threadKey ? topicIdOfViewKey(threadKey) : null;
   const topic = handle && source ? source.topicOf(handle) : null;
@@ -103,7 +102,6 @@ export function topicOfViewForLeader(
             handle: topicHandle(topic.id),
             ...(topic.thread.startedFrom ? { startedFrom: topic.thread.startedFrom } : {}),
             ...(under ? { topicName: under.name } : {}),
-            ...(topic.thread.placeholderName ? { placeholderName: true } : {}),
             ...(topic.thread.byLeader ? { byLeader: true } : {}),
           },
         }

@@ -182,9 +182,6 @@ export async function startLibraryTopics(input: {
                 ...(topic.thread.quest ? { quest: topic.thread.quest } : {}),
                 ...(topic.thread.joinedInto ? { joinedInto: topic.thread.joinedInto } : {}),
                 ...(topic.thread.startedBy === "leader" ? { byLeader: true } : {}),
-                // Renaming keeps the old name as an alias, so none means it has its first name still.
-                // A thread the leader opened has the name it gave.
-                ...(topic.aliases.length || topic.thread.startedBy === "leader" ? {} : { placeholderName: true }),
               },
             }
           : {}),

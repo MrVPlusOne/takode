@@ -12,6 +12,7 @@ import {
   readOptionTextFile,
   readOptionalRichTextOption,
 } from "./takode-core.js";
+import { formatHandoffResult, type ThreadHandoffResult } from "./thread-handoff-format.js";
 import { handleRecordDelivery } from "./takode-record-delivery.js";
 import { handleStaleBoardRowRemoval } from "./takode-board-stale-rows.js";
 import { handleDeliveryTarget, deliveryTargetFlag, DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
@@ -1161,6 +1162,8 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       proposalReview?: BoardProposalReviewPayload;
       delivery?: { id: string; commitShas: string[] };
       workerSlotUsage?: { used: number; limit: number };
+      /** The handoff asked for when the quest was filed (`quest create --handoff`), done now. */
+      handoff?: ThreadHandoffResult;
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
     if (isProposalCommand && result.proposalReview && flags.json !== true && !wantsFullBoardOutput(flags)) {
@@ -1186,6 +1189,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       proposalReview: result.proposalReview,
       workerSlotUsage: result.workerSlotUsage,
     });
+    if (result.handoff && flags.json !== true) console.log(formatHandoffResult({ questId, ...result.handoff }));
     return;
   }
 

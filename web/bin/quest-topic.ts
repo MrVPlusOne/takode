@@ -2,8 +2,8 @@ import type { QuestServerClient } from "./quest-server-client.js";
 import type { TopicSummary } from "../shared/library-topics.js";
 
 /**
- * `--topic` on `quest create` and `quest edit`: files the quest under a Library topic. A leader
- * that files a quest without one gets a reminder listing its space's topics.
+ * `--topic` on `quest create` and `quest edit`: files the quest under a Library topic. Leaders
+ * usually leave it out: their Scribe files the quest (see `noteScribeFiles`).
  */
 export async function fileQuestUnderTopic(server: QuestServerClient, questId: string, topic: string): Promise<void> {
   const { value } = await server.request<{ topic: TopicSummary; created: boolean }>("POST", "/topics/assign", {
@@ -21,14 +21,11 @@ export function scopeLine(topic: Pick<TopicSummary, "summary">): string {
   return topic.summary ? `Its scope: ${topic.summary}` : "It has no scope line yet: its page isn't written.";
 }
 
-export async function remindAboutTopic(server: QuestServerClient, questId: string): Promise<void> {
-  const status = await server.read<{ enabled: boolean; topics: string[] }>("/topics/caller-status");
-  if (!status?.enabled) return;
-  const known = status.topics.slice(0, 25).map((name) => `"${name}"`);
-  console.log(
-    `Topics are on for you: file this quest with \`quest edit ${questId} --topic "<topic>"\`` +
-      (known.length
-        ? `, picking the existing topic whose scope covers it (\`takode topic list\` shows each scope); a new name starts a topic, for a genuinely new area only. Existing topics: ${known.join(", ")}.`
-        : " (a new name starts a topic)."),
-  );
+/**
+ * A leader filed a quest without a topic: its Scribe files it, on its next update (Jiayi, Nov 1:
+ * choosing a topic took the leader a lookup, and the Scribe focuses on this kind of work).
+ */
+export async function noteScribeFiles(server: QuestServerClient): Promise<void> {
+  const status = await server.read<{ enabled: boolean }>("/topics/caller-status");
+  if (status?.enabled) console.log("Your Scribe files it under a topic.");
 }

@@ -29,7 +29,8 @@ export interface UpdateContent {
    * `earlier` lists the leader's other recent threads; its quests come from `takode scribe quests`.
    */
   joinChecks?: {
-    threads: Array<{ key: string; name: string; firstMessage?: string }>;
+    /** `unnamed`: still called by the user's first words, waiting for the Scribe to name it. */
+    threads: Array<{ key: string; name: string; firstMessage?: string; unnamed?: boolean }>;
     earlier: Array<{ key: string; name: string }>;
   };
   /** Quests with news in this message: the Scribe writes each a line for its leader's Home. */
@@ -90,6 +91,8 @@ export function updateMessage(
     return null;
   }
   const lines = [`What changed for your leader ${label(leader)} since my last message:`];
+  // New threads come first: their names show in the leader's first answer, its alert and lists.
+  if (joinChecks) lines.push(...newThreadLines(joinChecks));
   if (rewritePages) {
     lines.push(
       "",
@@ -133,20 +136,6 @@ export function updateMessage(
         `- ${threadAddress(thread.key)} "${thread.name}"${thread.startedFrom ? `, started from ${threadAddress(thread.startedFrom)}` : ""}`,
       );
       if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
-    }
-  }
-  if (joinChecks) {
-    lines.push(
-      "",
-      "Threads the user just started: does one continue an earlier conversation (the same request or problem, picked up again)? Then join it onto that conversation with `takode scribe join <thread> <earlier>`, where <earlier> is another thread or a quest whose thread it is (`takode scribe quests --since 14d` lists your leader's quests). Join only when it plainly continues one; a new subject stays a thread of its own. The user sees the join and can undo it.",
-    );
-    for (const thread of joinChecks.threads) {
-      lines.push(`- ${threadAddress(thread.key)} "${thread.name}"`);
-      if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
-    }
-    if (joinChecks.earlier.length) {
-      lines.push("Your leader's other recent threads:");
-      for (const thread of joinChecks.earlier) lines.push(`- ${threadAddress(thread.key)} "${thread.name}"`);
     }
   }
   if (newTopics.length) {
@@ -283,4 +272,30 @@ function describeEvent(event: TopicEvent, sessionNum: (sessionId: string) => num
 
 function label(leader: LeaderLabel): string {
   return `#${leader.sessionNum ?? "?"} "${leader.name}"`;
+}
+
+/**
+ * The threads the user just started: name the ones still called by the user's first words (Jiayi,
+ * Nov 1: the Scribe names them, right away, instead of the leader), and join any that continue an
+ * earlier conversation.
+ */
+function newThreadLines(joinChecks: NonNullable<UpdateContent["joinChecks"]>): string[] {
+  const lines: string[] = [""];
+  if (joinChecks.threads.some((thread) => thread.unnamed)) {
+    lines.push(
+      'Do this first: the user just started the threads below marked (unnamed), still called by their first words, and your leader is answering now. Name each after its subject with `takode topic rename <thread> "<name>"`: the subject in 3 to 7 plain words, in the language the user wrote in, using the names of the people and things it mentions; a subject, not a task. Then:',
+    );
+  }
+  lines.push(
+    "Threads the user just started: does one continue an earlier conversation (the same request or problem, picked up again)? Then join it onto that conversation with `takode scribe join <thread> <earlier>`, where <earlier> is another thread or a quest whose thread it is (`takode scribe quests --since 14d` lists your leader's quests). Join only when it plainly continues one; a new subject stays a thread of its own. The user sees the join and can undo it.",
+  );
+  for (const thread of joinChecks.threads) {
+    lines.push(`- ${threadAddress(thread.key)} "${thread.name}"${thread.unnamed ? " (unnamed)" : ""}`);
+    if (thread.firstMessage) lines.push(`  It began: "${thread.firstMessage.replace(/\s+/g, " ")}"`);
+  }
+  if (joinChecks.earlier.length) {
+    lines.push("Your leader's other recent threads:");
+    for (const thread of joinChecks.earlier) lines.push(`- ${threadAddress(thread.key)} "${thread.name}"`);
+  }
+  return lines;
 }

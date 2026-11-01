@@ -46,6 +46,7 @@ import {
   upsertBoardRow as upsertBoardRowController,
 } from "../bridge/board-watchdog-controller.js";
 import { QUEST_JOURNEY_STATES, type BoardRow } from "../session-types.js";
+import { runPendingThreadHandoff } from "./takode-thread-handoff.js";
 import type { RouteContext } from "./context.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { normalizeCommitShas } from "../quest-store-helpers.js";
@@ -1651,7 +1652,10 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     if (!board) return c.json({ error: "Session not found in bridge" }, 404);
     const changedRow = board.find((row) => row.questId === questId);
     const proposalReview = changedRow ? buildProposalReviewPayload(changedRow) : undefined;
+    // A handoff asked for at filing (`quest create --handoff`) happens once the quest is on the board.
+    const handoff = runPendingThreadHandoff({ wsBridge }, id, questId);
     return c.json({
+      ...(handoff ? { handoff } : {}),
       board,
       rowSessionStatuses: await buildBoardRowSessionStatuses(board),
       queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],

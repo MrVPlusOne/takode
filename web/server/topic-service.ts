@@ -193,6 +193,8 @@ interface Delivery {
   throughSeq: number;
   topics: string[];
   reminded: boolean;
+  /** New threads it asked the Scribe to name. */
+  unnamed?: string[];
 }
 
 /** How a Scribe's turn ended: an interrupted or failed turn did not do what it was asked. */
@@ -303,7 +305,11 @@ export class TopicService {
     }
     this.store.setCursor(sessionId, history.length);
     void this.store.flush();
-    if (recorded) this.schedule(sessionId, "user");
+    if (!recorded) return;
+    // A thread the user just started goes to the Scribe at once, to be named while the leader
+    // answers (Jiayi, Nov 1), instead of waiting out the usual pause; other news waits for it.
+    if (this.store.threadsToCheckForJoin(sessionId).length) this.changed(sessionId);
+    else this.schedule(sessionId, "user");
   }
 
   private noteLeaderWroteInThread(message: unknown, sessionId: string): void {
@@ -770,6 +776,7 @@ export class TopicService {
       throughSeq,
       topics: names,
       reminded: false,
+      unnamed: joinChecks.filter((thread) => thread.unnamed).map((thread) => thread.key),
     });
     return this.sent();
   }
@@ -888,7 +895,7 @@ export class TopicService {
   /** New threads to check, with the leader's other recent threads they might continue. */
   private joinCheckContent(
     leaderId: string,
-    threads: ReadonlyArray<ThreadSummary & { firstMessage?: string }>,
+    threads: ReadonlyArray<ThreadSummary & { firstMessage?: string; unnamed?: boolean }>,
   ): NonNullable<UpdateContent["joinChecks"]> {
     const checking = new Set(threads.map((thread) => thread.key));
     const since = this.now() - JOIN_CANDIDATE_WINDOW_MS;
@@ -903,6 +910,7 @@ export class TopicService {
         key: thread.key,
         name: thread.name,
         ...(thread.firstMessage ? { firstMessage: thread.firstMessage } : {}),
+        ...(thread.unnamed ? { unnamed: true } : {}),
       })),
       earlier: earlier.map((thread) => ({ key: thread.key, name: thread.name })),
     };
@@ -969,7 +977,18 @@ export class TopicService {
         ];
       }
     }
-    return this.store.list(leader.space).flatMap((topic) => {
+    // A thread it was asked to name and didn't, unless it has since become a quest's or joined another.
+    const unnamed = (delivery.unnamed ?? []).flatMap((key) => {
+      const thread = this.store.thread(key);
+      return thread?.thread && !thread.aliases.length && !thread.thread.quest && !thread.thread.joinedInto
+        ? [`${threadAddress(key)} has no name yet`]
+        : [];
+    });
+    return unnamed.concat(this.pageWorkLeft(leader.space, leaderId, delivery));
+  }
+
+  private pageWorkLeft(space: string, leaderId: string, delivery: Delivery): string[] {
+    return this.store.list(space).flatMap((topic) => {
       const unread = this.store
         .pendingEvents(topic.id, leaderId)
         .filter(
