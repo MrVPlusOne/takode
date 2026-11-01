@@ -215,7 +215,13 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
         : groupOf(writingKey, ["in-progress", "idle"]);
   const currentGroup = onHome ? null : groupOf(currentKey);
   const barRef = useRef<HTMLDivElement | null>(null);
-  useGroupMoveAnimation(barRef, currentKey, currentGroup, groups);
+  const ghostRef = useRef<HTMLSpanElement | null>(null);
+  const move = useGroupMoveAnimation(barRef, ghostRef, currentKey, currentGroup, groups);
+  // While the tab on screen glides to its new group, its old group stays on screen even if the
+  // move emptied it, and neither group is selected: the floating tab is.
+  const moving = move ? threads.find((tab) => normalizeThreadKey(tab.threadKey) === currentKey) : undefined;
+  const movingLabel = moving?.questId ?? moving?.title ?? "";
+  const tabsOf = (id: ThreadGroupId) => (move?.from === id && groups[id].length === 0 ? move.fromTabs : groups[id]);
   const select = (threadKey: string) => {
     setOpenGroup(null);
     rows.onSelect(threadKey);
@@ -284,20 +290,20 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
           <AttentionBell tab={homeTab} />
         </BarItem>
         {THREAD_GROUP_ORDER.map((id) =>
-          groups[id].length > 0 ? (
+          tabsOf(id).length > 0 ? (
             <BarItem
               key={id}
-              label={`${GROUP_LABEL[id]}: ${groups[id].length}`}
-              selected={currentGroup === id}
+              label={`${GROUP_LABEL[id]}: ${tabsOf(id).length}`}
+              selected={currentGroup === id && !move}
               selectedSurface={selectedSurface}
               open={openGroup === id}
               group={id}
-              count={groups[id].length}
+              count={tabsOf(id).length}
               activeOutput={spinningTab === id}
               testId="thread-tab-group-chip"
               onClick={() => {
-                const first = groups[id][0]!;
-                if (groups[id].length === 1 || (openGroup === id && !isTouchPress(lastPressRef.current))) {
+                const first = tabsOf(id)[0]!;
+                if (tabsOf(id).length === 1 || (openGroup === id && !isTouchPress(lastPressRef.current))) {
                   setOpenGroup(null);
                   if (first.onOpen) first.onOpen();
                   else select(first.threadKey);
@@ -306,13 +312,25 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
                 setOpenGroup((open) => (open === id ? null : id));
               }}
               onOpenList={() => setOpenGroup(id)}
-              single={groups[id].length === 1}
+              single={tabsOf(id).length === 1}
             >
-              <GroupContent id={id} tabs={groups[id]} />
+              <GroupContent id={id} tabs={tabsOf(id)} />
             </BarItem>
           ) : null,
         )}
       </div>
+      {move && (
+        <span
+          ref={ghostRef}
+          aria-hidden="true"
+          className={`pointer-events-none absolute -bottom-px z-20 inline-flex h-8 items-center justify-center gap-1.5 rounded-t-md border border-b-0 border-cc-primary/45 px-1.5 text-[12px] tabular-nums text-cc-fg @2xl:px-3 ${selectedSurface}`}
+          data-testid="thread-tab-group-glide"
+          data-group={move.to}
+        >
+          {/* The thread on screen, not its group: the groups stay where they are. */}
+          <span className="truncate">{movingLabel}</span>
+        </span>
+      )}
       {openGroup && (
         <>
           <div

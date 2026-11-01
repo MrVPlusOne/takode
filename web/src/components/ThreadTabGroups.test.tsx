@@ -10,6 +10,7 @@ import type { SessionNotification } from "../types.js";
 import { ThreadGroupBar, ThreadGroupSections, groupThreads, plainThreadChip, readOnScreen } from "./ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 import { fingerTap } from "../test-fixtures/finger-tap.js";
+import { GLIDE_MS } from "./thread-tab-group-move.js";
 
 function tab(threadKey: string, overrides: Partial<PrimaryThreadChip> = {}): PrimaryThreadChip {
   return {
@@ -414,6 +415,35 @@ describe("ThreadGroupBar group move animation", () => {
     expect(played).toEqual(["idle"]);
     rerender(<ThreadGroupBar {...props(finished, "q-10")} />);
     expect(played).toEqual(["idle"]);
+  });
+
+  it("floats the tab from its old group to its new one, keeping both groups until it lands", () => {
+    // Jiayi (Nov 1): the new group used to be the thing that moved, so it vanished from its place
+    // as the glide began, and an emptied old group vanished at once. Now both stay put while a
+    // floating copy of the selected tab glides between them; then the new group is selected and
+    // the emptied old group goes.
+    vi.useFakeTimers();
+    try {
+      trackAnimations();
+      const working = [tab("q-10"), tab("q-13", { completed: true })];
+      const finished = [tab("q-10", { completed: true }), tab("q-13", { completed: true })];
+      const { rerender } = render(<ThreadGroupBar {...props(working, "q-10")} />);
+      rerender(<ThreadGroupBar {...props(finished, "q-10")} />);
+      const chips = () =>
+        screen.getAllByTestId("thread-tab-group-chip").map((chip) => [chip.dataset.group, chip.dataset.selected]);
+      // q-10 left In progress, its only member: the group stays while the tab is in flight.
+      expect(chips()).toEqual([
+        ["in-progress", "false"],
+        ["idle", "false"],
+      ]);
+      expect(screen.getByTestId("thread-tab-group-glide").dataset.group).toBe("idle");
+
+      act(() => vi.advanceTimersByTime(GLIDE_MS + 100));
+      expect(chips()).toEqual([["idle", "true"]]);
+      expect(screen.queryByTestId("thread-tab-group-glide")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stays still while the thread on screen sits in two groups", () => {
