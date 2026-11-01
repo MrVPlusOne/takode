@@ -607,6 +607,24 @@ function ReviewSnippet({
           lineEmphasis={lineEmphasis}
         />
       </div>
+      {live.unavailable && (
+        // Jiayi's pick: say when the code around the change can't be read, with an on-demand Retry.
+        <div
+          className="flex items-center gap-2 border border-t-0 border-cc-border bg-cc-code-bg/80 px-3 py-1.5 text-xs text-cc-muted last:rounded-b-[10px]"
+          data-testid="guided-review-context-unavailable"
+        >
+          <span className="min-w-0 flex-1">
+            {live.unavailable === "too_large"
+              ? "The file's change is too large to show the code around it."
+              : "Code around this change isn't available."}
+          </span>
+          {live.unavailable === "unreachable" && (
+            <button type="button" onClick={live.retry} className="shrink-0 text-cc-primary hover:underline">
+              Retry
+            </button>
+          )}
+        </div>
+      )}
       {live.canShowMore && (
         <button
           type="button"

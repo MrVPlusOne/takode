@@ -59,15 +59,37 @@ describe("useLiveReviewSnippet", () => {
     expect(result.current.canShowMore).toBe(false);
   });
 
-  it("keeps the saved lines when git can't be reached or the commits are gone", async () => {
+  it("keeps the saved lines and says why when git can't be reached or the commits are gone", async () => {
+    // Jiayi (Nov 1): the stop says the code around it isn't available, rather than falling back
+    // silently; a file too large to show says that instead.
     getGuidedReviewFileDiff.mockResolvedValueOnce({ available: false, reason: "commits_not_available" });
     const gone = renderHook(() => useLiveReviewSnippet("leader", "r2", REF));
-    await waitFor(() => expect(getGuidedReviewFileDiff).toHaveBeenCalled());
+    await waitFor(() => expect(gone.result.current.unavailable).toBe("unreachable"));
     expect(gone.result.current).toMatchObject({ snippet: SAVED, canShowMore: false });
     getGuidedReviewFileDiff.mockRejectedValueOnce(new Error("offline"));
     const offline = renderHook(() => useLiveReviewSnippet("leader", "r3", REF));
-    await waitFor(() => expect(getGuidedReviewFileDiff).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(offline.result.current.unavailable).toBe("unreachable"));
     expect(offline.result.current.snippet).toBe(SAVED);
+    getGuidedReviewFileDiff.mockResolvedValueOnce({ available: false, reason: "too_large" });
+    const large = renderHook(() => useLiveReviewSnippet("leader", "r5", REF));
+    await waitFor(() => expect(large.result.current.unavailable).toBe("too_large"));
+  });
+
+  it("reads again on Retry, and only then", async () => {
+    // Jiayi chose an on-demand Retry over retrying by itself when a stop reopens.
+    getGuidedReviewFileDiff.mockRejectedValueOnce(new Error("offline"));
+    const first = renderHook(() => useLiveReviewSnippet("leader", "r6", REF));
+    await waitFor(() => expect(first.result.current.unavailable).toBe("unreachable"));
+    // Reopening the stop keeps the failure; nothing is read again.
+    first.unmount();
+    const reopened = renderHook(() => useLiveReviewSnippet("leader", "r6", REF));
+    await waitFor(() => expect(reopened.result.current.unavailable).toBe("unreachable"));
+    expect(getGuidedReviewFileDiff).toHaveBeenCalledTimes(1);
+    getGuidedReviewFileDiff.mockResolvedValueOnce({ available: true, diff: wholeFileDiff() });
+    act(() => reopened.result.current.retry());
+    await waitFor(() => expect(reopened.result.current.unavailable).toBeNull());
+    await waitFor(() => expect(reopened.result.current.snippet).not.toBe(SAVED));
+    expect(getGuidedReviewFileDiff).toHaveBeenCalledTimes(2);
   });
 
   it("reads each file once per review, and nothing for a stop showing a whole file", async () => {

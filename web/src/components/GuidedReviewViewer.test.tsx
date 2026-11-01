@@ -7,10 +7,17 @@ const ws = vi.hoisted(() => ({ sendToSession: vi.fn(() => true) }));
 vi.mock("../ws.js", () => ({ sendToSession: ws.sendToSession }));
 // Answer drafts go to the draft sync; here only what this tab holds matters.
 vi.mock("../draft-sync.js", () => ({ flushPendingDrafts: vi.fn() }));
-const apiMock = vi.hoisted(() => ({ getGuidedReviewCommit: vi.fn() }));
+const apiMock = vi.hoisted(() => ({ getGuidedReviewCommit: vi.fn(), getGuidedReviewFileDiff: vi.fn() }));
 vi.mock("../api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api.js")>();
-  return { ...actual, api: { ...actual.api, getGuidedReviewCommit: apiMock.getGuidedReviewCommit } };
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      getGuidedReviewCommit: apiMock.getGuidedReviewCommit,
+      getGuidedReviewFileDiff: apiMock.getGuidedReviewFileDiff,
+    },
+  };
 });
 
 import { MarkdownReport } from "./MarkdownReport.js";
@@ -18,6 +25,7 @@ import { useStore } from "../store.js";
 import { GuidedReviewViewerHost } from "./GuidedReviewViewer.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 import { formatGuidedReviewAnswers, useGuidedReviewState } from "../guided-review-state.js";
+import { resetLiveReviewContextForTest } from "../utils/guided-review-live-context.js";
 import {
   makeGuidedReviewMetaFixture,
   makeGuidedReviewReportFixture,
@@ -51,6 +59,10 @@ describe("guided review", () => {
     useGuidedReviewState.setState({ open: null, drafts: {}, reviewSessions: {} });
     ws.sendToSession.mockClear();
     apiMock.getGuidedReviewCommit.mockReset();
+    apiMock.getGuidedReviewFileDiff
+      .mockReset()
+      .mockResolvedValue({ available: false, reason: "commits_not_available" });
+    resetLiveReviewContextForTest();
   });
 
   it("shows the review as a card in the feed instead of its Markdown version", () => {
@@ -278,6 +290,19 @@ describe("guided review", () => {
     quest.remove();
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.queryByTestId("guided-review-viewer")).toBeNull();
+  });
+
+  it("says when the code around a stop can't be read, and reads it again on Retry", async () => {
+    // Jiayi (Nov 1): a small note instead of a silent fallback, with an on-demand Retry.
+    const viewer = await openTour();
+    fireEvent.click(within(viewer).getByRole("button", { name: "Start the walkthrough" }));
+    const note = await within(currentStop(viewer)).findByTestId("guided-review-context-unavailable");
+    expect(note).toHaveTextContent("Code around this change isn't available.");
+    // The saved lines still show.
+    expect(currentStop(viewer)).toHaveTextContent("export async function withRetry");
+    const calls = apiMock.getGuidedReviewFileDiff.mock.calls.length;
+    fireEvent.click(within(note).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(apiMock.getGuidedReviewFileDiff.mock.calls.length).toBe(calls + 1));
   });
 
   it("opens the full change commit by commit from git", async () => {

@@ -32,7 +32,7 @@ export function PlaygroundGuidedReviewSection() {
   return (
     <Section
       title="Guided review"
-      description="A review published with takode review: the feed card, and the walkthrough it opens (Full diff needs a real repository). Each stop's code shows its own lines; in the app the code around them is read live from git and shown dimmed (with Show more), which the Playground has no repository for. Its second stop starts with a comment on two lines of code; select lines in any stop's code to comment on them."
+      description="A review published with takode review: the feed card, and the walkthrough it opens (Full diff needs a real repository). Each stop's code shows its own lines; in the app the code around them is read live from git and shown dimmed (with Show more). The Playground has no repository, so its stops show the note for code that can't be read, with Retry. Its second stop starts with a comment on two lines of code; select lines in any stop's code to comment on them."
     >
       <div className="max-w-3xl">
         <Card label="Guided review card">
