@@ -3,8 +3,10 @@ import {
   describeMachine,
   machineContextForHost,
   machineContextForSession,
+  machineSectionForHost,
   sessionMachineName,
 } from "./machines.js";
+import { configureMachineSettings } from "./machine-settings.js";
 
 // Sessions and quest notes name machines through one directory: the
 // coordinator's own machine, registered hosts and each session's host.
@@ -42,6 +44,21 @@ describe("machines", () => {
       "This session runs on machine `laptop` (macOS, user `ana`, home `/Users/ana`), which also runs the Takode coordinator",
     );
     expect(machineContextForSession("unknown")).toBeNull();
+  });
+
+  // The user's note for a machine follows the machine context in the
+  // instructions of sessions on that machine, and only there.
+  it("adds the machine's note to the Machine section of sessions there", () => {
+    const notes: Record<string, string> = { local: "", h1: "  15 CPUs; nproc is wrong.  " };
+    configureMachineSettings({
+      machineSettings: (hostId) => ({ claudeBinary: "", codexBinary: "", note: notes[hostId] }),
+    });
+    try {
+      expect(machineSectionForHost("h1")).toBe(`${machineContextForHost("h1")}\n\n15 CPUs; nproc is wrong.`);
+      expect(machineSectionForHost(null)).toBe(machineContextForHost(null));
+    } finally {
+      configureMachineSettings(null);
+    }
   });
 
   it("says nothing when no directory is configured", () => {

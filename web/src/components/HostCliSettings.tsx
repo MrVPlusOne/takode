@@ -49,6 +49,36 @@ export function HostCliSettings({
       <WorktreeFolderField hostId={hostId} value={settings.worktreeRoot ?? ""} defaultRoot={defaultWorktreeRoot} />
       <EditorAccessField hostId={hostId} access={settings.editorAccess ?? ""} sshHost={settings.sshHost ?? ""} />
       <AgentCommandsField hostId={hostId} allowed={settings.execDisabled !== true} />
+      <MachineNoteField hostId={hostId} value={settings.note ?? ""} />
+    </div>
+  );
+}
+
+/**
+ * What agents should know about this machine that Takode cannot tell them,
+ * such as limits its tools misreport. It is added to the instructions of
+ * every session that runs here.
+ */
+function MachineNoteField({ hostId, value }: { hostId: string; value: string }) {
+  const field = useSavedField(hostId, "note", value);
+  const inputId = `${hostId}-machine-note`;
+  return (
+    <div>
+      <label className="block text-xs font-medium text-cc-fg mb-1" htmlFor={inputId}>
+        Note for agents
+      </label>
+      <textarea
+        id={inputId}
+        rows={3}
+        {...field.inputProps}
+        placeholder="For example: 16 CPUs and 64 GB shared by all sessions; run big builds elsewhere."
+        className={`${INPUT_CLASS} font-sans resize-y`}
+      />
+      <p className="mt-1 text-[11px] text-cc-muted">
+        Added to the instructions of every session on this machine, such as limits its tools misreport or where heavy
+        work should go. Sessions get it when they next start.
+      </p>
+      {field.status}
     </div>
   );
 }
@@ -210,7 +240,7 @@ const INPUT_CLASS =
   "flex-1 min-w-0 w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-md text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60 font-mono";
 
 /** The machine settings edited as text. */
-type TextSetting = "claudeBinary" | "codexBinary" | "worktreeRoot" | "sshHost";
+type TextSetting = "claudeBinary" | "codexBinary" | "worktreeRoot" | "sshHost" | "note";
 
 /** A machine setting edited in a text field and saved when the field loses focus. */
 function useSavedField(hostId: string, field: TextSetting, value: string) {
@@ -246,10 +276,11 @@ function useSavedField(hostId: string, field: TextSetting, value: string) {
       onFocus: () => {
         focused.current = true;
       },
-      onChange: (event: React.ChangeEvent<HTMLInputElement>) => setDraft(event.target.value),
+      onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(event.target.value),
       onBlur: () => void save(),
-      onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
-        if (event.key === "Enter") event.currentTarget.blur();
+      onKeyDown: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        // A note has several lines; Enter starts the next one there.
+        if (event.key === "Enter" && event.currentTarget instanceof HTMLInputElement) event.currentTarget.blur();
       },
     },
     status: (

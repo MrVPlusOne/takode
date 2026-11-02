@@ -240,6 +240,33 @@ describe("MessageBubble standalone system reminder messages", () => {
     expect(screen.getByText(/missing base image/)).toBeTruthy();
   });
 
+  it("renders a memory guard kill as a chip naming what was killed", () => {
+    // The node killed a session's runaway build to keep the machine (and the
+    // Takode server on it) alive. The chip keeps what went and how much memory
+    // it held; the explanation and advice stay in the detail.
+    const msg = makeMessage({
+      content: [
+        "[Memory guard] Killed 94 processes of this session on `devbox`, holding 47.3 GB: `lean ×93`, `lake`.",
+        "",
+        "The machine was nearly out of memory (54.2 of 56.0 GB in use), and these were the largest user among its sessions.",
+      ].join("\n"),
+      agentSource: { sessionId: "memory-guard", sessionLabel: "Memory guard" },
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByTestId("standalone-system-reminder-chip");
+    expect(chip.getAttribute("data-chip-kind")).toBe("memory-guard");
+    expect(chip.getAttribute("data-chip-tone")).toBe("attention");
+    expect(chip.textContent).toContain("lean ×93, lake");
+    expect(chip.textContent).toContain("47.3 GB");
+    expect(chip.textContent).not.toContain("[Memory guard]");
+    expect(chip.textContent).not.toContain("nearly out of memory");
+
+    fireEvent.click(chip);
+    expect(screen.getByText(/nearly out of memory/)).toBeTruthy();
+  });
+
   it("renders landing-queue messages as collapsed chips with the outcome as a badge", () => {
     // The leader-facing completion message from the screenshot that motivated
     // this: the chip shows only its first sentence; SHAs and the commit-links

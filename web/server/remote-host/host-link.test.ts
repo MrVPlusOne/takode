@@ -1,4 +1,5 @@
 import { once } from "node:events";
+import { readFile } from "node:fs/promises";
 import { HostAgent, type HostAgentOptions } from "./host-agent.js";
 import { HostLinkManager, type RemoteProcess } from "./host-link-manager.js";
 import { LOCAL_HOST_ID } from "./host-registry.js";
@@ -22,9 +23,9 @@ function collect(proc: RemoteProcess): { text: () => string } {
   return { text: () => output };
 }
 
-async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+async function waitFor(condition: () => boolean | Promise<boolean>, timeoutMs = 5_000): Promise<void> {
   const started = Date.now();
-  while (!condition()) {
+  while (!(await condition())) {
     if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition");
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -375,5 +376,48 @@ describe("host link", () => {
     await waitFor(() => reported.length === 2);
     expect(reported[1]).toBe("old-laptop");
     expect(saved).toHaveLength(2);
+  });
+
+  // The memory guard end to end with real processes: an agent-like process
+  // starts a child that holds memory, the machine reads as nearly full, and the
+  // node kills the child (not the agent, which is told why) and reports it to
+  // the coordinator. Both get an OOM score that makes the kernel pick them
+  // before the server. The machine's memory is faked; the processes, the
+  // process table and the kill are real.
+  it.skipIf(process.platform !== "linux")("kills the memory-holding children of a session and reports it", async () => {
+    const agentProgram = [
+      "const { spawn } = require('node:child_process');",
+      "process.stdin.once('data', () => {",
+      "  const child = spawn(process.execPath, ['-e', 'const b = Buffer.alloc(150e6, 1); setInterval(() => b[0]++, 1000)'], { stdio: 'ignore' });",
+      "  process.stdout.write('CHILD ' + child.pid + '\\n');",
+      "  child.on('exit', (code, signal) => process.stdout.write('CHILD EXIT ' + signal + '\\n'));",
+      "});",
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+    const MB = 2 ** 20;
+    let full = false;
+    const reports: Array<{ hostId: string; procId: string; processes: number; programs: string[] }> = [];
+    manager.onMemoryKill = (reportedHost, procId, kill) =>
+      reports.push({ hostId: reportedHost, procId, processes: kill.processes, programs: kill.programs });
+    agent = startAgent(20, {
+      guardMemory: { readMemory: async () => (full ? { usedBytes: 950 * MB, limitBytes: 1000 * MB } : null) },
+    });
+    const proc = manager.spawn(hostId, { command: process.execPath, args: ["-e", agentProgram], env: {} });
+    const output = collect(proc);
+    await once(proc, "spawn");
+    await waitFor(async () => (await readFile(`/proc/${proc.pid}/oom_score_adj`, "utf-8")).trim() === "1000");
+    proc.stdin.write("go\n");
+    await waitFor(() => /CHILD \d+/.test(output.text()));
+    const childPid = Number(output.text().match(/CHILD (\d+)/)![1]);
+    expect((await readFile(`/proc/${childPid}/oom_score_adj`, "utf-8")).trim()).toBe("1000");
+
+    full = true;
+    await waitFor(() => output.text().includes("CHILD EXIT SIGKILL"), 10_000);
+    await waitFor(() => reports.length === 1);
+    expect(reports[0]).toMatchObject({ hostId, procId: proc.procId, processes: 1 });
+    // The agent itself keeps running.
+    expect(proc.exitCode).toBeNull();
+    proc.kill("SIGTERM");
+    await once(proc, "exit");
   });
 });

@@ -10,6 +10,8 @@ import {
 import { LANDING_QUEUE_MESSAGE_SOURCE, LANDING_QUEUE_MESSAGE_TAG } from "../../shared/landing-queue.js";
 import { SESSION_RECOVERY_SOURCE_ID, SKILL_CHANGE_NOTICE_SOURCE_ID } from "../../shared/injected-event-message.js";
 import { HOST_EXEC_MESSAGE_SOURCE, HOST_EXEC_MESSAGE_TAG } from "../../shared/host-exec.js";
+import { MEMORY_GUARD_MESSAGE_SOURCE, MEMORY_GUARD_MESSAGE_TAG } from "../../shared/memory-guard.js";
+import { stripInlineMarkdown } from "../../shared/markdown-plain-text.js";
 
 export type SystemReminderKind =
   | "resource-lease"
@@ -18,7 +20,8 @@ export type SystemReminderKind =
   | "landing-queue"
   | "session-recovery"
   | "skills-changed"
-  | "command-finished";
+  | "command-finished"
+  | "memory-guard";
 
 /** Color of a chip: good news, something that needs a look, or neutral system info. */
 export type SystemReminderTone = "success" | "attention" | "info";
@@ -57,7 +60,8 @@ export function isStandaloneReminderMessage(message: ReminderCandidate): boolean
     sourceId === LANDING_QUEUE_MESSAGE_SOURCE.sessionId ||
     sourceId === SESSION_RECOVERY_SOURCE_ID ||
     sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID ||
-    sourceId === HOST_EXEC_MESSAGE_SOURCE.sessionId
+    sourceId === HOST_EXEC_MESSAGE_SOURCE.sessionId ||
+    sourceId === MEMORY_GUARD_MESSAGE_SOURCE.sessionId
   );
 }
 
@@ -92,6 +96,7 @@ export function buildSystemReminderViewModel(message: ReminderCandidate): System
   if (sourceId === SESSION_RECOVERY_SOURCE_ID) return buildSessionRecoveryReminder(message.content);
   if (sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID) return buildSkillChangeReminder(message.content);
   if (sourceId === HOST_EXEC_MESSAGE_SOURCE.sessionId) return buildCommandFinishedReminder(message.content);
+  if (sourceId === MEMORY_GUARD_MESSAGE_SOURCE.sessionId) return buildMemoryGuardReminder(message.content);
   return null;
 }
 
@@ -194,6 +199,30 @@ function buildCommandFinishedReminder(content: string): SystemReminderViewModel 
     summary: parsed?.[1] ?? firstLine,
     badge: parsed ? badge : "ended",
     tone: outcome === "exit 0" ? "success" : "attention",
+    detailFacts: [],
+    detailContent: body,
+  };
+}
+
+/**
+ * The memory guard killed this session's processes. The first line reads
+ * "Killed 94 processes of this session on `devbox`, holding 47.3 GB: `lean ×93`, `lake`.";
+ * the chip keeps what was killed and how much memory it held, which fit on a
+ * phone, and the explanation stays in the detail.
+ */
+function buildMemoryGuardReminder(content: string): SystemReminderViewModel {
+  const body = content.startsWith(MEMORY_GUARD_MESSAGE_TAG)
+    ? content.slice(MEMORY_GUARD_MESSAGE_TAG.length).trimStart()
+    : content;
+  const firstLine = stripInlineMarkdown(body.split(/\r?\n/, 1)[0] ?? "");
+  const parsed = firstLine.match(/, holding (.+?): (.+?)\.?$/);
+  return {
+    kind: "memory-guard",
+    title: "Memory guard",
+    summary: parsed ? parsed[2]! : firstLine,
+    ...(parsed ? { meta: parsed[1] } : {}),
+    badge: "killed",
+    tone: "attention",
     detailFacts: [],
     detailContent: body,
   };

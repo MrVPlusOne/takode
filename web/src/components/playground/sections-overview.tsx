@@ -29,6 +29,7 @@ import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundSt
 import { PlaygroundPendingMessageStates } from "./PlaygroundPendingMessageStates.js";
 import {
   PlaygroundCommandFinishedMessage,
+  PlaygroundMemoryGuardMessage,
   PlaygroundLandingQueueMessage,
   PlaygroundSessionRecoveryMessage,
   PlaygroundSkillChangeMessage,
@@ -729,6 +730,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Background command failed">
             <PlaygroundCommandFinishedMessage outcome="failed" />
+          </Card>
+          <Card label="Memory guard killed a runaway job">
+            <PlaygroundMemoryGuardMessage />
           </Card>
           <Card label="Thread outcome reminder (collapsed chip)">
             <PlaygroundThreadOutcomeReminderMessage />

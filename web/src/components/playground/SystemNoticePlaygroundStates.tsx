@@ -1,6 +1,7 @@
 import type { ChatMessage } from "../../types.js";
 import { MessageBubble } from "../MessageBubble.js";
 import { HOST_EXEC_MESSAGE_SOURCE } from "../../../shared/host-exec.js";
+import { MEMORY_GUARD_MESSAGE_SOURCE } from "../../../shared/memory-guard.js";
 
 const LANDING_QUEUE_SOURCE = { sessionId: "landing-queue", sessionLabel: "Landing Queue" };
 
@@ -111,4 +112,20 @@ export function PlaygroundCommandFinishedMessage({ outcome }: { outcome: "succee
     agentSource: HOST_EXEC_MESSAGE_SOURCE,
   };
   return <MessageBubble message={message} sessionId="playground-command-finished" showTimestamp={false} />;
+}
+
+/** The memory guard killed a session's runaway build, as the server words it. */
+export function PlaygroundMemoryGuardMessage() {
+  const message: ChatMessage = {
+    id: "playground-memory-guard",
+    role: "user",
+    content: [
+      "[Memory guard] Killed 94 processes of this session on `devbox`, holding 47.3 GB: `lean ×93`, `lake`.",
+      "",
+      "The machine was nearly out of memory (54.2 of 56.0 GB in use), and these were the largest user among its sessions. Running out of memory there can stall or kill the Takode server and every other session, so Takode stopped them. If you need that work, rerun it with less parallelism (fewer jobs, workers or threads), or run it on a machine with more room using `takode exec --host <machine> --background`.",
+    ].join("\n"),
+    timestamp: Date.now() - 7_000,
+    agentSource: MEMORY_GUARD_MESSAGE_SOURCE,
+  };
+  return <MessageBubble message={message} sessionId="playground-memory-guard" showTimestamp={false} />;
 }

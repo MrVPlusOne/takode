@@ -86,6 +86,12 @@ export interface HostMachineSettings {
   sshHost?: string;
   /** The user turned off `takode exec` for this machine: sessions may not run commands on it. */
   execDisabled?: boolean;
+  /**
+   * The user's note about this machine for agents, such as its real CPU and
+   * memory limits and where heavy work should go instead; Takode adds it to the
+   * Machine section of the instructions of every session that runs there.
+   */
+  note?: string;
 }
 
 export type EditorAccess = "" | "local" | "ssh";
@@ -139,7 +145,24 @@ export type HostProcessEvent =
   | ({ kind: "stdout" } & ProcessData)
   | ({ kind: "stderr" } & ProcessData)
   | { kind: "exit"; code: number | null; signal: string | null }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  /**
+   * The host's memory guard killed this process's tree, or what it started,
+   * because the machine was nearly out of memory (see `memory-guard.ts`).
+   * Coordinators that predate it ignore it.
+   */
+  | {
+      kind: "memory_kill";
+      /** How many processes it killed. */
+      processes: number;
+      /** Their memory, not counting shared file mappings. */
+      bytes: number;
+      /** Their program names, largest first, such as `lean ×93`. */
+      programs: string[];
+      /** Memory in use on the machine (or its container) and its limit when it acted. */
+      usedBytes: number;
+      limitBytes: number;
+    };
 
 /**
  * One-shot operations the coordinator asks a host to perform on its machine,

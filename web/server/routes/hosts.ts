@@ -53,7 +53,7 @@ export function createHostRoutes(
   api.put("/hosts/:id/settings", async (c) => {
     const id = c.req.param("id");
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    for (const field of ["claudeBinary", "codexBinary", "worktreeRoot", "sshHost"]) {
+    for (const field of ["claudeBinary", "codexBinary", "worktreeRoot", "sshHost", "note"]) {
       if (body[field] !== undefined && typeof body[field] !== "string") {
         return c.json({ error: `${field} must be a string` }, 400);
       }
@@ -84,6 +84,7 @@ export function createHostRoutes(
       ...(typeof body.editorAccess === "string" ? { editorAccess: body.editorAccess as EditorAccess } : {}),
       ...(typeof body.sshHost === "string" ? { sshHost: body.sshHost } : {}),
       ...(typeof body.execDisabled === "boolean" ? { execDisabled: body.execDisabled } : {}),
+      ...(typeof body.note === "string" ? { note: body.note } : {}),
     });
     if (!settings) return c.json({ error: "Host not found" }, 404);
     links.pushSettings(id);

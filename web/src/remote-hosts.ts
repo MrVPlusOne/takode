@@ -15,6 +15,8 @@ export interface MachineSettings {
   sshHost?: string;
   /** Sessions may not run commands on this machine with `takode exec`. */
   execDisabled?: boolean;
+  /** The user's note about this machine for agents, added to every session's instructions there. */
+  note?: string;
 }
 
 /** The machine holding files of a host id from the server (null or absent for the server's own machine). */

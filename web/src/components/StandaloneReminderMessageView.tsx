@@ -156,7 +156,7 @@ function SystemReminderChip({
 function SystemReminderIcon({ kind }: { kind: SystemReminderViewModel["kind"] }) {
   if (kind === "resource-lease") return <LockIcon />;
   if (kind === "landing-queue") return <LandingIcon />;
-  if (kind === "long-sleep-guard" || kind === "session-recovery") return <WarningIcon />;
+  if (kind === "long-sleep-guard" || kind === "session-recovery" || kind === "memory-guard") return <WarningIcon />;
   if (kind === "skills-changed") return <BookIcon />;
   if (kind === "command-finished") return <TerminalIcon />;
   return <RestartIcon />;

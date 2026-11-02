@@ -100,6 +100,15 @@ describe("host routes", () => {
     expect((await (await put(host.id, { execDisabled: false })).json()).settings.execDisabled).toBe(false);
   });
 
+  // The user's note for agents on a machine, for this machine too: kept trimmed, and cleared when emptied.
+  it("stores a machine's note for agents", async () => {
+    const res = await put("local", { note: "  15 CPUs and 56 GB shared with the coordinator.\n" });
+    expect((await res.json()).settings.note).toBe("15 CPUs and 56 GB shared with the coordinator.");
+    expect(registry.machineSettings("local").note).toBe("15 CPUs and 56 GB shared with the coordinator.");
+    expect((await put("local", { note: 15 })).status).toBe(400);
+    expect((await (await put("local", { note: "" })).json()).settings.note).toBe("");
+  });
+
   // Empty, a machine's worktree folder is ~/.companion/worktrees in that
   // machine's own home, which can be elsewhere (node-local disk on a cluster).
   // The list resolves it from the home directory the host reported, and has

@@ -91,6 +91,8 @@ import { FULL_SUITE_POOL_PREFIX, LANDING_QUEUE_MESSAGE_SOURCE } from "../shared/
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
 import { configureHostExec, HostExec } from "./remote-host/host-exec.js";
 import { HOST_EXEC_MESSAGE_SOURCE } from "../shared/host-exec.js";
+import { MEMORY_GUARD_MESSAGE_SOURCE } from "../shared/memory-guard.js";
+import { memoryKillNotice } from "./remote-host/memory-guard.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
 import { HostOutageAlerts, describeHeldWork } from "./remote-host/host-outage-alerts.js";
@@ -455,6 +457,21 @@ hostLinks.updateBlocker = (hostId, mode) => hostUpdateSessions.blocker(hostId, m
 hostLinks.prepareHostUpdate = (hostId, mode) => hostUpdateSessions.prepare(hostId, mode);
 hostLinks.onHostRestarted = (hostId) => hostUpdateSessions.hostRestarted(hostId);
 hostLinks.updateBundle = (commit, hostHaves) => createUpdateBundle(packageRoot, commit, hostHaves);
+// A node's memory guard killed a session's (or command's) processes: tell that session why.
+hostLinks.onMemoryKill = (hostId, procId, kill) => {
+  const machine = hostId === LOCAL_HOST_ID ? thisMachine.name : (hostRegistry.nameOf(hostId) ?? hostId);
+  const job = hostExec.forProcess(procId);
+  const sessionId =
+    job?.sessionId ??
+    launcher.listSessions().find((s) => s.hostProcId === procId && processHostOf(s) === hostId)?.sessionId;
+  console.warn(`[memory-guard] ${machine} killed processes of ${job ? job.id : (sessionId ?? procId)}`);
+  if (!sessionId) return;
+  wsBridge.injectUserMessage(
+    sessionId,
+    memoryKillNotice(kill, machine, job ? `your command ${job.id}` : undefined),
+    MEMORY_GUARD_MESSAGE_SOURCE,
+  );
+};
 hostLinks.nameHost = (hostId, reportedName) => hostRegistry.adoptReportedName(hostId, reportedName, [thisMachine.name]);
 configureMachines({
   local: () => ({ name: thisMachine.name, ...thisMachineDetails() }),

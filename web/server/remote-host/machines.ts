@@ -1,4 +1,5 @@
 import type { MachineInfo } from "../machine-identity.js";
+import { machineSettingsFor } from "./machine-settings.js";
 
 /**
  * Where the coordinator learns about machines: its own, the registered hosts
@@ -54,6 +55,15 @@ export function machineContextForHost(hostId?: string | null): string | null {
     `This session runs on machine \`${session.name}\`${detailSuffix(session)}${coordinatorText} ` +
     "Quest notes, debriefs and memory notes are stamped with the machine they were written on: paths, commands and environment details in notes from another machine describe that machine, not this one."
   );
+}
+
+/**
+ * The Machine section of a session's injected instructions: the machine
+ * context, then the user's note for that machine (its Settings), if any.
+ */
+export function machineSectionForHost(hostId?: string | null): string | null {
+  const note = machineSettingsFor(hostId).note?.trim();
+  return [machineContextForHost(hostId), note].filter(Boolean).join("\n\n") || null;
 }
 
 export function machineContextForSession(sessionId: string | undefined): string | null {

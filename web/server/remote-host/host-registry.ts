@@ -276,6 +276,7 @@ function definedSettings(patch: Partial<MachineSettings>): Partial<MachineSettin
   }
   if (typeof patch.sshHost === "string") defined.sshHost = patch.sshHost.trim();
   if (typeof patch.execDisabled === "boolean") defined.execDisabled = patch.execDisabled;
+  if (typeof patch.note === "string") defined.note = patch.note.trim();
   return defined;
 }
 

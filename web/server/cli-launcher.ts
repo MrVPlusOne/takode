@@ -30,7 +30,7 @@ import { onMachine } from "./remote-host/host-operations.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
 import { LOCAL_HOST_ID, processHostOf, type HostRegistry } from "./remote-host/host-registry.js";
-import { machineContextForHost } from "./remote-host/machines.js";
+import { machineSectionForHost } from "./remote-host/machines.js";
 import { withUserCodexDeveloperInstructions } from "./codex-user-config-carryover.js";
 import { deliverMcpOAuthCallbackOnMachine } from "./mcp-oauth-callback.js";
 import { userContentService } from "./user-content-service.js";
@@ -238,7 +238,7 @@ export class CliLauncher {
             },
           }
         : {}),
-      machine: machineContextForHost(info.hostId) ?? undefined,
+      machine: machineSectionForHost(info.hostId) ?? undefined,
       extraInstructions,
       backend,
     });

@@ -46,3 +46,37 @@ describe("HostCliSettings agent commands switch", () => {
     );
   });
 });
+
+/**
+ * The per-machine note for agents: several lines (Enter does not save it), saved
+ * when the field loses focus.
+ */
+describe("HostCliSettings note for agents", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps Enter for new lines and saves the note when the field loses focus", async () => {
+    const note = "15 CPUs and 56 GB shared.\nnproc is wrong.";
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ settings: { claudeBinary: "", codexBinary: "", note } })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <HostCliSettings hostId="local" settings={{ claudeBinary: "", codexBinary: "" }} defaultWorktreeRoot={null} />,
+    );
+
+    const field = screen.getByLabelText("Note for agents");
+    field.focus();
+    fireEvent.change(field, { target: { value: note } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.blur(field);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/hosts/local/settings",
+        expect.objectContaining({ method: "PUT", body: JSON.stringify({ note }) }),
+      ),
+    );
+  });
+});

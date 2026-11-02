@@ -230,6 +230,10 @@ export class HostLinkManager {
    * that cannot get the commit from its own remote is not updated.
    */
   updateBundle: ((commit: string, hostHaves: string[]) => Promise<Buffer>) | null = null;
+  /** A host's memory guard killed (part of) the process tree of `procId` to keep the machine from running out of memory. */
+  onMemoryKill:
+    | ((hostId: string, procId: string, kill: Extract<HostProcessEvent, { kind: "memory_kill" }>) => void)
+    | null = null;
   private readonly now: () => number;
 
   constructor(options: { epoch?: number; build?: string | null; now?: () => number } = {}) {
@@ -317,7 +321,7 @@ export class HostLinkManager {
         this.handleHello(hostId, link, socket, message);
         return;
       case "event":
-        this.handleEvent(link, socket, message.procId, message.seq, message.event);
+        this.handleEvent(hostId, link, socket, message.procId, message.seq, message.event);
         return;
       case "command_ack":
         link.unacked = link.unacked.filter((queued) => queued.seq > message.seq);
@@ -740,6 +744,7 @@ export class HostLinkManager {
   }
 
   private handleEvent(
+    hostId: string,
     link: HostLink,
     socket: HostLinkSocket,
     procId: string,
@@ -750,6 +755,7 @@ export class HostLinkManager {
     if (proc && seq === proc.lastEventSeq + 1) {
       proc.lastEventSeq = seq;
       proc.apply(event);
+      if (event.kind === "memory_kill") this.onMemoryKill?.(hostId, procId, event);
     }
     // Duplicates and events for processes this coordinator no longer tracks are
     // acknowledged so the host can drop them; a gap waits for the host's replay.

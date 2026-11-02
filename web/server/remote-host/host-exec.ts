@@ -214,6 +214,12 @@ export class HostExec {
     return job ? publicJob(job) : null;
   }
 
+  /** The command running as host-link process `procId`, if it is one. */
+  forProcess(procId: string): ExecJob | null {
+    const job = [...this.jobs.values()].find((candidate) => candidate.procId === procId);
+    return job ? publicJob(job) : null;
+  }
+
   /** Records newest first, optionally only one session's. */
   list(options: { sessionId?: string; limit?: number } = {}): ExecJob[] {
     const jobs = [...this.jobs.values()]

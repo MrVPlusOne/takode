@@ -14,6 +14,7 @@ import { HOST_LINK_FEATURES, HostLinkCodec, processBytes, processData } from "./
 import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js";
 import { thisMachineDetails } from "../machine-identity.js";
 import { stopProcessTree } from "./process-tree.js";
+import { MemoryGuard, raiseOomScore, type MemoryGuardOptions } from "./memory-guard.js";
 import { REMOTE_HOST_ENV } from "../../shared/remote-host-env.js";
 import {
   API_PROXY_RELAYS_ENCODING_HEADER,
@@ -89,6 +90,13 @@ export interface HostAgentOptions {
   prepareUpdate?: (commit: string, bundle: Buffer | null) => Promise<UpdatePreparation>;
   /** Folders that slow Bun starts on this machine (findCrowdedDirectories), reported to the coordinator. */
   crowdedDirectories?: CrowdedDirectory[];
+  /**
+   * Guard this machine's memory (Linux): the kernel's OOM killer picks the
+   * processes this node starts before others, and when memory nears the limit
+   * the node kills the session tree holding the most (see `MemoryGuard`).
+   * Tests may pass how it reads memory use instead of `true`.
+   */
+  guardMemory?: boolean | Pick<MemoryGuardOptions, "readMemory">;
   /** Link features to offer the coordinator; all this build knows unless a test stands in for an older host. */
   linkFeatures?: readonly HostLinkFeature[];
   /** First reconnect delay after a link drop; doubles up to 15s (2s for a coordinator on this machine). */
@@ -111,6 +119,10 @@ type HostedEvent =
 interface HostedProcess {
   /** Input, signals and size of the running process; null when it could not start. */
   control: ProcessControl | null;
+  /** Its process id once started; terminals have none here. */
+  pid?: number;
+  /** A command (`takode exec`) rather than an agent CLI: the memory guard may end all of it. */
+  command?: boolean;
   nextSeq: number;
   /** Events the coordinator has not acknowledged yet, oldest first. */
   pending: { seq: number; event: HostedEvent }[];
@@ -167,6 +179,7 @@ export class HostAgent {
   /** The coordinator's last reason for refusing the link, logged once until the link opens. */
   private lastRefusal: string | null = null;
   private readonly log: (message: string) => void;
+  private readonly memoryGuard: MemoryGuard | null;
 
   constructor(private readonly options: HostAgentOptions) {
     this.log = options.log ?? ((message) => console.log(`[takode node] ${message}`));
@@ -175,10 +188,22 @@ export class HostAgent {
     this.maxReconnectDelayMs = isLoopbackHost(new URL(options.coordinatorUrl).hostname)
       ? MAX_LOOPBACK_RECONNECT_DELAY_MS
       : MAX_RECONNECT_DELAY_MS;
+    this.memoryGuard = options.guardMemory
+      ? new MemoryGuard({
+          processes: () =>
+            [...this.processes].flatMap(([procId, hosted]) =>
+              hosted.pid && !hosted.exited ? [{ procId, pid: hosted.pid, command: hosted.command === true }] : [],
+            ),
+          onKill: (procId, kill) => this.emit(procId, { kind: "memory_kill", ...kill }),
+          log: this.log,
+          ...(options.guardMemory === true ? {} : options.guardMemory),
+        })
+      : null;
   }
 
   start(): void {
     this.stopped = false;
+    this.memoryGuard?.start();
     this.connect();
     this.heartbeat = setInterval(() => this.tick(), HOST_HEARTBEAT_MS);
   }
@@ -186,6 +211,7 @@ export class HostAgent {
   /** Stop reconnecting and end every hosted process; resolves once each has been signalled. */
   async stop(): Promise<void> {
     this.stopped = true;
+    this.memoryGuard?.stop();
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.socket?.close(1000, "Host stopping");
@@ -511,6 +537,7 @@ export class HostAgent {
       pending: [],
       unfinishedLine: Buffer.alloc(0),
       exited: false,
+      ...(command.group ? { command: true } : {}),
     };
     this.processes.set(command.procId, hosted);
     const port = String(this.options.apiProxyPort);
@@ -570,6 +597,13 @@ export class HostAgent {
     let spawned = false;
     child.once("spawn", () => {
       spawned = true;
+      hosted.pid = child.pid;
+      // At once, before it is likely to start anything: its children inherit the score.
+      if (this.memoryGuard && child.pid) {
+        raiseOomScore(child.pid).catch((error) =>
+          this.log(`Could not raise the OOM score of process ${child.pid}: ${errorMessage(error)}`),
+        );
+      }
       this.emit(command.procId, { kind: "spawned", ...(child.pid ? { pid: child.pid } : {}) });
     });
     child.stdout?.on("data", (chunk: Buffer) =>

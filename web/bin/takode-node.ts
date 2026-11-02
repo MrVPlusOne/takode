@@ -140,6 +140,7 @@ async function main(): Promise<void> {
     build,
     crowdedDirectories,
     machineName: await readMachineName(),
+    guardMemory: process.platform === "linux",
     saveMachineName: (name) => saveMachineName(name),
     ...(sharedCheckout
       ? {

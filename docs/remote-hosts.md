@@ -244,6 +244,38 @@ Turn **Agents may run commands here** off for a machine in
 **Settings → Hosts** to refuse new commands on it. The calling session's own
 permission mode still applies to its `takode exec` call.
 
+## Telling agents about a machine
+
+Each machine's **Note for agents** in **Settings → Hosts** is text Takode adds
+to the Machine section of the instructions of every session that runs there,
+for what agents cannot find out themselves: limits their tools misreport
+(inside a container, `nproc` shows the host's CPUs, not the container's), or
+where heavy work should go instead. Sessions get a changed note when they next
+start.
+
+## When a machine runs out of memory
+
+On Linux, each `takode node` guards its machine's memory, so one session's
+runaway job (a build or test run that starts a process per CPU) cannot take
+down the machine's other sessions, or the Takode server when it runs there:
+
+- Every process the node starts (agent CLIs and `takode exec` commands) gets
+  the highest OOM score, which what they start inherits, so when memory runs
+  out the kernel kills one of them rather than the server or the node.
+- Every 2 seconds the node compares memory in use (file cache excluded) with
+  the closest cgroup limit (a container's or a cluster job's), or the
+  machine's memory when there is none. At 90% it kills what holds the most
+  memory among its sessions: one process tree an agent CLI started (usually a
+  command it ran, such as a build), the agent CLI itself, or a whole
+  `takode exec` command. One holding less than a tenth of the limit is
+  spared. The session is told what was killed and why, and the guard waits
+  15 seconds for the memory to be freed before acting again.
+
+Per-session memory limits would be stronger, but they need a cgroup the node
+may manage, which containers usually do not delegate. Processes that left
+their session's process tree (daemons whose parent exited) are covered only
+by the OOM score.
+
 ## Keeping it running
 
 Neither the tunnel nor `takode node` restarts by itself after a reboot. Run each

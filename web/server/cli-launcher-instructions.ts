@@ -38,7 +38,7 @@ export interface CompanionInstructionBuildOptions {
     /** Remote host this session runs on; absent for the coordinator's machine. */
     hostId?: string;
   };
-  /** Which machine the session runs on and where the coordinator runs (see `machineContextForHost`). */
+  /** Which machine the session runs on, where the coordinator runs, and the user's note for the machine (see `machineSectionForHost`). */
   machine?: string;
   extraInstructions?: string;
   backend?: BackendType;
