@@ -14,6 +14,7 @@ import yaml from "highlight.js/lib/languages/yaml";
 import sql from "highlight.js/lib/languages/sql";
 import diff from "highlight.js/lib/languages/diff";
 import markdown from "highlight.js/lib/languages/markdown";
+import { lean, rocq } from "./proof-assistant-syntax.js";
 
 let languagesRegistered = false;
 
@@ -45,6 +46,12 @@ function ensureLanguagesRegistered() {
   hljs.registerLanguage("js", javascript);
   hljs.registerLanguage("ts", typescript);
   hljs.registerLanguage("py", python);
+  hljs.registerLanguage("lean", lean);
+  hljs.registerLanguage("lean4", lean);
+  // `.v` is the Rocq/Coq file extension; no Verilog grammar is registered to compete for it.
+  hljs.registerLanguage("rocq", rocq);
+  hljs.registerLanguage("coq", rocq);
+  hljs.registerLanguage("v", rocq);
 }
 
 function normalizeFileName(filePath: string | null | undefined): string {
@@ -117,6 +124,10 @@ export function inferLanguageFromPath(filePath: string | null | undefined): stri
     case ".diff":
     case ".patch":
       return "diff";
+    case ".lean":
+      return "lean";
+    case ".v":
+      return "rocq";
     default:
       return null;
   }
