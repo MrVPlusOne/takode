@@ -466,7 +466,7 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
         stands: svc.store
           .stands(detail.id, leaderFor(svc, c))
           .map((stand) => ({ ...stand, leaderNum: ctx.launcher.getSessionNum(stand.leaderId) ?? null })),
-        quests: quests.flatMap((quest) => (quest ? [questForPage(quest)] : [])),
+        quests: quests.flatMap((quest) => (quest ? [questForPage(quest, svc)] : [])),
       };
     }),
   );
@@ -797,7 +797,7 @@ export function withoutSections(markdown: string, title: RegExp): { page: string
  * A topic's quest as its page shows it: when it finished and, then, its one-line wrap-up (the
  * first line of its debrief TLDR), which the page's quest log lists.
  */
-function questForPage(quest: QuestmasterTask) {
+function questForPage(quest: QuestmasterTask, svc: TopicService) {
   const done = quest as QuestmasterTask & { completedAt?: number; debriefTldr?: string };
   const wrapUp =
     done.status === "done"
@@ -806,10 +806,14 @@ function questForPage(quest: QuestmasterTask) {
           .split("\n")[0]
           ?.replace(/^[-*]\s+/, "")
       : undefined;
+  // An open quest's news, as Home shows it: the Scribe's line, else the latest agent note's.
+  const news =
+    done.status === "done" ? undefined : (svc.store.newestHomeLine(quest.questId) ?? questHomeLine(quest))?.text;
   return {
     questId: quest.questId,
     title: quest.title,
     status: quest.status,
+    ...(news ? { news } : {}),
     changedAt: questChangedAt(quest),
     ...(done.completedAt ? { completedAt: done.completedAt } : {}),
     ...(wrapUp ? { wrapUp: wrapUp.length > 220 ? `${wrapUp.slice(0, 219).trimEnd()}…` : wrapUp } : {}),

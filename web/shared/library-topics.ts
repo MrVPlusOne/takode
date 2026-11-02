@@ -160,6 +160,8 @@ export interface TopicDetail extends TopicSummary {
     changedAt?: number;
     /** When it finished, for the quest log. */
     completedAt?: number;
+    /** An open quest's line of news, as Home shows it: the Scribe's, else the latest agent note's. */
+    news?: string;
     /** A finished quest's one-line wrap-up (its debrief TLDR's first line), for the quest log. */
     wrapUp?: string;
   }>;

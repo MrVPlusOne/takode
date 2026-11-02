@@ -7,6 +7,7 @@ import { artifactApi } from "../../api/artifacts.js";
 import { topicApi } from "../../api/topics.js";
 import { openTopicLibrary } from "../../utils/library-nav.js";
 import { openArtifact } from "../../utils/side-column.js";
+import { TruncatedLine } from "../TruncatedLine.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { InlineLocalImagesContext } from "../inline-local-images.js";
 import { ArtifactCard } from "./ArtifactThumbnail.js";
@@ -452,14 +453,25 @@ export function listItems(text: string): { lead: string; items: string[] } {
 }
 
 /** Quests as linked lines with their state, in the order given. */
+/**
+ * The open quests, each with its line of news under it as Home shows it (Jiayi, Nov 2: the page
+ * listed only "in progress"), cut to one line with the full text on hover or long-press.
+ */
 function QuestList({ quests }: { quests: NonNullable<TopicDetail["quests"]> }) {
   return (
-    <MarkdownContent
-      text={quests
-        .map((quest) => `- [${quest.questId}](quest:${quest.questId}) ${quest.title} · ${statusLabel(quest.status)}`)
-        .join("\n")}
-      questLinkSurface="chat-feed"
-    />
+    <ul className="list-disc space-y-1 pl-5">
+      {quests.map((quest) => (
+        <li key={quest.questId} className="text-cc-fg" data-testid="topic-open-quest">
+          <MarkdownContent
+            text={`[${quest.questId}](quest:${quest.questId}) ${quest.title} · ${statusLabel(quest.status)}`}
+            questLinkSurface="chat-feed"
+          />
+          {quest.news && (
+            <TruncatedLine text={quest.news} className="text-[13px] text-cc-muted" testId="topic-open-quest-news" />
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

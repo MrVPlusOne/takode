@@ -13,6 +13,7 @@ import { normalizeThreadKey } from "../../utils/thread-projection.js";
 import { TopicIcon } from "../library/library-icons.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
 import type { HomeThread } from "./HomeThreadList.js";
+import { isRunning } from "../ThreadTabGroups.js";
 
 /** A line of news per thread (`GET /topics/home-lines`), loaded again every minute. */
 export function useHomeLines(leaderId: string, questIds: readonly string[]): (threadKey: string) => string | undefined {
@@ -107,8 +108,11 @@ function topicOfKey(
 }
 
 /**
- * Home's list by topic: each topic with where it stands, its threads in the list's order and the
- * rest behind "N more"; topics in the order of their first thread, threads under no topic last.
+ * Home's list by topic: each topic with where it stands and its threads in the list's order;
+ * topics in the order of their first thread, threads under no topic last. A topic shows every
+ * thread with something going on (a question, an unread result, work running) and quiet ones up to
+ * `perTopic`, the rest behind "N more" (Jiayi, Nov 2: a topic showed its first three threads only,
+ * so running quests hid behind a finished one).
  */
 export function ThreadsByTopic({
   leaderId,
@@ -146,7 +150,7 @@ export function ThreadsByTopic({
     <div className="pb-1" data-testid="idle-by-topic">
       {groups.map((group) => {
         const key = group.id ?? "none";
-        const shown = open[key] ? group.threads : group.threads.slice(0, perTopic);
+        const shown = open[key] ? group.threads : shownOfTopic(group.threads, perTopic);
         return (
           <div key={key} className="mt-1 first:mt-0" data-testid="idle-topic">
             <div className="flex min-w-0 items-baseline gap-2 px-4 pt-2">
@@ -174,6 +178,15 @@ export function ThreadsByTopic({
       })}
     </div>
   );
+}
+
+/** A topic's threads shown before "N more": every one with something going on, quiet ones up to `quiet`. */
+export function shownOfTopic(threads: readonly HomeThread[], quiet: number): HomeThread[] {
+  let quietLeft = quiet;
+  return threads.filter(({ tab }) => {
+    if (tab.needsInput || tab.blueNudge || (!tab.attentionOnly && isRunning(tab))) return true;
+    return quietLeft-- > 0;
+  });
 }
 
 /** How a leader's Home lists its threads, remembered in this browser. */

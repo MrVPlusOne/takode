@@ -326,6 +326,28 @@ describe("topic routes", () => {
       }),
     ]);
   });
+  // Jiayi (Nov 2): the page listed open quests as "in progress" only; each carries its news line,
+  // as Home shows it: any leader's Scribe line for it, else a stand-in. A finished quest has none
+  // (its wrap-up is in the quest log).
+  it("gives each open quest its line of news, the Scribe's when written", async () => {
+    const { app, store, setCaller } = await setup();
+    const { topic } = store.assign({ questId: "q-2", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: false });
+    setCaller("leader");
+    const quests = async () =>
+      Object.fromEntries(
+        (
+          (await (await app.request(`/topics/${topic.id}`)).json()).quests as Array<{ questId: string; news?: string }>
+        ).map((quest) => [quest.questId, quest.news]),
+      );
+    // q-2 has no agent note yet, so no stand-in either.
+    expect(await quests()).toEqual({ "q-1": undefined, "q-2": undefined });
+    store.setHomeLines("other", [{ key: "q-2", text: "Older line." }]);
+    store.setHomeLines("leader", [{ key: "q-2", text: "The twin reached 0.32." }]);
+    store.setHomeLines("leader", [{ key: "q-1", text: "Not shown: q-1 is done." }]);
+    expect(await quests()).toEqual({ "q-1": undefined, "q-2": "The twin reached 0.32." });
+  });
+
   it("keeps the user's requests for one page, which the Scribe sees with every read of it", async () => {
     const { app, store, send, setCaller } = await setup();
     const { topic } = store.assign({

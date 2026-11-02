@@ -49,6 +49,7 @@ import { useTopicPanel } from "../utils/topic-panel.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
 import { useStore } from "../store.js";
 import { LeaderHomePage } from "./LeaderHomePage.js";
+import { shownOfTopic } from "./home/HomeExtras.js";
 import { SideHome } from "./side-column/SideHome.js";
 import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
@@ -239,6 +240,35 @@ describe("LeaderHomePage", () => {
     view.unmount();
     render(<LeaderHomePage leaderId="l1" />);
     expect(screen.getByTestId("idle-by-topic")).toBeTruthy();
+  });
+});
+
+describe("shownOfTopic", () => {
+  // Jiayi (Nov 2): By topic showed a topic's first three threads only, so two running quests hid
+  // behind a finished one. Every thread with something going on shows; quiet ones up to the limit.
+  it("shows every running, unread or asking thread, and quiet ones up to the limit", () => {
+    const thread = (key: string, overrides: Partial<PrimaryThreadChip> = {}) => ({
+      tab: member(key, { questId: key, ...overrides }),
+      at: 0,
+      activityAt: 0,
+    });
+    const threads = [
+      thread("q-1"),
+      thread("q-2", { completed: true }),
+      thread("q-3", { completed: true }),
+      thread("q-4"),
+      thread("q-5", { completed: true, blueNudge: true }),
+      thread("q-6", { completed: true, needsInput: true }),
+      thread("q-7", { completed: true }),
+    ];
+    expect(shownOfTopic(threads, 2).map(({ tab }) => tab.threadKey)).toEqual([
+      "q-1",
+      "q-2",
+      "q-3",
+      "q-4",
+      "q-5",
+      "q-6",
+    ]);
   });
 });
 

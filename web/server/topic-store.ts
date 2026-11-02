@@ -399,6 +399,19 @@ export class TopicStore {
     this.dirty = true;
   }
 
+  /**
+   * The newest line of news any leader's Scribe wrote for a quest or thread, for a topic page, which
+   * is not one leader's (a quest's line is usually written by its own leader's Scribe only).
+   */
+  newestHomeLine(key: string): { text: string; at: number } | undefined {
+    let newest: { text: string; at: number } | undefined;
+    for (const scribe of Object.values(this.s().scribes ?? {})) {
+      const line = scribe.homeLines?.[key];
+      if (line && (!newest || line.at > newest.at)) newest = line;
+    }
+    return newest;
+  }
+
   /** The Scribe's lines of news for the leader's Home, by quest or thread key. */
   homeLines(leaderId: string): Readonly<Record<string, { text: string; at: number }>> {
     return this.s().scribes?.[leaderId]?.homeLines ?? {};
