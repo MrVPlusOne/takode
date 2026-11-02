@@ -73,6 +73,11 @@ export function typeToComposeKey(
  * the key itself to the new focus, so typing, paste (images included) and the composer's own
  * input handling all work as if the user had clicked first. Enter's default is stopped instead,
  * since it would otherwise add a new line to the draft.
+ *
+ * A Mac paste does not come with the keydown: the browser runs its Edit menu's Paste after the
+ * page has handled the key, and that paste can still reach the page instead of the newly focused
+ * textarea, which left the first Cmd+V doing nothing but focus the composer. So a paste that
+ * reaches the page is taken too: it is handed to the composer as if it had been pasted there.
  */
 export function useComposerTypeToCompose({
   textareaRef,
@@ -90,15 +95,44 @@ export function useComposerTypeToCompose({
       const textarea = textareaRef.current;
       if (!key || !textarea || !canTypeToCompose(event.target, key, textarea)) return;
       if (key === "enter") event.preventDefault();
-      textarea.focus({ preventScroll: true });
-      const end = textarea.value.length;
-      textarea.setSelectionRange(end, end);
+      focusAtEnd(textarea);
+    };
+    const onPaste = (event: ClipboardEvent) => {
+      const textarea = textareaRef.current;
+      const data = event.clipboardData;
+      if (event.defaultPrevented || !data || !textarea || !canTypeToCompose(event.target, "paste", textarea)) return;
+      event.preventDefault();
+      if (document.activeElement !== textarea) focusAtEnd(textarea);
+      pasteIntoComposer(textarea, data);
     };
     // Bubble phase, so app shortcuts and open surfaces, which listen in the capture phase or on
     // their own elements, can claim a key first by stopping or preventing it.
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("paste", onPaste);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("paste", onPaste);
+    };
   }, [enabled, textareaRef]);
+}
+
+function focusAtEnd(textarea: HTMLTextAreaElement): void {
+  textarea.focus({ preventScroll: true });
+  const end = textarea.value.length;
+  textarea.setSelectionRange(end, end);
+}
+
+/**
+ * Replays a paste on the composer: its own paste handling (images) sees the clipboard first, and
+ * text it leaves goes in at the caret the way a typed paste would, undoable where the browser can.
+ */
+function pasteIntoComposer(textarea: HTMLTextAreaElement, data: DataTransfer): void {
+  const replay = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
+  if (!textarea.dispatchEvent(replay)) return;
+  const text = data.getData("text/plain");
+  if (!text || textarea.ownerDocument.execCommand("insertText", false, text)) return;
+  textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, "end");
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function canTypeToCompose(target: EventTarget | null, key: TypeToComposeKey, textarea: HTMLTextAreaElement): boolean {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { useRef } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { typeToComposeKey, useComposerTypeToCompose } from "./use-composer-type-to-compose.js";
@@ -7,15 +7,45 @@ import { typeToComposeKey, useComposerTypeToCompose } from "./use-composer-type-
 /**
  * Type-to-compose: with nothing else focused, a typed character or a paste focuses the composer
  * (the browser then delivers the key there) and Enter opens it empty. These tests cover which keys
- * count and every situation where the page, not the composer, keeps the key.
+ * count and every situation where the page, not the composer, keeps the key. A paste that reaches
+ * the page instead of the composer (a Mac's Cmd+V arrives after the keydown) is put in the composer.
  */
 
 const NO_MODIFIERS = { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, isComposing: false };
 
-function Harness({ enabled = true, disabled = false }: { enabled?: boolean; disabled?: boolean }) {
+function Harness({
+  enabled = true,
+  disabled = false,
+  onPaste,
+}: {
+  enabled?: boolean;
+  disabled?: boolean;
+  onPaste?: (event: React.ClipboardEvent) => void;
+}) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useComposerTypeToCompose({ textareaRef, enabled });
-  return <textarea aria-label="Message" ref={textareaRef} defaultValue="draft" disabled={disabled} />;
+  return <textarea aria-label="Message" ref={textareaRef} defaultValue="draft" disabled={disabled} onPaste={onPaste} />;
+}
+
+/** jsdom has no ClipboardEvent or DataTransfer; these carry just what the composer reads. */
+class TestClipboardEvent extends Event {
+  clipboardData: DataTransfer | null;
+  constructor(type: string, init: EventInit & { clipboardData?: DataTransfer | null } = {}) {
+    super(type, init);
+    this.clipboardData = init.clipboardData ?? null;
+  }
+}
+
+function clipboard(text: string, files: File[] = []): DataTransfer {
+  const items = files.map((file) => ({ kind: "file", type: file.type, getAsFile: () => file }));
+  return { getData: (type: string) => (type === "text/plain" ? text : ""), items, files } as unknown as DataTransfer;
+}
+
+/** Fires a paste on `target`; returns true when the event's default was left alone. */
+function paste(target: Element, data: DataTransfer) {
+  return target.dispatchEvent(
+    new TestClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+  );
 }
 
 function composer() {
@@ -27,7 +57,15 @@ function press(target: Element, init: KeyboardEventInit) {
   return fireEvent.keyDown(target, init);
 }
 
+beforeEach(() => {
+  vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+  // jsdom has no execCommand; false makes the composer insert the text itself, as a browser
+  // without insertText support would.
+  document.execCommand = () => false;
+});
+
 afterEach(() => {
+  vi.unstubAllGlobals();
   cleanup();
   document.getSelection()?.removeAllRanges();
   document.body.innerHTML = "";
@@ -217,5 +255,76 @@ describe("useComposerTypeToCompose", () => {
     press(document.body, { key: "a" });
     document.body.removeEventListener("keydown", claim);
     expect(document.activeElement).not.toBe(composer());
+  });
+
+  it("puts a paste that reached the page into the composer, at the end of the draft", () => {
+    render(<Harness />);
+    composer().setSelectionRange(0, 0);
+    const input = vi.fn();
+    composer().addEventListener("input", input);
+
+    const defaultKept = paste(document.body, clipboard(" pasted"));
+
+    expect(defaultKept).toBe(false);
+    expect(document.activeElement).toBe(composer());
+    expect(composer().value).toBe("draft pasted");
+    expect(composer().selectionStart).toBe("draft pasted".length);
+    // The input event is what the real composer's onChange turns into its draft.
+    expect(input).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the browser's undoable insert when it has one", () => {
+    render(<Harness />);
+    const isMac = /Mac/.test(navigator.platform);
+    press(document.body, { key: "v", metaKey: isMac, ctrlKey: !isMac });
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand;
+
+    paste(document.body, clipboard("text"));
+
+    expect(execCommand).toHaveBeenCalledWith("insertText", false, "text");
+    expect(composer().value).toBe("draft");
+  });
+
+  it("lets the composer's own paste handling take images", () => {
+    const image = new File(["png"], "shot.png", { type: "image/png" });
+    let received: File | null = null;
+    render(
+      <Harness
+        onPaste={(event) => {
+          received = event.clipboardData.items[0]?.getAsFile() ?? null;
+          event.preventDefault();
+        }}
+      />,
+    );
+
+    paste(document.body, clipboard("", [image]));
+
+    expect(received).toBe(image);
+    expect(composer().value).toBe("draft");
+  });
+
+  it("leaves a paste into another input, or over selected feed text, to the page", () => {
+    render(
+      <>
+        <Harness />
+        <input aria-label="Search" />
+        <p>Selected feed text</p>
+      </>,
+    );
+    const search = screen.getByRole("textbox", { name: "Search" });
+    expect(paste(search, clipboard("query"))).toBe(true);
+
+    const range = document.createRange();
+    range.selectNodeContents(screen.getByText("Selected feed text"));
+    document.getSelection()?.addRange(range);
+    expect(paste(document.body, clipboard("text"))).toBe(true);
+    expect(composer().value).toBe("draft");
+  });
+
+  it("does not take a paste while turned off", () => {
+    render(<Harness enabled={false} />);
+    expect(paste(document.body, clipboard("text"))).toBe(true);
+    expect(composer().value).toBe("draft");
   });
 });
