@@ -4,6 +4,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionNotification } from "../types.js";
 import {
+  MARK_GRACE_MS,
   SCROLL_ATTENTION_MS,
   SEEN_DWELL_MS,
   readsWhenSeen,
@@ -392,5 +393,105 @@ describe("useUnreadMessagesSeen", () => {
       vi.advanceTimersByTime(SEEN_DWELL_MS + 500);
     });
     expect(onSeen).toHaveBeenCalledWith("a1");
+  });
+
+  // Jiayi (Nov 1): chatting in a thread, the leader's reply came in with a New line that stayed. A
+  // reply watched as it arrives is not news; the marker is for what the user did not see arrive.
+  describe("answers that arrive while the view is open", () => {
+    const marks = () => document.querySelectorAll("[data-unread-start], [data-unread-answer]").length;
+    const renderView = (focused = true) => {
+      const onSeen = vi.fn();
+      const hook = renderHook(
+        ({ list }: { list: SessionNotification[] }) =>
+          useUnreadMessagesSeen({
+            sessionId: "leader",
+            feedKey: "q-1",
+            notifications: list,
+            enabled: true,
+            focused,
+            onSeen,
+          }),
+        { initialProps: { list: [answer("old", 1, { done: true })] } },
+      );
+      return { ...hook, onSeen };
+    };
+
+    it("get no marker when read on screen in the focused chat", () => {
+      mountFeed("q-1", [
+        { id: "m-old", top: 0 },
+        { id: "m-reply", top: 150 },
+      ]);
+      const { rerender, onSeen } = renderView();
+      rerender({ list: [answer("old", 1, { done: true }), answer("reply", Date.now())] });
+      // It shows up between two polls: the next one starts its second on screen.
+      act(() => {
+        vi.advanceTimersByTime(SEEN_DWELL_MS + 1_000);
+      });
+      expect(onSeen).toHaveBeenCalledWith("reply");
+      act(() => {
+        vi.advanceTimersByTime(MARK_GRACE_MS * 2);
+      });
+      expect(marks()).toBe(0);
+    });
+
+    it("are marked once their grace runs out unread, when they arrive scrolled away", () => {
+      const elements = mountFeed("q-1", [
+        { id: "m-old", top: 0 },
+        { id: "m-reply", top: 900 },
+      ]);
+      const { rerender, onSeen } = renderView();
+      rerender({ list: [answer("old", 1, { done: true }), answer("reply", Date.now())] });
+      act(() => {
+        vi.advanceTimersByTime(MARK_GRACE_MS / 2);
+      });
+      expect(marks()).toBe(0);
+      act(() => {
+        vi.advanceTimersByTime(MARK_GRACE_MS);
+      });
+      expect(elements["m-reply"]!.getAttribute("data-unread-start")).toBe("true");
+      expect(onSeen).not.toHaveBeenCalled();
+    });
+
+    it("are marked when they arrive on screen in a chat that isn't focused", () => {
+      const elements = mountFeed("q-1", [{ id: "m-reply", top: 150 }]);
+      const { rerender } = renderView(false);
+      rerender({ list: [answer("reply", Date.now())] });
+      act(() => {
+        vi.advanceTimersByTime(MARK_GRACE_MS + 1_000);
+      });
+      expect(elements["m-reply"]!.getAttribute("data-unread-start")).toBe("true");
+    });
+
+    it("are marked at once when they came while the page was hidden", () => {
+      // Coming back to the page is like opening the view: the reply wasn't watched.
+      const elements = mountFeed("q-1", [{ id: "m-reply", top: 150 }]);
+      const { rerender } = renderView();
+      let visibility = "hidden";
+      const spy = vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility as never);
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      rerender({ list: [answer("reply", Date.now())] });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      visibility = "visible";
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(elements["m-reply"]!.getAttribute("data-unread-start")).toBe("true");
+      spy.mockRestore();
+    });
+
+    it("are marked at once when they were there before the view opened but loaded after", () => {
+      // A fresh page: the notifications reach the browser a moment after the view opens.
+      const elements = mountFeed("q-1", [{ id: "m-reply", top: 150 }]);
+      const { rerender } = renderView();
+      rerender({ list: [answer("reply", Date.now() - 60_000)] });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(elements["m-reply"]!.getAttribute("data-unread-start")).toBe("true");
+    });
   });
 });

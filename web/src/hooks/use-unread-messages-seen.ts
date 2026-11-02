@@ -14,6 +14,12 @@ import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.
  * onto an older one and an earlier answer is still unread below read ones, each unread answer gets
  * its own "New" tag, since a line would say everything under it is unread (Jiayi, Nov 1).
  *
+ * The marker shows what the user did not watch arrive. An answer that comes in while the view is
+ * open and is read within its first seconds (`MARK_GRACE_MS`) gets none, as a reply arriving while
+ * you chat in Slack gets none (Jiayi, Nov 1). One the view already had unread when it opened, or
+ * when the page came back into view, is marked at once; one that arrives where the user isn't
+ * looking (a chat that isn't focused, scrolled away) is marked once its grace runs out unread.
+ *
  * Finished quests (their result is the Quest complete card, not the anchored message) and
  * results an agent sent still read when their thread is on screen (`readsWhenSeen`).
  *
@@ -33,6 +39,13 @@ const POLL_MS = 400;
 const MIN_VISIBLE_PX = 160;
 /** How long after the user scrolls a chat that isn't focused its messages on screen start to count. */
 export const SCROLL_ATTENTION_MS = 1_500;
+/**
+ * How long an answer that arrives while the view is open may stay unread before it is marked: long
+ * enough for one that lands on screen in the focused chat to be read first (the dwell plus a poll).
+ */
+export const MARK_GRACE_MS = 3_000;
+/** Server timestamps this much older than the view count as already there when it opened. */
+const ARRIVAL_CLOCK_SLACK_MS = 10_000;
 
 /** Unread messages of the feed on screen that sit above the view. */
 export interface UnreadAbove {
@@ -102,6 +115,18 @@ export function useUnreadMessagesSeen({
       element.setAttribute(markAttribute(), "true");
       marked.set(id, element);
     };
+    // What the view had unread when it opened, or when the page last came back into view: marked at
+    // once. Anything later arrived while the user was here, and is marked only if it stays unread
+    // past its grace. The server timestamp also catches answers that were there before the view
+    // opened but reached this browser after (notifications loading on a fresh page).
+    let openedAt = 0;
+    let atOpen: Set<string> | null = null;
+    const arrivedAt = new Map<string, number>();
+    const markable = (notification: SessionNotification, now: number) =>
+      !reported.has(notification.id) &&
+      (atOpen!.has(notification.id) ||
+        notification.timestamp < openedAt - ARRIVAL_CLOCK_SLACK_MS ||
+        now - (arrivedAt.get(notification.id) ?? now) >= MARK_GRACE_MS);
     // In a chat that isn't focused: when the user last scrolled it, and the messages that were on
     // screen while they did, which may then be read like any message on screen.
     let scrolledAt = 0;
@@ -131,9 +156,17 @@ export function useUnreadMessagesSeen({
     const poll = () => {
       if (document.visibilityState === "hidden") {
         firstSeen.clear();
+        // Coming back is like opening the view: what arrived meanwhile wasn't watched.
+        atOpen = null;
         return;
       }
+      const now = Date.now();
       const unread = (latest.current.notifications ?? []).filter(readsWhenSeen);
+      if (!atOpen) {
+        atOpen = new Set(unread.map((notification) => notification.id));
+        openedAt = now;
+      }
+      for (const notification of unread) if (!arrivedAt.has(notification.id)) arrivedAt.set(notification.id, now);
       const feed = visibleFeed(sessionId, feedKey);
       if (!feed) return;
       watch(feed);
@@ -143,23 +176,19 @@ export function useUnreadMessagesSeen({
         return;
       }
       const elements = messageElements(feed, new Set(unread.map((notification) => notification.messageId!)));
-      if (!marking && elements.size > 0) {
+      const toMark = new Set(
+        unread.filter((notification) => markable(notification, now)).map((notification) => notification.messageId!),
+      );
+      const firstToMark = [...elements].find(([id]) => toMark.has(id));
+      if (!marking && firstToMark) {
         marking = unreadTogetherAtBottom(feed, latest.current.notifications ?? []) ? "line" : "tags";
-        // The line sits above the first unread message this view shows: the reader starts there.
-        if (marking === "line") {
-          const [id, element] = elements.entries().next().value!;
-          mark(id, element);
-        }
+        // The line sits above the first unread message this view marks: the reader starts there.
+        if (marking === "line") mark(...firstToMark);
       }
       if (marking === "tags") {
         // Each unread answer keeps its tag for the view, also after it is read on screen.
-        for (const notification of unread) {
-          const element = elements.get(notification.messageId!);
-          if (element && !reported.has(notification.id) && !marked.has(notification.messageId!))
-            mark(notification.messageId!, element);
-        }
+        for (const [id, element] of elements) if (toMark.has(id) && !marked.has(id)) mark(id, element);
       }
-      const now = Date.now();
       const view = feed.getBoundingClientRect();
       const focusedNow = latest.current.focused;
       const scrolling = now - scrolledAt < SCROLL_ATTENTION_MS;
