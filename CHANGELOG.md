@@ -12,6 +12,140 @@ The rest of the release is about spending less effort keeping up with your agent
 
 Under the hood, Claude sessions now run only through the Claude Agent SDK, with Claude's native Auto permission mode, a reasoning effort picker and the model list Claude Code itself reports. Teams that share a branch can turn on a landing queue that tests waiting changes together and lands them, so workers are free as soon as they submit. Switching sessions over a slow connection is much faster thanks to compressed traffic and a reused connection. The dated entries below list every notable change.
 
+## 2026-11-01
+
+### Added
+
+- **One side column for every leader** -- What you put in the side column stays when the main view switches to another leader or to a worker's session; each pane names its leader with its portrait and keeps working over that leader's connection. The leaders' separate columns merge on first load. A leader's Home can open in the column as a switcher: a click in it opens the thread in the main view and the Home stays.
+- **At most three open side conversations** -- Opening a fourth conversation in the side column folds the one used least recently, which stops loading its live messages until you unfold it, where it catches up at the same place. Pages, artifacts and quest details don't count. A new thread starts at the height you last gave a side conversation, and the arrow beside New thread shows the portrait of the leader a plain New thread goes to.
+- **Searching your own messages** -- Typing in Universal Search's Recent tab searches every message you wrote, in every session, archived ones included. The Messages tab becomes Assistant: one leader's replies and events, starting on the leader you are viewing.
+- **A side chat about an artifact** -- In the Library, an artifact pane in the side column or an artifact's own window, a leader's artifact has a button that opens a chat with that leader about it, and commenting on its text opens the chat too. It sits beside the artifact on wide screens and under it otherwise, the leader is told which artifact and version it is about, and reopening the artifact shows the same thread.
+- **Starring from the feed** -- Reports, slide decks, drafts, visuals and guided reviews in a conversation have Star or Unstar in their More menu, the same star as the Library's, kept in step on every device.
+- **Scribe context limit** -- Scribes keep running instead of being replaced after a day, and Settings → Sessions → Topics and Scribes sets how much context a Scribe keeps before compacting (256K tokens by default). A change restarts running Scribes so it applies at once, and Session Info measures a Claude Scribe against its limit.
+- **Lean 4 and Rocq highlighting** -- Fenced `lean`/`lean4` and `rocq`/`coq` code blocks and `.lean`/`.v` files are highlighted.
+- **Memory guard on hosts** -- On Linux machines, `takode node` watches memory every 2 seconds and, at 90% of the machine's or container's limit, stops the largest process tree its sessions started and tells that session why, so a runaway job can't take down Takode itself. Each machine also gets a Note for agents setting, added to the instructions of every session that runs there.
+
+### Changed
+
+- **Home lists each thread once** -- A leader's Home lists its threads like the sessions panel's Threads view: questions pinned on top, then by when you last dealt with each thread, with All, Needs you, New and Running filters and a By topic view of the same list. Rows use Home's width for the thread's news line, the question it asks, a running quest's worker and latest step, or a finished quest's commits, and Home widens with the main view.
+- **Threads view by your last interaction** -- The sessions panel's Threads view lists threads by when you last wrote in them or read or dismissed their results and questions, with questions pinned on top; an unread result no longer moves a row. Rows drop the quest number so titles get the room (hover shows it), and right-click or long-press opens Takode's menus: rename and archive on leader rows, and open, open in the side column, open quest or worker, mark read or unread, remind me later and copy link on thread rows. New with a leader opens its Home ready to type.
+- **Status row** -- The status row's groups run Home · Idle · In progress · Unread · Needs you, the urgent ones nearest the bell, and on desktop the row is slimmer. When the thread on screen changes group, a floating tab naming it glides from the old group to the new one. A second press on an open group closes its list. Cancelled quests are left out of the row and the Threads view.
+- **One quest chip** -- An unfinished quest's chips in its feed fold into its phase chip at the top right, on desktop and phones alike: one tap opens the Journey with the worker, reviewer, commits, changes and waits under it. The feed keeps room above its first message so the chip never covers it.
+- **The Scribe names new threads** -- A new thread reaches the leader's Scribe at once, which names it before or right after the leader's first answer. Whether a thread continues an earlier conversation is asked only once it settles, a thread whose request went to a quest joins only that quest, and the Scribe can undo a wrong join of its own.
+- **Short thread addresses** -- Threads get short numbers like quests (t-1, t-2, ...), which leaders use to route answers, questions and handoffs.
+- **Folded leader turns** -- In a leader thread that is not Ready, the latest turn folds the activity before its newest final message (an answer, a result, a question, a report or the quest's completion card) and keeps what came after it open.
+- **New markers** -- When unread answers are scattered among read ones (after the Scribe joins a thread onto an older conversation), each gets its own small New tag, and the unread pill steps through them. A reply that arrives while you are watching the chat gets no New marker.
+- **Scrolling a chat focuses it** -- A wheel, trackpad or touch scroll inside a chat focuses it, in the main view and side panes alike, as a click does.
+- **Reopened quests by their newest round** -- Thread rows, quest strips and side column titles name a reopened quest by its newest round, with the quest number and title second.
+- **Code around a guided review stop** -- The code around each stop is read from git when the stop is viewed, with Show more adding 20 lines at a time; when it can't be read, the stop says so with Retry.
+- **Every transcript enhanced** -- With transcript enhancement on, every voice transcript goes through it, however short and with or without conversation context.
+- **Hosts follow the coordinator's build** -- `takode node` updates itself to the coordinator's build by default; start it with `--no-auto-update` to opt out.
+
+### Fixed
+
+- **Thread names everywhere** -- Started-from links, Recent rows, search results and answer alerts name a thread, or the conversation it joined, instead of showing its internal address.
+- **Merging keeps your place** -- When the thread on screen is handed to a quest or joined onto an earlier thread, the view switches to that conversation at the same messages, still following a reply that is streaming in.
+- **Results read in side panes** -- A focused side pane reads its thread's finished-quest results, so its "N new" no longer stays lit.
+- **Scrolling over code blocks** -- A code block that shows all its lines passes the wheel on to the page, and a capped one scrolls until its edge and then lets the page scroll.
+- **Report bars in quest threads** -- A report's pinned collapse bar sits flush with the top of a quest thread's feed.
+- **Handed-off messages** -- A message moved into a quest names the quest once, not in both its label and its Continued in row.
+- **Leader activity groups** -- A leader's note sent with its first command no longer splits one run of commands into two groups.
+- **Voice edits in comments** -- A voice edit in a comment editor shows the composer's preview with the changed words highlighted, Undo and Accept.
+- **iPhone voice level meter** -- The level meter no longer stays flat for whole recordings on iPhones.
+- **Completing landed work** -- Final Memory recognizes commits the landing queue already landed after rebasing them, instead of refusing until the worker resets its checkout.
+- **Stopping remote commands** -- `takode exec kill` also stops processes that left the command's process group, such as `timeout` pipelines, and a worker disconnected while its command runs is no longer flagged as stalled.
+- **HTML files on remote hosts** -- HTML file links from a session on a remote host open, with the page and its assets read through that host.
+
+## 2026-10-31
+
+### Added
+
+- **Threads by status** -- A leader's threads are now the one place to see what needs you. A status row under the top bar groups every thread of the leader, quest threads and its other threads alike, as Needs you, Unread, In progress and Idle: a thread is In progress only while work goes on in it, and a running thread with an unread result shows under both. The Board button returns to the top bar.
+- **Home** -- A leader opens on Home instead of its Main conversation: its threads, each with a line of news written by the leader's Scribe (or, until it writes one, the latest summary an agent wrote), a line counting what changed since you last looked, and a message box that starts a new thread. Main's own messages are read in the leader log.
+- **Threads view in the sessions panel** -- A Threads view replaces the Topics view: every leader's threads in one list with their leader's portrait, a line of news and amber, blue and green counts, then the leaders and other sessions in folding groups. When the panel is narrow, the view switch becomes a dropdown.
+- **Threads joined by the Scribe** -- The Scribe joins a new thread onto the earlier conversation it plainly continues. Its messages then read there after a marker naming the earlier conversation, with Undo, and its address opens that conversation.
+- **Leaders open threads** -- A leader can open a thread of its own for a proposal or question that belongs to no quest or thread yet, so it shows by name under Needs you.
+- **Side chats with another leader** -- A chooser beside New thread in the side column starts a thread with any leader, which that leader answers and files.
+- **Running commands on any machine** -- `takode exec --host <machine> -- <command>` lets sessions run a command on a registered host or the coordinator's machine, in the user's own login shell, with its output and exit code. Long commands run in the background and tell their session when they end; Settings → Hosts can turn it off per machine.
+- **One focused chat** -- Among the main view and side panes one chat is focused: typing goes to its composer, a click focuses a chat, and an answer arriving in a chat that isn't focused stays unread until you look at it. A thin line marks the focused chat while side panes share the screen.
+- **Code around a guided review stop** -- Each stop's code shows the code around its lines, dimmed.
+
+### Changed
+
+- **Topics become tags** -- Topic conversations, the breadcrumb, the Overview menu, the side column's overview and Recent list and the sessions panel's Topics view are retired. Topics stay for browsing: topic pages open beside a conversation and from Home's By topic view.
+- **Every leader has topics** -- Library topics can no longer be turned off, and the older tab row, tab closing and Main/All toggle go with that mode.
+- **Thread strips and quest chips** -- A thread's strip holds its name, Notify Me and, on desktop, a button that moves the thread to the side column. A quest's phase, worker, reviewer, waits and commits float as chips at the top of its feed. Threads don't close; Home in the status row is the way back.
+- **Side chats are threads** -- Side chats are called threads throughout. When the leader hands a thread's request to a quest, the thread becomes the quest's thread, and its pane turns into the quest's conversation in place. A link clicked in a side pane opens in that pane, and the open-in-side click opens it in the main view.
+- **A scrolling side column** -- Every section of the side column folds on its own, any number can be open, the column scrolls, and dragging an open section's bottom edge sets its height. A strip beside each section's content scrolls the whole column.
+- **Status colours** -- Every thread status mark uses its group's colour and no other: amber needs you, blue unread, green in progress, grey idle. A side row's question shows the amber bell, and its quest number is a quest link.
+- **Questions and answers stay out of Main** -- Leaders ask and answer in the thread a matter belongs to, or a new thread, instead of Main, which is now only the leader's log.
+- **Replying reads earlier answers** -- Sending a message or answering a question in a leader's thread marks the thread's earlier unread answers and results as read.
+- **Read aloud starts sooner** -- Read aloud starts playing as soon as the first sentences are spoken instead of waiting for the whole message.
+- **Faster restarts** -- Session history files load about four times faster when the server starts.
+- **Remind me later in hours** -- Remind me later's custom amount starts in hours and remembers the unit you last chose, on every device.
+- **Composer on phones** -- The collapsed composer sits a little higher above a phone's bottom edge.
+
+### Fixed
+
+- **Crash from full browser storage** -- A full browser storage no longer crashes the app on every load, and the crash screen has a button that resets this browser's saved Takode state.
+- **Remembered folds** -- Every collapsible section remembers whether it is folded, including the archive, Scheduled Runs and Memory folders, without one tab overwriting another's choice.
+- **Holding still while scrolled up** -- Sending a message or saving a comment while scrolled up keeps the view exactly where it was.
+- **Merging threads in place** -- A thread handed to a quest or joined onto another conversation turns into it in place, without a loading page.
+- **Side panes** -- Messages in a side pane show the same Side quest and Continued in rows as in the main view, a new thread's page names its leader, and answer state stays current after a refresh.
+- **Turns cut off by a restart** -- Sessions whose turn was cut off by Restart Server continue it, instead of stopping until their next message.
+- **Workers waiting on a landing** -- A quest waiting in the landing queue no longer keeps its worker from claiming the next quest.
+- **Quests without a checkout** -- A quest that changed no code completes for a worker that works outside a git checkout.
+- **Underscores in titles** -- Titles and summaries keep the underscores in identifiers such as `QA_DATASETS_1031`.
+- **Reminder times on a strip** -- A Notify Me reminder's time stays on one line on a thread's strip.
+
+## 2026-10-30
+
+### Added
+
+- **Slide decks** -- A report whose Markdown opens with `slides: true` shows one slide at a time, with a slide list, swipes, a full-screen Present and a PDF export with one page per slide. A `Notes:` line starts a slide's speaker notes, Play reads them aloud while it turns the slides, and a comment can be made on a whole slide.
+- **Artifacts in their own window** -- Cmd-click (Ctrl-click off Mac) on an artifact link or gallery card, or Open in new window in a card's menu, opens the artifact in a window of its own that keeps up with new versions.
+- **Leader overview** -- The side column opens with the leader's overview, what needs you and what runs now across its topics, and the top bar's Working on picker becomes an Overview menu with the same lists, one line per row, ordered by the leader's Scribe.
+- **Topics view in the sessions panel** -- A third view beside Spaces and Recent lists every leader's topics and side chats, each with its leader's portrait and counts of questions, new results and running quests; hovering a row lists them.
+- **Resizable secondary view** -- The view holding Artifacts, Questmaster, Settings and Memory has a draggable edge, and its width is kept as a share of the window.
+- **Report visuals** -- The visual kit adds a colour per actor, dashed zones and captions. Table buttons show on hover, and full-screen reports with four or more sections list them at the top.
+
+### Changed
+
+- **The Scribe as background support** -- Topic pages drop the Now list and its tick buttons. Each leader's Scribe instead keeps one to three lines of where the topic stands at the top of the page, rewritten on every update; a quest log lists the topic's finished quests with their wrap-ups; and the Scribe can tell its leader about loose ends. Each page opens with a sentence saying what belongs in it, and the Scribe checks new filings and redraws topic edges with one Undo.
+- **Pictures on topic pages** -- A topic page shows when each picture was redrawn and says when the pictures are newer than its text, and the Scribe brings the text up to date.
+- **Topic conversations** -- Interleaved progress of quests running in parallel folds into one Progress card, and a request sits under the strip of the quest it continued in, also when that quest is under another topic.
+- **Tabs stay open** -- Leaders on the breadcrumb no longer close tabs. The breadcrumb's "Not in a topic" lists every quest of the leader that has no topic, and right-click or long-press on the Next chip opens the conversation's attention list.
+- **Session hover cards** -- Active quest rows in a session's hover card open that quest's thread.
+
+### Fixed
+
+- **Leaving a quest** -- The × on a quest's breadcrumb band goes to its topic's conversation, and a leader left on a topic's conversation reopens there.
+- **Open in the side column** -- The open-in-side click never opens a new browser window. It opens in the side column what a plain click opens, including a quest's details and another session's conversation, and scrolling a side feed no longer moves the main chat.
+- **Comments with a side chat open** -- Comments, reply quotes and edits go to the message box of the conversation they were made in, which also takes the focus.
+- **Side chats after a reconnect** -- A side chat catches up with the replies written while the phone was locked, and a request handed off from it shows where it continues.
+- **User Checkpoints are not running** -- A quest waiting at a User Checkpoint counts as a question, not as running.
+- **Pasted images and browser storage** -- Pasted screenshots no longer fill the browser's storage and crash the app.
+
+## 2026-10-29
+
+### Added
+
+- **Breadcrumb and side column** -- Leaders with topics navigate by a breadcrumb under the top bar, on desktop and phones alike: its first part picks the place (Main, all threads, a topic, quests under no topic), its second the quest or thread. Beside the conversation, a side column (a sheet on phones) stacks the topic page with side chats, other conversations, topic pages and Library artifacts. Shift-click opens a link there (another modifier can be chosen in Settings → Keyboard), and Ask in side chat starts a side chat about a selected passage. Side chats replace the Threads menu, and their drafts sync between devices.
+- **Topics for every leader** -- Library topics and Scribes are on for every leader by default, with a Settings switch to turn them off. Topics are kept broad and few: the Scribe checks each new topic and merges the quietest ones once a leader has more than about 15.
+- **Titles on pinned report bars** -- Deep in a long expanded report, the pinned Show less bar names the report.
+
+### Changed
+
+- **Main names each request's quest** -- In Main, a strip naming the topic, quest and status sits above each request that moved into a quest and sticks while that part is read.
+- **Where conversations open** -- A conversation returns to where you left it only if it is one of the last three places you left or you left it within 30 minutes. Otherwise it opens at its latest messages, with a pill counting the unread answers above.
+- **Next chip on desktop** -- The Next chip sits at the feed's lower right, as on phones, and the top bar's navigation keeps its place whatever the session name's length.
+
+### Fixed
+
+- **Rejected messages** -- A message the server can't accept says so, with Retry and Edit, instead of staying at "Sending..."; a thread whose first message never arrived can be removed; and the Scribe's filings show at once.
+- **Continued in after a handoff** -- A request handed off to a quest shows where it continues, as one filed from it does.
+- **Quest link icons** -- A quest link's thread icon always jumps to the thread, and previews open next to their link.
+
 ## 2026-10-28
 
 ### Added
@@ -19,9 +153,12 @@ Under the hood, Claude sessions now run only through the Claude Agent SDK, with 
 - **Folding the desktop sessions panel** -- A lock button beside "Search everything" unlocks the desktop sessions panel. Unlocked, it folds up to its top row in the top bar's line, so the conversation gets the full width, and drops down over the chat when the mouse rests on that row. A tap toggles it on a touch screen.
 - **Exporting reports** -- A report card's More menu holds Open in Library, Copy Markdown and Export as Markdown, PDF, image or web page; PDFs and images are drawn by the server from a clean light page of the report. Drafts and visuals keep their Library link, source and exports in the same menu.
 - **Copied drafts** -- Copy for Slack dims the button of each part already copied, on every device and after reloads, and a new version keeps that mark only for parts that did not change.
+- **Threads** -- A leader with Library topics gets a Threads menu next to Topics. New thread starts a lightweight conversation with the leader that is not a topic, and Ask in new thread on selected text starts one with the passage attached. Reading a thread's last answer settles it, and the leader's Scribe files a settled thread under an existing topic where it plainly belongs. Recent lists every thread you have read, newest first, with a search box; Working on still lists only quests.
+- **More to say on a reply card** -- A needs-input reply card has an Additional comments box for anything beyond the answers to its questions.
 
 ### Changed
 
+- **One amber signal per place** -- On a desktop leader's top bar, Topics and Working on no longer carry a bell: the Next chip carries this conversation's next question or unread result, and the attention count carries every session's. The Next chip sits right after Topics.
 - **Leader tabs in the top bar on desktop** -- A desktop leader with topics on has no separate tab row: Main, All and Topics sit in the top bar after the session name, and the Next chip and a Working on menu (which now also opens the work board) sit before the attention bell. The model and access line moves to the session name's tooltip.
 - **One-line quest strip** -- A leader's quest strip shows the topic, quest and title, the Notify Me icon, the phase pill and the close button on one line. Worker, reviewer and commits move into the phase pill's card, where a quest's recorded commits and its worker's uncommitted changes are separate chips that open their part of the diff. Notify Me also sits beside Open Thread in the quest preview and quest view, and the quest view counts memory commits apart.
 
@@ -30,6 +167,10 @@ Under the hood, Claude sessions now run only through the Claude Agent SDK, with 
 - **Opening unread results** -- Next and the attention lists open a topic's first unread answer, and a Notify Me result opens at the answer it reports, never at the commentary around it. The Topics tab's bell lights only for what its list marks.
 - **Quest strips in topic conversations** -- A topic conversation shows a quest's strip only above a turn with a final message (your message, an answer, a report or a question); a run of working steps from another quest gets a small quest label instead.
 - **Top-bar navigation after switching leaders** -- Desktop leaders' top-bar controls no longer show twice after switching to another leader and back.
+- **Threads by name** -- Ask in new thread delivers its first message. Threads show their name, not an internal key, in the attention list, phone alerts, the search scope and message labels, and open the thread. The Next chip counts unread answers in threads and topic conversations, and a question asked in a thread no longer opens a tab.
+- **Selection menus across chats** -- A text selection menu left open no longer stays over the next chat after switching chats with a shortcut or a notification.
+- **Search arrow keys** -- Arrow keys in search step from the row shown as selected while new results are still arriving.
+- **First visual after a restart** -- The server's Chrome starting up no longer counts against a visual's render time limit.
 
 ## 2026-10-27
 
