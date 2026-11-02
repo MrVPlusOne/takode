@@ -935,13 +935,18 @@ describe("ChatView leader thread tabs projection", () => {
     render(<ChatView sessionId="leader" hasThreadRoute routeThreadKey="q-1974" />);
 
     await screen.findByTestId("quest-thread-banner");
-    // A leader's quest thread shows its quest's state in the feed's chips.
-    const chips = screen.getByTestId("quest-thread-feed-chips");
-    const journey = within(chips).getByTestId("quest-journey-compact-summary");
+    // A leader's quest thread shows its quest's phase in the feed's chip; the rest is in its drop-down.
+    const journey = within(screen.getByTestId("quest-thread-feed-chips-compact")).getByTestId(
+      "quest-journey-compact-summary",
+    );
     // The restored pill must still use the current server phase and position instead of the historical completed run.
     expect(journey).toHaveTextContent("Work2/3");
     expect(journey).not.toHaveTextContent("Completed");
-    // The current worker is a chip beside the phase; the replaced worker and reviewer are not.
+    // The current worker is in the drop-down; the replaced worker and reviewer are not.
+    fireEvent.click(
+      within(screen.getByTestId("quest-thread-feed-chips-compact")).getByTestId("quest-thread-journey-hover-target"),
+    );
+    const chips = screen.getByTestId("quest-thread-journey-hover-card");
     expect(within(chips).getByLabelText("Worker #2580")).toBeTruthy();
     expect(within(chips).queryByLabelText("Worker #2569")).toBeNull();
     expect(within(chips).queryByLabelText("Reviewer #2570")).toBeNull();

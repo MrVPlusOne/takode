@@ -1367,13 +1367,14 @@ describe("ChatView chat surface and leader routing", () => {
     const banner = within(scope.getByTestId("quest-thread-banner"));
     expect(banner.queryByTestId("quest-journey-compact-summary")).not.toBeInTheDocument();
     expect(banner.queryByLabelText("Worker #1321 Clear Mesa")).not.toBeInTheDocument();
-    const chips = within(scope.getByTestId("quest-thread-feed-chips"));
+    // The feed shows one compact chip, the phase; Worker and Reviewer are in its drop-down (Jiayi, Nov 1).
+    const compact = scope.getByTestId("quest-thread-feed-chips-compact");
+    expect(within(compact).queryByLabelText("Worker #1321 Clear Mesa")).not.toBeInTheDocument();
+    fireEvent.click(within(compact).getByTestId("quest-thread-journey-hover-target"));
+    const chips = within(document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!);
     expect(chips.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
     expect(chips.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("data-testid", "quest-thread-participant");
     expect(chips.getByLabelText("Reviewer #1306")).toHaveAttribute("href", "#session-1306");
-    // The phase chip ends the group, so it always sits at the feed's right edge (Jiayi, Nov 1).
-    const group = scope.getByTestId("quest-thread-feed-chips");
-    expect(group.lastElementChild?.contains(scope.getByTestId("quest-journey-compact-summary"))).toBe(true);
   });
 
   it("shows queued Work Board wait reasons in the quest-thread banner", () => {
@@ -1435,14 +1436,17 @@ describe("ChatView chat surface and leader routing", () => {
     const scope = within(view.container);
 
     fireEvent.click(scope.getByRole("button", { name: /q-968 waiting banner/i }));
-    const chip = scope.getByTestId("quest-thread-queued-status-chip");
+    // The feed's chip says Queued; its drop-down names what the quest waits for.
+    fireEvent.click(
+      within(scope.getByTestId("quest-thread-feed-chips-compact")).getByTestId("quest-thread-journey-hover-target"),
+    );
+    const card = within(document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!);
+    const chip = card.getByTestId("quest-thread-queued-status-chip");
     expect(scope.getByTestId("quest-thread-banner")).not.toHaveTextContent("THREAD");
     expect(chip).toHaveTextContent("Queued, waiting for #1801, q-1367, free worker");
     expect(scope.queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
-    expect(scope.getByText("#1801")).toHaveAttribute("href", "#session-1801");
-    expect(scope.getByText("q-1367")).toHaveAttribute("href", "#quest-q-1367");
-    for (const refText of ["#1801", "q-1367"]) fireEvent.click(scope.getByText(refText));
-    expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).not.toBeInTheDocument();
+    expect(card.getByText("#1801")).toHaveAttribute("href", "#session-1801");
+    expect(card.getByText("q-1367")).toHaveAttribute("href", "#quest-q-1367");
   });
 
   it("keeps user-input attention on the tab without repeating its wait in the quest header", () => {

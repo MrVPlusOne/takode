@@ -352,6 +352,23 @@ describe("ThreadGroupBar", () => {
   });
 });
 
+describe("ThreadGroupBar height", () => {
+  // Jiayi (Nov 1): desktop is short on height, so its row is slimmer; phones keep the taller row,
+  // whose tabs are thumb targets.
+  it("makes every tab, Home included, shorter in a slim row only", () => {
+    const heights = () =>
+      within(screen.getByTestId("thread-group-bar"))
+        .getAllByRole("tab")
+        .map((item) => (item.className.includes("h-6") ? "h-6" : item.className.includes("h-8") ? "h-8" : "?"));
+    renderBar();
+    expect(new Set(heights())).toEqual(new Set(["h-8"]));
+    cleanup();
+    renderBar({ slim: true });
+    expect(screen.getByTestId("thread-group-bar").dataset.slim).toBe("true");
+    expect(new Set(heights())).toEqual(new Set(["h-6"]));
+  });
+});
+
 describe("ThreadGroupBar width", () => {
   // Jiayi: with the side column open, the row ran past the main view into the column. The row sizes
   // itself by its own width (a container query), not the screen's: a narrow bar shares its width

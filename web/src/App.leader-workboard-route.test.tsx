@@ -420,8 +420,13 @@ it("opens the quest diff from the commits chip and returns to the chat", async (
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(screen.queryByRole("button", { name: /Show diffs|recorded commits/ })).not.toBeInTheDocument();
-  // The commits chip floats in the thread's feed with the quest's other chips.
-  const chip = within(screen.getByTestId("quest-thread-feed-chips")).getByTestId("quest-thread-diff-chip-commits");
+  // The commits chip is in the drop-down of the quest's chip floating in the thread's feed.
+  fireEvent.click(
+    within(screen.getByTestId("quest-thread-feed-chips-compact")).getByTestId("quest-thread-journey-hover-target"),
+  );
+  const chip = within(screen.getByTestId("quest-thread-journey-hover-card")).getByTestId(
+    "quest-thread-diff-chip-commits",
+  );
   expect(chip).toHaveTextContent("2 commits");
 
   fireEvent.click(chip);

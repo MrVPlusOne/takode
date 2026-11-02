@@ -136,6 +136,7 @@ function LeaderFrame({ width }: { width: number }) {
         />
       </div>
       <ThreadGroupBar
+        slim={width > 600}
         threads={MEMBERS}
         currentThreadKey={current}
         activeOutputThreadKey={WRITING_THREAD}

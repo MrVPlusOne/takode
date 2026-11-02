@@ -370,8 +370,11 @@ describe("ChatView session quest context", () => {
 
     const banner = await scope.findByTestId("quest-thread-banner");
     expect(banner).toHaveTextContent("q-1452");
-    // The worker is a chip in the feed, beside the quest's phase.
-    const chips = within(scope.getByTestId("quest-thread-feed-chips"));
+    // The worker is in the drop-down of the quest's chip in the feed.
+    fireEvent.click(
+      within(scope.getByTestId("quest-thread-feed-chips-compact")).getByTestId("quest-thread-journey-hover-target"),
+    );
+    const chips = within(document.body.querySelector<HTMLElement>('[data-testid="quest-thread-journey-hover-card"]')!);
     expect(chips.getByLabelText("Worker #1952 Fresh Worker")).toBeInTheDocument();
     expect(chips.queryByLabelText("Worker #1950 Previous Worker")).not.toBeInTheDocument();
   });

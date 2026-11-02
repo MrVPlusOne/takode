@@ -6,6 +6,8 @@
  * in one list instead (`home/HomeThreadList.tsx`). Topics are tags on a thread, not places.
  */
 import {
+  createContext,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -190,7 +192,14 @@ export interface ThreadGroupBarProps extends RowContext {
   /** Home's tab: its bell for anything still waiting in Main from before Home. */
   home?: PrimaryThreadChip;
   threads: readonly PrimaryThreadChip[];
+  /**
+   * A lower row with smaller text: desktop, where height is short (Jiayi, Nov 1: the row took a
+   * lot of height on top of the top bar and the thread strip). Phones keep the taller row.
+   */
+  slim?: boolean;
 }
+
+const SlimContext = createContext(false);
 
 /**
  * The leader's status row: Home, then one tab per non-empty group. A group of one opens its thread
@@ -198,7 +207,7 @@ export interface ThreadGroupBarProps extends RowContext {
  * first thread; a second tap closes it). The thread strip below names the thread on screen, so the
  * row only marks which group holds it.
  */
-export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) {
+export function ThreadGroupBar({ home, threads, slim = false, ...rows }: ThreadGroupBarProps) {
   const [openGroup, setOpenGroup] = useState<ThreadGroupId | null>(null);
   const homeTab = home ?? quietHome;
   const currentKey = normalizeThreadKey(rows.currentThreadKey);
@@ -271,90 +280,97 @@ export function ThreadGroupBar({ home, threads, ...rows }: ThreadGroupBarProps) 
   // strip sits on the page background.
   const selectedSurface = onHome ? "bg-cc-card" : "bg-cc-bg";
   return (
-    <div ref={barRef} className="@container relative min-w-0" data-testid="thread-group-bar">
-      <div className="flex items-end gap-1 pt-0.5" role="tablist">
-        <BarItem
-          label="Home"
-          selected={onHome}
-          selectedSurface={selectedSurface}
-          activeOutput={spinningTab === "home"}
-          testId="thread-group-home"
-          onClick={() => select(MAIN_THREAD_KEY)}
-        >
-          <span>Home</span>
-          <AttentionBell tab={homeTab} />
-        </BarItem>
-        {THREAD_GROUP_BAR_ORDER.map((id) =>
-          tabsOf(id).length > 0 ? (
-            <BarItem
-              key={id}
-              label={`${GROUP_LABEL[id]}: ${tabsOf(id).length}`}
-              selected={currentGroup === id && !move}
-              selectedSurface={selectedSurface}
-              open={openGroup === id}
-              group={id}
-              count={tabsOf(id).length}
-              activeOutput={spinningTab === id}
-              testId="thread-tab-group-chip"
-              onClick={() => {
-                // A group of one opens its thread; a larger one opens its list, and a second press
-                // closes it (Jiayi, Nov 1: opening the first thread on a second click, which also
-                // marked it read, surprised more than it helped; the Next button cycles instead).
-                const first = tabsOf(id)[0]!;
-                if (tabsOf(id).length === 1) {
-                  setOpenGroup(null);
-                  if (first.onOpen) first.onOpen();
-                  else select(first.threadKey);
-                  return;
-                }
-                setOpenGroup((open) => (open === id ? null : id));
+    <SlimContext.Provider value={slim}>
+      <div
+        ref={barRef}
+        className="@container relative min-w-0"
+        data-testid="thread-group-bar"
+        data-slim={slim ? "true" : "false"}
+      >
+        <div className="flex items-end gap-1 pt-0.5" role="tablist">
+          <BarItem
+            label="Home"
+            selected={onHome}
+            selectedSurface={selectedSurface}
+            activeOutput={spinningTab === "home"}
+            testId="thread-group-home"
+            onClick={() => select(MAIN_THREAD_KEY)}
+          >
+            <span>Home</span>
+            <AttentionBell tab={homeTab} />
+          </BarItem>
+          {THREAD_GROUP_BAR_ORDER.map((id) =>
+            tabsOf(id).length > 0 ? (
+              <BarItem
+                key={id}
+                label={`${GROUP_LABEL[id]}: ${tabsOf(id).length}`}
+                selected={currentGroup === id && !move}
+                selectedSurface={selectedSurface}
+                open={openGroup === id}
+                group={id}
+                count={tabsOf(id).length}
+                activeOutput={spinningTab === id}
+                testId="thread-tab-group-chip"
+                onClick={() => {
+                  // A group of one opens its thread; a larger one opens its list, and a second press
+                  // closes it (Jiayi, Nov 1: opening the first thread on a second click, which also
+                  // marked it read, surprised more than it helped; the Next button cycles instead).
+                  const first = tabsOf(id)[0]!;
+                  if (tabsOf(id).length === 1) {
+                    setOpenGroup(null);
+                    if (first.onOpen) first.onOpen();
+                    else select(first.threadKey);
+                    return;
+                  }
+                  setOpenGroup((open) => (open === id ? null : id));
+                }}
+                onOpenList={() => setOpenGroup(id)}
+                single={tabsOf(id).length === 1}
+              >
+                <GroupContent id={id} tabs={tabsOf(id)} />
+              </BarItem>
+            ) : null,
+          )}
+        </div>
+        {move && (
+          <span
+            ref={ghostRef}
+            aria-hidden="true"
+            className={`pointer-events-none absolute z-20 inline-flex items-center justify-center gap-1.5 border border-cc-primary/45 px-1.5 tabular-nums text-cc-fg @2xl:px-3 -bottom-px rounded-t-md border-b-0 ${slim ? "h-6 text-[11px]" : "h-8 text-[12px]"} ${selectedSurface}`}
+            data-testid="thread-tab-group-glide"
+            data-group={move.to}
+          >
+            {/* The thread on screen, not its group: the groups stay where they are. */}
+            <span className="truncate">{movingLabel}</span>
+          </span>
+        )}
+        {openGroup && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setOpenGroup(null)}
+              data-testid="thread-tab-group-backdrop"
+            />
+            <div
+              className="absolute inset-x-0 top-full z-50 mt-1 max-h-[60dvh] overflow-y-auto rounded-xl border border-cc-border bg-cc-card py-1 shadow-xl"
+              ref={listRef}
+              style={{
+                ...(listLeft === null ? {} : { left: listLeft, right: "auto", width: WIDE_LIST_WIDTH_PX }),
+                ...(listMaxHeight === null ? {} : { maxHeight: `min(60dvh, ${listMaxHeight}px)` }),
               }}
-              onOpenList={() => setOpenGroup(id)}
-              single={tabsOf(id).length === 1}
+              role="menu"
+              data-testid="thread-tab-group-list"
+              data-group={openGroup}
             >
-              <GroupContent id={id} tabs={tabsOf(id)} />
-            </BarItem>
-          ) : null,
+              <GroupHeading id={openGroup} count={groups[openGroup].length} />
+              {groups[openGroup].map((tab) => (
+                <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
+              ))}
+            </div>
+          </>
         )}
       </div>
-      {move && (
-        <span
-          ref={ghostRef}
-          aria-hidden="true"
-          className={`pointer-events-none absolute -bottom-px z-20 inline-flex h-8 items-center justify-center gap-1.5 rounded-t-md border border-b-0 border-cc-primary/45 px-1.5 text-[12px] tabular-nums text-cc-fg @2xl:px-3 ${selectedSurface}`}
-          data-testid="thread-tab-group-glide"
-          data-group={move.to}
-        >
-          {/* The thread on screen, not its group: the groups stay where they are. */}
-          <span className="truncate">{movingLabel}</span>
-        </span>
-      )}
-      {openGroup && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setOpenGroup(null)}
-            data-testid="thread-tab-group-backdrop"
-          />
-          <div
-            className="absolute inset-x-0 top-full z-50 mt-1 max-h-[60dvh] overflow-y-auto rounded-xl border border-cc-border bg-cc-card py-1 shadow-xl"
-            ref={listRef}
-            style={{
-              ...(listLeft === null ? {} : { left: listLeft, right: "auto", width: WIDE_LIST_WIDTH_PX }),
-              ...(listMaxHeight === null ? {} : { maxHeight: `min(60dvh, ${listMaxHeight}px)` }),
-            }}
-            role="menu"
-            data-testid="thread-tab-group-list"
-            data-group={openGroup}
-          >
-            <GroupHeading id={openGroup} count={groups[openGroup].length} />
-            {groups[openGroup].map((tab) => (
-              <ThreadTabListRow key={tab.threadKey} tab={tab} context={rowContext} />
-            ))}
-          </div>
-        </>
-      )}
-    </div>
+    </SlimContext.Provider>
   );
 }
 
@@ -554,11 +570,15 @@ function BarItem({
   children,
 }: BarItemProps) {
   const longPress = useLongPress(onOpenList ? () => onOpenList() : undefined);
+  const slim = useContext(SlimContext);
   const tone = selected
     ? `-mb-px border-cc-primary/45 ${selectedSurface} text-cc-fg`
     : open
       ? "border-cc-border bg-cc-hover/70 text-cc-fg"
       : "border-cc-border/70 bg-cc-hover/30 text-cc-muted";
+  const shape = slim
+    ? "h-6 text-[11px] @2xl:min-w-[6.5rem] @2xl:px-2.5"
+    : "h-8 text-[12px] @2xl:min-w-[7.5rem] @2xl:px-3";
   // An open group sits above its list's backdrop, so a second click reaches the tab itself.
   const layer = open ? "z-50" : selected ? "z-10" : "";
   return (
@@ -569,7 +589,7 @@ function BarItem({
       {...longPress.handlers}
       style={longPress.pressStyle}
       // A narrow bar shares its width evenly; a wide one (`@2xl`, see WIDE_BAR_PX) sizes each tab to its label.
-      className={`relative ${layer} inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-t-md border border-b-0 px-1.5 text-[12px] font-normal tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 @2xl:min-w-[7.5rem] @2xl:flex-none @2xl:px-3 ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
+      className={`relative ${layer} inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-t-md border border-b-0 px-1.5 font-normal @2xl:flex-none tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cc-primary/70 ${shape} ${tone} ${onOpenList ? LONG_PRESS_TARGET_CLASS : ""}`}
       aria-label={label}
       aria-selected={selected}
       aria-expanded={group && !single ? open : undefined}

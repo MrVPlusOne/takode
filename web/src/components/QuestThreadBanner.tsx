@@ -12,7 +12,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
-import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { formatWaitForRefLabel, getWaitForRefKind } from "../../shared/quest-journey.js";
 import { NotifyMeControl } from "./NotifyMe.js";
 import type { BoardRowData } from "./BoardTable.js";
@@ -874,11 +873,11 @@ export function QuestThreadBanner({
 /**
  * A leader's quest thread shows its quest's state as chips floating at the top of its feed, not on
  * its strip: a thread is no longer tied to one quest or worker. The phase chip opens the Journey
- * card; the Worker and Reviewer chips open their sessions. On a phone an unfinished quest's chips
- * fold into one compact chip at the top right, its phase (whose dot already shows work going on)
- * and a count of open questions (Jiayi, Nov 1: on two lines they covered the conversation); one tap
- * opens the Journey card with the other chips under it. A finished quest's few chips fit on one
- * line and stay as they are.
+ * card; the Worker and Reviewer chips open their sessions. An unfinished quest's chips fold into
+ * one compact chip at the top right, its phase (whose dot already shows work going on) and a count
+ * of open questions (Jiayi, Nov 1: on a phone they covered the conversation on two lines; desktop
+ * followed the same evening); one tap opens the Journey card with the other chips under it. A
+ * finished quest's few chips fit on one line and stay as they are.
  */
 export function QuestThreadFeedChips({
   row,
@@ -890,7 +889,6 @@ export function QuestThreadFeedChips({
   /** Session whose diff chip this holds, as on the strip it replaces. */
   diffSessionId?: string;
 }) {
-  const phone = !useDesktopShellLayout();
   if (!row) return null;
   const done = isDoneThreadRow(row);
   const waitCondition = done ? null : waitConditionForBoardRow(row.boardRow);
@@ -953,7 +951,7 @@ export function QuestThreadFeedChips({
       )}
     </>
   );
-  if (phone && !done) {
+  if (!done) {
     // One tap opens one drop-down: the Journey, and under it the worker, commits, changes and
     // waits, each still a button (Jiayi, Nov 1: folded chips that unfolded, then a second tap for
     // the Journey, took two taps).
@@ -977,13 +975,11 @@ export function QuestThreadFeedChips({
       </div>
     );
   }
+  // A finished quest: its commits and its Done phase chip, last at the feed's right edge.
   return (
     <div className={groupClass} data-testid="quest-thread-feed-chips">
       {otherChips}
-      {/* Last, so it always ends the group at the feed's right edge: its place is predictable. */}
-      {queued ? (
-        <QuestBannerQueuedStatusChip condition={queued} />
-      ) : row.journey ? (
+      {row.journey ? (
         <QuestJourneyHoverTarget row={row}>
           {phaseChip(ownership === "other-leader" ? "opacity-60" : "")}
         </QuestJourneyHoverTarget>

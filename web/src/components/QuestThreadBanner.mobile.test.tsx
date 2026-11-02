@@ -231,7 +231,7 @@ describe("mobile quest banner disclosure", () => {
 // The breadcrumb band on a phone (Jiayi's pick A of three built options): the phase chip is only
 // the phase dot and position, and the quest number goes when the title would otherwise get too
 // little room. jsdom has no layout, so the title's room and full width are stubbed per test.
-describe("the quest's chips in the feed on phones", () => {
+describe("the quest's chips in the feed", () => {
   beforeEach(() => {
     useStore.getState().reset();
     useStore
@@ -267,10 +267,14 @@ describe("the quest's chips in the feed on phones", () => {
     }
   });
 
-  it("keeps every chip on a desktop", () => {
-    render(<QuestThreadFeedChips row={bannerRow()} threadKey="q-9001" />);
-    expect(screen.queryByTestId("quest-thread-feed-chips-compact")).toBeNull();
-    expect(screen.getByRole("link", { name: "Worker #10" })).toBeInTheDocument();
+  it("folds the same way on a desktop, keeping Worker and commits in the drop-down", () => {
+    // Jiayi (Nov 1): desktop is short on height too, so its chips fold like a phone's.
+    render(<QuestThreadFeedChips row={bannerRow()} threadKey="q-9001" diffSessionId="leader" />);
+    const compact = screen.getByTestId("quest-thread-feed-chips-compact");
+    expect(screen.queryByRole("link", { name: "Worker #10" })).not.toBeInTheDocument();
+    fireEvent.click(within(compact).getByTestId("quest-thread-journey-hover-target"));
+    const card = screen.getByTestId("quest-thread-journey-hover-card");
+    expect(within(card).getByRole("link", { name: "Worker #10" })).toBeInTheDocument();
   });
 });
 

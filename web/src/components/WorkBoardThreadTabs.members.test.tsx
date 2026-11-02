@@ -185,4 +185,22 @@ describe("ThreadTabRail members", () => {
       useStore.setState({ sessionStatus: new Map(), activeTurnRoutes: new Map() } as never);
     }
   });
+
+  it("uses the slim row on desktop and the taller one on phones", () => {
+    // Jiayi (Nov 1): desktop is short on height; on phones the tabs are thumb targets.
+    const width = window.innerWidth;
+    try {
+      for (const [innerWidth, slim] of [
+        [1440, "true"],
+        [390, "false"],
+      ] as const) {
+        Object.defineProperty(window, "innerWidth", { configurable: true, value: innerWidth });
+        renderRail([chip("q-1")]);
+        expect(screen.getByTestId("thread-group-bar").dataset.slim).toBe(slim);
+        cleanup();
+      }
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    }
+  });
 });

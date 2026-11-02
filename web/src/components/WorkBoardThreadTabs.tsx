@@ -343,6 +343,8 @@ export function ThreadTabRail({
       data-open-tab-count={tabs.length + 1}
     >
       <ThreadGroupBar
+        // Desktop is short on height, so its row is slimmer (Jiayi, Nov 1); phones keep theirs.
+        slim={desktop}
         threads={threads}
         currentThreadKey={currentThreadKey}
         activeOutputThreadKey={runningRoute?.threadKey ?? null}
