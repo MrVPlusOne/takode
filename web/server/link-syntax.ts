@@ -48,5 +48,5 @@ export const MESSAGE_DRAFT_INSTRUCTIONS = [
 export const VISUAL_BLOCK_INSTRUCTIONS = [
   "## Visuals",
   "",
-  "When a picture explains better than prose or a table (a pipeline or flow, who sends what to whom, a timeline, nested counts, numbers across runs), you can put a visual in any Markdown you write: a fenced block labelled `visual` with a `title:` and `alt:` header and HTML using Takode's visual kit, or Mermaid and Vega-Lite helpers. Load the `visual-blocks` skill before writing one, and preview it with `takode visual preview` before publishing.",
+  "When a picture explains better than prose or a table (a pipeline or flow, who sends what to whom, a timeline, nested counts, numbers across runs), you can put a visual in any Markdown you write: a fenced block labelled `visual` with a `title:` and `alt:` header and HTML using Takode's visual kit, or Mermaid and Vega-Lite helpers. Load the `visual-blocks` skill before writing one, and preview it with `takode visual preview` before publishing. Readers see it in a dark or light theme, so never hard-code colours: use the kit's tones and roles, or its `--tk-*` theme variables in your own CSS.",
 ].join("\n");

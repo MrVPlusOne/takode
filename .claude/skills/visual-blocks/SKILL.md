@@ -1,6 +1,6 @@
 ---
 name: visual-blocks
-description: Use when an answer, report or guided review would explain better with a picture than with prose or a table: a pipeline or flow, who sends what to whom, a timeline or branch history, before/after, nested counts, numbers across runs or steps. Also use when asked for slides, a presentation or a deck. Explains the ```visual block, Takode's visual kit (pipelines, flows, sequences, timelines, comparisons, stat cards, rows, nested sets, bars, notes), the Mermaid and chart helpers, the required preview with `takode visual preview` before publishing, and slide decks (`slides: true` reports shown one slide at a time, with speaker notes that Play reads aloud).
+description: "Use when an answer, report or guided review would explain better with a picture than with prose or a table: a pipeline or flow, who sends what to whom, a timeline or branch history, before/after, nested counts, numbers across runs or steps. Also use when asked for slides, a presentation or a deck. Explains the ```visual block, Takode's visual kit (pipelines, flows, sequences, timelines, comparisons, stat cards, rows, nested sets, bars, notes), the Mermaid and chart helpers, the required preview with `takode visual preview` before publishing, and slide decks (`slides: true` reports shown one slide at a time, with speaker notes that Play reads aloud)."
 ---
 
 # Visual blocks
@@ -13,7 +13,7 @@ Draw when the reader needs to see **order** (three or more steps, a pipeline, a 
 
 - Lead with the one-sentence answer in prose, then the visual, then only what the picture can't say.
 - One visual per point. Keep it small: about 12 boxes, a dozen rows.
-- Never pick colours. Use tones for status: `data-tone="decide|look|checked|good|bad|warn|muted|primary"`. For actors (you, agents, the server, files), give each one role and keep it in every visual of the page, with a `tk-legend` once: `data-role="purple|blue|green|orange|pink|teal|grey"`. Roles work on every shape and as Mermaid classes.
+- Never pick colours: readers switch between dark and light (see Light and dark below). Use tones for status: `data-tone="decide|look|checked|good|bad|warn|muted|primary"`. For actors (you, agents, the server, files), give each one role and keep it in every visual of the page, with a `tk-legend` once: `data-role="purple|blue|green|orange|pink|teal|grey"`. Roles work on every shape and as Mermaid classes.
 
 ## Format
 
@@ -53,13 +53,19 @@ caption: Optional. One muted line under the visual stating its takeaway.
 - **Diagrams:** `<pre class="tk-mermaid">flowchart TB …</pre>` renders Mermaid in Takode's theme. Prefer `TB` layouts and short labels; `class nodeId decide` (any tone) colours a node. Wide diagrams (sequence diagrams with many participants, gitGraph) scroll sideways on phones: use the kit's `tk-seq` or `tk-timeline` instead.
 - **Charts:** `<script type="application/json" class="tk-chart">{Vega-Lite spec}</script>`. Data inline, units on axes, uncertainty as a labelled range; the width fills the column. Don't set colours.
 
+## Light and dark
+
+Every visual shows in the reader's theme, dark or light. Kit shapes, tones, roles, Mermaid and charts switch with it by themselves, so a visual built from them needs no colours at all: a chain of checks is `tk-steps` in a `tk-flow tk-down`, and its outcomes are `tk-box`es with `data-tone="good"`, `"bad"` or `"warn"` in a `tk-grid`.
+
+When you need your own CSS (`<style>` or `style=`), take every colour from the kit's theme variables, which change with the theme: `var(--tk-fg)`, `--tk-muted`, `--tk-bg`, `--tk-card`, `--tk-border`, `--tk-arrow`, `--tk-code`, the tones (`--tk-good`, `--tk-bad`, `--tk-warn`, `--tk-look`, `--tk-decide`, `--tk-checked`, `--tk-primary`) and roles (`--tk-role-blue` and the rest). Tint a fill by mixing a tone into the card: `background: color-mix(in srgb, var(--tk-good) var(--tk-tint), var(--tk-card))`. A colour with no variable needs a dark value under `html.dark` in the same `<style>`. Never write fixed colours like `#fff`, pastel fills or `color: #0f172a`: light boxes glare on the dark theme and dark text vanishes on it.
+
 ## Always preview
 
 ```bash
 takode visual preview visual.txt      # the fence body, or a file with the whole fence
 ```
 
-It renders the visual on the Takode server at a phone's and a desktop's message width, dark and light, writes four PNGs and prints checks: missing alt text, script errors, sideways scrolling on phones, text under 11 px, too many elements, too tall, slow. **Look at all four images**, fix what's wrong and preview again before you publish. Then paste the same text into the ```visual fence. The preview is for you: don't mention it in the answer.
+It renders the visual on the Takode server at a phone's and a desktop's message width, dark and light, writes four PNGs and prints checks: missing alt text, script errors, sideways scrolling on phones, text under 11 px, bright boxes in the dark theme, text too faint to read, too many elements, too tall, slow. **Look at all four images**, dark and light, fix what's wrong and preview again before you publish. Then paste the same text into the ```visual fence. The preview is for you: don't mention it in the answer.
 
 ## Slides
 

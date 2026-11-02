@@ -40,6 +40,22 @@ describe("checkVisual", () => {
     expect(text).toMatch(/warn Smallest text is 8px/);
   });
 
+  it("warns about colours that don't suit a theme, naming the worst render's example", () => {
+    // Glare is only a dark-theme problem; faint text is reported per theme.
+    const checks = checkVisual("alt: x\n---\n<div></div>", [
+      render("phone", { brightBoxes: { count: 3, example: '#eef2ff behind "A"' } }),
+      render("desktop", { brightBoxes: { count: 9, example: '#f1f5f9 behind "B"' } }),
+      render("phone", { theme: "light", brightBoxes: { count: 4, example: "ignored" } }),
+      render("desktop", { theme: "light", faintText: { count: 1, example: '#eeeeee on #f5f5f0 in "C"' } }),
+    ]);
+    const warnings = checks.filter((check) => check.level === "warn").map((check) => check.text);
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toMatch(/^In the dark theme 9 boxes are light and glare \(#f1f5f9 behind "B"\)\./);
+    expect(warnings[1]).toMatch(
+      /^In the light theme 1 text is too faint against what's behind \(#eeeeee on #f5f5f0 in "C"\)\./,
+    );
+  });
+
   it("reports a visual that never settled as an error and stops there", () => {
     const checks = checkVisual("alt: x\n---\n<script>while(true){}</script>", [
       render("phone", { status: "timeout", detail: "A script kept the page busy." }),

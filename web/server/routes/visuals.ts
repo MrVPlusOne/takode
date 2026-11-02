@@ -23,7 +23,7 @@ import {
   VISUAL_MAX_SOURCE_BYTES,
   type VisualTheme,
 } from "../../shared/visual-block.js";
-import type { VisualRenderer, VisualRenderResult } from "../visual-renderer.js";
+import type { ColourFinding, VisualRenderer, VisualRenderResult } from "../visual-renderer.js";
 
 /** Helper files a frame may load, and where each package ships its browser build. */
 const HELPER_FILES: Record<string, { pkg: string; path: string }> = {
@@ -156,6 +156,23 @@ export function checkVisual(
       text: `Smallest text is ${smallest}px; keep text at 11px or more (wide diagrams shrink).`,
     });
   }
+  const themeFix =
+    "Don't hard-code colours: use kit tones and roles, or the --tk-* theme variables (see Light and dark in the visual-blocks skill).";
+  const bright = worstFinding(renders, "dark", "brightBoxes");
+  if (bright) {
+    checks.push({
+      level: "warn",
+      text: `In the dark theme ${plural(bright.count, "box is", "boxes are")} light and glare (${bright.example}). ${themeFix}`,
+    });
+  }
+  for (const theme of ["dark", "light"] as const) {
+    const faint = worstFinding(renders, theme, "faintText");
+    if (!faint) continue;
+    checks.push({
+      level: "warn",
+      text: `In the ${theme} theme ${plural(faint.count, "text is", "texts are")} too faint against what's behind (${faint.example}). ${themeFix}`,
+    });
+  }
   if (phone.elementCount > VISUAL_MAX_ELEMENTS) {
     checks.push({ level: "error", text: `${phone.elementCount} elements: too many, phones won't show it.` });
   }
@@ -168,6 +185,23 @@ export function checkVisual(
   const slowest = Math.max(...renders.map((render) => render.settleMs));
   if (slowest > 2500) checks.push({ level: "warn", text: `Took ${slowest}ms to settle; phones will be slower.` });
   return checks;
+}
+
+/** The theme's render with the most elements showing a colour problem, if any has one. */
+function worstFinding(
+  renders: VisualRenderResult[],
+  theme: VisualTheme,
+  key: "brightBoxes" | "faintText",
+): ColourFinding | undefined {
+  const findings = renders
+    .filter((render) => render.theme === theme)
+    .map((render) => render[key])
+    .filter((finding) => finding && finding.count > 0);
+  return findings.sort((a, b) => b!.count - a!.count)[0];
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
 }
 
 async function readBody(

@@ -8,9 +8,9 @@ export const VISUAL_HELP = `Usage: takode visual preview <file|-> [--out <dir>] 
 
 Render a visual block the way Takode will show it, before you publish it: at a phone's
 and a desktop's message width, in dark and light theme. Writes four PNGs and prints
-checks (alt text, script errors, sideways scrolling on phones, tiny text, size, time).
-Look at the PNGs, fix what's wrong, preview again, then put the same text in a
-\`\`\`visual fence.
+checks (alt text, script errors, sideways scrolling on phones, tiny text, colours that
+don't suit the dark or light theme, size, time). Look at the PNGs, fix what's wrong,
+preview again, then put the same text in a \`\`\`visual fence.
 
 <file> holds exactly what goes inside the fence: optional "title:" and "alt:" lines,
 a "---" line, then the HTML. A file that contains a whole \`\`\`visual fence also works.

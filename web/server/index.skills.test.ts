@@ -107,7 +107,7 @@ describe("index startup skill registration", () => {
     await expect(access(join(REPO_ROOT, ".codex", "skills", slug, "SKILL.md"))).rejects.toThrow();
   });
 
-  it("loads every development skill as a project skill for Claude and Codex, never globally", async () => {
+  it("installs every global skill and loads development skills only as project skills", async () => {
     // Skills about developing Takode must reach sessions working inside the repo
     // and no others. Claude reads the repo's .claude/skills itself; Codex reads only
     // .agents/skills, so each such skill needs an entry there. Startup must not link
@@ -142,7 +142,10 @@ describe("index startup skill registration", () => {
       for (const home of ["claude", "agents"]) {
         const installed = await readdir(join(homes, home));
         expect(installed.filter((slug) => development.includes(slug))).toEqual([]);
-        expect(installed).toContain("takode-orchestration");
+        // Every global skill must pass the installer's SKILL.md check. visual-blocks once
+        // carried an unquoted `description:` containing ": ", so startup skipped it and no
+        // session outside the repo ever had it.
+        expect(GLOBAL_SKILL_SLUGS.filter((slug) => !installed.includes(slug))).toEqual([]);
       }
     } finally {
       log.mockRestore();

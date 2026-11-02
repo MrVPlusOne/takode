@@ -42,10 +42,20 @@ export interface VisualRenderResult {
   contentWidth: number;
   /** Smallest font size of visible text after scaling, in CSS px. */
   smallestTextPx: number | null;
+  /** Boxes behind text that are light although the theme is dark: fixed light fills that glare. */
+  brightBoxes?: ColourFinding;
+  /** Text under 3:1 contrast with what is behind it, like fixed dark text on the dark theme. */
+  faintText?: ColourFinding;
   errors: string[];
   snapshotHtml?: string;
   screenshotPng?: string;
   detail?: string;
+}
+
+/** How many elements have a colour problem, with the first one described. */
+export interface ColourFinding {
+  count: number;
+  example: string;
 }
 
 /** A standalone HTML document to print as a PDF or capture as one PNG, for exports. */
@@ -340,9 +350,49 @@ async function renderInPage(
 }
 
 /** Measured inside the rendered page. */
-const MEASURE_SCRIPT = `(() => {
+const MEASURE_SCRIPT = String.raw`(() => {
   const body = document.body;
   let smallest = null;
+  // Colours that don't follow the theme. Each text is checked against what is painted behind
+  // it: the page (the kit's --tk-bg) under every ancestor's background, composited.
+  const dark = document.documentElement.classList.contains("dark");
+  const parse = (value) => {
+    let m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(value);
+    if (m) return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255, 1];
+    m = /^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)$/.exec(value);
+    if (m) return [m[1] / 255, m[2] / 255, m[3] / 255, m[4] === undefined ? 1 : +m[4]];
+    m = /^color\(srgb ([-\d.e]+) ([-\d.e]+) ([-\d.e]+)(?: \/ ([\d.]+))?\)$/.exec(value);
+    if (m) return [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]];
+    return null;
+  };
+  const over = (top, under) => [0, 1, 2].map((i) => top[i] * top[3] + under[i] * (1 - top[3])).concat(1);
+  const luminance = (c) =>
+    [0.2126, 0.7152, 0.0722].reduce((sum, weight, i) => {
+      const v = c[i] <= 0.04045 ? c[i] / 12.92 : Math.pow((c[i] + 0.055) / 1.055, 2.4);
+      return sum + weight * v;
+    }, 0);
+  const contrast = (a, b) => {
+    const x = luminance(a), y = luminance(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  const hex = (c) => "#" + c.slice(0, 3).map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, "0")).join("");
+  const page = parse(getComputedStyle(document.documentElement).getPropertyValue("--tk-bg").trim()) || (dark ? [0.12, 0.12, 0.12, 1] : [1, 1, 1, 1]);
+  const behindCache = new Map();
+  // The colour behind an element and the nearest mostly opaque box that paints it.
+  const behind = (el) => {
+    if (!el || el === document.documentElement) return { color: page, box: null };
+    if (behindCache.has(el)) return behindCache.get(el);
+    const under = behind(el.parentElement);
+    const own = parse(getComputedStyle(el).backgroundColor);
+    const result = own && own[3] > 0 ? { color: over(own, under.color), box: own[3] >= 0.5 ? el : under.box } : under;
+    behindCache.set(el, result);
+    return result;
+  };
+  const brightBoxes = new Set();
+  let brightExample = "";
+  let faintCount = 0;
+  let faintExample = "";
+  const quote = (text) => '"' + text.trim().replace(/\s+/g, " ").slice(0, 40) + '"';
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   let checked = 0;
   while (walker.nextNode() && checked < 4000) {
@@ -352,13 +402,24 @@ const MEASURE_SCRIPT = `(() => {
     const element = node.parentElement;
     const rect = element.getBoundingClientRect();
     if (!rect.width || !rect.height) continue;
-    let size = parseFloat(getComputedStyle(element).fontSize) || 0;
+    const style = getComputedStyle(element);
+    let size = parseFloat(style.fontSize) || 0;
     // Text inside a scaled SVG renders at its size times the SVG's scale.
     const svg = element.closest("svg");
     if (svg && svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
       size *= svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
     }
     if (size && (smallest === null || size < smallest)) smallest = size;
+    const ink = parse(element instanceof SVGElement ? style.fill : style.color);
+    const back = behind(element);
+    if (dark && back.box && luminance(back.color) > 0.35 && !brightBoxes.has(back.box)) {
+      brightBoxes.add(back.box);
+      if (!brightExample) brightExample = hex(back.color) + " behind " + quote(back.box.textContent);
+    }
+    if (ink && contrast(over(ink, back.color), back.color) < 3) {
+      faintCount++;
+      if (!faintExample) faintExample = hex(ink) + " on " + hex(back.color) + " in " + quote(node.textContent);
+    }
   }
   let contentWidth = document.documentElement.scrollWidth;
   for (const el of body.querySelectorAll("*")) {
@@ -371,6 +432,8 @@ const MEASURE_SCRIPT = `(() => {
     elementCount: body.getElementsByTagName("*").length,
     contentWidth: Math.ceil(contentWidth),
     smallestTextPx: smallest === null ? null : Math.round(smallest * 10) / 10,
+    brightBoxes: { count: brightBoxes.size, example: brightExample },
+    faintText: { count: faintCount, example: faintExample },
     errors: (window.__tkVisual.errors || []).slice(0, 8),
   };
 })()`;

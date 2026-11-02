@@ -25,6 +25,33 @@ describe.skipIf(!chrome)("VisualRenderer with a real Chrome", () => {
     expect(result.snapshotHtml).not.toContain("<script");
   }, 30_000);
 
+  it("finds fixed colours that don't suit the theme, and none in kit shapes", async () => {
+    // A hand-styled pastel box glares on the dark theme, and fixed dark text (here also in
+    // SVG) nearly vanishes on it. The same content in kit shapes follows either theme.
+    const fixed =
+      'alt: x\n---\n<div style="background:#f1f5f9;color:#0f172a">Lint</div>' +
+      '<div style="background:color-mix(in srgb, #dcfce7 90%, transparent)">All pass</div>' +
+      '<p style="color:#0f172a">dark text</p><svg viewBox="0 0 100 20"><text x="0" y="14" fill="#1e1b4b">svg text</text></svg>';
+    const dark = await renderer.render({ source: fixed, width: 400, theme: "dark" });
+    expect(dark.brightBoxes?.count).toBe(2);
+    expect(dark.brightBoxes?.example).toBe('#f1f5f9 behind "Lint"');
+    // Faint: the pastel box's theme-coloured (light) text, and both fixed dark texts.
+    expect(dark.faintText?.count).toBe(3);
+    expect(dark.faintText?.example).toMatch(/^#eeeeee on #[0-9a-f]{6} in "All pass"$/);
+    // The light theme has no glare to report, and that dark text reads fine on it.
+    const light = await renderer.render({ source: fixed, width: 400, theme: "light" });
+    expect(light.brightBoxes?.count).toBe(0);
+    expect(light.faintText?.count).toBe(0);
+
+    const kit =
+      'alt: x\n---\n<div class="tk-flow tk-down"><div class="tk-steps"><div class="tk-step"><b>Lint</b> <code>coqchk</code></div></div>' +
+      '<div class="tk-grid"><div class="tk-box" data-tone="good">All pass</div><div class="tk-box" data-tone="warn">Slow</div></div></div>';
+    for (const theme of ["dark", "light"] as const) {
+      const result = await renderer.render({ source: kit, width: 400, theme });
+      expect([result.brightBoxes?.count, result.faintText?.count]).toEqual([0, 0]);
+    }
+  }, 30_000);
+
   it("reports an endless loop as a timeout and keeps rendering afterwards", async () => {
     const looping = await renderer.render({ source: "<script>while (true) {}</script>", width: 400, theme: "dark" });
     expect(looping.status).toBe("timeout");
