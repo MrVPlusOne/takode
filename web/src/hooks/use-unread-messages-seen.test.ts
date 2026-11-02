@@ -3,13 +3,7 @@ import { renderHook } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionNotification } from "../types.js";
-import {
-  MARK_GRACE_MS,
-  SCROLL_ATTENTION_MS,
-  SEEN_DWELL_MS,
-  readsWhenSeen,
-  useUnreadMessagesSeen,
-} from "./use-unread-messages-seen.js";
+import { MARK_GRACE_MS, SEEN_DWELL_MS, readsWhenSeen, useUnreadMessagesSeen } from "./use-unread-messages-seen.js";
 
 /**
  * Unread answers are read once seen, as in Slack: a message counts as read after it has been
@@ -340,11 +334,11 @@ describe("useUnreadMessagesSeen", () => {
     expect(result.current).toBeNull();
   });
 
-  it("leaves an answer arriving in a chat that isn't focused unread, and reads it once the user scrolls there", () => {
+  it("leaves an answer arriving in a chat that isn't focused unread", () => {
     // Jiayi (Oct 31): with the main view and side panes on screen, an answer that shows up by
-    // itself in a pane the user isn't working in stays unread; scrolling that pane is deliberate
-    // attention, so what is on screen then reads as usual. Focusing the chat reads it too.
-    const { feed } = mountFeedElement("q-1", [{ id: "m-a1", top: 100 }]);
+    // itself in a pane the user isn't working in stays unread. Scrolling the pane focuses it
+    // (chat-focus.ts), and then it reads as usual (the next test).
+    mountFeedElement("q-1", [{ id: "m-a1", top: 100 }]);
     const onSeen = vi.fn();
     renderHook(() =>
       useUnreadMessagesSeen({
@@ -360,13 +354,6 @@ describe("useUnreadMessagesSeen", () => {
       vi.advanceTimersByTime(SEEN_DWELL_MS * 5);
     });
     expect(onSeen).not.toHaveBeenCalled();
-
-    // The user scrolls the pane: the answer on screen now counts, after the usual second.
-    act(() => {
-      feed.dispatchEvent(new Event("wheel"));
-      vi.advanceTimersByTime(SEEN_DWELL_MS + 500);
-    });
-    expect(onSeen).toHaveBeenCalledWith("a1");
   });
 
   it("reads what arrives on screen once the chat is focused", () => {
@@ -384,7 +371,7 @@ describe("useUnreadMessagesSeen", () => {
       }),
     );
     act(() => {
-      vi.advanceTimersByTime(SCROLL_ATTENTION_MS + SEEN_DWELL_MS);
+      vi.advanceTimersByTime(SEEN_DWELL_MS * 3);
     });
     expect(onSeen).not.toHaveBeenCalled();
     focused = true;

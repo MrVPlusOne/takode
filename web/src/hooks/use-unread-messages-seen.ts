@@ -26,10 +26,9 @@ import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.
  * It also reports the unread messages above the view, so a conversation opened at its latest
  * messages can say how many wait above and step up to them one at a time, nearest first.
  *
- * Only the focused chat reads what arrives on screen by itself (`focused`, see chat-focus.ts). In a
- * chat that isn't focused, a message counts only once the user scrolls that chat with it on screen,
- * since scrolling is deliberate attention; an answer arriving there while the user works elsewhere
- * stays unread (Jiayi, Oct 31).
+ * Only the focused chat reads (`focused`, see chat-focus.ts): an answer arriving in another chat
+ * while the user works elsewhere stays unread (Jiayi, Oct 31). Scrolling a chat focuses it, so one
+ * the user scrolls to reads as usual.
  */
 
 /** How long a message must stay on screen to count as read. */
@@ -37,8 +36,6 @@ export const SEEN_DWELL_MS = 1_000;
 const POLL_MS = 400;
 /** A message counts as on screen when this much of it shows (or half of a short one). */
 const MIN_VISIBLE_PX = 160;
-/** How long after the user scrolls a chat that isn't focused its messages on screen start to count. */
-export const SCROLL_ATTENTION_MS = 1_500;
 /**
  * How long an answer that arrives while the view is open may stay unread before it is marked: long
  * enough for one that lands on screen in the focused chat to be read first (the dwell plus a poll).
@@ -78,7 +75,7 @@ export function useUnreadMessagesSeen({
   feedKey: string;
   notifications: ReadonlyArray<SessionNotification> | undefined;
   enabled: boolean;
-  /** Whether the chat is the focused one: only then does a message arriving on screen count. */
+  /** Whether the chat is the focused one: only then does a message on screen count. */
   focused?: boolean;
   /**
    * Whether a message of this thread (a quest, or Main) shows in the feed. Without it, nothing is
@@ -127,31 +124,6 @@ export function useUnreadMessagesSeen({
       (atOpen!.has(notification.id) ||
         notification.timestamp < openedAt - ARRIVAL_CLOCK_SLACK_MS ||
         now - (arrivedAt.get(notification.id) ?? now) >= MARK_GRACE_MS);
-    // In a chat that isn't focused: when the user last scrolled it, and the messages that were on
-    // screen while they did, which may then be read like any message on screen.
-    let scrolledAt = 0;
-    const scrolledTo = new Set<string>();
-    let watched: HTMLElement | null = null;
-    const noteScroll = () => {
-      scrolledAt = Date.now();
-    };
-    const noteScrollbarPress = (event: Event) => {
-      if (event.target === watched) noteScroll();
-    };
-    const watch = (feed: HTMLElement) => {
-      if (watched === feed) return;
-      unwatch();
-      watched = feed;
-      feed.addEventListener("wheel", noteScroll, { passive: true });
-      feed.addEventListener("touchmove", noteScroll, { passive: true });
-      feed.addEventListener("pointerdown", noteScrollbarPress);
-    };
-    const unwatch = () => {
-      watched?.removeEventListener("wheel", noteScroll);
-      watched?.removeEventListener("touchmove", noteScroll);
-      watched?.removeEventListener("pointerdown", noteScrollbarPress);
-      watched = null;
-    };
 
     const poll = () => {
       if (document.visibilityState === "hidden") {
@@ -169,7 +141,6 @@ export function useUnreadMessagesSeen({
       for (const notification of unread) if (!arrivedAt.has(notification.id)) arrivedAt.set(notification.id, now);
       const feed = visibleFeed(sessionId, feedKey);
       if (!feed) return;
-      watch(feed);
       remark(feed);
       if (unread.length === 0) {
         setUnreadAbove(null);
@@ -191,19 +162,11 @@ export function useUnreadMessagesSeen({
       }
       const view = feed.getBoundingClientRect();
       const focusedNow = latest.current.focused;
-      const scrolling = now - scrolledAt < SCROLL_ATTENTION_MS;
       for (const notification of unread) {
         const element = elements.get(notification.messageId!);
-        if (!element || reported.has(notification.id) || !onScreen(element, view)) {
+        if (!focusedNow || !element || reported.has(notification.id) || !onScreen(element, view)) {
           firstSeen.delete(notification.id);
           continue;
-        }
-        if (!focusedNow) {
-          if (scrolling) scrolledTo.add(notification.id);
-          if (!scrolledTo.has(notification.id)) {
-            firstSeen.delete(notification.id);
-            continue;
-          }
         }
         const since = firstSeen.get(notification.id) ?? now;
         firstSeen.set(notification.id, since);
@@ -222,7 +185,6 @@ export function useUnreadMessagesSeen({
     const timer = setInterval(poll, POLL_MS);
     return () => {
       clearInterval(timer);
-      unwatch();
       for (const element of marked.values()) element?.removeAttribute(markAttribute());
       setUnreadAbove(null);
     };

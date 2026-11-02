@@ -1,15 +1,18 @@
-import { createContext, useContext, useEffect, type FocusEvent, type PointerEvent } from "react";
+import { createContext, useContext, useEffect, type TouchEvent, type WheelEvent } from "react";
 import { create } from "zustand";
 
 /**
  * One focused chat at a time, like windows in an OS window manager (Jiayi, Oct 31): with the main
  * view and side panes on screen together, several chats are visible and one is focused. Typing
  * outside an input goes to the focused chat's composer, and an answer that arrives by itself in a
- * chat that isn't focused stays unread (one the user scrolls to still reads).
+ * chat that isn't focused stays unread.
  *
- * A click or tap anywhere in a chat focuses it, as does moving the keyboard focus into it or
- * opening it; moving the mouse or scrolling never does. On a phone the single view on screen is
- * always focused: a side sheet's chats use the main view's id.
+ * A click or tap anywhere in a chat focuses it, as does scrolling it (wheel, trackpad, touch or its
+ * scrollbar), moving the keyboard focus into it or opening it; moving the mouse doesn't, nor do
+ * scrolls the app makes itself (following new messages, jumps, restoring a place). Scrolling
+ * focuses as a trial (Jiayi, Nov 1): users may not know the panes have a focus at all, and clicking
+ * first felt wrong. On a phone the single view on screen is always focused: a side sheet's chats use
+ * the main view's id.
  *
  * Browser-local UI state: focus belongs to this window, not to the session.
  */
@@ -70,30 +73,39 @@ export function useChatFocusId(): string {
 }
 
 /**
- * Handlers for a chat's outermost element: a click or tap anywhere in it, or the keyboard focus
- * moving into it, focuses it. A press on a scrollbar scrolls without focusing, as in desktop apps.
+ * Handlers for a chat's outermost element: a click or tap anywhere in it (its scrollbars included),
+ * the keyboard focus moving into it, or a wheel or touch scroll of something inside it focuses it.
+ * Only user input fires these, so the app's own scrolling never moves focus.
  */
 export function chatFocusHandlers(id: string): {
-  onPointerDownCapture: (event: PointerEvent<HTMLElement>) => void;
-  onFocusCapture: (event: FocusEvent<HTMLElement>) => void;
+  onPointerDownCapture: () => void;
+  onFocusCapture: () => void;
+  onWheelCapture: (event: WheelEvent<HTMLElement>) => void;
+  onTouchMoveCapture: (event: TouchEvent<HTMLElement>) => void;
 } {
+  const onScroll = (event: { target: EventTarget; currentTarget: HTMLElement }) => {
+    if (scrollsInside(event.target, event.currentTarget)) focusChat(id);
+  };
   return {
-    onPointerDownCapture: (event) => {
-      if (!onScrollbar(event)) focusChat(id);
-    },
+    onPointerDownCapture: () => focusChat(id),
     onFocusCapture: () => focusChat(id),
+    onWheelCapture: onScroll,
+    onTouchMoveCapture: onScroll,
   };
 }
 
-/** Whether a press landed on its target's own scrollbar rather than its content. */
-function onScrollbar(event: PointerEvent<HTMLElement>): boolean {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return false;
-  const rect = target.getBoundingClientRect();
-  const vertical = target.offsetWidth - target.clientWidth;
-  const horizontal = target.offsetHeight - target.clientHeight;
-  return (
-    (vertical > 0 && event.clientX >= rect.left + target.clientLeft + target.clientWidth) ||
-    (horizontal > 0 && event.clientY >= rect.top + target.clientTop + target.clientHeight)
-  );
+/**
+ * Whether a wheel or touch over `target` scrolls something inside the chat: an element between it
+ * and the chat's root that scrolls. Over a side pane's title bar or its column scroll strip the
+ * wheel scrolls the side column instead, which is not using the chat.
+ */
+function scrollsInside(target: EventTarget, root: HTMLElement): boolean {
+  for (let element = target instanceof Element ? target : null; element && element !== root; ) {
+    if (element instanceof HTMLElement && element.scrollHeight > element.clientHeight) {
+      const overflow = getComputedStyle(element).overflowY;
+      if (overflow === "auto" || overflow === "scroll") return true;
+    }
+    element = element.parentElement;
+  }
+  return false;
 }

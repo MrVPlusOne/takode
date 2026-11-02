@@ -31,7 +31,7 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
   const key = threadKey.toLowerCase();
   const thread = useKnownThreadOfKey(leaderId, isTopicViewKey(key) ? key : "");
   const notifications = useStore((state) => state.sessionNotifications.get(leaderId));
-  // A pane that isn't the focused chat reads only what the user scrolls to (chat-focus.ts).
+  // Only the focused chat reads; clicking or scrolling a pane focuses it (chat-focus.ts).
   const focused = useChatFocused(useChatFocusId());
   useUnreadMessagesSeen({
     sessionId: leaderId,
