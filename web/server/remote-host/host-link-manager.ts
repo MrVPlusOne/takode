@@ -105,7 +105,7 @@ export interface RemoteSpawnOptions {
   signal?: AbortSignal;
   /** A launch the host prepared itself; `command`, `args` and `cwd` are then ignored. */
   preparedLaunchId?: string;
-  /** Run it in its own process group, so a kill also stops the processes it started. */
+  /** Run it in its own session and process group, so a kill also stops the processes it started. */
   group?: boolean;
 }
 

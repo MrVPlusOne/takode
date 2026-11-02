@@ -235,7 +235,10 @@ message when it ends. The coordinator records every call (session, quest,
 machine, command, outcome and times) and keeps its output under
 `~/.companion/exec/` on the coordinator's machine. A restarted coordinator
 takes running commands over, and a host does not update itself while one runs
-there. Killing a command stops everything it started.
+there. Killing a command stops everything it started, including processes that
+left its process group or session (GNU `timeout`, `setsid`): SIGTERM, then
+SIGKILL 10 seconds later to whatever still runs. A daemon that started a
+session of its own and whose parent then exited is no longer part of it.
 
 Turn **Agents may run commands here** off for a machine in
 **Settings → Hosts** to refuse new commands on it. The calling session's own

@@ -127,8 +127,8 @@ async function main(): Promise<void> {
     worktreesDir: WORKTREES_BASE,
   });
   for (const directory of crowdedDirectories) console.warn(`[takode node] ${crowdedDirectoryWarning(directory)}`);
-  const restart = () => {
-    agent?.stop();
+  const restart = async () => {
+    await agent?.stop();
     proxy.stop();
     process.exit(NODE_RESTART_EXIT_CODE);
   };
@@ -151,7 +151,7 @@ async function main(): Promise<void> {
           update: async () => {
             const current = await sharedCheckoutCommit(packageRoot, build);
             console.log(`[takode node] Restarting to run ${current ?? "the checkout's current code"}`);
-            restart();
+            await restart();
           },
         }
       : autoUpdate
@@ -161,7 +161,7 @@ async function main(): Promise<void> {
             update: async (commit: string) => {
               await switchCheckoutToCommit(packageRoot, commit);
               console.log(`[takode node] Switched to ${commit}; restarting`);
-              restart();
+              await restart();
             },
           }
         : {}),
@@ -172,8 +172,8 @@ async function main(): Promise<void> {
       ` (Takode ${build ?? "build unknown"}${autoUpdate || sharedCheckout ? ", auto-update on" : ""})`,
   );
 
-  const shutdown = () => {
-    agent?.stop();
+  const shutdown = async () => {
+    await agent?.stop();
     proxy.stop();
     process.exit(0);
   };

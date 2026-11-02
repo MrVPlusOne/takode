@@ -13,6 +13,7 @@ import type { UpdatePreparation } from "./host-update.js";
 import { HOST_LINK_FEATURES, HostLinkCodec, processBytes, processData } from "./host-link-codec.js";
 import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js";
 import { thisMachineDetails } from "../machine-identity.js";
+import { stopProcessTree } from "./process-tree.js";
 import { REMOTE_HOST_ENV } from "../../shared/remote-host-env.js";
 import {
   API_PROXY_RELAYS_ENCODING_HEADER,
@@ -124,7 +125,7 @@ interface HostedProcess {
 interface ProcessControl {
   write(data: Buffer): void;
   end(): void;
-  kill(signal: NodeJS.Signals): void;
+  kill(signal: NodeJS.Signals): void | Promise<void>;
   resize?(cols: number, rows: number): void;
 }
 
@@ -182,14 +183,14 @@ export class HostAgent {
     this.heartbeat = setInterval(() => this.tick(), HOST_HEARTBEAT_MS);
   }
 
-  /** Stop reconnecting and end every hosted process. */
-  stop(): void {
+  /** Stop reconnecting and end every hosted process; resolves once each has been signalled. */
+  async stop(): Promise<void> {
     this.stopped = true;
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.socket?.close(1000, "Host stopping");
     this.socket = null;
-    for (const hosted of this.processes.values()) hosted.control?.kill("SIGTERM");
+    await Promise.all([...this.processes.values()].map((hosted) => hosted.control?.kill("SIGTERM")));
   }
 
   get connected(): boolean {
@@ -340,7 +341,7 @@ export class HostAgent {
         return;
       case "rejected":
         this.log(`Coordinator rejected this host: ${message.reason}`);
-        this.stop();
+        void this.stop();
         return;
       case "heartbeat":
         return;
@@ -389,7 +390,7 @@ export class HostAgent {
       const lastReceived = received[procId];
       if (lastReceived === undefined) {
         // The coordinator no longer tracks this process.
-        hosted.control?.kill("SIGTERM");
+        void hosted.control?.kill("SIGTERM");
         this.processes.delete(procId);
         continue;
       }
@@ -415,7 +416,7 @@ export class HostAgent {
     let kept = 0;
     for (const [procId, hosted] of this.processes) {
       if (!(procId in received)) {
-        hosted.control?.kill("SIGTERM");
+        void hosted.control?.kill("SIGTERM");
         this.processes.delete(procId);
         continue;
       }
@@ -498,7 +499,7 @@ export class HostAgent {
         this.processes.get(command.procId)?.control?.resize?.(command.cols, command.rows);
         return;
       case "kill":
-        this.processes.get(command.procId)?.control?.kill(command.signal as NodeJS.Signals);
+        void this.processes.get(command.procId)?.control?.kill(command.signal as NodeJS.Signals);
         return;
     }
   }
@@ -547,7 +548,7 @@ export class HostAgent {
     const start = this.options.spawnProcess ?? defaultSpawn;
     let child: ChildProcess;
     try {
-      // A process group leader of its own, so a kill reaches what it started too.
+      // The leader of its own session and process group, so a kill can find what it started.
       child = start(program, programArgs, {
         ...(cwd ? { cwd } : {}),
         env,
@@ -561,7 +562,10 @@ export class HostAgent {
     hosted.control = {
       write: (data) => child.stdin?.write(data),
       end: () => child.stdin?.end(),
-      kill: (signal) => (command.group ? killGroup(child, signal) : child.kill(signal)),
+      kill: (signal) =>
+        command.group && child.pid !== undefined
+          ? stopProcessTree(child.pid, signal, { log: this.log })
+          : void child.kill(signal),
     };
     let spawned = false;
     child.once("spawn", () => {
@@ -884,20 +888,6 @@ function defaultSpawn(
   options: { cwd?: string; env: NodeJS.ProcessEnv; detached?: boolean },
 ) {
   return spawnChild(command, args, { ...options, stdio: ["pipe", "pipe", "pipe"] });
-}
-
-/**
- * Signal a process started as its own group leader and everything in its
- * group, including processes it left running after it exited (a group's id is
- * not reused while any member lives).
- */
-function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (child.pid === undefined) return;
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    child.kill(signal);
-  }
 }
 
 function errorMessage(error: unknown): string {

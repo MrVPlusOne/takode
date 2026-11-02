@@ -247,28 +247,49 @@ describe("HostExec", () => {
     await finished(exec, started.id);
   });
 
+  // The reported leak: `timeout ... run.sh | tee` moved out of the shell's
+  // process group, so killing the group ended only the shell. Here one pipeline
+  // stage moves to a group of its own the way GNU timeout does, and another
+  // child starts a session of its own the way setsid does.
   it("kills the command and the processes it started", async () => {
     connectHost();
     await waitFor(() => manager.status(HOST_ID).online);
     const exec = createExec();
-    const pidFile = join(dir, "child.pid");
-    const started = await run(exec, `sleep 30 & echo $! > ${pidFile}; wait`, { background: true });
-    let childPid = 0;
+    const leave = join(dir, "leave.pl");
+    await writeFile(
+      leave,
+      'use POSIX (); my ($mode, $file) = @ARGV; if ($mode eq "group") { setpgrp(0, 0) } else { POSIX::setsid() }\n' +
+        'open(my $fh, ">", $file) or die; print $fh $$; close $fh; sleep 60;\n',
+    );
+    const pidFile = (name: string) => join(dir, `${name}.pid`);
+    const started = await run(
+      exec,
+      `sleep 30 & echo $! > ${pidFile("plain")}; perl ${leave} group ${pidFile("group")} | cat & ` +
+        `perl ${leave} session ${pidFile("session")} & wait`,
+      { background: true },
+    );
+    let childPids: number[] = [];
     await waitFor(async () => {
-      childPid = Number(await readFile(pidFile, "utf-8").catch(() => "0"));
-      return childPid > 0;
+      childPids = await Promise.all(
+        ["plain", "group", "session"].map(async (name) =>
+          Number(await readFile(pidFile(name), "utf-8").catch(() => "0")),
+        ),
+      );
+      return childPids.every((pid) => pid > 0);
     });
     exec.kill(started.id);
     const job = await finished(exec, started.id);
     expect(job).toMatchObject({ status: "exited", signal: "SIGTERM" });
-    await waitFor(() => {
-      try {
-        process.kill(childPid, 0);
-        return false;
-      } catch {
-        return true;
-      }
-    });
+    await waitFor(() =>
+      childPids.every((pid) => {
+        try {
+          process.kill(pid, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      }),
+    );
   });
 
   // The user's off switch, unknown names and an offline host are refused before anything starts.

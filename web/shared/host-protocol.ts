@@ -112,8 +112,9 @@ export type HostCommand =
        */
       preparedLaunchId?: string;
       /**
-       * Start it in a process group of its own, and send signals to the whole
-       * group, so stopping it also stops what it started (`takode exec`).
+       * Start it in a session and process group of its own, and send signals
+       * to every process it started, so stopping it stops them all; the host
+       * follows SIGTERM with SIGKILL to survivors (`takode exec`).
        */
       group?: boolean;
     }

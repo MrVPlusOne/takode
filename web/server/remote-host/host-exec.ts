@@ -97,7 +97,6 @@ export const EXEC_EXCERPT_BYTES = 20_000;
 const TAIL_READ_BYTES = 256 * 1024;
 const NOTIFY_TAIL_LINES = 15;
 const NOTIFY_TAIL_CHARS = 2_000;
-const KILL_GRACE_MS = 10_000;
 const LOG_FLUSH_MS = 200;
 
 interface StoredJob extends ExecJob {
@@ -290,14 +289,15 @@ export class HostExec {
     return publicJob(job);
   }
 
-  /** Stop a running command and everything it started: SIGTERM, then SIGKILL if it is still running after a grace period. */
+  /**
+   * Stop a running command and everything it started. The host sends SIGTERM,
+   * then SIGKILL to whatever still runs after a grace period, including
+   * processes the command's shell left behind when it exited.
+   */
   kill(id: string): ExecJob | null {
     const job = this.jobs.get(id);
     if (!job) return null;
-    const running = this.running.get(id);
-    if (running && running.proc.kill("SIGTERM")) {
-      setTimeout(() => running.proc.kill("SIGKILL"), KILL_GRACE_MS).unref?.();
-    }
+    this.running.get(id)?.proc.kill("SIGTERM");
     return publicJob(job);
   }
 
