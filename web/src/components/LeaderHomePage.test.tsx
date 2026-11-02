@@ -210,6 +210,9 @@ describe("LeaderHomePage", () => {
     await waitFor(() =>
       expect(screen.getAllByTestId("home-row-line")[0]!.textContent).toBe("Waiting on your pick of the grading."),
     );
+    // One line, cut at the end (Jiayi, Nov 1: wrapped news lines made rows uneven); the full text
+    // shows on hover (TruncatedLine.test.tsx).
+    expect(screen.getAllByTestId("home-row-line")[0]!.className).toContain("truncate");
     expect(homeLines).toHaveBeenCalledWith("l1", ["q-2", "q-3", "q-4"]);
     expect(screen.getByTestId("home-since-last-looked").textContent).toContain("1 question · 1 finished");
   });

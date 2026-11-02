@@ -3,7 +3,7 @@
  * a question for the user pinned on top, as the sessions panel's Threads view lists every leader's
  * (Jiayi, Nov 1: Home's groups overlapped, an unread quest showing under Unread and Idle). Each
  * thread is listed once; unread and running show in its colour bar and bell, never by moving it.
- * Home has the width for more than the panel: the Scribe's news line in full, the question asked,
+ * Home has the width for more than the panel: the Scribe's news line, the question asked,
  * the worker and what it is doing now for a running quest, and a finished quest's commits.
  */
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
@@ -22,6 +22,7 @@ import { SessionStatusDot } from "../SessionStatusDot.js";
 import { participantStatusToDotProps } from "../session-participant-status.js";
 import { SideQuestIcon } from "../SideQuestCue.js";
 import { QuestRoundTitle } from "../QuestRoundTitle.js";
+import { TruncatedLine } from "../TruncatedLine.js";
 import { ClockIcon, formatSnoozeUntil } from "../RemindLaterChoices.js";
 import { ActiveOutputSpinner, AttentionBell, isRunning, THREAD_GROUP_DOT, threadGroupOf } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
@@ -287,8 +288,10 @@ function useLatestSteps(sessionIds: readonly string[]): Record<string, string> {
 }
 
 /**
- * One thread: its status bar, quest number, title and time, its news line in full, and what else
- * says where it stands (the question asked, the worker at work, the commits delivered).
+ * One thread in three lines, every row the same height (Jiayi, Nov 1: news lines wrapping made rows
+ * two to four lines tall): its quest number, title and time; its news line, cut to one line with
+ * the full text on hover or long-press; and what else says where it stands (the question asked, the
+ * worker at work, the commits delivered). A row without a news line moves that last line up.
  */
 function HomeThreadRow({
   thread: { tab, at, activityAt },
@@ -309,6 +312,7 @@ function HomeThreadRow({
   const quiet = tab.completed && !tab.needsInput && !tab.blueNudge;
   const time = tab.remindAt !== undefined ? `Remind ${formatSnoozeUntil(tab.remindAt)}` : timeAgo(at || activityAt);
   const status = statusLine(tab, detail);
+  const statusClass = `flex h-5 min-w-0 items-center gap-1.5 text-[12px] ${tab.needsInput ? "text-cc-attention" : "text-cc-muted"}`;
   return (
     <button
       type="button"
@@ -319,8 +323,8 @@ function HomeThreadRow({
       data-group={threadGroupOf(tab)}
     >
       <span className={`w-1 shrink-0 rounded-full ${THREAD_GROUP_DOT[threadGroupOf(tab)]}`} />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5 leading-snug">
-        <span className={`flex min-w-0 items-center gap-1.5 text-[14px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
+      <span className="flex h-[3.75rem] min-w-0 flex-1 flex-col leading-5">
+        <span className={`flex h-5 min-w-0 items-center gap-1.5 text-[14px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
           {writing && <ActiveOutputSpinner />}
           {plainThread && <NewThreadIcon className="h-3.5 w-3.5 shrink-0 text-cc-muted" />}
           {tab.remindAt !== undefined && (
@@ -348,16 +352,9 @@ function HomeThreadRow({
             <AttentionBell tab={tab} size="md" />
           </span>
         </span>
-        {line && (
-          <span className="line-clamp-2 text-[13px] text-cc-fg/80" data-testid="home-row-line">
-            {line}
-          </span>
-        )}
+        {line && <TruncatedLine text={line} className="h-5 text-[13px] text-cc-fg/80" testId="home-row-line" />}
         {status && (
-          <span
-            className={`flex min-w-0 items-center gap-1.5 text-[12px] ${tab.needsInput ? "text-cc-attention" : "text-cc-muted"}`}
-            data-testid="home-row-status"
-          >
+          <span className={statusClass} data-testid="home-row-status">
             {status}
           </span>
         )}
