@@ -284,6 +284,7 @@ describe("useCollapsePolicy", () => {
         isActivityExpanded: false,
         readyCollapsed: true,
         readyAnchorMessageId: "a-ready",
+        finalFold: null,
       },
     ]);
     result.current.toggleTurn("u1");

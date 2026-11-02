@@ -24,9 +24,14 @@ import { CompactFeedActivity } from "./CompactFeedActivity.js";
 import {
   collapsedResponseEntry,
   readyThreadResponseAppliesToTurn,
-  threadResponsePresentationTouchesTurn,
   type ThreadResponsePresentation,
 } from "./thread-response-presentation.js";
+import {
+  collapsedPresentationForTurn,
+  finalFoldTail,
+  readyResponsePresentation,
+  type TurnFinalFold,
+} from "./turn-final-fold.js";
 import {
   CollapsedTurnRows,
   readyThreadResponseRows,
@@ -140,6 +145,7 @@ function CollapsedTurnContent({
   preserveHostQuestQuiz,
   unansweredMessageEntry,
   completionCard,
+  quizShownBelow = [],
 }: {
   turn: Turn;
   sessionId: string;
@@ -155,6 +161,8 @@ function CollapsedTurnContent({
   preserveHostQuestQuiz: boolean;
   unansweredMessageEntry: Extract<FeedEntry, { kind: "message" }> | null;
   completionCard: TimedCard | null;
+  /** Quizzes the open part of a folded turn below the card renders where they were posted. */
+  quizShownBelow?: readonly string[];
 }) {
   const answerReferences = useContext(AnswerReferencesContext);
   const renderEntry = (entry: FeedEntry) =>
@@ -189,7 +197,7 @@ function CollapsedTurnContent({
   return (
     <CollapsedTurnRows
       rows={rows}
-      quizQuestIds={quizQuestIds}
+      quizQuestIds={quizQuestIds.filter((questId) => !quizShownBelow.includes(questId))}
       renderEntry={renderEntry}
       sessionId={sessionId}
       currentThreadKey={currentThreadKey}
@@ -411,7 +419,9 @@ export const TurnEntries = memo(function TurnEntries({
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
   onSelectThread?: (threadKey: string) => void;
-  turnStates: Array<{ defaultExpanded: boolean; isActivityExpanded: boolean } | undefined>;
+  turnStates: Array<
+    { defaultExpanded: boolean; isActivityExpanded: boolean; finalFold?: TurnFinalFold | null } | undefined
+  >;
   toggleTurn: (turnId: string) => void;
   userBoundarySourceSessionId?: string | null;
   questLinkSurface: QuestLinkSurface;
@@ -450,17 +460,7 @@ export const TurnEntries = memo(function TurnEntries({
     () => (threadQuestId ? questCompletionSummaryHost(turns, completedAt, hasOlderSections, hasNewerSections) : null),
     [threadQuestId, completedAt, hasOlderSections, hasNewerSections, turns],
   );
-  const latestThreadResponseUpdatedAt = Math.max(
-    0,
-    ...(threadResponsePresentation?.currentResponses
-      .filter((item) => item.response.coveredUserMessageIds.length > 0)
-      .map((item) => item.response.updatedAt) ?? []),
-  );
-  const readyThreadResponsePresentation =
-    threadResponsePresentation?.ready &&
-    visibleThreadStatuses.some((status) => status.kind === "ready" && status.timestamp >= latestThreadResponseUpdatedAt)
-      ? threadResponsePresentation
-      : null;
+  const readyThreadResponsePresentation = readyResponsePresentation(threadResponsePresentation, visibleThreadStatuses);
   const hasThreadStatusFooter = visibleThreadStatuses.length > 0 || workerPreviewTarget !== null;
   const threadStatusFooterTurnId = useMemo(
     () => (hasThreadStatusFooter ? latestStatusHostTurnId(sections) : null),
@@ -516,14 +516,18 @@ export const TurnEntries = memo(function TurnEntries({
         {turns.map((turn, turnIndex) => {
           const turnState = turnStates[turnIndex];
           const isActivityExpanded = turnState?.isActivityExpanded ?? false;
+          // Folded before its newest final message: the collapsed card, then everything after that final.
+          const fold = !isActivityExpanded && turnState?.finalFold?.turnId === turn.id ? turnState.finalFold : null;
+          const foldTail = fold ? finalFoldTail(turn, fold) : null;
+          const tailEntries = foldTail ? turnPresentationEntries(foldTail) : [];
           const preserveHostQuestQuiz = turnIndex === turns.length - 1 && turnState?.defaultExpanded === false;
           const answers = threadResponsePresentation;
           const turnResponsePresentation = answers && readyThreadResponseAppliesToTurn(turn, answers) ? answers : null;
-          const collapsedThreadResponsePresentation =
-            turnResponsePresentation &&
-            (readyThreadResponsePresentation || threadResponsePresentationTouchesTurn(turn, turnResponsePresentation))
-              ? turnResponsePresentation
-              : null;
+          const collapsedThreadResponsePresentation = collapsedPresentationForTurn(
+            turn,
+            threadResponsePresentation,
+            readyThreadResponsePresentation,
+          );
           const collapsedShowsMessage = collapsedThreadResponsePresentation
             ? readyThreadResponseTurnHasMessage(turn, collapsedThreadResponsePresentation, needsInputAnchorMessageIds)
             : turn.subConclusions.length > 0 ||
@@ -533,8 +537,13 @@ export const TurnEntries = memo(function TurnEntries({
                 false);
           // Display only: a handed-off or dispatch-only turn keeps its last note
           // visible, while answer coverage and Ready state stay unchanged.
+          // A folded turn's open part already shows its own messages.
           const unansweredMessageEntry =
-            leaderSession && !isActivityExpanded && !collapsedShowsMessage && turn.lastMessageEntry
+            leaderSession &&
+            !isActivityExpanded &&
+            !collapsedShowsMessage &&
+            turn.lastMessageEntry &&
+            !tailEntries.includes(turn.lastMessageEntry)
               ? collapsedResponseEntry(turn.lastMessageEntry)
               : null;
           const hasCollapsedContent =
@@ -562,6 +571,9 @@ export const TurnEntries = memo(function TurnEntries({
                   ),
                 }
               : null;
+          // The Quest complete card goes with the part of a folded turn it happened in.
+          const completionCardInTail =
+            completionCard !== null && fold !== null && tailEntries.length > 0 && completionCard.at > fold.foldAt;
           // Without entries or collapsed rows to sit among, the card ends the turn.
           const hasEntryRows = isActivityExpanded ? turnPresentationEntries(turn).length > 0 : hasCollapsedContent;
           const completionSummaryCard =
@@ -656,7 +668,11 @@ export const TurnEntries = memo(function TurnEntries({
                     <>
                       {!collapsedThreadResponsePresentation && turn.systemEntries.length > 0 && (
                         <FeedEntries
-                          entries={turn.systemEntries}
+                          entries={
+                            foldTail
+                              ? turn.systemEntries.filter((entry) => !tailEntries.includes(entry))
+                              : turn.systemEntries
+                          }
                           sessionId={sessionId}
                           currentThreadKey={currentThreadKey}
                           minuteBoundaryLabels={entryBoundaryLabels}
@@ -697,14 +713,34 @@ export const TurnEntries = memo(function TurnEntries({
                               needsInputAnchorMessageIds={needsInputAnchorMessageIds}
                               preserveHostQuestQuiz={preserveHostQuestQuiz}
                               unansweredMessageEntry={unansweredMessageEntry}
-                              completionCard={completionCard}
+                              completionCard={completionCardInTail ? null : completionCard}
+                              quizShownBelow={foldTail ? turnQuestQuizIds(foldTail) : undefined}
                             />
                           </div>
                         </div>
                       )}
+                      {foldTail && tailEntries.length > 0 && (
+                        <TurnEntriesExpanded
+                          turn={foldTail}
+                          isLatestTurn={turnIndex === turns.length - 1}
+                          sessionId={sessionId}
+                          currentThreadKey={currentThreadKey}
+                          threadStatusFooter={threadStatusFooter}
+                          timedCard={completionCardInTail ? completionCard : null}
+                          minuteBoundaryLabels={entryBoundaryLabels}
+                          isCodexSession={isCodexSession}
+                          activeCodexTerminalIds={activeCodexTerminalIds}
+                          onOpenCodexTerminal={onOpenCodexTerminal}
+                          onSelectThread={onSelectThread}
+                          questLinkSurface={questLinkSurface}
+                          threadResponsePresentation={turnResponsePresentation}
+                        />
+                      )}
                     </>
                   )}
-                  {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
+                  {(isActivityExpanded
+                    ? turnPresentationEntries(turn).length === 0
+                    : !foldTail || tailEntries.length === 0) && threadStatusFooter}
                 </div>
               </div>
             </Fragment>

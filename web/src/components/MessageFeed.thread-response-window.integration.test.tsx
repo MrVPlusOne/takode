@@ -1538,7 +1538,12 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     });
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
-    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(2);
+    // A stale Ready doesn't collapse the turn as Ready. Its newest answer still folds the
+    // activity before it, and expanding shows that activity with the answer's expanded chrome.
+    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(3);
+    expect(screen.queryByText("Intermediate leader and tool activity")).not.toBeInTheDocument();
+    const turn = screen.getByText("Current singleton response").closest<HTMLElement>("[data-turn-id]")!;
+    fireEvent.click(within(turn).getByRole("button", { name: /Show turn activity/ }));
     expect(screen.getByText("Earlier grouped response")).toBeVisible();
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();

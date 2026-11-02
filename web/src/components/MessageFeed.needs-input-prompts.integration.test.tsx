@@ -221,7 +221,8 @@ describe("MessageFeed needs-input prompts in collapsed turns", () => {
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
     const turn = screen.getByText("Later clarification").closest<HTMLElement>("[data-turn-id]")!;
 
-    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
+    // The latest turn starts folded before its newest final message, the second prompt.
+    expect(within(turn).getByRole("button", { name: /Show turn activity/ })).toHaveAttribute("aria-expanded", "false");
 
     const answer = within(turn).getByText("The clarification is answered before the next decision.");
     const firstPrompt = within(turn).getByText(/Choose the deployment boundary/);
@@ -323,8 +324,7 @@ describe("MessageFeed needs-input prompts in collapsed turns", () => {
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
     const turn = screen.getByText("Later clarification").closest<HTMLElement>("[data-turn-id]")!;
 
-    fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
-
+    // The turn's Quiz is its newest final, so it starts folded.
     expect(within(turn).getByText("The clarification is answered before the next decision.")).toBeVisible();
     expect(within(turn).queryByText(/Choose the deployment boundary/)).not.toBeInTheDocument();
     expect(within(turn).queryByText(/Confirm whether the follow-up should remain parked/)).not.toBeInTheDocument();

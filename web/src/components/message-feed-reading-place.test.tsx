@@ -50,6 +50,7 @@ const turnStates: TurnCollapseState[] = [
     isActivityExpanded: true,
     readyCollapsed: false,
     readyAnchorMessageId: null,
+    finalFold: null,
   },
 ];
 

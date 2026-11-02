@@ -1,0 +1,255 @@
+{
+  "sessionId": "playground-final-fold",
+  "threadKey": "q-77",
+  "history": [
+    {
+      "type": "user_message",
+      "id": "fold-request",
+      "content": "Run the eval pilot and tell me how it went.",
+      "timestamp": 1790000000000,
+      "leaderUserMessageId": "u1",
+      "leaderResponseCoverageVersion": 1,
+      "threadKey": "q-77",
+      "questId": "q-77",
+      "threadRefs": [
+        {
+          "threadKey": "q-77",
+          "questId": "q-77",
+          "source": "explicit"
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1790000060000,
+      "parent_tool_use_id": null,
+      "leaderThreadRole": "commentary",
+      "threadKey": "q-77",
+      "questId": "q-77",
+      "threadRefs": [
+        {
+          "threadKey": "q-77",
+          "questId": "q-77",
+          "source": "explicit"
+        }
+      ],
+      "message": {
+        "id": "fold-progress-1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus",
+        "content": [
+          {
+            "type": "text",
+            "text": "The pilot is building its task images on the cluster."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "type": "user_message",
+      "id": "fold-herd-1",
+      "content": "1 event from 1 session\n\n#12 | turn_end | ✓ turn complete 6m 18s | tools: 14",
+      "timestamp": 1790000120000,
+      "agentSource": {
+        "sessionId": "herd-events",
+        "sessionLabel": "Herd Events"
+      },
+      "threadKey": "q-77",
+      "questId": "q-77",
+      "threadRefs": [
+        {
+          "threadKey": "q-77",
+          "questId": "q-77",
+          "source": "explicit"
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1790000180000,
+      "parent_tool_use_id": null,
+      "leaderThreadRole": "commentary",
+      "threadKey": "q-77",
+      "questId": "q-77",
+      "threadRefs": [
+        {
+          "threadKey": "q-77",
+          "questId": "q-77",
+          "source": "explicit"
+        }
+      ],
+      "message": {
+        "id": "fold-progress-2",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus",
+        "content": [
+          {
+            "type": "text",
+            "text": "Validation caught one broken grader image before anything was published; the worker is rebuilding it."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "type": "user_message",
+      "id": "fold-herd-2",
+      "content": "1 event from 1 session\n\n#12 | turn_end | ✓ turn complete 4m 2s | tools: 9",
+      "timestamp": 1790000240000,
+      "agentSource": {
+        "sessionId": "herd-events",
+        "sessionLabel": "Herd Events"
+      },
+      "threadKey": "q-77",
+      "questId": "q-77",
+      "threadRefs": [
+        {
+          "threadKey": "q-77",
+          "questId": "q-77",
+          "source": "explicit"
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1790000300000,
+      "parent_tool_use_id": null,
+      "leaderThreadRole": "answer",
+      "threadKey": "q-77",
+      "questId": "q-77",
+      "threadRefs": [
+        {
+          "threadKey": "q-77",
+          "questId": "q-77",
+          "source": "explicit",
+          "attachedAt": 1790000300000
+        }
+      ],
+      "message": {
+        "id": "fold-answer",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus",
+        "content": [
+          {
+            "type": "text",
+            "text": "The pilot is published and validated: all 38 reference proofs pass, and every untouched file is rejected. One broken grader image was caught and rebuilt before publishing."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      },
+      "leaderAnswerUserMessageIds": ["u1"],
+      "leaderAnswerObservedHistoryLength": 5,
+      "threadAnswer": {
+        "version": 2,
+        "answerUserMessageIds": ["u1"],
+        "observedHistoryLength": 5,
+        "authoredThreadKey": "q-77",
+        "ownerGroups": [
+          {
+            "threadKey": "q-77",
+            "userMessageIds": ["u1"]
+          }
+        ]
+      }
+    },
+    {
+      "type": "user_message",
+      "id": "fold-herd-3",
+      "content": "1 event from 1 session\n\n#12 | turn_end | ✓ turn complete 1m 4s | tools: 3",
+      "timestamp": 1790000360000,
+      "agentSource": {
+        "sessionId": "herd-events",
+        "sessionLabel": "Herd Events"
+      },
+      "threadKey": "q-77",
+      "questId": "q-77",
+      "threadRefs": [
+        {
+          "threadKey": "q-77",
+          "questId": "q-77",
+          "source": "explicit"
+        }
+      ]
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1790000420000,
+      "parent_tool_use_id": null,
+      "leaderThreadRole": "commentary",
+      "threadKey": "q-77",
+      "questId": "q-77",
+      "threadRefs": [
+        {
+          "threadKey": "q-77",
+          "questId": "q-77",
+          "source": "explicit"
+        }
+      ],
+      "message": {
+        "id": "fold-after",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-opus",
+        "content": [
+          {
+            "type": "text",
+            "text": "The worker is launching the two model runs now."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    }
+  ],
+  "projection": {
+    "version": 2,
+    "threadKey": "q-77",
+    "cutoverHistoryIndex": 0,
+    "pendingMessageCount": 0,
+    "pendingMessages": [],
+    "currentAnswers": [
+      {
+        "version": 2,
+        "threadKey": "q-77",
+        "questId": "q-77",
+        "answerUserMessageIds": ["u1"],
+        "referencedUserMessageIds": ["fold-request"],
+        "coveredAnswerUserMessageIds": ["u1"],
+        "coveredUserMessageIds": ["fold-request"],
+        "currentMessageId": "fold-answer",
+        "currentHistoryIndex": 5,
+        "createdAt": 1790000300000,
+        "updatedAt": 1790000300000,
+        "source": "explicit"
+      }
+    ],
+    "ready": true
+  }
+}

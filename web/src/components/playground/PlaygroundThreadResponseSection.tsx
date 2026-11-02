@@ -6,6 +6,7 @@ import { TurnActivityDisclosure } from "../TurnActivitySummary.js";
 import { TurnEntriesExpanded } from "../MessageFeedTurns.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 import { PlaygroundChronologicalAnswers } from "./PlaygroundChronologicalAnswers.js";
+import { PlaygroundFinalFold } from "./PlaygroundFinalFold.js";
 import { PlaygroundAnswersApart } from "./PlaygroundAnswersApart.js";
 import { PlaygroundCollapsedAnsweredDecision } from "./PlaygroundCollapsedAnsweredDecision.js";
 import { PlaygroundQuestCompletionSummary, PlaygroundQuestDescriptionSummary } from "./PlaygroundQuestSummaryCards.js";
@@ -628,6 +629,7 @@ export function PlaygroundThreadResponseSection() {
   return (
     <PlaygroundSectionGroup groupId="overview">
       <PlaygroundChronologicalAnswers />
+      <PlaygroundFinalFold />
       <PlaygroundQuestDescriptionSummary />
       <PlaygroundQuestCompletionSummary />
       <Section

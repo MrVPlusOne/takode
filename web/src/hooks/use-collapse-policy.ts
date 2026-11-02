@@ -11,6 +11,7 @@ import { normalizeThreadKey, threadViewShows } from "../utils/thread-projection.
 import { extractQuestQuizMarkerIds, stripQuestQuizMarkers } from "../components/AssistantQuestQuizContent.js";
 import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver.js";
 import type { Turn } from "./use-feed-model.js";
+import type { TurnFinalFold } from "../components/turn-final-fold.js";
 
 export interface TurnCollapseState {
   turnId: string;
@@ -27,6 +28,11 @@ export interface TurnCollapseState {
   readyCollapsed: boolean;
   /** The message in this turn that carries the Ready marker, when it is in the turn. */
   readyAnchorMessageId: string | null;
+  /**
+   * The latest turn folds before its newest final message: collapsed, it shows its final messages
+   * and everything after the newest one. Null when the turn has no such fold or is Ready-collapsed.
+   */
+  finalFold: TurnFinalFold | null;
 }
 
 export function canAutoCollapseReadyThread({
@@ -53,6 +59,11 @@ function matchesReadyMessageId(messageId: string, status: LeaderThreadStatus): b
 function hasCompleteMessageIdentity(status: LeaderThreadStatus): boolean {
   if (status.messageIdHash) return true;
   return status.messageId.length > 0 && status.messageId.length < LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH;
+}
+
+/** The override key of a turn while it folds before `fold`'s final message. */
+export function finalFoldOverrideKey(fold: TurnFinalFold): string {
+  return `${fold.turnId}#final:${fold.finalKey}`;
 }
 
 /** The override key of a turn while `status` (a fresh Ready) collapses it. */
@@ -128,11 +139,14 @@ function findFreshReadyAnchor(
 export function useCollapsePolicy({
   autoCollapseReadyAfter = null,
   autoCollapseReadyThreadKey = null,
+  finalFold = null,
   sessionId,
   turns,
 }: {
   autoCollapseReadyAfter?: number | null;
   autoCollapseReadyThreadKey?: string | null;
+  /** The latest turn's fold before its newest final message (leader threads), when it has one. */
+  finalFold?: TurnFinalFold | null;
   sessionId: string;
   turns: Turn[];
 }): {
@@ -161,8 +175,15 @@ export function useCollapsePolicy({
       const isLastTurn = index === turns.length - 1;
       const freshReady = isLastTurn ? findFreshReadyAnchor(turn, autoCollapseReadyThreadKey, readyStatus) : null;
       const readyCollapsed = freshReady !== null;
-      const defaultExpanded = isLastTurn && !readyCollapsed;
-      const overrideKey = readyCollapsed && readyStatus ? readyTurnOverrideKey(turn.id, readyStatus) : turn.id;
+      const fold = isLastTurn && !readyCollapsed && finalFold?.turnId === turn.id ? finalFold : null;
+      const defaultExpanded = isLastTurn && !readyCollapsed && !fold;
+      // Like a Ready, each newer final message folds the turn again, even after the user expanded it.
+      const overrideKey =
+        readyCollapsed && readyStatus
+          ? readyTurnOverrideKey(turn.id, readyStatus)
+          : fold
+            ? finalFoldOverrideKey(fold)
+            : turn.id;
       const override = overrides?.get(overrideKey);
       const isActivityExpanded = override !== undefined ? override : defaultExpanded;
 
@@ -173,9 +194,10 @@ export function useCollapsePolicy({
         isActivityExpanded,
         readyCollapsed,
         readyAnchorMessageId: freshReady?.messageId ?? null,
+        finalFold: fold,
       };
     });
-  }, [autoCollapseReadyThreadKey, overrides, readyStatus, turns]);
+  }, [autoCollapseReadyThreadKey, finalFold, overrides, readyStatus, turns]);
 
   const turnStateById = useMemo(() => new Map(turnStates.map((state) => [state.turnId, state])), [turnStates]);
 

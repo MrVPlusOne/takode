@@ -257,7 +257,8 @@ describe("MessageFeed quest completion summary", () => {
     ).toBe(true);
     installHistory(history, doneQuest());
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
-    const turn = wrapUpTurn();
+    // The newer result folds the turn's earlier activity (the herd event), so find the turn by its request.
+    const turn = document.querySelector<HTMLElement>('[data-turn-id="request-1"]')!;
     const assertTimeOrder = () => {
       const answer = within(turn).getByText("Writes are fast now; Memory is closing the quest.");
       const card = within(turn).getByTestId("quest-completion-summary");
@@ -272,6 +273,8 @@ describe("MessageFeed quest completion summary", () => {
     };
 
     assertTimeOrder();
+    fireEvent.click(within(turn).getByRole("button", { name: /Show turn activity/ }));
+    assertTimeOrder();
     fireEvent.click(within(turn).getByRole("button", { name: /Hide turn activity/ }));
     assertTimeOrder();
     // In the collapsed card the result is marked as new, set off from the answer above it.
@@ -281,6 +284,20 @@ describe("MessageFeed quest completion summary", () => {
     expect(newResult).toBeDefined();
     expect(newResult!.closest('[data-testid="thread-response-current"]')).toHaveClass("border-t");
     expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
+  });
+
+  it("folds the commentary before the Quest complete card when the card is the newest final", () => {
+    // The quest completed after the leader's wrap-up note, so the card is the latest turn's
+    // newest final: the note folds away while the answer and the card stay on screen.
+    installHistory(wrapUpHistory("Memory is writing the debrief."), doneQuest({ completedAt: 1_700_000_000_100 }));
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    const turn = document.querySelector<HTMLElement>('[data-turn-id="request-1"]')!;
+    expect(within(turn).queryByText("Memory is writing the debrief.")).not.toBeInTheDocument();
+    expect(within(turn).getByText("Writes are fast now; Memory is closing the quest.")).toBeInTheDocument();
+    expect(within(turn).getByTestId("quest-completion-summary")).toBeInTheDocument();
+
+    fireEvent.click(within(turn).getByRole("button", { name: /Show turn activity/ }));
+    expect(within(turn).getByText("Memory is writing the debrief.")).toBeInTheDocument();
   });
 
   it("keeps the card in the turn where the quest completed when later messages follow", () => {

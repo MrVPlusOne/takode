@@ -129,7 +129,9 @@ export function scrollMessageFeedTargetIntoView({
  */
 export function planMessageFeedJump(
   container: HTMLDivElement | null,
-  state: Pick<TurnCollapseState, "readyCollapsed" | "isActivityExpanded" | "readyAnchorMessageId"> | undefined,
+  state:
+    | Pick<TurnCollapseState, "readyCollapsed" | "isActivityExpanded" | "readyAnchorMessageId" | "finalFold">
+    | undefined,
   messageId: string,
   landingRequest: { messageId: string; landing: MessageJumpLanding } | undefined,
   turn: Pick<Turn, "id" | "allEntries">,
@@ -165,15 +167,17 @@ function resultAfter(turn: Pick<Turn, "allEntries">, messageId: string): string 
 
 /**
  * Whether a jump may leave its turn as it is: in a Ready-collapsed turn, the Ready message
- * itself (opening the thread's result) or a message the collapsed view already shows. Other
- * targets expand the turn.
+ * itself (opening the thread's result) or a message the collapsed view already shows; in a turn
+ * folded before its newest final message, a message the fold shows. Other targets expand the turn.
  */
 function keepsCollapseForTarget(
   container: HTMLDivElement | null,
-  state: Pick<TurnCollapseState, "readyCollapsed" | "isActivityExpanded" | "readyAnchorMessageId"> | undefined,
+  state:
+    | Pick<TurnCollapseState, "readyCollapsed" | "isActivityExpanded" | "readyAnchorMessageId" | "finalFold">
+    | undefined,
   messageId: string,
 ): boolean {
-  if (!state?.readyCollapsed || state.isActivityExpanded) return false;
+  if (!(state?.readyCollapsed || state?.finalFold) || state.isActivityExpanded) return false;
   if (state.readyAnchorMessageId === messageId) return true;
   return !!container && findMessageFeedScrollTarget(container, messageId) !== null;
 }

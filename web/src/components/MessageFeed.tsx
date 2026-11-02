@@ -56,6 +56,7 @@ import { PawTrailAvatar, PawCounterContext, PawTrailProvider, HidePawContext } f
 import { isTouchDevice } from "../utils/mobile.js";
 import { sendToSession } from "../ws.js";
 import { canAutoCollapseReadyThread, useCollapsePolicy } from "../hooks/use-collapse-policy.js";
+import { useLatestTurnFinalFold } from "./turn-final-fold.js";
 import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
@@ -620,16 +621,25 @@ export function MessageFeed({
     historyWindowTotalTurns: historyWindow?.total_turns ?? 0,
     leaderProjectionSourceHistoryLength: leaderProjection?.sourceHistoryLength ?? 0,
   });
+  // All Threads mixes threads, and one thread's final message must not fold another's commentary.
+  const finalFold = useLatestTurnFinalFold(
+    isLeaderSession && !isAllThreadsKey(normalizedThreadKey) ? normalizedThreadKey : null,
+    visibleTurns,
+    threadResponsePresentation,
+    needsInputAnchorMessageIds,
+    visibleThreadStatuses,
+  );
   const { turnStates, toggleTurn } = useCollapsePolicy({
     autoCollapseReadyAfter: validatedReadyCollapse ? latestThreadResponseUpdatedAt : null,
     autoCollapseReadyThreadKey: validatedReadyCollapse || fallbackReadyCollapse ? normalizedThreadKey : null,
+    finalFold,
     sessionId,
     turns: visibleTurns,
   });
   const turnStatesRef = useRef(turnStates);
   turnStatesRef.current = turnStates;
   const collapseLayoutSignature = useMemo(
-    () => turnStates.map((state) => `${state.turnId}:${state.isActivityExpanded ? "1" : "0"}`).join("|"),
+    () => turnStates.map((state) => `${state.overrideKey}:${state.isActivityExpanded ? "1" : "0"}`).join("|"),
     [turnStates],
   );
   const needsInputAnchorSignature = [...needsInputAnchorMessageIds].sort().join(",");
@@ -1593,7 +1603,7 @@ export function MessageFeed({
       if (lastTurn) {
         const lastState = turnStatesRef.current.find((s) => s.turnId === lastTurn.id);
         // A Ready result named from another thread lands on the collapsed latest turn.
-        if (!lastState?.readyCollapsed || lastState.isActivityExpanded)
+        if (!(lastState?.readyCollapsed || lastState?.finalFold) || lastState.isActivityExpanded)
           useStore.getState().focusTurn(sessionId, lastState?.overrideKey ?? lastTurn.id);
         ensureSectionForTurnVisible(lastTurn.id);
         requestAnimationFrame(() => {
