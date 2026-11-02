@@ -2,7 +2,7 @@
 
 ## November 2026: threads, topics and the Scribe
 
-Every conversation with a leader is now a thread. A leader opens on Home, which lists its threads with a line of news each and pins anything waiting for you on top; the sessions panel's Threads view does the same across all your leaders, and the side column keeps other threads at hand beside the one you are reading. Each leader's Scribe, an agent working in the background, names new threads and files them under a few broad topics. The [release note](docs/release-notes/threads-and-topics.md) explains the idea, common workflows and why it works this way, and the dated entries below list each change.
+Every conversation with a leader is now a thread. A leader opens on Home, which lists its threads with a line of news each and pins anything waiting for you on top; the sessions panel's Threads view does the same across all your leaders, and the side column is a temporary workspace where you dock a thread you are waiting on while you keep working elsewhere. Each leader's Scribe, an agent working in the background, names new threads and files them under a few broad topics. The [release note](docs/release-notes/threads-and-topics.md) explains the idea, common workflows and why it works this way, and the dated entries below list each change.
 
 ## October 2026 release: one Takode across your machines
 

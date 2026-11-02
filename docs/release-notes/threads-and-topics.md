@@ -4,7 +4,7 @@ A Takode leader usually has several things going at once: a quest in review, a d
 
 This release reorganizes the leader experience around one idea: **every conversation with a leader is a thread**. Threads are what you start, follow, jump between and come back to. A quieter layer of **topics**, kept by a background agent called the **Scribe**, groups them so the work stays easy to browse later.
 
-![Left: the sessions panel's Threads view, with threads from several leaders and their questions pinned on top. Middle: one leader's Home. Right: another leader's thread open in the side column.](assets/threads-home.jpeg)
+![Left: the sessions panel's Threads view, with threads from several leaders and their questions pinned on top. Middle: one leader's Home. Right: two threads docked in the side column, one from another leader.](assets/threads-home.jpeg)
 
 ## Threads
 
@@ -16,7 +16,9 @@ Main remains as the leader's log: its routine coordination with workers and revi
 
 ## The side column
 
-Most of the time you read one thread and want to keep an eye on another. On a wide screen, the **side column** beside the conversation holds exactly that: other threads, from this leader or any other, with their own message boxes, plus reports, figures and topic pages. Shift-click a thread, quest or report to open it there, or move the thread you are reading into the column with one button and go back to Home.
+On a wide screen, the **side column** beside the conversation is a temporary workspace: a place to dock a thread while you keep working elsewhere. It holds other threads, from this leader or any other, each with its own message box, plus reports, figures and topic pages. Shift-click a thread, quest or report to open it there, or move the thread you are reading into the column with one button and go back to Home.
+
+It is most useful while you wait. Say you asked a leader something and expect an answer within a minute or so: move that thread to the side and carry on with something else. When the leader answers or asks you a question, it appears right there beside your work, and you can reply without switching away. Once the thread is unblocked, or settles in for a long run, close it to keep the column tidy; nothing is lost, and when the work finishes it shows up under Unread like any other thread. Juggling several conversations and riding out long waits both come down to docking a thread for a while and letting it go.
 
 The column belongs to you rather than to one leader, so it stays put while you switch leaders. One chat has the focus at a time: typing goes there, and answers in a thread you aren't looking at stay unread until you do. **New thread** at the top of the column starts a thread with any leader without leaving what you are reading.
 
@@ -33,7 +35,7 @@ A topic page answers "where does this area stand?" when you come back to it afte
 - **Ask for something new:** type it on the leader's Home.
 - **See what needs you:** the attention button in the top bar covers every leader; a leader's Needs you group covers that leader.
 - **Catch up on a leader:** read the summaries on its Home, or switch Home to By topic.
-- **Follow two things at once:** Shift-click a thread, quest or report to put it in the side column.
+- **Wait without stopping:** move a thread you are waiting on into the side column, keep working, and close it once it is unblocked; Unread brings it back when it finishes.
 - **Ask another leader:** start a new thread with any leader from the side column, without leaving what you're reading.
 - **Find something from last week:** the Threads view, a topic page's finished quests, or Universal Search, which now searches every message you wrote.
 
