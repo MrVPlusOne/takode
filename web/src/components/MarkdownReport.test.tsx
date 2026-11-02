@@ -2,6 +2,7 @@
 import { act, render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeMarkdownReportFixture } from "../../shared/test-fixtures/markdown-report.js";
+import { makeGuidedReviewReportFixture } from "../../shared/test-fixtures/guided-review.js";
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { readConversationAnnotations } from "../../shared/conversation-annotations.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
@@ -207,6 +208,42 @@ describe("saved Markdown reports", () => {
     expect(body.html).toContain("one hour");
     // Controls stay out of the export.
     expect(body.html).not.toContain("More options");
+  });
+
+  it("stars a report or a guided review from its More menu, as in the Library", () => {
+    // The star is the Library's: the item reads Star or Unstar from the message's marker, which the
+    // server refreshes after the PATCH. Guided review cards gained a More menu for this.
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const report = makeMarkdownReportFixture();
+    const [message] = normalizeHistoryMessageToChatMessages(report, 0);
+    message.metadata = {
+      ...message.metadata,
+      artifacts: [{ id: "artifact-r", kind: "report", title: "Report", version: 1, versionCount: 1 }],
+    };
+    render(<MessageBubble message={message} sessionId={report.source.sessionId} />);
+    fireEvent.click(screen.getByTestId("card-more-menu"));
+    fireEvent.click(screen.getByRole("button", { name: "Star" }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/artifacts/artifact-r",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ starred: true }) }),
+    );
+    cleanup();
+
+    const [review] = normalizeHistoryMessageToChatMessages(makeGuidedReviewReportFixture(), 0);
+    review.metadata = {
+      ...review.metadata,
+      artifacts: [{ id: "artifact-g", kind: "review", title: "Review", version: 1, versionCount: 1, starred: true }],
+    };
+    render(<MessageBubble message={review} sessionId="s1" />);
+    expect(screen.getByTestId("guided-review-card").contains(screen.getByTestId("card-more-menu"))).toBe(true);
+    fireEvent.click(screen.getByTestId("card-more-menu"));
+    expect(screen.getByRole("button", { name: "Open in Library" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Unstar" }));
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/artifacts/artifact-g",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ starred: false }) }),
+    );
   });
 
   it("names a report by its Library title, else by its first heading", () => {

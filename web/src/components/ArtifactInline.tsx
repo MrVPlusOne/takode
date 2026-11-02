@@ -1,6 +1,6 @@
 import { GuidedReviewCard } from "./GuidedReviewCard.js";
 import { Lightbox } from "./Lightbox.js";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ARTIFACT_KIND_LABELS,
   type ArtifactMessageMarker,
@@ -8,10 +8,8 @@ import {
 } from "../../shared/artifact-library.js";
 import { postDestination, type GroupedDraftPost, type PostPartChanges } from "../../shared/draft-posts.js";
 import { artifactApi } from "../api/artifacts.js";
-import { openLibraryArtifact } from "../utils/library-nav.js";
-import { newWindowClickLabel, openArtifactWindow } from "../utils/artifact-window.js";
-import { canOpenInSide, openArtifact, openArtifactInSide } from "../utils/side-column.js";
-import type { ContextMenuItem } from "./ContextMenu.js";
+import { openArtifact } from "../utils/side-column.js";
+import { libraryMenuItems, useArtifactMarker } from "./artifact-card-menu.js";
 import {
   DraftPostCard,
   feedPostParts,
@@ -286,42 +284,6 @@ export function FigureImage({
   );
 }
 
-/** The Library entries a message saved, for the cards that show them (drafts, reports). */
-export const ArtifactMarkersContext = createContext<readonly ArtifactMessageMarker[] | undefined>(undefined);
-
-/**
- * The marker of the post a draft card belongs to: by its title, or the message's only post when the
- * draft has none. Read-only views provide no markers, so their cards show no link.
- */
-export function useDraftArtifactMarker(title: string | undefined): ArtifactMessageMarker | undefined {
-  const posts = (useContext(ArtifactMarkersContext) ?? []).filter((marker) => marker.kind === "post");
-  const named = title
-    ? posts.find((marker) => marker.title.trim().toLowerCase() === title.trim().toLowerCase())
-    : undefined;
-  return named ?? (posts.length === 1 ? posts[0] : undefined);
-}
-
-/**
- * The More menu items opening a card's artifact elsewhere: in the Library at its version (named
- * when there are several), in the side column while a leader's conversation is on screen, and in a
- * window of its own.
- * Cards open full screen from their header; these are the less common places.
- */
-export function libraryMenuItems(marker: ArtifactMessageMarker): ContextMenuItem[] {
-  const target = { id: marker.id, version: marker.version, title: marker.title };
-  return [
-    {
-      label:
-        marker.versionCount > 1
-          ? `Open version ${marker.version} of ${marker.versionCount} in Library`
-          : "Open in Library",
-      onClick: () => openLibraryArtifact(marker.id, marker.version),
-    },
-    ...(canOpenInSide() ? [{ label: "Open in side column", onClick: () => openArtifactInSide(target) }] : []),
-    { label: `Open in new window (${newWindowClickLabel()})`, onClick: () => openArtifactWindow(target) },
-  ];
-}
-
 /** Attachments of a saved version: the Library's copy of an image, else the file's name. */
 const LIBRARY_ATTACHMENTS: AttachmentRendering = {
   render: (attachment) =>
@@ -348,7 +310,7 @@ export function FeedDraftPost({
   renderMarkdown: (text: string) => ReactNode;
   attachments: AttachmentRendering;
 }) {
-  const marker = useDraftArtifactMarker(post.title);
+  const marker = useArtifactMarker("post", post.title);
   const partial = post.blocks.some((block) => block.part);
   const saved = useVersionContent(marker, partial);
   const removed = marker

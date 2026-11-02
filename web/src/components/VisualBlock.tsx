@@ -38,6 +38,7 @@ import { visualFrameSupervisor, type FrameHandle } from "../utils/visual-frame-s
 import { keepVisualStill, stripVisualScripts, visualStill } from "../utils/visual-still-cache.js";
 import { CodeBlock } from "./MarkdownCodeBlock.js";
 import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
+import { libraryMenuItems, useArtifactMarker } from "./artifact-card-menu.js";
 import { exportVisualImage } from "../utils/artifact-export.js";
 
 const MAX_INLINE_HEIGHT = 2400;
@@ -92,6 +93,8 @@ export function VisualBlock({ source }: { source: string }) {
   const dark = useStore((s) => s.darkMode);
   const theme: VisualTheme = dark ? "dark" : "light";
   const block = useMemo(() => parseVisualBlock(source), [source]);
+  // Its Library entry, in a conversation message that saved it.
+  const marker = useArtifactMarker("visual", block.title);
   const hash = useMemo(() => visualSourceHash(source), [source]);
   const fallback = useMemo(() => visualFallbackText(block), [block]);
   const usesScripts = useMemo(() => visualUsesScripts(block.html), [block]);
@@ -218,6 +221,7 @@ export function VisualBlock({ source }: { source: string }) {
     useCallback(() => exportVisualImage(source, block.title ?? "Visual"), [source, block.title]),
   );
   const menuItems = [
+    ...(marker ? libraryMenuItems(marker) : []),
     { label: showSource ? "Hide source" : "Show source", onClick: () => setShowSource((value) => !value) },
     ...(!tooLarge ? [{ label: "Export as image (.png)", onClick: () => startExport("png") }] : []),
   ];

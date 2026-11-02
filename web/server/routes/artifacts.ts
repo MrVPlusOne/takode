@@ -143,7 +143,10 @@ export function createArtifactRoutes(
     });
   });
 
-  /** Rename (`title`) or star (`starred`); renaming updates the line under messages showing it. */
+  /**
+   * Rename (`title`) or star (`starred`). Conversations showing the artifact are refreshed: a new
+   * title shows on its cards, and a star in their More menus (Star or Unstar).
+   */
   api.patch("/artifacts/:id", async (c) => {
     const lib = library();
     const id = resolve(lib, c.req.param("id"));
@@ -160,7 +163,7 @@ export function createArtifactRoutes(
     if (renaming) lib.store.rename(id, body.title);
     if (body.starred !== undefined) lib.store.setStarred(id, body.starred);
     await lib.store.flush();
-    if (renaming) for (const sessionId of lib.store.sessionsShowingArtifact(id)) lib.refreshConversation(sessionId);
+    for (const sessionId of lib.store.sessionsShowingArtifact(id)) lib.refreshConversation(sessionId);
     return c.json(lib.store.get(id));
   });
 

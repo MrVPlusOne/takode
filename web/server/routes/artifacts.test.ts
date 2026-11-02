@@ -201,6 +201,23 @@ describe("artifact routes", () => {
     expect((await app.request(`/artifacts/${release.id}`)).status).toBe(404);
   });
 
+  it("stars from a card's menu: the conversations showing it are refreshed with the star on its marker", async () => {
+    // A card's More menu reads Star or Unstar from its marker, so starring alone (no rename) must
+    // refresh the conversation, and the marker must say starred until it is unstarred.
+    const { app, store, refreshed } = await setup();
+    const t7 = store.list({ query: "T7" }).artifacts[0];
+    const marker = () => store.markersForMessage("msi-leader", "m1")[0]!.marker;
+    expect(marker().starred).toBeUndefined();
+
+    await app.request(`/artifacts/${t7.id}`, { method: "PATCH", body: JSON.stringify({ starred: true }) });
+    expect(refreshed).toEqual(["msi-leader"]);
+    expect(marker().starred).toBe(true);
+
+    await app.request(`/artifacts/${t7.id}`, { method: "PATCH", body: JSON.stringify({ starred: false }) });
+    expect(refreshed).toEqual(["msi-leader", "msi-leader"]);
+    expect(marker().starred).toBeUndefined();
+  });
+
   it("records copied parts of a post version and refreshes the conversations that show it", async () => {
     // The feed and the Library dim a part's Copy button once this says it was copied.
     const { app, store, refreshed } = await setup();

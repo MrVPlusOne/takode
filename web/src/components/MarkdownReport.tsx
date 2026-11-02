@@ -1,6 +1,6 @@
 import { stripInlineMarkdown } from "../../shared/markdown-plain-text.js";
 import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
-import { libraryMenuItems } from "./ArtifactInline.js";
+import { libraryMenuItems } from "./artifact-card-menu.js";
 import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
 import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
 import type { ChatMessage } from "../types.js";
@@ -35,6 +35,7 @@ export function MarkdownReport({
     return <MarkdownReportDeck message={message} feedSessionId={feedSessionId} readOnly={readOnly} />;
   if (!guidedReview) return <MarkdownReportBody message={message} feedSessionId={feedSessionId} readOnly={readOnly} />;
   const source = message.metadata!.markdownReport!;
+  const reviewMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "review");
   return (
     <>
       {!readOnly && <ReadAloudPlayer messageId={message.id} />}
@@ -46,7 +47,14 @@ export function MarkdownReport({
           ...(message.metadata?.questId ? { questId: message.metadata.questId } : {}),
           meta: guidedReview,
         }}
-        actions={!readOnly ? <ReportReadAloudButton message={message} sessionId={source.sessionId} /> : undefined}
+        actions={
+          !readOnly ? (
+            <>
+              <ReportReadAloudButton message={message} sessionId={source.sessionId} />
+              {reviewMarker && <CardMoreMenu items={libraryMenuItems(reviewMarker)} />}
+            </>
+          ) : undefined
+        }
       />
     </>
   );

@@ -186,6 +186,8 @@ export interface ArtifactMessageMarker {
   copied?: number[];
   /** On a collapsed version: a later message shows this same version again. */
   repeated?: boolean;
+  /** The artifact is starred in the Library. */
+  starred?: boolean;
 }
 
 /** Fence language of the placeholder that stands in for a superseded version's content. */

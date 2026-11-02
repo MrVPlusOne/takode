@@ -5,6 +5,7 @@ import { visualSourceHash } from "../../shared/visual-block.js";
 import { messageCopyForSlack } from "../utils/slack-copy.js";
 import { clearVisualStillsForTest, keepVisualStill } from "../utils/visual-still-cache.js";
 import { planVisual, VisualBlock } from "./VisualBlock.js";
+import { ArtifactMarkersContext } from "./artifact-card-menu.js";
 
 // The isolation probe needs a real browser; tests choose the answer.
 let isolation: "isolated" | "shared" = "shared";
@@ -66,6 +67,40 @@ describe("VisualBlock", () => {
     // allow-scripts without allow-same-origin: an opaque origin that can't reach the app.
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame.getAttribute("srcdoc")).toContain("tk-flow");
+  });
+
+  it("offers its Library entry and star in its More menu inside a message that saved it", async () => {
+    // Visual cards in the feed star like the Library's; outside a message (the Library viewer,
+    // read-only views) there is no marker and so no Library items.
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const marker = { id: "visual-1", kind: "visual" as const, title: "Two stages", version: 1, versionCount: 1 };
+    const { rerender } = render(
+      <ArtifactMarkersContext.Provider value={[marker]}>
+        <VisualBlock source={KIT_VISUAL} />
+      </ArtifactMarkersContext.Provider>,
+    );
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId("card-more-menu"));
+    expect(screen.getByRole("button", { name: "Open in Library" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Star" }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/artifacts/visual-1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ starred: true }) }),
+    );
+
+    // The server refreshes the message with the star on its marker.
+    rerender(
+      <ArtifactMarkersContext.Provider value={[{ ...marker, starred: true }]}>
+        <VisualBlock source={KIT_VISUAL} />
+      </ArtifactMarkersContext.Provider>,
+    );
+    fireEvent.click(screen.getByTestId("card-more-menu"));
+    expect(screen.getByRole("button", { name: "Unstar" })).toBeTruthy();
+
+    rerender(<VisualBlock source={KIT_VISUAL} />);
+    expect(screen.queryByRole("button", { name: /Star/ })).toBeNull();
+    vi.unstubAllGlobals();
   });
 
   it("copies as its plain-text version, without its controls", async () => {

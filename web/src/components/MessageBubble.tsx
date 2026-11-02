@@ -90,7 +90,7 @@ import { reconcileLocalImagePreviewUrls } from "../local-image-previews.js";
 import { useFeedDisplayNotifications } from "./FeedNotificationContext.js";
 import { TimerMessage } from "./TimerMessage.js";
 import { MarkdownReport } from "./MarkdownReport.js";
-import { ArtifactMarkersContext } from "./ArtifactInline.js";
+import { ArtifactMarkersContext } from "./artifact-card-menu.js";
 import { getRejectedRouteReason, RejectedRouteMessageHeader } from "./RejectedRouteMessageHeader.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";

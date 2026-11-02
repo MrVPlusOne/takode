@@ -96,6 +96,8 @@ const THREAD_POST_MESSAGE: ChatMessage = {
         versionCount: 2,
         changes: { parts: ["same", "edited", "same"], removed: [3] },
         copied: [0, 2],
+        // Starred in the Library: its More menu offers Unstar.
+        starred: true,
       },
     ],
   },

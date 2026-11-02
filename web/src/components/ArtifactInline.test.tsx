@@ -10,7 +10,7 @@ vi.mock("../utils/copy-utils.js", async (importOriginal) => ({
 }));
 
 import { MarkdownContent } from "./MarkdownContent.js";
-import { ArtifactMarkersContext } from "./ArtifactInline.js";
+import { ArtifactMarkersContext } from "./artifact-card-menu.js";
 import { formatArtifactPlaceholder, type ArtifactMessageMarker } from "../../shared/artifact-library.js";
 import { useStore } from "../store.js";
 import { useLibraryNav } from "../utils/library-nav.js";
