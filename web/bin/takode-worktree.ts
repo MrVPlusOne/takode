@@ -5,18 +5,21 @@ export const WORKTREE_HELP = `Usage: takode worktree <register|list|retry> ...
 
 Session-associated auxiliary checkout retention; Git branches are preserved.
 
-  register <path> --retention temporary|retained [--base <local-branch>] [--json]
+  register <path> --retention temporary|retained [--base <local-branch>] [--host <machine>] [--json]
       Register/update your own auxiliary checkout. Temporary requires --base.
       Use retained for shared or long-running checkouts; registration does not create one.
+      --host names the machine the checkout is on (default: your session's machine), for
+      example one made with takode exec; give its absolute path there. Checks and cleanup run there.
   list [--session <session>] [--json]
       Show auxiliary registrations and cleanup outcomes (default: your session).
-  retry <path> --session <session> [--json]
+  retry <path> --session <session> [--host <machine>] [--json]
       Leader-only selected retry for an archived session's temporary checkout.
       Refuses changed identity, shared use, dirty/unmerged work, or Git failure.
 `;
 
 interface Registration {
   sessionId: string;
+  machine: string;
   path: string;
   branch: string | null;
   retention: "temporary" | "retained";
@@ -25,7 +28,9 @@ interface Registration {
 }
 
 function print(record: Registration): void {
-  console.log(`${formatInlineText(record.path)}  ${record.retention}  ${record.cleanupStatus ?? "registered"}`);
+  console.log(
+    `${formatInlineText(record.machine)}:${formatInlineText(record.path)}  ${record.retention}  ${record.cleanupStatus ?? "registered"}`,
+  );
   console.log(`  branch=${formatInlineText(record.branch ?? "detached")} (preserved)`);
   if (record.cleanupReason) console.log(`  reason=${formatInlineText(record.cleanupReason)}`);
 }
@@ -49,8 +54,11 @@ export async function handleWorktree(base: string, args: string[]): Promise<void
   if (subcommand === "register" && flags.session) err("Registration is for your own session; omit --session");
   if (subcommand === "register" && flags.retention !== "temporary" && flags.retention !== "retained")
     err("Explicit --retention temporary|retained is required");
+  const host = typeof flags.host === "string" ? flags.host : undefined;
   const response = (await apiPost(base, subcommand === "retry" ? `${endpoint}/cleanup` : endpoint, {
-    path: resolve(args[1]),
+    // A path on another machine is taken as given: this machine's working folder means nothing there.
+    path: host ? args[1] : resolve(args[1]),
+    ...(host ? { host } : {}),
     ...(subcommand === "register" ? { retention: flags.retention, baseBranch: flags.base } : {}),
   })) as { worktree: Registration };
   if (flags.json) console.log(JSON.stringify(response, null, 2));

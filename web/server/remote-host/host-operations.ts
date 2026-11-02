@@ -1,3 +1,10 @@
+import {
+  auxiliaryWorktreeKeepReason,
+  canonicalWorktreePath,
+  inspectAuxiliaryWorktree,
+  removeAuxiliaryWorktree,
+  verifyCleanupBaseBranch,
+} from "../auxiliary-worktrees.js";
 import { prepareWorktreeSessionArtifacts } from "../cli-launcher-worktree.js";
 import { listDirectories, listFolderEntries } from "../directory-listing.js";
 import { deliverMcpOAuthCallback } from "../mcp-oauth-callback.js";
@@ -43,6 +50,13 @@ const operations = {
   worktreeCleanupSafety: (target: Parameters<typeof assessWorktreeCleanupSafety>[0]) =>
     assessWorktreeCleanupSafety(target),
   removeWorktreeCheckout: (...args: Parameters<typeof removeWorktreeCheckout>) => removeWorktreeCheckout(...args),
+  // Auxiliary checkouts a session registered (`takode worktree register`): their checks and removal.
+  inspectAuxiliaryWorktree: (path: string) => inspectAuxiliaryWorktree(path),
+  canonicalWorktreePath: (path: string) => canonicalWorktreePath(path),
+  verifyCleanupBaseBranch: (repoRoot: string, branch: string) => verifyCleanupBaseBranch(repoRoot, branch),
+  auxiliaryWorktreeKeepReason: (...args: Parameters<typeof auxiliaryWorktreeKeepReason>) =>
+    auxiliaryWorktreeKeepReason(...args),
+  removeAuxiliaryWorktree: (repoRoot: string, worktreePath: string) => removeAuxiliaryWorktree(repoRoot, worktreePath),
   recreateSessionCheckout: (input: Parameters<typeof recreateSessionCheckout>[0]) => recreateSessionCheckout(input),
   // Delivery evidence: Git checks and reads of the checkout a Work delivery names.
   verifyPublishedDeliveryTarget: (...args: Parameters<typeof verifyPublishedDeliveryTarget>) =>

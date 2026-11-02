@@ -2,6 +2,8 @@ import { promisify } from "node:util";
 import { realpath, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { AuxiliaryWorktreeRegistration, AuxiliaryWorktreeRegistry } from "./auxiliary-worktree-registry.js";
+import { onMachine } from "./remote-host/host-operations.js";
+import { hostIsOnline } from "./remote-host/session-machine.js";
 import type { WorktreeTracker } from "./worktree-tracker.js";
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
@@ -67,10 +69,49 @@ export async function inspectAuxiliaryWorktree(path: string) {
   };
 }
 
+/** Host side: refuse a cleanup base that is not an existing local branch. */
+export async function verifyCleanupBaseBranch(repoRoot: string, branch: string): Promise<void> {
+  await git(repoRoot, "check-ref-format", `refs/heads/${branch}`);
+  await git(repoRoot, "rev-parse", "--verify", `refs/heads/${branch}^{commit}`);
+}
+
+/** Host side: why a temporary checkout must stay (uncommitted changes or commits missing from its base), or null. */
+export async function auxiliaryWorktreeKeepReason(
+  worktreePath: string,
+  repoRoot: string,
+  baseBranch: string,
+): Promise<string | null> {
+  if (await git(worktreePath, "status", "--porcelain", "--untracked-files=all")) {
+    return "Worktree has uncommitted changes";
+  }
+  const base = await git(repoRoot, "rev-parse", "--verify", `refs/heads/${baseBranch}^{commit}`);
+  const ahead = await git(worktreePath, "rev-list", "--count", `${base}..HEAD`);
+  return ahead === "0" ? null : "Worktree has commits not present in its cleanup base branch";
+}
+
+/** Host side: remove a checkout. No --force and no branch deletion; Git also vetoes locked/dirty worktrees. */
+export async function removeAuxiliaryWorktree(repoRoot: string, worktreePath: string): Promise<void> {
+  await git(repoRoot, "worktree", "remove", "--", worktreePath);
+}
+
 interface WorktreeOwner {
   sessionId: string;
   cwd: string;
   archived?: boolean;
+  /** Remote host of the session's primary checkout; absent for this machine. */
+  hostId?: string;
+}
+
+/** Whether two paths' machines are the same: a remote host id, or this machine when absent. */
+function sameMachine(a: string | undefined, b: string | undefined): boolean {
+  return (a || undefined) === (b || undefined);
+}
+
+/** Selects one registration by path and, when several machines have that path, by machine. */
+export interface AuxiliaryWorktreeTarget {
+  path: string;
+  /** The machine to pick (undefined for this machine); omit the key to accept any machine. */
+  hostId?: string;
 }
 
 export class AuxiliaryWorktreeLifecycle {
@@ -82,23 +123,39 @@ export class AuxiliaryWorktreeLifecycle {
     private readonly tracker: WorktreeTracker,
   ) {}
 
-  async register(sessionId: string, path: string, retention: "temporary" | "retained", baseBranch?: string) {
+  /**
+   * Register a checkout for a session. `hostId` names the remote host it lives on
+   * (absent for this machine); the path and Git checks run there.
+   */
+  async register(
+    sessionId: string,
+    path: string,
+    retention: "temporary" | "retained",
+    baseBranch?: string,
+    hostId?: string,
+  ) {
     return this.registry.update(async (records) => {
       const owner = this.owners().find((session) => session.sessionId === sessionId);
       if (!owner || owner.archived) throw new Error("Only an unarchived session can register its auxiliary worktrees");
-      const inspected = await inspectAuxiliaryWorktree(path);
-      if (pathsOverlap(await canonicalWorktreePath(owner.cwd), inspected.worktreePath))
+      const inspected = await onMachine(hostId, "inspectAuxiliaryWorktree", path);
+      if (
+        sameMachine(owner.hostId, hostId) &&
+        pathsOverlap(await onMachine(hostId, "canonicalWorktreePath", owner.cwd), inspected.worktreePath)
+      )
         throw new Error("The session's primary checkout is not auxiliary");
       if (retention === "temporary") {
         if (!baseBranch) throw new Error("Temporary worktrees require --base <local-branch> for cleanup safety");
-        await git(inspected.repoRoot, "check-ref-format", `refs/heads/${baseBranch}`);
-        await git(inspected.repoRoot, "rev-parse", "--verify", `refs/heads/${baseBranch}^{commit}`);
+        await onMachine(hostId, "verifyCleanupBaseBranch", inspected.repoRoot, baseBranch);
       }
       const existing = records.find(
-        (record) => record.sessionId === sessionId && record.worktreePath === inspected.worktreePath,
+        (record) =>
+          record.sessionId === sessionId &&
+          record.worktreePath === inspected.worktreePath &&
+          sameMachine(record.hostId, hostId),
       );
       const record: AuxiliaryWorktreeRegistration = {
         ...inspected,
+        ...(hostId ? { hostId } : {}),
         sessionId,
         retention,
         baseBranch,
@@ -118,7 +175,7 @@ export class AuxiliaryWorktreeLifecycle {
     return this.cleaning.has(sessionId);
   }
 
-  async cleanup(sessionId: string, path?: string): Promise<AuxiliaryWorktreeRegistration[]> {
+  async cleanup(sessionId: string, target?: AuxiliaryWorktreeTarget): Promise<AuxiliaryWorktreeRegistration[]> {
     if (this.cleaning.has(sessionId)) throw new Error("Auxiliary cleanup is already running");
     this.cleaning.add(sessionId);
     try {
@@ -127,9 +184,16 @@ export class AuxiliaryWorktreeLifecycle {
           throw new Error("Auxiliary cleanup requires an archived session");
         }
         const selected = records.filter(
-          (record) => record.sessionId === sessionId && (!path || record.worktreePath === path),
+          (record) =>
+            record.sessionId === sessionId &&
+            (!target ||
+              (record.worktreePath === target.path &&
+                (!("hostId" in target) || sameMachine(record.hostId, target.hostId)))),
         );
-        if (path && selected.length === 0) throw new Error("Registered auxiliary worktree not found");
+        if (target && selected.length === 0) throw new Error("Registered auxiliary worktree not found");
+        if (target && selected.length > 1) {
+          throw new Error("That path is registered on more than one machine; name the machine with --host");
+        }
         for (const record of selected) {
           if (record.retention === "retained" || record.cleanupStatus === "done") continue;
           try {
@@ -149,7 +213,11 @@ export class AuxiliaryWorktreeLifecycle {
   }
 
   private async removeTemporary(record: AuxiliaryWorktreeRegistration, records: AuxiliaryWorktreeRegistration[]) {
-    const current = await inspectAuxiliaryWorktree(record.worktreePath);
+    const host = record.hostId;
+    if (host && !hostIsOnline(host)) {
+      throw new Error("Its machine is offline; nothing was removed. Retry with takode worktree retry once it is back");
+    }
+    const current = await onMachine(host, "inspectAuxiliaryWorktree", record.worktreePath);
     if (
       current.identity !== record.identity ||
       current.gitDir !== record.gitDir ||
@@ -161,34 +229,38 @@ export class AuxiliaryWorktreeLifecycle {
     if (
       records.some(
         (other) =>
-          other !== record && other.cleanupStatus !== "done" && pathsOverlap(other.worktreePath, record.worktreePath),
+          other !== record &&
+          other.cleanupStatus !== "done" &&
+          sameMachine(other.hostId, host) &&
+          pathsOverlap(other.worktreePath, record.worktreePath),
       )
     ) {
       throw new Error("Worktree has another session's ownership or retention registration");
     }
     // Refresh the shared primary index; absent foreign sessions are not presumed retired.
     const mappings = this.tracker.load(true);
-    for (const mapping of mappings) {
-      if (pathsOverlap(await canonicalWorktreePath(mapping.worktreePath), record.worktreePath)) {
+    for (const mapping of mappings.filter((candidate) => sameMachine(candidate.hostId, host))) {
+      if (pathsOverlap(await onMachine(host, "canonicalWorktreePath", mapping.worktreePath), record.worktreePath)) {
         throw new Error("Worktree is associated with a primary session");
       }
     }
-    const primaryOwners = this.owners().filter((owner) => !owner.archived);
+    const primaryOwners = this.owners().filter((owner) => !owner.archived && sameMachine(owner.hostId, host));
     for (const owner of primaryOwners) {
-      const cwd = await canonicalWorktreePath(owner.cwd);
+      const cwd = await onMachine(host, "canonicalWorktreePath", owner.cwd);
       if (pathsOverlap(cwd, record.worktreePath)) throw new Error("Worktree is in use by an unarchived session");
     }
     if (!record.baseBranch) throw new Error("Cleanup base branch is missing");
-    if (await git(record.worktreePath, "status", "--porcelain", "--untracked-files=all")) {
-      throw new Error("Worktree has uncommitted changes");
-    }
-    const base = await git(record.repoRoot, "rev-parse", "--verify", `refs/heads/${record.baseBranch}^{commit}`);
-    const ahead = await git(record.worktreePath, "rev-list", "--count", `${base}..HEAD`);
-    if (ahead !== "0") throw new Error("Worktree has commits not present in its cleanup base branch");
+    const keepReason = await onMachine(
+      host,
+      "auxiliaryWorktreeKeepReason",
+      record.worktreePath,
+      record.repoRoot,
+      record.baseBranch,
+    );
+    if (keepReason) throw new Error(keepReason);
     if (!this.owners().some((owner) => owner.sessionId === record.sessionId && owner.archived)) {
       throw new Error("Session is no longer archived");
     }
-    // No --force and no branch deletion. Git also vetoes locked/dirty worktrees.
-    await git(record.repoRoot, "worktree", "remove", "--", record.worktreePath);
+    await onMachine(host, "removeAuxiliaryWorktree", record.repoRoot, record.worktreePath);
   }
 }

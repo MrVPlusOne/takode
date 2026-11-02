@@ -33,6 +33,7 @@ describe("takode worktree", () => {
     const requests: Array<{ path: string; body: unknown }> = [];
     const record = {
       sessionId: "worker",
+      machine: "devbox",
       path: "/fixture/aux",
       branch: "feature",
       baseBranch: "integration",
@@ -68,6 +69,16 @@ describe("takode worktree", () => {
       expect(requests).toContainEqual({
         path: "/api/sessions/worker/worktrees",
         body: { path: "/fixture/aux", retention: "temporary", baseBranch: "integration" },
+      });
+      // A checkout on another machine keeps its path as given, since this machine's folder means nothing there.
+      const remote = await run(
+        ["worktree", "register", "/home/me/launch", "--retention", "retained", "--host", "laptop"],
+        port,
+      );
+      expect(remote.code).toBe(0);
+      expect(requests).toContainEqual({
+        path: "/api/sessions/worker/worktrees",
+        body: { path: "/home/me/launch", retention: "retained", host: "laptop" },
       });
       const listed = await run(["worktree", "list", "--json"], port);
       expect(listed.code).toBe(0);

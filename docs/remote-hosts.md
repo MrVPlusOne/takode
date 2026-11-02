@@ -244,6 +244,12 @@ Turn **Agents may run commands here** off for a machine in
 **Settings → Hosts** to refuse new commands on it. The calling session's own
 permission mode still applies to its `takode exec` call.
 
+A Git worktree a session creates on another machine this way is registered
+with `takode worktree register <absolute-path> --host <machine> ...`; its
+checks, and its removal when the session is archived, then run on that
+machine. While the machine is offline nothing is removed: the registration
+shows why, and a leader can `takode worktree retry` it later.
+
 ## Telling agents about a machine
 
 Each machine's **Note for agents** in **Settings → Hosts** is text Takode adds

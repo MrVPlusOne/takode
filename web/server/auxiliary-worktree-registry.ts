@@ -3,6 +3,8 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 export interface AuxiliaryWorktreeRegistration {
   sessionId: string;
+  /** Remote host the checkout lives on, where its checks and removal run; absent for this machine. */
+  hostId?: string;
   worktreePath: string;
   repoRoot: string;
   gitDir: string;
@@ -26,6 +28,7 @@ function parseRegistrations(value: unknown): AuxiliaryWorktreeRegistration[] {
       ) ||
       (record.branch !== null && typeof record.branch !== "string") ||
       (record.baseBranch !== undefined && typeof record.baseBranch !== "string") ||
+      (record.hostId !== undefined && (typeof record.hostId !== "string" || !record.hostId)) ||
       !["temporary", "retained"].includes(record.retention) ||
       !Number.isFinite(record.createdAt) ||
       (record.cleanupStatus !== undefined &&

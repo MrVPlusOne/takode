@@ -157,6 +157,11 @@ export class HostExec {
     }
   }
 
+  /** A machine by name or id (`LOCAL_HOST_ID` for the coordinator's own), or null when none has it. */
+  findMachine(nameOrId: string): Promise<{ id: string; name: string } | null> {
+    return this.deps.resolveHost(nameOrId);
+  }
+
   async start(input: ExecStartInput): Promise<ExecJob> {
     const command = input.command.trim();
     if (!command) throw new HostExecError(400, "Give the command to run after --");
