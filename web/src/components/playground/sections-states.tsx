@@ -1,6 +1,6 @@
 import { CodexThinkingInline, MessageBubble } from "../MessageBubble.js";
 import { SideChatPanel } from "../SideChatPanel.js";
-import { DiffViewer } from "../DiffViewer.js";
+import { VoiceEditPreview } from "../VoiceEditPreview.js";
 import { SessionCreationProgress } from "../SessionCreationProgress.js";
 import { StepList } from "../SessionCreationView.js";
 import { CodexInstructionsCollapsible } from "../TaskPanel.js";
@@ -738,28 +738,15 @@ export function PlaygroundStateSections() {
                   style={{ minHeight: "54px" }}
                 />
                 <div className="px-4 pb-3 pt-1">
-                  <div className="rounded-xl border border-cc-primary/20 bg-cc-primary/5 p-3">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-cc-primary">
-                          Voice edit preview
-                        </div>
-                        <div className="mt-1 text-xs leading-relaxed text-cc-muted">
-                          Apply instruction:{" "}
-                          <span className="text-cc-fg">
-                            Make this calmer, split it into two sentences, and mention the rollback note at the end.
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
-                        <button className="rounded-lg border border-cc-border px-3 py-1.5 text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg">
-                          Undo
-                        </button>
-                        <button className="rounded-lg bg-cc-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-opacity hover:opacity-90">
-                          Accept
-                        </button>
-                      </div>
-                    </div>
+                  <VoiceEditPreview
+                    instructionText="Make this calmer, split it into two sentences, and mention the rollback note at the end."
+                    originalText="Ship the reconnect fix tonight and add a short rollback note for on-call."
+                    editedText={
+                      "Ship the reconnect fix tonight.\nAdd a short rollback note for on-call so the handoff stays calm and explicit."
+                    }
+                    onUndo={() => undefined}
+                    onAccept={() => undefined}
+                  >
                     <AlternateVoiceRerunOffer
                       rerun={{
                         resultId: "playground-edit-result",
@@ -773,15 +760,6 @@ export function PlaygroundStateSections() {
                       onDismiss={() => undefined}
                       className="mt-3"
                     />
-                    <div className="mt-3 overflow-hidden rounded-lg border border-cc-border bg-cc-bg/80">
-                      <DiffViewer
-                        oldText="Ship the reconnect fix tonight and add a short rollback note for on-call."
-                        newText={
-                          "Ship the reconnect fix tonight.\nAdd a short rollback note for on-call so the handoff stays calm and explicit."
-                        }
-                        mode="compact"
-                      />
-                    </div>
                     <AlternateVoiceRerunOffer
                       rerun={{
                         resultId: "playground-append-running",
@@ -795,7 +773,7 @@ export function PlaygroundStateSections() {
                       onDismiss={() => undefined}
                       className="mt-3"
                     />
-                  </div>
+                  </VoiceEditPreview>
                 </div>
                 <div className="flex items-center justify-between px-2.5 pb-2.5">
                   <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] font-medium text-cc-muted">
@@ -833,6 +811,28 @@ export function PlaygroundStateSections() {
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </Card>
+          <div className="mt-4" />
+          <Card label="Voice edit preview in a comment editor — same diff, no full-size view">
+            <div className="max-w-[420px] rounded-2xl border border-cc-border bg-cc-card p-4 text-cc-fg">
+              <textarea
+                readOnly
+                disabled
+                value={"I thought this benchmark was just used for AIM. Do people use it for things other than AIM?"}
+                rows={3}
+                className="w-full resize-y rounded-xl border border-cc-border bg-cc-input-bg p-3 text-sm outline-none"
+              />
+              <div className="my-2">
+                <VoiceEditPreview
+                  instructionText="AIM should be LLM"
+                  originalText="I thought this benchmark was just used for AIM. Do people use it for things other than AIM?"
+                  editedText="I thought this benchmark was just used for LLM. Do people use it for things other than LLM?"
+                  onUndo={() => undefined}
+                  onAccept={() => undefined}
+                  expandable={false}
+                />
               </div>
             </div>
           </Card>

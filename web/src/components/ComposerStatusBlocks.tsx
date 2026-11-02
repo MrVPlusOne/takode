@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { VoiceMicrophoneSelection } from "../utils/voice-microphone.js";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
-import { DiffViewer } from "./DiffViewer.js";
+import { VoiceEditPreview } from "./VoiceEditPreview.js";
 import { ReplyChip } from "./ReplyChip.js";
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
 import { AlternateVoiceRerunOffer } from "./AlternateVoiceRerunOffer.js";
@@ -223,36 +223,13 @@ export function ComposerStatusBlocks({
         )}
       {voiceEditProposal && !isRecording && (!isTranscribing || alternateVoiceRerun?.status === "running") && (
         <div className="px-4 pt-2">
-          <div className="rounded-xl border border-cc-primary/20 bg-cc-primary/5 p-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-cc-primary">
-                  Voice edit preview
-                </div>
-                <div className="mt-1 text-[12px] text-cc-muted">
-                  Apply instruction:{" "}
-                  <span className="text-cc-fg">
-                    {voiceEditProposal.instructionText || "(no instruction text returned)"}
-                  </span>
-                </div>
-              </div>
-              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
-                <button
-                  type="button"
-                  onClick={onUndoVoiceEdit}
-                  className="rounded-lg border border-cc-border px-3 py-1.5 text-[12px] font-medium text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-                >
-                  Undo
-                </button>
-                <button
-                  type="button"
-                  onClick={onAcceptVoiceEdit}
-                  className="rounded-lg bg-cc-primary px-3 py-1.5 text-[12px] font-medium text-white hover:bg-cc-primary-hover transition-colors cursor-pointer"
-                >
-                  Accept
-                </button>
-              </div>
-            </div>
+          <VoiceEditPreview
+            instructionText={voiceEditProposal.instructionText}
+            originalText={voiceEditProposal.originalText}
+            editedText={voiceEditProposal.editedText}
+            onUndo={onUndoVoiceEdit}
+            onAccept={onAcceptVoiceEdit}
+          >
             {visibleAlternateVoiceRerun && (
               <AlternateVoiceRerunOffer
                 rerun={visibleAlternateVoiceRerun}
@@ -261,14 +238,7 @@ export function ComposerStatusBlocks({
                 className="mt-3"
               />
             )}
-            <div className="mt-3">
-              <DiffViewer
-                oldText={voiceEditProposal.originalText}
-                newText={voiceEditProposal.editedText}
-                mode="compact"
-              />
-            </div>
-          </div>
+          </VoiceEditPreview>
         </div>
       )}
       {replyContext && <ReplyChip previewText={replyContext.previewText} onDismiss={onDismissReply} />}

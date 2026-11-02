@@ -13,6 +13,7 @@ import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
 import { ReportCommentTarget } from "./ReportCommentTarget.js";
 import { getVisualViewportRect } from "./quest-feed-preview-geometry.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
+import { VoiceEditPreview } from "./VoiceEditPreview.js";
 
 type VoiceMode = "dictation" | "append" | "edit";
 interface Capture {
@@ -65,7 +66,7 @@ export function AnnotationEditor({
 }) {
   const [text, setText] = useState(annotation.comment);
   const [mode, setMode] = useState<"append" | "edit">("append");
-  const [proposal, setProposal] = useState<{ before: string; after: string } | null>(null);
+  const [proposal, setProposal] = useState<{ before: string; after: string; instruction: string } | null>(null);
   const [failed, setFailed] = useState<Capture | null>(null);
   const [alternate, setAlternate] = useState<Capture | null>(null);
   const [hideAlternate, setHideAlternate] = useState(false);
@@ -142,7 +143,11 @@ export function AnnotationEditor({
       if (requestGeneration !== generation.current) return;
       if (snapshot.mode === "edit") {
         setText(snapshot.base);
-        setProposal({ before: snapshot.base, after: result.text });
+        setProposal({
+          before: snapshot.base,
+          after: result.text,
+          instruction: result.instructionText || result.rawText || "",
+        });
       } else {
         const before = snapshot.base.slice(0, snapshot.start);
         const after = snapshot.base.slice(snapshot.end);
@@ -187,6 +192,21 @@ export function AnnotationEditor({
     setFailed(null);
     voice.toggleRecording();
   }
+
+  const alternateOffer = alternate && !hideAlternate && (
+    <div className={`${proposal ? "mt-3" : "my-2"} flex items-center gap-2 text-xs text-cc-muted`}>
+      <button
+        className="underline"
+        disabled={busy}
+        onClick={() => void transcribe({ ...alternate, mode: alternate.mode === "edit" ? "append" : "edit" })}
+      >
+        Try as {alternate.mode === "edit" ? "append" : "voice edit"}
+      </button>
+      <button aria-label="Dismiss alternate voice mode" onClick={() => setHideAlternate(true)}>
+        ×
+      </button>
+    </div>
+  );
 
   // Place the editor inside the visible part of the page. On iPhone the keyboard shrinks only the visual viewport,
   // which the user or Safari can then pan, so the window size alone puts the editor behind the keyboard or, once
@@ -317,33 +337,22 @@ export function AnnotationEditor({
             </button>
           </div>
         )}
-        {proposal && (
-          <div className="my-2 rounded-xl border border-cc-border p-3 text-sm">
-            <p className="mb-2 text-xs text-cc-muted">Proposed comment</p>
-            <p className="whitespace-pre-wrap break-words">{proposal.after}</p>
-            <div className="mt-2 flex gap-3 text-xs">
-              <button disabled={busy} onClick={() => changeText(proposal.after)}>
-                Accept edit
-              </button>
-              <button disabled={busy} onClick={() => changeText(proposal.before)}>
-                Undo edit
-              </button>
-            </div>
-          </div>
-        )}
-        {alternate && !hideAlternate && (
-          <div className="my-2 flex items-center gap-2 text-xs text-cc-muted">
-            <button
-              className="underline"
+        {proposal ? (
+          <div className="my-2">
+            <VoiceEditPreview
+              instructionText={proposal.instruction}
+              originalText={proposal.before}
+              editedText={proposal.after}
+              onUndo={() => changeText(proposal.before)}
+              onAccept={() => changeText(proposal.after)}
               disabled={busy}
-              onClick={() => void transcribe({ ...alternate, mode: alternate.mode === "edit" ? "append" : "edit" })}
+              expandable={false}
             >
-              Try as {alternate.mode === "edit" ? "append" : "voice edit"}
-            </button>
-            <button aria-label="Dismiss alternate voice mode" onClick={() => setHideAlternate(true)}>
-              ×
-            </button>
+              {alternateOffer}
+            </VoiceEditPreview>
           </div>
+        ) : (
+          alternateOffer
         )}
         <div className="mt-3 flex items-center gap-2 text-sm">
           <button

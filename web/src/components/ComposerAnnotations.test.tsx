@@ -294,7 +294,7 @@ describe("composer annotation attachments", () => {
     clickOutside();
     expect(screen.getByRole("dialog")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Accept edit"));
+    fireEvent.click(screen.getByText("Accept"));
     clickOutside();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(useStore.getState().composerDrafts.get("session")?.annotations?.[0].comment).toBe("Proposed text");
@@ -341,6 +341,7 @@ describe("composer annotation attachments", () => {
   });
 
   it("previews a voice edit and never replaces other comments or the main message", async () => {
+    mocks.transcribe.mockResolvedValue({ text: "New spoken comment", instructionText: "rewrite it" });
     useStore.getState().setAnnotationEditor({ sessionId: "session", annotation: first });
     render(<ComposerAnnotations sessionId="session" threadKey="main" />);
     fireEvent.change(screen.getByLabelText("Comment voice mode"), { target: { value: "edit" } });
@@ -352,7 +353,16 @@ describe("composer annotation attachments", () => {
       composerText: first.comment,
       annotationContext: { otherAnnotations: [] },
     });
-    fireEvent.click(screen.getByText("Accept edit"));
+    // The proposal shows as the composer's voice edit does: the instruction, and the change as a diff of the
+    // comment before and after, so the user sees what changed. The dialog sits above the diff's full-size view,
+    // so the diff offers none.
+    const dialog = screen.getByRole("dialog");
+    expect(screen.getByText("Voice edit preview")).toBeTruthy();
+    expect(screen.getByText("rewrite it")).toBeTruthy();
+    expect(dialog.querySelector(".diff-viewer .diff-line-del")?.textContent).toContain(first.comment);
+    expect(dialog.querySelector(".diff-viewer .diff-line-add")?.textContent).toContain("New spoken comment");
+    expect(dialog.querySelector(".diff-inline-expand-btn")).toBeNull();
+    fireEvent.click(screen.getByText("Accept"));
     fireEvent.click(screen.getByText("Save"));
     // The user reviews a voice edit before accepting it, so the edited comment carries no transcription tag.
     expect(useStore.getState().composerDrafts.get("session")).toMatchObject({

@@ -30,6 +30,8 @@ export interface DiffViewerProps {
   showLineNumbers?: boolean;
   /** Optional label for the compact-mode modal trigger. */
   expandButtonLabel?: string;
+  /** Whether a compact diff offers its full-size view (default true). */
+  expandable?: boolean;
   /** Optional actions rendered in the file header. */
   headerActions?: ReactNode;
   /** Optional callback for rendering file-specific header actions. */
@@ -721,6 +723,7 @@ export const DiffViewer = memo(function DiffViewer({
   mode = "compact",
   showLineNumbers: showLineNumbersProp,
   expandButtonLabel = "Expand",
+  expandable = true,
   headerActions,
   renderHeaderActions,
   stickyFileHeaders = false,
@@ -834,7 +837,7 @@ export const DiffViewer = memo(function DiffViewer({
         stickyFileHeaders ? "diff-sticky-file-headers" : ""
       }`}
     >
-      {isCompact && (
+      {isCompact && expandable && (
         <button type="button" onClick={() => setExpanded(true)} className="diff-inline-expand-btn" title="Expand diff">
           {expandButtonLabel}
         </button>
