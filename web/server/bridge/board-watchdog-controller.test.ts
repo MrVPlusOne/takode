@@ -192,6 +192,8 @@ interface FakeRuntime {
   timers?: number;
   lastActivityAt?: number;
   archived?: boolean;
+  /** The backend process is gone, as after the idle manager disconnects the session. */
+  disconnected?: boolean;
   backgroundJobs?: BackgroundTaskInfo[];
   backgroundChangedAt?: number;
 }
@@ -235,7 +237,7 @@ function setupIdleWorkerStall(runtimes: Record<string, FakeRuntime>, waits: Reco
         holderSessionIds,
       })),
     ),
-    backendConnected: vi.fn(() => true),
+    backendConnected: vi.fn((session: { id: string }) => !runtimes[session.id]?.disconnected),
     getBoard: vi.fn(() => Array.from(leader.board.values())),
     emitTakodeEvent: vi.fn((_sessionId: string, _type: string, data: Record<string, unknown>) => emitted.push(data)),
     markNotificationDone: vi.fn(() => true),
@@ -389,6 +391,68 @@ describe("Work Board stall check for background jobs", () => {
       reason: "worker idle with background job running over 30m (Run full gate)",
       signature: `q-90|WORKING|background:gate|since:${30 * MINUTE}`,
     });
+  });
+
+  // `takode exec` jobs run on a node and outlive the worker's backend process, so
+  // they still count after the idle manager disconnects the worker: the job's
+  // finish message relaunches it. (Claude's own background tasks end with its
+  // process, so a disconnected Claude session reports none.)
+  const execJob = (startedAt: number): BackgroundTaskInfo => ({
+    taskId: "x-802",
+    description: "Run eval on condor",
+    startedAt,
+  });
+
+  it("does not flag a disconnected worker whose exec job is still running", () => {
+    const { leader, deps, emitted } = setupIdleWorkerStall(
+      { worker: { sessionNum: 10, disconnected: true, backgroundJobs: [execJob(0)], backgroundChangedAt: 0 } },
+      {},
+    );
+    for (const now of [0, 3 * MINUTE + 1, 13 * MINUTE, 25 * MINUTE]) sweepBoardStallWarnings([leader], now, deps);
+    expect(emitted).toHaveLength(0);
+  });
+
+  it("surfaces a disconnected worker whose exec job has run implausibly long", () => {
+    const { leader, deps, emitted } = setupIdleWorkerStall(
+      { worker: { sessionNum: 10, disconnected: true, backgroundJobs: [execJob(0)], backgroundChangedAt: 0 } },
+      {},
+    );
+    sweepBoardStallWarnings([leader], 30 * MINUTE, deps);
+    sweepBoardStallWarnings([leader], 33 * MINUTE - 1, deps);
+    expect(emitted).toHaveLength(0);
+    sweepBoardStallWarnings([leader], 33 * MINUTE, deps);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      workerStatus: "disconnected",
+      reason: "worker disconnected with background job running over 30m (Run eval on condor)",
+      signature: `q-90|WORKING|background:x-802|since:${30 * MINUTE}`,
+    });
+  });
+
+  it("keeps the disconnected-worker alert when the worker has no running job", () => {
+    const { emitted, sweepPastThreshold } = setupIdleWorkerStall(
+      { worker: { sessionNum: 10, disconnected: true } },
+      {},
+    );
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      workerStatus: "disconnected",
+      reason: "worker disconnected",
+      signature: "q-90|WORKING|disconnected|since:0",
+    });
+  });
+
+  it("does not flag a worker queued behind a disconnected lease holder whose exec job is running", () => {
+    const { emitted, sweepPastThreshold } = setupIdleWorkerStall(
+      {
+        worker: { sessionNum: 10 },
+        holder: { sessionNum: 11, disconnected: true, backgroundJobs: [execJob(0)], backgroundChangedAt: 0 },
+      },
+      { worker: { "builds@condor": ["holder"] } },
+    );
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(0);
   });
 
   it("does not flag a worker queued behind a lease holder waiting on its background job", () => {

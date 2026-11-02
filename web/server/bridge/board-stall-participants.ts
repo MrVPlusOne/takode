@@ -27,7 +27,7 @@ export interface BoardParticipantDeps {
   getLeaseWaits?: (sessionId: string) => readonly ResourceLeaseWait[];
   /** Whether the session runs, or has a change inside, an active landing-queue run. */
   isLandingActive?: (sessionId: string) => boolean;
-  /** Background jobs the session's agent is notified about when they end (Claude sessions). */
+  /** Background jobs the session is notified about when they end: Claude background tasks and `takode exec` jobs. */
   getBackgroundTasks?: (sessionId: string) => BackgroundTaskSnapshot | null;
   backendConnected: (session: SessionLike) => boolean;
 }
@@ -36,7 +36,7 @@ export interface BoardParticipantRuntime {
   status: BoardStallStatus;
   lastActivityAt: number;
   hasActiveTimer: boolean;
-  /** Background jobs of an idle participant; they count as a wait until `backgroundWaitEndsAt`. */
+  /** Background jobs of an idle or disconnected participant; they count as a wait until `backgroundWaitEndsAt`. */
   backgroundJobs: readonly BackgroundTaskInfo[];
 }
 
@@ -52,18 +52,18 @@ export function getBoardParticipantRuntime(
 
   const session = sessionId === currentSession.id ? currentSession : deps.getSession(sessionId);
   const hasActiveTimer = deps.timerCount(sessionId) > 0;
-  if (!session || !deps.backendConnected(session)) {
-    const status = launcherInfo ? "disconnected" : "missing";
-    return { status, lastActivityAt, hasActiveTimer, backgroundJobs: [] };
-  }
-  if (session.isGenerating || (session.pendingPermissions?.size ?? 0) > 0) {
+  const connected = !!session && deps.backendConnected(session);
+  if (!connected && !launcherInfo) return { status: "missing", lastActivityAt, hasActiveTimer, backgroundJobs: [] };
+  if (connected && (session.isGenerating || (session.pendingPermissions?.size ?? 0) > 0)) {
     return { status: "running", lastActivityAt, hasActiveTimer, backgroundJobs: [] };
   }
+  // A disconnected session keeps the jobs that outlive its backend process
+  // (`takode exec` runs on a node); their finish message relaunches it.
   // A background job ending counts as activity: the agent's resume turn may
   // start a moment after its job leaves the set, so the stall clock restarts.
   const background = deps.getBackgroundTasks?.(sessionId);
   return {
-    status: "idle",
+    status: connected ? "idle" : "disconnected",
     lastActivityAt: Math.max(lastActivityAt, background?.changedAt ?? 0),
     hasActiveTimer,
     backgroundJobs: background?.tasks ?? [],

@@ -1865,7 +1865,7 @@ function buildBoardStallCandidate(
     if (workerRuntime.hasActiveTimer) return null;
     // An idle worker whose change is in an active landing run resumes on its Landing Queue message.
     if (deps.isLandingActive?.(workerSessionId)) return null;
-    // An idle Claude worker resumes when its background job's completion notice arrives.
+    // An idle or disconnected worker resumes when its background job's completion notice arrives.
     if (backgroundWaitEndsAt(workerRuntime) > now) return null;
     const leaseWait =
       workerRuntime.status === "missing" ? null : assessLeaseWait(workerSessionId, deps, session, new Set(), now);
