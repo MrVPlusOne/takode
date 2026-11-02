@@ -779,6 +779,8 @@ export type BrowserOutgoingMessage =
       type: "conversation_view_update";
       view: "history" | "thread";
       thread_key?: string;
+      /** The update is a side pane's (a side view's), not the main view's. */
+      side?: boolean;
       from: number;
       count: number;
       section_count: number;

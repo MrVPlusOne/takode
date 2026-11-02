@@ -368,10 +368,23 @@ export function recordBoundedConversationViewUpdate(
   socketData: BrowserConversationWindowSocketData,
   update: Extract<BrowserOutgoingMessage, { type: "conversation_view_update" }>,
 ): void {
-  if (!socketData.conversationView) return;
   if (!validPositiveWindow(update.from, update.count, update.section_count, update.visible_count)) return;
   const threadKey = normalizeSelectedFeedThreadKey(update.thread_key ?? MAIN_THREAD_KEY);
   if (update.view === "thread" && !isConversationThreadKey(threadKey)) return;
+  // A side pane says what it shows the same way the main view does; its refreshes follow it.
+  if (update.side) {
+    if (update.view !== "thread") return;
+    (socketData.sideViewRequests ??= new Map()).set(threadKey, {
+      threadKey,
+      fromItem: update.from,
+      itemCount: update.count,
+      sectionItemCount: update.section_count,
+      visibleItemCount: update.visible_count,
+      cachedWindowHash: update.cached_window_hash,
+    });
+    return;
+  }
+  if (!socketData.conversationView) return;
   if (update.view === "history") {
     setBoundedHistoryView(socketData, {
       fromTurn: update.from,

@@ -287,4 +287,44 @@ describe("browser conversation refresh", () => {
     refreshBrowserConversationViews(session);
     expect(parseCalls(socket).filter((message) => message.type === "thread_window_sync")).toHaveLength(1);
   });
+
+  it("refreshes a side view with the window it says it shows, as it does the main view", () => {
+    // A side pane that loaded older history asked for a fixed range, and every refresh re-sent that
+    // range even after the user was back at the newest messages. It now tells the server what it
+    // shows, as the main view does, and the refresh follows it.
+    const socket = threadSocket("main");
+    const session = sessionWithTwelveRanges(socket);
+    setSideViews(socket.data, ["q-1"]);
+    recordBoundedConversationRequest(socket.data, {
+      type: "thread_window_request",
+      thread_key: "q-1",
+      from_item: 0,
+      item_count: 2,
+      section_item_count: 1,
+      visible_item_count: 2,
+      activate_view: false,
+    });
+    const sideSync = () => {
+      socket.send.mockClear();
+      refreshBrowserConversationViews(session);
+      return parseCalls(socket).find(
+        (message) => message.type === "thread_window_sync" && message.thread_key === "q-1",
+      ) as Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>;
+    };
+    expect(sideSync().window.has_newer_items).toBe(true);
+
+    recordBoundedConversationViewUpdate(socket.data, {
+      type: "conversation_view_update",
+      view: "thread",
+      thread_key: "q-1",
+      side: true,
+      from: -1,
+      count: 2,
+      section_count: 1,
+      visible_count: 2,
+    });
+    expect(sideSync().window.has_newer_items).toBe(false);
+    // The main view stays what the main view said.
+    expect(socket.data.conversationView.request.threadKey).toBe("main");
+  });
 });

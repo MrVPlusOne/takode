@@ -177,6 +177,34 @@ describe("bounded conversation follow intent", () => {
     );
   });
 
+  it("lets a side pane tell the server what it shows, marked as a side view", () => {
+    // A side pane used to say nothing, so the server refreshed it with whatever range it last asked
+    // for, older history included, after the user was back at the newest messages.
+    const { result } = renderHook(() => {
+      const follow = useMessageFeedFollowState(true);
+      useMessageFeedBoundedConversation({
+        sessionId: "side-follow",
+        connectionStatus: "connected",
+        normalizedThreadKey: "q-1",
+        selectedFeedWindowEnabled: true,
+        activeHistoryWindow: null,
+        activeThreadWindow: { ...window, thread_key: "q-1" },
+        secondary: true,
+        ...follow,
+      });
+      return follow;
+    });
+    expect(sendToSession).toHaveBeenLastCalledWith(
+      "side-follow",
+      expect.objectContaining({ type: "conversation_view_update", thread_key: "q-1", side: true, from: -1 }),
+    );
+    act(() => result.current.setAutoFollowEnabled(false));
+    expect(sendToSession).toHaveBeenLastCalledWith(
+      "side-follow",
+      expect.objectContaining({ type: "conversation_view_update", side: true, from: 0 }),
+    );
+  });
+
   it("clears history-request suppression after disconnect and never suppresses a failed request", () => {
     const history: HistoryWindowState = {
       from_turn: 0,

@@ -107,15 +107,16 @@ export function useMessageFeedBoundedConversation(input: {
     requestLatestHistoryWindow,
   });
 
+  // The main view and side panes tell the server alike what they show, so refreshes send each the
+  // window it reads: the newest while it follows the latest messages, else the range it reads.
   useEffect(() => {
-    if (input.secondary) return;
     if (input.connectionStatus !== "connected") {
       lastAnnouncementRef.current = null;
       requestedFromWindowRef.current = undefined;
       return;
     }
     const thread = input.selectedFeedWindowEnabled ? input.activeThreadWindow : null;
-    const history = input.selectedFeedWindowEnabled ? null : input.activeHistoryWindow;
+    const history = input.selectedFeedWindowEnabled || input.secondary ? null : input.activeHistoryWindow;
     if (!thread && !history) return;
     // An explicit request has activated its destination. Do not overwrite it
     // with the old applied window while waiting for a replacement delivery.
@@ -129,6 +130,7 @@ export function useMessageFeedBoundedConversation(input: {
       type: "conversation_view_update" as const,
       view: thread ? ("thread" as const) : ("history" as const),
       ...(thread ? { thread_key: input.normalizedThreadKey } : {}),
+      ...(input.secondary ? { side: true } : {}),
       from: input.autoFollowEnabledRef.current ? -1 : (thread?.from_item ?? history!.from_turn),
       count: Math.max(thread?.item_count ?? history!.turn_count, sectionCount * visibleCount),
       section_count: sectionCount,
