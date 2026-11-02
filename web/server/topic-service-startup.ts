@@ -182,6 +182,7 @@ export async function startLibraryTopics(input: {
                 ...(topic.thread.quest ? { quest: topic.thread.quest } : {}),
                 ...(topic.thread.joinedInto ? { joinedInto: topic.thread.joinedInto } : {}),
                 ...(topic.thread.startedBy === "leader" ? { byLeader: true } : {}),
+                ...(topic.thread.artifact ? { artifact: topic.thread.artifact } : {}),
               },
             }
           : {}),

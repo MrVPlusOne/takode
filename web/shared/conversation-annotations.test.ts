@@ -59,6 +59,27 @@ describe("conversation annotations", () => {
     expect(text).not.toMatch(/131ad216|3a2e4ef0|8888/);
   });
 
+  it("names the Library artifact a comment made in its view is on, by a link the agent can open", () => {
+    // Comments made while reading an artifact in the Library have no message: the agent reads the
+    // artifact's title and short link (with the version read), once per run of comments on it.
+    const artifact = {
+      id: "c0a3178d-6b34-436f-9c7b-640c4510a376",
+      version: 2,
+      title: "The Rocq proof eval, explained",
+    };
+    const entries = [
+      { id: "a", selectedText: "The model must prove those", comment: "Why not QCP?", artifact },
+      { id: "b", selectedText: "79%", comment: "Of what?", artifact: { ...artifact } },
+    ];
+    expect(readConversationAnnotations(entries)).toEqual(entries);
+    expect(formatAnnotatedMessage("How big is the gap?", entries)).toBe(
+      "On [The Rocq proof eval, explained](artifact:c0a3178d:v2):\n> The model must prove those\n[comment 1] Why not QCP?\n\n> 79%\n[comment 2] Of what?\n\n---\nHow big is the gap?",
+    );
+    expect(() => readConversationAnnotations([{ ...entries[0], artifact: { ...artifact, version: 0 } }])).toThrow(
+      "Invalid annotation artifact.",
+    );
+  });
+
   it("names the slide of a deck a comment is on, and quotes nothing for a comment on a whole slide", () => {
     // Comments on a deck reach the agent as "slide n of report <file>"; the header repeats when the
     // slide changes, and a comment on the whole slide has no passage to quote.

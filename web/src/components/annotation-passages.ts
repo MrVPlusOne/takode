@@ -5,12 +5,16 @@ const SCOPE = '[data-chat-selection-scope="true"]';
 /** Capture the selected occurrence, including when the same words appear repeatedly in a message. */
 export function captureAnnotationSource(
   range: Range | null,
-): Pick<ConversationAnnotation, "sourceMessageId" | "sourceAnchor" | "reportSource" | "slide"> {
+): Pick<ConversationAnnotation, "sourceMessageId" | "sourceAnchor" | "reportSource" | "slide" | "artifact"> {
   if (!range) return {};
   const element = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
-  const message = element?.closest<HTMLElement>("[data-message-id]");
+  // A message in a conversation, or a Library artifact shown on its own (which names itself instead).
+  const message = element?.closest<HTMLElement>("[data-message-id], [data-annotation-artifact]");
   if (!message) return {};
   const sourceMessageId = message.dataset.messageId;
+  const artifact = message.dataset.annotationArtifact
+    ? (JSON.parse(message.dataset.annotationArtifact) as ConversationAnnotation["artifact"])
+    : undefined;
   const reportElement = element?.closest<HTMLElement>("[data-markdown-report-source]");
   const reportSource = reportElement?.dataset.markdownReportSource
     ? (JSON.parse(reportElement.dataset.markdownReportSource) as ConversationAnnotation["reportSource"])
@@ -24,14 +28,15 @@ export function captureAnnotationSource(
   const scopeIndex = scopes.findIndex(
     (scope) => scope.contains(range.startContainer) && scope.contains(range.endContainer),
   );
-  if (scopeIndex < 0) return { sourceMessageId };
+  if (scopeIndex < 0) return { ...(sourceMessageId ? { sourceMessageId } : {}), ...(artifact ? { artifact } : {}) };
   const prefix = document.createRange();
   prefix.selectNodeContents(scopes[scopeIndex]);
   prefix.setEnd(range.startContainer, range.startOffset);
   const start = prefix.toString().length;
   const text = range.toString();
   return {
-    sourceMessageId,
+    ...(sourceMessageId ? { sourceMessageId } : {}),
+    ...(artifact ? { artifact } : {}),
     ...(reportSource ? { reportSource } : {}),
     ...(slide ? { slide } : {}),
     ...(text ? { sourceAnchor: { scopeIndex, start, end: start + text.length, text } } : {}),

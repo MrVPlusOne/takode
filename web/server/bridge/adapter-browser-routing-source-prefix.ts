@@ -2,6 +2,7 @@ import { formatThreadMarker } from "../../shared/thread-routing.js";
 import { threadAddress } from "../../shared/topic-thread-key.js";
 import { topicOfViewForLeader } from "../topic-views.js";
 import { LIBRARY_MESSAGE_SOURCE } from "../../shared/library-topics.js";
+import { formatArtifactLink } from "../../shared/artifact-library.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 import type { BrowserUserMessage, IngestedUserMessage } from "./adapter-browser-routing-message-types.js";
 import { isSystemSourceTag, isTimerReminderContent, isTimerSourceTag } from "./adapter-browser-routing-source-tags.js";
@@ -101,7 +102,11 @@ function topicTag(threadKey: string | undefined): string {
     const from = topic.thread.startedFrom ? `; started from ${threadAddress(topic.thread.startedFrom)}` : "";
     const under = topic.thread.topicName ? `; filed under topic "${topic.thread.topicName}"` : "";
     const opened = topic.thread.byLeader ? "; you opened it" : "";
-    return `[user thread: "${topic.name}"${opened}${from}${under}] `;
+    // Started from an artifact's view: the user asks about that artifact (its comments name it too).
+    const artifact = topic.thread.artifact
+      ? `; about ${formatArtifactLink(topic.thread.artifact.title, topic.thread.artifact.id)}`
+      : "";
+    return `[user thread: "${topic.name}"${opened}${artifact}${from}${under}] `;
   }
   return `[topic: "${topic.name}"${quests ? `; quests: ${quests}` : ""}] `;
 }

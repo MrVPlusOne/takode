@@ -20,6 +20,7 @@ import {
   type TopicSummary,
   type ThreadSummary,
   type TopicThreadRef,
+  type ThreadArtifact,
 } from "../shared/library-topics.js";
 
 /**
@@ -95,6 +96,8 @@ interface StoredThread {
   /** The leader opened it itself, for something it proposes or asks; else the user did. */
   startedBy?: "leader";
   startedFrom?: string;
+  /** The Library artifact it is about, when started from that artifact's view. */
+  artifact?: ThreadArtifact;
   /** The topic it is filed under. */
   topicId?: string;
   settledAt?: number;
@@ -654,6 +657,7 @@ export class TopicStore {
     startedFrom?: string;
     firstMessage?: string;
     startedBy?: "leader";
+    artifact?: ThreadArtifact;
   }): ThreadSummary {
     const topic = this.createTopic(input.space, cleanName(input.name), "agent");
     const firstMessage = input.firstMessage?.trim().slice(0, 400);
@@ -666,6 +670,7 @@ export class TopicStore {
       number,
       ...(input.startedBy ? { startedBy: input.startedBy } : {}),
       ...(input.startedFrom ? { startedFrom: input.startedFrom } : {}),
+      ...(input.artifact ? { artifact: { id: input.artifact.id, title: input.artifact.title } } : {}),
       ...(firstMessage ? { firstMessage } : {}),
     };
     this.dirty = true;
@@ -967,6 +972,7 @@ export class TopicStore {
       leaderId: thread.leaderId,
       ...(thread.startedBy ? { startedBy: thread.startedBy } : {}),
       ...(thread.startedFrom ? { startedFrom: thread.startedFrom } : {}),
+      ...(thread.artifact ? { artifact: thread.artifact } : {}),
       ...(under ? { topic: { id: under.id, name: under.name } } : {}),
       createdAt: topic.createdAt,
       activityAt: thread.lastMessageAt ?? topic.createdAt,

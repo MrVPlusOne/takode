@@ -1,6 +1,7 @@
 import type {
   QuestTopicsResponse,
   ThreadSummary,
+  ThreadArtifact,
   TopicDetail,
   TopicListResponse,
   TopicSummary,
@@ -35,10 +36,16 @@ export const topicApi = {
     ),
   get: (id: string) => request<TopicDetail>(topicPath(id)),
   /** Starts a new thread in a leader, named `name` until the leader names it. */
-  startThread: (leader: string, name: string, startedFrom?: string, firstMessage?: string) =>
+  startThread: (leader: string, name: string, startedFrom?: string, firstMessage?: string, artifact?: ThreadArtifact) =>
     request<{ thread: ThreadSummary }>("/topics/threads", {
       method: "POST",
-      body: { leader, name, ...(startedFrom ? { startedFrom } : {}), ...(firstMessage ? { firstMessage } : {}) },
+      body: {
+        leader,
+        name,
+        ...(startedFrom ? { startedFrom } : {}),
+        ...(firstMessage ? { firstMessage } : {}),
+        ...(artifact ? { artifact } : {}),
+      },
     }),
   /** A line of news per thread for a leader's Home: its quests' (`quests`) and its own threads'. */
   homeLines: (leader: string, quests: readonly string[]) =>

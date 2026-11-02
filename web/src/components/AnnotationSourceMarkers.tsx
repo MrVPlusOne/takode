@@ -23,10 +23,13 @@ const EMPTY: ConversationAnnotation[] = [];
 export function AnnotationSourceMarkers({
   sessionId,
   messageId,
+  artifactId,
   contentRef,
 }: {
   sessionId?: string;
-  messageId: string;
+  /** The message whose passages to mark, or, for a Library artifact shown on its own, the artifact. */
+  messageId?: string;
+  artifactId?: string;
   contentRef?: RefObject<HTMLDivElement | null>;
 }) {
   // The comments of the composer this conversation writes into (a side chat's, or the main one).
@@ -49,8 +52,10 @@ export function AnnotationSourceMarkers({
         ...(editor && !annotations.some((item) => item.id === editor.annotation.id) ? [editor.annotation] : []),
       ]
         .map((annotation, index) => ({ annotation, number: index + 1 }))
-        .filter((entry) => entry.annotation.sourceMessageId === messageId),
-    [annotations, editor, messageId],
+        .filter((entry) =>
+          artifactId ? entry.annotation.artifact?.id === artifactId : entry.annotation.sourceMessageId === messageId,
+        ),
+    [annotations, editor, messageId, artifactId],
   );
   const overlay = useRef<HTMLDivElement>(null);
   const [positions, setPositions] = useState<Position[]>([]);

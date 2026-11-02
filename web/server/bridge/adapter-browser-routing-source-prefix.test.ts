@@ -82,6 +82,29 @@ describe("user message source tag", () => {
     );
   });
 
+  it("names the Library artifact a thread started from its view is about, by a link", () => {
+    // Questions asked while reading an artifact go to its own thread; the leader reads which one.
+    setTopicViewSource({
+      topicOf: (handle) =>
+        handle === "99feed00"
+          ? {
+              id: "99feed00-5555",
+              name: "The Rocq proof eval, explained",
+              thread: {
+                startedFrom: "q-12",
+                artifact: { id: "c0a3178d-6b34", title: "The Rocq proof eval, explained" },
+              },
+            }
+          : null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    expect(buildAdapterUserMessageSourcePrefix(leader(), 0, info, undefined, "why?", "topic:99feed00", "u4")).toMatch(
+      /\[user thread: "The Rocq proof eval, explained"; about \[The Rocq proof eval, explained\]\(artifact:c0a3178d\); started from q-12\] $/,
+    );
+  });
+
   it("names the thread and where it started by address once threads are numbered", () => {
     // Leaders read and write threads by their short address (`t-17`), so the tag uses it too.
     rememberThreadNumbers([

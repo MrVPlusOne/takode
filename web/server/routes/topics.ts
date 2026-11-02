@@ -267,12 +267,18 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       const startedFrom = typeof body.startedFrom === "string" ? body.startedFrom.trim().toLowerCase() : "";
       // The leader opening one itself, for a proposal or question that has no thread yet.
       const byLeader = caller(c) === leaderId;
+      // Started from an artifact's view: the thread is about that artifact.
+      const artifact =
+        body.artifact && typeof body.artifact.id === "string" && typeof body.artifact.title === "string"
+          ? { id: body.artifact.id, title: body.artifact.title }
+          : undefined;
       const thread = svc.store.startThread({
         space,
         name: body.name,
         leaderId,
         ...(byLeader ? { startedBy: "leader" as const } : {}),
         ...(startedFrom ? { startedFrom } : {}),
+        ...(artifact ? { artifact } : {}),
         ...(typeof body.firstMessage === "string" ? { firstMessage: body.firstMessage } : {}),
       });
       if (typeof body.topic !== "string" || !body.topic.trim()) return { thread };

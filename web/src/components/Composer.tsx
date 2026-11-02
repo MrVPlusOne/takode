@@ -113,7 +113,10 @@ export function Composer({
   draftKey: draftKeyProp,
   secondary = false,
   autoFocus = false,
+  placeholder: placeholderProp,
 }: {
+  /** Says what the message box is for, in place of the usual placeholder (an artifact's questions). */
+  placeholder?: string;
   /** Takes focus when it opens (a new side chat's message box, opened to be typed in). */
   autoFocus?: boolean;
   sessionId: string;
@@ -1564,17 +1567,19 @@ export function Composer({
   useEffect(() => setSendNotice(null), [text, images, annotations, sendBlockReason]);
   const isVoiceInteractionActive = isPreparing || isRecording || isTranscribing;
   const hasActiveReplyContext = !!replyContext;
-  const placeholder = buildComposerPlaceholder({
-    isCodex,
-    isLeaderSession: sessionView.isLeaderSession,
-    threadKey,
-    topicName,
-    newThread: !!newThread,
-    usesTouchKeyboard,
-    isNarrowLayout,
-    pendingAskUserPerm,
-    pendingPlanPerm,
-  });
+  const placeholder =
+    placeholderProp ??
+    buildComposerPlaceholder({
+      isCodex,
+      isLeaderSession: sessionView.isLeaderSession,
+      threadKey,
+      topicName,
+      newThread: !!newThread,
+      usesTouchKeyboard,
+      isNarrowLayout,
+      pendingAskUserPerm,
+      pendingPlanPerm,
+    });
 
   // Active voice/comment editors remain usable even after the textarea loses focus.
   // The send squish plays on the expanded composer's button, so the composer stays open until it ends.

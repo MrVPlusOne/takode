@@ -23,11 +23,14 @@ const EMPTY_STATE: Omit<TextSelectionState, "clear" | "dismiss"> = {
   position: null,
 };
 
-/** Walk up from a node to find the nearest ancestor with a `data-message-id` attribute. */
+/**
+ * Walk up from a node to find the nearest message: an ancestor with a `data-message-id` attribute,
+ * or a Library artifact shown on its own (`data-annotation-artifact`), which stands in for one.
+ */
 function findMessageAncestor(node: Node | null): HTMLElement | null {
   let current: Node | null = node;
   while (current) {
-    if (current instanceof HTMLElement && current.dataset.messageId) {
+    if (current instanceof HTMLElement && (current.dataset.messageId || current.dataset.annotationArtifact)) {
       return current;
     }
     current = current.parentNode;

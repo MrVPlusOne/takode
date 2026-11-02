@@ -19,6 +19,14 @@ function sourceElement(sessionId: string, messageId: string, threadKey: string):
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+/** The view of a Library artifact on screen, when exactly one shows it. */
+export function artifactElement(artifactId: string): HTMLElement | undefined {
+  const matches = Array.from(document.querySelectorAll<HTMLElement>("[data-annotation-artifact]")).filter(
+    (node) => (JSON.parse(node.dataset.annotationArtifact ?? "{}") as { id?: string }).id === artifactId,
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 function sourcePosition(source: HTMLElement, annotation: ConversationAnnotation) {
   const range = resolveAnnotationRange(source, annotation);
   const feed = source.closest<HTMLElement>("[data-feed-session-id]");
@@ -66,8 +74,13 @@ export function useAnnotationSourceNavigation(sessionId: string, threadKey: stri
       request.current = controller;
       const store = useStore.getState();
       const sourceId = annotation.sourceMessageId;
-      const source = sourceId ? sourceElement(sessionId, sourceId, threadKey) : undefined;
-      if (source?.closest("[data-annotation-preview-session]")) {
+      // A comment on a Library artifact points at the artifact's view, when it is on screen.
+      const source = annotation.artifact
+        ? artifactElement(annotation.artifact.id)
+        : sourceId
+          ? sourceElement(sessionId, sourceId, threadKey)
+          : undefined;
+      if (source?.closest("[data-annotation-preview-session], [data-annotation-artifact]")) {
         store.setAnnotationEditor({
           sessionId,
           draftKey,

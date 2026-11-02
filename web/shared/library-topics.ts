@@ -51,6 +51,12 @@ export interface TopicThreadRef {
  * not a topic. It is listed in its leader's Threads menu, active until you read its last answer,
  * can start quests and be filed under a topic (it follows its first quest's topic).
  */
+/** The artifact a thread is about: its ID, and its title when the thread started. */
+export interface ThreadArtifact {
+  id: string;
+  title: string;
+}
+
 export interface ThreadSummary {
   id: string;
   /** Its thread key: `topic:<handle>` (threads share the topic-thread plumbing). */
@@ -65,6 +71,11 @@ export interface ThreadSummary {
   startedBy?: "leader";
   /** The quest or thread it was started from (`q-12`, `topic:<handle>`); none from Main. */
   startedFrom?: string;
+  /**
+   * The Library artifact it is about: started from that artifact's view, where it shows under the
+   * artifact and gets the comments made there.
+   */
+  artifact?: ThreadArtifact;
   /** The topic it is filed under, once it is. */
   topic?: { id: string; name: string };
   createdAt: number;

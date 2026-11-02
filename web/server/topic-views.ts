@@ -28,6 +28,8 @@ export interface TopicViewSource {
       joinedInto?: string;
       /** The leader opened it itself. */
       byLeader?: boolean;
+      /** The Library artifact it is about. */
+      artifact?: { id: string; title: string };
     };
   } | null;
   /** The handles of threads joined onto a thread: their messages read in its conversation. */
@@ -85,7 +87,13 @@ export function topicOfViewForLeader(
   name: string;
   questIds: string[];
   more: number;
-  thread?: { handle: string; startedFrom?: string; topicName?: string; byLeader?: boolean };
+  thread?: {
+    handle: string;
+    startedFrom?: string;
+    topicName?: string;
+    byLeader?: boolean;
+    artifact?: { id: string; title: string };
+  };
 } | null {
   const handle = threadKey ? topicIdOfViewKey(threadKey) : null;
   const topic = handle && source ? source.topicOf(handle) : null;
@@ -103,6 +111,7 @@ export function topicOfViewForLeader(
             ...(topic.thread.startedFrom ? { startedFrom: topic.thread.startedFrom } : {}),
             ...(under ? { topicName: under.name } : {}),
             ...(topic.thread.byLeader ? { byLeader: true } : {}),
+            ...(topic.thread.artifact ? { artifact: topic.thread.artifact } : {}),
           },
         }
       : {}),

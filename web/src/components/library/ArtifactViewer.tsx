@@ -17,11 +17,14 @@ import { newWindowClickLabel, openArtifactWindow, openInMainWindow } from "../..
 import { closeSecondaryPage } from "../../utils/secondary-view.js";
 import { ArtifactVersionLoader, StarIcon } from "../ArtifactInline.js";
 import { MarkdownContent } from "../MarkdownContent.js";
+import { ArtifactConversation, ArtifactSideChatButton } from "./ArtifactConversation.js";
 
 /**
  * One artifact shown large, in the Library or in a leader's side column: its newest version (or the
  * one linked or stepped to), each version's date, a star, renaming, its short ID with Copy link (for
- * mentioning it to a leader), its topic, and a link to the message the version came from.
+ * mentioning it to a leader), its topic, and a link to the message the version came from. A leader's
+ * artifact has a side chat with that leader about it (`ArtifactConversation`), opened from its
+ * button or by commenting on its text.
  */
 export function ArtifactViewer({
   id,
@@ -141,6 +144,7 @@ export function ArtifactViewer({
               </button>
             </form>
           )}
+          {version.kept && <ArtifactSideChatButton detail={detail} version={version.n} />}
           <button
             type="button"
             onClick={() => void artifactApi.setStarred(detail.id, !detail.starred).then(update)}
@@ -221,8 +225,8 @@ export function ArtifactViewer({
           <IdChip detail={detail} version={detail.versions.length > 1 ? version.n : undefined} />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-        {version.kept ? (
+      {version.kept ? (
+        <ArtifactConversation detail={detail} version={version.n}>
           <ArtifactVersionLoader
             id={detail.id}
             version={version.n}
@@ -238,15 +242,16 @@ export function ArtifactViewer({
                 sessionId={source.sessionId}
                 fileBasePath={options?.fileBasePath}
                 sectionJumpList={options?.sectionJumpList}
+                enableChatSelectionMenu
               />
             )}
           />
-        ) : (
-          <p className="py-2 text-[13px] text-cc-muted">
-            Only the newest version of a figure is kept. This one appeared {new Date(version.at).toLocaleString()}.
-          </p>
-        )}
-      </div>
+        </ArtifactConversation>
+      ) : (
+        <p className="px-4 py-2 text-[13px] text-cc-muted">
+          Only the newest version of a figure is kept. This one appeared {new Date(version.at).toLocaleString()}.
+        </p>
+      )}
     </ViewerFrame>
   );
 }

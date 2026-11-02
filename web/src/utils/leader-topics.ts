@@ -198,6 +198,19 @@ function threadDestination(thread: ThreadSummary): string | null {
   return thread.quest ?? thread.joinedInto ?? null;
 }
 
+/**
+ * The conversation of the thread about a Library artifact, started from its view with a leader: its
+ * key, or the conversation it became (a quest's thread, or an earlier thread it was joined onto);
+ * null while there is none. Loads the leader's threads while `enabled`.
+ */
+export function useArtifactThread(leaderId: string, artifactId: string, enabled: boolean): string | null {
+  useLeaderThreads(leaderId, enabled);
+  const threads = useLeaderThreadsStore((state) => state.byLeader[leaderId] ?? EMPTY_THREADS);
+  // The newest, should there be several (two devices starting one at once).
+  const thread = threads.find((candidate) => candidate.artifact?.id === artifactId);
+  return thread ? (threadDestination(thread) ?? thread.key) : null;
+}
+
 /** A leader's threads changed on the server: reloads them when this browser has them. */
 export function reloadLeaderThreads(leaderId: string): void {
   if (!useLeaderThreadsStore.getState().byLeader[leaderId]) return;

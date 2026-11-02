@@ -1,3 +1,5 @@
+import { formatArtifactLink } from "./artifact-library.js";
+
 /**
  * A saved user comment paired with the exact text selected from a conversation. The comment is
  * empty for a passage taken along without one (Ask in new thread): the message asks about it.
@@ -10,6 +12,8 @@ export interface ConversationAnnotation {
   reportSource?: import("./markdown-report.js").MarkdownReportSource;
   /** The slide of a slide deck the comment is on. */
   slide?: AnnotationSlide;
+  /** The Library artifact the comment is on, when made in its artifact view rather than a message. */
+  artifact?: AnnotationArtifact;
   /** Rendered-text offsets within one source Markdown scope; text verifies the anchor after remounts. */
   sourceAnchor?: { scopeIndex: number; start: number; end: number; text: string };
 }
@@ -20,6 +24,13 @@ export interface AnnotationSlide {
   title: string;
   /** Set when the comment is on the slide as a whole; `selectedText` then just names the slide. */
   whole?: boolean;
+}
+
+/** A comment's artifact: which one and which version, and its title for the agent to read. */
+export interface AnnotationArtifact {
+  id: string;
+  version: number;
+  title: string;
 }
 
 /** The original composer payload when annotations accompany a question answer. */
@@ -81,6 +92,18 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
     ) {
       throw new Error("Invalid annotation slide.");
     }
+    const artifact = entry.artifact;
+    if (
+      artifact !== undefined &&
+      (!artifact ||
+        typeof artifact.id !== "string" ||
+        !artifact.id ||
+        !Number.isSafeInteger(artifact.version) ||
+        artifact.version < 1 ||
+        typeof artifact.title !== "string")
+    ) {
+      throw new Error("Invalid annotation artifact.");
+    }
     if (
       anchor !== undefined &&
       (!anchor ||
@@ -112,6 +135,7 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
       ...(slide
         ? { slide: { number: slide.number, title: slide.title, ...(slide.whole ? { whole: true } : {}) } }
         : {}),
+      ...(artifact ? { artifact: { id: artifact.id, version: artifact.version, title: artifact.title } } : {}),
       ...(entry.sourceMessageId !== undefined ? { sourceMessageId: entry.sourceMessageId } : {}),
       ...(anchor
         ? { sourceAnchor: { scopeIndex: anchor.scopeIndex, start: anchor.start, end: anchor.end, text: anchor.text } }
@@ -148,8 +172,18 @@ export function formatAnnotatedMessage(content: string, annotations?: readonly C
   return content.trim() ? `${comments}\n\n---\n${content}` : comments;
 }
 
-/** What a comment is on, as the agent reads it (a report, or one slide of a deck), and a key telling targets apart. */
+/**
+ * What a comment is on, as the agent reads it (a report, one slide of a deck, or a Library artifact
+ * by its title and link), and a key telling targets apart.
+ */
 function annotationTarget(annotation: ConversationAnnotation | undefined): { text: string; key: string } | null {
+  const artifact = annotation?.artifact;
+  if (artifact) {
+    return {
+      text: formatArtifactLink(artifact.title, artifact.id, artifact.version),
+      key: JSON.stringify(["artifact", artifact.id, artifact.version]),
+    };
+  }
   const report = annotation?.reportSource;
   if (!report) return null;
   const slide = annotation.slide;

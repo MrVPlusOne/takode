@@ -55,6 +55,18 @@ describe("annotation passage identity", () => {
     });
   });
 
+  it("names the artifact of a passage selected in a Library artifact view, which has no message", () => {
+    // The artifact view stands in for a message: the comment carries the artifact and its anchor,
+    // and no message ID (there is no message to jump to).
+    const artifact = { id: "c0a3178d-6b34", version: 1, title: "Rocq eval" };
+    document.body.innerHTML = `<div data-annotation-artifact='${JSON.stringify(artifact)}'><div data-chat-selection-scope="true">The <b>point</b>.</div></div>`;
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector("b")!);
+    const captured = captureAnnotationSource(range);
+    expect(captured).toEqual({ artifact, sourceAnchor: { scopeIndex: 0, start: 4, end: 9, text: "point" } });
+    expect(captured).not.toHaveProperty("sourceMessageId");
+  });
+
   it("anchors a whole scope spanning formatted inline nodes", () => {
     const root = source();
     const scope = root.querySelector("[data-chat-selection-scope]")!;

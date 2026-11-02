@@ -449,6 +449,25 @@ describe("topic routes", () => {
     expect(own.topics[0]).toMatchObject({ name: "T7 run", threads: [{ name: "Quick question" }] });
   });
 
+  it("starts a thread about a Library artifact, which its thread list and the leader's tag name", async () => {
+    // Questions asked from an artifact's view go to a thread tied to that artifact: the view finds
+    // it again in the leader's thread list, and the leader is told which artifact it is about.
+    const { app, store, send } = await setup();
+    store.enableLeader("leader");
+    const artifact = { id: "c0a3178d-6b34-436f-9c7b-640c4510a376", title: "The Rocq proof eval, explained" };
+    const { thread } = await (
+      await send("/topics/threads", "POST", { leader: "leader", name: artifact.title, startedFrom: "q-2", artifact })
+    ).json();
+    expect(thread).toMatchObject({ startedFrom: "q-2", artifact });
+    const [listed] = (await (await app.request("/topics/threads?leader=leader")).json()).threads;
+    expect(listed.artifact).toEqual(artifact);
+    // A malformed artifact is left out rather than stored.
+    const plain = (
+      await (await send("/topics/threads", "POST", { leader: "leader", name: "x", artifact: { id: 1 } })).json()
+    ).thread;
+    expect(plain.artifact).toBeUndefined();
+  });
+
   // Jiayi: a leader's proposals and questions with no home went to Main, so they showed up in
   // whatever topic was on screen. A leader opens a thread for them instead, filed under a topic.
   it("lets a leader open a thread of its own, filed under a topic, and leaves none behind for an unknown topic", async () => {

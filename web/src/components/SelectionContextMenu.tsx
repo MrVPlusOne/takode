@@ -10,11 +10,19 @@ import { useLeaderNavigation } from "../utils/top-bar-slots.js";
 import { newSideChat, openInSide } from "../utils/side-column.js";
 import { newSideChatDraftKey } from "./side-column/NewSideChat.js";
 import { useComposerTarget } from "./composer-target.js";
+import type { AnnotationEditorState } from "../types.js";
 
 interface SelectionContextMenuProps {
   selection: TextSelectionState;
   sessionId: string;
   onClose: () => void;
+  /** Offer "Ask in new thread" (a leader's passage); off where the passage already has its own thread. */
+  allowNewThread?: boolean;
+  /**
+   * Opens the comment editor, where the default (opening it at once) won't do: a view whose message
+   * box isn't on screen yet shows it first.
+   */
+  onComment?: (editor: AnnotationEditorState) => void;
 }
 
 export function formatSelectedTextAsBlockquote(text: string): string | null {
@@ -32,12 +40,18 @@ export function formatSelectedTextAsBlockquote(text: string): string | null {
  * Offers a comment attachment editor and a "Copy" submenu
  * with four formats: rich text, for Slack, Markdown and plain text.
  */
-export function SelectionContextMenu({ selection, sessionId, onClose }: SelectionContextMenuProps) {
+export function SelectionContextMenu({
+  selection,
+  sessionId,
+  onClose,
+  allowNewThread = true,
+  onComment,
+}: SelectionContextMenuProps) {
   // The comment goes to the composer of the conversation the passage is in (main or side).
   const draftKey = useComposerTarget(sessionId);
   const handleComment = useCallback(() => {
     if (!selection.plainText.trim()) return;
-    useStore.getState().setAnnotationEditor({
+    const editor: AnnotationEditorState = {
       sessionId,
       draftKey,
       annotation: {
@@ -47,10 +61,12 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
         ...captureAnnotationSource(selection.range),
       },
       ...(selection.position ? { position: selection.position } : {}),
-    });
+    };
+    if (onComment) onComment(editor);
+    else useStore.getState().setAnnotationEditor(editor);
     selection.clear();
     onClose();
-  }, [selection, sessionId, draftKey, onClose]);
+  }, [selection, sessionId, draftKey, onClose, onComment]);
 
   const handleCopyRichText = useCallback(() => {
     if (!selection.range) return;
@@ -93,7 +109,7 @@ export function SelectionContextMenu({ selection, sessionId, onClose }: Selectio
   }, [selection, onClose]);
 
   // A leader can take the passage to a new thread about it instead of this thread.
-  const canStartThread = useLeaderNavigation(sessionId);
+  const canStartThread = useLeaderNavigation(sessionId) && allowNewThread;
   const handleAskInSideChat = useCallback(() => {
     if (!selection.plainText.trim()) return;
     // The new thread is with this passage's leader, whichever view or pane the passage is in.
