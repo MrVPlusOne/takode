@@ -34,6 +34,7 @@ vi.mock("../../utils/leader-topics.js", () => ({ useKnownThreadOfKey: () => null
 vi.mock("../library/TopicConversation.js", () => ({ useStandaloneTopicConversation: () => null }));
 
 import { SideConversation } from "./SideConversation.js";
+import { getSideViews } from "../../utils/side-views.js";
 
 afterEach(() => {
   cleanup();
@@ -101,5 +102,22 @@ describe("SideConversation", () => {
       await act(async () => vi.advanceTimersByTime(5_000));
       expect(markDone).not.toHaveBeenCalled();
     });
+  });
+
+  it("tells the server it shows its thread while mounted, wherever it is", () => {
+    // Live messages of a thread reach a browser only for the views it shows. An artifact's side chat
+    // (outside the side column) didn't say so, and its first message stayed "Sending..." while
+    // the leader answered unseen. Each mounted conversation now registers itself.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ quests: [] }))),
+    );
+    const first = render(<SideConversation leaderId="l9" threadKey="topic:CAFE0001" />);
+    const second = render(<SideConversation leaderId="l9" threadKey="q-4" />);
+    expect(getSideViews("l9")).toEqual(["q-4", "topic:cafe0001"]);
+    first.unmount();
+    expect(getSideViews("l9")).toEqual(["q-4"]);
+    second.unmount();
+    expect(getSideViews("l9")).toEqual([]);
   });
 });

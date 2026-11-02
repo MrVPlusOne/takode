@@ -1,7 +1,7 @@
 import { sideComposerDraftKey } from "../../draft-sync-bridge.js";
 import { api } from "../../api.js";
 import type { SessionAttentionRecord } from "../../types.js";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { useStore } from "../../store.js";
 import { sendToSession } from "../../ws.js";
 import { latestThreadWindowRequest } from "../../utils/latest-thread-window-request.js";
@@ -19,6 +19,7 @@ import { StartedQuestsProvider } from "../QuestForkLinks.js";
 import { navigateToSessionThread } from "../../utils/routing.js";
 import { openInSide, wantsSideClick } from "../../utils/side-column.js";
 import { useChatFocused, useChatFocusId } from "../../utils/chat-focus.js";
+import { setSideViewsOf } from "../../utils/side-views.js";
 
 const NO_ATTENTION_RECORDS: readonly SessionAttentionRecord[] = [];
 
@@ -64,6 +65,14 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
   useEffect(() => {
     const held = useStore.getState().threadWindows.get(leaderId)?.get(key);
     if (held && !held.has_newer_items) sendToSession(leaderId, latestThreadWindowRequest(leaderId, key, false));
+  }, [key, leaderId]);
+  // The server sends a browser the live messages of the views it shows: this conversation is one of
+  // them while it is mounted, wherever it is (the side column, an artifact's side chat). Told before
+  // its feed asks for its window, so nothing written in between is missed.
+  useLayoutEffect(() => {
+    const owner = {};
+    setSideViewsOf(leaderId, owner, [key]);
+    return () => setSideViewsOf(leaderId, owner, []);
   }, [key, leaderId]);
   const questId = /^q-\d+$/.test(key) ? key : undefined;
   const draftKey = sideComposerDraftKey(leaderId, key);

@@ -7,8 +7,6 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-const setSideViewsOf = vi.hoisted(() => vi.fn());
-vi.mock("../../utils/side-views.js", () => ({ setSideViewsOf, getSideViews: () => [] }));
 const held = vi.hoisted(() => ({ count: new Map<string, number>(), holds: 0 }));
 const sendToSession = vi.hoisted(() => vi.fn(() => true));
 vi.mock("../../ws.js", () => ({
@@ -87,7 +85,6 @@ import { focusedChat, MAIN_CHAT, sideChatId, useChatFocusStore } from "../../uti
 
 afterEach(() => {
   cleanup();
-  setSideViewsOf.mockClear();
   sendToSession.mockClear();
   useStore.setState({ threadWindows: new Map(), threadWindowMessages: new Map() } as never);
   useSideColumnStore.setState({
@@ -357,23 +354,6 @@ describe("SideColumn", () => {
     useStore.setState({ sdkSessions: [] } as never);
   });
 
-  it("tells the server which conversations it shows, and forgets them when it goes", () => {
-    const view = render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
-    let id = "";
-    act(() => {
-      id = openInSide({ kind: "conversation", threadKey: "topic:aaaa0001", leaderId: "l1" });
-      openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
-    });
-    expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), ["topic:aaaa0001"]);
-    act(() => closeSideItem(id));
-    expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), []);
-    act(() => {
-      openInSide({ kind: "conversation", threadKey: "q-5", leaderId: "l1" });
-    });
-    view.unmount();
-    expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), []);
-  });
-
   it("keeps at most three conversations open, and a folded one unmounted, unsubscribed and disconnected", () => {
     // Jiayi (Nov 1): every open conversation costs a mounted feed, live messages and its leader's
     // connection. A fourth folds the oldest, which then costs nothing until it is opened again.
@@ -386,14 +366,12 @@ describe("SideColumn", () => {
     });
     const mounted = () => screen.queryAllByTestId("mock-conversation").map((element) => element.textContent);
     expect(mounted().sort()).toEqual(["q-2", "q-3", "topic:bbbb0001"]);
-    expect(setSideViewsOf).toHaveBeenLastCalledWith("l1", expect.any(Object), ["q-3", "q-2"]);
     expect(held.count.get("l2")).toBe(1);
-    // Folding l2's conversation drops its leader's live messages and connection too.
+    // Folding l2's conversation unmounts it (dropping its live messages) and its leader's connection.
     const holdsBefore = held.holds;
     const l2Row = rows().find((row) => row.textContent?.includes("topic:bbbb0001"))!;
     fireEvent.click(within(l2Row).getByRole("button", { expanded: true }));
     expect(mounted().sort()).toEqual(["q-2", "q-3"]);
-    expect(setSideViewsOf.mock.calls.filter(([leader]) => leader === "l2").at(-1)?.[2]).toEqual([]);
     expect(held.count.get("l2")).toBe(0);
     // l1 keeps the hold it had: taking it again would have reconnected it.
     expect(held.holds).toBe(holdsBefore);
@@ -580,8 +558,6 @@ describe("SideColumn", () => {
     });
     expect(within(openBodies()[0]!).getByTestId("mock-conversation").dataset.leader).toBe("l2");
     expect(within(rows()[0]!).getByTestId("side-item-leader").getAttribute("title")).toBe("With #2 Takode");
-    // The server sends its live messages over l2's connection, as one of l2's side views.
-    expect(setSideViewsOf).toHaveBeenCalledWith("l2", expect.any(Object), ["topic:bbbb0001"]);
     // It reads over l2's connection, which the column keeps open while it holds an l2 item.
     expect(held.count.get("l2")).toBe(1);
     // Moving it out opens it in l2's own view.

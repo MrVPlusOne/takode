@@ -1,5 +1,4 @@
 import { Activity, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { setSideViewsOf } from "../../utils/side-views.js";
 import { holdSessionConnection } from "../../ws.js";
 import { useRememberedFolds } from "../../utils/remembered-folds.js";
 import { SectionEdge, useSectionHeights } from "../StackedPanes.js";
@@ -186,25 +185,6 @@ export function SideColumn({
       held.clear();
     };
   }, []);
-  // The server sends this browser the live messages of the column's open conversations too, each
-  // over its leader's connection; a folded one's stop until it is opened again.
-  const conversationViews = items
-    .flatMap((item) =>
-      item.kind === "conversation" && isOpen(item.id) ? [`${item.leaderId} ${item.threadKey.toLowerCase()}`] : [],
-    )
-    .join(",");
-  useEffect(() => {
-    const owner = {};
-    const byLeader = new Map<string, string[]>();
-    for (const view of conversationViews ? conversationViews.split(",") : []) {
-      const [viewLeader, key] = view.split(" ");
-      byLeader.set(viewLeader!, [...(byLeader.get(viewLeader!) ?? []), key!]);
-    }
-    for (const [viewLeader, keys] of byLeader) setSideViewsOf(viewLeader, owner, keys);
-    return () => {
-      for (const viewLeader of byLeader.keys()) setSideViewsOf(viewLeader, owner, []);
-    };
-  }, [conversationViews]);
 
   /**
    * One section: its header row (sticky while its body scrolls past), then, while open, its body at
