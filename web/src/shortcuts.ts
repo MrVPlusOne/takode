@@ -74,6 +74,8 @@ export interface ShortcutRuntime {
   goToNextAttentionInSession?: (sessionId: string) => void;
   /** Open the next item in the top bar's attention list, across all sessions. */
   goToNextAttentionGlobal?: () => void;
+  /** Sends the input trace to the server log; false while the trace is off. */
+  reportInputGlitch?: () => boolean;
 }
 
 type ShortcutBindingMap = Record<ShortcutActionId, ShortcutBinding | null>;
@@ -92,6 +94,7 @@ const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>([
   "next_session",
   "next_attention",
   "next_attention_global",
+  "report_input_glitch",
 ]);
 const TAP_BINDING_PREFIX = "Tap:";
 const DOUBLE_TAP_BINDING_PREFIX = "DoubleTap:";
@@ -156,6 +159,12 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
     label: "Stop Voice Recording",
     description: "Finish the active voice recording and transcribe it.",
   },
+  {
+    id: "report_input_glitch",
+    label: "Report Input Glitch",
+    description:
+      "Send the last hour of input activity to the server log right after a key press or paste went wrong. Works only while the input trace is on in Settings > Diagnostics.",
+  },
 ];
 
 export const SHORTCUT_PRESET_OPTIONS: ShortcutPresetOption[] = [
@@ -188,6 +197,7 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     new_session: "Mod+N",
     voice_start: "DoubleTap:Shift",
     voice_stop: "Tap:Shift",
+    report_input_glitch: null,
   },
   "vscode-light": {
     search_session: "Mod+F",
@@ -200,6 +210,7 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     new_session: "Mod+N",
     voice_start: "DoubleTap:Shift",
     voice_stop: "Tap:Shift",
+    report_input_glitch: null,
   },
   "vim-light": {
     search_session: "Alt+/",
@@ -212,6 +223,7 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     new_session: "Alt+N",
     voice_start: "DoubleTap:Shift",
     voice_stop: "Tap:Shift",
+    report_input_glitch: null,
   },
 };
 
@@ -799,6 +811,8 @@ export function performShortcutAction(actionId: ShortcutActionId, runtime: Short
       if (!runtime.goToNextAttentionGlobal) return false;
       runtime.goToNextAttentionGlobal();
       return true;
+    case "report_input_glitch":
+      return runtime.reportInputGlitch?.() ?? false;
     case "new_session":
       runtime.openNewSessionModal(
         resolveShortcutNewSessionContext(

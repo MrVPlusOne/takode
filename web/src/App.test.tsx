@@ -30,6 +30,7 @@ interface MockStoreState {
     preset: "standard" | "vscode-light" | "vim-light";
     overrides: Record<string, string | null>;
   };
+  diagnostics: { inputTrace: boolean };
   sdkSessions: Array<{
     sessionId: string;
     createdAt: number;
@@ -120,6 +121,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     askPermission: new Map(),
     diffFileStats: new Map(),
     shortcutSettings: { enabled: false, preset: "standard", overrides: {} },
+    diagnostics: { inputTrace: false },
     sdkSessions: [{ sessionId: "s1", createdAt: 1, archived: false, cwd: "/repo/s1", backendType: "claude" }],
     treeGroups: [{ id: "default", name: "Default" }],
     treeAssignments: new Map(),

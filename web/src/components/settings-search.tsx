@@ -18,7 +18,8 @@ export type SettingsSectionId =
   | "cli"
   | "performance"
   | "hosts"
-  | "server";
+  | "server"
+  | "diagnostics";
 
 export type SettingsSectionMeta = {
   id: SettingsSectionId;
@@ -323,6 +324,19 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       {
         id: "restart",
         text: "Restart Server process reconnect sessions interrupt restart blockers pending permission checkout branch behind update code fast-forward pull latest install dependencies frozen lockfile update the checkout before restarting",
+      },
+    ],
+  },
+  {
+    id: "diagnostics",
+    title: "Diagnostics",
+    description: "Recordings that help developers find bugs. Each one is off until you turn it on.",
+    aliases: ["telemetry", "debug", "bug report", "developer"],
+    items: [
+      {
+        id: "input-trace",
+        text: "Input trace record key presses paste focus composer message box glitch report input glitch lost keystroke Cmd+V",
+        aliases: ["keyboard", "paste"],
       },
     ],
   },

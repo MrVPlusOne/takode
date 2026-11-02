@@ -17,6 +17,8 @@ import type {
   LeaderProfilePortrait,
 } from "../shared/leader-profile-portraits.js";
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
+import type { DiagnosticsSettings } from "../shared/diagnostics-settings.js";
+import type { InputTraceReport } from "../shared/input-trace.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import type { SessionActivityPreview } from "../server/session-activity-preview.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
@@ -670,6 +672,8 @@ export interface AppSettings {
   serverTimeZoneDefault: string;
   /** Whether Restart Server first brings a production server's checkout up to date, stopping when it cannot. */
   restartUpdatesCheckout: boolean;
+  /** Development diagnostics turned on in Settings; missing on servers from before diagnostics. */
+  diagnostics?: DiagnosticsSettings;
   pushoverConfigured: boolean;
   pushoverEnabled: boolean;
   pushoverEventFilters?: PushoverEventFilters;
@@ -1369,6 +1373,7 @@ export const api = {
     serverSlug?: string;
     serverTimeZone?: string;
     restartUpdatesCheckout?: boolean;
+    diagnostics?: DiagnosticsSettings;
     pushoverUserKey?: string;
     pushoverApiToken?: string;
     pushoverDelaySeconds?: number;
@@ -1419,6 +1424,8 @@ export const api = {
     del<{ ok: boolean; subscriptionCount: number }>("/web-push/subscriptions", { endpoint }),
   testWebPush: (endpoint: string) => post<{ ok: boolean }>("/web-push/test", { endpoint }),
   reportUserActivity: () => post<{ ok: boolean }>("/user-activity"),
+  reportInputTrace: (report: InputTraceReport) =>
+    post<{ ok: boolean; eventCount: number }>("/diagnostics/input-trace", report),
   getCaffeinateStatus: () =>
     get<{ active: boolean; engagedAt: number | null; expiresAt: number | null }>("/caffeinate-status"),
 

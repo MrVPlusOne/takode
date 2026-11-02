@@ -122,6 +122,7 @@ export function isDarkTheme(theme: ColorTheme): boolean {
 import { scopedGetItem, scopedSetItem, scopedRemoveItem, setLocalStorageItem } from "./utils/scoped-storage.js";
 import { forgetReceivedLists } from "./utils/synced-lists.js";
 import { DEFAULT_SEND_KEY_SCHEME } from "../shared/send-key-scheme.js";
+import { DEFAULT_DIAGNOSTICS_SETTINGS } from "../shared/diagnostics-settings.js";
 import { DEFAULT_REMIND_LATER_UNIT } from "../shared/remind-later-unit.js";
 import {
   DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS,
@@ -275,6 +276,7 @@ export const useStore = create<AppState>((set, get) => ({
     typeof window !== "undefined" ? localStorage.getItem("cc-compact-tool-activity") !== "false" : true,
   chatMessageLineHeight: getInitialChatMessageLineHeight(),
   sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
+  diagnostics: DEFAULT_DIAGNOSTICS_SETTINGS,
   remindLaterUnit: DEFAULT_REMIND_LATER_UNIT,
   shortcutSettings: getInitialShortcutSettings(),
   sidebarOpen: typeof window !== "undefined" ? isDesktopShellLayout(getInitialZoomLevel()) : true,
@@ -443,6 +445,14 @@ export const useStore = create<AppState>((set, get) => ({
     api.updateSettings({ sendKeyScheme: scheme }).catch((err) => {
       console.warn("[send-key] failed to persist send key scheme", err);
       if (get().sendKeyScheme === scheme) set({ sendKeyScheme: previous });
+    });
+  },
+  setDiagnostics: (diagnostics) => {
+    const previous = get().diagnostics;
+    set({ diagnostics });
+    api.updateSettings({ diagnostics }).catch((err) => {
+      console.warn("[diagnostics] failed to persist diagnostics settings", err);
+      if (get().diagnostics === diagnostics) set({ diagnostics: previous });
     });
   },
   setShortcutsEnabled: (enabled) =>
@@ -1792,6 +1802,7 @@ export const useStore = create<AppState>((set, get) => ({
         typeof window !== "undefined" ? localStorage.getItem("cc-compact-tool-activity") !== "false" : true,
       chatMessageLineHeight: getInitialChatMessageLineHeight(),
       sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
+      diagnostics: DEFAULT_DIAGNOSTICS_SETTINGS,
       remindLaterUnit: DEFAULT_REMIND_LATER_UNIT,
       shortcutSettings: DEFAULT_SHORTCUT_SETTINGS,
       annotationEditor: null,

@@ -993,6 +993,34 @@ describe("PUT /api/settings", () => {
     expect(settingsManager.updateSettings).not.toHaveBeenCalled();
   });
 
+  it("saves diagnostics settings, which stay off unless turned on, and rejects non-objects", async () => {
+    // Diagnostics are opt-in developer recordings: only an explicit true turns one on.
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      diagnostics: { inputTrace: true },
+    });
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ diagnostics: { inputTrace: true, unknown: true } }),
+    });
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ diagnostics: { inputTrace: true } }),
+    );
+    expect((await res.json()).diagnostics).toEqual({ inputTrace: true });
+
+    vi.mocked(settingsManager.updateSettings).mockClear();
+    const invalid = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ diagnostics: true }),
+    });
+    expect(invalid.status).toBe(400);
+    expect((await invalid.json()).error).toBe("diagnostics must be an object");
+    expect(settingsManager.updateSettings).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for a server time zone that is not an IANA zone", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",

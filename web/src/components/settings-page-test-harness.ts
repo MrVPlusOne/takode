@@ -24,6 +24,7 @@ export interface MockStoreState {
   compactToolActivity: boolean;
   chatMessageLineHeight: number;
   sendKeyScheme: "enter" | "mod-enter";
+  diagnostics: { inputTrace: boolean };
   shortcutSettings: {
     enabled: boolean;
     preset: "standard" | "vscode-light" | "vim-light";
@@ -47,6 +48,7 @@ export interface MockStoreState {
   toggleCompactToolActivity: ReturnType<typeof vi.fn>;
   setChatMessageLineHeight: ReturnType<typeof vi.fn>;
   setSendKeyScheme: ReturnType<typeof vi.fn>;
+  setDiagnostics: ReturnType<typeof vi.fn>;
   setShortcutsEnabled: ReturnType<typeof vi.fn>;
   setTypeToCompose: ReturnType<typeof vi.fn>;
   setShortcutPreset: ReturnType<typeof vi.fn>;
@@ -69,6 +71,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     compactToolActivity: true,
     chatMessageLineHeight: 1.45,
     sendKeyScheme: "enter",
+    diagnostics: { inputTrace: false },
     shortcutSettings: {
       enabled: false,
       preset: "standard",
@@ -87,6 +90,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     toggleCompactToolActivity: vi.fn(),
     setChatMessageLineHeight: vi.fn(),
     setSendKeyScheme: vi.fn(),
+    setDiagnostics: vi.fn(),
     setShortcutsEnabled: vi.fn(),
     setTypeToCompose: vi.fn(),
     setShortcutPreset: vi.fn(),

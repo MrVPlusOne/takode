@@ -460,6 +460,43 @@ describe("shortcuts", () => {
     expect(nextAction).toBe("next_session");
   });
 
+  it("reports an input glitch only through a recorded key, even while typing, and only while the trace records", () => {
+    // Report Input Glitch has no preset key, and it must work from the composer where glitches happen.
+    for (const preset of ["standard", "vscode-light", "vim-light"] as const) {
+      expect(
+        getEffectiveShortcutBinding(
+          { enabled: true, preset, typeToCompose: true, openInSideModifier: "shift", overrides: {} },
+          "report_input_glitch",
+        ),
+      ).toBeNull();
+    }
+    expect(isAppGlobalShortcutAction("report_input_glitch")).toBe(true);
+
+    const runtime = {
+      secondaryPage: null,
+      currentSessionId: "s1",
+      currentSessionCwd: "/repo",
+      terminalCwd: null,
+      activeTab: "chat" as const,
+      isSearchOpen: false,
+      sessions: [{ sessionId: "s1", createdAt: 1 }],
+      openSearch: vi.fn(),
+      closeSearch: vi.fn(),
+      lastNewSessionContext: null,
+      openNewSessionModal: vi.fn(),
+      openTerminal: vi.fn(),
+      toggleSidebar: vi.fn(),
+      setActiveTab: vi.fn(),
+      navigateTo: vi.fn(),
+      navigateToSession: vi.fn(),
+      navigateToMostRecentSession: vi.fn().mockReturnValue(true),
+      closeSecondaryPage: vi.fn(),
+    };
+    // While the trace is off the key stays unhandled, so it reaches the page as usual.
+    expect(performShortcutAction("report_input_glitch", { ...runtime, reportInputGlitch: () => false })).toBe(false);
+    expect(performShortcutAction("report_input_glitch", { ...runtime, reportInputGlitch: () => true })).toBe(true);
+  });
+
   it("runs the sidebar toggle action", () => {
     const toggleSidebar = vi.fn();
 

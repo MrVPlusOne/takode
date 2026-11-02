@@ -36,6 +36,11 @@ import {
 import { normalizeGptTranscribeLanguageHints } from "../shared/transcription-language-hints.js";
 import { DEFAULT_SCRIBE_CONTEXT_LIMIT_TOKENS, normalizeScribeContextLimit } from "../shared/scribe-context-limit.js";
 import {
+  DEFAULT_DIAGNOSTICS_SETTINGS,
+  parseDiagnosticsSettings,
+  type DiagnosticsSettings,
+} from "../shared/diagnostics-settings.js";
+import {
   DEFAULT_CODEX_LEADER_COMPACTION_MODE,
   normalizeCodexLeaderCompactionMode,
   type CodexLeaderCompactionMode,
@@ -68,6 +73,8 @@ export interface CompanionSettings {
    * cannot (default: true). Optional for backward-compatible tests/mocks.
    */
   restartUpdatesCheckout?: boolean;
+  /** Development diagnostics the user turned on in Settings; all off by default. */
+  diagnostics?: DiagnosticsSettings;
   /** Pushover user key for push notifications */
   pushoverUserKey: string;
   /** Pushover API/app token */
@@ -252,6 +259,7 @@ let settings: CompanionSettings = {
   serverSlug: "",
   serverTimeZone: "",
   restartUpdatesCheckout: true,
+  diagnostics: { ...DEFAULT_DIAGNOSTICS_SETTINGS },
   pushoverUserKey: "",
   pushoverApiToken: "",
   pushoverDelaySeconds: 30,
@@ -527,6 +535,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     serverSlug: serverSlug && isValidServerSlug(serverSlug) ? serverSlug : "",
     serverTimeZone: typeof raw?.serverTimeZone === "string" ? (canonicalTimeZone(raw.serverTimeZone) ?? "") : "",
     restartUpdatesCheckout: typeof raw?.restartUpdatesCheckout === "boolean" ? raw.restartUpdatesCheckout : true,
+    diagnostics: parseDiagnosticsSettings(raw?.diagnostics),
     pushoverUserKey: typeof raw?.pushoverUserKey === "string" ? raw.pushoverUserKey : "",
     pushoverApiToken: typeof raw?.pushoverApiToken === "string" ? raw.pushoverApiToken : "",
     pushoverDelaySeconds:
@@ -729,6 +738,7 @@ export function updateSettings(
       | "serverSlug"
       | "serverTimeZone"
       | "restartUpdatesCheckout"
+      | "diagnostics"
     >
   >,
 ): CompanionSettings {
@@ -750,6 +760,7 @@ export function updateSettings(
   if (defined.sessionDefaults) {
     defined.sessionDefaults = normalizeSessionDefaults(defined.sessionDefaults);
   }
+  if (defined.diagnostics) defined.diagnostics = parseDiagnosticsSettings(defined.diagnostics);
   if (defined.workerSlotLimits) {
     defined.workerSlotLimits = normalizeWorkerSlotLimits(defined.workerSlotLimits);
   }

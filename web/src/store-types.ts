@@ -221,6 +221,8 @@ export interface AppState {
   compactToolActivity: boolean;
   chatMessageLineHeight: number;
   sendKeyScheme: import("../shared/send-key-scheme.js").SendKeyScheme;
+  /** Development diagnostics (Settings > Diagnostics), saved in the server's settings; all off by default. */
+  diagnostics: import("../shared/diagnostics-settings.js").DiagnosticsSettings;
   shortcutSettings: import("./shortcuts.js").ShortcutSettings;
   sidebarOpen: boolean;
   /** Desktop: whether the sessions panel stays open beside the chat; unlocked, it folds to its top row and drops down on hover. A local preference. */
@@ -284,6 +286,8 @@ export interface AppState {
   setChatMessageLineHeight: (lineHeight: number) => void;
   /** Apply the scheme locally and persist it server-side; reverts if the save fails. */
   setSendKeyScheme: (scheme: import("../shared/send-key-scheme.js").SendKeyScheme) => void;
+  /** Apply diagnostics settings locally and persist them server-side; reverts if the save fails. */
+  setDiagnostics: (diagnostics: import("../shared/diagnostics-settings.js").DiagnosticsSettings) => void;
   /** Remind me later's custom unit, the user's last choice, saved in the server's settings. */
   remindLaterUnit: import("../shared/remind-later-unit.js").RemindLaterUnit;
   setRemindLaterUnit: (unit: import("../shared/remind-later-unit.js").RemindLaterUnit) => void;

@@ -1,4 +1,5 @@
 import { isSidebarViewMode, normalizeSidebarViewMode } from "../../shared/sidebar-view-mode.js";
+import { parseDiagnosticsSettings } from "../../shared/diagnostics-settings.js";
 import { Hono, type Context } from "hono";
 import { exec as execCb } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -1063,6 +1064,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       serverTimeZoneInEffect: timeZoneInEffect(),
       serverTimeZoneDefault: serverDefaultTimeZone(),
       restartUpdatesCheckout: settings.restartUpdatesCheckout !== false,
+      diagnostics: parseDiagnosticsSettings(settings.diagnostics),
       pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
       pushoverEnabled: settings.pushoverEnabled,
       pushoverEventFilters: normalizePushoverEventFilters(settings.pushoverEventFilters),
@@ -1306,6 +1308,12 @@ export function createSettingsRoutes(ctx: RouteContext) {
       return c.json({ error: "restartUpdatesCheckout must be a boolean" }, 400);
     }
     if (
+      body.diagnostics !== undefined &&
+      (typeof body.diagnostics !== "object" || body.diagnostics === null || Array.isArray(body.diagnostics))
+    ) {
+      return c.json({ error: "diagnostics must be an object" }, 400);
+    }
+    if (
       body.sleepInhibitorDurationMinutes !== undefined &&
       (typeof body.sleepInhibitorDurationMinutes !== "number" ||
         body.sleepInhibitorDurationMinutes < 1 ||
@@ -1471,6 +1479,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "serverSlug",
       "serverTimeZone",
       "restartUpdatesCheckout",
+      "diagnostics",
       "pushoverUserKey",
       "pushoverApiToken",
       "pushoverDelaySeconds",
@@ -1533,6 +1542,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorEnabled: typeof body.sleepInhibitorEnabled === "boolean" ? body.sleepInhibitorEnabled : undefined,
       restartUpdatesCheckout:
         typeof body.restartUpdatesCheckout === "boolean" ? body.restartUpdatesCheckout : undefined,
+      diagnostics: body.diagnostics === undefined ? undefined : parseDiagnosticsSettings(body.diagnostics),
       sleepInhibitorDurationMinutes:
         typeof body.sleepInhibitorDurationMinutes === "number" ? body.sleepInhibitorDurationMinutes : undefined,
       sidebarViewMode: isSidebarViewMode(body.sidebarViewMode) ? body.sidebarViewMode : undefined,

@@ -302,6 +302,7 @@ describe("SettingsPage groups and search", () => {
       "Performance & Power",
       "Hosts",
       "Server & Login",
+      "Diagnostics",
     ]);
     for (const subsection of [
       "Leader Profile Pictures",

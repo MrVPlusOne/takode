@@ -125,6 +125,7 @@ import {
 } from "./utils/vscode-context.js";
 import { ensureVsCodeEditorPreference } from "./utils/vscode-bridge.js";
 import { startAlertWindowPresence } from "./utils/alert-window-presence.js";
+import { reportInputGlitch, useInputTraceRecorder } from "./utils/input-trace.js";
 import {
   SHORTCUT_DOUBLE_TAP_WINDOW_MS,
   getMatchingShortcutAction,
@@ -790,6 +791,7 @@ export default function App() {
         goToNextAttentionInSession: (sessionId) =>
           window.dispatchEvent(new CustomEvent(ATTENTION_NEXT_IN_SESSION_EVENT, { detail: { sessionId } })),
         goToNextAttentionGlobal: () => window.dispatchEvent(new Event(ATTENTION_NEXT_EVENT)),
+        reportInputGlitch,
       });
       if (!handled) return false;
       if (actionId !== "search_session") {
@@ -875,6 +877,7 @@ export default function App() {
   useEffect(() => {
     return installAppViewportSizing(window);
   }, []);
+  useInputTraceRecorder();
 
   // Capture the localStorage-restored session ID during render (before any effects run)
   // so the mount logic can use it even if the hash-sync branch would clear it.

@@ -668,3 +668,41 @@ describe("GET /api/logs", () => {
     }
   });
 });
+
+describe("POST /api/diagnostics/input-trace", () => {
+  it("writes a reported input trace to the server log, where the logs route finds it", async () => {
+    // "Report input glitch" sends the browser's trace; an agent reads it back with
+    // `takode logs --component input-trace`, so it must land under that component with its events.
+    const logDir = await mkdtemp(join(tmpdir(), "takode-route-input-trace-"));
+    try {
+      initServerLogger(3456, { logDir, captureConsole: false });
+      const events = [{ t: 1_000, type: "keydown", key: "Meta+v", target: "textarea.composer", outcome: "default" }];
+      const res = await app.request("/api/diagnostics/input-trace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportedAt: 2_000, recordingSince: 500, userAgent: "UA", platform: "MacIntel", events }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, eventCount: 1 });
+
+      const logs = await app.request("/api/logs?component=input-trace", {
+        headers: { "x-companion-client-ip": "127.0.0.1" },
+      });
+      const json = (await logs.json()) as { entries: Array<{ message: string; meta?: Record<string, unknown> }> };
+      expect(json.entries).toHaveLength(1);
+      expect(json.entries[0].message).toContain("Input glitch reported");
+      expect(json.entries[0].meta).toMatchObject({ reportedAt: 2_000, platform: "MacIntel", events });
+    } finally {
+      await rm(logDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a report without an events array", async () => {
+    const res = await app.request("/api/diagnostics/input-trace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ events: "none" }),
+    });
+    expect(res.status).toBe(400);
+  });
+});

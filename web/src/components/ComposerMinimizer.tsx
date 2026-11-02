@@ -1,5 +1,6 @@
 import { createContext, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { useComposerOverlayMeasurement } from "./ComposerFeedLayout.js";
+import { traceInputEvent } from "../utils/input-trace.js";
 
 export const ComposerVisibilityContext = createContext(true);
 
@@ -50,6 +51,13 @@ export function ComposerMinimizer({
     // Desktop focus may intentionally survive navigation; an unfocused destination starts compact.
     onExpandedChange(root.current?.contains(document.activeElement) ?? false);
   }, [destination, onExpandedChange]);
+
+  const tracedExpanded = useRef(expanded);
+  useEffect(() => {
+    if (tracedExpanded.current === expanded) return;
+    tracedExpanded.current = expanded;
+    traceInputEvent({ type: expanded ? "composer-expanded" : "composer-collapsed", detail: destination });
+  }, [destination, expanded]);
 
   useLayoutEffect(() => {
     if (expanded || !root.current?.contains(document.activeElement)) return;

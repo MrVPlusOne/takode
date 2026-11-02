@@ -17,6 +17,7 @@ export const SHORTCUT_ACTION_IDS = [
   "new_session",
   "voice_start",
   "voice_stop",
+  "report_input_glitch",
 ] as const;
 
 export type ShortcutActionId = (typeof SHORTCUT_ACTION_IDS)[number];

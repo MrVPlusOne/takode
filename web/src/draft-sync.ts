@@ -22,6 +22,7 @@ import {
   type LocalDraftTarget,
 } from "./draft-sync-bridge.js";
 import { useStore } from "./store.js";
+import { traceInputEvent } from "./utils/input-trace.js";
 import { scopedGetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
 import { toSyncedComposerDraft } from "./utils/synced-composer-draft.js";
 
@@ -208,6 +209,15 @@ function changeValue(change: SessionDraftChange): DraftValue {
 function applyChange(sessionId: string, slot: DraftSlot, change: SessionDraftChange): void {
   const value = changeValue(change);
   const state = useStore.getState();
+  if (change.kind === "composer" || change.kind === "side-composer") {
+    const draftKey = change.kind === "composer" ? sessionId : sideComposerDraftKey(sessionId, change.place);
+    traceInputEvent({
+      type: "draft-sync",
+      detail: draftKey,
+      before: state.composerDrafts.get(draftKey)?.text.length ?? 0,
+      after: change.draft?.text.length ?? 0,
+    });
+  }
   if (change.kind === "composer") state.applySyncedComposerDraft(sessionId, value as SyncedComposerDraft | null);
   else if (change.kind === "side-composer") {
     state.applySyncedComposerDraft(sideComposerDraftKey(sessionId, change.place), change.draft);

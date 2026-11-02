@@ -8,7 +8,8 @@ import {
   type LogQueryResponse,
   type ServerLogEntry,
 } from "../../shared/logging.js";
-import { queryServerLogs, subscribeToServerLogs } from "../server-logger.js";
+import { INPUT_TRACE_LOG_COMPONENT, INPUT_TRACE_MAX_EVENTS } from "../../shared/input-trace.js";
+import { createLogger, queryServerLogs, subscribeToServerLogs } from "../server-logger.js";
 import { COMPANION_CLIENT_IP_HEADER, isLoopbackAddress } from "./auth.js";
 import type { RouteContext } from "./context.js";
 
@@ -82,8 +83,32 @@ async function writeBufferedEntries(
   }
 }
 
+const inputTraceLog = createLogger(INPUT_TRACE_LOG_COMPONENT);
+
 export function createLogsRoutes(ctx: RouteContext) {
   const api = new Hono();
+
+  // "Report input glitch" (Settings > Diagnostics): the browser's input trace goes into the
+  // server log, where `takode logs --component input-trace --json` finds it.
+  api.post("/diagnostics/input-trace", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const events = body && typeof body === "object" ? (body as Record<string, unknown>).events : undefined;
+    if (!Array.isArray(events) || events.length > INPUT_TRACE_MAX_EVENTS) {
+      return c.json({ error: `events must be an array of at most ${INPUT_TRACE_MAX_EVENTS} entries` }, 400);
+    }
+    const field = (name: string) => (body as Record<string, unknown>)[name];
+    const text = (name: string) => (typeof field(name) === "string" ? (field(name) as string).slice(0, 500) : "");
+    const time = (name: string) => (typeof field(name) === "number" ? (field(name) as number) : null);
+    const reportedAt = time("reportedAt") ?? Date.now();
+    inputTraceLog.info(`Input glitch reported at ${new Date(reportedAt).toISOString()} (${events.length} events)`, {
+      reportedAt,
+      recordingSince: time("recordingSince"),
+      userAgent: text("userAgent"),
+      platform: text("platform"),
+      events,
+    });
+    return c.json({ ok: true, eventCount: events.length });
+  });
 
   api.get("/logs", async (c) => {
     const accessError = requireLogsAccess(c, ctx);

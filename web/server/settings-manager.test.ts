@@ -44,6 +44,7 @@ describe("settings-manager", () => {
       serverSlug: "local",
       serverTimeZone: "",
       restartUpdatesCheckout: true,
+      diagnostics: { inputTrace: false },
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -135,6 +136,18 @@ describe("settings-manager", () => {
     writeFileSync(settingsPath, JSON.stringify({ restartUpdatesCheckout: "no" }), "utf-8");
     _resetForTest(settingsPath);
     expect(getSettings().restartUpdatesCheckout).toBe(true);
+  });
+
+  it("keeps every diagnostic off unless the user turned it on", async () => {
+    // Diagnostics record developer data, so a missing or malformed value must never turn one on.
+    expect(getSettings().diagnostics).toEqual({ inputTrace: false });
+    expect(updateSettings({ diagnostics: { inputTrace: true } }).diagnostics).toEqual({ inputTrace: true });
+    await _flushForTest();
+    expect(JSON.parse(readFileSync(settingsPath, "utf-8")).diagnostics).toEqual({ inputTrace: true });
+
+    writeFileSync(settingsPath, JSON.stringify({ diagnostics: { inputTrace: "yes" } }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().diagnostics).toEqual({ inputTrace: false });
   });
 
   it("rejects invalid direct serverSlug updates", () => {
@@ -727,6 +740,7 @@ describe("settings-manager", () => {
       serverSlug: "local",
       serverTimeZone: "",
       restartUpdatesCheckout: true,
+      diagnostics: { inputTrace: false },
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,

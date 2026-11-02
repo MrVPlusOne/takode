@@ -79,6 +79,7 @@ import {
 } from "../../shared/session-defaults.js";
 import type { LeaderProfilePoolSettings } from "../../shared/leader-profile-portraits.js";
 import { SettingsPageHeader } from "./SettingsPageHeader.js";
+import { SettingsDiagnosticsSection } from "./SettingsDiagnosticsSection.js";
 import { SettingsSearchControls, SettingsSectionNav, useSettingsSearchNavigation } from "./settings-search.js";
 import { EDIT_BLOCKS_EXPANDED_KEY } from "./ToolBlock.js";
 import {
@@ -1186,6 +1187,11 @@ export function SettingsPage({
                 onRefreshCheckoutStatus={() => void loadCheckoutStatus(true)}
                 isRowHidden={(itemId) => settingsSearch.rowHidden("server", itemId)}
               />
+            </CollapsibleSection>
+
+            {/* ── Diagnostics ──────────────────────────────────────── */}
+            <CollapsibleSection {...settingsSearch.sectionProps("diagnostics")}>
+              <SettingsDiagnosticsSection isRowHidden={(itemId) => settingsSearch.rowHidden("diagnostics", itemId)} />
             </CollapsibleSection>
           </div>
         </div>
