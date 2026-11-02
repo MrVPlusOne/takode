@@ -393,7 +393,7 @@ function requestVisibleConversationWindow(
 }
 
 /** The thread the main view shows for the session, or null when another session is on screen. */
-function mainViewThreadKey(sessionId: string): string | null {
+export function mainViewThreadKey(sessionId: string): string | null {
   if (useStore.getState().currentSessionId !== sessionId) return null;
   if (!isLeaderSession(sessionId)) return MAIN_THREAD_KEY;
   return normalizeThreadKey(

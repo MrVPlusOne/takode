@@ -164,6 +164,19 @@ describe("thread windows sent as changes", () => {
     expect(request).toMatchObject({ thread_key: "q-1", activate_view: true });
     expect(request).not.toHaveProperty("cached_window_hash");
   });
+
+  it("asks again for a side pane's window without making it the server's main view", async () => {
+    // A side pane's thread is not the main view: asking with activate_view moved the server's
+    // live view to it, so the main view's own thread stopped getting its messages.
+    (await import("./utils/side-views.js")).setSideViewsOf("s1", {}, ["q-1"]);
+    const session = { id: "s1", messageHistory: [0, 1].map((index) => threadMessage(index)) };
+    const unseen = threadWindow(session);
+    session.messageHistory.push(threadMessage(2));
+    fire(threadWindow(session, unseen.window.window_hash));
+
+    const [request] = sent("thread_window_request");
+    expect(request).toMatchObject({ thread_key: "q-1", activate_view: false });
+  });
 });
 
 function boardRow(questId: string, title = questId): BoardRow {

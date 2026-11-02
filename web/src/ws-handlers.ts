@@ -1,4 +1,4 @@
-import { rememberTopicViewMembers } from "./utils/thread-projection.js";
+import { normalizeThreadKey, rememberTopicViewMembers } from "./utils/thread-projection.js";
 import { compactionMarkerLabel } from "../shared/compaction-marker.js";
 import { useStore } from "./store.js";
 import { api } from "./api.js";
@@ -41,7 +41,8 @@ import { isRootThinkingOnlyAssistantHistoryEntry } from "../shared/history-sync-
 import { isTerminalResultInterrupted } from "../shared/result-interruption.js";
 import { SESSION_DEFAULTS_UPDATED_EVENT } from "../shared/session-defaults.js";
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
-import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.js";
+import { applyThreadAttachmentUpdate, mainViewThreadKey } from "./thread-attachment-update-handler.js";
+import { getSideViews } from "./utils/side-views.js";
 import { noteStartedQuestsChanged } from "./api/started-quests.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
@@ -831,8 +832,15 @@ function requestUncachedThreadWindow(
     section_item_count: data.window.section_item_count,
     visible_item_count: data.window.visible_item_count,
     ...(data.window.target_message_id ? { target_message_id: data.window.target_message_id } : {}),
-    activate_view: true,
+    // Asked again for a side pane's thread, the window must not become the server's main view.
+    activate_view: !isSideOnlyThread(sessionId, data.window.thread_key),
   });
+}
+
+/** A thread shown only in the side column, not in the main view. */
+function isSideOnlyThread(sessionId: string, threadKey: string): boolean {
+  const key = normalizeThreadKey(threadKey);
+  return getSideViews(sessionId).includes(key) && mainViewThreadKey(sessionId) !== key;
 }
 
 function handleParsedMessage(

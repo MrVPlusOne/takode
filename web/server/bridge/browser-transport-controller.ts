@@ -1538,10 +1538,12 @@ export function broadcastToBrowsers(
   options?: { skipBuffer?: boolean },
 ): void {
   if (isLiveContentDelta(msg)) return;
+  // Before any projection copies the message: its history index is found by identity, and a
+  // copied reply (signed thinking stripped) went out without one, so browsers placed it as new.
+  msg = attachRecentHistoryIndex(session.messageHistory, msg);
   msg = projectBrowserMessage(msg);
   if (msg.type === "board_updated") msg = projectBoardUpdateForBrowsers(session, msg);
   msg = projectFeedAttentionUpdateForBrowsers(session, msg);
-  msg = attachRecentHistoryIndex(session.messageHistory, msg);
   msg = withMessageViewKeys(session, msg);
   if (session.browserSockets.size === 0 && msg.type === "result") {
     console.log(
