@@ -8,11 +8,12 @@
  * on a loopback port so agent CLIs here work unchanged.
  *
  * Usage:
- *   takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure] [--auto-update] [--shared-checkout]
+ *   takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure] [--no-auto-update] [--shared-checkout]
  *
  * It reports the Git commit of this machine's Takode checkout, so the
- * coordinator can show hosts that run another build. With `--auto-update`, the
- * coordinator also switches the checkout to its own commit: the node first
+ * coordinator can show hosts that run another build. Unless started with
+ * `--no-auto-update`, the node follows the coordinator's build: the
+ * coordinator switches the checkout to its own commit. The node first
  * makes sure it has that commit (fetching it from its remote, or taking the
  * Git objects from the coordinator when the commit was never pushed) and
  * refuses uncommitted changes, all before the coordinator stops its sessions;
@@ -45,6 +46,7 @@ import { HostAgent, insecureCoordinatorUrlProblem, startApiProxy } from "../serv
 import { readMachineName, saveMachineName } from "../server/machine-identity.js";
 import {
   NODE_RESTART_EXIT_CODE,
+  nodeAutoUpdates,
   prepareCheckoutForCommit,
   readCheckoutCommit,
   switchCheckoutToCommit,
@@ -61,7 +63,7 @@ import { crowdedDirectoryWarning } from "../shared/crowded-directories.js";
 
 const args = process.argv.slice(2);
 const USAGE =
-  "Usage: takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure] [--auto-update] [--shared-checkout]";
+  "Usage: takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure] [--no-auto-update] [--shared-checkout]";
 /** Set in the worker process an auto-updating node runs, so it does not supervise itself again. */
 const SUPERVISED_ENV = "TAKODE_NODE_SUPERVISED";
 
@@ -80,7 +82,8 @@ async function main(): Promise<void> {
     console.log(USAGE);
     return;
   }
-  const autoUpdate = args.includes("--auto-update");
+  const sharedCheckout = args.includes("--shared-checkout");
+  const autoUpdate = nodeAutoUpdates(args);
   if (autoUpdate && !process.env[SUPERVISED_ENV]) return supervise();
   const parentSessionWarning = parentClaudeSessionWarning(process.env);
   if (parentSessionWarning) console.warn(`[takode node] ${parentSessionWarning}`);
@@ -100,7 +103,6 @@ async function main(): Promise<void> {
   if (claude) commands.claude = claude;
   if (codex) commands.codex = codex;
 
-  const sharedCheckout = args.includes("--shared-checkout");
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   let agent: HostAgent | null = null;
   // Agent CLIs wait while the coordinator is away (e.g. restarting) instead of failing.
@@ -170,8 +172,17 @@ async function main(): Promise<void> {
   agent.start();
   console.log(
     `[takode node] Serving the coordinator API on 127.0.0.1:${proxy.port}; connecting to ${coordinatorUrl}` +
-      ` (Takode ${build ?? "build unknown"}${autoUpdate || sharedCheckout ? ", auto-update on" : ""})`,
+      ` (Takode ${build ?? "build unknown"}, auto-update ${autoUpdate || sharedCheckout ? "on" : "off"})`,
   );
+  if (!sharedCheckout) {
+    console.log(
+      autoUpdate
+        ? "[takode node] This node follows the coordinator's Takode build: when the coordinator runs another commit," +
+            " it switches this checkout to it, installs and restarts. Start it with --no-auto-update to update by hand."
+        : "[takode node] Auto-update is off (--no-auto-update): when the coordinator moves to another build," +
+            " update this checkout and restart the node yourself.",
+    );
+  }
 
   const shutdown = async () => {
     await agent?.stop();

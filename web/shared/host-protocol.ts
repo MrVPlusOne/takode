@@ -233,7 +233,7 @@ export type HostToCoordinator =
       build?: string;
       /**
        * Whether this host accepts `update`: the coordinator may switch it to the
-       * coordinator's own commit (`takode node --auto-update`).
+       * coordinator's own commit (`takode node` without `--no-auto-update`).
        */
       autoUpdate?: boolean;
       /**

@@ -91,7 +91,7 @@ are handled today and explain it to the user:
    the old machine's name; the export refuses until it has. Otherwise the new
    machine would stamp them with its own name.
 3. **A separate checkout for the new coordinator** on the new machine, not one
-   that a node's `--auto-update` moves or that workers port into, at the same
+   that a node's auto-update moves or that workers port into, at the same
    commit as the old machine's checkout, with a frozen install. Once the move
    is done, put it on the branch the coordinator follows, tracking its remote
    branch, so Restart Server loads what lands there (see "Updating Takode" in
@@ -215,10 +215,11 @@ follow it and stop on anything unexpected. Its outline:
 
    ```bash
    bun web/bin/takode-node.ts --coordinator http://127.0.0.1:4456 \
-     --token-file ~/.companion/hosts/<serverId>-node.token --auto-update
+     --token-file ~/.companion/hosts/<serverId>-node.token
    ```
 
-   Run it from a checkout of its own if it uses `--auto-update`.
+   It follows the coordinator's build, so run it from a checkout of its own
+   (or add `--no-auto-update` and update it by hand).
 
 ## Verify
 

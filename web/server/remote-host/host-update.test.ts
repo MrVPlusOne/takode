@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { HostAgent } from "./host-agent.js";
 import { HOST_UPDATE_SETTLE_MS, HostLinkManager } from "./host-link-manager.js";
 import { hostCanRestart, type BridgeTurnView } from "./host-restart-gate.js";
-import { readCheckoutCommit, switchCheckoutToCommit } from "./host-update.js";
+import { nodeAutoUpdates, readCheckoutCommit, switchCheckoutToCommit } from "./host-update.js";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
 
 const COORDINATOR_BUILD = "c".repeat(40);
@@ -346,5 +346,26 @@ describe("switchCheckoutToCommit", () => {
 
   it("reads no commit outside a Git checkout", async () => {
     expect(await readCheckoutCommit(root)).toBeNull();
+  });
+});
+
+/**
+ * A remote host's node follows the coordinator's build unless its owner opts out:
+ * hosts left on an old build because nobody passed `--auto-update` were the problem.
+ * The flag from older setup instructions still works, and this machine's own node
+ * (`--shared-checkout`) is never self-supervised, since its coordinator restarts it.
+ */
+describe("nodeAutoUpdates", () => {
+  const base = ["--coordinator", "http://127.0.0.1:13456", "--token-file", "/tmp/token"];
+
+  it("is on by default and with the old --auto-update flag", () => {
+    expect(nodeAutoUpdates(base)).toBe(true);
+    expect(nodeAutoUpdates([...base, "--auto-update"])).toBe(true);
+  });
+
+  it("is off with --no-auto-update and for the coordinator's own shared-checkout node", () => {
+    expect(nodeAutoUpdates([...base, "--no-auto-update"])).toBe(false);
+    expect(nodeAutoUpdates([...base, "--auto-update", "--no-auto-update"])).toBe(false);
+    expect(nodeAutoUpdates([...base, "--shared-checkout"])).toBe(false);
   });
 });

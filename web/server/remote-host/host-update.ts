@@ -9,6 +9,16 @@ const execFileAsync = promisify(execFile);
 /** Exit code with which a `takode node` worker asks its supervisor to start it again on the updated checkout. */
 export const NODE_RESTART_EXIT_CODE = 75;
 
+/**
+ * Whether a `takode node` started with these arguments lets its coordinator update it.
+ * It does unless its owner updates it by hand (`--no-auto-update`); `--auto-update`,
+ * which used to be required, is still accepted. This machine's own node
+ * (`--shared-checkout`) is restarted by its coordinator instead.
+ */
+export function nodeAutoUpdates(args: readonly string[]): boolean {
+  return !args.includes("--shared-checkout") && !args.includes("--no-auto-update");
+}
+
 const COMMIT = /^[0-9a-f]{40}$/;
 
 /**

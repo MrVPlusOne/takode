@@ -141,7 +141,8 @@ describe("SettingsHostsSection", () => {
     await waitFor(() => expect(screen.getAllByTestId("host-build-warning")).toHaveLength(3));
     const [manual, auto, broken] = screen.getAllByTestId("host-build-warning").map((node) => node.textContent);
     expect(manual).toContain("Runs Takode aaaaaaaa, this server runs bbbbbbbb");
-    expect(manual).toContain("--auto-update");
+    // A manual host is told to update and restart its node, which then follows this server by default.
+    expect(manual).toContain("Update takode on the host and restart takode node");
     expect(auto).toContain("It updates once its sessions finish their turns.");
     expect(broken).toContain("Auto-update failed: uncommitted changes");
     expect(screen.getByTestId("settings-hosts-list").textContent).toContain("Takode bbbbbbbb · auto-update on");

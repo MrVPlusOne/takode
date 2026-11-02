@@ -82,7 +82,7 @@ export interface HostLinkStatus {
   build: string | null;
   /** The host runs a different (or unknown) build than this coordinator. */
   buildMismatch: boolean;
-  /** The host lets this coordinator update it (`takode node --auto-update`). */
+  /** The host lets this coordinator update it (`takode node` without `--no-auto-update`). */
   autoUpdate: boolean;
   /** An update to this coordinator's commit was sent to the running host instance and has not failed. */
   updating: boolean;

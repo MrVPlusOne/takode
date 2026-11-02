@@ -288,7 +288,7 @@ tmux new -d -s takode-tunnel \
 
 # On the host
 tmux new -d -s takode-node \
-  'cd ~/takode && while true; do bun web/bin/takode-node.ts --coordinator http://127.0.0.1:13456 --token-file ~/.takode-host-token --auto-update; sleep 10; done'
+  'cd ~/takode && while true; do bun web/bin/takode-node.ts --coordinator http://127.0.0.1:13456 --token-file ~/.takode-host-token; sleep 10; done'
 ```
 
 What survives what:
@@ -376,8 +376,10 @@ The host's checkout should run the same commit as the coordinator. `takode
 host list` and **Settings → Hosts** show each host's commit and flag a
 host on another build.
 
-Start `takode node` with `--auto-update` to let the coordinator keep it in
-step. When the host runs another commit, the node first gets ready without
+`takode node` follows the coordinator's build by default; start it with
+`--no-auto-update` if you would rather update the host yourself (`--auto-update`,
+once required, is still accepted and changes nothing). When the host runs
+another commit, the node first gets ready without
 changing what it runs: it makes sure its checkout has the coordinator's commit,
 fetching it from the checkout's remote if needed. A commit the coordinator runs
 without having pushed it (a private fix, an experiment, a fork) comes from the
@@ -413,8 +415,9 @@ shares no history with the coordinator's. When the update happens:
 `takode host list` and **Settings → Hosts** say what a pending update is
 waiting for.
 
-Without `--auto-update`, update the host's checkout and restart `takode node`
-yourself whenever the coordinator is updated.
+With `--no-auto-update`, update the host's checkout and restart `takode node`
+yourself whenever the coordinator is updated. A node started before auto-update
+became the default turns it on at its next start.
 
 ## Your instructions and skills
 

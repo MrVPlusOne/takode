@@ -41,7 +41,7 @@ export interface RemoteHost {
   build: string | null;
   /** The host runs a different (or unknown) Takode build than this server. */
   buildMismatch: boolean;
-  /** The server may update the host to its own commit (`takode node --auto-update`). */
+  /** The server may update the host to its own commit (`takode node` does unless started with `--no-auto-update`). */
   autoUpdate: boolean;
   /** An update was sent to the host and it has not reported a failure. */
   updating: boolean;
@@ -121,7 +121,8 @@ export function hostBuildWarning(
   const mismatch = host.build
     ? `Runs Takode ${shortCommit(host.build)}, this server runs ${serverBuild ? shortCommit(serverBuild) : "another build"}.`
     : "Its Takode build is unknown (an older takode node, or not a Git checkout).";
-  if (!host.autoUpdate) return `${mismatch} Update takode on the host, or start it with --auto-update.`;
+  if (!host.autoUpdate)
+    return `${mismatch} Update takode on the host and restart takode node; it then follows this server unless started with --no-auto-update.`;
   if (host.updateError) return `${mismatch} Auto-update failed: ${host.updateError}`;
   if (host.updating) return `${mismatch} Updating now.`;
   if (host.updateWaitingFor) return `${mismatch} It updates once ${host.updateWaitingFor}.`;

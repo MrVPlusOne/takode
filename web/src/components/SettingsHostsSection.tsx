@@ -155,9 +155,9 @@ export function SettingsHostsSection() {
             Replace &lt;address&gt; with one that reaches this server's host port {added.hostPort}, not the page's port:
             for example http://127.0.0.1:13456 through a tunnel such as ssh -R 13456:127.0.0.1:{added.hostPort}{" "}
             &lt;host&gt;, or an https address that leads there. Addresses other than the host's own loopback need https.
-            Add --auto-update to let this server switch the host's checkout to its own commit, with a frozen install and
-            restart, whenever none of the host's sessions is in a turn. A machine that already has a name from another
-            Takode setup keeps it.
+            The node follows this server's build: it switches the host's checkout to this server's commit, with a frozen
+            install and restart, whenever none of the host's sessions is in a turn. Add --no-auto-update to update it by
+            hand instead. A machine that already has a name from another Takode setup keeps it.
           </p>
           <button
             type="button"
