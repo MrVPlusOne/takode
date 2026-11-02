@@ -2,7 +2,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useFeedPinnedTop } from "./feed-pinned-top.js";
+import { feedScrollStyle, useFeedPinnedTop } from "./feed-pinned-top.js";
 
 /**
  * A pinned quest strip covered the Next chip at the feed's top right. The feed's overlay now
@@ -74,5 +74,19 @@ describe("useFeedPinnedTop", () => {
       screen.getByTestId("container").dispatchEvent(new Event("scroll"));
     });
     expect(screen.getByTestId("overlay").style.getPropertyValue("--feed-pinned-bar")).toBe("44px");
+  });
+});
+
+describe("feedScrollStyle", () => {
+  it("passes the room kept for quest chips to sticky bars, which cancel the padding to pin flush", () => {
+    // Jiayi (Nov 1): a report's collapse bar stuck one line below the feed's top in a quest
+    // thread, its text scrolling through the gap: its offset cancelled the usual padding, not the
+    // larger room kept for the chips. Sticky bars now read the padding from `--feed-top-pad`.
+    expect(feedScrollStyle(0)).toEqual({ overscrollBehavior: "contain" });
+    expect(feedScrollStyle(42)).toEqual({
+      overscrollBehavior: "contain",
+      paddingTop: 42,
+      "--feed-top-pad": "42px",
+    });
   });
 });

@@ -12,12 +12,13 @@ import { useQuestRecord } from "./QuestSummaryCard.js";
 
 /**
  * The pinned strip's wrapper. Sticky offsets are measured inside the feed's top padding (py-4,
- * sm:py-6), so they cancel it. The space above it is a margin, not padding: a stuck sticky box
+ * sm:py-6, or `--feed-top-pad` where the feed keeps more room), so they cancel it. The space above it is a margin, not padding: a stuck sticky box
  * ignores its margin, so the strip keeps its distance from the message above while scrolling and no
  * empty band shows above it once pinned. z-30 keeps it above bubbles, cards and their own sticky
  * bars as they scroll by.
  */
-const STRIP_WRAPPER = "sticky -top-4 z-30 sm:-top-6 mt-2 bg-cc-bg pb-1";
+const STRIP_WRAPPER =
+  "sticky top-[calc(0px-var(--feed-top-pad,1rem))] z-30 sm:top-[calc(0px-var(--feed-top-pad,1.5rem))] mt-2 bg-cc-bg pb-1";
 
 /**
  * A leader's Main names the quest each request went to with the topic conversation's design

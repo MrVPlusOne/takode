@@ -29,6 +29,18 @@ export function useFeedPinnedTop(
   };
 }
 
+/**
+ * The feed scroller's style: with `topRoom` (px) kept above its first content for the quest chips,
+ * that is its top padding, and `--feed-top-pad` tells sticky bars (a report's collapse bar, Main's
+ * quest strip), which cancel the padding to pin flush with the feed's top edge.
+ */
+export function feedScrollStyle(topRoom: number): CSSProperties {
+  return {
+    overscrollBehavior: "contain",
+    ...(topRoom > 0 ? ({ paddingTop: topRoom, "--feed-top-pad": `${topRoom}px` } as CSSProperties) : {}),
+  };
+}
+
 /** Main's quest strips. */
 const STRIP_SELECTOR = '[data-feed-quest-strip="true"]';
 

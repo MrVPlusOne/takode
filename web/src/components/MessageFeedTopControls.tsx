@@ -75,7 +75,12 @@ export function MessageFeedTopControls({
       onTopRoomChange(0);
       return;
     }
-    const report = () => onTopRoomChange(overlay.offsetTop + row.offsetHeight + TOP_ROOM_GAP_PX);
+    // Measured without a pinned report bar the controls moved below: that is room while scrolling
+    // through a report, not at the feed's top.
+    const report = () => {
+      const bar = Number.parseFloat(getComputedStyle(overlay).getPropertyValue("--feed-pinned-bar")) || 0;
+      onTopRoomChange(overlay.offsetTop - bar + row.offsetHeight + TOP_ROOM_GAP_PX);
+    };
     report();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(report);

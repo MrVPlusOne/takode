@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { CSSProperties } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionState } from "../types.js";
@@ -240,6 +241,40 @@ describe("MessageFeedTopControls", () => {
     // Without chips the feed keeps its usual top padding.
     view.rerender(<MessageFeedTopControls {...props} />);
     expect(onTopRoomChange).toHaveBeenLastCalledWith(0);
+    vi.restoreAllMocks();
+  });
+
+  it("leaves a pinned report bar out of the room it asks for", () => {
+    // While a report's collapse bar is pinned the controls move below it (`--feed-pinned-bar`).
+    // That is room while reading the report, not at the feed's top: counting it would change the
+    // feed's top padding, and with it where the bar pins (Jiayi, Nov 1: a gap above the bar).
+    installSession(false);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(30);
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockReturnValue(4 + 26);
+    // The bar's height reaches the overlay as an inherited custom property, which jsdom doesn't
+    // compute: the browser's value is stubbed.
+    const computed = window.getComputedStyle;
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      const style = computed(element);
+      return { ...style, getPropertyValue: (name: string) => (name === "--feed-pinned-bar" ? "26px" : "") } as never;
+    });
+    const onTopRoomChange = vi.fn();
+    render(
+      <div style={{ "--feed-pinned-bar": "26px" } as CSSProperties}>
+        <MessageFeedTopControls
+          sessionId="session-1"
+          terminals={[]}
+          subagents={[]}
+          selectedToolUseId={null}
+          onSelect={vi.fn()}
+          onSelectSubagent={vi.fn()}
+          onDismissSubagent={vi.fn()}
+          onTopRoomChange={onTopRoomChange}
+          questChips={<span>Work</span>}
+        />
+      </div>,
+    );
+    expect(onTopRoomChange).toHaveBeenLastCalledWith(4 + 30 + 8);
     vi.restoreAllMocks();
   });
 

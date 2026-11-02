@@ -102,7 +102,7 @@ import {
   SectionBoundaryControl,
 } from "./MessageFeedNavigationControls.js";
 import { resolveThreadResponses } from "./thread-response-presentation.js";
-import { useFeedPinnedTop } from "./feed-pinned-top.js";
+import { feedScrollStyle, useFeedPinnedTop } from "./feed-pinned-top.js";
 import { AnswerReferencesContext, useAllThreadsAnswerReferences } from "./answer-references.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
@@ -1867,7 +1867,7 @@ export function MessageFeed({
           data-feed-has-newer={hasNewerSections ? "true" : undefined}
           className="message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
           // Quest chips float at the top: the feed starts below them, so its first line stays clear.
-          style={{ overscrollBehavior: "contain", ...(topRoom > 0 ? { paddingTop: topRoom } : {}) }}
+          style={feedScrollStyle(topRoom)}
         >
           <FeedNotificationProvider sessionId={sessionId} notifications={feedMessageModel.displayNotifications}>
             <PawTrailProvider scopeKey={`${sessionId}:${normalizedThreadKey}`} showNewestPaw={!hasNewerSections}>

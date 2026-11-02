@@ -63,13 +63,14 @@ export function ReportCard({
       {overflows && expanded && (
         // An expanded report can run many screens, so its collapse control stays
         // pinned to the top of the feed while any part of the report is in view.
-        // Sticky offsets start inside the feed's vertical padding (py-4 sm:py-6),
-        // so the negative top reaches the feed's visible top edge; in a topic
-        // conversation it pins under the quest strip (`--feed-pinned-top`). The
-        // feed's top controls move below it while it is pinned (`useFeedPinnedTop`).
+        // Sticky offsets start inside the feed's top padding (py-4 sm:py-6, or the
+        // room kept for a quest's chips, `--feed-top-pad`), so the negative top
+        // reaches the feed's visible top edge; in a topic conversation it pins
+        // under the quest strip (`--feed-pinned-top`). The feed's top controls
+        // move below it while it is pinned (`useFeedPinnedTop`).
         <div
           data-feed-pinned-bar=""
-          className="sticky top-[calc(var(--feed-pinned-top,0px)-1rem)] sm:top-[calc(var(--feed-pinned-top,0px)-1.5rem)] z-10 -mx-3 -mt-2.5 mb-1 flex items-center gap-2 rounded-t-lg border-b border-cc-border bg-cc-card px-3 py-0.5"
+          className="sticky top-[calc(var(--feed-pinned-top,0px)-var(--feed-top-pad,1rem))] sm:top-[calc(var(--feed-pinned-top,0px)-var(--feed-top-pad,1.5rem))] z-10 -mx-3 -mt-2.5 mb-1 flex items-center gap-2 rounded-t-lg border-b border-cc-border bg-cc-card px-3 py-0.5"
         >
           <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-cc-fg" title={title}>
             {title}
