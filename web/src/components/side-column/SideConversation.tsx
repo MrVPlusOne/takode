@@ -1,10 +1,13 @@
 import { sideComposerDraftKey } from "../../draft-sync-bridge.js";
 import { api } from "../../api.js";
+import type { SessionAttentionRecord } from "../../types.js";
 import { useEffect } from "react";
 import { useStore } from "../../store.js";
 import { sendToSession } from "../../ws.js";
 import { latestThreadWindowRequest } from "../../utils/latest-thread-window-request.js";
 import { useUnreadMessagesSeen } from "../../hooks/use-unread-messages-seen.js";
+import { useThreadReadOnScreen } from "../../hooks/use-thread-read-on-screen.js";
+import { leaderResultsThreadKey, useThreadResultsRead } from "../../hooks/use-thread-results-read.js";
 import { useKnownThreadOfKey } from "../../utils/leader-topics.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { ComposerFeedLayout } from "../ComposerFeedLayout.js";
@@ -16,6 +19,8 @@ import { StartedQuestsProvider } from "../QuestForkLinks.js";
 import { navigateToSessionThread } from "../../utils/routing.js";
 import { openInSide, wantsSideClick } from "../../utils/side-column.js";
 import { useChatFocused, useChatFocusId } from "../../utils/chat-focus.js";
+
+const NO_ATTENTION_RECORDS: readonly SessionAttentionRecord[] = [];
 
 /**
  * A leader's conversation in the side column: a thread or a quest's thread, with its own message box
@@ -35,6 +40,18 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
     enabled: true,
     focused,
     onSeen: (notificationId) => void api.markNotificationDone(leaderId, notificationId, true).catch(console.error),
+  });
+  // The thread's other results (a finished quest's, one an agent sent) read as in the main view once
+  // the pane is the focused chat for a moment; they have no answer to dwell on, and without this
+  // the pane's "N new" stayed lit however long it was used.
+  const resultsOnScreen = useThreadReadOnScreen(`${leaderId}:${key}`, focused);
+  useThreadResultsRead({
+    sessionId: leaderId,
+    threadKey: leaderResultsThreadKey(key),
+    notifications,
+    attentionRecords: NO_ATTENTION_RECORDS,
+    readWhenSeen: true,
+    onScreen: resultsOnScreen,
   });
   // A thread opened from this pane opens in it, in place of this conversation; the open-in-side
   // click opens it in the main view.

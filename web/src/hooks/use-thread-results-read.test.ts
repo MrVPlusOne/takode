@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionNotification } from "../types.js";
-import { reviewNotificationIdsForSelectedThread } from "./ChatView.js";
+import { reviewNotificationIdsForSelectedThread } from "./use-thread-results-read.js";
 
 function threadReadyNotification(overrides: Partial<SessionNotification> = {}): SessionNotification {
   return {

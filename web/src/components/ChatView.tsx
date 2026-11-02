@@ -53,7 +53,6 @@ import {
   mergeLeaderThreadSummaries,
 } from "../../shared/leader-projection.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
-import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import {
   markLeaderThreadDisplayed,
   noteThreadMerged,
@@ -63,16 +62,13 @@ import {
 } from "../utils/thread-viewport.js";
 import { ViewportHandoffThreadEntryGate } from "./ViewportHandoffEntryGate.js";
 import { useThreadReadOnScreen } from "../hooks/use-thread-read-on-screen.js";
-import { readsWhenSeen, useUnreadMessagesSeen } from "../hooks/use-unread-messages-seen.js";
+import { useUnreadMessagesSeen } from "../hooks/use-unread-messages-seen.js";
+import { leaderResultsThreadKey, useThreadResultsRead } from "../hooks/use-thread-results-read.js";
 import { MessageFeedUnreadAbove } from "./MessageFeedUnreadAbove.js";
 import { createViewportHandoffEntryId, noteViewportSelectionActivity } from "../utils/viewport-handoff-client.js";
 import { resolveInitialLeaderThreadKey } from "../utils/initial-leader-thread.js";
 import { applyCanonicalQuestTitles, buildCanonicalQuestTitleIndex } from "../utils/quest-title-index.js";
-import {
-  buildAttentionRecords,
-  isAttentionRecordActive,
-  parseQuestIdsFromReviewSummary,
-} from "../utils/attention-records.js";
+import { buildAttentionRecords } from "../utils/attention-records.js";
 import {
   beginThreadNavigationTiming,
   markColdReplayFlushCommitted,
@@ -107,7 +103,6 @@ import type {
   QuestTitlePreview,
   QuestmasterTask,
   SessionAttentionRecord,
-  SessionNotification,
   SessionState,
   SideChatRecord,
 } from "../types.js";
@@ -124,45 +119,6 @@ const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const EMPTY_SIDE_CHATS: Record<string, SideChatRecord> = {};
 const EMPTY_QUEST_DETAILS = new Map<string, QuestmasterTask>();
 const EMPTY_QUEST_TITLE_PREVIEWS = new Map<string, QuestTitlePreview | null>();
-
-export function reviewNotificationIdsForSelectedThread(
-  notifications: ReadonlyArray<SessionNotification> | undefined,
-  attentionRecords: ReadonlyArray<SessionAttentionRecord>,
-  selectedThreadKey: string,
-  /** A leader's answers and reports are read when seen (`useUnreadMessagesSeen`), not here. */
-  readWhenSeen = false,
-): string[] {
-  const selected = normalizeThreadKey(selectedThreadKey || MAIN_THREAD_KEY);
-  if (selected === ALL_THREADS_KEY) return [];
-
-  const effectiveThreadsByNotificationId = new Map<string, Set<string>>();
-  for (const record of attentionRecords) {
-    if (record.priority !== "review" || record.source.kind !== "notification" || !record.source.id) continue;
-    if (!isAttentionRecordActive(record)) continue;
-    const threadKey = normalizeThreadKey(record.route.threadKey || record.threadKey);
-    const threads = effectiveThreadsByNotificationId.get(record.source.id) ?? new Set<string>();
-    threads.add(threadKey);
-    effectiveThreadsByNotificationId.set(record.source.id, threads);
-  }
-
-  const ids: string[] = [];
-  for (const notification of notifications ?? []) {
-    if (notification.done || notification.category !== "review") continue;
-    if (readWhenSeen && readsWhenSeen(notification)) continue;
-    const parsedMultiQuestThreads = parseQuestIdsFromReviewSummary(notification.summary);
-    const effectiveThreads =
-      parsedMultiQuestThreads.length > 1
-        ? new Set(parsedMultiQuestThreads.map((threadKey) => normalizeThreadKey(threadKey)))
-        : effectiveThreadsByNotificationId.get(notification.id);
-    if (
-      effectiveThreads ? !effectiveThreads.has(selected) : resolveNotificationOwnerThreadKey(notification) !== selected
-    ) {
-      continue;
-    }
-    ids.push(notification.id);
-  }
-  return ids;
-}
 
 type LiveConnectionStatusBannerProps = {
   status:
@@ -794,32 +750,18 @@ export function ChatView({
   );
   // The thread whose results this view shows: a leader's Home shows none of Main's messages, its
   // leader log shows them.
-  const readThreadKey = !isLeaderSession
-    ? MAIN_THREAD_KEY
-    : !leaderNav
-      ? selectedThreadKey
-      : normalizeThreadKey(selectedThreadKey) === ALL_THREADS_KEY
-        ? MAIN_THREAD_KEY
-        : normalizeThreadKey(selectedThreadKey) === MAIN_THREAD_KEY
-          ? null
-          : selectedThreadKey;
-  const reviewNotificationIdsToClear = useMemo(
-    () =>
-      selectedThreadReadOnScreen && readThreadKey
-        ? reviewNotificationIdsForSelectedThread(
-            sessionNotifications,
-            reviewAttentionRecords,
-            readThreadKey,
-            isLeaderSession,
-          )
-        : [],
-    [isLeaderSession, readThreadKey, reviewAttentionRecords, selectedThreadReadOnScreen, sessionNotifications],
-  );
-  useEffect(() => {
-    for (const notificationId of reviewNotificationIdsToClear) {
-      api.markNotificationDone(sessionId, notificationId, true).catch(console.error);
-    }
-  }, [reviewNotificationIdsToClear, sessionId]);
+  useThreadResultsRead({
+    sessionId,
+    threadKey: !isLeaderSession
+      ? MAIN_THREAD_KEY
+      : !leaderNav
+        ? selectedThreadKey
+        : leaderResultsThreadKey(selectedThreadKey),
+    notifications: sessionNotifications,
+    attentionRecords: reviewAttentionRecords,
+    readWhenSeen: isLeaderSession,
+    onScreen: selectedThreadReadOnScreen,
+  });
   const selectedThreadRow = useMemo(() => {
     const normalizedThreadKey = normalizeThreadKey(selectedThreadKey);
     const existing = navigationThreadRows.find((row) => row.threadKey === normalizedThreadKey);

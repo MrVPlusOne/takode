@@ -3,10 +3,14 @@
  * A conversation in the side column reads like the main view: a request there that moved into a
  * quest says where it continues, so its feed gets the leader's started quests as the main feed does.
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { useContext } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StartedQuestsContext } from "../QuestForkLinks.js";
+import { api } from "../../api.js";
+import { useStore } from "../../store.js";
+import type { SessionNotification } from "../../types.js";
+import { ChatFocusContext, MAIN_CHAT, useChatFocusStore } from "../../utils/chat-focus.js";
 
 vi.mock("../MessageFeed.js", () => ({
   MessageFeed: () => {
@@ -22,7 +26,10 @@ vi.mock("../MessageFeed.js", () => ({
   },
 }));
 vi.mock("../Composer.js", () => ({ Composer: () => null }));
-vi.mock("../../hooks/use-unread-messages-seen.js", () => ({ useUnreadMessagesSeen: () => {} }));
+vi.mock("../../hooks/use-unread-messages-seen.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../hooks/use-unread-messages-seen.js")>()),
+  useUnreadMessagesSeen: () => {},
+}));
 vi.mock("../../utils/leader-topics.js", () => ({ useKnownThreadOfKey: () => null }));
 vi.mock("../library/TopicConversation.js", () => ({ useStandaloneTopicConversation: () => null }));
 
@@ -31,6 +38,10 @@ import { SideConversation } from "./SideConversation.js";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  useChatFocusStore.setState({ focused: MAIN_CHAT, sideChats: [] });
+  useStore.setState({ sessionNotifications: new Map() });
 });
 
 describe("SideConversation", () => {
@@ -44,5 +55,51 @@ describe("SideConversation", () => {
     );
     render(<SideConversation leaderId="leader" threadKey="topic:aaaa0001" />);
     expect(await screen.findByText("q-9")).toBeTruthy();
+  });
+
+  // Jiayi's report (Nov 1): a side pane showing a finished quest kept "1 new" however long it was
+  // focused. Its answer read by seeing, but the Quest complete result, which the main view reads
+  // when its thread is on screen, was never read in a pane.
+  describe("a finished quest's result", () => {
+    const questComplete: SessionNotification = {
+      id: "n-done",
+      category: "review",
+      unreadReason: "quest-complete",
+      summary: "q-7 ready for review: Slides",
+      timestamp: 1,
+      messageId: "msg-done",
+      threadKey: "q-7",
+      questId: "q-7",
+      done: false,
+    };
+    const renderPane = (focused: string) => {
+      vi.useFakeTimers();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ quests: [] })),
+      );
+      const markDone = vi.spyOn(api, "markNotificationDone").mockResolvedValue(undefined as never);
+      useStore.setState({ sessionNotifications: new Map([["leader", [questComplete]]]) });
+      useChatFocusStore.setState({ focused, sideChats: ["side:pane"] });
+      render(
+        <ChatFocusContext.Provider value="side:pane">
+          <SideConversation leaderId="leader" threadKey="q-7" />
+        </ChatFocusContext.Provider>,
+      );
+      return markDone;
+    };
+
+    it("reads once the focused pane has shown its thread for a moment", async () => {
+      const markDone = renderPane("side:pane");
+      await act(async () => vi.advanceTimersByTime(2_000));
+      expect(markDone).toHaveBeenCalledWith("leader", "n-done", true);
+    });
+
+    it("stays unread while another chat is focused", async () => {
+      // One focused chat: a pane beside the chat the user works in reads nothing by itself.
+      const markDone = renderPane(MAIN_CHAT);
+      await act(async () => vi.advanceTimersByTime(5_000));
+      expect(markDone).not.toHaveBeenCalled();
+    });
   });
 });
