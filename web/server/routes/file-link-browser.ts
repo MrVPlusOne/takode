@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { open, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, posix, relative, resolve, sep } from "node:path";
 import { Hono } from "hono";
 import { getMimeType } from "hono/utils/mime";
+import { onMachine } from "../remote-host/host-operations.js";
+import { hostIsOnline, machineFor } from "../remote-host/session-machine.js";
 import type { RouteContext } from "./context.js";
 import { getFileLinkRootForSession, resolveFileLinkPath, type FileLinkResolveRequest } from "./filesystem.js";
 
@@ -13,6 +14,8 @@ const FILE_LINK_BROWSER_SCAN_OPERATION_LIMIT = 256;
 const FILE_LINK_BROWSER_SCAN_FILE_BYTE_LIMIT = 8 * 1024 * 1024;
 const FILE_LINK_BROWSER_SCAN_TOTAL_BYTE_LIMIT = 32 * 1024 * 1024;
 const FILE_LINK_BROWSER_REFERENCE_LENGTH_LIMIT = 4096;
+/** Largest file served from a remote host, which arrives whole over the host link rather than streamed. */
+const FILE_LINK_BROWSER_REMOTE_FILE_BYTE_LIMIT = 100 * 1024 * 1024;
 const FILE_LINK_BROWSER_PREFIX = "/file-preview";
 const FILE_LINK_BROWSER_SANDBOX = [
   "sandbox",
@@ -41,6 +44,8 @@ interface LiteralAssetReference {
 }
 
 interface FileLinkBrowserCapabilityData {
+  /** Remote host holding the files; absent for this machine. */
+  hostId?: string;
   rootPath: string;
   entryVirtualPath: string;
   entryRealVirtualPath: string;
@@ -60,6 +65,8 @@ interface FileLinkBrowserRouteOptions {
   scanFileByteLimit?: number;
   scanTotalByteLimit?: number;
   scanOperationLimit?: number;
+  /** A remote host's name, for saying which machine is offline. */
+  hostName?: (hostId: string) => Promise<string | undefined>;
 }
 
 interface ResolvedVirtualReference {
@@ -145,7 +152,7 @@ function previewHeaders(virtualPath: string): Headers {
   return headers;
 }
 
-function errorResponse(message: string, status: 400 | 403 | 404 | 410): Response {
+function errorResponse(message: string, status: 400 | 403 | 404 | 410 | 413 | 503): Response {
   return new Response(message, {
     status,
     headers: {
@@ -454,22 +461,14 @@ async function readBoundedScannableSource(
   // each observe the same remaining total and collectively bypass the heap bound.
   capability.scannedBytes += byteLimit;
   let consumedBytes = 0;
-  let file: Awaited<ReturnType<typeof open>> | null = null;
   try {
-    const buffer = Buffer.allocUnsafe(byteLimit + 1);
-    file = await open(realAssetPath, "r");
-    let bytesRead = 0;
-    while (bytesRead < buffer.length) {
-      const result = await file.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
-      if (result.bytesRead === 0) break;
-      bytesRead += result.bytesRead;
-    }
-    consumedBytes = Math.min(bytesRead, byteLimit);
-    if (bytesRead > byteLimit) return null;
-    return buffer.subarray(0, bytesRead).toString("utf8");
+    // One byte past the limit tells a file too large to scan from one that just fits.
+    const bytes = await machineFor(capability.hostId).readFile(realAssetPath, byteLimit + 1);
+    consumedBytes = Math.min(bytes.length, byteLimit);
+    if (bytes.length > byteLimit) return null;
+    return bytes.toString("utf8");
   } finally {
     capability.scannedBytes -= byteLimit - consumedBytes;
-    await file?.close();
   }
 }
 
@@ -568,9 +567,12 @@ export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], 
     };
 
     try {
+      // A session on a remote host links files on that host; they are read there through its link.
       const target = await resolveFileLinkPath(request, wsBridge);
-      if (target.hostId) {
-        return errorResponse("Cannot open HTML file: files on remote hosts can't be browsed yet", 400);
+      const { hostId } = target;
+      if (hostId && !hostIsOnline(hostId)) {
+        const name = (await options?.hostName?.(hostId)) ?? "a remote host";
+        return errorResponse(`Cannot open HTML file: it is on ${name}, which is offline`, 503);
       }
       if (!target.exists || !target.isFile) {
         return errorResponse(`Cannot open HTML file: ${target.absolutePath} was not found`, 404);
@@ -579,6 +581,7 @@ export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], 
         return errorResponse("Cannot open HTML file: the resolved target is not an .html file", 400);
       }
 
+      const realpath = (path: string) => onMachine(hostId, "realPath", path);
       const requestedTargetPath = resolve(target.absolutePath);
       const realTargetPath = await realpath(requestedTargetPath);
       let rootPath: string;
@@ -614,6 +617,7 @@ export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], 
       }
 
       const capability: FileLinkBrowserCapabilityData = {
+        ...(hostId ? { hostId } : {}),
         rootPath,
         entryVirtualPath,
         entryRealVirtualPath,
@@ -670,14 +674,17 @@ export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], 
       return errorResponse("HTML preview asset is outside the allowed document package", 403);
     }
 
+    const { hostId } = capability;
+    const machine = machineFor(hostId);
     try {
       let requestedAssetPath = resolve(capability.rootPath, ...virtualParts);
       if (!isPathInsideRoot(capability.rootPath, requestedAssetPath)) {
         return errorResponse("HTML preview asset path escapes its authorized root", 403);
       }
 
-      const requestedInfo = await stat(requestedAssetPath);
-      if (requestedInfo.isDirectory()) {
+      const requestedInfo = await machine.stat(requestedAssetPath);
+      if (!requestedInfo) return errorResponse("HTML preview asset was not found", 404);
+      if (requestedInfo.isDirectory) {
         if (!url.pathname.endsWith("/")) return redirectResponse(`${url.pathname}/${url.search}`, 307);
         requestedAssetPath = resolve(requestedAssetPath, "index.html");
         virtualPath = posix.join(virtualPath, "index.html");
@@ -685,7 +692,7 @@ export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], 
           return errorResponse("HTML preview directory index is outside the allowed document package", 403);
         }
       }
-      const realAssetPath = await realpath(requestedAssetPath);
+      const realAssetPath = await onMachine(hostId, "realPath", requestedAssetPath);
       if (!isPathInsideRoot(capability.rootPath, realAssetPath)) {
         return errorResponse("HTML preview asset path escapes its authorized root", 403);
       }
@@ -694,11 +701,19 @@ export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], 
         return errorResponse("HTML preview asset resolves to a protected path", 403);
       }
 
-      const info = await stat(realAssetPath);
-      if (!info.isFile()) return errorResponse("HTML preview asset was not found", 404);
+      const info = await machine.stat(realAssetPath);
+      if (!info?.isFile) return errorResponse("HTML preview asset was not found", 404);
       await scanLiteralReferences(capability, virtualPath, realAssetPath, scanLimits);
-      return new Response(Bun.file(realAssetPath), { status: 200, headers: previewHeaders(virtualPath) });
+      if (!hostId) return new Response(Bun.file(realAssetPath), { status: 200, headers: previewHeaders(virtualPath) });
+      if (info.size > FILE_LINK_BROWSER_REMOTE_FILE_BYTE_LIMIT) {
+        return errorResponse("HTML preview asset on a remote host is larger than 100 MB", 413);
+      }
+      const bytes = await machine.readFile(realAssetPath);
+      return new Response(new Uint8Array(bytes), { status: 200, headers: previewHeaders(virtualPath) });
     } catch {
+      if (hostId && !hostIsOnline(hostId)) {
+        return errorResponse("HTML preview asset is on a remote host that is offline", 503);
+      }
       return errorResponse("HTML preview asset was not found", 404);
     }
   });

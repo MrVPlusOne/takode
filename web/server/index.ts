@@ -1383,7 +1383,7 @@ const sleepInhibitor = new SleepInhibitor({ wsBridge, launcher, getSettings });
 
 const app = new Hono();
 
-app.route("/", createFileLinkBrowserRoutes(wsBridge));
+app.route("/", createFileLinkBrowserRoutes(wsBridge, { hostName: async (id) => (await hostRegistry.get(id))?.name }));
 app.use("/api/*", cors());
 app.use("/api/*", compressApiJson);
 // Browser and terminal sockets authenticate only at upgrade, so revoking logins closes them;

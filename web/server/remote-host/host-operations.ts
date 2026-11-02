@@ -15,6 +15,7 @@ import { assessWorktreeCleanupSafety, removeWorktreeCheckout } from "../routes/w
 import { collectUserLevelContent, summarizeUserLevelContent } from "../user-content.js";
 import { defaultMachineRoots, installUserContent, retireUserSkills } from "../user-content-install.js";
 import { verifyReplacementWorkEvidence } from "../work-evidence-replacement.js";
+import { realpath } from "node:fs/promises";
 import { sep } from "node:path";
 import { requestOnHost } from "./session-machine.js";
 
@@ -28,6 +29,8 @@ const operations = {
   listDirectories: (path: string | undefined, showHidden: boolean) => listDirectories(path, showHidden),
   // A folder's files and subfolders, for Takode's file viewer.
   listFolderEntries: (path: string, showHidden: boolean) => listFolderEntries(path, showHidden),
+  // A path with its symlinks resolved, so an opened HTML page cannot reach files outside its folder.
+  realPath: (path: string) => realpath(path),
   // For each program, whether this machine can find it (the New Session backend picker).
   findPrograms: (programs: string[]) => programs.map((program) => resolveBinary(program) !== null),
   repoInfo: (cwd: string) => getRepoInfoAsync(cwd),
