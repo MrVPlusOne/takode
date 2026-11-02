@@ -1,5 +1,9 @@
 # Takode Changelog
 
+## November 2026: threads, topics and the Scribe
+
+Every conversation with a leader is now a thread. A leader opens on Home, which lists its threads with a line of news each and pins anything waiting for you on top; the sessions panel's Threads view does the same across all your leaders, and the side column keeps other threads at hand beside the one you are reading. Each leader's Scribe, an agent working in the background, names new threads and files them under a few broad topics. The [release note](docs/release-notes/threads-and-topics.md) explains the idea, common workflows and why it works this way, and the dated entries below list each change.
+
 ## October 2026 release: one Takode across your machines
 
 Until this release, every Takode session ran on the machine that hosted the Takode server. That works until the code you care about lives somewhere else: a cloud workspace, a GPU box, a second computer under your desk. The headline of this release is that one Takode now spans all of them. The server becomes the **coordinator**, which keeps your sessions, quests, work boards and memory in one place, and any machine you register as a **host** can run sessions for it. You keep one browser tab and one session list, and your leaders can start workers wherever the code and the hardware are.
