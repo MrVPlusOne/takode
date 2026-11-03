@@ -93,6 +93,7 @@ afterEach(() => {
     focusAt: undefined,
     used: undefined,
     chatHeight: undefined,
+    oneAtATime: undefined,
   });
   useChatFocusStore.setState({ focused: MAIN_CHAT, sideChats: [] });
   useTopicPanel.setState({ open: true, sheet: false, focus: null });
@@ -676,6 +677,34 @@ describe("SideColumn", () => {
     } finally {
       useStore.setState({ quests: [] } as never);
     }
+  });
+
+  it("shows one section at a time when switched on: one click opens one, at the column's height", () => {
+    // Jiayi (Nov 2): browsing side chats one click at a time, the open one filling the column, the
+    // others as title bars in the stack. Off again, sections keep their own heights and edges.
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    });
+    const toggle = screen.getByTestId("side-one-at-a-time");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    const open = () => rows().map((row) => row.dataset.open);
+    expect(open()).toEqual(["true", "false", "false"]);
+    // A page opens at the same height as a conversation (jsdom measures the column as 0: the
+    // smallest fill), with no edge to drag and no strip to scroll the column.
+    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: false }));
+    expect(open()).toEqual(["false", "true", "false"]);
+    const page = screen.getAllByTestId("side-section").find((section) => section.dataset.open === "true")!;
+    expect(within(page).getByTestId("side-section-body").style.height).toBe("160px");
+    expect(within(page).queryByRole("separator")).toBeNull();
+    expect(screen.queryByTestId("side-scroll-strip")).toBeNull();
+    fireEvent.click(toggle);
+    fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: false }));
+    expect(open()).toEqual(["true", "true", "false"]);
+    expect(screen.getAllByRole("separator").length).toBeGreaterThan(0);
   });
 
   it("scrolls the whole column from the strip beside each section's content, on desktop only", () => {

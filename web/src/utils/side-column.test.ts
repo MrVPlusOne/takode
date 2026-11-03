@@ -17,6 +17,7 @@ import {
   openSessionInSide,
   openInSide,
   replaceSideItem,
+  setSideOneAtATime,
   showMainView,
   sideFoldId,
   unfoldSideItem,
@@ -37,6 +38,7 @@ afterEach(() => {
     focusAt: undefined,
     used: undefined,
     chatHeight: undefined,
+    oneAtATime: undefined,
   });
   useTopicPanel.setState({ open: true, sheet: false, focus: null });
   useStore.setState({ currentSessionId: null, sdkSessions: [] } as never);
@@ -99,6 +101,31 @@ describe("side column items", () => {
       threadKey: "topic:aaaa0002",
       leaderId: "l1",
     });
+  });
+});
+
+describe("one at a time", () => {
+  it("keeps one section open: opening or unfolding one folds every other, Topics included", () => {
+    // Jiayi (Nov 2): browsing side chats one click at a time, instead of a column of open ones.
+    const open = () =>
+      [...items().map((item) => item.id), HOME_ITEM].filter((id) => !isRememberedFolded(sideFoldId(id)));
+    const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+    const page = openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
+    expect(open()).toEqual([page, a, HOME_ITEM]);
+    // Turning it on keeps the one opened last.
+    setSideOneAtATime(true);
+    expect(open()).toEqual([page]);
+    unfoldSideItem(a);
+    expect(open()).toEqual([a]);
+    const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    expect(open()).toEqual([b]);
+    unfoldSideItem(HOME_ITEM);
+    expect(open()).toEqual([HOME_ITEM]);
+    // Off, sections open side by side again.
+    setSideOneAtATime(false);
+    unfoldSideItem(a);
+    expect(open()).toEqual([a, HOME_ITEM]);
+    expect(useSideColumnStore.getState().oneAtATime).toBe(false);
   });
 });
 

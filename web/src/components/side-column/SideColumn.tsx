@@ -10,6 +10,7 @@ import {
   openInSide,
   isConversationItem,
   rememberSideChatHeight,
+  setSideOneAtATime,
   newSideChat,
   noteSideItemUsed,
   replaceSideItem,
@@ -89,7 +90,7 @@ export function SideColumn({
   threadKey: string;
   variant: "docked" | "sheet";
 }) {
-  const { items, focus, focusAt, chatHeight } = useSideColumn();
+  const { items, focus, focusAt, chatHeight, oneAtATime = false } = useSideColumn();
   const folds = useRememberedFolds();
   const isOpen = (id: string) => !folds.isFolded(sideFoldId(id));
   // Unfolding goes through the column's open limit: a fourth open conversation folds the oldest.
@@ -201,7 +202,8 @@ export function SideColumn({
     chatId?: string,
   ) => {
     const open = isOpen(id);
-    const dragged = heights.heightOf(id);
+    // One at a time, the open section fills the column whatever its kind or its dragged height.
+    const dragged = oneAtATime ? undefined : heights.heightOf(id);
     const size = dragged ?? defaultHeight;
     const content = (
       <>
@@ -220,20 +222,23 @@ export function SideColumn({
                 else bodyElements.current.delete(id);
               }}
               className="isolate flex min-h-0 overflow-hidden"
-              style={fixed || dragged !== undefined ? { height: size } : { maxHeight: size }}
+              style={fixed || oneAtATime || dragged !== undefined ? { height: size } : { maxHeight: size }}
               data-testid="side-section-body"
             >
-              {variant === "docked" && <ColumnScrollStrip scrollRef={scrollRef} />}
+              {/* One at a time, the column fits without scrolling: no strip to scroll it, nor edge. */}
+              {variant === "docked" && !oneAtATime && <ColumnScrollStrip scrollRef={scrollRef} />}
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</div>
             </div>
-            <SectionEdge
-              measure={() => bodyElements.current.get(id)?.getBoundingClientRect().height || size}
-              onResize={(start, delta) => {
-                const height = heights.resize(id, start, delta);
-                if (fixed) rememberSideChatHeight(height);
-              }}
-              onReset={() => heights.reset(id)}
-            />
+            {!oneAtATime && (
+              <SectionEdge
+                measure={() => bodyElements.current.get(id)?.getBoundingClientRect().height || size}
+                onResize={(start, delta) => {
+                  const height = heights.resize(id, start, delta);
+                  if (fixed) rememberSideChatHeight(height);
+                }}
+                onReset={() => heights.reset(id)}
+              />
+            )}
           </Activity>
         )}
       </>
@@ -300,6 +305,7 @@ export function SideColumn({
         )}
         <SideChatLeaderMenu mainLeaderId={leaderId} />
         <span className="flex-1" />
+        <OneAtATimeToggle on={oneAtATime} />
         <button
           type="button"
           onClick={close}
@@ -315,6 +321,33 @@ export function SideColumn({
         {leaderId && itemSection(null)}
       </div>
     </div>
+  );
+}
+
+/**
+ * Switches one-at-a-time on and off: opening a section folds the others, and the open one fills the
+ * column. Its icon shows a stack with one open section; it is highlighted while on.
+ */
+function OneAtATimeToggle({ on }: { on: boolean }) {
+  const label = on ? "Show one at a time: on" : "Show one at a time";
+  return (
+    <button
+      type="button"
+      onClick={() => setSideOneAtATime(!on)}
+      aria-pressed={on}
+      aria-label="Show one at a time"
+      title={`${label}. When on, opening one folds the others and it fills the column`}
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+        on ? "bg-cc-primary/15 text-cc-primary" : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+      }`}
+      data-testid="side-one-at-a-time"
+    >
+      <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" aria-hidden="true">
+        <rect x="2.5" y="2" width="11" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.2" />
+        <rect x="2.5" y="5.75" width="11" height="6" rx="0.8" stroke="currentColor" strokeWidth="1.2" />
+        <rect x="2.5" y="13" width="11" height="1.5" rx="0.6" fill="currentColor" />
+      </svg>
+    </button>
   );
 }
 
