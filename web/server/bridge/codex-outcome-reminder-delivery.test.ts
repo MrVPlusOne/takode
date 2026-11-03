@@ -237,4 +237,26 @@ describe("Codex deferred Thread Outcome Reminder delivery", () => {
     expect(input.deliveryContent).toContain("q-42 (u2)");
     expect(input.deliveryContent).not.toContain("old reminder");
   });
+
+  it("keeps one of two queued reminders that now ask for the same answer", () => {
+    // Two turn-end checks can each queue a reminder for the same unanswered request before
+    // either is delivered; delivering both in one batch would invite two identical answers.
+    const first = reminderInput();
+    const second = { ...reminderInput(), id: "reminder-2", timestamp: 17 };
+    first.cancelable = true;
+    second.cancelable = true;
+    const session = {
+      id: "leader",
+      state: { cwd: "/tmp" },
+      messageHistory: [coveredHistory()[0]],
+      notifications: [],
+      pendingCodexInputs: [first, second, ordinaryInput()],
+      pendingCodexTurns: [],
+    } as any;
+    const deps = { broadcastPendingCodexInputs: vi.fn(), persistSession: vi.fn() };
+
+    expect(refreshPendingCodexThreadOutcomeReminders(session, deps).removedInputIds).toEqual(["reminder-2"]);
+    expect(session.pendingCodexInputs.map((input: PendingCodexInput) => input.id)).toEqual(["reminder", "ordinary"]);
+    expect(first.content).toContain("Pending answer IDs: Main (u1).");
+  });
 });

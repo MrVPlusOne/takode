@@ -46,6 +46,8 @@ type LeaderThreadOutcomeSession = {
   pendingLeaderRejectedReadyThreadKeys?: string[];
   /** User messages a later turn was still to answer when the window holding them was checked. */
   leaderThreadOutcomeDeferredUserMessageIndexes?: number[];
+  /** Reminders held until the session is idle, oldest first (see `reminderWouldWait`). */
+  heldLeaderThreadOutcomeReminders?: LeaderThreadOutcomeReminderGuard[];
 };
 
 export type LeaderThreadOutcomeTurnSource = "user" | "leader" | "system" | "unknown";
@@ -65,6 +67,13 @@ export interface LeaderThreadOutcomeValidationDeps {
     options?: { leaderThreadOutcomeReminderGuard?: LeaderThreadOutcomeReminderGuard },
   ) => "sent" | "queued" | "dropped" | "no_session";
   persistSession?: (session: LeaderThreadOutcomeSession) => void;
+  /**
+   * Whether a reminder sent now would wait behind prompts in a queue Takode cannot re-check,
+   * as Claude's input does while Claude still has prompts to run. Such a reminder could reach
+   * the leader after the turns ahead of it answered what it asks for, so it is held instead and
+   * re-checked when the session is idle.
+   */
+  reminderWouldWait?: (session: LeaderThreadOutcomeSession) => boolean;
 }
 
 type TouchedThread = {
@@ -85,17 +94,33 @@ const BLOCKING_PROMPT_PATTERNS = [
   /^\s*(?:#{1,6}\s*)?(?:\*\*)?Decision needed(?:\*\*)?\s*:?/im,
 ];
 
+type LeaderThreadOutcomeValidationOptions = {
+  rejectedReadyThreadKeys?: string[];
+  /**
+   * History indexes of user messages a turn that has not run yet will answer (Claude queued
+   * them behind the turn that just ended). They are checked with that turn instead.
+   */
+  awaitingUserMessageIndexes?: number[];
+};
+
+/**
+ * Check the leader output since the last check at a completed turn and remind the leader of
+ * what it still owes; once the session is idle, also send a reminder held while it was busy.
+ */
 export function validateLeaderThreadOutcomes(
   session: LeaderThreadOutcomeSession,
   deps: LeaderThreadOutcomeValidationDeps,
-  options: {
-    rejectedReadyThreadKeys?: string[];
-    /**
-     * History indexes of user messages a turn that has not run yet will answer (Claude queued
-     * them behind the turn that just ended). They are checked with that turn instead.
-     */
-    awaitingUserMessageIndexes?: number[];
-  } = {},
+  options: LeaderThreadOutcomeValidationOptions = {},
+): LeaderThreadOutcomeValidationResult {
+  const result = checkLeaderThreadOutcomes(session, deps, options);
+  if (!deps.reminderWouldWait?.(session)) deliverHeldReminder(session, deps);
+  return result;
+}
+
+function checkLeaderThreadOutcomes(
+  session: LeaderThreadOutcomeSession,
+  deps: LeaderThreadOutcomeValidationDeps,
+  options: LeaderThreadOutcomeValidationOptions,
 ): LeaderThreadOutcomeValidationResult {
   if (!deps.isLeaderSession(session.id)) return { checked: false, reason: "not_leader" };
 
@@ -181,22 +206,20 @@ export function validateLeaderThreadOutcomes(
   );
   if (missingNeedsInputPrompts.length > 0) {
     const firstMissingPrompt = missingNeedsInputPrompts[0]!;
-    const delivery = deps.injectUserMessage(
-      session.id,
+    const delivery = sendOrHoldReminder(
+      session,
+      deps,
       buildNeedsInputPromptReminderContent(missingNeedsInputPrompts),
-      { sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID, sessionLabel: THREAD_RESPONSE_REMINDER_SOURCE_LABEL },
       firstMissingPrompt.route,
       {
-        leaderThreadOutcomeReminderGuard: {
-          version: 1,
-          pendingResponseTargets: [],
-          missingOutcomeTargets: [],
-          missingNeedsInputTargets: missingNeedsInputPrompts.map((thread) => ({
-            threadKey: thread.key,
-            earliestTimestamp: thread.earliestTimestamp,
-            promptTimestamp: blockingPromptTimestamp(thread)!,
-          })),
-        },
+        version: 1,
+        pendingResponseTargets: [],
+        missingOutcomeTargets: [],
+        missingNeedsInputTargets: missingNeedsInputPrompts.map((thread) => ({
+          threadKey: thread.key,
+          earliestTimestamp: thread.earliestTimestamp,
+          promptTimestamp: blockingPromptTimestamp(thread)!,
+        })),
       },
     );
     if (delivery !== "dropped" && delivery !== "no_session") {
@@ -235,33 +258,31 @@ export function validateLeaderThreadOutcomes(
   }
 
   const primary = pendingResponseMissing[0] ?? outcomeMissing[0]!;
-  const delivery = deps.injectUserMessage(
-    session.id,
+  const delivery = sendOrHoldReminder(
+    session,
+    deps,
     pendingResponseMissing.length > 0
       ? buildPendingResponseReminderContent(session, pendingResponseMissing, outcomeMissing)
       : buildOutcomeReminderContent(outcomeMissing),
-    { sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID, sessionLabel: THREAD_RESPONSE_REMINDER_SOURCE_LABEL },
     primary.route,
     {
-      leaderThreadOutcomeReminderGuard: {
-        version: 1,
-        pendingResponseTargets: pendingResponseMissing.map((thread) => {
-          const pending = pendingLeaderAnswerSnapshot(session, thread.key);
-          return {
-            threadKey: thread.key,
-            earliestTimestamp: thread.earliestTimestamp,
-            pendingAnswerCount: pending.count,
-            pendingAnswerUserMessageIds: pending.userMessageIds,
-            ...(rejectedReadyThreadKeys.has(thread.key) ? { rejectedReady: true } : {}),
-            ...(thread.rejectedAnswerObserved ? { rejectedAnswerObserved: true } : {}),
-          };
-        }),
-        missingOutcomeTargets: outcomeMissing.map((thread) => ({
+      version: 1,
+      pendingResponseTargets: pendingResponseMissing.map((thread) => {
+        const pending = pendingLeaderAnswerSnapshot(session, thread.key);
+        return {
           threadKey: thread.key,
           earliestTimestamp: thread.earliestTimestamp,
-        })),
-        missingNeedsInputTargets: [],
-      },
+          pendingAnswerCount: pending.count,
+          pendingAnswerUserMessageIds: pending.userMessageIds,
+          ...(rejectedReadyThreadKeys.has(thread.key) ? { rejectedReady: true } : {}),
+          ...(thread.rejectedAnswerObserved ? { rejectedAnswerObserved: true } : {}),
+        };
+      }),
+      missingOutcomeTargets: outcomeMissing.map((thread) => ({
+        threadKey: thread.key,
+        earliestTimestamp: thread.earliestTimestamp,
+      })),
+      missingNeedsInputTargets: [],
     },
   );
   if (delivery !== "dropped" && delivery !== "no_session") {
@@ -490,6 +511,57 @@ export function shouldDeliverLeaderThreadOutcomeReminder(
   guard: LeaderThreadOutcomeReminderGuard | null | undefined,
 ): boolean {
   return refreshLeaderThreadOutcomeReminder(session, guard) !== null;
+}
+
+/**
+ * Send the oldest held reminder still needed, re-checked against the current state; reminders
+ * the turns since answered are dropped. One at a time, so each later one is re-checked again
+ * after the turn this one starts.
+ */
+function deliverHeldReminder(session: LeaderThreadOutcomeSession, deps: LeaderThreadOutcomeValidationDeps): void {
+  const held = session.heldLeaderThreadOutcomeReminders;
+  if (!held?.length) return;
+  while (held.length > 0) {
+    const refreshed = refreshLeaderThreadOutcomeReminder(session, held.shift());
+    if (!refreshed) continue;
+    deps.injectUserMessage(session.id, refreshed.content, reminderAgentSource(), refreshed.route, {
+      leaderThreadOutcomeReminderGuard: refreshed.guard,
+    });
+    break;
+  }
+  deps.persistSession?.(session);
+}
+
+function sendOrHoldReminder(
+  session: LeaderThreadOutcomeSession,
+  deps: LeaderThreadOutcomeValidationDeps,
+  content: string,
+  route: ThreadRouteMetadata,
+  guard: LeaderThreadOutcomeReminderGuard,
+): ReturnType<LeaderThreadOutcomeValidationDeps["injectUserMessage"]> {
+  // A newer reminder about the same threads replaces a held one.
+  const threadKeys = new Set(guardThreadKeys(guard));
+  const held = (session.heldLeaderThreadOutcomeReminders ?? []).filter(
+    (heldGuard) => !guardThreadKeys(heldGuard).every((threadKey) => threadKeys.has(threadKey)),
+  );
+  if (deps.reminderWouldWait?.(session)) {
+    session.heldLeaderThreadOutcomeReminders = [...held, guard];
+    return "queued";
+  }
+  session.heldLeaderThreadOutcomeReminders = held;
+  return deps.injectUserMessage(session.id, content, reminderAgentSource(), route, {
+    leaderThreadOutcomeReminderGuard: guard,
+  });
+}
+
+function guardThreadKeys(guard: LeaderThreadOutcomeReminderGuard): string[] {
+  return [...guard.pendingResponseTargets, ...guard.missingOutcomeTargets, ...guard.missingNeedsInputTargets].map(
+    (target) => target.threadKey,
+  );
+}
+
+function reminderAgentSource(): { sessionId: string; sessionLabel: string } {
+  return { sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID, sessionLabel: THREAD_RESPONSE_REMINDER_SOURCE_LABEL };
 }
 
 function clearPendingRejectedReadyThreadKeys(
@@ -734,6 +806,7 @@ function buildPendingResponseReminderContent(
     ...(rejectedAnswer
       ? []
       : [
+          "Takode checked these IDs just before sending this reminder. Before answering, look at your latest answer: if it already lists one of them (`[thread:...:A:<id>]`) and Takode has not said that answer was rejected, this reminder crossed with it: do not answer that ID again, and reply with commentary carrying the thread outcome instead.",
           "Answer with `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]`, listing the exact earlier IDs covered by that answer.",
           'The answer must stand on its own where each listed ID is shown: if its result already went out in an answer to other IDs, state that result again briefly instead of pointing to it ("the full answer is above").',
         ]),

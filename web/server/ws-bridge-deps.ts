@@ -921,6 +921,10 @@ export function getClaudeMessageHandlers(host: any) {
             return delivery === "paused_queued" ? "queued" : delivery;
           },
           persistSession: (concreteSession) => host.persistSession(concreteSession as Session),
+          // Takode re-checks Codex input it queues at dispatch, but a prompt sent to a busy Claude
+          // waits in Claude's own queue.
+          reminderWouldWait: (concreteSession) =>
+            (concreteSession as Session).backendType !== "codex" && (concreteSession as Session).isGenerating,
         },
         options,
       );

@@ -292,6 +292,8 @@ export interface Session {
   leaderThreadOutcomeValidatedHistoryLength?: number;
   /** User messages whose outcome check waits for the turn that answers them (not persisted). */
   leaderThreadOutcomeDeferredUserMessageIndexes?: number[];
+  /** Thread outcome reminders held until Claude is idle, oldest first (not persisted). */
+  heldLeaderThreadOutcomeReminders?: import("../leader-thread-response-types.js").LeaderThreadOutcomeReminderGuard[];
   /** Recovered Ready rejections awaiting the next normal outcome-validation boundary. */
   pendingLeaderRejectedReadyThreadKeys: string[];
   /** Server-authoritative attention records for Main ledger rows and top chips. */

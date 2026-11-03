@@ -24,17 +24,20 @@ export function refreshPendingCodexThreadOutcomeReminders(
   const selectedIds = options.inputIds ? new Set(options.inputIds) : null;
   const removedInputIds: string[] = [];
   let changed = false;
+  // Two queued reminders that now say the same thing would be answered twice; keep the first.
+  const retainedReminderContents = new Set<string>();
   for (const input of session.pendingCodexInputs) {
     if (selectedIds ? !selectedIds.has(input.id) : !input.cancelable) continue;
     const isReminder = input.agentSource?.sessionId === THREAD_RESPONSE_REMINDER_SOURCE_ID;
     const guard = input.leaderThreadOutcomeReminderGuard;
     if (!isReminder && guard === undefined) continue;
     const refreshed = isReminder ? refreshLeaderThreadOutcomeReminder(session, guard) : null;
-    if (!refreshed) {
+    if (!refreshed || retainedReminderContents.has(refreshed.content)) {
       removedInputIds.push(input.id);
       changed = true;
       continue;
     }
+    retainedReminderContents.add(refreshed.content);
     let deliveryContent = input.deliveryContent;
     if (deliveryContent !== undefined) {
       if (!deliveryContent.endsWith(input.content)) {
