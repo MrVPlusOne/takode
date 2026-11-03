@@ -272,6 +272,8 @@ export interface ChatMessage {
     artifacts?: import("../shared/artifact-library.js").ArtifactMessageMarker[];
     /** Present when the report is a guided review: its map, git range and line counts. */
     guidedReview?: import("../shared/guided-review.js").GuidedReviewMeta;
+    /** Present when the report is a draft shared from another session: shown as its normal card. */
+    sharedDraft?: import("../shared/markdown-report.js").SharedDraftMeta;
     answers?: { question: string; answer: string }[];
     /** Preserved leader-visible history row, including legacy publications and notification anchors. */
     leaderUserMessage?: boolean;

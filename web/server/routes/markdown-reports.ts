@@ -8,6 +8,7 @@ import {
   MAX_MARKDOWN_REPORT_BYTES,
   validateMarkdownReportContent,
   type MarkdownReportMessage,
+  type SharedDraftMeta,
 } from "../../shared/markdown-report.js";
 import { recordReportUnreadNotification } from "../bridge/session-notification-controller.js";
 import type { RouteContext } from "./context.js";
@@ -56,8 +57,8 @@ export function createMarkdownReportRoutes(ctx: RouteContext) {
 
 /**
  * Publish a report into the caller's own session: history, live browsers, and an unread result
- * for leaders. Shared by Markdown reports and guided reviews. Throws on invalid input; returns
- * an error with a status for authority problems.
+ * for leaders. Shared by Markdown reports, guided reviews and shared drafts. Throws on invalid
+ * input; returns an error with a status for authority problems.
  */
 export function publishSessionReport(
   ctx: RouteContext,
@@ -70,6 +71,9 @@ export function publishSessionReport(
     sessionId?: unknown;
     responsibleWorkerId?: unknown;
     guidedReview?: GuidedReviewMeta;
+    sharedDraft?: SharedDraftMeta;
+    /** What the unread entry previews, when not the content (a draft's text without its block headers). */
+    unreadText?: string;
   },
 ): { message: MarkdownReportMessage } | { error: string; status: 400 | 403 } {
   const threadKey = readThread(input.threadKey);
@@ -106,13 +110,18 @@ export function publishSessionReport(
       ...(workerId ? { responsibleWorkerId: workerId } : {}),
     },
     ...(input.guidedReview ? { guidedReview: input.guidedReview } : {}),
+    ...(input.sharedDraft ? { sharedDraft: input.sharedDraft } : {}),
   };
   session.messageHistory.push(message);
   ctx.wsBridge.persistSessionById(session.id);
   ctx.wsBridge.broadcastToSession(session.id, message);
   ctx.wsBridge.refreshSessionConversation(session.id);
   if (ctx.launcher.getSession(session.id)?.isOrchestrator) {
-    recordReportUnreadNotification(session, message, ctx.wsBridge.getSessionNotificationDeps());
+    recordReportUnreadNotification(
+      session,
+      input.unreadText ? { ...message, content: input.unreadText } : message,
+      ctx.wsBridge.getSessionNotificationDeps(),
+    );
   }
   return { message };
 }

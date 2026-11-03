@@ -86,7 +86,10 @@ const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp|svg)$/i;
 
 /** The captures of a root conversation message, or null when it holds none. */
 export function extractMessageArtifacts(message: BrowserIncomingMessage): ExtractedMessage | null {
-  if (message.type === "markdown_report") return extractReport(message);
+  if (message.type === "markdown_report") {
+    // A shared draft shows a version the Library already has; sharing linked the message to it.
+    return message.sharedDraft ? null : extractReport(message);
+  }
   if (message.type !== "assistant" || message.parent_tool_use_id || message.codexSubagent != null) return null;
   const messageId = assistantMessageId(message);
   if (!messageId) return null;

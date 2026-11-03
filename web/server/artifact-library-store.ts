@@ -261,6 +261,21 @@ export class ArtifactLibraryStore {
     this.markChanged();
   }
 
+  /**
+   * Makes a message show an existing version (a draft shared into another session) without adding
+   * a version. Being the newest message showing it, it holds the current card; earlier copies
+   * collapse. Returns the sessions whose messages show the artifact, to refresh.
+   */
+  showVersion(sessionId: string, messageId: string, artifactId: string, n: number): Set<string> {
+    const index = this.state();
+    if (!index.artifacts[artifactId]?.versions.some((version) => version.n === n)) {
+      throw new Error(`No version ${n} of artifact ${artifactId}.`);
+    }
+    index.messages[messageIndexKey(sessionId, messageId)] = [{ label: "report", artifactId, n }];
+    this.markChanged();
+    return this.sessionsShowingArtifact(artifactId);
+  }
+
   private async captureOne(
     ctx: CaptureContext,
     ref: ArtifactMessageRef,

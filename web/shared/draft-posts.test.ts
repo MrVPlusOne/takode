@@ -3,6 +3,7 @@ import {
   comparePostParts,
   destinationLabel,
   draftAttachmentPaths,
+  formatDraftPost,
   groupDraftPostsInMarkdown,
   parseDraftBlock,
   parseDestination,
@@ -101,5 +102,26 @@ describe("posts in Markdown", () => {
     expect(grouped).not.toContain("```draft");
     expect(draftAttachmentPaths(text)).toEqual(new Set(["/tmp/plot.png"]));
     expect(groupDraftPostsInMarkdown("No drafts here")).toBe("No drafts here");
+  });
+});
+
+describe("writing a post back as draft blocks", () => {
+  it("reads back as the same post: parts, attachments and destination, code and header-like text intact", () => {
+    // A shared draft is stored as the blocks formatDraftPost writes, so reading them back must give
+    // the version it was written from. Every block carries the title: a part that starts with
+    // header-like lines or holds a code fence must stay text of that same part.
+    const post = {
+      title: "T7 eval start",
+      parts: ["Evals start at `iter 2`:\n```\nEval  Start\n```", "part: 3\n---\nlooks like a header", "Last reply"],
+      attachments: [["/tmp/plot.png"], [], ["/tmp/a b.png", "/tmp/c.txt"]],
+      destination: { url: "https://example.slack.com/archives/C1/p123", label: "#t7 thread" },
+    };
+    const text = formatDraftPost(post);
+    const grouped = parseGroupedDraftPost(/```takode-post\n(.+)\n```/.exec(groupDraftPostsInMarkdown(text))![1]);
+    expect(grouped?.title).toBe(post.title);
+    expect(grouped?.blocks.map((block) => block.body)).toEqual(post.parts);
+    expect(grouped?.blocks.map((block) => block.attachments)).toEqual(post.attachments);
+    expect(grouped?.blocks[0].destination).toEqual(post.destination);
+    expect(grouped?.blocks.some((block) => block.part)).toBe(false);
   });
 });

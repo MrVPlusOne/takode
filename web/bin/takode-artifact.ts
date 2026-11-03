@@ -8,7 +8,7 @@ import { ARTIFACT_KIND_LABELS, ARTIFACT_KINDS, formatArtifactLink } from "../sha
 import { parseActivityTime } from "./takode-activity.js";
 import { apiGet, apiPatch, apiPost, assertKnownFlags, err, formatRelativeTime, parseFlags } from "./takode-core.js";
 
-export const ARTIFACT_HELP = `Usage: takode artifact <list|show|rename|merge> ...
+export const ARTIFACT_HELP = `Usage: takode artifact <list|show|share|rename|merge> ...
 
 The artifact library: drafts and posts, reports, figures, visuals, tables and guided reviews saved
 from conversations, with revisions grouped as versions. Takode saves them by itself; name a draft
@@ -20,6 +20,14 @@ to link one version.
       Newest first. Default space: your session's. Kinds: ${ARTIFACT_KINDS.join(", ")}.
   takode artifact show <id> [--version N] [--json]
       An artifact's versions and the content of the newest (or the given) version.
+  takode artifact share <id> --thread <q-N|t-N> [--json]
+  takode artifact share --from <session> [--title <title> | --message <index>] --thread <q-N|t-N> [--json]
+      Post a draft into one of your threads as its normal card, without copying its text: the newest
+      version of draft <id>, or of the draft titled <title> in <session>; the drafts in message
+      <index> of <session> (from takode read or scan); or the drafts in its newest message with any.
+      Only from your own session or one you herd. The card is the same Library artifact, so Copy for
+      Slack, attachments and the to: link work as usual and a newer version collapses it; like a
+      report, it makes the thread unread.
   takode artifact rename <id> <title>
   takode artifact merge <id> --into <id>
       Make one artifact's versions versions of another, for revisions saved separately.
@@ -36,6 +44,8 @@ export async function handleArtifact(base: string, args: string[]): Promise<void
       return listArtifacts(base, rest);
     case "show":
       return showArtifact(base, rest);
+    case "share":
+      return shareDraft(base, rest);
     case "rename": {
       const [id, ...titleWords] = rest.filter((arg) => !arg.startsWith("--"));
       const title = titleWords.join(" ").trim();
@@ -58,6 +68,40 @@ export async function handleArtifact(base: string, args: string[]): Promise<void
     default:
       console.log(ARTIFACT_HELP);
       if (subcommand) process.exit(1);
+  }
+}
+
+const SHARE_FLAGS = new Set(["thread", "from", "title", "message", "json"]);
+const SHARE_USAGE =
+  "Usage: takode artifact share <id> --thread <q-N|t-N>\n" +
+  "       takode artifact share --from <session> [--title <title> | --message <index>] --thread <q-N|t-N>";
+
+async function shareDraft(base: string, args: string[]): Promise<void> {
+  const flags = parseFlags(args);
+  assertKnownFlags(flags, SHARE_FLAGS, SHARE_USAGE);
+  // Takes the ID or the link's target (artifact:<id>, a version suffix ignored).
+  const id = args[0] && !args[0].startsWith("--") ? args[0].replace(/^artifact:/, "").replace(/:v\d+$/, "") : undefined;
+  const from = typeof flags.from === "string" ? flags.from.replace(/^#/, "") : undefined;
+  const title = typeof flags.title === "string" ? flags.title : undefined;
+  const message = typeof flags.message === "string" ? Number(flags.message) : undefined;
+  if (typeof flags.thread !== "string" || !id === !from || (id && (title || message !== undefined))) err(SHARE_USAGE);
+  if (title && message !== undefined) err("Choose --title or --message, not both.");
+  if (message !== undefined && !Number.isInteger(message)) err("--message takes a message index.");
+  const receipt = (await apiPost(base, "/takode/drafts/share", {
+    threadKey: flags.thread,
+    ...(id ? { artifact: id } : { from }),
+    ...(title ? { title } : {}),
+    ...(message !== undefined ? { message } : {}),
+  })) as { threadKey: string; drafts: Array<{ artifactId: string; title: string; version: number; parts: number }> };
+  if (flags.json === true) {
+    console.log(JSON.stringify(receipt));
+    return;
+  }
+  for (const draft of receipt.drafts) {
+    const parts = draft.parts === 1 ? "1 part" : `${draft.parts} parts`;
+    console.log(
+      `Shared ${formatArtifactLink(draft.title, draft.artifactId, draft.version)} (version ${draft.version}, ${parts}) to ${receipt.threadKey}.`,
+    );
   }
 }
 

@@ -199,6 +199,34 @@ export function comparePostParts(previous: readonly string[], next: readonly str
   return { parts, removed };
 }
 
+/**
+ * A post written back as draft blocks that read as that same post: one block per part, each with
+ * the post's title (so a part's text can't be taken for a header or start another post), the first
+ * also with its `to:`, and each part's `attach:` lines. Each fence is longer than any backtick run
+ * in its part.
+ */
+export function formatDraftPost(post: {
+  title: string;
+  parts: readonly string[];
+  attachments?: ReadonlyArray<readonly string[]>;
+  destination?: DraftDestination;
+}): string {
+  return post.parts
+    .map((text, index) => {
+      const header = [`title: ${post.title}`];
+      if (index === 0 && post.destination) {
+        const { url, label } = post.destination;
+        header.push(`to: ${label ? `[${label}](${url})` : url}`);
+      }
+      const attach = (post.attachments?.[index] ?? []).map((path) => `attach: ${path}`);
+      const body = [...header, "---", text, ...(attach.length ? ["", ...attach] : [])].join("\n");
+      const longestRun = Math.max(0, ...(body.match(/`+/g) ?? []).map((run) => run.length));
+      const fence = "`".repeat(Math.max(3, longestRun + 1));
+      return `${fence}draft\n${body}\n${fence}`;
+    })
+    .join("\n\n");
+}
+
 /** A post's part as the user knows it: the message, then numbered replies. */
 export function draftPartLabel(index: number): string {
   return index === 0 ? "Message" : `Reply ${index}`;

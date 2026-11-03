@@ -1,6 +1,6 @@
 import { stripInlineMarkdown } from "../../shared/markdown-plain-text.js";
 import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
-import { libraryMenuItems } from "./artifact-card-menu.js";
+import { ArtifactMarkersContext, libraryMenuItems } from "./artifact-card-menu.js";
 import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
 import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
 import type { ChatMessage } from "../types.js";
@@ -9,6 +9,7 @@ import { AnnotationSourceMarkers } from "./AnnotationAttachments.js";
 import { exportContent, type ExportFormat } from "../utils/artifact-export.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { ReportCard } from "./ReportCard.js";
+import { SessionInlineLink } from "./SessionInlineLink.js";
 import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
 import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-player.js";
 import { GuidedReviewCard } from "./GuidedReviewCard.js";
@@ -30,6 +31,7 @@ export function MarkdownReport({
   feedSessionId?: string;
   readOnly?: boolean;
 }) {
+  if (message.metadata?.sharedDraft) return <SharedDraft message={message} readOnly={readOnly} />;
   const guidedReview = message.metadata?.guidedReview;
   if (!guidedReview && isSlideDeck(message.content))
     return <MarkdownReportDeck message={message} feedSessionId={feedSessionId} readOnly={readOnly} />;
@@ -134,6 +136,43 @@ function MarkdownReportBody({
         </FullScreenPanel>
       )}
     </>
+  );
+}
+
+/**
+ * A draft shared from the session that wrote it (`takode artifact share`): its normal card, under a
+ * line naming that session, where its links and attachments resolve. The card is that draft's
+ * Library artifact, so its copy marks and versions are the same everywhere it is shown.
+ */
+function SharedDraft({ message, readOnly }: { message: ChatMessage; readOnly: boolean }) {
+  const draft = message.metadata!.sharedDraft!;
+  const source = message.metadata!.markdownReport!;
+  const contentRef = useRef<HTMLDivElement>(null);
+  return (
+    <div ref={contentRef} className="relative min-w-0" data-testid="shared-draft">
+      <div className="mb-1 text-xs text-cc-muted">
+        Draft by{" "}
+        <SessionInlineLink
+          sessionId={draft.sessionId}
+          sessionNum={draft.sessionNum}
+          className="text-cc-primary hover:underline"
+        >
+          {draft.sessionNum != null ? `#${draft.sessionNum}` : "its session"}
+        </SessionInlineLink>
+      </div>
+      <ArtifactMarkersContext.Provider value={readOnly ? undefined : message.metadata?.artifacts}>
+        <MarkdownContent
+          text={message.content}
+          sessionId={draft.sessionId}
+          enableChatSelectionMenu={!readOnly}
+          fileLinkMode={readOnly ? "text-only" : "interactive"}
+          questLinkSurface="chat-feed"
+        />
+      </ArtifactMarkersContext.Provider>
+      {!readOnly && (
+        <AnnotationSourceMarkers sessionId={source.sessionId} messageId={message.id} contentRef={contentRef} />
+      )}
+    </div>
   );
 }
 

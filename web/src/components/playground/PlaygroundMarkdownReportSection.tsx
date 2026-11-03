@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { makeMarkdownReportFixture } from "../../../shared/test-fixtures/markdown-report.js";
+import { makeMarkdownReportFixture, makeSharedDraftFixture } from "../../../shared/test-fixtures/markdown-report.js";
 import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
 import { useTextSelection } from "../../hooks/useTextSelection.js";
 import { useStore } from "../../store.js";
@@ -9,6 +9,12 @@ import { SelectionContextMenu } from "../SelectionContextMenu.js";
 
 const report = makeMarkdownReportFixture();
 const [message] = normalizeHistoryMessageToChatMessages(report, 0);
+const sharedDraft = makeSharedDraftFixture();
+const [sharedDraftMessage] = normalizeHistoryMessageToChatMessages(sharedDraft, 1);
+sharedDraftMessage.metadata = {
+  ...sharedDraftMessage.metadata,
+  artifacts: [{ id: "artifact-draft", kind: "post", title: "Cache rollout update", version: 3, versionCount: 3 }],
+};
 
 export function PlaygroundMarkdownReportSection() {
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
@@ -29,6 +35,10 @@ export function PlaygroundMarkdownReportSection() {
         {draft?.annotations?.length ? (
           <p className="text-xs text-cc-muted">{draft.annotations.length} saved comment(s).</p>
         ) : null}
+      </div>
+      <h3 className="text-sm font-semibold">A worker's draft shared into a thread</h3>
+      <div data-message-id={sharedDraft.id} data-message-role="assistant" data-testid="playground-shared-draft">
+        <MessageBubble message={sharedDraftMessage} sessionId={sharedDraft.source.sessionId} />
       </div>
     </section>
   );

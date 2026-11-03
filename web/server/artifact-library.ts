@@ -133,7 +133,17 @@ export class ArtifactLibrary {
     this.deps.refreshConversation(sessionId);
   }
 
-  /** Waits for captures already scheduled or running; for tests and shutdown. */
+  /**
+   * Shows a saved version in another session's message (a shared draft), then refreshes every
+   * conversation showing the artifact: the earlier copies collapse and the new one gets its marker.
+   */
+  async showVersion(sessionId: string, messageId: string, artifactId: string, n: number): Promise<void> {
+    const sessions = this.store.showVersion(sessionId, messageId, artifactId, n);
+    await this.store.flush();
+    for (const id of sessions) this.deps.refreshConversation(id);
+  }
+
+  /** Waits for captures already scheduled or running: for sharing what was just written, tests and shutdown. */
   async idle(): Promise<void> {
     if (this.timer) {
       clearTimeout(this.timer);

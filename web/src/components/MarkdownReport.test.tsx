@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { makeMarkdownReportFixture } from "../../shared/test-fixtures/markdown-report.js";
+import { makeMarkdownReportFixture, makeSharedDraftFixture } from "../../shared/test-fixtures/markdown-report.js";
 import { makeGuidedReviewReportFixture } from "../../shared/test-fixtures/guided-review.js";
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { readConversationAnnotations } from "../../shared/conversation-annotations.js";
@@ -244,6 +244,28 @@ describe("saved Markdown reports", () => {
       "/api/artifacts/artifact-g",
       expect.objectContaining({ method: "PATCH", body: JSON.stringify({ starred: false }) }),
     );
+  });
+
+  it("shows a shared draft as its normal draft card, naming the session that wrote it", () => {
+    // A leader shares a worker's draft (takode artifact share) as a report; the user sees the same
+    // card the draft has in the worker's session, with its Library marker, not a report card.
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const [message] = normalizeHistoryMessageToChatMessages(makeSharedDraftFixture(), 0);
+    message.metadata = {
+      ...message.metadata,
+      artifacts: [{ id: "artifact-draft", kind: "post", title: "Cache rollout update", version: 3, versionCount: 3 }],
+    };
+    render(<MessageBubble message={message} sessionId="report-host" />);
+    expect(screen.getByTestId("shared-draft").textContent).toContain("Draft by #7");
+    const card = screen.getByTestId("draft-post-card");
+    expect(screen.getAllByTestId("draft-post-part")).toHaveLength(2);
+    expect(card.textContent).toContain("Hit rate settled at 92%");
+    expect(screen.getByTestId("draft-post-destination").textContent).toContain("#cache-rollout thread");
+    expect(screen.queryByText("Markdown report")).toBeNull();
+    // Its More menu is the Library artifact's, opened at the shared version.
+    fireEvent.click(screen.getByTestId("card-more-menu"));
+    expect(screen.getByRole("button", { name: "Open version 3 of 3 in Library" })).toBeTruthy();
   });
 
   it("names a report by its Library title, else by its first heading", () => {

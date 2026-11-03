@@ -42,6 +42,8 @@ export const MESSAGE_DRAFT_INSTRUCTIONS = [
   "A post with replies (a Slack message and its thread replies) is one titled block followed by untitled blocks, one per reply, in the same answer; Takode shows it as one card. To send a file with a message or reply, end its block with an `attach: /absolute/path/to/file.png` line (one per file) instead of describing the attachment in a note; the card shows it under that part, ready to copy.",
   "",
   "To revise only some parts of a post, repeat just those parts, each with the post's title and a `part: N` line before the `---` (1 is the message, 2 the first reply); the other parts carry over, and `part: N` past the last part adds a reply. To insert, drop or reorder parts, write the whole post again, every part in its new order, without `part:` lines.",
+  "",
+  "A leader puts a worker's draft in front of the user with `takode artifact share` (see `takode artifact --help`), which posts that same Library draft into a thread, rather than copying the worker's blocks into its own answer; it writes the draft itself only when it changes it.",
 ].join("\n");
 
 /** Visual blocks: diagrams, charts and kit shapes drawn in a sandboxed frame in any Markdown. */

@@ -317,6 +317,7 @@ function normalizeHistoryMessage(
           ...existingThreadMetadataFromMessage(histMsg),
           markdownReport: histMsg.source,
           ...(histMsg.guidedReview ? { guidedReview: histMsg.guidedReview } : {}),
+          ...(histMsg.sharedDraft ? { sharedDraft: histMsg.sharedDraft } : {}),
         },
       },
     ];

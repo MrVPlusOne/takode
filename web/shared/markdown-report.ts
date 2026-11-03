@@ -10,6 +10,15 @@ export interface MarkdownReportSource {
   responsibleWorkerId?: string;
 }
 
+/** A shared draft: the Library version it shows, and the session that wrote it. */
+export interface SharedDraftMeta {
+  artifactId: string;
+  version: number;
+  /** The session the draft was written in; its files resolve the draft's links and attachments. */
+  sessionId: string;
+  sessionNum?: number;
+}
+
 /** An immutable publication, independent of provider turns and answer coverage. */
 export interface MarkdownReportMessage {
   type: "markdown_report";
@@ -21,6 +30,11 @@ export interface MarkdownReportMessage {
   questId?: string;
   /** Present when the report is a guided review; `content` is then its Markdown version. */
   guidedReview?: import("./guided-review.js").GuidedReviewMeta;
+  /**
+   * Present when the report is a draft a leader shared from a worker (`takode artifact share`):
+   * `content` is then the draft's blocks, shown as its normal card, and `source.sourcePath` its title.
+   */
+  sharedDraft?: SharedDraftMeta;
   /** The library artifact this report is, added when sent to browsers. */
   artifacts?: import("./artifact-library.js").ArtifactMessageMarker[];
 }
