@@ -1,6 +1,6 @@
 ---
 name: takode-desktop-ui-design
-description: "Use before designing, building or reviewing Takode UI for wide screens: side-by-side split views, list-and-detail panes, side panels, sidebars, several groups stacked in one panel, collapsible sections and groups (every fold is remembered), and resizable dividers (every split view and stack of groups gets a draggable divider)."
+description: "Use before designing, building or reviewing Takode UI for wide screens: side-by-side split views, list-and-detail panes, side panels, sidebars, several groups stacked in one panel, collapsible sections and groups (every fold is remembered), resizable dividers (every split view and stack of groups gets a draggable divider), and button tooltips (every button explains itself on hover)."
 ---
 
 # Takode Desktop UI Design
@@ -47,3 +47,15 @@ A section or group that folds (sidebar groups and the archive, Overview and topi
 - Folds are per browser, not synced through the server: phones and desktops lay sections out differently. They follow changes made in other tabs.
 - The one exception: the leader portrait picker's pool groups are a server setting (`leaderProfileCollapsedPools`), because the user wanted them to match on every device. Leave them on the server.
 - Disclosures that belong to one item and reset on purpose (a message's details, a quest's Journey section, a list of pending changes to act on) are not sections and stay in component state.
+
+## Every button explains itself on hover
+
+Resting the mouse on any button shows what it does: its tooltip text, and the keyboard shortcut when it has one.
+
+**Why:** the user asked for it across the UI (November 2, 2026): icon buttons, such as the side column's header buttons, gave no hint of what they do. Browsers show a `title` late and unevenly, and never show an `aria-label`.
+
+**How:**
+- Takode draws the tooltip itself (`AppTooltips` in `web/src/components/AppTooltips.tsx`), from the element's `title`, or, for a button with no text of its own (an icon), its `aria-label`. Name buttons the usual way; don't build another tooltip.
+- Give every icon-only button a `title` (or an `aria-label`). Put a shortcut in it with `getShortcutTitle` from `web/src/shortcuts.ts`. A button whose own words say what it does needs nothing more.
+- Something that opens a hover card or preview of its own (session, quest and notification links) sets `data-tooltip="off"`, so the tooltip doesn't land beside its card.
+- `web/src/icon-button-names.test.ts` fails on an icon-only button with no `title` or `aria-label`; it can't judge one whose icon is computed in code. Details and history: the memory note `session-ui/button-tooltips.md`.
