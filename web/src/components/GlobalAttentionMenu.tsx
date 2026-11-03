@@ -3,6 +3,7 @@ import type { LeaderProfilePortrait } from "../../shared/leader-profile-portrait
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { createPortal } from "react-dom";
 import { useGlobalNeedsInputEntries } from "../hooks/useGlobalNeedsInputEntries.js";
+import { useAttentionCue } from "../utils/attention-cue.js";
 import { useNextAttention, useTrackedNotifyMeEntries } from "../hooks/useNextAttention.js";
 import { useStore } from "../store.js";
 import { useAttentionThreadTitles, type AttentionThreadTitles } from "../hooks/useAttentionThreadTitles.js";
@@ -95,10 +96,13 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
   // large number never hides that just one needs an answer. The list still has everything.
   const topKind = queue[0] ? attentionKindOf(queue[0]) : undefined;
   // Otherwise it counts places (a topic with three new answers is one), not messages.
-  const count =
-    topKind === "needs-input"
-      ? queue.filter((item) => item.kind === "needs-input").length
-      : countAttentionPlaces(queue);
+  const questions = queue.filter((item) => item.kind === "needs-input");
+  const count = topKind === "needs-input" ? questions.length : countAttentionPlaces(queue);
+  // Something new plays a brief cue (Jiayi, Nov 3), as in the side column: a new question rings the
+  // bell; more answers pop the count.
+  const newestAt = (items: readonly { timestamp: number }[]) => Math.max(0, ...items.map((item) => item.timestamp));
+  const questionCue = useAttentionCue(questions.length, newestAt(questions));
+  const countCue = useAttentionCue(count, newestAt(queue));
 
   return (
     <>
@@ -107,6 +111,8 @@ export function GlobalAttentionMenu({ compact = false }: { compact?: boolean }) 
           ref={triggerRef}
           count={count}
           topKind={topKind}
+          questionCue={questionCue}
+          countCue={topKind === "needs-input" ? 0 : countCue}
           compact={compact}
           open={open}
           onClick={() => setOpen((value) => !value)}
@@ -145,10 +151,16 @@ export function AttentionListPill({
   compact = false,
   open = false,
   onClick,
+  questionCue = 0,
+  countCue = 0,
 }: {
   ref?: Ref<HTMLButtonElement>;
   count: number;
   topKind: AttentionKind | undefined;
+  /** Rises once per new question: the bell rings (`useAttentionCue`). */
+  questionCue?: number;
+  /** Rises once per new answer counted: the count pops. */
+  countCue?: number;
   compact?: boolean;
   open?: boolean;
   onClick?: () => void;
@@ -173,8 +185,16 @@ export function AttentionListPill({
     >
       {topKind ? (
         <>
-          <AttentionKindIcon kind={topKind} className={iconClass} />
-          <span className="tabular-nums">{count}</span>
+          <span
+            key={`bell:${questionCue}`}
+            className="cc-cue-bell inline-flex"
+            data-cue={topKind === "needs-input" && questionCue > 0 ? "" : undefined}
+          >
+            <AttentionKindIcon kind={topKind} className={iconClass} />
+          </span>
+          <span key={`count:${countCue}`} className="cc-cue-pill tabular-nums" data-cue={countCue > 0 ? "" : undefined}>
+            {count}
+          </span>
         </>
       ) : (
         <BellIcon className={`${iconClass} shrink-0`} />

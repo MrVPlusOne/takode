@@ -46,6 +46,9 @@ export interface ThreadCounts {
   permission: number;
   unread: number;
   running: number;
+  /** When the newest question and unread result came, for the cue a new one plays. */
+  permissionAt?: number;
+  unreadAt?: number;
 }
 
 /** One of a leader's threads, as a row of the list. */
@@ -106,6 +109,8 @@ export function threadRows(leaders: readonly LeaderThreadsInput[], queue: readon
       permission: attention.get(threadKey)?.permission ?? 0,
       unread: attention.get(threadKey)?.unread ?? 0,
       running: running || threadKey === writing ? 1 : 0,
+      permissionAt: attention.get(threadKey)?.permissionAt ?? 0,
+      unreadAt: attention.get(threadKey)?.unreadAt ?? 0,
     });
     const row = (input: Omit<ThreadRow, "key" | "leader" | "group">): ThreadRow => ({
       ...input,
@@ -213,24 +218,34 @@ function attentionByThread(
   leaderId: string,
   queue: readonly NextAttentionItem[],
   ownThreads: ReadonlySet<string>,
-): Map<string, { permission: number; unread: number }> {
-  const byThread = new Map<string, { permission: number; unread: number }>();
-  const add = (threadKey: string, kind: "permission" | "unread") => {
-    const entry = byThread.get(threadKey) ?? { permission: 0, unread: 0 };
+): Map<string, ThreadAttention> {
+  const byThread = new Map<string, ThreadAttention>();
+  const add = (threadKey: string, kind: "permission" | "unread", at: number) => {
+    const entry = byThread.get(threadKey) ?? { permission: 0, unread: 0, permissionAt: 0, unreadAt: 0 };
     entry[kind]++;
+    entry[`${kind}At`] = Math.max(entry[`${kind}At`], at);
     byThread.set(threadKey, entry);
   };
   for (const item of queue) {
     if (item.kind === "needs-input") {
       const quest = questOf(item.entry);
       if (item.sessionId === leaderId)
-        add(normalizeThreadKey(quest ?? item.threadKey ?? MAIN_THREAD_KEY), "permission");
-      else if (quest && ownThreads.has(normalizeThreadKey(quest))) add(normalizeThreadKey(quest), "permission");
+        add(normalizeThreadKey(quest ?? item.threadKey ?? MAIN_THREAD_KEY), "permission", item.timestamp);
+      else if (quest && ownThreads.has(normalizeThreadKey(quest)))
+        add(normalizeThreadKey(quest), "permission", item.timestamp);
       continue;
     }
-    if (item.sessionId === leaderId) add(normalizeThreadKey(item.threadKey ?? MAIN_THREAD_KEY), "unread");
+    if (item.sessionId === leaderId)
+      add(normalizeThreadKey(item.threadKey ?? MAIN_THREAD_KEY), "unread", item.timestamp);
   }
   return byThread;
+}
+
+interface ThreadAttention {
+  permission: number;
+  unread: number;
+  permissionAt: number;
+  unreadAt: number;
 }
 
 export interface ThreadsModeData {

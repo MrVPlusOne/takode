@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { Activity, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { holdSessionConnection } from "../../ws.js";
 import { useRememberedFolds } from "../../utils/remembered-folds.js";
@@ -46,6 +47,7 @@ import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { SideQuest } from "./SideQuest.js";
 import { SideSession } from "./SideSession.js";
 import { SideHome } from "./SideHome.js";
+import { useAttentionCue } from "../../utils/attention-cue.js";
 import { SideQuestIcon, useSideQuestOf } from "../SideQuestCue.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
@@ -422,8 +424,13 @@ function SideItemRow({
   const owner = (item ? (sideItemLeader(item) ?? questLeader) : null) ?? mainLeaderId ?? "";
   // The thread whose status the row shows: its conversation, or the quest whose details it shows.
   const statusKey = item?.kind === "conversation" ? item.threadKey : item?.kind === "quest" ? item.questId : null;
-  const unread = useOpenIn(owner, statusKey, "review");
-  const questions = useOpenIn(owner, statusKey, "needs-input");
+  const unreadIn = useOpenIn(owner, statusKey, "review");
+  const questionsIn = useOpenIn(owner, statusKey, "needs-input");
+  const unread = unreadIn.count;
+  const questions = questionsIn.count;
+  // A new question or answer plays a brief cue, so the user sees which one just changed.
+  const questionCue = useAttentionCue(questions, questionsIn.newestAt);
+  const unreadCue = useAttentionCue(unread, unreadIn.newestAt);
   useEffect(() => loadLeaderNamesOnce(owner), [owner]);
   // A thread whose whole request became a quest's work, or that joined an earlier one, is that
   // conversation now: the pane turns into it in place, once its messages are here to show.
@@ -476,7 +483,9 @@ function SideItemRow({
           // A question waits on the user here: the amber bell that marks questions everywhere else
           // (Needs you rows, the bell list). Jiayi (Oct 31): a "question" label read badly in light.
           <span
-            className="inline-flex shrink-0 text-cc-attention"
+            key={`bell:${questionCue}`}
+            className="cc-cue-bell inline-flex shrink-0 text-cc-attention"
+            data-cue={questionCue > 0 ? "" : undefined}
             title={questions === 1 ? "A question for you" : `${questions} questions for you`}
             aria-label={questions === 1 ? "A question for you" : `${questions} questions for you`}
             data-testid="side-item-questions"
@@ -485,7 +494,12 @@ function SideItemRow({
           </span>
         )}
         {unread > 0 && (
-          <span className="shrink-0 rounded-full bg-cc-info/15 px-1.5 text-[11px] tabular-nums text-cc-info">
+          <span
+            key={`unread:${unreadCue}`}
+            className="cc-cue-pill shrink-0 rounded-full bg-cc-info/15 px-1.5 text-[11px] tabular-nums text-cc-info"
+            data-cue={unreadCue > 0 ? "" : undefined}
+            data-testid="side-item-unread"
+          >
             {unread} new
           </span>
         )}
@@ -762,16 +776,22 @@ function useQuestLeader(questId: string | null): string | null {
 }
 
 /** Open notifications of a kind (unread answers, questions) in one of the leader's threads. */
-function useOpenIn(leaderId: string, threadKey: string | null, category: "review" | "needs-input"): number {
-  return useStore((state) =>
-    threadKey
-      ? (state.sessionNotifications.get(leaderId) ?? []).filter(
-          (notification) =>
-            notification.category === category &&
-            !notification.done &&
-            resolveNotificationOwnerThreadKey(notification) === normalizeThreadKey(threadKey),
-        ).length
-      : 0,
+function useOpenIn(
+  leaderId: string,
+  threadKey: string | null,
+  category: "review" | "needs-input",
+): { count: number; newestAt: number } {
+  return useStore(
+    useShallow((state) => {
+      if (!threadKey) return { count: 0, newestAt: 0 };
+      const open = (state.sessionNotifications.get(leaderId) ?? []).filter(
+        (notification) =>
+          notification.category === category &&
+          !notification.done &&
+          resolveNotificationOwnerThreadKey(notification) === normalizeThreadKey(threadKey),
+      );
+      return { count: open.length, newestAt: Math.max(0, ...open.map((notification) => notification.timestamp ?? 0)) };
+    }),
   );
 }
 

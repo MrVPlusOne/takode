@@ -143,10 +143,10 @@ describe("threadRows", () => {
       ["q-2", "idle"],
     ]);
     const counts = Object.fromEntries(rows.map((row) => [row.threadKey, row.counts]));
-    expect(counts["q-1"]).toEqual({ permission: 1, unread: 0, running: 0 });
-    expect(counts["q-4"]).toEqual({ permission: 0, unread: 0, running: 1 });
+    expect(counts["q-1"]).toMatchObject({ permission: 1, unread: 0, running: 0 });
+    expect(counts["q-4"]).toMatchObject({ permission: 0, unread: 0, running: 1 });
     // The thread the leader is answering in shows as running.
-    expect(counts["topic:aa"]).toEqual({ permission: 0, unread: 0, running: 1 });
+    expect(counts["topic:aa"]).toMatchObject({ permission: 0, unread: 0, running: 1 });
     // No phase words: a quest has no label (its dot says where it stands); a thread says so.
     expect(rows.find((row) => row.threadKey === "q-4")!.label).toBeUndefined();
     expect(rows.find((row) => row.threadKey === "topic:aa")!.label).toBe("Thread");

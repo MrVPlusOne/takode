@@ -682,6 +682,36 @@ describe("SideColumn", () => {
     }
   });
 
+  it("rings a title bar's bell for a new question and pops its count for a new answer, once", () => {
+    // Jiayi (Nov 3): a brief cue says which pane just got something; what was there on load doesn't.
+    const note = (id: string, category: "needs-input" | "review", timestamp: number) => ({
+      id,
+      category,
+      summary: id,
+      timestamp,
+      messageId: `m-${id}`,
+      threadKey: "q-2",
+      done: false,
+    });
+    useStore.setState({ sessionNotifications: new Map([["l1", [note("old", "review", 5)]]]) } as never);
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    });
+    const cue = (testId: string) => within(rows()[0]!).getByTestId(testId).hasAttribute("data-cue");
+    expect(cue("side-item-unread")).toBe(false);
+    act(() => {
+      useStore.setState({
+        sessionNotifications: new Map([
+          ["l1", [note("old", "review", 5), note("new", "review", Date.now()), note("ask", "needs-input", Date.now())]],
+        ]),
+      } as never);
+    });
+    expect(cue("side-item-unread")).toBe(true);
+    expect(cue("side-item-questions")).toBe(true);
+    useStore.setState({ sessionNotifications: new Map() } as never);
+  });
+
   it("marks a side quest on its title bar as the main view's strip does, open or folded", () => {
     // Jiayi (Nov 2): a side quest's chat lost its side-quest mark when put in the side column.
     const tab = {

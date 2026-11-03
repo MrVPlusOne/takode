@@ -1,3 +1,4 @@
+import { useAttentionCue } from "../utils/attention-cue.js";
 import { useSessionRowPending } from "../utils/pending-session-rows.js";
 import { SessionArchiveConfirmation, type ArchiveConfirmationState } from "./SessionArchiveConfirmation.js";
 export type { ArchiveConfirmationState } from "./SessionArchiveConfirmation.js";
@@ -46,6 +47,9 @@ export interface StatusCounts {
   permission: number;
   unread: number;
   waiting?: number;
+  /** When the newest question and unread result came: a fresh one pops its count (`useAttentionCue`). */
+  permissionAt?: number;
+  unreadAt?: number;
 }
 
 const STATUS_COUNT_STYLES = [
@@ -60,6 +64,12 @@ function waitingSessionStatusLabel(count: number): string {
 
 /** Renders colored dot/icon+count indicators for running/permission/unread/waiting statuses. */
 export function StatusCountDots({ counts }: { counts: StatusCounts }) {
+  // A new question or result pops its count once (Jiayi, Nov 3), where a newest time is given.
+  const cues = {
+    running: 0,
+    permission: useAttentionCue(counts.permission, counts.permissionAt ?? 0),
+    unread: useAttentionCue(counts.unread, counts.unreadAt ?? 0),
+  };
   const waiting = counts.waiting ?? 0;
   const hasAny = counts.running > 0 || counts.permission > 0 || counts.unread > 0 || waiting > 0;
   if (!hasAny) return null;
@@ -68,7 +78,12 @@ export function StatusCountDots({ counts }: { counts: StatusCounts }) {
       {STATUS_COUNT_STYLES.map(
         ({ key, text, bg }) =>
           counts[key] > 0 && (
-            <span key={key} data-testid={`status-count-${key}`} className={`${text} flex items-center gap-0.5`}>
+            <span
+              key={`${key}:${cues[key]}`}
+              data-testid={`status-count-${key}`}
+              className={`${text} cc-cue-pill flex items-center gap-0.5`}
+              data-cue={cues[key] > 0 ? "" : undefined}
+            >
               {counts[key]}
               <span className={`inline-block w-1.5 h-1.5 rounded-full ${bg}`} />
             </span>

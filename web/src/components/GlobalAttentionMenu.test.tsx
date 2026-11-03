@@ -127,6 +127,28 @@ describe("GlobalAttentionMenu", () => {
     expect(within(list).getByRole("region", { name: "Muted questions" })).toHaveTextContent("Rename later?");
   });
 
+  it("rings its bell once when a new question arrives, not for one already waiting", () => {
+    // Jiayi (Nov 3): a brief cue says something new came in; questions loaded with the page don't.
+    const question = (id: string, timestamp: number) => ({
+      id,
+      category: "needs-input" as const,
+      summary: `Question ${id}`,
+      timestamp,
+      messageId: `m-${id}`,
+      done: false,
+    });
+    useStore.setState({ sessionNotifications: new Map([["leader", [question("old", 5)]]]) });
+    render(<GlobalAttentionMenu />);
+    const bell = () => screen.getByTestId("attention-list-button").querySelector(".cc-cue-bell")!;
+    expect(bell().hasAttribute("data-cue")).toBe(false);
+    act(() => {
+      useStore.setState({
+        sessionNotifications: new Map([["leader", [question("old", 5), question("new", Date.now())]]]),
+      });
+    });
+    expect(bell().hasAttribute("data-cue")).toBe(true);
+  });
+
   // "All tracked" from the removed Notify Me menu: threads with a result stay in the
   // Notify Me group only, and the tracked section lists the rest, across result pages.
   it("lists tracked threads without a result below the queue, without repeating ones that have a result", async () => {
