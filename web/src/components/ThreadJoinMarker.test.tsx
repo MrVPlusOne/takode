@@ -7,13 +7,21 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 const unjoinThread = vi.hoisted(() => vi.fn());
-vi.mock("../api/topics.js", () => ({ topicApi: { unjoinThread, threads: vi.fn(() => new Promise(() => {})) } }));
+vi.mock("../api/topics.js", () => ({
+  topicApi: {
+    unjoinThread,
+    threads: vi.fn(() => new Promise(() => {})),
+    // The strip loads its thread's news line (its update) from Home's lines.
+    homeLines: vi.fn(() => new Promise(() => {})),
+  },
+}));
 import type { ChatMessage } from "../types.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import { rememberThreads } from "../utils/leader-topics.js";
 import { joinedThreadStarts } from "./MessageFeedTurns.js";
 import { JoinedThreadMarker } from "./ThreadJoinMarker.js";
 import { ThreadStrip } from "./ThreadStrip.js";
+import { useHomeLinesCache } from "./home/HomeExtras.js";
 
 afterEach(() => {
   cleanup();
@@ -86,5 +94,25 @@ describe("ThreadStrip", () => {
     rerender(<ThreadStrip thread={thread} onMoveToSide={onMoveToSide} />);
     fireEvent.click(screen.getByTestId("thread-move-to-side"));
     expect(onMoveToSide).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the thread's update after its name once its news line is known", () => {
+    // Jiayi (Nov 3): one title, then a marked update saying what the newest result is about.
+    useHomeLinesCache.setState({ byLeader: { l1: { "topic:aa11": { text: "The relay is back up." } } } });
+    try {
+      const thread = {
+        id: "aa11",
+        key: "topic:aa11",
+        name: "Phone can't reach Takode",
+        leaderId: "l1",
+        createdAt: 1,
+        activityAt: 1,
+      };
+      render(<ThreadStrip thread={thread} />);
+      expect(screen.getByTestId("thread-update").textContent).toBe("The relay is back up.");
+      expect(screen.getByTestId("thread-update-mark")).toBeTruthy();
+    } finally {
+      useHomeLinesCache.setState({ byLeader: {} });
+    }
   });
 });
