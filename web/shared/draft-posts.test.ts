@@ -9,6 +9,8 @@ import {
   parseDestination,
   parseGroupedDraftPost,
   revisePostParts,
+  slackNativeLinksToMarkdown,
+  slackNativeMentionTokens,
 } from "./draft-posts.js";
 
 /**
@@ -123,5 +125,42 @@ describe("writing a post back as draft blocks", () => {
     expect(grouped?.blocks.map((block) => block.attachments)).toEqual(post.attachments);
     expect(grouped?.blocks[0].destination).toEqual(post.destination);
     expect(grouped?.blocks.some((block) => block.part)).toBe(false);
+  });
+});
+
+describe("Slack's own syntax in drafts", () => {
+  it("rewrites <url|name> links as Markdown links, leaving bare links and code alone", () => {
+    // Slack's API form reaches drafts from agents that know it; Markdown would read the name as part of
+    // the address. Code shows the syntax literally, so it is never rewritten.
+    const text = [
+      "See <https://github.com/o/r/tree/jiayi/fv|jiayi/fv> and <mailto:a@b.co|mail [us]> or <https://x.dev>.",
+      "Write it as `<https://a.dev|a>` in code.",
+      "```",
+      "<https://b.dev|b>",
+      "```",
+    ].join("\n");
+    expect(slackNativeLinksToMarkdown(text)).toBe(
+      [
+        "See [jiayi/fv](<https://github.com/o/r/tree/jiayi/fv>) and [mail \\[us\\]](<mailto:a@b.co>) or <https://x.dev>.",
+        "Write it as `<https://a.dev|a>` in code.",
+        "```",
+        "<https://b.dev|b>",
+        "```",
+      ].join("\n"),
+    );
+    expect(slackNativeLinksToMarkdown("No links | here")).toBe("No links | here");
+  });
+
+  it("finds Slack mention tokens outside code, once each", () => {
+    const text =
+      "Hi <@U09FAJKF4H0> and <@W12AB|Ana>, in <#C01ABC> <!here> <!subteam^S12AB|@evals> <@U09FAJKF4H0> `<!channel>`";
+    expect(slackNativeMentionTokens(text)).toEqual([
+      "<@U09FAJKF4H0>",
+      "<@W12AB|Ana>",
+      "<#C01ABC>",
+      "<!here>",
+      "<!subteam^S12AB|@evals>",
+    ]);
+    expect(slackNativeMentionTokens("Email <a@b.co> or @Ana Lee")).toEqual([]);
   });
 });

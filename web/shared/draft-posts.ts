@@ -227,6 +227,61 @@ export function formatDraftPost(post: {
     .join("\n\n");
 }
 
+/**
+ * A draft's text with Slack's own link syntax (`<url|name>`, as Slack's API writes links) rewritten as
+ * Markdown links, outside code. Copy for Slack copies the rendered draft, and Markdown would otherwise
+ * read `<url|name>` as one autolink whose address ends in `|name`, which pastes as a broken link.
+ * A bare `<url>` is already a Markdown link and stays.
+ */
+export function slackNativeLinksToMarkdown(text: string): string {
+  if (!text.includes("|")) return text;
+  return mapProse(text, (prose) =>
+    prose.replace(
+      /<((?:https?|mailto):[^\s<>|]+)\|([^<>\n]+)>/gi,
+      (_, url: string, name: string) => `[${name.replace(/[[\]\\]/g, "\\$&")}](<${url}>)`,
+    ),
+  );
+}
+
+/**
+ * Slack's own mention syntax in a draft's text, outside code: `<@U…>` user, `<#C…>` channel and
+ * `<!here>`-style tokens, which only Slack's API turns into mentions; pasted, they stay plain text.
+ */
+export function slackNativeMentionTokens(text: string): string[] {
+  if (!/<[@#!]/.test(text)) return [];
+  const tokens = new Set<string>();
+  mapProse(text, (prose) => {
+    for (const match of prose.matchAll(SLACK_MENTION_TOKEN)) tokens.add(match[0]);
+    return prose;
+  });
+  return [...tokens];
+}
+
+const SLACK_MENTION_TOKEN =
+  /<(?:[@#][A-Z][A-Z0-9]{2,}|!(?:here|channel|everyone|subteam\^[A-Z0-9]+|date\^[^|>\s]+))(?:\|[^<>\n]*)?>/g;
+
+/** Applies `edit` to the text outside fenced code blocks and inline code spans. */
+function mapProse(text: string, edit: (prose: string) => string): string {
+  const { fences } = scanFences(text);
+  let result = "";
+  let from = 0;
+  const proseOf = (segment: string) => {
+    let out = "";
+    let at = 0;
+    // A code span closes with a run of as many backticks as opened it.
+    for (const span of segment.matchAll(/(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)) {
+      out += edit(segment.slice(at, span.index)) + span[0];
+      at = span.index + span[0].length;
+    }
+    return out + edit(segment.slice(at));
+  };
+  for (const fence of fences) {
+    result += proseOf(text.slice(from, fence.start)) + text.slice(fence.start, fence.end);
+    from = fence.end;
+  }
+  return result + proseOf(text.slice(from));
+}
+
 /** A post's part as the user knows it: the message, then numbered replies. */
 export function draftPartLabel(index: number): string {
   return index === 0 ? "Message" : `Reply ${index}`;

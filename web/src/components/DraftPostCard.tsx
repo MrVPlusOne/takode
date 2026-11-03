@@ -3,6 +3,8 @@ import type { ArtifactMessageMarker, ArtifactVersionContent, PostAttachment } fr
 import {
   destinationLabel,
   draftPartLabel,
+  slackNativeLinksToMarkdown,
+  slackNativeMentionTokens,
   type DraftBlock,
   type DraftDestination,
   type PostPartChanges,
@@ -76,7 +78,7 @@ export function DraftPostCard({
     useCallback(
       () =>
         exportContent("markdown", {
-          markdown: parts.map((part) => part.text).join("\n\n---\n\n"),
+          markdown: parts.map((part) => slackNativeLinksToMarkdown(part.text)).join("\n\n---\n\n"),
           content: null,
           title: title ?? "Draft",
         }),
@@ -173,6 +175,7 @@ function DraftPostPart({
   onCopied?: () => void;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
+  const mentions = slackNativeMentionTokens(part.text);
   return (
     <div className={single ? "" : "border-b border-cc-border/70 last:border-b-0"} data-testid="draft-post-part">
       {!single && (
@@ -193,8 +196,9 @@ function DraftPostPart({
         </div>
       )}
       <div ref={bodyRef} className={single ? "px-3 py-2.5" : "px-3 pb-2.5 pt-1"}>
-        {renderMarkdown(part.text)}
+        {renderMarkdown(slackNativeLinksToMarkdown(part.text))}
       </div>
+      {mentions.length > 0 && <SlackMentionWarning tokens={mentions} />}
       {part.attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 px-3 pb-2.5" data-copy-exclude="" data-testid="draft-post-attachments">
           {part.attachments.map((attachment) => (
@@ -208,6 +212,28 @@ function DraftPostPart({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Slack's own mention syntax only works through its API: pasted, `<@U…>` stays text, so the card
+ * says so and asks for `@Full Name`, which the user can read and turn into a mention in Slack.
+ */
+function SlackMentionWarning({ tokens }: { tokens: string[] }) {
+  return (
+    <div
+      className="mx-3 mb-2.5 rounded-md border border-cc-warning/30 bg-cc-warning/10 px-2 py-1 text-[12px] text-cc-warning"
+      data-copy-exclude=""
+      data-testid="draft-post-mention-warning"
+    >
+      {tokens.map((token) => (
+        <code key={token} className="mr-1 font-mono-code">
+          {token}
+        </code>
+      ))}
+      {tokens.length === 1 ? "won't become a mention" : "won't become mentions"} when pasted into Slack. Write @Full
+      Name instead.
     </div>
   );
 }

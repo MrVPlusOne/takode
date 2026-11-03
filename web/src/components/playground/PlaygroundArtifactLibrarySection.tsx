@@ -120,6 +120,23 @@ const PART_REVISION_MESSAGE: ChatMessage = {
   ].join("\n"),
 };
 
+/**
+ * A draft written in Slack's own syntax: the `<url|name>` link shows and copies as a real link, and the
+ * mention tokens, which can't become mentions by pasting, get a warning outside what is copied.
+ */
+const SLACK_SYNTAX_MESSAGE: ChatMessage = {
+  id: "playground-artifact-slack-syntax",
+  role: "assistant",
+  timestamp: 0,
+  content: [
+    "```draft",
+    "title: Harder FV tasks branch",
+    "---",
+    "Thanks <@U09FAJKF4H0>! The harder tasks are on <https://github.com/org/repo/tree/jiayi/fv-harder-tasks|jiayi/fv-harder-tasks>, results in <#C01ABCDEF|eval-runs>.",
+    "```",
+  ].join("\n"),
+};
+
 /** A message mentioning artifacts with Takode artifact links (hover shows a card; click opens the Library). */
 const LINK_MESSAGE: ChatMessage = {
   id: "playground-artifact-links",
@@ -194,6 +211,11 @@ export function PlaygroundArtifactLibrarySection() {
       <Card label="Revision naming one part (shown alone until its version loads)">
         <div className="max-w-[640px]" data-testid="playground-artifact-part-revision">
           <MessageBubble message={PART_REVISION_MESSAGE} sessionId="playground-session" />
+        </div>
+      </Card>
+      <Card label="Draft in Slack's own syntax: link converted, mentions flagged">
+        <div className="max-w-[640px]" data-testid="playground-artifact-slack-syntax">
+          <MessageBubble message={SLACK_SYNTAX_MESSAGE} sessionId="playground-session" />
         </div>
       </Card>
       <Card label="Earlier copy of a version sent again, collapsed">
