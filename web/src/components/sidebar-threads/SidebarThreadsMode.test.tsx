@@ -246,12 +246,11 @@ describe("SidebarThreadsMode", () => {
     expect(screen.getByTestId("other-sessions")).toBeTruthy();
   });
 
-  // Jiayi (Nov 1): a reopened quest's generic title says less than its newest round, so its row
-  // shows the round first and the quest (number and title) second, which gives way first.
-  it("names a reopened quest by its newest round, then the quest", () => {
-    useStore
-      .getState()
-      .upsertQuestTitlePreview({ questId: "q-4", title: "Quest q-4", version: 3, roundTitle: "Side column limit" });
+  // Jiayi (Nov 3): one title per thread, then its update, marked as one. A reopened quest is named
+  // by its quest title like any other.
+  it("marks a thread's news line as its update, under its one title", () => {
+    useStore.getState().upsertQuestTitlePreview({ questId: "q-4", title: "Quest q-4", version: 3, updatedAt: 3 });
+    useHomeLinesCache.setState({ byLeader: { [TAKODE.leader.id]: { "q-4": { text: "Landed." } } } });
     render(
       <SidebarThreadsMode
         data={{ leaders: LEADERS, others: [] }}
@@ -261,12 +260,12 @@ describe("SidebarThreadsMode", () => {
       />,
     );
     const row = screen.getAllByTestId("threads-mode-row").find((candidate) => candidate.dataset.threadKey === "q-4")!;
-    expect(within(row).getByTestId("quest-round-title").textContent).toBe("Side column limit");
-    expect(within(row).getByTestId("quest-round-title-quest").textContent).toBe("q-4 Quest q-4");
-    expect(row.getAttribute("title")).toBe("q-4 Quest q-4: Side column limit");
-    // A quest never reopened keeps its own title alone.
+    expect(row.getAttribute("title")).toBe("q-4 Quest q-4");
+    expect(within(row).getByTestId("threads-mode-line").textContent).toBe("Landed.");
+    expect(within(row).getByTestId("thread-update-mark")).toBeTruthy();
+    // Without a news line, a row's second line is no update and has no mark.
     const plain = screen.getAllByTestId("threads-mode-row").find((candidate) => candidate.dataset.threadKey === "q-1")!;
-    expect(within(plain).queryByTestId("quest-round-title")).toBeNull();
+    expect(within(plain).queryByTestId("thread-update-mark")).toBeNull();
     useStore.getState().reset();
   });
 

@@ -22,8 +22,6 @@ const SESSIONS = [
   { sessionId: "playground-attention-worker", sessionNum: 2920, name: "Redesign the attention navigators" },
   { sessionId: "playground-attention-other", sessionNum: 2855, name: "Codex login refresh" },
 ];
-/** A reopened quest is named by its newest round. */
-const ROUND_TITLES: Record<string, string> = { "q-2416": "Pull before restarting" };
 const QUEST_TITLES: Record<string, string> = {
   "q-2428": "Make offline hosts obvious in the session list",
   "q-2416": "Restart Server pulls the latest published code",
@@ -104,7 +102,7 @@ function unreadMessage(
 
 /**
  * A realistic cross-session queue: questions, an answer the leader marked urgent, a reminder that
- * came due, unread answers by thread (Main, a reopened quest and another quest), and a watched
+ * came due, unread answers by thread (Main and two quests), and a watched
  * quest's result.
  */
 const QUEUE = buildNextAttentionQueue({
@@ -186,7 +184,6 @@ function InteractiveAttentionList() {
         sessionsOverride={SESSIONS}
         threadsOverride={{
           titleFor: (_sessionId, threadKey) => QUEST_TITLES[threadKey],
-          roundTitleFor: (threadKey) => ROUND_TITLES[threadKey],
           hasThreadTabs: (sessionId) => sessionId === "playground-attention-leader",
         }}
       />
@@ -257,7 +254,6 @@ export function PlaygroundNextAttentionSection() {
                 sessionsOverride={SESSIONS}
                 threadsOverride={{
                   titleFor: (_sessionId, threadKey) => QUEST_TITLES[threadKey],
-                  roundTitleFor: (threadKey) => ROUND_TITLES[threadKey],
                   hasThreadTabs: (sessionId) => sessionId === "playground-attention-leader",
                 }}
               />

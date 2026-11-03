@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useHomeLinesCache } from "../home/HomeExtras.js";
 import { useStore } from "../../store.js";
 import { QuestThreadBanner, QuestThreadFeedChips, type QuestThreadBannerRow } from "../QuestThreadBanner.js";
 import {
@@ -373,39 +374,43 @@ export function PlaygroundQuestBannerExamples() {
         </div>
       </div>
 
-      <PlaygroundReopenedQuestStrip row={compactQuestThreadBannerRows[0].row} />
+      <PlaygroundQuestStripWithUpdate row={compactQuestThreadBannerRows[0].row} />
     </>
   );
 }
 
-const REOPENED_QUEST_ID = "q-9050";
+const UPDATE_QUEST_ID = "q-9050";
+const UPDATE_LEADER_ID = "playground-strip-leader";
 
-/** A reopened quest's strip: its newest round first, then the quest number and title, muted. */
-function PlaygroundReopenedQuestStrip({ row }: { row: QuestThreadBannerRow }) {
+/** A leader's strip: the quest title, then the thread's update after its mark. */
+function PlaygroundQuestStripWithUpdate({ row }: { row: QuestThreadBannerRow }) {
   useEffect(() => {
-    useStore.getState().upsertQuestTitlePreview({
-      questId: REOPENED_QUEST_ID,
-      title: "Desktop workspace: breadcrumb, side column, side chats",
-      version: 1,
-      roundTitle: "Side column conversation limit",
-    });
+    useHomeLinesCache.setState((state) => ({
+      byLeader: {
+        ...state.byLeader,
+        [UPDATE_LEADER_ID]: {
+          [UPDATE_QUEST_ID]: { text: "Side chats now open one at a time; the column scrolls as before" },
+        },
+      },
+    }));
   }, []);
   return (
     <div
-      data-testid="playground-quest-banner-reopened"
-      className="w-full max-w-[430px] overflow-hidden rounded-lg border border-cc-border bg-cc-card"
+      data-testid="playground-quest-banner-update"
+      className="w-full max-w-[640px] overflow-hidden rounded-lg border border-cc-border bg-cc-card"
     >
       <div className="border-b border-cc-border/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
-        Reopened quest: newest round first
+        Strip with the thread's update
       </div>
       <QuestThreadBanner
         row={{
           ...row,
-          threadKey: REOPENED_QUEST_ID,
-          questId: REOPENED_QUEST_ID,
-          title: "Desktop workspace: breadcrumb, side column, side chats",
+          threadKey: UPDATE_QUEST_ID,
+          questId: UPDATE_QUEST_ID,
+          title: "Chats one at a time in the side column",
         }}
-        threadKey={REOPENED_QUEST_ID}
+        threadKey={UPDATE_QUEST_ID}
+        monitorSessionId={UPDATE_LEADER_ID}
         singleLine
       />
     </div>

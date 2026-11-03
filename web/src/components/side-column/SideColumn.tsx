@@ -62,7 +62,8 @@ import {
   useSideChat,
 } from "../../utils/chat-focus.js";
 import { ChatFocusMark } from "../ChatFocusMark.js";
-import { useQuestRoundTitle } from "../QuestRoundTitle.js";
+import { InlineThreadUpdate } from "../ThreadUpdate.js";
+import { useThreadNews } from "../home/HomeExtras.js";
 
 /** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
 const KEPT_MOUNTED = 3;
@@ -615,11 +616,7 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
     case "topic":
       return <>{pinned?.name ?? "Topic"}</>;
     case "conversation":
-      return /^q-\d+$/i.test(item.threadKey) ? (
-        <SideQuestThreadTitle leaderId={leaderId} questId={item.threadKey.toLowerCase()} />
-      ) : (
-        <ThreadOriginName leaderId={leaderId} threadKey={item.threadKey} />
-      );
+      return <SideConversationTitle leaderId={leaderId} threadKey={item.threadKey} />;
     case "new-chat":
       return <NewChatWithTitle leaderId={item.leaderId} />;
     case "artifact":
@@ -644,29 +641,36 @@ function NewChatWithTitle({ leaderId }: { leaderId: string }) {
 }
 
 /**
- * A quest's thread: a reopened quest by its newest round first, then the quest muted, cut first. A
- * side quest carries the side-quest mark where the main view's strip has it (Jiayi, Nov 2: side
- * chats show what the main view shows): before the round's title, else after the number.
+ * A conversation's title bar: its one title (a quest's number and title, or the thread's name),
+ * then its update, what its newest result is about, which gives way first.
+ */
+function SideConversationTitle({ leaderId, threadKey }: { leaderId: string; threadKey: string }) {
+  const quest = /^q-\d+$/i.test(threadKey);
+  const news = useThreadNews(leaderId, threadKey);
+  return (
+    <span className="flex min-w-0 items-baseline gap-1.5">
+      <span className="min-w-0 shrink truncate">
+        {quest ? (
+          <SideQuestThreadTitle leaderId={leaderId} questId={threadKey.toLowerCase()} />
+        ) : (
+          <ThreadOriginName leaderId={leaderId} threadKey={threadKey} />
+        )}
+      </span>
+      <InlineThreadUpdate text={news} />
+    </span>
+  );
+}
+
+/**
+ * A quest's thread: its number and title. A side quest carries the side-quest mark where the main
+ * view's strip has it (Jiayi, Nov 2: side chats show what the main view shows), after the number.
  */
 function SideQuestThreadTitle({ leaderId, questId }: { leaderId: string; questId: string }) {
-  const roundTitle = useQuestRoundTitle(questId);
   const sideQuestOf = useSideQuestOf(leaderId, questId);
-  const mark = sideQuestOf && <SideQuestMark sideQuestOf={sideQuestOf} />;
-  if (!roundTitle) {
-    return (
-      <>
-        <SideQuestNumber questId={questId} /> {mark}
-        <ThreadOriginName leaderId={leaderId} threadKey={questId} />
-      </>
-    );
-  }
   return (
     <>
-      {mark}
-      {roundTitle}{" "}
-      <span className="text-cc-muted">
-        <SideQuestNumber questId={questId} /> <ThreadOriginName leaderId={leaderId} threadKey={questId} />
-      </span>
+      <SideQuestNumber questId={questId} /> {sideQuestOf && <SideQuestMark sideQuestOf={sideQuestOf} />}
+      <ThreadOriginName leaderId={leaderId} threadKey={questId} />
     </>
   );
 }

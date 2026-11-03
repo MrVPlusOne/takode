@@ -31,7 +31,6 @@ import { NewThreadIcon } from "./library/library-icons.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
 import { SessionRoleIcon } from "./SessionRoleLabel.js";
-import { QuestRoundTitle } from "./QuestRoundTitle.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
 import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
@@ -496,11 +495,7 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
                 <SideQuestIcon sideQuestOf={tab.sideQuestOf} />
               </span>
             )}
-            {tab.roundTitle ? (
-              <QuestRoundTitle roundTitle={tab.roundTitle} questTitle={tab.title} />
-            ) : (
-              <span className="truncate">{tab.title}</span>
-            )}
+            <span className="truncate">{tab.title}</span>
           </span>
           <span className="mt-0.5 truncate text-[11.5px]">
             <span

@@ -1,7 +1,6 @@
 import type { StateCreator } from "zustand";
 import { api } from "./api.js";
 import { reconcileQuestList } from "./store-equality.js";
-import { latestRoundTitle } from "../shared/quest-rounds.js";
 import type { AppState } from "./store-types.js";
 import type { QuestAutocompleteCandidate, QuestTitlePreview, QuestmasterTask } from "./types.js";
 
@@ -88,7 +87,6 @@ function withoutQuestDetailEtag(etags: Map<string, string>, questId: string): Ma
 }
 
 function questTitlePreviewFromTask(quest: QuestmasterTask): QuestTitlePreview {
-  const roundTitle = latestRoundTitle(quest);
   return {
     questId: quest.questId,
     title: quest.title,
@@ -96,7 +94,6 @@ function questTitlePreviewFromTask(quest: QuestmasterTask): QuestTitlePreview {
     updatedAt: Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0),
     ...(Array.isArray(quest.commitShas) ? { commitShas: quest.commitShas } : {}),
     ...(quest.status === "done" && quest.cancelled ? { cancelled: true as const } : {}),
-    ...(roundTitle ? { roundTitle } : {}),
   };
 }
 
@@ -133,7 +130,6 @@ function mergeQuestTitlePreview(
     current.version === incoming.version &&
     current.updatedAt === incoming.updatedAt &&
     current.cancelled === incoming.cancelled &&
-    current.roundTitle === incoming.roundTitle &&
     stringArraysEqual(current.commitShas, commitShas)
   ) {
     return current;

@@ -3,10 +3,8 @@ import type { QuestTitlePreview, QuestmasterTask } from "../quest-types.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import type { WsBridge } from "../ws-bridge.js";
 import { questSources } from "../quest-source-index.js";
-import { latestRoundTitle } from "../../shared/quest-rounds.js";
 
 export function buildQuestTitlePreview(quest: QuestmasterTask): QuestTitlePreview {
-  const roundTitle = latestRoundTitle(quest);
   return {
     questId: quest.questId,
     title: quest.title,
@@ -14,7 +12,6 @@ export function buildQuestTitlePreview(quest: QuestmasterTask): QuestTitlePrevie
     updatedAt: Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0),
     commitShas: [...(quest.commitShas ?? [])],
     ...(quest.status === "done" && quest.cancelled ? { cancelled: true as const } : {}),
-    ...(roundTitle ? { roundTitle } : {}),
   };
 }
 

@@ -19,7 +19,6 @@ import { updateThreadMonitoring } from "../api/thread-monitoring.js";
 import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { useCancelledQuestIds } from "../utils/cancelled-quests.js";
-import { useQuestRoundTitles } from "./QuestRoundTitle.js";
 import { plainThreadChip, ThreadGroupBar } from "./ThreadTabGroups.js";
 import { useLeaderThreads } from "../utils/leader-topics.js";
 import { openInSide } from "../utils/side-column.js";
@@ -129,8 +128,6 @@ export interface PrimaryThreadChip {
   sideQuestOf?: string;
   /** Set while a "Remind me later" is pending: when the thread comes back. */
   remindAt?: number;
-  /** A reopened quest's newest round title: its rows show it first, then the quest's own title. */
-  roundTitle?: string;
   /** A thread the user started: when, which counts as dealing with it (Home's order). */
   userStartedAt?: number;
 }
@@ -184,14 +181,11 @@ export function useLeaderThreadChips({
   const runningRoute = sessionStatus === "running" ? activeTurnRoute : null;
   // Cancelled quests leave the row (and Home, which lists the same members).
   const cancelled = useCancelledQuestIds(tabs.map((tab) => tab.questId));
-  const roundTitles = useQuestRoundTitles(tabs.map((tab) => tab.questId));
   const displayedTabs = tabs
     .filter((tab) => !(tab.questId && cancelled.has(normalizeThreadKey(tab.questId))))
     .map((tab) => {
       const titleColor = displayThreadTabTitleColor(tab, cachedQuestForId(tab.questId), threadStatuses);
-      const roundTitle = tab.questId ? roundTitles.get(normalizeThreadKey(tab.questId)) : undefined;
-      if (titleColor === tab.titleColor && !roundTitle) return tab;
-      return { ...tab, titleColor, ...(roundTitle ? { roundTitle } : {}) };
+      return titleColor === tab.titleColor ? tab : { ...tab, titleColor };
     });
   const currentKey = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));

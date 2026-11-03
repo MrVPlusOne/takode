@@ -215,6 +215,10 @@ describe("LeaderHomePage", () => {
     // One line, cut at the end (Jiayi, Nov 1: wrapped news lines made rows uneven); the full text
     // shows on hover (TruncatedLine.test.tsx).
     expect(screen.getAllByTestId("home-row-line")[0]!.className).toContain("truncate");
+    // Marked as the thread's update (Jiayi, Nov 3).
+    expect(
+      screen.getAllByTestId("home-thread-row")[0]!.querySelector('[data-testid="thread-update-mark"]'),
+    ).not.toBeNull();
     expect(homeLines).toHaveBeenCalledWith("l1", ["q-2", "q-3", "q-4"]);
     expect(screen.getByTestId("home-since-last-looked").textContent).toContain("1 question · 1 finished");
   });

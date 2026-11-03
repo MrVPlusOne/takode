@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { UpdateMarker } from "../ThreadUpdate.js";
 import { useShallow } from "zustand/react/shallow";
 import type { ThreadSummary } from "../../../shared/library-topics.js";
 import type { LeaderThreadTabsProjectionTab } from "../../../shared/leader-thread-tabs-projection.js";
@@ -25,7 +26,6 @@ import { ContextMenu, TOUCH_MENU_ITEM_CLASS, type ContextMenuItem } from "../Con
 import { SessionArchiveConfirmation } from "../SessionArchiveConfirmation.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { NewThreadIcon } from "../library/library-icons.js";
-import { QuestRoundTitle, useQuestRoundTitles } from "../QuestRoundTitle.js";
 import { questOf } from "../library/topic-questions.js";
 import { listedSpaces, useAnchoredPopover } from "../RecentSessionList.js";
 import { StatusCountDots } from "../SessionItem.js";
@@ -357,7 +357,6 @@ export function SidebarThreadsMode({
     [leaders, questKeys],
   );
   const lineOf = useLeadersHomeLines(linesFor);
-  const roundTitles = useQuestRoundTitles(questKeys.map((quest) => quest.questId));
   const rows = useMemo(() => threadRows(leaders, queue), [leaders, queue]);
   const [allIdle, setAllIdle] = useState(false);
   const idle = rows.filter((row) => row.group === "idle");
@@ -405,7 +404,6 @@ export function SidebarThreadsMode({
                       index + 1 < shown.length
                     }
                     row={row}
-                    roundTitle={row.questId ? roundTitles.get(normalizeThreadKey(row.questId)) : undefined}
                     line={lineOf(row.leader.leader.id, row.threadKey)}
                     current={row.leader.leader.id === currentSessionId && routeThread === row.threadKey}
                     onOpen={(event) => open(row.leader.leader.id, row.threadKey, event)}
@@ -502,7 +500,6 @@ function threadRowMenuItems(row: ThreadRow, open: () => void): ContextMenuItem[]
  */
 function ThreadRowButton({
   row,
-  roundTitle,
   lastPinned,
   line,
   current,
@@ -510,8 +507,6 @@ function ThreadRowButton({
   onOpenMenu,
 }: {
   row: ThreadRow;
-  /** A reopened quest's newest round title: shown first, then the quest. */
-  roundTitle?: string;
   lastPinned?: boolean;
   /** The thread's news line, as on its leader's Home, when there is one. */
   line?: string;
@@ -532,7 +527,7 @@ function ThreadRowButton({
         current ? "bg-cc-active" : "hover:bg-cc-hover"
       }`}
       aria-current={current ? "page" : undefined}
-      title={row.questId ? `${row.questId} ${row.title}${roundTitle ? `: ${roundTitle}` : ""}` : row.title}
+      title={row.questId ? `${row.questId} ${row.title}` : row.title}
       data-testid="threads-mode-row"
       data-thread-key={row.threadKey}
       data-group={row.group}
@@ -548,15 +543,9 @@ function ThreadRowButton({
         ) : (
           <NewThreadIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
         )}
-        {roundTitle ? (
-          <span className={`flex min-w-0 flex-1 gap-1.5 text-[13px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
-            <QuestRoundTitle roundTitle={roundTitle} questId={row.questId} questTitle={row.title} />
-          </span>
-        ) : (
-          <span className={`min-w-0 flex-1 truncate text-[13px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
-            {row.title}
-          </span>
-        )}
+        <span className={`min-w-0 flex-1 truncate text-[13px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
+          {row.title}
+        </span>
         <StatusCountDots counts={row.counts} />
       </div>
       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-5 text-[11px] text-cc-muted">
@@ -566,6 +555,7 @@ function ThreadRowButton({
             <LeaderProfilePortraitImage portrait={leader.leaderProfilePortrait} size="sm" />
           </span>
         )}
+        {line && <UpdateMarker />}
         <span className="min-w-0 truncate" data-testid="threads-mode-line">
           {line ?? row.label ?? (row.activityAt ? `Updated ${timeAgo(row.activityAt)}` : "")}
         </span>

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useHomeLinesCache } from "./home/HomeExtras.js";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -204,27 +205,20 @@ describe("mobile quest banner disclosure", () => {
     expect(card()).toBeInTheDocument();
   });
 
-  // Jiayi (Nov 1): a reopened quest's strip reads by its newest round first; the quest number and
-  // title follow, muted, and give way first on a narrow strip.
-  it("names a reopened quest by its newest round, then its number and title", () => {
-    useStore.getState().upsertQuestTitlePreview({
-      questId: "q-9001",
-      title: "Banner example",
-      version: 2,
-      updatedAt: 2,
-      roundTitle: "Round-first strips",
+  // Jiayi (Nov 3): a thread has one title, the quest's, then its update marked as one: what its
+  // newest result is about (the thread's news line). A reopened quest's round title is no second title.
+  it("shows the quest title, then the thread's update after a mark", () => {
+    useHomeLinesCache.setState({
+      byLeader: { leader: { "q-9001": { text: "The comparison landed; pick a layout." } } },
     });
-    render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" singleLine />);
+    render(<QuestThreadBanner row={bannerRow()} threadKey="q-9001" monitorSessionId="leader" singleLine />);
     const banner = screen.getByTestId("quest-thread-banner");
-    const order = [
-      screen.getByTestId("quest-thread-round-title"),
-      within(banner).getByText("q-9001"),
-      within(banner).getByText("Review the navigation comparison and next steps"),
-    ];
-    expect(order[0]).toHaveTextContent("Round-first strips");
-    for (let index = 1; index < order.length; index += 1) {
-      expect(order[index - 1]!.compareDocumentPosition(order[index]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    }
+    const update = within(banner).getByTestId("thread-update");
+    expect(update).toHaveTextContent("The comparison landed; pick a layout.");
+    expect(within(update).getByTestId("thread-update-mark")).toBeInTheDocument();
+    const title = within(banner).getByText("Review the navigation comparison and next steps");
+    expect(title.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    useHomeLinesCache.setState({ byLeader: {} });
   });
 });
 

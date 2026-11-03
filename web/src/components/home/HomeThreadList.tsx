@@ -22,8 +22,7 @@ import { NewThreadIcon } from "../library/library-icons.js";
 import { SessionStatusDot } from "../SessionStatusDot.js";
 import { participantStatusToDotProps } from "../session-participant-status.js";
 import { SideQuestIcon } from "../SideQuestCue.js";
-import { QuestRoundTitle } from "../QuestRoundTitle.js";
-import { TruncatedLine } from "../TruncatedLine.js";
+import { ThreadUpdateLine } from "../ThreadUpdate.js";
 import { ClockIcon, formatSnoozeUntil } from "../RemindLaterChoices.js";
 import { ActiveOutputSpinner, AttentionBell, isRunning, THREAD_GROUP_DOT, threadGroupOf } from "../ThreadTabGroups.js";
 import type { PrimaryThreadChip } from "../WorkBoardThreadTabs.js";
@@ -344,14 +343,8 @@ function HomeThreadRow({
               <SideQuestIcon sideQuestOf={tab.sideQuestOf} />
             </span>
           )}
-          {tab.roundTitle ? (
-            <QuestRoundTitle roundTitle={tab.roundTitle} questId={questLabel} questTitle={tab.title} />
-          ) : (
-            <>
-              {questLabel && <span className="shrink-0 font-mono-code text-[12px] text-cc-muted">{questLabel}</span>}
-              <span className="truncate">{tab.title}</span>
-            </>
-          )}
+          {questLabel && <span className="shrink-0 font-mono-code text-[12px] text-cc-muted">{questLabel}</span>}
+          <span className="truncate">{tab.title}</span>
           <span className="ml-auto shrink-0 pl-2 text-[11.5px] tabular-nums text-cc-muted" data-testid="home-row-time">
             {time}
           </span>
@@ -359,7 +352,7 @@ function HomeThreadRow({
             <AttentionBell tab={tab} size="md" />
           </span>
         </span>
-        {line && <TruncatedLine text={line} className="h-5 text-[13px] text-cc-fg/80" testId="home-row-line" />}
+        {line && <ThreadUpdateLine text={line} className="h-5 text-[13px] text-cc-fg/80" testId="home-row-line" />}
         {status && (
           <span className={statusClass} data-testid="home-row-status">
             {status}

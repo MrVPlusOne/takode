@@ -59,7 +59,10 @@ export function useLeadersHomeLines(
           .homeLines(leaderId, questIds)
           // Kept even when the view has gone meanwhile: the next visit shows it.
           .then((response) => {
-            useHomeLinesCache.setState((state) => ({ byLeader: { ...state.byLeader, [leaderId]: response.lines } }));
+            // Merged: a place that asks for one thread's line must not drop the others Home loaded.
+            useHomeLinesCache.setState((state) => ({
+              byLeader: { ...state.byLeader, [leaderId]: { ...state.byLeader[leaderId], ...response.lines } },
+            }));
           })
           .catch((error: Error) => console.warn("[home] Could not load the threads' news:", error.message));
       }
@@ -72,6 +75,17 @@ export function useLeadersHomeLines(
     };
   }, [key, active]);
   return (leaderId, threadKey) => lines[leaderId]?.[normalizeThreadKey(threadKey)]?.text;
+}
+
+/**
+ * One thread's news line (a quest's or a plain thread's), for a strip or title bar showing that
+ * thread's update; nothing loads without a leader.
+ */
+export function useThreadNews(leaderId: string | undefined, threadKey: string): string | undefined {
+  const key = normalizeThreadKey(threadKey);
+  const quests = /^q-\d+$/.test(key) ? [key] : [];
+  const lineOf = useLeadersHomeLines(leaderId ? [{ leaderId, questIds: quests }] : [], !!leaderId);
+  return leaderId ? lineOf(leaderId, key) : undefined;
 }
 
 export type HomeView = "recent" | "topic";

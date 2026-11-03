@@ -45,7 +45,6 @@ describe("AttentionItemSections", () => {
     expect(countAttentionPlaces(queue)).toBe(2);
     const threads = {
       titleFor: (_sessionId: string, threadKey: string) => (threadKey === "q-3" ? "Relay proxy" : "Voice notes"),
-      roundTitleFor: (threadKey: string) => (threadKey === "q-2" ? "Mic picker" : undefined),
       hasThreadTabs: () => true,
     };
     render(
@@ -68,9 +67,8 @@ describe("AttentionItemSections", () => {
     expect(name.textContent).toBe("Relay proxy");
     expect(name.getAttribute("title")).toBe("q-3 Relay proxy");
     expect(within(rows[0]!).getByTestId("attention-place-summary").textContent).toContain("2 new answers");
-    // A reopened quest by its newest round, then the quest.
-    expect(within(rows[1]!).getByTestId("quest-round-title").textContent).toBe("Mic picker");
-    expect(within(rows[1]!).getByTestId("quest-round-title-quest").textContent).toBe("Voice notes");
+    // Every quest by its own title, reopened or not (Jiayi, Nov 3: no round title as a second title).
+    expect(within(rows[1]!).getByTestId("attention-place-name").textContent).toBe("Voice notes");
     expect(within(rows[1]!).getByTestId("attention-place-summary").textContent).toContain("1 new answer");
   });
 

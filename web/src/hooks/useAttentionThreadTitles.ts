@@ -13,8 +13,6 @@ export type ThreadTitleFor = (sessionId: string, threadKey: string) => string | 
 /** Thread tab lookups for the attention lists' second lines. */
 export interface AttentionThreadTitles {
   titleFor: ThreadTitleFor;
-  /** A reopened quest's newest round title, which names its thread in thread lists. */
-  roundTitleFor?: (threadKey: string) => string | undefined;
   /** Whether the session has thread tabs (a leader); others have no Main tab to name. */
   hasThreadTabs: (sessionId: string) => boolean;
 }
@@ -93,10 +91,5 @@ export function useAttentionThreadTitles(
       resolveLeaderThreadTabsProjection(state, sessionId).projectionState === "accepted",
     [state],
   );
-  const roundTitleFor = useMemo(
-    () => (threadKey: string) =>
-      QUEST_THREAD.test(threadKey) ? questTitlePreviews?.get(threadKey.toLowerCase())?.roundTitle : undefined,
-    [questTitlePreviews],
-  );
-  return useMemo(() => ({ titleFor, roundTitleFor, hasThreadTabs }), [hasThreadTabs, roundTitleFor, titleFor]);
+  return useMemo(() => ({ titleFor, hasThreadTabs }), [hasThreadTabs, titleFor]);
 }

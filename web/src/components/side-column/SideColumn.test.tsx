@@ -728,14 +728,9 @@ describe("SideColumn", () => {
     const rowOf = (questId: string) => rows().find((row) => row.textContent?.includes(questId))!;
     expect(within(rowOf("q-5")).getByTestId("side-quest-icon").getAttribute("aria-label")).toBe("Side quest of q-4");
     expect(within(rowOf("q-6")).queryByTestId("side-quest-icon")).toBeNull();
-    // Folded, and reopened as a round (its round's title first), it keeps the mark.
+    // Folded, it keeps the mark.
     fireEvent.click(within(rowOf("q-5")).getByRole("button", { expanded: true }));
     expect(within(rowOf("q-5")).getByTestId("side-quest-icon")).toBeTruthy();
-    act(() => {
-      useStore.setState({ questTitlePreviews: new Map([["q-5", { roundTitle: "Second round" }]]) } as never);
-    });
-    // The mark (its <title> is in the text) comes first, then the round's title, as on the strip.
-    expect(rowOf("q-5").textContent).toMatch(/^Side quest of q-4Second round q-5/);
   });
 
   it("shows chats one at a time when switched on: one click opens a chat, at one shared height", () => {

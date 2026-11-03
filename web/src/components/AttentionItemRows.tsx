@@ -24,7 +24,6 @@ import { NotifyMeIcon } from "./NotifyMe.js";
 import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
 import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
 import { LeaderProfilePortraitImage } from "./LeaderProfilePortraitButton.js";
-import { QuestRoundTitle } from "./QuestRoundTitle.js";
 import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
 
 const QUEST_THREAD = /^q-\d+$/;
@@ -101,18 +100,12 @@ export function attentionThreadPlace(
   if (isTopicViewKey(key)) return { thread: threads?.titleFor(item.sessionId, key) ?? "Thread", title: "" };
   const fallback =
     item.kind === "notify-me" ? withoutQuestId(item.entry.title, key) : item.kind === "unread" ? item.label : "";
-  const title = threads?.titleFor(item.sessionId, key) ?? fallback;
-  const roundTitle = threads?.roundTitleFor?.(key);
-  // A reopened quest is named by its newest round, as in the thread lists.
-  return { thread: key, title: roundTitle ?? title, ...(roundTitle ? { roundTitle, questTitle: title } : {}) };
+  return { thread: key, title: threads?.titleFor(item.sessionId, key) ?? fallback };
 }
 
 export interface AttentionThreadPlace {
   thread: string;
   title: string;
-  /** A reopened quest's newest round title (then `title` is it too), with the quest's own title. */
-  roundTitle?: string;
-  questTitle?: string;
 }
 
 function withoutQuestId(title: string, questId: string): string {
@@ -399,7 +392,7 @@ function AttentionPlaceRow({
       ? threadPlace.title || questId
       : threadPlace.thread
     : (sessionLabel ?? "Latest result");
-  const fullName = questId ? `${questId} ${threadPlace?.questTitle ?? name}` : name;
+  const fullName = questId ? `${questId} ${name}` : name;
   const longPress = useLongPress((x, y) => {
     const menuItems = attentionPlaceMenuItems(items, first);
     if (menuItems.length > 0) setMenu({ x, y, items: menuItems });
@@ -427,19 +420,15 @@ function AttentionPlaceRow({
           <div className="flex min-w-0 items-start gap-2">
             <span
               className="flex min-w-0 flex-1 gap-1.5 text-[12px] text-cc-fg/90"
-              title={threadPlace?.roundTitle ? `${fullName}: ${threadPlace.roundTitle}` : fullName}
+              title={fullName}
               data-testid="attention-place-name"
             >
-              {threadPlace?.roundTitle ? (
-                <QuestRoundTitle roundTitle={threadPlace.roundTitle} questTitle={threadPlace.questTitle} />
-              ) : (
-                <span className="min-w-0 truncate">
-                  {!questId && threadPlace && isTopicViewKey(first.threadKey ?? "") && (
-                    <NewThreadIcon className="mr-1 inline h-3 w-3 align-[-1px] text-cc-primary" />
-                  )}
-                  {name}
-                </span>
-              )}
+              <span className="min-w-0 truncate">
+                {!questId && threadPlace && isTopicViewKey(first.threadKey ?? "") && (
+                  <NewThreadIcon className="mr-1 inline h-3 w-3 align-[-1px] text-cc-primary" />
+                )}
+                {name}
+              </span>
             </span>
             {isNext && (
               <span className="shrink-0 rounded border border-cc-border/70 px-1 py-px text-[10px] font-medium text-cc-muted">

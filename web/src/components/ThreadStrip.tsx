@@ -1,5 +1,7 @@
 import type { ThreadSummary } from "../../shared/library-topics.js";
 import { NewThreadIcon } from "./library/library-icons.js";
+import { useThreadNews } from "./home/HomeExtras.js";
+import { InlineThreadUpdate } from "./ThreadUpdate.js";
 
 /**
  * Moves the thread on screen into the side column, the mirror of a side pane's button that brings
@@ -30,6 +32,7 @@ export function MoveToSideButton({ onMove }: { onMove: () => void }) {
  * status row, is the way back. As tall as a quest's strip.
  */
 export function ThreadStrip({ thread, onMoveToSide }: { thread: ThreadSummary; onMoveToSide?: () => void }) {
+  const news = useThreadNews(thread.leaderId, thread.key);
   return (
     <div
       className="relative flex min-h-8 shrink-0 min-w-0 items-center gap-1.5 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-0.5 text-xs sm:px-3"
@@ -39,7 +42,9 @@ export function ThreadStrip({ thread, onMoveToSide }: { thread: ThreadSummary; o
       <span className="min-w-0 truncate text-[13px] font-medium text-cc-fg" title={thread.name}>
         {thread.name}
       </span>
-      <span className="flex-1" />
+      <span className="flex min-w-0 flex-1 text-[13px]">
+        <InlineThreadUpdate text={news} />
+      </span>
       {onMoveToSide && <MoveToSideButton onMove={onMoveToSide} />}
     </div>
   );
