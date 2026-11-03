@@ -8,9 +8,10 @@ import {
 } from "./host-outage-alerts.js";
 
 /**
- * Leaders hear when a remote host goes silent while their sessions there have
- * work under way: one alert per host per leader, listing those sessions and
- * why, and "back online" only after such an alert.
+ * Leaders hear when a remote host goes silent while their sessions there are
+ * stalled by it (mid-turn or with queued input): one alert per host per leader,
+ * listing those sessions and why, and "back online" only after such an alert,
+ * quiet when nothing is left to resume.
  */
 describe("host outage alerts", () => {
   let clock: number;
@@ -32,7 +33,7 @@ describe("host outage alerts", () => {
     ];
     held = new Map([
       ["busy-a", { reasons: ["mid-turn", "1 message waiting"] }],
-      ["quest-c", { reasons: ["q-7 in Work"], questId: "q-7" }],
+      ["quest-c", { reasons: ["mid-turn", "q-7 in Work"], questId: "q-7" }],
       ["unherded-d", { reasons: ["mid-turn"] }],
       ["local-e", { reasons: ["mid-turn"] }],
     ]);
@@ -86,7 +87,7 @@ describe("host outage alerts", () => {
           hostId: "condor",
           hostName: "condor-name",
           offlineSince: silentAt,
-          sessions: [{ sessionId: "quest-c", sessionNum: 13, reasons: ["q-7 in Work"], questId: "q-7" }],
+          sessions: [{ sessionId: "quest-c", sessionNum: 13, reasons: ["mid-turn", "q-7 in Work"], questId: "q-7" }],
           // Every listed session works on q-7, so the alert goes to that quest's thread.
           questId: "q-7",
         },
@@ -117,7 +118,7 @@ describe("host outage alerts", () => {
           hostId: "condor",
           hostName: "condor-name",
           offlineForMs: clock - silentAt,
-          sessions: [{ sessionId: "quest-c", sessionNum: 13, reasons: ["q-7 in Work"], questId: "q-7" }],
+          sessions: [{ sessionId: "quest-c", sessionNum: 13, reasons: ["mid-turn", "q-7 in Work"], questId: "q-7" }],
           questId: "q-7",
         },
       },
@@ -200,6 +201,88 @@ describe("host outage alerts", () => {
     alerts.check();
     expect(events.map((event) => event.event)).toEqual(["host_offline", "host_offline"]);
   });
+
+  // The turn that held leader-1's session ended (or its input was withdrawn) while the
+  // host was away: the return still reaches the leader, but as a quiet event that
+  // does not wake it. leader-2's session still has its turn to resume.
+  it("makes the return quiet for a leader whose sessions have nothing left to resume", () => {
+    goSilent();
+    clock += HOST_OFFLINE_ALERT_MS;
+    alerts.check();
+    held.delete("busy-a");
+    statuses.set("condor", { online: true, lastSeenAt: clock });
+    alerts.check();
+    const returns = events.filter((event) => event.event === "host_online");
+    expect(returns.map((event) => [event.leaderId, event.data.quiet])).toEqual([
+      ["leader-1", true],
+      ["leader-2", undefined],
+    ]);
+  });
+});
+
+/**
+ * The reported pattern, replayed with the real held-work rule: a laptop sleeping
+ * about 15 minutes at a time all night while one worker is idle on a quest waiting
+ * for the user's answer, and another worker on the same laptop mid-turn.
+ */
+describe("host outage alerts over repeated laptop sleeps", () => {
+  const idle = { isGenerating: false, pendingMessages: [] as string[], pendingCodexInputs: [] as unknown[] };
+
+  function replay(bridge: Record<string, typeof idle>, cycles: number) {
+    let clock = 1_000_000;
+    let online = true;
+    let lastSeenAt = clock;
+    const events: { leaderId: string; event: string; data: Record<string, unknown> }[] = [];
+    const board = [
+      { questId: "q-62", worker: "waiting", status: "WORKING" },
+      { questId: "q-70", worker: "busy", status: "WORKING" },
+    ];
+    const alerts = new HostOutageAlerts({
+      status: (hostId) => ({ hostId, online, lastSeenAt, updating: false }) as HostLinkStatus,
+      sessions: () => Object.keys(bridge).map((sessionId) => ({ sessionId, hostId: "laptop", herdedBy: "leader" })),
+      heldWork: (session) => describeHeldWork(session.sessionId, bridge[session.sessionId], board),
+      hostName: () => "laptop",
+      emit: (leaderId, event, data) => void events.push({ leaderId, event, data: { ...data } }),
+      now: () => clock,
+    });
+    for (let cycle = 0; cycle < cycles; cycle += 1) {
+      online = false;
+      lastSeenAt = clock;
+      alerts.check();
+      for (let minute = 0; minute < 16; minute += 1) {
+        clock += 60_000;
+        alerts.check();
+      }
+      online = true;
+      lastSeenAt = clock;
+      alerts.check();
+      clock += 60_000;
+    }
+    return events;
+  }
+
+  it("never wakes the leader for a worker idle on a quest that waits on the user", () => {
+    expect(replay({ waiting: idle }, 14)).toEqual([]);
+  });
+
+  it("alerts on every outage of a mid-turn worker, repeats included", () => {
+    const events = replay({ waiting: idle, busy: { ...idle, isGenerating: true } }, 3);
+    expect(events.map((event) => event.event)).toEqual([
+      "host_offline",
+      "host_online",
+      "host_offline",
+      "host_online",
+      "host_offline",
+      "host_online",
+    ]);
+    // Only the stalled worker is listed, with its quest for context; nothing is quiet.
+    for (const event of events) {
+      expect(event.data.sessions).toEqual([
+        { sessionId: "busy", reasons: ["mid-turn", "q-70 in Work"], questId: "q-70" },
+      ]);
+      expect(event.data.quiet).toBeUndefined();
+    }
+  });
 });
 
 /** What counts as work an outage holds up, read from the bridge session and the leader's board. */
@@ -214,6 +297,13 @@ describe("describeHeldWork", () => {
       { questId: "q-3", worker: "other", status: "WORKING" },
     ];
     expect(describeHeldWork("s1", idle, board)).toEqual({ reasons: [] });
+  });
+
+  it("is empty for a worker idle on an active quest, such as one waiting on the user", () => {
+    // The board row alone holds nothing up: the worker has no turn or input waiting on its machine.
+    expect(describeHeldWork("s1", idle, [{ questId: "q-62", worker: "s1", status: "WORKING" }])).toEqual({
+      reasons: [],
+    });
   });
 
   it("lists a running turn, waiting input and the active board quest", () => {

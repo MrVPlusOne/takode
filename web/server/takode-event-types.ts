@@ -263,6 +263,11 @@ export interface TakodeHostOnlineEventData {
   offlineForMs: number;
   sessions: TakodeHostOutageSession[];
   questId?: string;
+  /**
+   * None of the sessions has a turn or queued input left to resume: the leader's
+   * inbox holds the event to ride along with its next real one instead of waking it.
+   */
+  quiet?: boolean;
 }
 
 export interface TakodeHerdBatchSnapshot {

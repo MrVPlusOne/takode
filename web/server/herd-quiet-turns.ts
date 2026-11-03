@@ -2,7 +2,8 @@
  * Held quiet turns in a leader's herd inbox. A worker turn that ended with an
  * accepted quiet marker never wakes the leader by itself: it waits in the inbox,
  * merged into one entry per worker, and rides along when a real event for the
- * same thread is delivered. Held entries carry nothing to act on, so a server
+ * same thread is delivered. A `host_online` with nothing to resume is held the
+ * same way (not merged). Held entries carry nothing to act on, so a server
  * restart may drop them.
  */
 import type { BoardRow, TakodeEvent } from "./session-types.js";
@@ -13,6 +14,11 @@ type TurnEndEvent = Extract<TakodeEvent, { event: "turn_end" }>;
 
 export function isHeldQuietTurn(event: TakodeEvent): boolean {
   return event.event === "turn_end" && !!event.data.quiet;
+}
+
+/** Any event held instead of waking the leader: a quiet turn, or a host back with nothing to resume. */
+export function isHeldQuietEvent(event: TakodeEvent): boolean {
+  return isHeldQuietTurn(event) || (event.event === "host_online" && !!event.data.quiet);
 }
 
 /**
@@ -46,9 +52,9 @@ export function withRideAlongQuietEntries<T extends { event: TakodeEvent; thread
   entries: T[],
 ): T[] {
   const wakingRoutes = new Set(
-    entries.filter((entry) => !isHeldQuietTurn(entry.event)).map((entry) => routeKey(entry.threadRoute)),
+    entries.filter((entry) => !isHeldQuietEvent(entry.event)).map((entry) => routeKey(entry.threadRoute)),
   );
-  return entries.filter((entry) => !isHeldQuietTurn(entry.event) || wakingRoutes.has(routeKey(entry.threadRoute)));
+  return entries.filter((entry) => !isHeldQuietEvent(entry.event) || wakingRoutes.has(routeKey(entry.threadRoute)));
 }
 
 /** One line per worker; the turn's activity is left out because the worker said it holds nothing for the leader. */

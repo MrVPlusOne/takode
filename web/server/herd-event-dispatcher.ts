@@ -56,6 +56,7 @@ import { getStableHerdEventKey } from "./herd-event-keys.js";
 import { formatCompactAgentLabel } from "../shared/takode-constants.js";
 import {
   formatHeldQuietTurn,
+  isHeldQuietEvent,
   isHeldQuietTurn,
   mergeHeldQuietTurn,
   overrideQuietForBoardChange,
@@ -634,7 +635,7 @@ export class HerdEventDispatcher {
 
     // A quiet turn waits for the next real event instead of waking the leader.
     event = overrideQuietForBoardChange(event, this.wsBridge.getSession(orchId)?.board);
-    const quiet = isHeldQuietTurn(event);
+    const quiet = isHeldQuietEvent(event);
     if (quiet) event = this.mergeEarlierHeldQuietTurn(inbox, event);
 
     // Append to inbox (pure in-memory, never fails)
@@ -1050,9 +1051,9 @@ export class HerdEventDispatcher {
     }
   }
 
-  /** Count of events waiting to be delivered that wake the leader; held quiet turns only ride along. */
+  /** Count of events waiting to be delivered that wake the leader; held quiet events only ride along. */
   private pendingCount(inbox: HerdInbox): number {
-    return this.getPendingEntries(inbox).filter((entry) => !isHeldQuietTurn(entry.event)).length;
+    return this.getPendingEntries(inbox).filter((entry) => !isHeldQuietEvent(entry.event)).length;
   }
 
   /** Keep one held quiet entry per worker: fold its pending one into the new turn. */
@@ -1710,7 +1711,9 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
     }
     case "host_online": {
       const sessions = evt.data.sessions.map(formatSessionNumLink).join(", ");
-      return `${label} | host_online | host ${evt.data.hostName} is back after ${formatLeaseWaitDuration(evt.data.offlineForMs)}; ${sessions} can continue${ageSuffix}`;
+      const back = `${label} | host_online | host ${evt.data.hostName} is back after ${formatLeaseWaitDuration(evt.data.offlineForMs)}`;
+      if (evt.data.quiet) return `${back}; quiet: nothing was left to resume for ${sessions}${ageSuffix}`;
+      return `${back}; ${sessions} can continue${ageSuffix}`;
     }
     default:
       return `${label} | ${evt.event}${ageSuffix}`;

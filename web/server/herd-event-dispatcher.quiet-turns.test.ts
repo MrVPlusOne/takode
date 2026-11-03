@@ -135,6 +135,43 @@ describe("HerdEventDispatcher quiet turns", () => {
     dispatcher.destroy();
   });
 
+  it("holds a quiet host_online and lets it ride along with the next real event", () => {
+    // A host came back with nothing left to resume: the leader learns it with its next
+    // real event instead of being woken for it.
+    const { bridge, dispatcher } = setup();
+    const back = { hostId: "h1", hostName: "laptop", offlineForMs: 16 * 60_000 };
+    const sessions = [{ sessionId: "worker-1", sessionNum: 5, reasons: ["mid-turn"], questId: "q-101" }];
+    dispatcher.emitTakodeEventForOrchestrator("orch-1", "orch-1", "host_online", {
+      ...back,
+      sessions,
+      questId: "q-101",
+      quiet: true,
+    });
+    vi.advanceTimersByTime(5_000);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    triggerEvent(makeEvent({ id: 2, data: { duration_ms: 2000, reason: "result", resultPreview: "Done" } }));
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][1]).toContain(
+      "host_online | host laptop is back after 16m 0s; quiet: nothing was left to resume for [#5](session:5)",
+    );
+    dispatcher.destroy();
+  });
+
+  it("delivers a host_online with something to resume right away", () => {
+    const { bridge, dispatcher } = setup();
+    dispatcher.emitTakodeEventForOrchestrator("orch-1", "orch-1", "host_online", {
+      hostId: "h1",
+      hostName: "laptop",
+      offlineForMs: 16 * 60_000,
+      sessions: [{ sessionId: "worker-1", sessionNum: 5, reasons: ["mid-turn"] }],
+    });
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    dispatcher.destroy();
+  });
+
   it("adds a Scribe's waiting notes to the next delivery, and keeps them when it fails", () => {
     // The Scribe's loose ends and joins are not urgent: they ride with the leader's next herd
     // delivery instead of interrupting it, and wait for another when that one can't be delivered.

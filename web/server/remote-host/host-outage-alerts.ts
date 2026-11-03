@@ -35,7 +35,10 @@ export interface HostOutageAlertDeps {
 }
 
 export interface HeldWork {
-  /** Why an outage holds up the session's work; empty for an idle session with nothing pending. */
+  /**
+   * Why an outage holds up the session's work; empty for a session neither
+   * mid-turn nor with queued input, whatever its board row says.
+   */
   reasons: string[];
   /** The board quest the session works on. */
   questId?: string;
@@ -50,11 +53,15 @@ interface Outage {
 
 /**
  * Tells leaders when a remote host stops answering while their sessions there
- * have work under way, and when it is back. Each leader gets one alert per
- * outage listing its affected sessions and why. Sessions that were idle with
- * nothing pending stay quiet: anyone who contacts one later learns from the
- * message's own delivery notices. "Back online" goes only to leaders that got
- * the offline alert. A host restarting for a Takode update is expected to be
+ * are stalled by it (mid-turn, or with input queued for them), and when it is
+ * back. Each leader gets one alert per outage listing its stalled sessions and
+ * why, repeats included, so an unreliable machine stays visible. Sessions that
+ * were idle with nothing pending stay quiet even when they hold a quest on the
+ * board (one waiting on the user, say): nothing waits on the machine, and anyone
+ * who contacts one later learns from the message's own delivery notices; the
+ * board's own stall check covers quests whose worker goes quiet. "Back online"
+ * goes only to leaders that got the offline alert, and is a quiet event when
+ * none of their sessions there still has a turn or input to resume. A host restarting for a Takode update is expected to be
  * away and is reported only once the update counts as failed. A host already
  * silent when this coordinator starts counts as offline from the start.
  *
@@ -91,7 +98,7 @@ export class HostOutageAlerts {
       list.push(session);
       sessionsByHost.set(session.hostId, list);
     }
-    const liveIds = new Set([...sessionsByHost.values()].flat().map((session) => session.sessionId));
+    const live = new Map([...sessionsByHost.values()].flat().map((session) => [session.sessionId, session]));
 
     for (const [hostId, outage] of this.outages) {
       if (!this.deps.status(hostId).online) continue;
@@ -99,8 +106,15 @@ export class HostOutageAlerts {
       if (!outage.alerted) continue;
       const base = { hostId, hostName: this.deps.hostName(hostId), offlineForMs: now - outage.since };
       for (const [leaderId, sessions] of outage.affected) {
-        const live = sessions.filter((session) => liveIds.has(session.sessionId));
-        if (live.length > 0) this.deps.emit(leaderId, "host_online", { ...base, ...withSessions(live) });
+        const current = sessions.filter((session) => live.has(session.sessionId));
+        if (current.length === 0) continue;
+        // A turn that ended or input that was withdrawn meanwhile leaves the leader nothing to watch resume.
+        const resumes = current.some((session) => this.deps.heldWork(live.get(session.sessionId)!).reasons.length > 0);
+        this.deps.emit(leaderId, "host_online", {
+          ...base,
+          ...withSessions(current),
+          ...(resumes ? {} : { quiet: true }),
+        });
       }
     }
 
@@ -120,8 +134,8 @@ export class HostOutageAlerts {
       outage.alerted = true;
       const base = { hostId, hostName: this.deps.hostName(hostId), offlineSince: outage.since };
       for (const [leaderId, affected] of outage.affected) {
-        const live = affected.filter((session) => liveIds.has(session.sessionId));
-        if (live.length > 0) this.deps.emit(leaderId, "host_offline", { ...base, ...withSessions(live) });
+        const current = affected.filter((session) => live.has(session.sessionId));
+        if (current.length > 0) this.deps.emit(leaderId, "host_offline", { ...base, ...withSessions(current) });
       }
     }
   }
@@ -150,9 +164,10 @@ export class HostOutageAlerts {
 }
 
 /**
- * What a session has under way that a host outage holds up: a running turn,
- * input waiting for its backend, and an active quest it works on for its
- * leader's board.
+ * What a session has under way that a host outage holds up: a running turn or
+ * input waiting for its backend. The active quest it works on for its leader's
+ * board is named for context and routing, but alone holds nothing up: a worker
+ * idle on a quest that waits on the user is not stalled by its machine sleeping.
  */
 export function describeHeldWork(
   sessionId: string,
@@ -165,6 +180,7 @@ export function describeHeldWork(
     ? session.pendingMessages.filter(isUserMessage).length + session.pendingCodexInputs.length
     : 0;
   if (waiting > 0) reasons.push(`${waiting} message${waiting === 1 ? "" : "s"} waiting`);
+  if (reasons.length === 0) return { reasons };
   for (const row of leaderBoard) {
     const state = (row.status ?? "").trim().toUpperCase();
     if (row.worker !== sessionId || NOT_WORKING_BOARD_STATES.has(state)) continue;
