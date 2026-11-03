@@ -6,6 +6,7 @@
  * and starts side chats from what's on screen.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 const held = vi.hoisted(() => ({ count: new Map<string, number>(), holds: 0 }));
 const sendToSession = vi.hoisted(() => vi.fn(() => true));
@@ -677,6 +678,62 @@ describe("SideColumn", () => {
     } finally {
       useStore.setState({ quests: [] } as never);
     }
+  });
+
+  it("marks a side quest on its title bar as the main view's strip does, open or folded", () => {
+    // Jiayi (Nov 2): a side quest's chat lost its side-quest mark when put in the side column.
+    const tab = {
+      threadKey: "q-5",
+      questId: "q-5",
+      title: "Next eval versions",
+      boardStatus: null,
+      journey: null,
+      sourceLeaderSessionId: "l1",
+      sourceRowCreatedAt: null,
+      workerSessionId: null,
+      workerSessionNum: null,
+      ownership: null,
+      active: false,
+      queued: false,
+      proposed: false,
+      neverStartedScheduled: false,
+      completed: false,
+      canClose: false,
+      attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 1, changedAt: 1 },
+      updatedAt: 1,
+      groupChangedAt: 1,
+      sideQuestOf: "q-4",
+    };
+    useStore.getState().applySyncedProjectionSnapshot({
+      projection: LEADER_THREAD_TABS_PROJECTION,
+      key: "l1",
+      generation: "side-quest",
+      revision: 1,
+      value: {
+        currentQuestStateVersion: 1,
+        tabState: { version: 1 },
+        tabs: [tab, { ...tab, threadKey: "q-6", questId: "q-6", sideQuestOf: undefined }],
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
+        threadStatuses: {},
+        activePhaseSummary: [],
+      } as never,
+    });
+    render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "conversation", threadKey: "q-6", leaderId: "l1" });
+      openInSide({ kind: "conversation", threadKey: "q-5", leaderId: "l1" });
+    });
+    const rowOf = (questId: string) => rows().find((row) => row.textContent?.includes(questId))!;
+    expect(within(rowOf("q-5")).getByTestId("side-quest-icon").getAttribute("aria-label")).toBe("Side quest of q-4");
+    expect(within(rowOf("q-6")).queryByTestId("side-quest-icon")).toBeNull();
+    // Folded, and reopened as a round (its round's title first), it keeps the mark.
+    fireEvent.click(within(rowOf("q-5")).getByRole("button", { expanded: true }));
+    expect(within(rowOf("q-5")).getByTestId("side-quest-icon")).toBeTruthy();
+    act(() => {
+      useStore.setState({ questTitlePreviews: new Map([["q-5", { roundTitle: "Second round" }]]) } as never);
+    });
+    // The mark (its <title> is in the text) comes first, then the round's title, as on the strip.
+    expect(rowOf("q-5").textContent).toMatch(/^Side quest of q-4Second round q-5/);
   });
 
   it("shows one section at a time when switched on: one click opens one, at the column's height", () => {

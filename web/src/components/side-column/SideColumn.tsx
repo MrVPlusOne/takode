@@ -45,6 +45,7 @@ import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { SideQuest } from "./SideQuest.js";
 import { SideSession } from "./SideSession.js";
 import { SideHome } from "./SideHome.js";
+import { SideQuestIcon, useSideQuestOf } from "../SideQuestCue.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { BellIcon } from "../AttentionKind.js";
@@ -624,7 +625,7 @@ function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | 
     case "artifact":
       return <>{item.title ?? "Artifact"}</>;
     case "quest":
-      return <SideQuestTitle questId={item.questId} />;
+      return <SideQuestTitle leaderId={leaderId} questId={item.questId} />;
     case "session":
       return <SideSessionTitle sessionId={item.sessionId} />;
     case "home":
@@ -642,28 +643,51 @@ function NewChatWithTitle({ leaderId }: { leaderId: string }) {
   return <>New thread with {leader?.name ?? "another leader"}</>;
 }
 
-/** A quest's thread: a reopened quest by its newest round first, then the quest muted, cut first. */
+/**
+ * A quest's thread: a reopened quest by its newest round first, then the quest muted, cut first. A
+ * side quest carries the side-quest mark where the main view's strip has it (Jiayi, Nov 2: side
+ * chats show what the main view shows): before the round's title, else after the number.
+ */
 function SideQuestThreadTitle({ leaderId, questId }: { leaderId: string; questId: string }) {
   const roundTitle = useQuestRoundTitle(questId);
-  const quest = (
-    <>
-      <SideQuestNumber questId={questId} /> <ThreadOriginName leaderId={leaderId} threadKey={questId} />
-    </>
-  );
-  if (!roundTitle) return quest;
+  const sideQuestOf = useSideQuestOf(leaderId, questId);
+  const mark = sideQuestOf && <SideQuestMark sideQuestOf={sideQuestOf} />;
+  if (!roundTitle) {
+    return (
+      <>
+        <SideQuestNumber questId={questId} /> {mark}
+        <ThreadOriginName leaderId={leaderId} threadKey={questId} />
+      </>
+    );
+  }
   return (
     <>
-      {roundTitle} <span className="text-cc-muted">{quest}</span>
+      {mark}
+      {roundTitle}{" "}
+      <span className="text-cc-muted">
+        <SideQuestNumber questId={questId} /> <ThreadOriginName leaderId={leaderId} threadKey={questId} />
+      </span>
     </>
   );
 }
 
-function SideQuestTitle({ questId }: { questId: string }) {
+function SideQuestTitle({ leaderId, questId }: { leaderId: string; questId: string }) {
   const quest = useQuestRecord(questId);
+  const sideQuestOf = useSideQuestOf(leaderId, questId);
   return (
     <>
-      <SideQuestNumber questId={questId} /> {quest?.title ?? ""}
+      <SideQuestNumber questId={questId} /> {sideQuestOf && <SideQuestMark sideQuestOf={sideQuestOf} />}
+      {quest?.title ?? ""}
     </>
+  );
+}
+
+/** The side-quest mark inline in a title bar's text, muted as on the main view's strip. */
+function SideQuestMark({ sideQuestOf }: { sideQuestOf: string }) {
+  return (
+    <span className="mr-1 inline-flex align-[-2px] text-cc-muted">
+      <SideQuestIcon sideQuestOf={sideQuestOf} />
+    </span>
   );
 }
 
