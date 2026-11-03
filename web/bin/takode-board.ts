@@ -98,8 +98,8 @@ export const BOARD_DETAIL_HELP = `Usage: takode board detail <quest-id> [--json]
 Show full board-owned Quest Journey details, notes, timings, and revision metadata for one quest row.
 `;
 
-export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN} | --clear-wait-for] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN} | --clear-wait-for] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]
+export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN} | --clear-wait-for] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--take-over] [--full|--verbose] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN} | --clear-wait-for] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--take-over] [--full|--verbose] [--json]
 
 Add or update a board row for a quest. Use this to create the initial Journey; once a row already has a Journey, use takode board revise for phase-plan changes.
 
@@ -116,6 +116,9 @@ Quest Journey phases:
   --clear-wait-for-input stops the linked questions blocking; they stay open for the user (resolve one with takode notify resolve)
   --status WORKING on a User Checkpoint ends it by hand and resumes the Work after it; its questions stay open, not blocking
   A planned checkpoint left by hand while its questions are open is not used up: Takode puts it back after the resumed Work
+  --take-over boards a quest another leader runs; without it, set and propose refuse such a quest and name its leader
+
+Use only quest IDs printed by quest create or listed by quest list; never guess the next one. Removing another leader's quest with takode board rm leaves no trace on your board or in your threads.
 
 Quest Journey v2 has one active workflow: Work -> Memory. User Checkpoint is a durable pause/resume inside Work for decisions outside the approved envelope. Legacy v1 phase IDs are historical-read only and are rejected for new active rows.
 
@@ -967,10 +970,10 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     const usageBySub =
       sub === "propose"
-        ? `Usage: takode board propose <quest-id> [--title "..."] (--summary <text> | --summary-file <path|->) [--phases <ids> | --journey-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
+        ? `Usage: takode board propose <quest-id> [--title "..."] (--summary <text> | --summary-file <path|->) [--phases <ids> | --journey-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--take-over] [--full|--verbose] [--json]`
         : sub === "promote"
           ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
-          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN} | --clear-wait-for] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]`;
+          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN} | --clear-wait-for] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--take-over] [--full|--verbose] [--json]`;
     if (!questId) err(usageBySub);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
@@ -984,6 +987,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const body: Record<string, unknown> = { questId };
     if (isProposalCommand) body.journeyMode = "proposed";
     if (isPromoteCommand) body.journeyMode = "active";
+    if (flags["take-over"] === true) body.takeOver = true;
     if (isPromoteCommand && flags["force-promote-unpresented"] === true) {
       body.forcePromoteUnpresented = true;
     }

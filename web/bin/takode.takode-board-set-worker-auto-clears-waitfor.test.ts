@@ -178,6 +178,14 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies[0].waitFor).toEqual([]);
   });
 
+  it("sends takeOver only with --take-over, for boarding another leader's quest", async () => {
+    // The server refuses another leader's quest unless the leader explicitly takes it over.
+    const env = { ...process.env, COMPANION_SESSION_ID: "leader-1", COMPANION_AUTH_TOKEN: "auth-1" };
+    expect((await runTakode(["board", "set", "q-1", "--take-over", "--port", String(port)], env)).status).toBe(0);
+    expect((await runTakode(["board", "set", "q-1", "--port", String(port)], env)).status).toBe(0);
+    expect(capturedBodies.map((body) => body.takeOver)).toEqual([true, undefined]);
+  });
+
   it("rejects removed --no-code flag", async () => {
     const result = await runTakode(["board", "set", "q-1", "--no-code", "--port", String(port)], {
       ...process.env,

@@ -64,6 +64,7 @@ import {
 } from "./work-evidence-context.js";
 import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
 import { registerStaleBoardRowRoutes } from "./takode-board-stale-rows.js";
+import { otherLeaderQuestGuard } from "../bridge/board-other-leader-quests.js";
 import {
   boardRowLanding,
   createLandingQuestHandoff,
@@ -332,6 +333,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     resolveSessionDeps,
   } = deps;
   const workEvidenceMutationLocks = new Set<string>();
+  const otherLeaderQuests = otherLeaderQuestGuard(launcher);
 
   const workEvidenceMutationLockKey = (leaderSessionId: string, questId: string): string =>
     `${leaderSessionId}\0${questId.trim().toLowerCase()}`;
@@ -1090,6 +1092,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
 
     const bridgeSession = wsBridge.getSession(id);
     const existingRow = bridgeSession?.board.get(questId) ?? null;
+    // Another leader's quest is not boarded by mistake: a new row for it needs an explicit takeover.
+    const refusal = !existingRow && quest && body.takeOver !== true && otherLeaderQuests.refusal(questId, quest, id);
+    if (refusal) return c.json({ error: refusal }, 409);
     const persistedPhaseError = existingRow?.journey
       ? validateQuestJourneyPersistedPhaseMutation(existingRow.journey, existingRow.status)
       : undefined;
@@ -1694,9 +1699,13 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const bridgeSession = wsBridge.getSession(id);
-    const board = bridgeSession ? removeBoardRowsController(bridgeSession, questIds, workBoardStateDeps) : null;
-    if (!board) return c.json({ error: "Session not found in bridge" }, 404);
+    if (!bridgeSession) return c.json({ error: "Session not found in bridge" }, 404);
+    // Another leader's quest boarded here by mistake leaves no trace; this leader's own finish as before.
+    const { board, dropped } = await otherLeaderQuests.removeRows(bridgeSession, questIds, workBoardStateDeps, (own) =>
+      removeBoardRowsController(bridgeSession, own, workBoardStateDeps),
+    );
     return c.json({
+      ...(dropped.length ? { droppedOtherLeadersQuests: dropped } : {}),
       board,
       completedCount: bridgeSession?.completedBoard.size ?? 0,
       rowSessionStatuses: await buildBoardRowSessionStatuses(board),
