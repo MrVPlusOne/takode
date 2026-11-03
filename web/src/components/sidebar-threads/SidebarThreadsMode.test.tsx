@@ -6,6 +6,7 @@
  * counts; then the leaders and the other sessions. Jiayi (Nov 1): the panel is for finding the
  * thread just used, like a chat app; the bell and each leader's Home are for what needs attention.
  */
+import { useHomeLinesCache } from "../home/HomeExtras.js";
 import { cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 const queue = vi.hoisted(() => ({ items: [] as unknown[] }));
@@ -44,6 +45,7 @@ import {
 } from "./SidebarThreadsMode.js";
 
 afterEach(() => {
+  useHomeLinesCache.setState({ byLeader: {} });
   cleanup();
   queue.items = [];
   navigateToSessionThread.mockReset();

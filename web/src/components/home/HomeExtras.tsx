@@ -4,6 +4,7 @@
  * alternative to its plain order, and what changed since the user last looked.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { create } from "zustand";
 import type { TopicBrief } from "../../../shared/library-topics.js";
 import { topicHandle } from "../../../shared/topic-thread-key.js";
 import { topicApi } from "../../api/topics.js";
@@ -22,15 +23,25 @@ export function useHomeLines(leaderId: string, questIds: readonly string[]): (th
 }
 
 /**
+ * The lines last loaded, by leader and thread key. Kept outside any view, so Home shows its lines at
+ * once when the user comes back to it, and the Threads view and Home share them (Jiayi, Nov 2: on
+ * her phone every visit to Home took a moment before its rows' news showed).
+ */
+export const useHomeLinesCache = create<{ byLeader: Record<string, Record<string, { text: string }>> }>(() => ({
+  byLeader: {},
+}));
+
+/**
  * A line of news per thread of several leaders at once (Home's lines, for the sessions panel's
- * Threads view): the Scribe's line when written, else a stand-in from what agents wrote. Each
- * leader's lines load again every minute; nothing loads while `active` is false.
+ * Threads view): the Scribe's line when written, else a stand-in from what agents wrote. The lines
+ * last loaded show at once; each leader's load again on mount and every minute after; nothing loads
+ * while `active` is false.
  */
 export function useLeadersHomeLines(
   leaders: readonly { leaderId: string; questIds: readonly string[] }[],
   active = true,
 ): (leaderId: string, threadKey: string) => string | undefined {
-  const [lines, setLines] = useState<Record<string, Record<string, { text: string }>>>({});
+  const lines = useHomeLinesCache((state) => state.byLeader);
   const key = leaders
     .map(({ leaderId, questIds }) => `${leaderId}:${[...questIds].sort().join(",")}`)
     .sort()
@@ -46,7 +57,10 @@ export function useLeadersHomeLines(
       for (const { leaderId, questIds } of requests) {
         topicApi
           .homeLines(leaderId, questIds)
-          .then((response) => !cancelled && setLines((all) => ({ ...all, [leaderId]: response.lines })))
+          // Kept even when the view has gone meanwhile: the next visit shows it.
+          .then((response) => {
+            useHomeLinesCache.setState((state) => ({ byLeader: { ...state.byLeader, [leaderId]: response.lines } }));
+          })
           .catch((error: Error) => console.warn("[home] Could not load the threads' news:", error.message));
       }
     };

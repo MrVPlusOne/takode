@@ -49,7 +49,7 @@ import { useTopicPanel } from "../utils/topic-panel.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
 import { useStore } from "../store.js";
 import { LeaderHomePage } from "./LeaderHomePage.js";
-import { shownOfTopic } from "./home/HomeExtras.js";
+import { shownOfTopic, useHomeLinesCache } from "./home/HomeExtras.js";
 import { SideHome } from "./side-column/SideHome.js";
 import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
@@ -76,6 +76,7 @@ afterEach(() => {
   resetLeaderTopicsForTest();
   cleanup();
   useLeaderThreadMembers.setState({ byLeader: {} });
+  useHomeLinesCache.setState({ byLeader: {} });
   useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
   startThread.mockReset();
   navigateToSessionThread.mockReset();
@@ -216,6 +217,22 @@ describe("LeaderHomePage", () => {
     expect(screen.getAllByTestId("home-row-line")[0]!.className).toContain("truncate");
     expect(homeLines).toHaveBeenCalledWith("l1", ["q-2", "q-3", "q-4"]);
     expect(screen.getByTestId("home-since-last-looked").textContent).toContain("1 question · 1 finished");
+  });
+
+  it("shows the news lines last loaded at once when Home opens again, refreshing them meanwhile", async () => {
+    // Jiayi (Nov 2): on her phone every visit to Home took a moment before its rows' news showed,
+    // since each visit loaded the lines again before showing any. They are kept between visits.
+    homeLines.mockResolvedValue({ lines: { "q-4": { text: "Waiting on your pick.", at: 5, source: "scribe" } } });
+    useLeaderThreadMembers.setState({ byLeader: { l1: [member("q-4", { questId: "q-4" })] } });
+    const first = render(<LeaderHomePage leaderId="l1" />);
+    await waitFor(() => expect(screen.getByTestId("home-row-line").textContent).toBe("Waiting on your pick."));
+    first.unmount();
+    // The next load never answers: the row still shows its line on the first render.
+    homeLines.mockReturnValue(new Promise(() => {}));
+    const calls = homeLines.mock.calls.length;
+    render(<LeaderHomePage leaderId="l1" />);
+    expect(screen.getByTestId("home-row-line").textContent).toBe("Waiting on your pick.");
+    expect(homeLines.mock.calls.length).toBe(calls + 1);
   });
 
   it("lists the threads in order or by topic, remembering the choice", async () => {

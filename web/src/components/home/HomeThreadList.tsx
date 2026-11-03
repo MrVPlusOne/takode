@@ -7,6 +7,7 @@
  * the worker and what it is doing now for a running quest, and a finished quest's commits.
  */
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { create } from "zustand";
 import { api } from "../../api.js";
 import { useStore } from "../../store.js";
 import type { SessionActivityPreview } from "../../../server/session-activity-preview.js";
@@ -252,12 +253,16 @@ function navigateHome(leaderId: string, threadKey: string, side: boolean): void 
   else navigateToSessionThread(leaderId, threadKey);
 }
 
+/** Workers' latest steps as last read, kept outside Home so a return to it shows them at once. */
+const useLatestStepsCache = create<{ bySession: Record<string, string> }>(() => ({ bySession: {} }));
+
 /**
- * Each worker's latest step (a tool call or a line it wrote), read now and again every few seconds
- * while the page is visible; Home lists few running quests, so this stays small.
+ * Each worker's latest step (a tool call or a line it wrote): the one last read at once, then read
+ * now and again every few seconds while the page is visible; Home lists few running quests, so this
+ * stays small.
  */
 function useLatestSteps(sessionIds: readonly string[]): Record<string, string> {
-  const [steps, setSteps] = useState<Record<string, string>>({});
+  const steps = useLatestStepsCache((state) => state.bySession);
   const key = [...sessionIds].sort().join(",");
   useEffect(() => {
     if (!key) return;
@@ -270,7 +275,9 @@ function useLatestSteps(sessionIds: readonly string[]): Record<string, string> {
             const last = preview.lines.at(-1);
             if (cancelled || !last) return;
             const text = last.kind === "tool" && last.toolName ? `${last.toolName}: ${last.text}` : last.text;
-            setSteps((all) => (all[sessionId] === text ? all : { ...all, [sessionId]: text }));
+            useLatestStepsCache.setState((state) =>
+              state.bySession[sessionId] === text ? state : { bySession: { ...state.bySession, [sessionId]: text } },
+            );
           })
           .catch((error: Error) => console.warn("[home] Could not load a worker's latest step:", error.message));
       }
