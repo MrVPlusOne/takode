@@ -8,6 +8,7 @@ import {
   HOME_ITEM,
   notePaneClick,
   openInSide,
+  isChatItem,
   isConversationItem,
   rememberSideChatHeight,
   setSideOneAtATime,
@@ -123,6 +124,7 @@ export function SideColumn({
     return () => observer?.disconnect();
   }, []);
   const fill = Math.max(160, viewport - ROW_HEIGHT * sectionIds.length);
+  const sharedChatFill = Math.max(160, viewport - ROW_HEIGHT);
   // Something just opened in the column scrolls into view (not on mount: the column stays as left).
   const sectionElements = useRef(new Map<string, HTMLElement>());
   const bodyElements = useRef(new Map<string, HTMLElement>());
@@ -203,9 +205,11 @@ export function SideColumn({
     chatId?: string,
   ) => {
     const open = isOpen(id);
-    // One at a time, the open section fills the column whatever its kind or its dragged height.
-    const dragged = oneAtATime ? undefined : heights.heightOf(id);
-    const size = dragged ?? defaultHeight;
+    // Chats one at a time share one height: the last a chat was dragged to, else the column's less
+    // one header row, so it doesn't shrink as more go in. Others keep their own heights.
+    const shared = oneAtATime && fixed;
+    const dragged = shared ? chatHeight : heights.heightOf(id);
+    const size = dragged ?? (shared ? sharedChatFill : defaultHeight);
     const content = (
       <>
         <div className="sticky top-0 z-10 bg-cc-bg">
@@ -223,23 +227,24 @@ export function SideColumn({
                 else bodyElements.current.delete(id);
               }}
               className="isolate flex min-h-0 overflow-hidden"
-              style={fixed || oneAtATime || dragged !== undefined ? { height: size } : { maxHeight: size }}
+              style={fixed || dragged !== undefined ? { height: size } : { maxHeight: size }}
               data-testid="side-section-body"
             >
-              {/* One at a time, the column fits without scrolling: no strip to scroll it, nor edge. */}
-              {variant === "docked" && !oneAtATime && <ColumnScrollStrip scrollRef={scrollRef} />}
+              {variant === "docked" && <ColumnScrollStrip scrollRef={scrollRef} />}
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</div>
             </div>
-            {!oneAtATime && (
-              <SectionEdge
-                measure={() => bodyElements.current.get(id)?.getBoundingClientRect().height || size}
-                onResize={(start, delta) => {
-                  const height = heights.resize(id, start, delta);
-                  if (fixed) rememberSideChatHeight(height);
-                }}
-                onReset={() => heights.reset(id)}
-              />
-            )}
+            <SectionEdge
+              measure={() => bodyElements.current.get(id)?.getBoundingClientRect().height || size}
+              onResize={(start, delta) => {
+                const height = heights.resize(id, start, delta);
+                if (fixed) rememberSideChatHeight(height);
+              }}
+              onReset={() => {
+                heights.reset(id);
+                // A shared chat height goes back to its default for every chat.
+                if (shared) rememberSideChatHeight(undefined);
+              }}
+            />
           </Activity>
         )}
       </>
@@ -326,18 +331,18 @@ export function SideColumn({
 }
 
 /**
- * Switches one-at-a-time on and off: opening a section folds the others, and the open one fills the
- * column. Its icon shows a stack with one open section; it is highlighted while on.
+ * Switches chats-one-at-a-time on and off: opening a chat folds the other chats, which share one
+ * height. Its icon shows a stack with one open section; it is highlighted while on.
  */
 function OneAtATimeToggle({ on }: { on: boolean }) {
-  const label = on ? "Show one at a time: on" : "Show one at a time";
+  const label = on ? "Chats one at a time: on" : "Chats one at a time";
   return (
     <button
       type="button"
       onClick={() => setSideOneAtATime(!on)}
       aria-pressed={on}
-      aria-label="Show one at a time"
-      title={`${label}. When on, opening one folds the others and it fills the column`}
+      aria-label="Chats one at a time"
+      title={`${label}. When on, opening a chat folds the other chats, and they share one height`}
       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
         on ? "bg-cc-primary/15 text-cc-primary" : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
       }`}
@@ -380,11 +385,6 @@ function ColumnScrollStrip({ scrollRef }: { scrollRef: RefObject<HTMLDivElement 
       <div className="h-8 w-0.5 rounded-full bg-cc-muted/25 transition-colors group-hover/strip:bg-cc-muted/60" />
     </div>
   );
-}
-
-/** Items that are a chat: a conversation, a thread being started, or another session's conversation. */
-function isChatItem(item: SideItem): boolean {
-  return item.kind === "conversation" || item.kind === "new-chat" || item.kind === "session";
 }
 
 /**

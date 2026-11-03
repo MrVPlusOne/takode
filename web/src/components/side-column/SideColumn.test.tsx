@@ -108,6 +108,8 @@ afterEach(() => {
 topicList.mockImplementation(noTopicList);
 
 const rows = () => screen.queryAllByTestId("side-item-row");
+/** The id of the item at a row of the column (Topics last, with no item). */
+const rowsId = (index: number) => useSideColumnStore.getState().items[index]!.id;
 /** The server's answer to a request for a conversation's newest window, as it lands in the store. */
 const landThreadWindow = (sessionId: string, threadKey: string) =>
   act(() =>
@@ -736,11 +738,12 @@ describe("SideColumn", () => {
     expect(rowOf("q-5").textContent).toMatch(/^Side quest of q-4Second round q-5/);
   });
 
-  it("shows one section at a time when switched on: one click opens one, at the column's height", () => {
-    // Jiayi (Nov 2): browsing side chats one click at a time, the open one filling the column, the
-    // others as title bars in the stack. Off again, sections keep their own heights and edges.
+  it("shows chats one at a time when switched on: one click opens a chat, at one shared height", () => {
+    // Jiayi (Nov 2): the side chats act as a tab group stacked as an accordion and share one height,
+    // so more chats don't make each shorter; pages, Topics and the column's scrolling are as before.
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
+      openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
       openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
       openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     });
@@ -749,19 +752,25 @@ describe("SideColumn", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
     const open = () => rows().map((row) => row.dataset.open);
-    expect(open()).toEqual(["true", "false", "false"]);
-    // A page opens at the same height as a conversation (jsdom measures the column as 0: the
-    // smallest fill), with no edge to drag and no strip to scroll the column.
-    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: false }));
-    expect(open()).toEqual(["false", "true", "false"]);
-    const page = screen.getAllByTestId("side-section").find((section) => section.dataset.open === "true")!;
-    expect(within(page).getByTestId("side-section-body").style.height).toBe("160px");
-    expect(within(page).queryByRole("separator")).toBeNull();
-    expect(screen.queryByTestId("side-scroll-strip")).toBeNull();
-    fireEvent.click(toggle);
+    // q-2, the page, q-3, Topics: the page and Topics stay open.
+    expect(open()).toEqual(["true", "true", "false", "true"]);
+    fireEvent.click(within(rows()[2]!).getByRole("button", { expanded: false }));
+    expect(open()).toEqual(["false", "true", "true", "true"]);
+    // Resizing the open chat sets the height every chat shares; edges and the scroll strip stay.
+    const chatSection = () =>
+      screen.getAllByTestId("side-section").find((section) => section.dataset.section === rowsId(2))!;
+    const body = within(chatSection()).getByTestId("side-section-body");
+    expect(within(body).getByTestId("side-scroll-strip")).toBeTruthy();
+    body.getBoundingClientRect = () => ({ height: 300 }) as DOMRect;
+    fireEvent.keyDown(within(chatSection()).getByRole("separator"), { key: "ArrowDown" });
+    expect(useSideColumnStore.getState().chatHeight).toBe(324);
     fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: false }));
-    expect(open()).toEqual(["true", "true", "false"]);
-    expect(screen.getAllByRole("separator").length).toBeGreaterThan(0);
+    const q2 = screen.getAllByTestId("side-section").find((section) => section.dataset.section === rowsId(0))!;
+    expect(within(q2).getByTestId("side-section-body").style.height).toBe("324px");
+    // Off, chats open side by side again.
+    fireEvent.click(toggle);
+    fireEvent.click(within(rows()[2]!).getByRole("button", { expanded: false }));
+    expect(open()).toEqual(["true", "true", "true", "true"]);
   });
 
   it("scrolls the whole column from the strip beside each section's content, on desktop only", () => {

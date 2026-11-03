@@ -106,27 +106,32 @@ describe("side column items", () => {
   });
 });
 
-describe("one at a time", () => {
-  it("keeps one section open: opening or unfolding one folds every other, Topics included", () => {
-    // Jiayi (Nov 2): browsing side chats one click at a time, instead of a column of open ones.
+describe("chats one at a time", () => {
+  it("keeps one chat open, like a tab group stacked as an accordion; other sections stay as they are", () => {
+    // Jiayi (Nov 2): only the side chats are mutually exclusive; Topics, pages and a Home open and
+    // fold on their own as before.
     const open = () =>
       [...items().map((item) => item.id), HOME_ITEM].filter((id) => !isRememberedFolded(sideFoldId(id)));
     const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
     const page = openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
-    expect(open()).toEqual([page, a, HOME_ITEM]);
-    // Turning it on keeps the one opened last.
-    setSideOneAtATime(true);
-    expect(open()).toEqual([page]);
-    unfoldSideItem(a);
-    expect(open()).toEqual([a]);
     const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
-    expect(open()).toEqual([b]);
-    unfoldSideItem(HOME_ITEM);
-    expect(open()).toEqual([HOME_ITEM]);
-    // Off, sections open side by side again.
+    expect(open()).toEqual([b, page, a, HOME_ITEM]);
+    // Turning it on keeps the chat opened last; the page and Topics stay open.
+    setSideOneAtATime(true);
+    expect(open()).toEqual([b, page, HOME_ITEM]);
+    unfoldSideItem(a);
+    expect(open()).toEqual([page, a, HOME_ITEM]);
+    // A new thread and another session's conversation are chats too; a Home is not.
+    const chat = openInSide({ kind: "new-chat", leaderId: "l1", startedFrom: null });
+    expect(open()).toEqual([chat, page, HOME_ITEM]);
+    const home = openInSide({ kind: "home", leaderId: "l2" });
+    expect(open()).toEqual([home, chat, page, HOME_ITEM]);
+    const session = openInSide({ kind: "session", sessionId: "worker-1" });
+    expect(open()).toEqual([session, home, page, HOME_ITEM]);
+    // Off, chats open side by side again.
     setSideOneAtATime(false);
     unfoldSideItem(a);
-    expect(open()).toEqual([a, HOME_ITEM]);
+    expect(open()).toEqual([session, home, page, a, HOME_ITEM]);
     expect(useSideColumnStore.getState().oneAtATime).toBe(false);
   });
 });

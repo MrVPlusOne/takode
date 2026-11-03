@@ -69,8 +69,10 @@ export interface SideColumnState {
   /** The height the user last dragged a side conversation to: a new thread starts at it. */
   chatHeight?: number;
   /**
-   * One at a time: opening a section folds the others, and the open one fills the column (Jiayi,
-   * Nov 2: browsing side chats one click at a time instead of scrolling a column of open ones).
+   * Chats one at a time: the column's chats act as one tab group stacked as an accordion, opening
+   * one folds the other chats, and they share one height. Other sections and the column's scrolling
+   * stay as they are (Jiayi, Nov 2: browsing side chats one click at a time, each as tall however
+   * many there are).
    */
   oneAtATime?: boolean;
 }
@@ -199,33 +201,41 @@ export function isConversationItem(item: Pick<SideItem, "kind">): boolean {
   return item.kind === "conversation" || item.kind === "session";
 }
 
+/** Items that are a chat: a conversation, a thread being started, or another session's conversation. */
+export function isChatItem(item: Pick<SideItem, "kind">): boolean {
+  return item.kind === "conversation" || item.kind === "new-chat" || item.kind === "session";
+}
+
 /**
  * Unfolds an item, or marks it used (`noteSideItemUsed`); a conversation beyond the open limit
  * folds the least recently used other one.
  */
 export function unfoldSideItem(id: string): void {
-  if (useSideColumnStore.getState().oneAtATime) foldAllBut(id);
+  if (useSideColumnStore.getState().oneAtATime) foldOtherChats(id);
   setRememberedFolded(sideFoldId(id), false);
   noteSideItemUsed(id);
 }
 
 /**
- * Turns one-at-a-time on or off. Turning it on keeps one section open: the one opened last if it
- * is open, else the first open one.
+ * Turns chats-one-at-a-time on or off. Turning it on keeps one chat open: the one opened last if it
+ * is an open chat, else the first open chat. Other sections stay as they are.
  */
 export function setSideOneAtATime(on: boolean): void {
   update((column) => ({ ...column, oneAtATime: on }));
   if (!on) return;
   const { items, focus } = useSideColumnStore.getState();
-  const open = [...items.map((item) => item.id), HOME_ITEM].filter((id) => !isRememberedFolded(sideFoldId(id)));
-  const kept = focus && open.includes(focus) ? focus : open[0];
-  if (kept) foldAllBut(kept);
+  const open = items.filter((item) => isChatItem(item) && !isRememberedFolded(sideFoldId(item.id)));
+  const kept = open.find((item) => item.id === focus) ?? open[0];
+  if (kept) foldOtherChats(kept.id);
 }
 
-/** Folds every open section of the column (its items and Topics) but `id`. */
-function foldAllBut(id: string): void {
-  for (const other of [...useSideColumnStore.getState().items.map((item) => item.id), HOME_ITEM]) {
-    if (other !== id && !isRememberedFolded(sideFoldId(other))) setRememberedFolded(sideFoldId(other), true);
+/** Opening a chat folds the column's other open chats; opening anything else folds nothing. */
+function foldOtherChats(id: string): void {
+  const { items } = useSideColumnStore.getState();
+  if (!items.some((item) => item.id === id && isChatItem(item))) return;
+  for (const other of items) {
+    if (other.id !== id && isChatItem(other) && !isRememberedFolded(sideFoldId(other.id)))
+      setRememberedFolded(sideFoldId(other.id), true);
   }
 }
 
@@ -324,7 +334,7 @@ export function replaceSideItem(id: string, replacement: SideItemInput): void {
 }
 
 /** The user dragged a side conversation to `height`: new threads in the column start at it. */
-export function rememberSideChatHeight(height: number): void {
+export function rememberSideChatHeight(height: number | undefined): void {
   if (useSideColumnStore.getState().chatHeight !== height) update((column) => ({ ...column, chatHeight: height }));
 }
 
