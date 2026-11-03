@@ -316,59 +316,64 @@ html, body {
 /* The turn guide owns activity indentation. Expanding a tool/worker group
  * must not add another guide or repeat the standalone worker avatar gutter. */
 /*
- * "New" line above the first unread answer in a view (use-unread-messages-seen.ts), as in Slack:
- * the message gets room above it for a thin line with the word at its right end, so the line
- * never draws over the row above.
+ * Unread answer (use-unread-messages-seen.ts): a small blue dot in the margin left of the message,
+ * level with its first line. Close enough to fit the padding of the answer cards, which clip. It
+ * takes no room, so nothing moves when it appears or goes. Once the answer is read it pops into a
+ * hollow ring ("read"), which stays until the chat loses focus ("seen": the ring without the pop,
+ * for an element the feed re-rendered).
  */
-[data-unread-start="true"] {
+[data-unread-answer] {
   position: relative;
-  margin-top: 1.5rem;
 }
-[data-unread-start="true"]::before {
+[data-unread-answer]::before {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  top: -0.75rem;
-  border-top: 1px solid var(--color-cc-error);
-  opacity: 0.7;
-  pointer-events: none;
-}
-[data-unread-start="true"]::after {
-  content: "New";
-  position: absolute;
-  right: 0;
-  top: calc(-0.75rem - 7px);
-  padding: 0 6px;
-  font-size: 11px;
-  line-height: 14px;
-  color: var(--color-cc-error);
-  background: var(--color-cc-bg);
-  pointer-events: none;
-}
-
-/*
- * "New" tag on an unread answer (use-unread-messages-seen.ts): used instead of the line when the
- * unread answers are not together at the bottom, such as an earlier answer still unread under read
- * ones of a joined thread. A small blue tag at the message's top right; the message gets room above.
- */
-[data-unread-answer="true"] {
-  position: relative;
-  margin-top: 1.25rem;
-}
-[data-unread-answer="true"]::after {
-  content: "New";
-  position: absolute;
-  right: 0;
-  top: -1.1rem;
-  padding: 0 6px;
+  top: 0.5625rem;
+  left: -0.5625rem;
+  width: 0.4375rem;
+  height: 0.4375rem;
   border-radius: 9999px;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 15px;
-  color: var(--color-cc-info);
-  background: color-mix(in oklab, var(--color-cc-info) 14%, transparent);
+  background: var(--color-cc-info);
   pointer-events: none;
+}
+[data-unread-answer="read"]::before,
+[data-unread-answer="seen"]::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--color-cc-muted);
+}
+[data-unread-answer="read"]::before {
+  animation: unread-dot-read 0.45s ease-out;
+}
+@keyframes unread-dot-read {
+  0% {
+    background: var(--color-cc-info);
+    box-shadow: inset 0 0 0 1.5px var(--color-cc-info);
+    transform: scale(1);
+  }
+  40% {
+    background: var(--color-cc-info);
+    box-shadow: inset 0 0 0 1.5px var(--color-cc-info);
+    transform: scale(1.5);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--color-cc-muted);
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-unread-answer="read"]::before {
+    animation: none;
+  }
+}
+/* Phones give the cards less padding. */
+@media (max-width: 639px) {
+  [data-unread-answer]::before {
+    top: 0.625rem;
+    left: -0.5rem;
+    width: 0.375rem;
+    height: 0.375rem;
+  }
 }
 
 [data-turn-activity] [data-activity-details] {

@@ -3,13 +3,18 @@ import { renderHook } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionNotification } from "../types.js";
-import { MARK_GRACE_MS, SEEN_DWELL_MS, readsWhenSeen, useUnreadMessagesSeen } from "./use-unread-messages-seen.js";
+import { MARK_GRACE_MS, readsWhenSeen, useUnreadMessagesSeen } from "./use-unread-messages-seen.js";
 
 /**
- * Unread answers are read once seen, as in Slack: a message counts as read after it has been
- * on screen for a second, in whichever view shows it, and the first unread message on screen
- * gets a "New" line. Finished quests and agent-sent results still read with their thread.
+ * Unread answers are read once seen, as in Slack: a message counts as read the moment its
+ * beginning shows in the focused chat, in whichever view shows it. Each unread answer the view
+ * marks gets a dot ("true") that turns into a read ring ("read") and clears when the chat loses
+ * focus. Finished quests and agent-sent results still read with their thread.
  */
+
+const MARK = "data-unread-answer";
+/** Whether the window has focus, as `document.hasFocus()` reports it. */
+let windowFocused = true;
 
 function rect(top: number, height: number): DOMRect {
   return { top, bottom: top + height, height, left: 0, right: 400, width: 400, x: 0, y: top, toJSON: () => ({}) };
@@ -54,15 +59,18 @@ function answer(id: string, timestamp: number, extra: Partial<SessionNotificatio
 
 beforeEach(() => {
   vi.useFakeTimers();
+  windowFocused = true;
+  vi.spyOn(document, "hasFocus").mockImplementation(() => windowFocused);
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   document.body.innerHTML = "";
 });
 
 describe("useUnreadMessagesSeen", () => {
-  it("reads an answer after a second on screen, and leaves one off screen unread", () => {
+  it("reads an answer the moment its beginning shows, and leaves one off screen unread", () => {
     const elements = mountFeed("topic:t1", [
       { id: "m-a1", top: 100 },
       { id: "m-a2", top: 900 },
@@ -78,23 +86,113 @@ describe("useUnreadMessagesSeen", () => {
         onSeen,
       }),
     );
-    // The oldest unread message on screen gets the "New" line.
-    expect(elements["m-a1"]!.getAttribute("data-unread-start")).toBe("true");
-    act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS / 2);
-    });
-    expect(onSeen).not.toHaveBeenCalled();
-    act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS);
-    });
+    // Both were unread when the view opened, so both are marked; the one on screen is read at once,
+    // and its dot turns into the "read" ring.
     expect(onSeen.mock.calls).toEqual([["a1"]]);
+    expect(elements["m-a1"]!.getAttribute(MARK)).toBe("read");
+    expect(elements["m-a2"]!.getAttribute(MARK)).toBe("true");
   });
 
-  it("keeps the New line when the feed replaces the message's element, after it was read", () => {
-    // A window update can re-render the message as a new element: the line follows it, and it
-    // stays after the message is read, until the view changes.
+  it("does not read a long answer whose beginning is above the view", () => {
+    // Its middle fills the screen, but the user hasn't seen how it starts.
+    const elements = mountFeed("q-1", [{ id: "m-a1", top: -300, height: 1200 }]);
+    const onSeen = vi.fn();
+    renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        feedKey: "q-1",
+        notifications: [answer("a1", 1)],
+        enabled: true,
+        onSeen,
+      }),
+    );
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(onSeen).not.toHaveBeenCalled();
+    elements["m-a1"]!.getBoundingClientRect = () => rect(500, 1200);
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(onSeen).toHaveBeenCalledWith("a1");
+  });
+
+  it("puts the read ring back without its animation when the feed replaces the message's element", () => {
+    // A window update can re-render the message as a new element: the mark follows it, as the
+    // settled ring ("seen") so the pop doesn't play again.
     const elements = mountFeed("q-1", [{ id: "m-a1", top: 100 }]);
-    const notifications = [answer("a1", 1)];
+    renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        feedKey: "q-1",
+        notifications: [answer("a1", 1)],
+        enabled: true,
+        inFeed: () => true,
+        onSeen: vi.fn(),
+      }),
+    );
+    expect(elements["m-a1"]!.getAttribute(MARK)).toBe("read");
+    const replacement = elements["m-a1"]!.cloneNode() as HTMLElement;
+    replacement.removeAttribute(MARK);
+    replacement.getBoundingClientRect = () => rect(100, 100);
+    elements["m-a1"]!.replaceWith(replacement);
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(replacement.getAttribute(MARK)).toBe("seen");
+  });
+
+  it("clears the read rings when the chat loses focus, and keeps the unread dots", () => {
+    // Jiayi (Nov 2): the rings show what just got read while the user is in the chat.
+    const elements = mountFeed("q-1", [
+      { id: "m-a1", top: 100 },
+      { id: "m-a2", top: 900 },
+    ]);
+    const { rerender, unmount } = renderHook(
+      ({ focused }) =>
+        useUnreadMessagesSeen({
+          sessionId: "leader",
+          feedKey: "q-1",
+          notifications: [answer("a1", 1), answer("a2", 2)],
+          enabled: true,
+          focused,
+          onSeen: vi.fn(),
+        }),
+      { initialProps: { focused: true } },
+    );
+    expect(elements["m-a1"]!.getAttribute(MARK)).toBe("read");
+    rerender({ focused: false });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(elements["m-a1"]!.hasAttribute(MARK)).toBe(false);
+    expect(elements["m-a2"]!.getAttribute(MARK)).toBe("true");
+    unmount();
+    expect(elements["m-a2"]!.hasAttribute(MARK)).toBe(false);
+  });
+
+  it("clears the read rings when the window loses focus", () => {
+    const elements = mountFeed("q-1", [{ id: "m-a1", top: 100 }]);
+    renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        feedKey: "q-1",
+        notifications: [answer("a1", 1)],
+        enabled: true,
+        onSeen: vi.fn(),
+      }),
+    );
+    expect(elements["m-a1"]!.getAttribute(MARK)).toBe("read");
+    windowFocused = false;
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(elements["m-a1"]!.hasAttribute(MARK)).toBe(false);
+  });
+
+  it("shows an answer read elsewhere as read", () => {
+    // Read by replying, or in another browser: its dot turns into the ring too.
+    const elements = mountFeed("q-1", [{ id: "m-a1", top: 900 }]);
     const { rerender } = renderHook(
       ({ list }) =>
         useUnreadMessagesSeen({
@@ -102,45 +200,16 @@ describe("useUnreadMessagesSeen", () => {
           feedKey: "q-1",
           notifications: list,
           enabled: true,
-          inFeed: () => true,
           onSeen: vi.fn(),
         }),
-      { initialProps: { list: notifications } },
+      { initialProps: { list: [answer("a1", 1)] } },
     );
-    const replacement = elements["m-a1"]!.cloneNode() as HTMLElement;
-    replacement.removeAttribute("data-unread-start");
-    replacement.getBoundingClientRect = () => rect(100, 100);
-    elements["m-a1"]!.replaceWith(replacement);
-    rerender({ list: [{ ...notifications[0]!, done: true }] });
+    expect(elements["m-a1"]!.getAttribute(MARK)).toBe("true");
+    rerender({ list: [answer("a1", 1, { done: true })] });
     act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS);
+      vi.advanceTimersByTime(500);
     });
-    expect(replacement.getAttribute("data-unread-start")).toBe("true");
-  });
-
-  it("restarts the wait when the message leaves the screen, and removes the New line with the view", () => {
-    const elements = mountFeed("q-1", [{ id: "m-a1", top: 100 }]);
-    const onSeen = vi.fn();
-    const { unmount } = renderHook(() =>
-      useUnreadMessagesSeen({
-        sessionId: "leader",
-        feedKey: "q-1",
-        notifications: [answer("a1", 1)],
-        enabled: true,
-        inFeed: () => true,
-        onSeen,
-      }),
-    );
-    act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS / 2);
-    });
-    elements["m-a1"]!.getBoundingClientRect = () => rect(2000, 100);
-    act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS);
-    });
-    expect(onSeen).not.toHaveBeenCalled();
-    unmount();
-    expect(elements["m-a1"]!.hasAttribute("data-unread-start")).toBe(false);
+    expect(elements["m-a1"]!.getAttribute(MARK)).toBe("read");
   });
 
   it("leaves finished quests and agent-sent results to the thread rule", () => {
@@ -177,79 +246,6 @@ describe("useUnreadMessagesSeen", () => {
     expect(result.current?.count).toBe(2);
     // A jump goes to the nearest: the one scrolled past, before the one above the loaded window.
     expect(result.current?.next.id).toBe("above");
-  });
-
-  it("puts one New line above unread answers that are together at the bottom", () => {
-    // The usual case: everything after the last read answer is unread, so a line says it.
-    const elements = mountFeed("q-1", [
-      { id: "m-read", top: 0 },
-      { id: "m-u1", top: 150 },
-      { id: "m-u2", top: 300 },
-    ]);
-    renderHook(() =>
-      useUnreadMessagesSeen({
-        sessionId: "leader",
-        feedKey: "q-1",
-        notifications: [answer("read", 1, { done: true }), answer("u1", 2), answer("u2", 3)],
-        enabled: true,
-        inFeed: () => true,
-        onSeen: vi.fn(),
-      }),
-    );
-    expect(elements["m-u1"]!.getAttribute("data-unread-start")).toBe("true");
-    expect(document.querySelectorAll("[data-unread-start]").length).toBe(1);
-    expect(document.querySelectorAll("[data-unread-answer]").length).toBe(0);
-  });
-
-  it("tags each unread answer when a read one sits below an unread one, as in a joined thread", () => {
-    // Jiayi (Nov 1): the Scribe joined a newer thread, already read, onto an older conversation
-    // whose last answer was still unread. A New line above that answer said everything below was
-    // unread; each unread answer now gets its own tag, and read ones none, kept while the view lasts.
-    const elements = mountFeed("q-1", [
-      { id: "m-early", top: 0 },
-      { id: "m-joined-read", top: 150 },
-      { id: "m-joined-unread", top: 300 },
-    ]);
-    const { rerender, unmount } = renderHook(
-      ({ list }) =>
-        useUnreadMessagesSeen({
-          sessionId: "leader",
-          feedKey: "q-1",
-          notifications: list,
-          enabled: true,
-          inFeed: () => true,
-          onSeen: vi.fn(),
-        }),
-      {
-        initialProps: {
-          list: [
-            answer("early", 1),
-            answer("joined-read", 5, { done: true }),
-            answer("joined-unread", 6, { unreadReason: "report" }),
-          ],
-        },
-      },
-    );
-    const tagged = () =>
-      Object.entries(elements)
-        .filter(([, element]) => element.getAttribute("data-unread-answer") === "true")
-        .map(([id]) => id);
-    expect(tagged()).toEqual(["m-early", "m-joined-unread"]);
-    expect(document.querySelectorAll("[data-unread-start]").length).toBe(0);
-    // Read on screen, the tags stay for this view, then go with it.
-    rerender({
-      list: [
-        answer("early", 1, { done: true }),
-        answer("joined-read", 5, { done: true }),
-        answer("joined-unread", 6, { unreadReason: "report", done: true }),
-      ],
-    });
-    act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS);
-    });
-    expect(tagged()).toEqual(["m-early", "m-joined-unread"]);
-    unmount();
-    expect(tagged()).toEqual([]);
   });
 
   it("steps the jump up through unread answers one at a time, skipping read ones between", () => {
@@ -326,10 +322,10 @@ describe("useUnreadMessagesSeen", () => {
       }),
     );
     expect(result.current?.count).toBe(1);
-    // Scrolled to it and seen for a second: it no longer waits above.
+    // Scrolled to it: it no longer waits above.
     elements["m-a1"]!.getBoundingClientRect = () => rect(100, 100);
     act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS + 500);
+      vi.advanceTimersByTime(500);
     });
     expect(result.current).toBeNull();
   });
@@ -351,7 +347,7 @@ describe("useUnreadMessagesSeen", () => {
       }),
     );
     act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS * 5);
+      vi.advanceTimersByTime(5_000);
     });
     expect(onSeen).not.toHaveBeenCalled();
   });
@@ -371,13 +367,13 @@ describe("useUnreadMessagesSeen", () => {
       }),
     );
     act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS * 3);
+      vi.advanceTimersByTime(3_000);
     });
     expect(onSeen).not.toHaveBeenCalled();
     focused = true;
     rerender();
     act(() => {
-      vi.advanceTimersByTime(SEEN_DWELL_MS + 500);
+      vi.advanceTimersByTime(500);
     });
     expect(onSeen).toHaveBeenCalledWith("a1");
   });
@@ -385,7 +381,7 @@ describe("useUnreadMessagesSeen", () => {
   // Jiayi (Nov 1): chatting in a thread, the leader's reply came in with a New line that stayed. A
   // reply watched as it arrives is not news; the marker is for what the user did not see arrive.
   describe("answers that arrive while the view is open", () => {
-    const marks = () => document.querySelectorAll("[data-unread-start], [data-unread-answer]").length;
+    const marks = () => document.querySelectorAll(`[${MARK}]`).length;
     const renderView = (focused = true) => {
       const onSeen = vi.fn();
       const hook = renderHook(
@@ -410,9 +406,9 @@ describe("useUnreadMessagesSeen", () => {
       ]);
       const { rerender, onSeen } = renderView();
       rerender({ list: [answer("old", 1, { done: true }), answer("reply", Date.now())] });
-      // It shows up between two polls: the next one starts its second on screen.
+      // It shows up between two polls: the next one reads it.
       act(() => {
-        vi.advanceTimersByTime(SEEN_DWELL_MS + 1_000);
+        vi.advanceTimersByTime(500);
       });
       expect(onSeen).toHaveBeenCalledWith("reply");
       act(() => {
@@ -435,7 +431,7 @@ describe("useUnreadMessagesSeen", () => {
       act(() => {
         vi.advanceTimersByTime(MARK_GRACE_MS);
       });
-      expect(elements["m-reply"]!.getAttribute("data-unread-start")).toBe("true");
+      expect(elements["m-reply"]!.getAttribute(MARK)).toBe("true");
       expect(onSeen).not.toHaveBeenCalled();
     });
 
@@ -446,7 +442,7 @@ describe("useUnreadMessagesSeen", () => {
       act(() => {
         vi.advanceTimersByTime(MARK_GRACE_MS + 1_000);
       });
-      expect(elements["m-reply"]!.getAttribute("data-unread-start")).toBe("true");
+      expect(elements["m-reply"]!.getAttribute(MARK)).toBe("true");
     });
 
     it("are marked at once when they came while the page was hidden", () => {
@@ -466,7 +462,8 @@ describe("useUnreadMessagesSeen", () => {
       act(() => {
         vi.advanceTimersByTime(500);
       });
-      expect(elements["m-reply"]!.getAttribute("data-unread-start")).toBe("true");
+      // Marked, and read at once on screen: it keeps the ring.
+      expect(elements["m-reply"]!.getAttribute(MARK)).toBe("read");
       spy.mockRestore();
     });
 
@@ -478,7 +475,7 @@ describe("useUnreadMessagesSeen", () => {
       act(() => {
         vi.advanceTimersByTime(500);
       });
-      expect(elements["m-reply"]!.getAttribute("data-unread-start")).toBe("true");
+      expect(elements["m-reply"]!.getAttribute(MARK)).toBe("read");
     });
   });
 });

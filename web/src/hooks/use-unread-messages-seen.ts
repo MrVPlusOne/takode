@@ -4,15 +4,15 @@ import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.
 
 /**
  * A leader's unread answers and reports are read once they have actually been on screen, as in
- * Slack: opening a topic or a quest no longer reads everything in it. Each is read after its
- * message has been on screen for a second, in whichever view shows it (its quest, its topic's
+ * Slack: opening a topic or a quest no longer reads everything in it. Each is read the moment its
+ * beginning shows (its first line), in whichever view shows it (its quest, its topic's
  * conversation, Main, All).
  *
- * How a view marks what is unread, decided when it opens and kept until it changes: when every
- * unread answer it shows comes after the last read one (they are together at the bottom), one
- * "New" line sits above the first, as in Slack. Otherwise, as when the Scribe joined a newer thread
- * onto an older one and an earlier answer is still unread below read ones, each unread answer gets
- * its own "New" tag, since a line would say everything under it is unread (Jiayi, Nov 1).
+ * Each unread answer the view marks gets a small blue dot in the margin left of it. When the answer
+ * is read the dot turns, with a short animation, into a hollow "read" ring that stays, so the user
+ * sees what just got read; the rings go when the chat loses focus (another chat focused, or the
+ * window losing focus). The dot takes no room, so nothing in the feed moves when it appears or goes;
+ * the earlier "New" line and tags above the answer pushed the feed down (Jiayi, Nov 2).
  *
  * The marker shows what the user did not watch arrive. An answer that comes in while the view is
  * open and is read within its first seconds (`MARK_GRACE_MS`) gets none, as a reply arriving while
@@ -31,18 +31,24 @@ import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.
  * the user scrolls to reads as usual.
  */
 
-/** How long a message must stay on screen to count as read. */
-export const SEEN_DWELL_MS = 1_000;
 const POLL_MS = 400;
+/** How much of a message's start must show for it to count as seen: about its first line. */
+const BEGINNING_PX = 24;
 /** A message counts as on screen when this much of it shows (or half of a short one). */
 const MIN_VISIBLE_PX = 160;
 /**
  * How long an answer that arrives while the view is open may stay unread before it is marked: long
- * enough for one that lands on screen in the focused chat to be read first (the dwell plus a poll).
+ * enough for one that lands on screen in the focused chat to be read first.
  */
 export const MARK_GRACE_MS = 3_000;
 /** Server timestamps this much older than the view count as already there when it opened. */
 const ARRIVAL_CLOCK_SLACK_MS = 10_000;
+/**
+ * The attribute that marks an answer's element; CSS draws the dot. "true" while unread; "read" when
+ * it was just read (the dot animates into a ring); "seen" for a ring put back on a re-rendered
+ * element, without the animation.
+ */
+const MARK_ATTRIBUTE = "data-unread-answer";
 
 /** Unread messages of the feed on screen that sit above the view. */
 export interface UnreadAbove {
@@ -90,27 +96,28 @@ export function useUnreadMessagesSeen({
 
   useEffect(() => {
     if (!enabled) return;
-    const firstSeen = new Map<string, number>();
     const reported = new Set<string>();
-    // How this view marks what is unread, chosen once: the "New" line above one message, or a
-    // "New" tag on each unread one. Marked elements are marked again whenever the feed re-renders
-    // them (a window update can replace an element).
-    let marking: "line" | "tags" | null = null;
-    const marked = new Map<string, HTMLElement | null>();
-    const markAttribute = () => (marking === "line" ? "data-unread-start" : "data-unread-answer");
+    // Marked messages by message ID, unread or read. Marked elements are marked again whenever the
+    // feed re-renders them (a window update can replace an element).
+    const marked = new Map<string, { element: HTMLElement | null; read: boolean }>();
+    const mark = (id: string, element: HTMLElement | null, state: "true" | "read" | "seen") => {
+      element?.setAttribute(MARK_ATTRIBUTE, state);
+      marked.set(id, { element, read: state !== "true" });
+    };
     const remark = (feed: HTMLElement) => {
-      const stale = [...marked].filter(([, element]) => !element?.isConnected).map(([id]) => id);
+      const stale = [...marked].filter(([, { element }]) => !element?.isConnected).map(([id]) => id);
       if (!stale.length) return;
       const found = messageElements(feed, new Set(stale));
-      for (const id of stale) {
-        const element = found.get(id) ?? null;
-        element?.setAttribute(markAttribute(), "true");
-        marked.set(id, element);
-      }
+      for (const id of stale) mark(id, found.get(id) ?? null, marked.get(id)!.read ? "seen" : "true");
     };
-    const mark = (id: string, element: HTMLElement) => {
-      element.setAttribute(markAttribute(), "true");
-      marked.set(id, element);
+    // The read rings show what was just read: they go when the chat stops being the one in use.
+    let inUse = false;
+    const clearReadMarks = () => {
+      for (const [id, { element, read }] of marked) {
+        if (!read) continue;
+        element?.removeAttribute(MARK_ATTRIBUTE);
+        marked.delete(id);
+      }
     };
     // What the view had unread when it opened, or when the page last came back into view: marked at
     // once. Anything later arrived while the user was here, and is marked only if it stays unread
@@ -126,8 +133,10 @@ export function useUnreadMessagesSeen({
         now - (arrivedAt.get(notification.id) ?? now) >= MARK_GRACE_MS);
 
     const poll = () => {
+      const inUseNow = document.visibilityState !== "hidden" && latest.current.focused && document.hasFocus();
+      if (inUse && !inUseNow) clearReadMarks();
+      inUse = inUseNow;
       if (document.visibilityState === "hidden") {
-        firstSeen.clear();
         // Coming back is like opening the view: what arrived meanwhile wasn't watched.
         atOpen = null;
         return;
@@ -142,6 +151,9 @@ export function useUnreadMessagesSeen({
       const feed = visibleFeed(sessionId, feedKey);
       if (!feed) return;
       remark(feed);
+      // Answers read elsewhere (replying, another browser) show as read too.
+      const unreadIds = new Set(unread.map((notification) => notification.messageId!));
+      for (const [id, { element, read }] of marked) if (!read && !unreadIds.has(id)) mark(id, element, "read");
       if (unread.length === 0) {
         setUnreadAbove(null);
         return;
@@ -150,29 +162,16 @@ export function useUnreadMessagesSeen({
       const toMark = new Set(
         unread.filter((notification) => markable(notification, now)).map((notification) => notification.messageId!),
       );
-      const firstToMark = [...elements].find(([id]) => toMark.has(id));
-      if (!marking && firstToMark) {
-        marking = unreadTogetherAtBottom(feed, latest.current.notifications ?? []) ? "line" : "tags";
-        // The line sits above the first unread message this view marks: the reader starts there.
-        if (marking === "line") mark(...firstToMark);
-      }
-      if (marking === "tags") {
-        // Each unread answer keeps its tag for the view, also after it is read on screen.
-        for (const [id, element] of elements) if (toMark.has(id) && !marked.has(id)) mark(id, element);
-      }
+      for (const [id, element] of elements) if (toMark.has(id) && !marked.has(id)) mark(id, element, "true");
       const view = feed.getBoundingClientRect();
       const focusedNow = latest.current.focused;
       for (const notification of unread) {
         const element = elements.get(notification.messageId!);
-        if (!focusedNow || !element || reported.has(notification.id) || !onScreen(element, view)) {
-          firstSeen.delete(notification.id);
-          continue;
-        }
-        const since = firstSeen.get(notification.id) ?? now;
-        firstSeen.set(notification.id, since);
-        if (now - since < SEEN_DWELL_MS) continue;
+        if (!focusedNow || !element || reported.has(notification.id) || !beginningOnScreen(element, view)) continue;
         reported.add(notification.id);
         latest.current.onSeen(notification.id);
+        const markedNow = marked.get(notification.messageId!);
+        if (markedNow) mark(notification.messageId!, markedNow.element, "read");
       }
       const unseen = unread.filter((notification) => !reported.has(notification.id));
       const inFeed = latest.current.inFeed;
@@ -185,7 +184,7 @@ export function useUnreadMessagesSeen({
     const timer = setInterval(poll, POLL_MS);
     return () => {
       clearInterval(timer);
-      for (const element of marked.values()) element?.removeAttribute(markAttribute());
+      for (const { element } of marked.values()) element?.removeAttribute(MARK_ATTRIBUTE);
       setUnreadAbove(null);
     };
   }, [enabled, feedKey, sessionId]);
@@ -223,28 +222,6 @@ function findUnreadAbove(
   return { count: above.length, next };
 }
 
-/**
- * Whether the unread answers a feed shows all come after its read ones, in feed order: then one
- * line above the first says it. Only answers and reports with a message count; a read one below
- * an unread one (a joined thread's, say) means they are not together.
- */
-function unreadTogetherAtBottom(feed: HTMLElement, notifications: ReadonlyArray<SessionNotification>): boolean {
-  const answers = notifications.filter(
-    (notification) =>
-      notification.category === "review" &&
-      !!notification.messageId &&
-      (notification.unreadReason === "answer" || notification.unreadReason === "report"),
-  );
-  const unreadIds = new Set(answers.filter((notification) => !notification.done).map((n) => n.messageId!));
-  let sawUnread = false;
-  // messageElements returns the feed's elements in document (feed) order.
-  for (const id of messageElements(feed, new Set(answers.map((notification) => notification.messageId!))).keys()) {
-    if (unreadIds.has(id)) sawUnread = true;
-    else if (sawUnread) return false;
-  }
-  return true;
-}
-
 function visibleFeed(sessionId: string, feedKey: string): HTMLElement | null {
   const key = feedKey.toLowerCase();
   for (const feed of document.querySelectorAll<HTMLElement>('[data-testid="message-feed-scroll-container"]')) {
@@ -263,6 +240,12 @@ function messageElements(feed: HTMLElement, ids: ReadonlySet<string>): Map<strin
     if (id && ids.has(id) && !found.has(id)) found.set(id, element);
   }
   return found;
+}
+
+/** Whether a message's beginning (about its first line) shows in the view. */
+function beginningOnScreen(element: HTMLElement, view: DOMRect): boolean {
+  const rect = element.getBoundingClientRect();
+  return rect.top >= view.top - 1 && rect.top + Math.min(BEGINNING_PX, rect.height) <= view.bottom + 1;
 }
 
 function onScreen(element: HTMLElement, view: DOMRect): boolean {
