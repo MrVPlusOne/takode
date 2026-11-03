@@ -500,6 +500,71 @@ describe("explicit answer presentation", () => {
     ).toBeNull();
   });
 
+  it("presents a joined thread's answer in the quest it was joined onto, beside the quest's own answers", () => {
+    // The Scribe joins a thread (`topic:<handle>`) onto a quest: its request and answer gain a
+    // backfill reference to the quest and keep their topic route. One such answer used to fail the
+    // whole quest's presentation closed, so the collapsed cards fell back to rows that left out
+    // other answers, and an unread answer left out never showed to be read.
+    const topic = "topic:0a1b2c3d";
+    const joined = [
+      { threadKey: topic, source: "explicit" as const },
+      { threadKey: THREAD_KEY, questId: THREAD_KEY, source: "backfill" as const },
+    ];
+    const joinedUser: ChatMessage = {
+      id: "raw-u40",
+      role: "user",
+      content: "Asked in a thread later joined onto q-2024",
+      timestamp: 20,
+      historyIndex: 20,
+      metadata: { leaderResponseCoverageVersion: 1, leaderUserMessageId: "u40", threadKey: topic, threadRefs: joined },
+    };
+    const topicAnswer: ChatMessage = {
+      id: "answer-topic-u40",
+      role: "assistant",
+      content: "The joined thread's answer",
+      timestamp: 21,
+      historyIndex: 21,
+      metadata: {
+        leaderThreadRole: "answer",
+        threadKey: topic,
+        threadRefs: joined,
+        threadAnswer: {
+          version: 2,
+          answerUserMessageIds: ["u40"],
+          observedHistoryLength: 21,
+          authoredThreadKey: topic,
+          ownerGroups: [{ threadKey: topic, userMessageIds: ["u40"] }],
+        },
+      },
+    };
+    const state = projection({
+      currentAnswers: [
+        ...projection().currentAnswers,
+        {
+          ...answerState({
+            id: topicAnswer.id,
+            answerIds: ["u40"],
+            referencedIds: [joinedUser.id],
+            coveredIds: [],
+            coveredAnswerIds: [],
+            historyIndex: 21,
+          }),
+          threadKey: topic,
+          questId: undefined,
+        },
+      ],
+    });
+
+    const result = resolveThreadResponses(sections([...validMessages(), joinedUser, topicAnswer]), state, THREAD_KEY);
+
+    expect(result?.currentResponses.map((item) => item.response.currentMessageId)).toEqual([
+      "a-current",
+      "b-current",
+      topicAnswer.id,
+    ]);
+    expect(result?.currentResponses[2]).toMatchObject({ sourceTurnId: joinedUser.id, response: { threadKey: topic } });
+  });
+
   it("keeps canonical quest-owned answers chronological in another associated quest", () => {
     const ownerThreadKey = "q-2042";
     const selectedThreadKey = "q-2044";

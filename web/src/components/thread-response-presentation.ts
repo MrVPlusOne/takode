@@ -13,6 +13,7 @@ import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { extractQuestQuizMarkerIds, stripQuestQuizMarkers } from "./AssistantQuestQuizContent.js";
 import type { FeedSection } from "./message-feed-sections.js";
 import { isUserBoundaryEntry } from "../hooks/use-feed-model.js";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 
 export interface ThreadResponseReferencedUserMessage {
   historyMessageId: string;
@@ -335,7 +336,8 @@ export function resolveThreadResponses(
     const responseThreadKey = normalizeThreadKey(response.threadKey);
     const associationProjection = responseThreadKey !== normalizedThreadKey;
     if (
-      (responseThreadKey !== "main" && !/^q-\d+$/.test(responseThreadKey)) ||
+      // Main, a quest's thread or a topic's own thread, as the server routes answers.
+      (responseThreadKey !== "main" && !/^q-\d+$/.test(responseThreadKey) && !isTopicViewKey(responseThreadKey)) ||
       (associationProjection && response.source !== "explicit") ||
       // Only an explicit answer may name no messages (a result nobody asked for).
       (response.referencedUserMessageIds.length === 0 && response.source !== "explicit") ||
