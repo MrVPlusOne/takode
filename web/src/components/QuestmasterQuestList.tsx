@@ -170,6 +170,8 @@ export function QuestStatusHoverTarget({ quest, children }: { quest: QuestListPr
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         title="Show quest journey"
+        // Its hover card is the Journey itself.
+        data-tooltip="off"
       >
         {children}
       </span>

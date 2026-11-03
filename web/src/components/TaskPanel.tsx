@@ -703,6 +703,7 @@ function SystemPromptModal({
             </div>
           </div>
           <button
+            title="Close"
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
           >
@@ -1102,6 +1103,7 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-cc-border">
         <span className="text-sm font-semibold text-cc-fg tracking-tight">Session</span>
         <button
+          title="Close the session panel"
           onClick={() => setTaskPanelOpen(false)}
           className="flex items-center justify-center w-6 h-6 rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
         >

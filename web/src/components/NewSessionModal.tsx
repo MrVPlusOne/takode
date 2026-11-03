@@ -856,6 +856,7 @@ export function NewSessionModal({
           <div className="flex items-center justify-between px-5 py-4 border-b border-cc-border">
             <h2 className="text-sm font-semibold text-cc-fg">{resumeMode ? "Resume Session" : "New Session"}</h2>
             <button
+              title="Close"
               onClick={onClose}
               className="w-6 h-6 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
             >

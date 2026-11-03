@@ -1243,6 +1243,8 @@ export function QuestFeedInlineLink({
           data-rich-open-mode={richOpenMode ?? undefined}
           data-testid="quest-feed-preview-button"
           data-quest-id={normalizedQuestId}
+          // Its title card is its tooltip.
+          data-tooltip="off"
           onPointerEnter={(event) => {
             syncPreviewColor();
             handlePointerEnter("preview", event);

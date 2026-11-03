@@ -187,6 +187,8 @@ function LegacyQuestInlineLink({
         onMouseLeave={hoverCardsSuppressed ? undefined : handleLinkMouseLeave}
         className={className}
         title={title}
+        // Its hover card says more than a tooltip would, and in the same place.
+        data-tooltip={hoverCardsSuppressed ? undefined : "off"}
       >
         {children ?? questId}
       </a>

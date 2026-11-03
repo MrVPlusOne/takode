@@ -666,6 +666,8 @@ function HerdEventEntry({
               className="shrink-0 rounded-sm font-mono-code text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2 cursor-pointer focus-visible:outline-none focus-visible:text-amber-300 focus-visible:underline focus-visible:decoration-dotted focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-1 focus-visible:ring-offset-cc-card"
               aria-label={`Open session ${sessionLabel}`}
               title={`Open session ${sessionLabel}`}
+              // Its hover card says more than a tooltip would, and in the same place.
+              data-tooltip="off"
             >
               {sessionLabel}
             </button>

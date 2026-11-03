@@ -312,6 +312,7 @@ export function EnvManager({ onClose, embedded = false }: Props) {
             {showBuildLog && buildLog && (
               <div className="relative">
                 <button
+                  title="Hide the build log"
                   onClick={() => setShowBuildLog(false)}
                   className="absolute top-1 right-1 text-cc-muted hover:text-cc-fg cursor-pointer"
                 >
@@ -349,6 +350,7 @@ export function EnvManager({ onClose, embedded = false }: Props) {
               className="w-24 px-2 py-1 text-[11px] font-mono-code bg-cc-input-bg border border-cc-border rounded-md text-cc-fg focus:outline-none focus:border-cc-primary/50"
             />
             <button
+              title="Remove this port"
               onClick={() => setPorts(ports.filter((_, idx) => idx !== i))}
               className="w-5 h-5 flex items-center justify-center rounded text-cc-muted hover:text-cc-error transition-colors cursor-pointer shrink-0"
             >
@@ -570,6 +572,7 @@ export function EnvManager({ onClose, embedded = false }: Props) {
         </div>
         {onClose && (
           <button
+            title="Close"
             onClick={onClose}
             className="w-6 h-6 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
           >
@@ -637,6 +640,7 @@ function VarEditor({ rows, onChange }: { rows: VarRow[]; onChange: (rows: VarRow
             className="flex-1 min-w-0 px-2 py-1 text-[11px] font-mono-code bg-cc-input-bg border border-cc-border rounded-md text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/50"
           />
           <button
+            title="Remove this variable"
             onClick={() => removeRow(i)}
             className="w-5 h-5 flex items-center justify-center rounded text-cc-muted hover:text-cc-error transition-colors cursor-pointer shrink-0"
           >

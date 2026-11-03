@@ -540,6 +540,7 @@ export function CronManager({ onClose, embedded = false }: Props) {
         </div>
         {onClose && (
           <button
+            title="Close"
             onClick={onClose}
             className="w-6 h-6 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
           >

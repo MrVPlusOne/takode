@@ -179,6 +179,7 @@ export function TerminalView({ cwd, sessionId, hostId = null, onClose, embedded 
         </div>
         {onClose && (
           <button
+            title="Close the terminal"
             onClick={onClose}
             className="w-6 h-6 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer shrink-0"
           >

@@ -1,3 +1,4 @@
+import { getShortcutTitle } from "../shortcuts.js";
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
@@ -260,6 +261,8 @@ export function NotificationChip({
   );
   const mutedNeedsInput = muted.length;
   const { next, goNext } = attention;
+  const shortcutSettings = useStore((state) => state.shortcutSettings);
+  const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   // Places, as in the top bar: a topic's new answers count once while Next steps through each.
   const total = countAttentionPlaces(attention.queue);
   const place = next ? attentionPlaceIndex(attention.queue, next.item) : 0;
@@ -308,7 +311,16 @@ export function NotificationChip({
               ? `Go to the next item that needs attention in this session: ${ATTENTION_KIND_TITLE[nextKind!]}, ${place + 1} of ${total}. Right-click or long-press for the list.`
               : inboxLabel
           }
-          title={next ? "Next item that needs attention here. Right-click or long-press for the list." : undefined}
+          title={
+            next
+              ? getShortcutTitle(
+                  "Next item that needs attention here",
+                  shortcutSettings,
+                  "next_attention",
+                  shortcutPlatform,
+                ) + ". Right-click or long-press for the list."
+              : undefined
+          }
           data-testid={next ? "session-attention-next" : undefined}
           aria-expanded={open}
           className={`relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-[18px] border bg-cc-card/95 py-1 pl-2.5 pr-1.5 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md transition-colors hover:border-cc-muted/35 cursor-pointer ${LONG_PRESS_TARGET_CLASS} ${

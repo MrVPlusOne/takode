@@ -168,6 +168,8 @@ export function SessionInlineLink({
         }
         title={title ?? defaultTitle}
         aria-label={ariaLabel}
+        // Its hover card says more than a tooltip would, and in the same place.
+        data-tooltip={hoverCardsSuppressed ? undefined : "off"}
         data-testid={dataTestId}
       >
         {children}

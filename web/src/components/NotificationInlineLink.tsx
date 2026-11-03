@@ -101,6 +101,8 @@ export function NotificationInlineLink({
         onMouseLeave={hoverCardsSuppressed ? undefined : handleMouseLeave}
         className={sessionId ? (className ?? "text-cc-primary hover:underline") : "text-cc-muted"}
         title={sessionId ? `Open notification in session #${sessionNum}` : `Session #${sessionNum} not found`}
+        // Its hover card says more than a tooltip would, and in the same place.
+        data-tooltip={hoverCardsSuppressed ? undefined : "off"}
         data-testid="notification-inline-link"
       >
         {children}

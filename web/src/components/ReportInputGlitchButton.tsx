@@ -1,3 +1,5 @@
+import { getShortcutTitle } from "../shortcuts.js";
+import { useStore } from "../store.js";
 import { reportInputGlitch, useInputTraceRecording, useLastInputGlitchReport } from "../utils/input-trace.js";
 
 /**
@@ -7,13 +9,20 @@ import { reportInputGlitch, useInputTraceRecording, useLastInputGlitchReport } f
 export function ReportInputGlitchButton() {
   const recording = useInputTraceRecording();
   const lastReport = useLastInputGlitchReport();
+  const shortcutSettings = useStore((state) => state.shortcutSettings);
   if (!recording) return null;
+  const name = getShortcutTitle(
+    "Report input glitch",
+    shortcutSettings,
+    "report_input_glitch",
+    typeof navigator === "undefined" ? undefined : navigator.platform,
+  );
   const title =
     lastReport && "error" in lastReport
-      ? `Report input glitch (the last report failed: ${lastReport.error})`
+      ? `${name}: the last report failed: ${lastReport.error}`
       : lastReport
-        ? `Report input glitch (last sent ${new Date(lastReport.at).toLocaleTimeString()})`
-        : "Report input glitch: send the last hour of input activity to the server log";
+        ? `${name}: last sent ${new Date(lastReport.at).toLocaleTimeString()}`
+        : `${name}: send the last hour of input activity to the server log`;
   return (
     <button
       type="button"

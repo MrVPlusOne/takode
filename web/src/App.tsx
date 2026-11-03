@@ -126,6 +126,7 @@ import {
 import { ensureVsCodeEditorPreference } from "./utils/vscode-bridge.js";
 import { startAlertWindowPresence } from "./utils/alert-window-presence.js";
 import { reportInputGlitch, useInputTraceRecorder } from "./utils/input-trace.js";
+import { AppTooltips } from "./components/AppTooltips.js";
 import {
   SHORTCUT_DOUBLE_TAP_WINDOW_MS,
   getMatchingShortcutAction,
@@ -1089,6 +1090,7 @@ export default function App() {
     return (
       <>
         <ActiveBuildMismatchNotice />
+        <AppTooltips />
         <ArtifactWindow id={route.artifactId} version={route.version} />
         <FileViewerHost />
         <InAppPageViewerHost />
@@ -1101,6 +1103,7 @@ export default function App() {
     return (
       <>
         <ActiveBuildMismatchNotice />
+        <AppTooltips />
         <Playground />
         {/* The Playground's Quest Detail Modal section opens this global overlay. */}
         <QuestDetailPanel />
@@ -1122,6 +1125,7 @@ export default function App() {
       }}
     >
       <ActiveBuildMismatchNotice />
+      <AppTooltips />
 
       {/* Mobile overlay backdrop */}
       {sidebarOpen && !isDesktopShell && (

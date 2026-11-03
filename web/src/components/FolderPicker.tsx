@@ -163,6 +163,7 @@ export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onC
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-cc-border shrink-0">
           <h2 className="text-sm font-semibold text-cc-fg">Select Folder</h2>
           <button
+            title="Close"
             onClick={onClose}
             className="w-6 h-6 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
           >
