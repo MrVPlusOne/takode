@@ -20,6 +20,8 @@ import { navigateToSessionThread } from "../../utils/routing.js";
 import { openInSide, wantsSideClick } from "../../utils/side-column.js";
 import { useChatFocused, useChatFocusId } from "../../utils/chat-focus.js";
 import { setSideViewsOf } from "../../utils/side-views.js";
+import { useLeaderQuestThreadRow } from "../../utils/leader-quest-thread-row.js";
+import { QuestThreadFeedChips } from "../QuestThreadBanner.js";
 
 const NO_ATTENTION_RECORDS: readonly SessionAttentionRecord[] = [];
 
@@ -75,6 +77,9 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
     return () => setSideViewsOf(leaderId, owner, []);
   }, [key, leaderId]);
   const questId = /^q-\d+$/.test(key) ? key : undefined;
+  // A quest's thread shows its quest's state as chips at the feed's top, as the main view does
+  // (Jiayi: side chats render the feed the same as the main view).
+  const questRow = useLeaderQuestThreadRow(leaderId, key);
   const draftKey = sideComposerDraftKey(leaderId, key);
   return (
     <SecondaryFeedContext.Provider value={true}>
@@ -84,7 +89,17 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
           <div className="flex min-h-0 flex-1 flex-col" data-testid="side-conversation" data-thread-key={key}>
             {/* A request here that moved into a quest says where it continues, as in the main view. */}
             <StartedQuestsProvider sessionId={leaderId} enabled refreshKey={key}>
-              <MessageFeed sessionId={leaderId} threadKey={key} projectThreadRoutes onSelectThread={openThread} />
+              <MessageFeed
+                sessionId={leaderId}
+                threadKey={key}
+                projectThreadRoutes
+                onSelectThread={openThread}
+                questChips={
+                  questRow ? (
+                    <QuestThreadFeedChips row={questRow} threadKey={key} diffSessionId={leaderId} />
+                  ) : undefined
+                }
+              />
             </StartedQuestsProvider>
           </div>
           <Composer

@@ -4,7 +4,7 @@
  * quest says where it continues, so its feed gets the leader's started quests as the main feed does.
  */
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { useContext } from "react";
+import { useContext, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StartedQuestsContext } from "../QuestForkLinks.js";
 import { api } from "../../api.js";
@@ -13,7 +13,7 @@ import type { SessionNotification } from "../../types.js";
 import { ChatFocusContext, MAIN_CHAT, useChatFocusStore } from "../../utils/chat-focus.js";
 
 vi.mock("../MessageFeed.js", () => ({
-  MessageFeed: () => {
+  MessageFeed: ({ questChips }: { questChips?: ReactNode }) => {
     const started = useContext(StartedQuestsContext);
     return (
       <div data-testid="feed">
@@ -21,6 +21,7 @@ vi.mock("../MessageFeed.js", () => ({
           ?.get("side-ask")
           ?.map((quest) => quest.questId)
           .join(",") ?? "none"}
+        {questChips}
       </div>
     );
   },
@@ -56,6 +57,24 @@ describe("SideConversation", () => {
     );
     render(<SideConversation leaderId="leader" threadKey="topic:aaaa0001" />);
     expect(await screen.findByText("q-9")).toBeTruthy();
+  });
+
+  it("shows a quest thread's state as chips at its feed's top, as the main view does", async () => {
+    // Jiayi: side chats render the feed the same as the main view. The quest's chips come from its
+    // leader's board, like the main view's; a thread that is not a quest's has none.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ quests: [] })),
+    );
+    useStore.setState({
+      sessionBoards: new Map([["leader", [{ questId: "q-7", title: "Slides", status: "QUEUED", updatedAt: 1 }]]]),
+    } as never);
+    const view = render(<SideConversation leaderId="leader" threadKey="q-7" />);
+    expect(await screen.findByTestId(/^quest-thread-feed-chips/)).toBeTruthy();
+    view.unmount();
+    render(<SideConversation leaderId="leader" threadKey="topic:aaaa0001" />);
+    expect(screen.queryByTestId(/^quest-thread-feed-chips/)).toBeNull();
+    useStore.setState({ sessionBoards: new Map() } as never);
   });
 
   // Jiayi's report (Nov 1): a side pane showing a finished quest kept "1 new" however long it was
