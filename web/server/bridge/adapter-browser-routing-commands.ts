@@ -7,6 +7,7 @@ import type {
   AdapterBrowserRoutingSessionLike,
 } from "./adapter-browser-routing-controller.js";
 import { emitStoredUserMessageTakodeEvent } from "./user-message-takode-event.js";
+import { normalizeThreadRoute } from "../thread-routing-metadata.js";
 
 type BrowserUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 
@@ -63,11 +64,19 @@ export function queueForceCompactPendingMessage(
 
 export function handleCliSlashCommand(
   session: AdapterBrowserRoutingSessionLike,
-  command: string,
+  msg: BrowserUserMessage,
   deps: AdapterBrowserRoutingDeps,
 ): void {
+  const command = msg.content.trim();
   console.log(`[ws-bridge] CLI slash command intercepted for session ${sessionTag(session.id)}: ${command}`);
-  appendLocalSlashCommandHistory(session, command, deps);
+  // The command goes to the backend as typed (a prefix would stop it being a command), but its
+  // history row keeps where it was sent and the composer's message ID, like any message: the
+  // thread it was sent in shows it, and its pending bubble gives way to it.
+  appendLocalSlashCommandHistory(session, command, deps, {
+    ...(msg.client_msg_id ? { client_msg_id: msg.client_msg_id } : {}),
+    ...(msg.threadKey ? { threadKey: msg.threadKey } : {}),
+    ...(msg.questId ? { questId: msg.questId } : {}),
+  });
   const accepted = session.claudeSdkAdapter?.sendBrowserMessage({
     type: "user_message",
     content: command,
@@ -91,12 +100,32 @@ export function appendLocalSlashCommandHistory(
 ): Extract<BrowserIncomingMessage, { type: "user_message" }> {
   const ts = Date.now();
   const wasGenerating = session.isGenerating;
+  const route = normalizeThreadRoute(origin.threadKey, origin.questId);
   const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
     type: "user_message",
     content: command,
     timestamp: ts,
     id: deps.nextUserMessageId(ts),
-    ...origin,
+    ...(origin.client_msg_id ? { client_msg_id: origin.client_msg_id } : {}),
+    // Routed like a typed message: its thread, and an explicit ref to it.
+    ...(route
+      ? {
+          threadKey: route.threadKey,
+          ...(route.questId ? { questId: route.questId } : {}),
+          ...(route.threadKey !== "main"
+            ? {
+                threadRefs: [
+                  {
+                    threadKey: route.threadKey,
+                    ...(route.questId ? { questId: route.questId } : {}),
+                    source: "explicit" as const,
+                    attachedAt: ts,
+                  },
+                ],
+              }
+            : {}),
+        }
+      : {}),
   };
   session.messageHistory.push(userHistoryEntry);
   session.lastUserMessage = command;

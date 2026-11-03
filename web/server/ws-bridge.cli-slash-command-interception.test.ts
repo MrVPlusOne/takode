@@ -740,4 +740,42 @@ describe("CLI slash command interception", () => {
     const queued = JSON.parse(session.pendingMessages[0]);
     expect(queued).toEqual({ type: "user_message", content: "/context" });
   });
+
+  it("keeps a command sent from a thread in that thread, with the composer's message ID", () => {
+    // Jiayi (Nov 3): a `/self-improvement …` sent from a leader's thread in a side pane never
+    // showed there. Its history row had no thread (so it belonged to Main) and no client message
+    // ID (so the composer's pending bubble was never replaced, and vanished with the restart).
+    const sid = "s-slash-thread";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+    const session = bridge.getSession(sid)!;
+    session.state.slash_commands = ["self-improvement"];
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    adapter.sendBrowserMessage.mockClear();
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/self-improvement avoid this link error",
+        client_msg_id: "cmsg-1",
+        threadKey: "q-77",
+        questId: "q-77",
+      }),
+    );
+
+    // The backend still gets the command as typed, so it runs as a command.
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith({
+      type: "user_message",
+      content: "/self-improvement avoid this link error",
+    });
+    const row = session.messageHistory.find((m) => m.type === "user_message") as any;
+    expect(row).toMatchObject({
+      client_msg_id: "cmsg-1",
+      threadKey: "q-77",
+      questId: "q-77",
+      threadRefs: [expect.objectContaining({ threadKey: "q-77", questId: "q-77", source: "explicit" })],
+    });
+  });
 });

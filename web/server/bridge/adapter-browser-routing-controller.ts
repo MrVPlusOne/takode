@@ -513,7 +513,8 @@ export async function routeBrowserMessage(
     // Match the composer's pending owner and retain where the command was sent.
     appendLocalSlashCommandHistory(session, msg.content, deps, {
       ...(msg.client_msg_id ? { client_msg_id: msg.client_msg_id } : {}),
-      ...browserMessageRoute(msg),
+      ...(msg.threadKey ? { threadKey: msg.threadKey } : {}),
+      ...(msg.questId ? { questId: msg.questId } : {}),
     });
     if (session.backendType !== "codex" || !launcherInfo?.isOrchestrator) {
       deps.broadcastToBrowsers(session, { type: "error", message: "/recycle is only supported for Codex leaders" });
@@ -551,7 +552,7 @@ export async function routeBrowserMessage(
     session.backendType !== "codex" &&
     isCliSlashCommand(session, msg.content.trim())
   ) {
-    handleCliSlashCommand(session, msg.content.trim(), deps);
+    handleCliSlashCommand(session, msg, deps);
     return;
   }
 
