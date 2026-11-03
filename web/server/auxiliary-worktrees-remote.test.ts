@@ -202,6 +202,26 @@ describe("auxiliary worktree routes with --host", () => {
     expect(listed.worktrees).toEqual([expect.objectContaining({ machine: "laptop", path })]);
   });
 
+  it("checks whether a remote checkout still exists on its host, and says unknown while it is offline", async () => {
+    const path = checkout();
+    const api = app();
+    expect((await post(api, "/sessions/owner/worktrees", { path, retention: "retained", host: "laptop" })).status).toBe(
+      200,
+    );
+    const pathState = async () =>
+      (await (await api.request("/sessions/owner/worktrees")).json()).worktrees[0].pathState;
+    expect(await pathState()).toBe("present");
+    git(repo, "worktree", "remove", path);
+    expect(await pathState()).toBe("missing");
+    agent.stop();
+    await waitFor(() => !manager.status(HOST_ID).online);
+    expect(await pathState()).toBe("unknown");
+    // Unregistering needs no machine: it drops only the coordinator's record.
+    const dropped = await post(api, "/sessions/owner/worktrees/unregister", { path, host: "laptop" });
+    expect(dropped.status).toBe(200);
+    expect(await registry.list("owner")).toEqual([]);
+  });
+
   it("refuses to register on an offline machine", async () => {
     const path = checkout();
     agent.stop();

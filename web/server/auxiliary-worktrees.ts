@@ -3,7 +3,7 @@ import { realpath, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { AuxiliaryWorktreeRegistration, AuxiliaryWorktreeRegistry } from "./auxiliary-worktree-registry.js";
 import { onMachine } from "./remote-host/host-operations.js";
-import { hostIsOnline } from "./remote-host/session-machine.js";
+import { hostIsOnline, machineFor } from "./remote-host/session-machine.js";
 import type { WorktreeTracker } from "./worktree-tracker.js";
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
@@ -114,6 +114,28 @@ export interface AuxiliaryWorktreeTarget {
   hostId?: string;
 }
 
+/** Whether a registered checkout's path still exists: "unknown" when its machine is offline or cannot tell. */
+export type AuxiliaryWorktreePathState = "present" | "missing" | "unknown";
+
+/** A session's registrations matching `target` (all of them without one); refuses an ambiguous or unknown path. */
+function selectRegistrations(
+  records: AuxiliaryWorktreeRegistration[],
+  sessionId: string,
+  target: AuxiliaryWorktreeTarget | undefined,
+): AuxiliaryWorktreeRegistration[] {
+  const selected = records.filter(
+    (record) =>
+      record.sessionId === sessionId &&
+      (!target ||
+        (record.worktreePath === target.path && (!("hostId" in target) || sameMachine(record.hostId, target.hostId)))),
+  );
+  if (target && selected.length === 0) throw new Error("Registered auxiliary worktree not found");
+  if (target && selected.length > 1) {
+    throw new Error("That path is registered on more than one machine; name the machine with --host");
+  }
+  return selected;
+}
+
 export class AuxiliaryWorktreeLifecycle {
   private readonly cleaning = new Set<string>();
 
@@ -171,6 +193,28 @@ export class AuxiliaryWorktreeLifecycle {
     });
   }
 
+  /** Whether a registration's path still exists on its machine. */
+  async pathState(record: AuxiliaryWorktreeRegistration): Promise<AuxiliaryWorktreePathState> {
+    if (record.hostId && !hostIsOnline(record.hostId)) return "unknown";
+    try {
+      return (await machineFor(record.hostId).stat(record.worktreePath)) ? "present" : "missing";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  /**
+   * Drop a session's registration, for a checkout it removed itself or no longer
+   * wants tracked. Only the metadata goes; the checkout and its branch are untouched.
+   */
+  async unregister(sessionId: string, target: AuxiliaryWorktreeTarget): Promise<AuxiliaryWorktreeRegistration> {
+    return this.registry.update(async (records) => {
+      const [record] = selectRegistrations(records, sessionId, target);
+      records.splice(records.indexOf(record), 1);
+      return record;
+    });
+  }
+
   isCleaning(sessionId: string): boolean {
     return this.cleaning.has(sessionId);
   }
@@ -183,19 +227,16 @@ export class AuxiliaryWorktreeLifecycle {
         if (!this.owners().some((owner) => owner.sessionId === sessionId && owner.archived)) {
           throw new Error("Auxiliary cleanup requires an archived session");
         }
-        const selected = records.filter(
-          (record) =>
-            record.sessionId === sessionId &&
-            (!target ||
-              (record.worktreePath === target.path &&
-                (!("hostId" in target) || sameMachine(record.hostId, target.hostId)))),
-        );
-        if (target && selected.length === 0) throw new Error("Registered auxiliary worktree not found");
-        if (target && selected.length > 1) {
-          throw new Error("That path is registered on more than one machine; name the machine with --host");
-        }
+        const selected = selectRegistrations(records, sessionId, target);
         for (const record of selected) {
           if (record.retention === "retained" || record.cleanupStatus === "done") continue;
+          // A checkout already removed (usually by its session) has nothing left to clean up or protect.
+          if ((await this.pathState(record)) === "missing") {
+            records.splice(records.indexOf(record), 1);
+            record.cleanupStatus = "done";
+            record.cleanupReason = undefined;
+            continue;
+          }
           try {
             await this.removeTemporary(record, records);
             record.cleanupStatus = "done";

@@ -48,6 +48,8 @@ describe("takode worktree", () => {
       res.setHeader("content-type", "application/json");
       if (req.url === "/api/takode/me") {
         res.end(JSON.stringify({ sessionId: "worker", isOrchestrator: false }));
+      } else if (req.url === "/api/sessions/worker/worktrees/unregister") {
+        res.end(JSON.stringify({ worktree: record }));
       } else if (req.url === "/api/sessions/worker/worktrees") {
         res.end(JSON.stringify(req.method === "POST" ? { worktree: record } : { worktrees: [record] }));
       } else {
@@ -79,6 +81,14 @@ describe("takode worktree", () => {
       expect(requests).toContainEqual({
         path: "/api/sessions/worker/worktrees",
         body: { path: "/home/me/launch", retention: "retained", host: "laptop" },
+      });
+      // Unregistering sends the same path and machine selection as retry, and names what it dropped.
+      const dropped = await run(["worktree", "unregister", "/fixture/aux"], port);
+      expect(dropped.code).toBe(0);
+      expect(dropped.stdout).toContain("Unregistered devbox:/fixture/aux");
+      expect(requests).toContainEqual({
+        path: "/api/sessions/worker/worktrees/unregister",
+        body: { path: "/fixture/aux" },
       });
       const listed = await run(["worktree", "list", "--json"], port);
       expect(listed.code).toBe(0);

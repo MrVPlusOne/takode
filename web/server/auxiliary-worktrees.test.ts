@@ -578,3 +578,68 @@ describe("original disposable worker branch retirement", () => {
     expect(git(repo, "rev-parse", target.actualBranch!)).toBe(target.disposableBranch!.initialTip);
   });
 });
+
+/**
+ * Registrations for checkouts their session already removed by hand used to stay
+ * listed forever and blocked archive cleanup with a Git error. A session can now
+ * unregister them, list marks them, and archive cleanup drops them.
+ */
+describe("stale auxiliary registrations", () => {
+  function routes(callerId: string, sessions: Record<string, { herdedBy?: string }> = {}) {
+    const app = new Hono();
+    registerAuxiliaryWorktreeRoutes(
+      app,
+      {
+        resolveId: (id: string) => id,
+        authenticateTakodeCaller: () => ({ callerId, caller: {} }),
+        launcher: { getSession: (id: string) => sessions[id] },
+      } as unknown as RouteContext,
+      lifecycle,
+    );
+    return app;
+  }
+  const unregister = (app: Hono, body: object) =>
+    app.request("/sessions/owner/worktrees/unregister", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("drops a temporary registration whose checkout is gone instead of reporting it blocked", async () => {
+    const path = checkout();
+    await lifecycle.register("owner", path, "temporary", "main");
+    git(repo, "worktree", "remove", path);
+    owners[0].archived = true;
+    const [record] = await lifecycle.cleanup("owner");
+    expect(record.cleanupStatus).toBe("done");
+    expect(await registry.list("owner")).toEqual([]);
+  });
+
+  it("lists a removed checkout as missing until it is unregistered, leaving files alone", async () => {
+    const removed = checkout();
+    const kept = checkout("kept");
+    await lifecycle.register("owner", removed, "temporary", "main");
+    await lifecycle.register("owner", kept, "retained");
+    git(repo, "worktree", "remove", removed);
+    const app = routes("owner");
+
+    const listed = await (await app.request("/sessions/owner/worktrees")).json();
+    expect(listed.worktrees.map((record: { pathState: string }) => record.pathState)).toEqual(["missing", "present"]);
+
+    expect((await unregister(app, { path: removed })).status).toBe(200);
+    // Unregistering a present checkout drops only its metadata.
+    expect((await unregister(app, { path: kept })).status).toBe(200);
+    expect(existsSync(kept)).toBe(true);
+    expect(await registry.list("owner")).toEqual([]);
+    expect((await unregister(app, { path: kept })).status).toBe(409);
+  });
+
+  it("lets the leader that herds a worker unregister for it, and no one else", async () => {
+    const path = checkout();
+    await lifecycle.register("owner", path, "retained");
+    const sessions = { owner: { herdedBy: "leader" } };
+    expect((await unregister(routes("stranger", sessions), { path })).status).toBe(403);
+    expect((await unregister(routes("leader", sessions), { path })).status).toBe(200);
+    expect(await registry.list("owner")).toEqual([]);
+  });
+});
