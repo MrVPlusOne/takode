@@ -6,7 +6,7 @@ The input trace helps diagnose input glitches that can't be reproduced on demand
 
 Settings > Diagnostics > **Input trace**. The setting is saved on the server, so every browser connected to it starts recording. Each page then keeps the last hour of input activity in memory, up to 10,000 events. Turning it off forgets what was recorded.
 
-While it records, a **Report input glitch** button appears in the sidebar's bottom row and under the toggle in Settings. You can also give **Report Input Glitch** a key under Settings > Keyboard. That key works while typing, so you can press it right after the glitch.
+While it records, a **Report input glitch** button appears under the toggle in Settings. You can also give **Report Input Glitch** a key under Settings > Keyboard. That key works while typing, so you can press it right after the glitch.
 
 ## What it records
 

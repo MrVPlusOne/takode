@@ -43,7 +43,7 @@ export function SettingsDiagnosticsSection({ isRowHidden }: { isRowHidden: (item
               ? `Could not send the report: ${lastReport.error}`
               : lastReport
                 ? `Sent ${lastReport.eventCount} events at ${new Date(lastReport.at).toLocaleTimeString()}.`
-                : "Also in the sidebar's bottom row, and as a keyboard shortcut you can set under Keyboard. A report goes to the server log; ask an agent to read it (takode logs --component input-trace)."}
+                : "Also a keyboard shortcut you can set under Keyboard. A report goes to the server log; ask an agent to read it (takode logs --component input-trace)."}
           </span>
         </div>
       )}

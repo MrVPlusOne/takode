@@ -9,21 +9,15 @@ vi.mock("../api.js", () => ({ api: { updateSettings, reportInputTrace } }));
 import { useStore } from "../store.js";
 import { useInputTraceRecorder } from "../utils/input-trace.js";
 import { SettingsDiagnosticsSection } from "./SettingsDiagnosticsSection.js";
-import { ReportInputGlitchButton } from "./ReportInputGlitchButton.js";
 
 /**
  * Settings > Diagnostics: the input trace is off by default, the toggle saves it to the server,
- * and the report actions appear (and record) only while it is on.
+ * and the report button appears (and records) only while it is on.
  */
 
 function Harness() {
   useInputTraceRecorder();
-  return (
-    <>
-      <SettingsDiagnosticsSection isRowHidden={() => false} />
-      <ReportInputGlitchButton />
-    </>
-  );
+  return <SettingsDiagnosticsSection isRowHidden={() => false} />;
 }
 
 afterEach(() => {
@@ -43,10 +37,8 @@ describe("SettingsDiagnosticsSection", () => {
     fireEvent.click(toggle);
 
     expect(updateSettings).toHaveBeenCalledWith({ diagnostics: { inputTrace: true } });
-    // Both the Settings button and the sidebar button appear once the trace records.
-    const buttons = await screen.findAllByRole("button", { name: "Report input glitch" });
-    expect(buttons).toHaveLength(2);
-    fireEvent.click(buttons[1]);
+    // The report button appears once the trace records; the sidebar has none (the user's call).
+    fireEvent.click(await screen.findByRole("button", { name: "Report input glitch" }));
     expect(reportInputTrace).toHaveBeenCalledTimes(1);
     expect(await screen.findByText(/Sent 0 events at/)).toBeTruthy();
   });
