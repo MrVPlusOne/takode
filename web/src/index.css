@@ -316,11 +316,12 @@ html, body {
 /* The turn guide owns activity indentation. Expanding a tool/worker group
  * must not add another guide or repeat the standalone worker avatar gutter. */
 /*
- * Unread answer (use-unread-messages-seen.ts): a small blue dot in the margin left of the message,
- * level with its first line. Close enough to fit the padding of the answer cards, which clip. It
- * takes no room, so nothing moves when it appears or goes. Once the answer is read it pops into a
- * hollow ring ("read"), which stays until the chat loses focus ("seen": the ring without the pop,
- * for an element the feed re-rendered).
+ * Unread answer (use-unread-messages-seen.ts): a short bar in the margin left of the message, as
+ * tall as its first line, shaped like the reply-quote bar above an answer. Close enough to fit the
+ * padding of the answer cards, which clip. It takes no room, so nothing moves when it appears or
+ * goes. Blue while unread; once read it stretches briefly and turns grey ("read"), and stays until
+ * the chat loses focus ("seen": the grey bar without the animation, for an element the feed
+ * re-rendered).
  */
 [data-unread-answer] {
   position: relative;
@@ -328,51 +329,38 @@ html, body {
 [data-unread-answer]::before {
   content: "";
   position: absolute;
-  top: 0.5625rem;
-  left: -0.5625rem;
-  width: 0.4375rem;
-  height: 0.4375rem;
+  top: 0.3125rem;
+  left: -0.4375rem;
+  width: 3px;
+  height: 1.0625rem;
   border-radius: 9999px;
   background: var(--color-cc-info);
   pointer-events: none;
 }
 [data-unread-answer="read"]::before,
 [data-unread-answer="seen"]::before {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--color-cc-muted);
+  background: color-mix(in oklab, var(--color-cc-muted) 55%, transparent);
 }
 [data-unread-answer="read"]::before {
-  animation: unread-dot-read 0.45s ease-out;
+  animation: unread-mark-read 0.45s ease-out;
 }
-@keyframes unread-dot-read {
+@keyframes unread-mark-read {
   0% {
     background: var(--color-cc-info);
-    box-shadow: inset 0 0 0 1.5px var(--color-cc-info);
-    transform: scale(1);
+    transform: scaleY(1);
   }
   40% {
     background: var(--color-cc-info);
-    box-shadow: inset 0 0 0 1.5px var(--color-cc-info);
-    transform: scale(1.5);
+    transform: scaleY(1.35);
   }
   100% {
-    background: transparent;
-    box-shadow: inset 0 0 0 1.5px var(--color-cc-muted);
-    transform: scale(1);
+    background: color-mix(in oklab, var(--color-cc-muted) 55%, transparent);
+    transform: scaleY(1);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   [data-unread-answer="read"]::before {
     animation: none;
-  }
-}
-/* Phones give the cards less padding. */
-@media (max-width: 639px) {
-  [data-unread-answer]::before {
-    top: 0.625rem;
-    left: -0.5rem;
-    width: 0.375rem;
-    height: 0.375rem;
   }
 }
 

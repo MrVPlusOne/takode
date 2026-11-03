@@ -159,7 +159,7 @@ new content.
 
 When unread answers or reports of the conversation sit above the view, a pill at
 the top of the feed says how many ("2 unread"); a tap jumps to the nearest one,
-which a blue dot in the left margin marks. Each one leaves the count once it has
+which a short blue bar in the left margin marks. Each one leaves the count once it has
 been read by its beginning showing in the focused chat. Clicking a thread's tab or opening a topic follows the same rule
 even when it has unread results; Next, notifications and message links still
 land on their message.

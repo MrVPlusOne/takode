@@ -8,7 +8,7 @@ import { MARK_GRACE_MS, readsWhenSeen, useUnreadMessagesSeen } from "./use-unrea
 /**
  * Unread answers are read once seen, as in Slack: a message counts as read the moment its
  * beginning shows in the focused chat, in whichever view shows it. Each unread answer the view
- * marks gets a dot ("true") that turns into a read ring ("read") and clears when the chat loses
+ * marks gets a blue bar ("true") that turns grey when read ("read") and clears when the chat loses
  * focus. Finished quests and agent-sent results still read with their thread.
  */
 
@@ -87,7 +87,7 @@ describe("useUnreadMessagesSeen", () => {
       }),
     );
     // Both were unread when the view opened, so both are marked; the one on screen is read at once,
-    // and its dot turns into the "read" ring.
+    // and its bar turns into the grey "read" mark.
     expect(onSeen.mock.calls).toEqual([["a1"]]);
     expect(elements["m-a1"]!.getAttribute(MARK)).toBe("read");
     expect(elements["m-a2"]!.getAttribute(MARK)).toBe("true");
@@ -117,9 +117,9 @@ describe("useUnreadMessagesSeen", () => {
     expect(onSeen).toHaveBeenCalledWith("a1");
   });
 
-  it("puts the read ring back without its animation when the feed replaces the message's element", () => {
+  it("puts the read mark back without its animation when the feed replaces the message's element", () => {
     // A window update can re-render the message as a new element: the mark follows it, as the
-    // settled ring ("seen") so the pop doesn't play again.
+    // settled read mark ("seen") so the animation does not play again.
     const elements = mountFeed("q-1", [{ id: "m-a1", top: 100 }]);
     renderHook(() =>
       useUnreadMessagesSeen({
@@ -142,8 +142,8 @@ describe("useUnreadMessagesSeen", () => {
     expect(replacement.getAttribute(MARK)).toBe("seen");
   });
 
-  it("clears the read rings when the chat loses focus, and keeps the unread dots", () => {
-    // Jiayi (Nov 2): the rings show what just got read while the user is in the chat.
+  it("clears the read marks when the chat loses focus, and keeps the unread ones", () => {
+    // Jiayi (Nov 2): the read marks show what just got read while the user is in the chat.
     const elements = mountFeed("q-1", [
       { id: "m-a1", top: 100 },
       { id: "m-a2", top: 900 },
@@ -171,7 +171,7 @@ describe("useUnreadMessagesSeen", () => {
     expect(elements["m-a2"]!.hasAttribute(MARK)).toBe(false);
   });
 
-  it("clears the read rings when the window loses focus", () => {
+  it("clears the read marks when the window loses focus", () => {
     const elements = mountFeed("q-1", [{ id: "m-a1", top: 100 }]);
     renderHook(() =>
       useUnreadMessagesSeen({
@@ -191,7 +191,7 @@ describe("useUnreadMessagesSeen", () => {
   });
 
   it("shows an answer read elsewhere as read", () => {
-    // Read by replying, or in another browser: its dot turns into the ring too.
+    // Read by replying, or in another browser: its mark turns grey too.
     const elements = mountFeed("q-1", [{ id: "m-a1", top: 900 }]);
     const { rerender } = renderHook(
       ({ list }) =>
@@ -462,7 +462,7 @@ describe("useUnreadMessagesSeen", () => {
       act(() => {
         vi.advanceTimersByTime(500);
       });
-      // Marked, and read at once on screen: it keeps the ring.
+      // Marked, and read at once on screen: it keeps the read mark.
       expect(elements["m-reply"]!.getAttribute(MARK)).toBe("read");
       spy.mockRestore();
     });

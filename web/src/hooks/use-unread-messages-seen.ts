@@ -8,11 +8,11 @@ import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.
  * beginning shows (its first line), in whichever view shows it (its quest, its topic's
  * conversation, Main, All).
  *
- * Each unread answer the view marks gets a small blue dot in the margin left of it. When the answer
- * is read the dot turns, with a short animation, into a hollow "read" ring that stays, so the user
- * sees what just got read; the rings go when the chat loses focus (another chat focused, or the
- * window losing focus). The dot takes no room, so nothing in the feed moves when it appears or goes;
- * the earlier "New" line and tags above the answer pushed the feed down (Jiayi, Nov 2).
+ * Each unread answer the view marks gets a short blue bar in the margin beside its first line. When
+ * the answer is read the bar turns grey with a short animation and stays, so the user sees what
+ * just got read; the read marks go when the chat loses focus (another chat focused, or the window
+ * losing focus). The bar takes no room, so nothing in the feed moves when it appears or goes; the
+ * earlier "New" line and tags above the answer pushed the feed down (Jiayi, Nov 2).
  *
  * The marker shows what the user did not watch arrive. An answer that comes in while the view is
  * open and is read within its first seconds (`MARK_GRACE_MS`) gets none, as a reply arriving while
@@ -44,8 +44,8 @@ export const MARK_GRACE_MS = 3_000;
 /** Server timestamps this much older than the view count as already there when it opened. */
 const ARRIVAL_CLOCK_SLACK_MS = 10_000;
 /**
- * The attribute that marks an answer's element; CSS draws the dot. "true" while unread; "read" when
- * it was just read (the dot animates into a ring); "seen" for a ring put back on a re-rendered
+ * The attribute that marks an answer's element; CSS draws the bar. "true" while unread; "read" when
+ * it was just read (the bar animates to grey); "seen" for a read mark put back on a re-rendered
  * element, without the animation.
  */
 const MARK_ATTRIBUTE = "data-unread-answer";
@@ -110,7 +110,7 @@ export function useUnreadMessagesSeen({
       const found = messageElements(feed, new Set(stale));
       for (const id of stale) mark(id, found.get(id) ?? null, marked.get(id)!.read ? "seen" : "true");
     };
-    // The read rings show what was just read: they go when the chat stops being the one in use.
+    // The read marks show what was just read: they go when the chat stops being the one in use.
     let inUse = false;
     const clearReadMarks = () => {
       for (const [id, { element, read }] of marked) {
