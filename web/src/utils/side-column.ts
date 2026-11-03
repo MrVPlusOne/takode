@@ -304,13 +304,36 @@ export function openTopicsInSide(): void {
   setTopicSheetOpen(true);
 }
 
-/** Takes an item out of the column. */
+/**
+ * Takes an item out of the column. With chats one at a time, taking out the open chat opens another
+ * chat in its place, so a column of chats doesn't fold to nothing (Jiayi, Nov 3): the one used most
+ * recently, else its neighbour below, else above.
+ */
 export function closeSideItem(id: string): void {
+  const before = useSideColumnStore.getState();
+  const index = before.items.findIndex((item) => item.id === id);
+  const closed = before.items[index];
+  const reopen =
+    before.oneAtATime && closed && isChatItem(closed) && !isRememberedFolded(sideFoldId(id))
+      ? nextChatAfterClosing(before, index)
+      : undefined;
   update((column) => ({
     ...column,
     items: column.items.filter((item) => item.id !== id),
     used: column.used?.filter((other) => other !== id),
   }));
+  if (reopen) unfoldSideItem(reopen);
+}
+
+/** The chat to open after the open chat at `index` goes: the one used most recently, else a neighbour. */
+function nextChatAfterClosing(column: SideColumnState, index: number): string | undefined {
+  const closedId = column.items[index]?.id;
+  const chats = column.items.filter((item) => item.id !== closedId && isChatItem(item));
+  const recent = (column.used ?? []).find((used) => chats.some((chat) => chat.id === used));
+  if (recent) return recent;
+  const below = column.items.slice(index + 1).find(isChatItem);
+  const above = column.items.slice(0, index).reverse().find(isChatItem);
+  return (below ?? above)?.id;
 }
 
 /**

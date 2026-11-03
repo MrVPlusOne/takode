@@ -136,6 +136,55 @@ describe("chats one at a time", () => {
   });
 });
 
+describe("closing chats one at a time", () => {
+  // Jiayi (Nov 3): with chats one at a time, removing the open chat opens another; removing a
+  // folded one leaves the open chat; and the open chat can be folded, so none may be open.
+  const openChats = () =>
+    items()
+      .filter((item) => !isRememberedFolded(sideFoldId(item.id)))
+      .map((item) => item.id);
+
+  it("opens the chat used most recently when the open chat is removed", () => {
+    const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+    const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    const c = openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
+    setSideOneAtATime(true);
+    // Used order: c, then a (opened again), then b.
+    unfoldSideItem(a);
+    unfoldSideItem(c);
+    expect(openChats()).toEqual([c]);
+    closeSideItem(c);
+    expect(openChats()).toEqual([a]);
+    expect(isRememberedFolded(sideFoldId(b))).toBe(true);
+  });
+
+  it("opens a neighbour when no other chat was used, and nothing once none is left", () => {
+    const page = openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
+    const chat = openInSide({ kind: "new-chat", leaderId: "l1", startedFrom: null });
+    const other = openInSide({ kind: "new-chat", leaderId: "l2", startedFrom: null });
+    setSideOneAtATime(true);
+    expect(openChats()).toEqual([other, page]);
+    // New threads aren't in the used order: the neighbour below opens.
+    closeSideItem(other);
+    expect(openChats()).toEqual([chat, page]);
+    closeSideItem(chat);
+    expect(openChats()).toEqual([page]);
+  });
+
+  it("leaves the open chat when a folded one is removed, and doesn't open one when the mode is off", () => {
+    const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+    const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    setSideOneAtATime(true);
+    expect(openChats()).toEqual([b]);
+    closeSideItem(a);
+    expect(openChats()).toEqual([b]);
+    const c = openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
+    setSideOneAtATime(false);
+    closeSideItem(c);
+    expect(openChats()).toEqual([]);
+  });
+});
+
 describe("a leader's Home in the side column", () => {
   it("opens a leader's Main as its Home, once per leader, and leaves its log a conversation", () => {
     // Jiayi (Nov 1): a leader's Home moves between the main view and the column, like a chat.

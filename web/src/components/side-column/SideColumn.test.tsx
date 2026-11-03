@@ -767,8 +767,12 @@ describe("SideColumn", () => {
     fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: false }));
     const q2 = screen.getAllByTestId("side-section").find((section) => section.dataset.section === rowsId(0))!;
     expect(within(q2).getByTestId("side-section-body").style.height).toBe("324px");
+    // The open chat folds with a click on its title bar: none need be open (Jiayi, Nov 3).
+    fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
+    expect(open()).toEqual(["false", "true", "false", "true"]);
     // Off, chats open side by side again.
     fireEvent.click(toggle);
+    fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: false }));
     fireEvent.click(within(rows()[2]!).getByRole("button", { expanded: false }));
     expect(open()).toEqual(["true", "true", "true", "true"]);
   });
