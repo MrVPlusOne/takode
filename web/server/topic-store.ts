@@ -223,6 +223,11 @@ interface StoredScribe {
    * to its newest line), newest kept; see `setHomeLines`.
    */
   homeLines?: Record<string, { text: string; at: number }>;
+  /**
+   * Threads with a new result whose line the Scribe hasn't been asked to rewrite yet (`q-N` /
+   * `topic:<handle>` to the newest result), cleared once a message asks for them.
+   */
+  resultsToLine?: Record<string, { kind: string; text: string; at: number }>;
 }
 
 /** What of a quest was already reported to Scribes: ticked checks (by text) and feedback count. */
@@ -410,6 +415,30 @@ export class TopicStore {
       if (line && (!newest || line.at > newest.at)) newest = line;
     }
     return newest;
+  }
+
+  /** A new result in one of the leader's threads: its Scribe rewrites that thread's line from it. */
+  noteResult(leaderId: string, key: string, result: { kind: string; text: string }): void {
+    const scribe = this.scribeRecord(leaderId);
+    scribe.resultsToLine = { ...scribe.resultsToLine, [key]: { ...result, at: this.now() } };
+    this.dirty = true;
+  }
+
+  /** The leader's threads with a new result whose line the Scribe hasn't been asked for, oldest first. */
+  resultsToLine(leaderId: string): Array<{ key: string; kind: string; text: string; at: number }> {
+    return Object.entries(this.s().scribes?.[leaderId]?.resultsToLine ?? {})
+      .map(([key, result]) => ({ key, ...result }))
+      .sort((a, b) => a.at - b.at);
+  }
+
+  /** A message asked for these threads' lines; results that arrived after `before` stay. */
+  markResultsLined(leaderId: string, keys: readonly string[], before: number): void {
+    const scribe = this.s().scribes?.[leaderId];
+    if (!scribe?.resultsToLine) return;
+    for (const key of keys) {
+      if ((scribe.resultsToLine[key]?.at ?? Infinity) <= before) delete scribe.resultsToLine[key];
+    }
+    this.dirty = true;
   }
 
   /** The Scribe's lines of news for the leader's Home, by quest or thread key. */

@@ -1086,9 +1086,10 @@ describe("topic service", () => {
     expect(await service.deliver("leader")).toBe("nothing");
   });
 
-  it("asks the Scribe for a Home line for each of its leader's quests with news, in the same message", async () => {
-    // Home shows a line of news per thread; the Scribe writes them with the update it already gets,
-    // so they cost no extra message.
+  it("asks the Scribe to rewrite a thread's Home line for each new result in it, and only once", async () => {
+    // Jiayi (Nov 3): a thread's line says what its newest result is about, so every new unread
+    // result (answer, report, finished quest) gives the Scribe a chance to rewrite it. A user's
+    // message alone no longer asks for a line: the result it leads to will.
     const { service, injected, store, leader } = await setupService();
     const scribe = await enable(service, store, "leader");
     store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true, leaderId: "leader" });
@@ -1096,11 +1097,20 @@ describe("topic service", () => {
     injected.length = 0;
     leader.messageHistory.push(userMessage("Keep 0.02", "q-1", Date.now()));
     service.sessionSaved("leader");
+    service.resultArrived({ leaderId: "leader", threadKey: "q-1", kind: "answer", text: "First answer." });
+    service.resultArrived({ leaderId: "leader", threadKey: "Q-1", kind: "report", text: "T7 holds at 0.02." });
+    // Main has no line of its own.
+    service.resultArrived({ leaderId: "leader", threadKey: "main", kind: "answer", text: "Log answer." });
     await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(injected).toHaveLength(1);
-    expect(injected[0]!.text).toContain("Home lines to write: q-1");
+    // The newest result per thread, with what kind it is.
+    expect(injected[0]!.text).toContain("New results (write each thread's Home line):\n- q-1 ");
+    expect(injected[0]!.text).toContain(", report: T7 holds at 0.02.");
+    expect(injected[0]!.text).not.toContain("First answer.");
+    expect(injected[0]!.text).not.toContain("Log answer.");
+    // Asked once: they leave the store.
+    expect(store.resultsToLine("leader")).toEqual([]);
   });
-
   it("tells the Scribe what the user told other leaders since its last message, once", async () => {
     // Jiayi handled a follow-up through another leader and the page kept listing it: the Scribe saw
     // only its own leader. Each message now brings the user's messages to the other leaders.

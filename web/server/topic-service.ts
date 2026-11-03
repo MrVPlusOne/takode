@@ -156,6 +156,8 @@ function eventTiming(kind: TopicEvent["kind"]): EventTiming {
 
 /** A burst of events waits for a pause this long before it goes, so a burst is one message. */
 const DEBOUNCE_MS = 3 * 60_000;
+/** How much of a new result's text goes to the Scribe for its thread's line. */
+const RESULT_CHARS = 600;
 /** No waiting event waits longer than this. */
 const MAX_WAIT_MS = 10 * 60_000;
 /** The user's messages to other leaders go to a Scribe from this far back, the first time. */
@@ -540,6 +542,20 @@ export class TopicService {
     for (const leader of this.enabledLeadersIn(space)) this.schedule(leader, "user");
   }
 
+  /**
+   * A new unread result (answer, report, finished quest) in one of a leader's threads: its Scribe
+   * rewrites that thread's news line to say what the result is about (Jiayi, Nov 3), with its next
+   * message, as promptly as other news from the leader.
+   */
+  resultArrived(result: { leaderId: string; threadKey: string; kind: string; text: string }): void {
+    if (!this.store.loaded || !this.store.isLeaderEnabled(result.leaderId)) return;
+    const key = result.threadKey.trim().toLowerCase();
+    if (!/^q-\d+$/.test(key) && !topicIdOfViewKey(key)) return;
+    this.store.noteResult(result.leaderId, key, { kind: result.kind, text: excerpt(result.text, RESULT_CHARS) });
+    void this.store.flush();
+    this.schedule(result.leaderId, "leader");
+  }
+
   /** The leader filed a quest under a topic: its Scribe hears about it promptly. */
   leaderActivity(leaderId: string): void {
     this.schedule(leaderId, "leader");
@@ -723,6 +739,8 @@ export class TopicService {
     const rewritePages = this.store.pageFormat(leaderId) < PAGE_FORMAT;
     const newTopics = this.store.topicsToReview(leaderId);
     const consolidate = await this.consolidation(leaderId, leader.space, ownQuests);
+    // Threads with a new result: the Scribe rewrites each one's line from it.
+    const results = this.store.resultsToLine(leaderId);
     // Events alone wait until they are due, and the user's own page actions only ride along.
     // A rewrite request the Scribe stopped on (its leader was told) waits for the next real update.
     const urgent =
@@ -736,7 +754,8 @@ export class TopicService {
       newTopics.length > 0 ||
       !!consolidate;
     if (!urgent) {
-      if (!topics.some((topic) => topic.events.some((event) => eventTiming(event.kind) !== "ride"))) return "nothing";
+      const news = topics.some((topic) => topic.events.some((event) => eventTiming(event.kind) !== "ride"));
+      if (!news && !results.length) return "nothing";
       if ((this.dueAt.get(leaderId) ?? 0) > this.now()) return "waiting";
     }
     const text = updateMessage(
@@ -760,7 +779,7 @@ export class TopicService {
             }
           : {}),
         ...(joinChecks.length ? { joinChecks: this.joinCheckContent(leaderId, joinChecks) } : {}),
-        ...homeLineQuests(topics, ownQuests),
+        ...(results.length ? { results: await this.resultContent(results) } : {}),
         rewritePages,
         ...(sendInstructions && instructions ? { instructions: instructions.text } : {}),
         forced: forcedNames,
@@ -779,6 +798,13 @@ export class TopicService {
       unsorted.map((quest) => quest.questId),
     );
     this.store.markInstructionsSent(leaderId);
+    if (results.length) {
+      this.store.markResultsLined(
+        leaderId,
+        results.map((result) => result.key),
+        Math.max(...results.map((result) => result.at)),
+      );
+    }
     this.store.setElsewhereSeen(leaderId, this.now());
     this.store.markThreadsSortAsked(settledThreads.map((thread) => thread.id));
     this.store.markThreadsNameAsked(newThreads.map((thread) => thread.id));
@@ -1364,6 +1390,19 @@ export class TopicService {
     return { done: quests.filter((quest) => this.store.topicOfQuest(quest.questId)).length, total: quests.length };
   }
 
+  /** Threads with a new result as a message lists them: address, title and what the result says. */
+  private async resultContent(
+    results: ReadonlyArray<{ key: string; kind: string; text: string }>,
+  ): Promise<NonNullable<UpdateContent["results"]>> {
+    const titles = new Map((await this.deps.listQuests()).map((quest) => [quest.questId, quest.title]));
+    return results.map((result) => ({
+      address: /^q-\d+$/.test(result.key) ? result.key : threadAddress(result.key),
+      name: titles.get(result.key) ?? this.store.thread(result.key)?.name ?? "",
+      kind: result.kind,
+      text: result.text,
+    }));
+  }
+
   /** The leader's quests created since a time, oldest first. */
   private async leaderQuests(leaderId: string, since: number): Promise<QuestmasterTask[]> {
     return (await this.deps.listQuests())
@@ -1409,18 +1448,4 @@ export function historyMessageText(message: BrowserIncomingMessage): string {
   }
   if (message.type !== "assistant") return "";
   return (message.message?.content ?? []).map((block) => (block.type === "text" ? block.text : "")).join("\n");
-}
-
-/** The leader's quests with news in a message, for their Home lines (`UpdateContent.homeLines`). */
-function homeLineQuests(
-  topics: ReadonlyArray<{ events: readonly TopicEvent[] }>,
-  ownQuests: ReadonlySet<string>,
-): { homeLines?: string[] } {
-  const quests = new Set<string>();
-  for (const topic of topics) {
-    for (const event of topic.events) {
-      if (event.questId && ownQuests.has(event.questId)) quests.add(event.questId);
-    }
-  }
-  return quests.size ? { homeLines: [...quests] } : {};
 }

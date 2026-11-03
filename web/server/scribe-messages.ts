@@ -9,6 +9,8 @@ import { threadAddress } from "../shared/topic-thread-key.js";
  * under short headings, not the same instructions every time (Jiayi, Nov 1).
  */
 
+const RESULT_KIND: Record<string, string> = { answer: "answer", report: "report", "quest-complete": "finished" };
+
 export interface LeaderLabel {
   sessionNum: number | null;
   name: string;
@@ -44,8 +46,11 @@ export interface UpdateContent {
     }>;
     earlier: Array<{ key: string; name: string }>;
   };
-  /** Quests with news in this message: the Scribe writes each a line for its leader's Home. */
-  homeLines?: string[];
+  /**
+   * Threads with a new result since the last message (an answer, report or finished quest): the
+   * Scribe rewrites each one's line for its leader's Home from the newest result.
+   */
+  results?: Array<{ address: string; name: string; kind: string; text: string }>;
   /** The user's instructions for topics and pages, when they changed since this Scribe was last told. */
   instructions?: string;
   /** Topics the user asked to update now (Update now). */
@@ -171,8 +176,12 @@ export function updateMessage(
     for (const quest of unsorted.slice(0, MAX_UNSORTED)) lines.push(`- ${quest.questId} ${quest.title}`);
     if (unsorted.length > MAX_UNSORTED) lines.push(`- and ${unsorted.length - MAX_UNSORTED} more`);
   }
-  if (content.homeLines?.length) {
-    lines.push("", `Home lines to write: ${content.homeLines.join(", ")}`);
+  if (content.results?.length) {
+    lines.push("", "New results (write each thread's Home line):");
+    for (const result of content.results) {
+      const name = result.name ? ` "${result.name}"` : "";
+      lines.push(`- ${result.address}${name}, ${RESULT_KIND[result.kind] ?? result.kind}: ${result.text}`);
+    }
   }
   return lines.join("\n");
 }

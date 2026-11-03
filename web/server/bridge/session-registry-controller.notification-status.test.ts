@@ -16,6 +16,7 @@ import {
   updateLeaderGroupIdleState,
 } from "./session-registry-controller.js";
 import { replaceAttentionRecords } from "./attention-record-controller.js";
+import { setLeaderUnreadResultListener } from "./session-notification-controller.js";
 import { setTopicViewSource } from "../topic-views.js";
 import { validateLeaderThreadOutcomes } from "./leader-thread-outcome-validator.js";
 import type { SessionAttentionRecord } from "../session-types.js";
@@ -375,6 +376,27 @@ describe("session notification status metadata", () => {
     expect(promoteLeaderThreadTabForAttention).toHaveBeenCalledWith(session.id, "q-43", 200, "review");
     expect(recordAnswerUnreadNotifications(session, [answer], deps)).toBe(false);
     expect(promoteLeaderThreadTabForAttention).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes each new unread answer's text on once, for its thread's news line", () => {
+    // Jiayi (Nov 3): every new result gives the leader's Scribe a chance to rewrite the thread's line.
+    const session = makeSession({ state: { backend_type: "claude", isOrchestrator: true }, browserSockets: new Set() });
+    const heard = vi.fn();
+    setLeaderUnreadResultListener(heard);
+    try {
+      const answer = leaderAnswer({ threadKey: "q-43", messageId: "answer-q-43", text: "**T7** holds at 0.02." });
+      recordAnswerUnreadNotifications(session, [answer], makeDeps());
+      recordAnswerUnreadNotifications(session, [answer], makeDeps());
+      expect(heard).toHaveBeenCalledTimes(1);
+      expect(heard).toHaveBeenCalledWith({
+        leaderId: session.id,
+        threadKey: "q-43",
+        kind: "answer",
+        text: "T7 holds at 0.02.",
+      });
+    } finally {
+      setLeaderUnreadResultListener(null);
+    }
   });
 
   it("fences older server candidates after a newer needs-input promotion", () => {

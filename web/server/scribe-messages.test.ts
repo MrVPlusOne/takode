@@ -28,7 +28,7 @@ const everything: UpdateContent = {
     ],
     earlier: [{ key: "t-1", name: "Collapsed composer sits low" }],
   },
-  homeLines: ["q-1"],
+  results: [{ address: "q-1", name: "T7 launch", kind: "answer", text: "T7 is live on 128 GPUs." }],
   instructions: "Group by product area",
   forced: ["T7 run"],
   elsewhere: [{ sessionNum: 9, at, index: 4, threadKey: "q-5", text: "Done with the plots" }],
@@ -52,7 +52,9 @@ describe("Scribe messages", () => {
     // The candidates have their own heading, apart from the new thread's bullet.
     expect(text).toContain('\n\nEarlier threads they might continue:\n- t-1 "Collapsed composer sits low"');
     expect(text).toContain('- "Area 0" (0a1b2c3d): 15 since, 1 in it');
-    expect(text).toContain("Home lines to write: q-1");
+    expect(text).toContain(
+      'New results (write each thread\'s Home line):\n- q-1 "T7 launch", answer: T7 is live on 128 GPUs.',
+    );
     // Each part's heading is one line, not a paragraph of instructions.
     for (const line of text.split("\n")) expect(line.length).toBeLessThan(160);
   });

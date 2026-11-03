@@ -655,6 +655,7 @@ export function recordAnswerUnreadNotifications(
       reason: "answer",
       threadKey,
       summary,
+      text: answerText(answer),
       timestamp,
       messageId,
       ...(answerTo.length ? { answerTo } : {}),
@@ -711,6 +712,7 @@ export async function recordQuestCompletionUnreadNotification(
     reason: "quest-complete",
     threadKey,
     summary: completion.summary,
+    text: completion.summary,
     timestamp: completion.completedAt,
     messageId: anchor?.id ?? null,
     deps,
@@ -735,6 +737,7 @@ export function recordReportUnreadNotification(
   addLeaderUnreadNotification(session, {
     reason: "report",
     threadKey,
+    text: markdownToPlainText(report.content),
     summary: `Report in ${threadKey === "main" ? "Main" : threadKey}${preview ? ` | ${preview}` : ""}`,
     timestamp: report.timestamp,
     messageId: report.id,
@@ -745,12 +748,33 @@ export function recordReportUnreadNotification(
   return true;
 }
 
+/** A new unread result in a leader's thread: what it is, and its text (the start of it). */
+export interface LeaderUnreadResult {
+  leaderId: string;
+  threadKey: string;
+  kind: NonNullable<SessionNotification["unreadReason"]>;
+  text: string;
+}
+
+let unreadResultListener: ((result: LeaderUnreadResult) => void) | null = null;
+
+/**
+ * Hears every new unread result (answer, report, finished quest) in a leader's thread: its Scribe
+ * rewrites the thread's news line from it (Jiayi, Nov 3: the line should say what the newest
+ * result is about every time one arrives).
+ */
+export function setLeaderUnreadResultListener(listener: ((result: LeaderUnreadResult) => void) | null): void {
+  unreadResultListener = listener;
+}
+
 function addLeaderUnreadNotification(
   session: SessionLike,
   input: {
     reason: NonNullable<SessionNotification["unreadReason"]>;
     threadKey: string;
     summary: string;
+    /** The result's own text, for the Scribe's news line. */
+    text: string;
     timestamp: number;
     messageId: string | null;
     answerTo?: string[];
@@ -781,6 +805,16 @@ function addLeaderUnreadNotification(
     threadRoute,
   );
   session.notifications.push(notification);
+  try {
+    unreadResultListener?.({
+      leaderId: session.id,
+      threadKey: threadRoute.threadKey,
+      kind: input.reason,
+      text: input.text,
+    });
+  } catch (error) {
+    console.warn("[notifications] Could not pass on a new unread result:", (error as Error).message);
+  }
   return notification;
 }
 
@@ -807,12 +841,18 @@ function isNeedsInputContextMessage(session: SessionLike, messageId: string): bo
 const ANSWER_PREVIEW_MAX_CHARS = 80;
 
 function answerPreview(answer: LeaderAnswerEntry): string {
+  return firstLinePreview(answerMarkdown(answer));
+}
+
+function answerMarkdown(answer: LeaderAnswerEntry): string {
   const content = answer.message.content;
-  return firstLinePreview(
-    Array.isArray(content)
-      ? content.map((block) => (block.type === "text" ? block.text : "")).join("\n")
-      : String(content ?? ""),
-  );
+  return Array.isArray(content)
+    ? content.map((block) => (block.type === "text" ? block.text : "")).join("\n")
+    : String(content ?? "");
+}
+
+function answerText(answer: LeaderAnswerEntry): string {
+  return markdownToPlainText(answerMarkdown(answer));
 }
 
 /** The first line of an answer or report as plain text: alerts and unread rows show it unrendered. */

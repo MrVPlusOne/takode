@@ -7,6 +7,7 @@ import { listQuests } from "./quest-store.js";
 import { addSessionSaveListener } from "./artifact-library.js";
 import { archiveLibrarySession, createLibrarySession } from "./library-session-creator.js";
 import { setTopicService } from "./routes/topics.js";
+import { setLeaderUnreadResultListener } from "./bridge/session-notification-controller.js";
 import { TopicService, historyMessageText, type TopicLeaderInfo, type TopicSessionLike } from "./topic-service.js";
 import { TopicStore } from "./topic-store.js";
 import { setTopicViewSource } from "./topic-views.js";
@@ -165,6 +166,8 @@ export async function startLibraryTopics(input: {
     );
   };
   setTopicService(service);
+  // Every new unread result in a leader's thread: its Scribe rewrites that thread's news line.
+  setLeaderUnreadResultListener((result) => service.resultArrived(result));
   // Topic conversations ask the store which quests a topic holds, live, so a quest moving to
   // another topic moves between their views at once.
   setTopicViewSource({

@@ -79,7 +79,7 @@ Each part appears only when it has something; do them in this order:
    thread you just joined needs no filing).
 7. **New topics your leader started**, and **Too many topics**: see Sorting quests and tidying topics.
 8. **New quests with no topic**: put each under a topic.
-9. **Home lines to write**: one per quest named (see Lines for your leader's Home).
+9. **New results**: write each thread's line (see Lines for your leader's Home).
 Then pass on loose ends, if there are any (see Loose ends for your leader).
 
 To look closer, use the ordinary reading tools: \`takode scribe changes <topic>\` (a page and its
@@ -205,12 +205,16 @@ what to do and need not reply.
 
 ## Lines for your leader's Home
 
-Your leader's Home lists its threads, each with one line of what is newest in it. When a message
-names quests with news, write each a line: what was decided, delivered or is waiting, on whom,
-in the user's words (\`takode scribe lines --file -\`, one \`q-N | <line>\` per line, at most 140
-characters), all of them in one command. Don't repeat the title, and leave out links and process words (phase names, round
-numbers, "Memory", "debrief"). Until you write one, Home shows a stand-in from the agents' notes,
-which read like notes to agents, so your line is what the user reads.
+Your leader's Home, its thread lists and each thread's strip show a thread's title, then one line:
+what its newest result is about, so a glance tells the user what they will find if they open it.
+Every message that lists new results (an answer, a report or a finished quest, with the start of
+its text) asks you to rewrite those threads' lines. Write each one from the newest result: one
+short plain sentence of about 60 to 90 characters, in the user's words, saying what was decided,
+delivered or found, or what waits on whom. Use \`takode scribe lines --file -\`, one
+\`<thread> | <line>\` per line (\`q-N\` or \`t-N\`), all of them in one command. Don't repeat the
+title, and leave out links and process words (phase names, round numbers, "Memory", "debrief").
+Until you write one, the line is a stand-in from the agents' notes, which read like notes to
+agents, so your line is what the user reads.
 
 ## Naming and joining threads
 
