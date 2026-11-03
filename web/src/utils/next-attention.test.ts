@@ -77,12 +77,13 @@ describe("buildNextAttentionQueue", () => {
   });
 });
 
-describe("sections and topics", () => {
-  it("puts reminders that came due right after questions, and groups unread answers by topic", () => {
+describe("sections and threads", () => {
+  it("puts reminders that came due right after questions, and groups unread answers by thread", () => {
     // A "Remind me later" that came due returns as a Notify Me result marked as a reminder: it
-    // is shown and visited before unread answers. Unread answers are grouped by their quest's
-    // topic, the topic with the newest answer first, and in reading order (oldest first) inside a
-    // topic, so Next opens the first result the user hasn't read.
+    // is shown and visited before unread answers. Unread answers are grouped by thread (Jiayi,
+    // Nov 2: threads are the unit; they were grouped by Library topic before), the thread with the
+    // newest answer first, and in reading order (oldest first) inside a thread, so Next opens the
+    // first result the user hasn't read.
     const reminder = notifyMe("a", "q-5", 10);
     reminder.pending = { ...reminder.pending!, reminder: true };
     const answer = (id: string, threadKey: string, timestamp: number) => ({
@@ -92,27 +93,28 @@ describe("sections and topics", () => {
       timestamp,
       notification: { id, category: "review", timestamp, messageId: `m-${id}`, done: false } as SessionNotification,
     });
-    const topics: Record<string, { id: string; name: string }> = {
-      "q-1": { id: "t-relay", name: "Relay" },
-      "q-2": { id: "t-relay", name: "Relay" },
-      "q-3": { id: "t-voice", name: "Voice" },
-    };
     const queue = buildNextAttentionQueue({
       needsInput: [needsInput("a", "ask", 1)],
       notifyMe: [notifyMe("a", "q-8", 500), reminder],
-      unread: [answer("u1", "q-1", 100), answer("u2", "q-3", 300), answer("u3", "q-2", 200), answer("u4", "q-9", 50)],
-      topicOf: (_sessionId, threadKey) => (threadKey ? (topics[threadKey] ?? null) : null),
+      unread: [
+        answer("u1", "q-1", 100),
+        answer("u2", "q-3", 300),
+        answer("u3", "q-2", 200),
+        answer("u4", "q-9", 50),
+        answer("u5", "q-1", 400),
+      ],
     });
     expect(queue.map((item) => [attentionSection(item), item.key])).toEqual([
       ["needs-input", "needs-input:a:ask"],
       ["reminder", "notify-me:a:q-5:r-q-5"],
-      ["unread", "unread:a:u2"],
       ["unread", "unread:a:u1"],
+      ["unread", "unread:a:u5"],
+      ["unread", "unread:a:u2"],
       ["unread", "unread:a:u3"],
       ["unread", "unread:a:u4"],
       ["notify-me", "notify-me:a:q-8:r-q-8"],
     ]);
-    // Next walks the same order, topic by topic.
+    // Next walks the same order, thread by thread.
     const visited = [];
     let cursor = null;
     for (const _ of queue) {
@@ -123,11 +125,11 @@ describe("sections and topics", () => {
     expect(visited).toEqual(queue.map((item) => item.key));
   });
 
-  it("visits a topic's answers and reports before its finished quests, even when the quest finished later", () => {
+  it("visits a thread's answers and reports before its finished quest, even when the quest finished later", () => {
     // The reported case: a quest finished and the leader answered seconds later. A finished quest's
     // unread names the leader's last message before completion, often commentary ("Final Memory is
     // done..."), so Next must open the answer first, then the finished quest, as opening the place
-    // does. A newer answer in another quest of the topic still comes after the older one.
+    // does.
     const result = (id: string, threadKey: string, timestamp: number, unreadReason: "answer" | "quest-complete") => ({
       sessionId: "a",
       threadKey,
@@ -151,13 +153,12 @@ describe("sections and topics", () => {
         result("later", "q-2", 300, "answer"),
         result("earlier", "q-2", 100, "answer"),
       ],
-      topicOf: () => ({ id: "t-quest-views", name: "Quest views" }),
     });
 
     expect(queue.map((item) => item.key)).toEqual([
       "unread:a:earlier",
-      "unread:a:answer",
       "unread:a:later",
+      "unread:a:answer",
       "unread:a:finished",
     ]);
   });
@@ -165,7 +166,7 @@ describe("sections and topics", () => {
 
 describe("urgent answers", () => {
   it("puts urgent answers right after questions, each as its own place, even in a thread with a question", () => {
-    // An answer the leader marked urgent (A!) leaves the topic grouping: it is visited and
+    // An answer the leader marked urgent (A!) leaves the thread grouping: it is visited and
     // counted on its own, right after the open questions and before reminders and other
     // unread answers. A question in the same thread does not hide it, unlike plain unread.
     const reminder = notifyMe("a", "q-5", 10);
@@ -194,7 +195,6 @@ describe("urgent answers", () => {
         answer("u4", "q-7", 400),
         answer("u5", "q-1", 200),
       ],
-      topicOf: () => ({ id: "t", name: "T" }),
     });
     expect(queue.map((item) => [attentionSection(item), item.key])).toEqual([
       ["needs-input", "needs-input:a:ask"],
@@ -204,13 +204,13 @@ describe("urgent answers", () => {
       ["unread", "unread:a:u1"],
       ["unread", "unread:a:u5"],
     ]);
-    // The question, two urgent answers, the reminder and the topic.
+    // The question, two urgent answers, the reminder and the thread.
     expect(countAttentionPlaces(queue)).toBe(5);
   });
 });
 
 describe("counting places", () => {
-  it("counts each question once and a topic's unread answers once, and says where Next is", () => {
+  it("counts each question once and a thread's unread answers once, and says where Next is", () => {
     const answer = (id: string, threadKey: string, timestamp: number) => ({
       sessionId: "a",
       threadKey,
@@ -222,12 +222,11 @@ describe("counting places", () => {
       needsInput: [needsInput("a", "ask1", 5), needsInput("a", "ask2", 4)],
       notifyMe: [],
       unread: [answer("u1", "q-1", 30), answer("u2", "q-2", 20), answer("u3", "q-1", 10)],
-      topicOf: (_sessionId, threadKey) => (threadKey === "q-1" || threadKey === "q-2" ? { id: "t", name: "T" } : null),
     });
-    // Two questions and one topic.
-    expect(countAttentionPlaces(queue)).toBe(3);
-    // Next steps through each message, but stays on the topic's place number while it does.
-    expect(queue.map((item) => attentionPlaceIndex(queue, item))).toEqual([0, 1, 2, 2, 2]);
+    // Two questions and two threads.
+    expect(countAttentionPlaces(queue)).toBe(4);
+    // Next steps through each message, but stays on the thread's place number while it does.
+    expect(queue.map((item) => attentionPlaceIndex(queue, item))).toEqual([0, 1, 2, 2, 3]);
   });
 });
 

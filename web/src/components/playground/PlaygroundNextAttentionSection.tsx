@@ -1,4 +1,5 @@
 import type { ThreadMonitoringEntry } from "../../../shared/thread-monitoring.js";
+import { LEADER_PROFILE_PORTRAITS } from "../../../shared/leader-profile-portraits.js";
 import { useAttentionNavigator } from "../../hooks/useAttentionNavigator.js";
 import type { ChatMessage, SessionNotification } from "../../types.js";
 import { attentionPlaceIndex, buildAttentionBacklog, buildNextAttentionQueue } from "../../utils/next-attention.js";
@@ -12,10 +13,17 @@ import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const NOW = Date.now();
 const SESSIONS = [
-  { sessionId: "playground-attention-leader", sessionNum: 2851, name: "DevBox takode" },
+  {
+    sessionId: "playground-attention-leader",
+    sessionNum: 2851,
+    name: "DevBox takode",
+    leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0],
+  },
   { sessionId: "playground-attention-worker", sessionNum: 2920, name: "Redesign the attention navigators" },
   { sessionId: "playground-attention-other", sessionNum: 2855, name: "Codex login refresh" },
 ];
+/** A reopened quest is named by its newest round. */
+const ROUND_TITLES: Record<string, string> = { "q-2416": "Pull before restarting" };
 const QUEST_TITLES: Record<string, string> = {
   "q-2428": "Make offline hosts obvious in the session list",
   "q-2416": "Restart Server pulls the latest published code",
@@ -94,14 +102,9 @@ function unreadMessage(
   };
 }
 
-const TOPICS: Record<string, { id: string; name: string }> = {
-  "q-2416": { id: "topic-restart", name: "Restart Server" },
-  "q-2415": { id: "topic-restart", name: "Restart Server" },
-};
-
 /**
  * A realistic cross-session queue: questions, an answer the leader marked urgent, a reminder that
- * came due, unread answers grouped by topic (two in Restart Server, one in Main), and a watched
+ * came due, unread answers by thread (Main, a reopened quest and another quest), and a watched
  * quest's result.
  */
 const QUEUE = buildNextAttentionQueue({
@@ -129,7 +132,6 @@ const QUEUE = buildNextAttentionQueue({
       timestamp: NOW - 5 * 3_600_000,
     },
   ],
-  topicOf: (_sessionId, threadKey) => (threadKey ? (TOPICS[threadKey] ?? null) : null),
 });
 
 /** Below the queue, collapsed: one muted prompt and one tracked thread still waiting for a result. */
@@ -184,6 +186,7 @@ function InteractiveAttentionList() {
         sessionsOverride={SESSIONS}
         threadsOverride={{
           titleFor: (_sessionId, threadKey) => QUEST_TITLES[threadKey],
+          roundTitleFor: (threadKey) => ROUND_TITLES[threadKey],
           hasThreadTabs: (sessionId) => sessionId === "playground-attention-leader",
         }}
       />
@@ -254,6 +257,7 @@ export function PlaygroundNextAttentionSection() {
                 sessionsOverride={SESSIONS}
                 threadsOverride={{
                   titleFor: (_sessionId, threadKey) => QUEST_TITLES[threadKey],
+                  roundTitleFor: (threadKey) => ROUND_TITLES[threadKey],
                   hasThreadTabs: (sessionId) => sessionId === "playground-attention-leader",
                 }}
               />

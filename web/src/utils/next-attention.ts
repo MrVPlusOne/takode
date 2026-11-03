@@ -15,9 +15,9 @@ import { LEADER_LOG_LABEL, MAIN_THREAD_KEY } from "./thread-projection.js";
  * session's feed chip).
  *
  * Sections come in a fixed priority: questions, answers a leader marked urgent,
- * reminders that came due, unread answers (grouped by topic), then watched quests
- * with a result. Newest first within a section (and within a topic). A thread that already appears in an
- * earlier section is not repeated as unread.
+ * reminders that came due, unread answers (grouped by thread), then watched quests
+ * with a result. Newest first within a section; a thread's unread answers in reading order. A thread
+ * that already appears in an earlier section is not repeated as unread.
  */
 export type NextAttentionItem =
   | (NextAttentionBase & { kind: "needs-input"; entry: GlobalNeedsInputEntry })
@@ -29,8 +29,6 @@ export type NextAttentionItem =
       remindAt?: number;
       /** For one unread answer, report or finished quest: its notification and message. */
       notification?: SessionNotification;
-      /** The Library topic of its quest, when it has one: the list groups by it. */
-      topic?: { id: string; name: string } | null;
     });
 
 interface NextAttentionBase {
@@ -96,14 +94,10 @@ export interface AttentionCursor {
   place: readonly (number | string)[];
 }
 
-/** The topic of a leader's quest thread, as known; null when it has none (or is Main). */
-export type AttentionTopicOf = (sessionId: string, threadKey: string | null) => { id: string; name: string } | null;
-
 export function buildNextAttentionQueue(input: {
   needsInput: readonly GlobalNeedsInputEntry[];
   notifyMe: readonly ThreadMonitoringEntry[];
   unread: readonly UnreadAttentionCandidate[];
-  topicOf?: AttentionTopicOf;
 }): NextAttentionItem[] {
   const items: NextAttentionItem[] = [];
   for (const entry of input.needsInput) {
@@ -141,42 +135,37 @@ export function buildNextAttentionQueue(input: {
     const key = candidate.notification
       ? `unread:${candidate.sessionId}:${candidate.notification.id}`
       : `unread:${candidate.sessionId}:${candidate.threadKey ?? ""}`;
-    items.push({
-      kind: "unread",
-      key,
-      ...candidate,
-      ...(input.topicOf ? { topic: input.topicOf(candidate.sessionId, candidate.threadKey) } : {}),
-    });
+    items.push({ kind: "unread", key, ...candidate });
   }
-  // Unread answers are grouped by topic: the topic with the newest answer first, and inside it in
-  // reading order (see queuePlace).
-  const newestByTopic = new Map<string, number>();
+  // Unread answers are grouped by thread (Jiayi, Nov 2: threads are the unit, as in the status row
+  // and the Threads view; it grouped by Library topic before): the thread with the newest answer
+  // first, and inside it in reading order (see queuePlace).
+  const newestByThread = new Map<string, number>();
   for (const item of items) {
     if (item.kind !== "unread") continue;
-    const group = topicGroupKey(item);
-    newestByTopic.set(group, Math.max(newestByTopic.get(group) ?? 0, item.timestamp));
+    const group = threadGroupKey(item);
+    newestByThread.set(group, Math.max(newestByThread.get(group) ?? 0, item.timestamp));
   }
-  for (const item of items) placeOf.set(item, queuePlace(item, newestByTopic));
+  for (const item of items) placeOf.set(item, queuePlace(item, newestByThread));
   return items.sort((a, b) => comparePlaces(placeOf.get(a)!, placeOf.get(b)!, a.key, b.key));
 }
 
-/** Each item's place, as computed when its queue was built (topic groups depend on the whole queue). */
+/** Each item's place, as computed when its queue was built (thread groups depend on the whole queue). */
 const placeOf = new WeakMap<NextAttentionItem, readonly (number | string)[]>();
 
-function queuePlace(item: NextAttentionItem, newestByTopic?: ReadonlyMap<string, number>): (number | string)[] {
+function queuePlace(item: NextAttentionItem, newestByThread?: ReadonlyMap<string, number>): (number | string)[] {
   const rank = ATTENTION_SECTIONS.indexOf(attentionSection(item));
-  if (item.kind !== "unread" || isUrgentAttentionItem(item) || !newestByTopic) return [rank, -item.timestamp];
-  const group = topicGroupKey(item);
-  // Inside a topic Next goes in reading order, as opening a place does (firstUnreadResult): answers
+  if (item.kind !== "unread" || isUrgentAttentionItem(item) || !newestByThread) return [rank, -item.timestamp];
+  const group = threadGroupKey(item);
+  // Inside a thread Next goes in reading order, as opening a place does (firstUnreadResult): answers
   // and reports oldest first, then finished quests. Newest first would open a later result, or a
   // finished quest whose anchor is the leader's commentary, above an answer still waiting.
   const finished = item.notification?.unreadReason === "quest-complete" ? 1 : 0;
-  return [rank, -(newestByTopic.get(group) ?? item.timestamp), group, finished, item.timestamp];
+  return [rank, -(newestByThread.get(group) ?? item.timestamp), group, finished, item.timestamp];
 }
 
-/** Unread items group by topic; outside a topic, by session and thread. */
-function topicGroupKey(item: NextAttentionItem): string {
-  if (item.kind === "unread" && item.topic) return `topic:${item.topic.id}`;
+/** Unread items group by session and thread. */
+function threadGroupKey(item: NextAttentionItem): string {
   return `thread:${item.sessionId}:${item.threadKey ?? ""}`;
 }
 
@@ -244,11 +233,11 @@ export function collectThreadReminders(
 
 /**
  * The place an item points to, for counting: every question, urgent answer, reminder and watched
- * result is its own place; other unread answers count once per topic (or per quest or Main outside
- * topics). Counts show places, so a busy topic is one thing to look at, not ten.
+ * result is its own place; other unread answers count once per thread. Counts show places, so a busy
+ * thread is one thing to look at, not ten.
  */
 export function attentionPlaceKey(item: NextAttentionItem): string {
-  return item.kind === "unread" && !isUrgentAttentionItem(item) ? topicGroupKey(item) : item.key;
+  return item.kind === "unread" && !isUrgentAttentionItem(item) ? threadGroupKey(item) : item.key;
 }
 
 /** How many places the queue points to. */
@@ -336,14 +325,12 @@ export function buildSessionAttentionQueue(input: {
   needsInput: readonly SessionNotification[];
   notifyMe: readonly ThreadMonitoringEntry[];
   unread: readonly UnreadAttentionCandidate[];
-  topicOf?: AttentionTopicOf;
 }): NextAttentionItem[] {
   const { sessionId, sessionName, sessionNum } = input;
   return buildNextAttentionQueue({
     needsInput: input.needsInput.map((notification) => ({ sessionId, sessionName, sessionNum, notification })),
     notifyMe: input.notifyMe.filter((entry) => entry.sessionId === sessionId),
     unread: input.unread.filter((candidate) => candidate.sessionId === sessionId),
-    ...(input.topicOf ? { topicOf: input.topicOf } : {}),
   });
 }
 

@@ -308,7 +308,8 @@ describe("NotificationChip", () => {
   it("lists this session's items like the top bar's list, naming each row's topic and not the session", () => {
     // Jiayi found the old list hard to read next to the top bar's Needs attention list. It now has
     // the same sections and rows; every row is this leader's, so none names the session number,
-    // and each names the Library topic it belongs to instead (unread answers are grouped by it).
+    // and each names the Library topic it belongs to instead, as a small tag (unread answers are
+    // grouped by thread since Nov 2).
     setNotificationSummary("s1", {
       notificationUrgency: "needs-input",
       activeNotificationCount: 1,
@@ -365,9 +366,10 @@ describe("NotificationChip", () => {
     expect(within(question).getByTestId("attention-item-row")).toHaveAttribute("data-attention-next", "true");
     expect(within(question).getByTestId("attention-item-topic")).toHaveTextContent("Host links");
     expect(within(question).getByTestId("attention-item-place")).toHaveTextContent(/^Host links›q-7/);
-    // Unread answers are one row per topic, named by it.
+    // Unread answers are one row per thread, named by it, its topic a tag.
     const unread = within(list).getByRole("region", { name: "Unread results" });
-    expect(within(unread).getByTestId("attention-place-row")).toHaveTextContent(/^Code review/);
+    expect(within(unread).getByTestId("attention-place-row")).toHaveTextContent(/^q-6 Review/);
+    expect(within(unread).getByTestId("attention-item-topic")).toHaveTextContent("Code review");
     const notifyMe = within(list).getByRole("region", { name: "Notify Me results" });
     expect(within(notifyMe).getByTestId("attention-item-topic")).toHaveTextContent("Releases");
   });
@@ -691,11 +693,12 @@ describe("NotificationChip", () => {
       const [ready, noSummary] = within(screen.getByRole("dialog", { name: LIST_NAME })).getAllByTestId(
         "attention-place-row",
       );
-      expect(ready).toHaveTextContent(/^q-6 Review the gate/);
+      // A quest is named by its title, as in the Threads view; hovering shows its number.
+      expect(ready).toHaveTextContent(/^Review the gate/);
       expect(within(ready!).getByTestId("attention-place-summary")).toHaveTextContent(
         "1 new answer· landed and completed",
       );
-      expect(noSummary).toHaveTextContent(/^q-8 Older work/);
+      expect(noSummary).toHaveTextContent(/^Older work/);
       expect(within(noSummary!).getByTestId("attention-place-summary")).toHaveTextContent("1 new answer· New result");
     });
 

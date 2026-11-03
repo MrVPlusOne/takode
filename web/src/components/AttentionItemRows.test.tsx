@@ -2,12 +2,13 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { SessionNotification } from "../types.js";
+import { LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
 import { buildNextAttentionQueue, countAttentionPlaces } from "../utils/next-attention.js";
 import { AttentionItemSections, unreadMessageLabel } from "./AttentionItemRows.js";
 
 /**
  * The attention list's sections: questions, reminders that came due, unread answers grouped by
- * their quest's topic, then watched quests' results. Each unread answer is its own row, named by
+ * thread, then watched quests' results. Each unread answer is its own row, named by
  * its words without the thread its summary starts with (the second line names the thread).
  */
 
@@ -23,13 +24,10 @@ function answer(id: string, threadKey: string, timestamp: number, summary: strin
 }
 
 describe("AttentionItemSections", () => {
-  it("shows one row per place with what is new there, answers to one request counted once", () => {
-    // Jiayi found per-message counts overwhelming: the list shows each topic (or quest outside
-    // topics) once, saying how many new answers it has; two answers to the same request are one.
-    const topics: Record<string, { id: string; name: string }> = {
-      "q-1": { id: "t", name: "Relay" },
-      "q-3": { id: "t", name: "Relay" },
-    };
+  it("shows one row per thread with what is new there, answers to one request counted once", () => {
+    // Jiayi found per-message counts overwhelming: the list shows each thread once, saying how
+    // many new answers it has; two answers to the same request are one. Threads are the unit
+    // (Jiayi, Nov 2): they were grouped by Library topic before.
     const withRequest = (item: ReturnType<typeof answer>, request: string) => ({
       ...item,
       notification: { ...item.notification, answerTo: [request] },
@@ -38,19 +36,41 @@ describe("AttentionItemSections", () => {
       needsInput: [],
       notifyMe: [],
       unread: [
-        withRequest(answer("a", "q-1", 300, "Answer in q-1 | Fixed"), "u7"),
+        withRequest(answer("a", "q-3", 300, "Answer in q-3 | Fixed"), "u7"),
         withRequest(answer("c", "q-3", 250, "Answer in q-3 | Also fixed"), "u7"),
         answer("d", "q-3", 200, "Answer in q-3 | Separate"),
         answer("b", "q-2", 100, "Report in q-2 | Notes"),
       ],
-      topicOf: (_sessionId, threadKey) => (threadKey ? (topics[threadKey] ?? null) : null),
     });
     expect(countAttentionPlaces(queue)).toBe(2);
-    render(<AttentionItemSections items={queue} kinds={["unread"]} onOpen={vi.fn()} />);
+    const threads = {
+      titleFor: (_sessionId: string, threadKey: string) => (threadKey === "q-3" ? "Relay proxy" : "Voice notes"),
+      roundTitleFor: (threadKey: string) => (threadKey === "q-2" ? "Mic picker" : undefined),
+      hasThreadTabs: () => true,
+    };
+    render(
+      <AttentionItemSections
+        items={queue}
+        kinds={["unread"]}
+        onOpen={vi.fn()}
+        threads={threads}
+        sessionLabelFor={() => "#7 Daily Leader"}
+        portraitFor={() => LEADER_PROFILE_PORTRAITS[0]}
+      />,
+    );
     const rows = screen.getAllByTestId("attention-place-row");
     expect(rows).toHaveLength(2);
-    expect(rows[0]!.textContent).toMatch(/^Relay/);
+    // Across sessions a row shows its leader's portrait, named on hover.
+    expect(rows[0]!.querySelector("img")).not.toBeNull();
+    expect(rows[0]!.querySelector('[title="#7 Daily Leader"]')).not.toBeNull();
+    // A quest is named by its title, its number on hover, as in the Threads view.
+    const name = within(rows[0]!).getByTestId("attention-place-name");
+    expect(name.textContent).toBe("Relay proxy");
+    expect(name.getAttribute("title")).toBe("q-3 Relay proxy");
     expect(within(rows[0]!).getByTestId("attention-place-summary").textContent).toContain("2 new answers");
+    // A reopened quest by its newest round, then the quest.
+    expect(within(rows[1]!).getByTestId("quest-round-title").textContent).toBe("Mic picker");
+    expect(within(rows[1]!).getByTestId("quest-round-title-quest").textContent).toBe("Voice notes");
     expect(within(rows[1]!).getByTestId("attention-place-summary").textContent).toContain("1 new answer");
   });
 
@@ -100,7 +120,6 @@ describe("AttentionItemSections", () => {
       needsInput: [],
       notifyMe: [],
       unread: [answer("t", "topic:55badbba", 300, 'Answer in Thread "Prod memory" | About 2.2 GB')],
-      topicOf: () => null,
     });
     const threads = {
       titleFor: (_sessionId: string, threadKey: string) => (threadKey === "topic:55badbba" ? "Prod memory" : undefined),
@@ -113,7 +132,7 @@ describe("AttentionItemSections", () => {
   });
 
   it("lists urgent answers in their own Urgent section, one row each, marked urgent", () => {
-    // An answer the leader marked urgent is not folded into its topic's row: it gets its own
+    // An answer the leader marked urgent is not folded into its thread's row: it gets its own
     // row in the Urgent section, named by its words, with the urgent mark.
     const urgent = answer("u", "q-1", 300, "Answer in q-1 | Encore replied");
     urgent.notification = { ...urgent.notification, urgent: true };
@@ -121,7 +140,6 @@ describe("AttentionItemSections", () => {
       needsInput: [],
       notifyMe: [],
       unread: [urgent, answer("a", "q-1", 200, "Answer in q-1 | Fixed")],
-      topicOf: () => ({ id: "t", name: "Relay" }),
     });
     render(<AttentionItemSections items={queue} kinds={["urgent", "unread"]} onOpen={vi.fn()} />);
     const urgentSection = screen.getByRole("region", { name: "Urgent results" });

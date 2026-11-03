@@ -5,12 +5,7 @@ import { fetchThreadMonitoring } from "../api/thread-monitoring.js";
 import { useNotifyMeSummary } from "../components/NotifyMe.js";
 import { useGlobalNeedsInputEntries } from "./useGlobalNeedsInputEntries.js";
 import { useStore } from "../store.js";
-import {
-  buildNextAttentionQueue,
-  collectUnreadAttention,
-  type AttentionTopicOf,
-  type NextAttentionItem,
-} from "../utils/next-attention.js";
+import { buildNextAttentionQueue, collectUnreadAttention, type NextAttentionItem } from "../utils/next-attention.js";
 import { useAttentionNavigator, type AttentionNavigator } from "./useAttentionNavigator.js";
 import { useQuestTopicsOf } from "../utils/leader-topics.js";
 import { isQuestThreadKey, isTopicThreadKey } from "../../shared/thread-routing.js";
@@ -36,18 +31,20 @@ export function useNextAttention(): AttentionNavigator & { queue: NextAttentionI
     })),
   );
   const unread = useMemo(() => collectUnreadAttention(unreadSource), [unreadSource]);
-  const topicOf = useAttentionTopicOf(unread);
   const queue = useMemo(
-    () => buildNextAttentionQueue({ needsInput, notifyMe, unread, topicOf }),
-    [needsInput, notifyMe, unread, topicOf],
+    () => buildNextAttentionQueue({ needsInput, notifyMe, unread }),
+    [needsInput, notifyMe, unread],
   );
   return { queue, ...useAttentionNavigator("global", queue) };
 }
 
+/** The Library topic of a leader's quest thread, as known; null when it has none (or is Main). */
+export type AttentionTopicOf = (sessionId: string, threadKey: string | null) => { id: string; name: string } | null;
+
 /**
- * The Library topic of attention items' threads, looked up per leader for the quests of `items`
- * (unread answers group by it; the session list also names it on every row). Null for Main,
- * a thread outside topics, or a topic not known yet.
+ * The Library topic of attention items' threads, looked up per leader for the quests of `items`,
+ * for the session list, which names it as a small tag before a row's thread. Null for Main, a
+ * thread outside topics, or a topic not known yet.
  */
 export function useAttentionTopicOf(
   items: ReadonlyArray<{ sessionId: string; threadKey: string | null }>,

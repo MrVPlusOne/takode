@@ -11,7 +11,7 @@ import {
   type UnreadAttentionCandidate,
 } from "../utils/next-attention.js";
 import { useAttentionNavigator, type AttentionNavigator } from "./useAttentionNavigator.js";
-import { useAttentionTopicOf, usePendingNotifyMeEntries } from "./useNextAttention.js";
+import { usePendingNotifyMeEntries } from "./useNextAttention.js";
 
 /** Fixed Notify Me and unread data for the Playground, which has no server; steps then do not navigate. */
 export interface SessionAttentionPreview {
@@ -47,8 +47,6 @@ export function useSessionAttention(
     const { session } = source;
     return preview?.unread ?? (session ? collectUnreadAttention({ ...source, sdkSessions: [session] }) : []);
   }, [preview, source]);
-  // Unread answers group by topic here too, so the chip walks and lists them as the top bar does.
-  const topicOf = useAttentionTopicOf(unread);
   const queue = useMemo(() => {
     const { session } = source;
     return buildSessionAttentionQueue({
@@ -58,8 +56,7 @@ export function useSessionAttention(
       needsInput,
       notifyMe: preview?.notifyMe ?? liveNotifyMe,
       unread,
-      topicOf,
     });
-  }, [liveNotifyMe, needsInput, preview, sessionId, source, topicOf, unread]);
+  }, [liveNotifyMe, needsInput, preview, sessionId, source, unread]);
   return { queue, ...useAttentionNavigator(`session:${sessionId}`, queue, { navigate: !preview }) };
 }

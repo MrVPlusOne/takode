@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
+import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { createPortal } from "react-dom";
 import { useGlobalNeedsInputEntries } from "../hooks/useGlobalNeedsInputEntries.js";
@@ -229,7 +230,12 @@ export function AttentionListPanel({
     position: { className: string; style: CSSProperties };
   };
   /** Session numbers and names, and thread titles, for the Playground, which has no real sessions or quests. */
-  sessionsOverride?: ReadonlyArray<{ sessionId: string; sessionNum?: number | null; name?: string }>;
+  sessionsOverride?: ReadonlyArray<{
+    sessionId: string;
+    sessionNum?: number | null;
+    name?: string;
+    leaderProfilePortrait?: LeaderProfilePortrait;
+  }>;
   threadsOverride?: AttentionThreadTitles;
   inline?: boolean;
 }) {
@@ -241,10 +247,15 @@ export function AttentionListPanel({
   );
   const storeThreads = useAttentionThreadTitles(titledItems);
   const sessionInfo = useMemo(() => {
-    const info = new Map<string, { tag?: string; label?: string }>();
-    for (const { sessionId, sessionNum, name } of sessionsOverride ?? sdkSessions) {
+    const info = new Map<string, { tag?: string; label?: string; portrait?: LeaderProfilePortrait }>();
+    for (const session of sessionsOverride ?? sdkSessions) {
+      const { sessionId, sessionNum, name, leaderProfilePortrait } = session;
       const tag = sessionNum ? `#${sessionNum}` : undefined;
-      info.set(sessionId, { tag, label: [tag, name].filter(Boolean).join(" ") || undefined });
+      info.set(sessionId, {
+        tag,
+        label: [tag, name].filter(Boolean).join(" ") || undefined,
+        ...(leaderProfilePortrait ? { portrait: leaderProfilePortrait } : {}),
+      });
     }
     return info;
   }, [sdkSessions, sessionsOverride]);
@@ -256,6 +267,7 @@ export function AttentionListPanel({
     : {
         sessionLabelFor: (item) => sessionInfo.get(item.sessionId)?.label,
         sessionTagFor: (item) => sessionInfo.get(item.sessionId)?.tag,
+        portraitFor: (item) => sessionInfo.get(item.sessionId)?.portrait,
         threads,
       };
 
@@ -337,6 +349,7 @@ export function AttentionListPanel({
           sessionLabelFor={rowProps.sessionLabelFor}
           sessionTagFor={rowProps.sessionTagFor}
           topicFor={rowProps.topicFor}
+          portraitFor={rowProps.portraitFor}
           threads={rowProps.threads}
         />
         {backlog && (
@@ -364,6 +377,7 @@ interface BacklogRowProps {
   sessionLabelFor: (item: NextAttentionItem) => string | undefined;
   sessionTagFor: (item: NextAttentionItem) => string | undefined;
   topicFor?: (item: NextAttentionItem) => string | null | undefined;
+  portraitFor?: (item: NextAttentionItem) => LeaderProfilePortrait | undefined;
   threads: AttentionThreadTitles;
 }
 

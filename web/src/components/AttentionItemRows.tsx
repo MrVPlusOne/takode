@@ -22,7 +22,12 @@ import {
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { NotifyMeIcon } from "./NotifyMe.js";
 import { ClockIcon, formatSnoozeUntil } from "./RemindLaterChoices.js";
-import { TopicIcon } from "./library/library-icons.js";
+import { NewThreadIcon, TopicIcon } from "./library/library-icons.js";
+import { LeaderProfilePortraitImage } from "./LeaderProfilePortraitButton.js";
+import { QuestRoundTitle } from "./QuestRoundTitle.js";
+import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
+
+const QUEST_THREAD = /^q-\d+$/;
 
 const GO_TO_BUTTON_CLASS =
   "inline-flex shrink-0 items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 cursor-pointer";
@@ -96,12 +101,18 @@ export function attentionThreadPlace(
   if (isTopicViewKey(key)) return { thread: threads?.titleFor(item.sessionId, key) ?? "Thread", title: "" };
   const fallback =
     item.kind === "notify-me" ? withoutQuestId(item.entry.title, key) : item.kind === "unread" ? item.label : "";
-  return { thread: key, title: threads?.titleFor(item.sessionId, key) ?? fallback };
+  const title = threads?.titleFor(item.sessionId, key) ?? fallback;
+  const roundTitle = threads?.roundTitleFor?.(key);
+  // A reopened quest is named by its newest round, as in the thread lists.
+  return { thread: key, title: roundTitle ?? title, ...(roundTitle ? { roundTitle, questTitle: title } : {}) };
 }
 
 export interface AttentionThreadPlace {
   thread: string;
   title: string;
+  /** A reopened quest's newest round title (then `title` is it too), with the quest's own title. */
+  roundTitle?: string;
+  questTitle?: string;
 }
 
 function withoutQuestId(title: string, questId: string): string {
@@ -262,6 +273,7 @@ export function AttentionItemSections({
   nextKey,
   noteFor,
   topicFor,
+  portraitFor,
 }: {
   items: readonly NextAttentionItem[];
   kinds: readonly AttentionSection[];
@@ -272,8 +284,10 @@ export function AttentionItemSections({
   nextKey?: string | null;
   /** A one-line note per item (a place takes its first item's). */
   noteFor?: (item: NextAttentionItem) => string | undefined;
-  /** The topic to name on a row's second line (unread places are already named by theirs). */
+  /** The topic to name as a small tag on a row's second line (the session list's rows). */
   topicFor?: (item: NextAttentionItem) => string | null | undefined;
+  /** A leader's portrait, for the rows of threads across sessions. */
+  portraitFor?: (item: NextAttentionItem) => LeaderProfilePortrait | undefined;
 }) {
   const row = (item: NextAttentionItem) => (
     <AttentionItemRow
@@ -315,6 +329,8 @@ export function AttentionItemSections({
                       onOpen={onOpen}
                       sessionTag={sessionTagFor?.(place.items[0]!)}
                       sessionLabel={sessionLabelFor?.(place.items[0]!)}
+                      portrait={portraitFor?.(place.items[0]!)}
+                      topic={topicFor?.(place.items[0]!)}
                       threads={threads}
                       isNext={place.items.some((item) => item.key === nextKey)}
                       note={noteFor?.(place.items[0]!)}
@@ -342,15 +358,20 @@ function byPlace(items: readonly NextAttentionItem[]) {
 }
 
 /**
- * One place with new things in the attention list: a topic (or a quest or Main outside topics)
- * and how many new answers it holds ("3 new answers", answers to one request counted once).
- * Go to opens its first unread; the menu marks it all read or brings it back later.
+ * One thread with new things in the attention list, named as the status row and the Threads view
+ * name it (Jiayi, Nov 2: rows were Library topics before): a quest by its title, a reopened one by
+ * its newest round first, a plain thread by its name, Main as the leader log; with its leader's
+ * portrait across sessions. Then how many new answers it holds ("3 new answers", answers to one
+ * request counted once) and the newest one's words. Go to opens its first unread; the menu marks
+ * it all read or brings it back later.
  */
 function AttentionPlaceRow({
   items,
   onOpen,
   sessionLabel,
   sessionTag,
+  portrait,
+  topic,
   threads,
   isNext,
   note,
@@ -359,6 +380,10 @@ function AttentionPlaceRow({
   onOpen: (item: NextAttentionItem) => void;
   sessionLabel?: string;
   sessionTag?: string;
+  /** The leader's portrait, in the list across sessions. */
+  portrait?: LeaderProfilePortrait;
+  /** Its Library topic, a small tag on the second line (the session list's rows). */
+  topic?: string | null;
   threads?: AttentionThreadTitles;
   isNext: boolean;
   note?: string;
@@ -366,13 +391,15 @@ function AttentionPlaceRow({
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const first = firstUnreadItem(items);
   const newest = items.reduce((latest, item) => (item.timestamp > latest.timestamp ? item : latest), items[0]!);
-  const topic = first.kind === "unread" ? first.topic : null;
   const threadPlace = attentionThreadPlace(first, threads);
-  const name =
-    topic?.name ??
-    (threadPlace
-      ? `${threadPlace.thread}${threadPlace.title ? ` ${threadPlace.title}` : ""}`
-      : (sessionLabel ?? "Latest result"));
+  const questId = threadPlace && QUEST_THREAD.test(threadPlace.thread) ? threadPlace.thread : null;
+  // A quest is named by its title alone, as in the Threads view; hovering shows its number.
+  const name = threadPlace
+    ? questId
+      ? threadPlace.title || questId
+      : threadPlace.thread
+    : (sessionLabel ?? "Latest result");
+  const fullName = questId ? `${questId} ${threadPlace?.questTitle ?? name}` : name;
   const longPress = useLongPress((x, y) => {
     const menuItems = attentionPlaceMenuItems(items, first);
     if (menuItems.length > 0) setMenu({ x, y, items: menuItems });
@@ -387,12 +414,33 @@ function AttentionPlaceRow({
         data-attention-kind="unread"
         data-attention-next={isNext ? "true" : undefined}
       >
-        <span className="mt-0.5">
-          {topic ? <TopicIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" /> : <AttentionKindIcon kind="unread" />}
+        <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+          {portrait ? (
+            <span title={sessionLabel} className="flex">
+              <LeaderProfilePortraitImage portrait={portrait} size="sm" />
+            </span>
+          ) : (
+            <AttentionKindIcon kind="unread" />
+          )}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start gap-2">
-            <span className="min-w-0 flex-1 truncate text-[12px] text-cc-fg/90">{name}</span>
+            <span
+              className="flex min-w-0 flex-1 gap-1.5 text-[12px] text-cc-fg/90"
+              title={threadPlace?.roundTitle ? `${fullName}: ${threadPlace.roundTitle}` : fullName}
+              data-testid="attention-place-name"
+            >
+              {threadPlace?.roundTitle ? (
+                <QuestRoundTitle roundTitle={threadPlace.roundTitle} questTitle={threadPlace.questTitle} />
+              ) : (
+                <span className="min-w-0 truncate">
+                  {!questId && threadPlace && isTopicViewKey(first.threadKey ?? "") && (
+                    <NewThreadIcon className="mr-1 inline h-3 w-3 align-[-1px] text-cc-primary" />
+                  )}
+                  {name}
+                </span>
+              )}
+            </span>
             {isNext && (
               <span className="shrink-0 rounded border border-cc-border/70 px-1 py-px text-[10px] font-medium text-cc-muted">
                 Next
@@ -411,6 +459,16 @@ function AttentionPlaceRow({
             className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[10px] text-cc-muted"
             data-testid="attention-place-summary"
           >
+            {topic && topic !== name && (
+              <span
+                className="inline-flex min-w-0 max-w-[35%] shrink-0 items-baseline gap-1"
+                data-testid="attention-item-topic"
+              >
+                <TopicIcon className="h-3 w-3 shrink-0 self-center text-cc-primary" />
+                <span className="truncate font-medium text-cc-fg/70">{topic}</span>
+                <span aria-hidden="true">·</span>
+              </span>
+            )}
             <span className="shrink-0 text-cc-info">{newThingsText(items)}</span>
             <span className="min-w-0 truncate">· {attentionItemLabel(newest)}</span>
             <span className="shrink-0">
