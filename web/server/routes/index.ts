@@ -21,6 +21,7 @@ import { createGitRoutes } from "./git.js";
 import { createFilesystemRoutes } from "./filesystem.js";
 import { createSettingsRoutes } from "./settings.js";
 import { createChangelogRoutes } from "./changelog.js";
+import { createGlossaryRoutes } from "./glossary.js";
 import { createSessionGitStatusRoutes } from "./session-git-status.js";
 import { createCodexGoalRoutes } from "./session-codex-goal-routes.js";
 import { createCodexRuntimeDiagnosticsRoutes } from "./codex-runtime-diagnostics.js";
@@ -279,6 +280,7 @@ export function createRoutes(
   api.route("/", createTopicRoutes(ctx));
   api.route("/", createSettingsRoutes(ctx));
   api.route("/", createChangelogRoutes(ctx));
+  api.route("/", createGlossaryRoutes());
   api.route("/", createTranscriptionRoutes(ctx));
   api.route("/", createGitRoutes(ctx));
   api.route("/", createQuestRoutes(ctx));

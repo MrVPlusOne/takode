@@ -13,6 +13,7 @@ export type Route =
   | { page: "session"; sessionId: string; messageIndex?: number; messageId?: string }
   | { page: "settings" }
   | { page: "changelog" }
+  | { page: "glossary" }
   | { page: "logs" }
   | { page: "terminal" }
   | { page: "environments" }
@@ -79,6 +80,7 @@ export function parseHash(hash: string): Route {
   const { path, params } = splitHash(hash);
   if (path === "#/settings") return { page: "settings" };
   if (path === "#/changelog") return { page: "changelog" };
+  if (path === "#/glossary") return { page: "glossary" };
   if (path === "#/logs") return { page: "logs" };
   if (path === "#/terminal") return { page: "terminal" };
   if (path === "#/environments") return { page: "environments" };
@@ -114,6 +116,7 @@ export function parseHash(hash: string): Route {
 export type SecondaryPage =
   | "settings"
   | "changelog"
+  | "glossary"
   | "logs"
   | "terminal"
   | "environments"
@@ -125,6 +128,7 @@ export type SecondaryPage =
 const SECONDARY_PAGES: ReadonlySet<string> = new Set<SecondaryPage>([
   "settings",
   "changelog",
+  "glossary",
   "logs",
   "terminal",
   "environments",

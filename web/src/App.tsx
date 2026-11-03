@@ -127,6 +127,7 @@ import { ensureVsCodeEditorPreference } from "./utils/vscode-bridge.js";
 import { startAlertWindowPresence } from "./utils/alert-window-presence.js";
 import { reportInputGlitch, useInputTraceRecorder } from "./utils/input-trace.js";
 import { AppTooltips } from "./components/AppTooltips.js";
+import { GlossaryPage } from "./glossary/GlossaryPage.js";
 import {
   SHORTCUT_DOUBLE_TAP_WINDOW_MS,
   getMatchingShortcutAction,
@@ -307,6 +308,7 @@ function useViewportWidth(zoomLevel: number): number {
 const SECONDARY_PAGES: Record<SecondaryPage, { label: string; size: SecondaryViewSize }> = {
   settings: { label: "Settings", size: "page" },
   changelog: { label: "Changelog", size: "page" },
+  glossary: { label: "Glossary", size: "page" },
   logs: { label: "Logs", size: "wide" },
   terminal: { label: "Terminal", size: "page" },
   environments: { label: "Environments", size: "page" },
@@ -332,6 +334,12 @@ function renderSecondaryPage(page: SecondaryPage) {
             </div>
           )}
         </>
+      );
+    case "glossary":
+      return (
+        <div className="absolute inset-0">
+          <GlossaryPage />
+        </div>
       );
     case "logs":
       return (

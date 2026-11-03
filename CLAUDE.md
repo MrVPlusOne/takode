@@ -163,6 +163,10 @@ cd web && bun --no-install run format:check
 
 All UI components used in the message/chat flow **must** be represented in the Playground page (`web/src/components/Playground.tsx`, accessible at `#/playground`). When adding or modifying a message-related component (e.g. `MessageBubble`, `ToolBlock`, `PermissionBanner`, `Composer`, streaming indicators, tool groups, subagent groups), update the Playground to include a mock of the new or changed state.
 
+## Glossary
+
+`web/src/glossary/glossary.md` is the in-app glossary for people new to Takode (the sidebar's Glossary link opens it at `#/glossary`; the frontend bundles the file at build time). When a change adds, renames or retires a user-facing concept, or the name of a place on screen that it describes, update the glossary in the same change, and check it when writing changelog entries. Keep entries to one or two plain sentences in its `- **Term**: meaning` format; it is for people, not agents, so leave out implementation detail.
+
 ## Architecture
 
 ### Data Flow

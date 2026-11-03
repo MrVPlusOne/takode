@@ -39,6 +39,7 @@ import { SessionContextMenu } from "./SessionContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
+import { SidebarGlossaryLink } from "../glossary/SidebarGlossaryLink.js";
 import { SidebarGlobalSearch } from "./SidebarGlobalSearch.js";
 import { SidebarTitleRow } from "./SidebarTitleRow.js";
 import { SidebarLockToggle } from "./SidebarFold.js";
@@ -1205,14 +1206,22 @@ export function Sidebar({
             </svg>
           </button>
         </div>
-        <SidebarBuildLabel
-          buildTime={__BUILD_TIME__}
-          onOpenChangelog={() => {
-            if (!isDesktopLayout) {
-              useStore.getState().setSidebarOpen(false);
-            }
-          }}
-        />
+        <div className="flex items-center justify-center">
+          <SidebarGlossaryLink closePanel={!isDesktopLayout} />
+          <span className="text-[10px] text-cc-muted" aria-hidden="true">
+            ·
+          </span>
+          <span className="min-w-0">
+            <SidebarBuildLabel
+              buildTime={__BUILD_TIME__}
+              onOpenChangelog={() => {
+                if (!isDesktopLayout) {
+                  useStore.getState().setSidebarOpen(false);
+                }
+              }}
+            />
+          </span>
+        </div>
       </div>
       <SessionContextMenu
         target={contextMenu}

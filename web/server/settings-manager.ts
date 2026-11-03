@@ -132,6 +132,11 @@ export interface CompanionSettings {
   leaderProfileCollapsedPools?: LeaderProfilePoolId[];
   /** The one-time offer to switch to the Animals portraits was accepted, dismissed or made moot by a pool choice. */
   leaderProfileAnimalsOfferDone?: boolean;
+  /**
+   * Whether the user has opened the glossary page at least once on this server; until then the
+   * sidebar's Glossary link is highlighted. Kept here so every browser and device agrees.
+   */
+  glossaryOpened?: boolean;
   /** Remind me later's custom unit: hours until the user last chose minutes. Optional for tests/mocks. */
   remindLaterUnit?: RemindLaterUnit;
   /** User-configured keyboard shortcut settings. Undefined means no server-side shortcut preference exists yet. */
@@ -582,6 +587,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       ? normalizeLeaderProfileCollapsedPools(raw.leaderProfileCollapsedPools)
       : undefined,
     leaderProfileAnimalsOfferDone: raw?.leaderProfileAnimalsOfferDone === true ? true : undefined,
+    glossaryOpened: raw?.glossaryOpened === true ? true : undefined,
     remindLaterUnit: normalizeRemindLaterUnit(raw?.remindLaterUnit),
     shortcutSettings: parseShortcutSettings(raw?.shortcutSettings),
     sessionDefaults: normalizeSessionDefaults(raw?.sessionDefaults ?? DEFAULT_SESSION_DEFAULTS),
@@ -730,6 +736,7 @@ export function updateSettings(
       | "leaderProfileCollapsedPools"
       | "remindLaterUnit"
       | "leaderProfileAnimalsOfferDone"
+      | "glossaryOpened"
       | "shortcutSettings"
       | "sessionDefaults"
       | "workerSlotLimits"
