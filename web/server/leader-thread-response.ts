@@ -1,6 +1,7 @@
 import { normalizeTopicKey } from "../shared/topic-thread-key.js";
 import { createHash } from "node:crypto";
 import {
+  isLeaderAnswerContent,
   leaderResponseAssociatedThreadKeys,
   leaderResponseAnswerOwnerThreadKeys,
   leaderResponseExactAnswerThreadKey,
@@ -255,10 +256,7 @@ function responseMessageTimestamp(message: ResponseHistoryMessage): number | nul
 }
 
 function eligibleAssistantAnswer(message: Extract<BrowserIncomingMessage, { type: "assistant" }>): boolean {
-  return (
-    message.parent_tool_use_id === null &&
-    !message.message.content.some((block) => block.type === "tool_use" || block.type === "tool_result")
-  );
+  return message.parent_tool_use_id === null && isLeaderAnswerContent(message.message.content);
 }
 
 function collectAnswerTargets(

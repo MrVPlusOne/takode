@@ -322,4 +322,31 @@ describe("MessageFeed fold before the newest final message", () => {
     openMessage("progress");
     expect(within(latestTurn(view.container)).getByText(PROGRESS_TEXT)).toBeInTheDocument();
   });
+
+  it("keeps an answer visible when the same message goes on to make a tool call", () => {
+    // Jiayi (Nov 3): a Claude leader wrote its result as an answer and called `takode notify` in
+    // the same message. The answer was rejected for carrying a tool call and folded away with the
+    // turn's activity. It now counts, and the card shows its prose without the call.
+    const history = answeredHistory().slice(0, 3);
+    const result = assistant(history, "result-with-tool", "The prototype is built and ready for your review.");
+    result.message.content.push({
+      type: "tool_use",
+      id: "notify-1",
+      name: "Bash",
+      input: { command: "takode notify" },
+    });
+    result.leaderThreadRole = "answer";
+    result.leaderAnswerUserMessageIds = ["u1"];
+    result.leaderAnswerObservedHistoryLength = history.length - 1;
+    expect(finalizeRoutedLeaderResponseMessage({ id: SESSION_ID, messageHistory: history }, result).finalized).toBe(
+      true,
+    );
+    deliver(history);
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    const turn = latestTurn(view.container);
+    expect(within(turn).getByRole("button", { name: /Show turn activity/ })).toBeInTheDocument();
+    expect(within(turn).queryByText(PROGRESS_TEXT)).not.toBeInTheDocument();
+    expect(within(turn).getByText("The prototype is built and ready for your review.")).toBeInTheDocument();
+  });
 });

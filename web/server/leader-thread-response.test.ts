@@ -1177,8 +1177,9 @@ describe("explicit routed leader answers", () => {
     target.messageHistory.push(unproven);
     expect(finalizeRoutedLeaderResponseMessage(target, unproven)).toMatchObject({ reason: "unproven_observation" });
 
+    // A tool call before the prose: the prose answers nothing the user saw yet.
     const toolBearing = routedAssistant("tool-bearing", "Answer.", ["u1"], 1);
-    toolBearing.message.content.push({ type: "tool_use", id: "tool", name: "Bash", input: { command: "true" } });
+    toolBearing.message.content.unshift({ type: "tool_use", id: "tool", name: "Bash", input: { command: "true" } });
     target.messageHistory.push(toolBearing);
     expect(finalizeRoutedLeaderResponseMessage(target, toolBearing)).toMatchObject({ reason: "invalid_message" });
 
@@ -1194,6 +1195,21 @@ describe("explicit routed leader answers", () => {
     const detached = routedAssistant("detached", "Detached answer.", ["u1"], 1);
     expect(finalizeRoutedLeaderResponseMessage(target, detached)).toMatchObject({ reason: "invalid_message" });
     expect(buildLeaderThreadResponseState(target, "main").projection.pendingMessageCount).toBe(1);
+  });
+
+  it("accepts an answer whose message goes on to make tool calls, as Codex's separate items are", () => {
+    // Jiayi (Nov 3): a Claude leader wrote a result marked as an answer, then called
+    // `takode notify` in the same response. Claude sends both in one message, so the answer was
+    // rejected and folded away with the turn's activity, while Codex sends them as two items and
+    // the same answer counted.
+    const target = session();
+    target.messageHistory.push(human("u1", 1));
+    const answer = routedAssistant("answer-then-tool", "The prototype is built and ready for review.", ["u1"], 1);
+    answer.message.content.push({ type: "tool_use", id: "tool", name: "Bash", input: { command: "takode notify" } });
+    target.messageHistory.push(answer);
+
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: true });
+    expect(buildLeaderThreadResponseState(target, "main").projection.pendingMessageCount).toBe(0);
   });
 
   it("rejects a Quiz-only answer while allowing a Quiz beside substantive prose", () => {

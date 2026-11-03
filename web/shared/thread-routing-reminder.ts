@@ -241,6 +241,24 @@ export function buildThreadRoutingReminderContent(input: ThreadRoutingReminderIn
   ].join("\n");
 }
 
+/**
+ * Tells a leader that its newest message in a thread is commentary carrying a result the user should
+ * read, which the user's feed folds away (before a later final message, or under Ready).
+ */
+export function buildFoldedResultReminderContent(
+  results: ReadonlyArray<{ threadKey: string; signals: string[] }>,
+): string {
+  const lines = results.map(
+    ({ threadKey, signals }) => `- ${formatThreadLabel(threadKey)}: commentary with ${signals.join(", ")}.`,
+  );
+  return [
+    THREAD_ROUTING_REMINDER_HEADER,
+    "Results posted as commentary will be folded away. The user's feed hides a thread's commentary before its newest answer and under Thread Ready, so they may never see these:",
+    ...lines,
+    "If the user should read it (a result, a draft, a screenshot, a table), post it again as an answer: `[thread:q-N:A:u1]` for the request it settles, or `[thread:q-N:A]` for a new result nobody asked for. If it was only progress, leave it.",
+  ].join("\n");
+}
+
 export function isThreadRoutingReminderContent(content: string): boolean {
   return content.split(/\r?\n/, 1)[0]?.trim() === THREAD_ROUTING_REMINDER_HEADER;
 }

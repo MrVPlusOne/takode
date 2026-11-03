@@ -20,6 +20,7 @@ import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDurat
 import { PLAYGROUND_SESSION_ROWS } from "./fixtures.js";
 import { getPlaygroundSectionId, type PlaygroundSectionGroupId } from "./navigation.js";
 import {
+  buildFoldedResultReminderContent,
   THREAD_ROUTING_REMINDER_SOURCE_ID,
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
 } from "../../../shared/thread-routing-reminder.js";
@@ -1253,16 +1254,18 @@ export function PlaygroundNeedsInputResolutionNoticeMessage() {
   return <MessageBubble message={message} sessionId="playground-needs-input-resolution-notice" showTimestamp={false} />;
 }
 
-export function PlaygroundThreadRoutingReminderMessage() {
+export function PlaygroundThreadRoutingReminderMessage({ folded = false }: { folded?: boolean }) {
   const message: ChatMessage = {
-    id: "playground-thread-routing-reminder-msg",
+    id: `playground-thread-routing-reminder-msg${folded ? "-folded" : ""}`,
     role: "user",
-    content: [
-      "[Thread routing reminder]",
-      "Missing thread marker. Your previous leader response was not assigned to a thread.",
-      "Resend user-visible leader text with `[thread:main]` or `[thread:q-N]` as the first line.",
-      "For leader shell commands, put `# thread:main` or `# thread:q-N` as the first non-empty command line.",
-    ].join("\n"),
+    content: folded
+      ? buildFoldedResultReminderContent([{ threadKey: "q-970", signals: ["a draft", "images"] }])
+      : [
+          "[Thread routing reminder]",
+          "Missing thread marker. Your previous leader response was not assigned to a thread.",
+          "Resend user-visible leader text with `[thread:main]` or `[thread:q-N]` as the first line.",
+          "For leader shell commands, put `# thread:main` or `# thread:q-N` as the first non-empty command line.",
+        ].join("\n"),
     timestamp: Date.now() - 20_000,
     agentSource: {
       sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,

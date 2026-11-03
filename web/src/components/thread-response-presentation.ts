@@ -82,6 +82,18 @@ export function collapsedResponseEntry(
   };
 }
 
+/**
+ * An answer as its collapsed card shows it: its prose, without the tool calls the same message went on
+ * to make (Claude sends both in one message). Those calls are the turn's activity, counted in its summary.
+ */
+function answerWithoutToolCalls(
+  entry: Extract<FeedEntry, { kind: "message" }>,
+): Extract<FeedEntry, { kind: "message" }> {
+  const blocks = entry.msg.contentBlocks;
+  if (!blocks?.some((block) => block.type === "tool_use")) return entry;
+  return { ...entry, msg: { ...entry.msg, contentBlocks: blocks.filter((block) => block.type !== "tool_use") } };
+}
+
 function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
@@ -410,7 +422,7 @@ export function resolveThreadResponses(
       response,
       sourceTurnId: located.turnId,
       messageEntry: located.entry,
-      collapsedMessageEntry: collapsedResponseEntry(located.entry),
+      collapsedMessageEntry: answerWithoutToolCalls(collapsedResponseEntry(located.entry)),
       referencedUserMessages: referencedAnchors.map((anchor) => {
         const attachmentCount = Math.max(anchor!.message.images?.length ?? 0, anchor!.message.localImages?.length ?? 0);
         const annotations = anchor!.message.metadata?.annotations;

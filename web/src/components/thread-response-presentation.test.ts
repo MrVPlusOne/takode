@@ -214,10 +214,8 @@ describe("explicit answer presentation", () => {
       { type: "tool_use", id: "preserved-tool", name: "Read", input: { file_path: "README.md" } },
     ]);
     expect(presented?.collapsedMessageEntry.msg.content).toBe("Block-only answer");
-    expect(presented?.collapsedMessageEntry.msg.contentBlocks).toEqual([
-      { type: "text", text: "Block-only answer" },
-      { type: "tool_use", id: "preserved-tool", name: "Read", input: { file_path: "README.md" } },
-    ]);
+    // The collapsed card shows the answer's prose; the tool call it went on to make is activity.
+    expect(presented?.collapsedMessageEntry.msg.contentBlocks).toEqual([{ type: "text", text: "Block-only answer" }]);
     expect(result?.quizGroups).toEqual([{ hostTurnId: "raw-u3", questIds: ["q-2024"] }]);
   });
 

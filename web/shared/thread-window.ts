@@ -6,6 +6,7 @@ import type {
   LeaderThreadResponseProjection,
 } from "../server/session-types.js";
 import {
+  isLeaderAnswerContent,
   leaderResponseAnswerOwnerThreadKeys,
   leaderResponseExactAnswerThreadKey,
   leaderResponseMessageIsAssociatedWithThread,
@@ -583,7 +584,7 @@ function addCurrentThreadResponseSupport(
         ? message.id
         : message?.type === "assistant" &&
             message.parent_tool_use_id === null &&
-            !message.message.content.some((block) => block.type === "tool_use" || block.type === "tool_result")
+            isLeaderAnswerContent(message.message.content)
           ? message.message.id
           : null;
     const explicitProof =

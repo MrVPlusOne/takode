@@ -19,6 +19,7 @@ import {
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
 import {
+  buildFoldedResultReminderContent,
   buildThreadRoutingReminderContent,
   isLeaderAnswerRouteDiagnostic,
   THREAD_ROUTING_REMINDER_SOURCE_ID,
@@ -32,6 +33,7 @@ import type {
   LeaderThreadOutcomeReminderGuardTarget,
 } from "../leader-thread-response-types.js";
 import { clearLeaderReadyStatusesBlockedByNeedsInput } from "./thread-routing-reminder.js";
+import { findFoldedResults } from "./folded-result-check.js";
 
 export const THREAD_RESPONSE_REMINDER_SOURCE_ID = THREAD_OUTCOME_REMINDER_SOURCE_ID;
 export const THREAD_RESPONSE_REMINDER_SOURCE_LABEL = THREAD_OUTCOME_REMINDER_SOURCE_LABEL;
@@ -253,8 +255,23 @@ function checkLeaderThreadOutcomes(
 
   if (pendingResponseMissing.length === 0 && outcomeMissing.length === 0) {
     clearPendingRejectedReadyThreadKeys(session, deferredRejectedReadyThreadKeys);
+    // Every thread has its outcome; a result left as commentary would still fold out of sight.
+    const folded = findFoldedResults(history, startIndex, session.state?.leaderThreadStatuses);
+    const delivery =
+      folded.length > 0
+        ? deps.injectUserMessage(
+            session.id,
+            buildFoldedResultReminderContent(folded),
+            { sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID, sessionLabel: THREAD_ROUTING_REMINDER_SOURCE_LABEL },
+            threadRouteForTarget(folded[0]!.threadKey),
+          )
+        : null;
     deps.persistSession?.(session);
-    return { checked: true, missing: [], injected: false };
+    return {
+      checked: true,
+      missing: [],
+      injected: delivery !== null && delivery !== "dropped" && delivery !== "no_session",
+    };
   }
 
   const primary = pendingResponseMissing[0] ?? outcomeMissing[0]!;

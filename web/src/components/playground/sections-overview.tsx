@@ -698,6 +698,9 @@ export function PlaygroundOverviewSections() {
           <Card label="Thread-routing reminder">
             <PlaygroundThreadRoutingReminderMessage />
           </Card>
+          <Card label="Thread-routing reminder (result left as commentary)">
+            <PlaygroundThreadRoutingReminderMessage folded />
+          </Card>
           <Card label="Leader message rejected for a bad thread tag (collapsed)">
             <PlaygroundRejectedRouteLeaderMessage />
           </Card>

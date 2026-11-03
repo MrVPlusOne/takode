@@ -230,3 +230,18 @@ export function leaderResponseMessageIsAssociatedWithThread(
   const threadKey = validThreadKey(requestedThreadKey);
   return threadKey !== null && leaderResponseAssociatedThreadKeys(fields).includes(threadKey);
 }
+
+/**
+ * Whether a leader message's content can be an answer: its prose, then optionally the tool calls the
+ * same message goes on to make. Claude sends the text before a tool call and the call in one message,
+ * Codex in two; both are the same answer. Tool calls before the prose, or tool results, are not.
+ */
+export function isLeaderAnswerContent(content: ReadonlyArray<{ type: string; text?: string }>): boolean {
+  let sawToolCall = false;
+  for (const block of content) {
+    if (block.type === "tool_result") return false;
+    if (block.type === "tool_use") sawToolCall = true;
+    else if (block.type === "text" && sawToolCall && (block.text ?? "").trim()) return false;
+  }
+  return true;
+}
