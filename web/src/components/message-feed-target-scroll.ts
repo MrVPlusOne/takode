@@ -71,7 +71,7 @@ export function scrollMessageFeedTargetIntoView({
   const range =
     editor?.navigateToSource &&
     editor.sessionId === sessionId &&
-    editor.threadKey === threadKey &&
+    (editor.source?.threadKey ?? editor.threadKey) === threadKey &&
     editor.annotation.sourceMessageId === targetMessageId
       ? resolveAnnotationRange(target, editor.annotation)
       : null;

@@ -25,6 +25,8 @@ import {
   wantsSideClick,
 } from "./side-column.js";
 import { useTopicPanel } from "./topic-panel.js";
+import { navigateToSessionMessageId } from "./routing.js";
+import { sideConversationFeedKey } from "../components/secondary-feed.js";
 import { isRememberedFolded, resetRememberedFoldsForTest, setRememberedFolded } from "./remembered-folds.js";
 import { markLeaderThreadDisplayed } from "./thread-viewport.js";
 
@@ -321,6 +323,31 @@ describe("opening in the side", () => {
     expect(handleOpenInSideClick(noSide, () => false, plain)).toBe(true);
     expect(noSide.preventDefault).toHaveBeenCalled();
     expect(plain).toHaveBeenCalledOnce();
+  });
+
+  it("jumps a message link clicked in a side pane in that pane when the pane shows the message's thread", () => {
+    // Jiayi (Nov 2): side panes and the main view behave the same. A link in a side pane to one of
+    // the pane's own messages used to move the main view instead.
+    vi.useFakeTimers();
+    const hash = window.location.hash;
+    try {
+      const pane = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+      const click = (shiftKey: boolean) => ({ shiftKey, altKey: false, metaKey: false, ctrlKey: false });
+      notePaneClick(pane, click(false));
+      navigateToSessionMessageId("l1", "m-1", { threadKey: "q-2" });
+      expect(useStore.getState().scrollToMessageFeed.get("l1")).toBe(sideConversationFeedKey("l1", "q-2"));
+      expect(window.location.hash).toBe(hash);
+      // A link to another thread, or the open-in-side click, goes to the main view.
+      notePaneClick(pane, click(false));
+      navigateToSessionMessageId("l1", "m-2", { threadKey: "q-3" });
+      expect(useStore.getState().scrollToMessageFeed.has("l1")).toBe(false);
+      notePaneClick(pane, click(true));
+      navigateToSessionMessageId("l1", "m-3", { threadKey: "q-2" });
+      expect(useStore.getState().scrollToMessageFeed.has("l1")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      window.location.hash = hash;
+    }
   });
 
   it("opens a link clicked in a side pane in that pane, and the open-in-side click in the main view", () => {

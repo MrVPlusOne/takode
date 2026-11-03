@@ -13,7 +13,7 @@ import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { ComposerFeedLayout } from "../ComposerFeedLayout.js";
 import { Composer } from "../Composer.js";
 import { MessageFeed } from "../MessageFeed.js";
-import { SecondaryFeedContext } from "../secondary-feed.js";
+import { SecondaryFeedContext, sideConversationFeedKey } from "../secondary-feed.js";
 import { ComposerTargetContext } from "../composer-target.js";
 import { StartedQuestsProvider } from "../QuestForkLinks.js";
 import { navigateToSessionThread } from "../../utils/routing.js";
@@ -82,7 +82,7 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
   const questRow = useLeaderQuestThreadRow(leaderId, key);
   const draftKey = sideComposerDraftKey(leaderId, key);
   return (
-    <SecondaryFeedContext.Provider value={true}>
+    <SecondaryFeedContext.Provider value={sideConversationFeedKey(leaderId, key)}>
       {/* What the feed adds to a draft (comments, reply quotes) goes to this conversation's composer. */}
       <ComposerTargetContext.Provider value={draftKey}>
         <ComposerFeedLayout>

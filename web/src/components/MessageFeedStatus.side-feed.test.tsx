@@ -21,7 +21,7 @@ describe("FeedStatusPill session chips", () => {
 
   it("leaves them out of a feed in the side column", () => {
     render(
-      <SecondaryFeedContext.Provider value>
+      <SecondaryFeedContext.Provider value="side-feed">
         <FeedStatusPill sessionId="s1" currentThreadKey="q-2" />
       </SecondaryFeedContext.Provider>,
     );

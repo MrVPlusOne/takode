@@ -3,6 +3,7 @@ import { useComposerTypeToCompose } from "./use-composer-type-to-compose.js";
 import { useChatFocused, useChatFocusId } from "../utils/chat-focus.js";
 import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
+import { editsHere } from "./annotation-editor-target.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
 import { addTranscriptionTag } from "../../shared/transcription-tag.js";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
@@ -152,7 +153,8 @@ export function Composer({
   const text = draft?.text ?? "";
   const images = draft?.images ?? EMPTY_COMPOSER_IMAGES;
   const annotations = draft?.annotations;
-  const annotationEditorOpen = useStore((state) => state.annotationEditor?.sessionId === sessionId);
+  // Only a comment this composer shows (or is opening) holds back its Send.
+  const annotationEditorOpen = useStore((state) => editsHere(state.annotationEditor, sessionId, draftKey, threadKey));
   const setText = useCallback(
     (t: string | ((prev: string) => string)) => {
       const store = useStore.getState();

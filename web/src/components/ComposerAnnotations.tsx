@@ -3,26 +3,7 @@ import { useEffect } from "react";
 import { useStore } from "../store.js";
 import { AnnotationAttachments } from "./AnnotationAttachments.js";
 import { AnnotationEditor } from "./AnnotationEditor.js";
-import type { AnnotationEditorState } from "../types.js";
-
-/**
- * Whether a composer shows the comment being edited: one for its own draft (a comment made in a side
- * chat goes to the side chat's composer, one made in the main feed to the main one), in its thread
- * when the editor names one.
- */
-export function editsHere(
-  editor: AnnotationEditorState | null,
-  sessionId: string,
-  draftKey: string,
-  threadKey: string,
-): editor is AnnotationEditorState {
-  return (
-    !!editor &&
-    editor.sessionId === sessionId &&
-    (editor.draftKey ?? sessionId) === draftKey &&
-    (!editor.threadKey || editor.threadKey === threadKey)
-  );
-}
+import { editsHere } from "./annotation-editor-target.js";
 
 export function ComposerAnnotations({
   sessionId,
@@ -71,7 +52,14 @@ export function ComposerAnnotations({
       />
       {activeEditor?.navigateToSource && (
         <p role="status" className="text-xs text-cc-muted">
-          Opening comment at its source…
+          Opening comment at its source…{" "}
+          <button
+            type="button"
+            className="underline hover:text-cc-fg"
+            onClick={() => useStore.getState().setAnnotationEditor(null)}
+          >
+            Cancel
+          </button>
         </p>
       )}
       {activeEditor && !activeEditor.navigateToSource && !disabled && (

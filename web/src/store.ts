@@ -227,6 +227,7 @@ export const useStore = create<AppState>((set, get) => ({
   sessionSearch: new Map(),
   scrollToTurnId: new Map(),
   scrollToMessageId: new Map(),
+  scrollToMessageFeed: new Map(),
   scrollToMessageLanding: new Map(),
   expandAllInTurn: new Map(),
   pendingScrollToMessageIndex: new Map(),
@@ -1148,16 +1149,19 @@ export const useStore = create<AppState>((set, get) => ({
       return { scrollToTurnId };
     }),
 
-  requestScrollToMessage: (sessionId, messageId) =>
+  requestScrollToMessage: (sessionId, messageId, feedKey = null) =>
     set((s) => {
       const scrollToMessageId = new Map(s.scrollToMessageId);
       scrollToMessageId.set(sessionId, messageId);
+      const scrollToMessageFeed = new Map(s.scrollToMessageFeed);
+      if (feedKey) scrollToMessageFeed.set(sessionId, feedKey);
+      else scrollToMessageFeed.delete(sessionId);
       // A jump to another message ends the landing; one to the same message keeps it.
       const landing = s.scrollToMessageLanding.get(sessionId);
-      if (!landing || landing.messageId === messageId) return { scrollToMessageId };
+      if (!landing || landing.messageId === messageId) return { scrollToMessageId, scrollToMessageFeed };
       const scrollToMessageLanding = new Map(s.scrollToMessageLanding);
       scrollToMessageLanding.delete(sessionId);
-      return { scrollToMessageId, scrollToMessageLanding };
+      return { scrollToMessageId, scrollToMessageFeed, scrollToMessageLanding };
     }),
 
   setScrollToMessageLanding: (sessionId, messageId, landing) =>
@@ -1171,7 +1175,9 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => {
       const scrollToMessageId = new Map(s.scrollToMessageId);
       scrollToMessageId.delete(sessionId);
-      return { scrollToMessageId };
+      const scrollToMessageFeed = new Map(s.scrollToMessageFeed);
+      scrollToMessageFeed.delete(sessionId);
+      return { scrollToMessageId, scrollToMessageFeed };
     }),
 
   setExpandAllInTurn: (sessionId, messageId) =>
@@ -1772,6 +1778,7 @@ export const useStore = create<AppState>((set, get) => ({
       sessionSearch: new Map(),
       scrollToTurnId: new Map(),
       scrollToMessageId: new Map(),
+      scrollToMessageFeed: new Map(),
       scrollToMessageLanding: new Map(),
       expandAllInTurn: new Map(),
       pendingScrollToMessageIndex: new Map(),

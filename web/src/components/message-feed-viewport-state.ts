@@ -7,7 +7,7 @@ import {
   restorableViewportPosition,
   type FeedEntry,
 } from "../utils/thread-viewport.js";
-import { useSecondaryFeed } from "./secondary-feed.js";
+import { useFeedKey } from "./secondary-feed.js";
 import { noteViewportDeliberateActivity } from "../utils/viewport-handoff-client.js";
 import { retireSessionMessageRoute } from "../utils/routing.js";
 import { isRecentFeedPlace, noteFeedPlaceShown } from "../utils/recent-feed-places.js";
@@ -141,7 +141,8 @@ export function useFeedPlace(
   normalizedThreadKey: string,
   isLeaderSession: boolean,
 ) {
-  const secondary = useSecondaryFeed();
+  const feedKey = useFeedKey();
+  const secondary = feedKey !== null;
   const ownsLeaderPlace = isLeaderSession && !secondary;
   const viewportKey = useMemo(
     () => `${getFeedViewportKey(sessionId, threadKey)}${secondary ? ":side" : ""}`,
@@ -159,7 +160,7 @@ export function useFeedPlace(
       }),
     [feedEntry, normalizedThreadKey, ownsLeaderPlace, sessionId, viewportKey],
   );
-  return { secondary, ownsLeaderPlace, viewportKey, feedEntry, readSaved };
+  return { secondary, feedKey, ownsLeaderPlace, viewportKey, feedEntry, readSaved };
 }
 
 /**

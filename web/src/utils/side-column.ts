@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { setTopicPanelOpen, setTopicSheetOpen } from "./topic-panel.js";
 import { readDisplayedLeaderThreadKey } from "./thread-viewport.js";
-import { ALL_THREADS_KEY } from "./thread-projection.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY } from "./thread-projection.js";
 import { useStore } from "../store.js";
 import { platformIsMac } from "../shortcuts.js";
 import type { OpenInSideModifier } from "../../shared/shortcut-settings.js";
@@ -10,6 +10,8 @@ import { isNewWindowClick, openArtifactWindow } from "./artifact-window.js";
 import { setLocalStorageItem } from "./scoped-storage.js";
 import { isRememberedFolded, setRememberedFolded } from "./remembered-folds.js";
 import { mergeSectionHeights } from "../components/StackedPanes.js";
+import { sideConversationFeedKey, sideSessionFeedKey } from "../components/secondary-feed.js";
+import { noteClickedPaneFeed, type ClickedPaneFeed } from "./pane-jump.js";
 
 /**
  * What the side column holds besides the topic page it follows: things the user put there to keep
@@ -417,6 +419,8 @@ let paneClick: { itemId: string | null; event: OpenInSideEvent } | null = null;
 export function notePaneClick(itemId: string | null, event: OpenInSideEvent): void {
   const click = { itemId, event: { ...pickModifiers(event) } };
   paneClick = click;
+  // A plain click there jumps to the pane's own messages in the pane (`navigateToSessionMessageId`).
+  noteClickedPaneFeed(isOpenInSideClick(event) ? null : paneFeedOf(itemId));
   setTimeout(() => {
     if (paneClick === click) paneClick = null;
   }, 0);
@@ -428,6 +432,19 @@ export function notePaneClick(itemId: string | null, event: OpenInSideEvent): vo
  */
 export function wantsSideClick(event: OpenInSideEvent | undefined = paneClick?.event): boolean {
   return paneClick ? !isOpenInSideClick(event) : isOpenInSideClick(event);
+}
+
+/** The feed of a side column item that shows a conversation, for jumps to its messages. */
+function paneFeedOf(itemId: string | null): ClickedPaneFeed | null {
+  const item = useSideColumnStore.getState().items.find((entry) => entry.id === itemId);
+  if (item?.kind === "conversation") {
+    const threadKey = item.threadKey.toLowerCase();
+    return { sessionId: item.leaderId, threadKey, feedKey: sideConversationFeedKey(item.leaderId, threadKey) };
+  }
+  if (item?.kind === "session") {
+    return { sessionId: item.sessionId, threadKey: MAIN_THREAD_KEY, feedKey: sideSessionFeedKey(item.sessionId) };
+  }
+  return null;
 }
 
 /** Whether the click being handled was made in a side column's pane. */

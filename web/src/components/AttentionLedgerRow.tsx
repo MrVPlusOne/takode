@@ -1,3 +1,4 @@
+import { useFeedKey } from "./secondary-feed.js";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
@@ -46,6 +47,7 @@ export function AttentionLedgerRow({
   const isNonActionEvent = record.type === "quest_journey_started" || isThreadCreated;
   const targetThread = normalizeThreadKey(record.route.threadKey || record.threadKey || MAIN_THREAD_KEY);
   const [movementDetailsOpen, setMovementDetailsOpen] = useState(false);
+  const feedKey = useFeedKey();
 
   const openRoute = useCallback(() => {
     const selectedThread = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
@@ -53,7 +55,8 @@ export function AttentionLedgerRow({
     const scrollToRouteTarget = () => {
       if (!record.route.messageId) return;
       const store = useStore.getState();
-      store.requestScrollToMessage(sessionId, record.route.messageId);
+      // A row in a side pane jumps in that pane when it names the pane's own thread.
+      store.requestScrollToMessage(sessionId, record.route.messageId, shouldSelectThread ? null : feedKey);
       store.setExpandAllInTurn(sessionId, record.route.messageId);
     };
 
@@ -64,7 +67,7 @@ export function AttentionLedgerRow({
     }
 
     scrollToRouteTarget();
-  }, [currentThreadKey, onSelectThread, record.route.messageId, sessionId, targetThread]);
+  }, [currentThreadKey, feedKey, onSelectThread, record.route.messageId, sessionId, targetThread]);
 
   const statusClasses = isJourneyFinished
     ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-50 shadow-[inset_0_1px_0_rgba(110,231,183,0.10)]"

@@ -184,6 +184,7 @@ export function MessageFeed({
     isLeaderSession && !isMainThreadKey(normalizedThreadKey) && !isAllThreadsKey(normalizedThreadKey);
   const {
     secondary,
+    feedKey,
     ownsLeaderPlace,
     viewportKey,
     feedEntry,
@@ -217,9 +218,11 @@ export function MessageFeed({
     selectedFeedWindowEnabled &&
     selectedFeedWindow !== null &&
     selectedThreadWindowRevision < threadWindowRefreshRevision;
-  // Jumps and route targets name the main feed's messages; a feed beside it leaves them alone.
-  const scrollToMessageId = useStore((s) => (secondary ? undefined : s.scrollToMessageId.get(sessionId)));
-  const scrollLanding = useStore((s) => (secondary ? undefined : s.scrollToMessageLanding?.get(sessionId)));
+  // A jump names the feed it is for: the main feed, or one side pane. Route targets and turn jumps
+  // are the main feed's.
+  const jumpIsHere = useStore((s) => (s.scrollToMessageFeed?.get(sessionId) ?? null) === feedKey);
+  const scrollToMessageId = useStore((s) => (jumpIsHere ? s.scrollToMessageId.get(sessionId) : undefined));
+  const scrollLanding = useStore((s) => (jumpIsHere ? s.scrollToMessageLanding?.get(sessionId) : undefined));
   const scrollToTurnId = useStore((s) => (secondary ? undefined : s.scrollToTurnId.get(sessionId)));
   const pendingScrollToMessageId = useStore((s) =>
     secondary ? undefined : s.pendingScrollToMessageId?.get(sessionId),
@@ -1554,8 +1557,8 @@ export function MessageFeed({
       notedDeliberateMessageTargetRef.current = null;
       return;
     }
-    if (routeLeavesFeed(sessionId, normalizedThreadKey)) return; // the feed the route opens takes it
-    if (notedDeliberateMessageTargetRef.current !== scrollToMessageId) {
+    if (!secondary && routeLeavesFeed(sessionId, normalizedThreadKey)) return; // the feed the route opens takes it
+    if (!secondary && notedDeliberateMessageTargetRef.current !== scrollToMessageId) {
       notedDeliberateMessageTargetRef.current = scrollToMessageId;
       noteViewportDeliberateActivity(sessionId, normalizedThreadKey);
     }
@@ -1864,6 +1867,7 @@ export function MessageFeed({
           data-testid="message-feed-scroll-container"
           data-feed-session-id={sessionId}
           data-feed-thread-key={normalizedThreadKey}
+          data-feed-key={feedKey ?? undefined}
           data-feed-has-newer={hasNewerSections ? "true" : undefined}
           className="message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
           // Quest chips float at the top: the feed starts below them, so its first line stays clear.

@@ -6,6 +6,7 @@ import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey, threadViewShows }
 import type { QuestLinkTarget } from "./quest-link-target.js";
 import { parseArtifactWindowHash } from "./artifact-window.js";
 import { threadDestinationOf, threadForMessagesOf } from "./leader-topics.js";
+import { clickedPaneFeedFor } from "./pane-jump.js";
 
 export type Route =
   | { page: "home" }
@@ -561,6 +562,15 @@ export function navigateToSessionMessageId(
 ): void {
   const { replace = false, routeSessionId = sessionId, preserveMainThreadRoute = false, landing } = options;
   const threadKey = options.threadKey && threadForMessagesOf(sessionId, options.threadKey);
+  // A link clicked in a side pane to one of the pane's messages jumps in that pane; the main view stays.
+  const paneFeed = clickedPaneFeedFor(sessionId, messageId, threadKey);
+  if (paneFeed) {
+    const store = useStore.getState();
+    store.requestScrollToMessage(sessionId, messageId, paneFeed);
+    if (landing) store.setScrollToMessageLanding(sessionId, messageId, landing);
+    store.setExpandAllInTurn(sessionId, messageId);
+    return;
+  }
   const newHash = sessionMessageIdHash(routeSessionId, messageId, threadKey, preserveMainThreadRoute);
   if (replace) {
     history.replaceState(null, "", newHash);

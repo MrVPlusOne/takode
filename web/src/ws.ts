@@ -95,7 +95,7 @@ function getInitialLeaderThreadWindow(
     recent: isRecentFeedPlace(getFeedViewportKey(sessionId, threadKey)),
   });
   const targetMessageId =
-    store.scrollToMessageId.get(sessionId) ??
+    (store.scrollToMessageFeed.has(sessionId) ? null : store.scrollToMessageId.get(sessionId)) ??
     store.pendingScrollToMessageId.get(sessionId) ??
     (routeMatchesSession ? messageIdFromHash(window.location.hash) : null) ??
     (savedViewport?.isAtBottom ? null : (savedViewport?.anchorMessageId ?? savedViewport?.anchorTurnId ?? null));

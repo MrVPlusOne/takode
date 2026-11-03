@@ -419,6 +419,8 @@ export interface AnnotationEditorState {
   /** The composer the comment goes to, by its draft key (see ComposerTargetContext); unset: any of the session's. */
   draftKey?: string;
   navigateToSource?: boolean;
+  /** Where the jump to the comment's source goes, when it isn't this composer's own feed: a feed by its key (null: the main feed) and thread. */
+  source?: { feedKey: string | null; threadKey: string };
   sourceUnavailable?: boolean;
   sessionId: string;
   annotation: ConversationAnnotation;

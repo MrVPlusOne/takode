@@ -85,7 +85,9 @@ vi.mock("../store.js", () => {
       scrollToTurnId: mockStoreValues.scrollToTurnId ?? new Map(),
       clearScrollToTurn: mockClearScrollToTurn,
       scrollToMessageId: mockStoreValues.scrollToMessageId ?? new Map(),
+      scrollToMessageFeed: mockStoreValues.scrollToMessageFeed ?? new Map(),
       clearScrollToMessage: mockClearScrollToMessage,
+      clearPendingScrollToMessageId: vi.fn(),
       expandAllInTurn: mockStoreValues.expandAllInTurn ?? new Map(),
       clearExpandAllInTurn: vi.fn(),
       bottomAlignNextUserMessage: mockStoreValues.bottomAlignNextUserMessage ?? new Set(),
@@ -346,10 +348,11 @@ function setStoreScrollToTurn(sessionId: string, turnId: string) {
   mockStoreValues.scrollToTurnId = map;
 }
 
-function setStoreScrollToMessage(sessionId: string, messageId: string) {
+function setStoreScrollToMessage(sessionId: string, messageId: string, feedKey?: string) {
   const map = new Map();
   map.set(sessionId, messageId);
   mockStoreValues.scrollToMessageId = map;
+  mockStoreValues.scrollToMessageFeed = new Map(feedKey ? [[sessionId, feedKey]] : []);
 }
 
 function setStoreBottomAlignNextUserMessage(sessionId: string, enabled = true) {
@@ -388,6 +391,7 @@ function resetStore() {
   mockStoreValues.backgroundAgentNotifs = new Map();
   mockStoreValues.scrollToTurnId = new Map();
   mockStoreValues.scrollToMessageId = new Map();
+  mockStoreValues.scrollToMessageFeed = new Map();
   mockStoreValues.expandAllInTurn = new Map();
   mockStoreValues.bottomAlignNextUserMessage = new Set();
   mockStoreValues.sessionTaskHistory = new Map();
@@ -1906,7 +1910,7 @@ describe("MessageFeed - scroll behavior", () => {
     ]);
     render(<MessageFeed sessionId={sid} />);
     const side = render(
-      <SecondaryFeedContext.Provider value>
+      <SecondaryFeedContext.Provider value="side-feed">
         <MessageFeed sessionId={sid} />
       </SecondaryFeedContext.Provider>,
     );
@@ -1918,5 +1922,25 @@ describe("MessageFeed - scroll behavior", () => {
     mockSetFeedScrollPosition.mockClear();
     side.unmount();
     expect(mockSetFeedScrollPosition.mock.calls.map(([key]) => key)).toEqual([`${getFeedViewportKey(sid)}:side`]);
+  });
+
+  it("lands a jump in the feed it names: a side pane's in that pane, the main feed's in the main feed", () => {
+    // Jiayi (Nov 2): a comment chip in a side pane did nothing. Its jump went to the main feed,
+    // which was showing another conversation, while every side pane ignored jumps.
+    const sid = "test-side-feed-jump";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First request" }),
+      makeMessage({ id: "a1", role: "assistant", content: "First result" }),
+    ]);
+    setStoreScrollToMessage(sid, "a1", "side-feed");
+    const main = render(<MessageFeed sessionId={sid} />);
+    expect(mockClearScrollToMessage).not.toHaveBeenCalled();
+    main.unmount();
+    render(
+      <SecondaryFeedContext.Provider value="side-feed">
+        <MessageFeed sessionId={sid} />
+      </SecondaryFeedContext.Provider>,
+    );
+    expect(mockClearScrollToMessage).toHaveBeenCalledWith(sid);
   });
 });

@@ -134,6 +134,8 @@ export interface AppState {
   sessionSearch: Map<string, SessionSearchState>;
   scrollToTurnId: Map<string, string | null>;
   scrollToMessageId: Map<string, string | null>;
+  /** The side feed a session's pending jump is for (`secondary-feed.ts`); absent: the main feed. */
+  scrollToMessageFeed: Map<string, string>;
   /**
    * Where the latest jump to a message lands instead of that message. It outlives the jump, so
    * later requests for the same message (the route's own scroll, a deep link waiting for
@@ -383,7 +385,8 @@ export interface AppState {
   setSessionKeywords: (sessionId: string, keywords: string[]) => void;
   requestScrollToTurn: (sessionId: string, turnId: string) => void;
   clearScrollToTurn: (sessionId: string) => void;
-  requestScrollToMessage: (sessionId: string, messageId: string) => void;
+  /** Jump to a message: in the side feed named by `feedKey` (a side pane), else in the main feed. */
+  requestScrollToMessage: (sessionId: string, messageId: string, feedKey?: string | null) => void;
   /** Make jumps to `messageId` land on `landing`; call after requesting the jump. */
   setScrollToMessageLanding: (sessionId: string, messageId: string, landing: MessageJumpLanding) => void;
   clearScrollToMessage: (sessionId: string) => void;
