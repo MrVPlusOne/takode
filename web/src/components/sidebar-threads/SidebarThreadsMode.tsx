@@ -31,6 +31,7 @@ import { listedSpaces, useAnchoredPopover } from "../RecentSessionList.js";
 import { StatusCountDots } from "../SessionItem.js";
 import { StackedPanes } from "../StackedPanes.js";
 import type { ThreadGroupId } from "../ThreadTabGroups.js";
+import { ThreadHoverCard, useThreadHoverCard } from "./ThreadHoverCard.js";
 
 /**
  * The sessions panel's Threads view: every leader's threads (quest threads and its other threads, as
@@ -73,6 +74,10 @@ export interface ThreadRow {
   at: number;
   /** Its own latest activity, for its "Updated" label and between rows the user never dealt with. */
   activityAt: number;
+  /** The newest question waiting for the user there, for its hover card. */
+  question?: string;
+  /** A quest thread's tab in its leader's status row: its phase and worker, for its hover card. */
+  tab?: LeaderThreadTabsProjectionTab;
 }
 
 /** The Idle rows shown before "N older". */
@@ -123,12 +128,16 @@ function leaderThreadRows(
     permissionAt: attention.get(threadKey)?.permissionAt ?? 0,
     unreadAt: attention.get(threadKey)?.unreadAt ?? 0,
   });
-  const row = (input: Omit<ThreadRow, "key" | "leader" | "group">): ThreadRow => ({
-    ...input,
-    key: `${leaderId}:${input.threadKey}`,
-    leader: node,
-    group: groupOf(input.counts),
-  });
+  const row = (input: Omit<ThreadRow, "key" | "leader" | "group">): ThreadRow => {
+    const question = attention.get(input.threadKey === ALL_THREADS_KEY ? MAIN_THREAD_KEY : input.threadKey)?.question;
+    return {
+      ...input,
+      key: `${leaderId}:${input.threadKey}`,
+      leader: node,
+      group: groupOf(input.counts),
+      ...(question ? { question } : {}),
+    };
+  };
   for (const tab of tabs) {
     const threadKey = normalizeThreadKey(tab.threadKey);
     const running = !!tab.questId && runningQuestIds.includes(normalizeThreadKey(tab.questId));
@@ -140,6 +149,7 @@ function leaderThreadRows(
         counts: counts(threadKey, running),
         at: userInteractionAt[threadKey] ?? 0,
         activityAt: tab.groupChangedAt || tab.updatedAt,
+        tab,
       }),
     );
   }
@@ -230,19 +240,22 @@ function attentionByThread(
   ownThreads: ReadonlySet<string>,
 ): Map<string, ThreadAttention> {
   const byThread = new Map<string, ThreadAttention>();
-  const add = (threadKey: string, kind: "permission" | "unread", at: number) => {
+  const add = (threadKey: string, kind: "permission" | "unread", at: number, question?: string) => {
     const entry = byThread.get(threadKey) ?? { permission: 0, unread: 0, permissionAt: 0, unreadAt: 0 };
     entry[kind]++;
+    if (question && at >= entry.permissionAt) entry.question = question;
     entry[`${kind}At`] = Math.max(entry[`${kind}At`], at);
     byThread.set(threadKey, entry);
   };
   for (const item of queue) {
     if (item.kind === "needs-input") {
       const quest = questOf(item.entry);
+      const { notification } = item.entry;
+      const question = notification.questions?.[0]?.prompt ?? notification.summary;
       if (item.sessionId === leaderId)
-        add(normalizeThreadKey(quest ?? item.threadKey ?? MAIN_THREAD_KEY), "permission", item.timestamp);
+        add(normalizeThreadKey(quest ?? item.threadKey ?? MAIN_THREAD_KEY), "permission", item.timestamp, question);
       else if (quest && ownThreads.has(normalizeThreadKey(quest)))
-        add(normalizeThreadKey(quest), "permission", item.timestamp);
+        add(normalizeThreadKey(quest), "permission", item.timestamp, question);
       continue;
     }
     // A Notify Me result is not unread: the status row doesn't count it under Unread (it has its own
@@ -258,6 +271,8 @@ interface ThreadAttention {
   unread: number;
   permissionAt: number;
   unreadAt: number;
+  /** The newest question's prompt. */
+  question?: string;
 }
 
 export interface ThreadsModeData {
@@ -399,8 +414,20 @@ export function SidebarThreadsMode({
   };
   // A thread row's menu (right-click, or long-press on touch).
   const [menu, setMenu] = useState<{ row: ThreadRow; x: number; y: number } | null>(null);
+  const hoverCard = useThreadHoverCard();
+  // Found among the rows again on every render, so an open card follows the row's news.
+  const hoveredRow = hoverCard.hovered && !menu ? shown.find((row) => row.key === hoverCard.hovered!.key) : undefined;
   return (
     <>
+      {hoveredRow && (
+        <ThreadHoverCard
+          row={hoveredRow}
+          line={lineOf(hoveredRow.leader.leader.id, hoveredRow.threadKey)}
+          anchorRect={hoverCard.hovered!.rect}
+          onMouseEnter={hoverCard.keep}
+          onMouseLeave={hoverCard.close}
+        />
+      )}
       {menu && (
         <ContextMenu
           x={menu.x}
@@ -439,8 +466,13 @@ export function SidebarThreadsMode({
                     row={row}
                     line={lineOf(row.leader.leader.id, row.threadKey)}
                     current={row.leader.leader.id === currentSessionId && routeThread === row.threadKey}
-                    onOpen={(event) => open(row.leader.leader.id, row.threadKey, event)}
+                    onOpen={(event) => {
+                      hoverCard.close();
+                      open(row.leader.leader.id, row.threadKey, event);
+                    }}
                     onOpenMenu={(x, y) => setMenu({ row, x, y })}
+                    onHoverStart={(rect) => hoverCard.start(row.key, rect)}
+                    onHoverEnd={hoverCard.end}
                   />
                 ))}
                 {shown.length < rows.length && (
@@ -492,8 +524,8 @@ export function SidebarThreadsMode({
  * leader's (Jiayi, Nov 3: it took the status dot's place), its name and counts; then its update,
  * the most informative recent news (Jiayi, Oct 31), from the row's left edge so the words get the
  * row's width (Jiayi, Nov 3). A quest's number is left out so its title gets the room (Jiayi,
- * Nov 1); hovering shows it with the whole title and update, and the row's menu and the thread
- * itself open the quest.
+ * Nov 1); its hover card shows it with the whole title and update, and the row's menu and the
+ * thread itself open the quest.
  */
 function ThreadRowButton({
   row,
@@ -502,6 +534,8 @@ function ThreadRowButton({
   current,
   onOpen,
   onOpenMenu,
+  onHoverStart,
+  onHoverEnd,
 }: {
   row: ThreadRow;
   lastPinned?: boolean;
@@ -510,6 +544,9 @@ function ThreadRowButton({
   current: boolean;
   onOpen: (event: MouseEvent) => void;
   onOpenMenu: (x: number, y: number) => void;
+  /** The mouse entered the row (not a touch): its hover card opens beside it. */
+  onHoverStart: (rect: DOMRect) => void;
+  onHoverEnd: () => void;
 }) {
   const quiet = row.group === "idle";
   const longPress = useLongPress(onOpenMenu);
@@ -518,12 +555,15 @@ function ThreadRowButton({
       type="button"
       onClick={onOpen}
       {...longPress.handlers}
+      onMouseEnter={(event) => {
+        if (!longPress.isSuppressingMouse()) onHoverStart(event.currentTarget.getBoundingClientRect());
+      }}
+      onMouseLeave={onHoverEnd}
       style={longPress.pressStyle}
       className={`w-full rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${
         current ? "bg-cc-active" : "hover:bg-cc-hover"
       }`}
       aria-current={current ? "page" : undefined}
-      title={[row.questId ? `${row.questId} ${row.title}` : row.title, line].filter(Boolean).join("\n")}
       data-testid="threads-mode-row"
       data-thread-key={row.threadKey}
       data-group={row.group}

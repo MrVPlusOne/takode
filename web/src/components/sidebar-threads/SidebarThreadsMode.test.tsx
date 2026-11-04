@@ -123,7 +123,13 @@ describe("threadRows", () => {
   it("lists every leader's threads by when the user last dealt with them, questions on top", () => {
     queue.items = [
       // A worker's question about q-1 counts in q-1.
-      { kind: "needs-input", key: "n", sessionId: "worker", entry: { questId: "q-1" }, threadKey: "q-1" },
+      {
+        kind: "needs-input",
+        key: "n",
+        sessionId: "worker",
+        entry: { questId: "q-1", notification: {} },
+        threadKey: "q-1",
+      },
       { kind: "unread", key: "u", sessionId: "msi", threadKey: "q-3" },
       // Main's answer waits in the leader log.
       { kind: "unread", key: "m", sessionId: "takode", threadKey: "main" },
@@ -164,12 +170,19 @@ describe("leaderCounts", () => {
       { kind: "unread", key: "u3", sessionId: "takode", threadKey: "q-2", timestamp: 3 },
       { kind: "unread", key: "u4", sessionId: "takode", threadKey: "main", timestamp: 4 },
       // Two questions in q-1, one of them from its worker: one thread needs the user.
-      { kind: "needs-input", key: "n1", sessionId: "takode", entry: {}, threadKey: "q-1", timestamp: 5 },
+      {
+        kind: "needs-input",
+        key: "n1",
+        sessionId: "takode",
+        entry: { notification: {} },
+        threadKey: "q-1",
+        timestamp: 5,
+      },
       {
         kind: "needs-input",
         key: "n2",
         sessionId: "worker",
-        entry: { questId: "q-1" },
+        entry: { questId: "q-1", notification: {} },
         threadKey: "q-1",
         timestamp: 6,
       },
@@ -186,7 +199,14 @@ describe("leaderCounts", () => {
     queue.items = [
       { kind: "unread", key: "u", sessionId: "takode", threadKey: "q-4", timestamp: 1 },
       { kind: "unread", key: "v", sessionId: "takode", threadKey: "q-1", timestamp: 2 },
-      { kind: "needs-input", key: "n", sessionId: "takode", entry: {}, threadKey: "q-1", timestamp: 3 },
+      {
+        kind: "needs-input",
+        key: "n",
+        sessionId: "takode",
+        entry: { notification: {} },
+        threadKey: "q-1",
+        timestamp: 3,
+      },
     ];
     expect(leaderCounts(LEADERS[0]!, queue.items as never)).toEqual({ permission: 1, unread: 1, running: 2 });
   });
@@ -249,7 +269,15 @@ describe("threadRows across leaders", () => {
 
 describe("SidebarThreadsMode", () => {
   it("lists the threads with their title, news line and counts, then the leaders and other sessions", async () => {
-    queue.items = [{ kind: "needs-input", key: "n", sessionId: "takode", entry: { questId: "q-1" }, threadKey: "q-1" }];
+    queue.items = [
+      {
+        kind: "needs-input",
+        key: "n",
+        sessionId: "takode",
+        entry: { questId: "q-1", notification: {} },
+        threadKey: "q-1",
+      },
+    ];
     const onOpened = vi.fn();
     render(
       <SidebarThreadsMode
@@ -263,11 +291,9 @@ describe("SidebarThreadsMode", () => {
     expect(rows[0]!.dataset.threadKey).toBe("q-1");
     // Jiayi (Oct 31): the most informative recent update on the second line, and no topic or phase
     // label (the dot's color says where it stands). Jiayi (Nov 1): no quest number before the title,
-    // so the title gets the room; hovering the row still shows the number with the whole title.
+    // so the title gets the room; its hover card shows the number with the whole title.
     expect(within(rows[0]!).queryByTestId("threads-mode-quest")).toBeNull();
     expect(await within(rows[0]!).findByText("Waiting on your pick of the layout")).toBeTruthy();
-    // Hovering shows the number with the whole title, and the whole update (Jiayi, Nov 3).
-    expect(rows[0]!.getAttribute("title")).toBe("q-1 Quest q-1\nWaiting on your pick of the layout");
     expect(homeLines).toHaveBeenCalledWith("takode", expect.arrayContaining(["q-1"]));
     expect(rows[0]!.textContent).not.toContain("Work");
     expect(within(rows[0]!).queryByTestId("threads-mode-topic")).toBeNull();
@@ -303,7 +329,6 @@ describe("SidebarThreadsMode", () => {
       />,
     );
     const row = screen.getAllByTestId("threads-mode-row").find((candidate) => candidate.dataset.threadKey === "q-4")!;
-    expect(row.getAttribute("title")).toBe("q-4 Quest q-4\nLanded.");
     expect(within(row).getByTestId("threads-mode-line").textContent).toBe("Landed.");
     expect(within(row).getByTestId("thread-update-mark")).toBeTruthy();
     // Without a news line, a row's second line is no update and has no mark.
@@ -410,5 +435,66 @@ describe("SidebarThreadsMode", () => {
     expect(useStore.getState().focusComposerPending).toBe("takode#side:home");
     expect(onOpened).toHaveBeenCalled();
     useStore.setState({ focusComposerPending: null });
+  });
+
+  // Jiayi (Nov 3): the plain-text tooltip of title and update looked ugly; a tooltip is only a
+  // button's label. Hovering a row opens a card like the session cards instead.
+  it("shows a hover card with the thread's title, status, question, latest update and work", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    queue.items = [
+      {
+        kind: "needs-input",
+        key: "n",
+        sessionId: "takode",
+        entry: { questId: "q-1", notification: { summary: "Pick a layout", questions: [{ prompt: "Which layout?" }] } },
+        threadKey: "q-1",
+        timestamp: 5,
+      },
+    ];
+    const withWorker: LeaderThreadsInput[] = [
+      { ...LEADERS[0]!, tabs: [tab("q-1", { groupChangedAt: 10, workerSessionId: "w1", workerSessionNum: 12 })] },
+    ];
+    render(
+      <SidebarThreadsMode
+        data={{ leaders: withWorker, others: [] }}
+        currentSessionId={null}
+        onOpened={() => {}}
+        otherSessions={() => null}
+      />,
+    );
+    const row = screen.getAllByTestId("threads-mode-row").find((candidate) => candidate.dataset.threadKey === "q-1")!;
+    // No plain tooltip on the row.
+    expect(row.getAttribute("title")).toBeNull();
+    fireEvent.mouseEnter(row);
+    const card = screen.getByTestId("thread-hover-card");
+    expect(card.textContent).toContain("q-1");
+    expect(card.textContent).toContain("DevBox takode #7");
+    expect(card.textContent).toContain("Quest q-1");
+    expect(within(card).getByTestId("thread-hover-status").textContent).toContain("Needs you");
+    expect(within(card).getByTestId("thread-hover-question").textContent).toContain("Which layout?");
+    expect(await within(card).findByText("Waiting on your pick of the layout")).toBeTruthy();
+    // A quest thread names its phase and worker.
+    expect(within(card).getByTestId("thread-hover-work").textContent).toContain("Work");
+    expect(within(card).getByTestId("thread-hover-work").textContent).toContain("Worker#12");
+    // Moving from the row onto the card keeps it open; leaving the card closes it.
+    fireEvent.mouseLeave(row);
+    fireEvent.mouseEnter(card);
+    vi.advanceTimersByTime(200);
+    expect(screen.getByTestId("thread-hover-card")).toBeTruthy();
+    fireEvent.mouseLeave(card);
+    expect(screen.queryByTestId("thread-hover-card")).toBeNull();
+    // Leaving the row closes it shortly after; a plain thread has no work section.
+    const plain = screen
+      .getAllByTestId("threads-mode-row")
+      .find((candidate) => candidate.dataset.threadKey === "topic:aa")!;
+    fireEvent.mouseEnter(plain);
+    expect(within(screen.getByTestId("thread-hover-card")).getByTestId("thread-hover-status").textContent).toContain(
+      "In progress",
+    );
+    expect(screen.queryByTestId("thread-hover-work")).toBeNull();
+    fireEvent.mouseLeave(plain);
+    vi.advanceTimersByTime(150);
+    await vi.waitFor(() => expect(screen.queryByTestId("thread-hover-card")).toBeNull());
+    vi.useRealTimers();
   });
 });
