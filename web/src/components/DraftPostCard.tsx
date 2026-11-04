@@ -49,6 +49,7 @@ export function DraftPostCard({
   expandable = true,
   copied = [],
   onCopied,
+  readAloud,
 }: {
   title?: string;
   /** Where the post is to be sent, shown as a link in the header. */
@@ -66,6 +67,8 @@ export function DraftPostCard({
   copied?: readonly number[];
   /** Records the saved version's parts the user just copied. */
   onCopied?: (parts: number[]) => void;
+  /** The header's Read aloud button, where the card is part of a message that can be read. */
+  readAloud?: ReactNode;
 }) {
   const single = parts.length === 1 && removed.length === 0;
   const partsRef = useRef<HTMLDivElement>(null);
@@ -106,6 +109,7 @@ export function DraftPostCard({
           )}
           {destination && <DestinationLink destination={destination} />}
           <span className="ml-auto" />
+          {readAloud}
           {expandable && <FullScreenButton onClick={() => setFullScreen(true)} />}
           <CardMoreMenu items={moreItems} task={task} />
           {single ? (
@@ -151,6 +155,7 @@ export function DraftPostCard({
               expandable={false}
               copied={copied}
               onCopied={onCopied}
+              readAloud={readAloud}
             />
           </div>
         </FullScreenPanel>

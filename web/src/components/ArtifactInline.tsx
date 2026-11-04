@@ -1,6 +1,6 @@
 import { GuidedReviewCard } from "./GuidedReviewCard.js";
 import { Lightbox } from "./Lightbox.js";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import {
   ARTIFACT_KIND_LABELS,
   type ArtifactMessageMarker,
@@ -22,6 +22,9 @@ import { VisualBlock } from "./VisualBlock.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { isSlideDeck } from "../../shared/slides.js";
 import { SlideDeckCard } from "./slides/SlideDeckCard.js";
+import { ReadAloudButton, ReadAloudMessageContext } from "./ReadAloudPlayer.js";
+import { startReadAloud } from "../read-aloud-player.js";
+import { readAloudDraftText } from "../read-aloud-text.js";
 
 /** Renders Markdown with the caller's settings; passed in so these components don't import MarkdownContent. */
 /** Renders a version's Markdown; a report passes its file's path so its relative file links resolve. */
@@ -327,13 +330,27 @@ export function FeedDraftPost({
         ),
       }))
     : [];
+  const destination =
+    postDestination(post.blocks) ?? (saved?.kind === "post" ? saved.destination : undefined) ?? marker?.destination;
+  const parts = feedPostParts(post.blocks, marker, saved);
+  // Reads what the card shows, in the message's player; the whole message's Read aloud reads it too.
+  const message = useContext(ReadAloudMessageContext);
+  const part = `draft:${post.title ?? parts[0]?.text.slice(0, 80) ?? ""}`;
+  const readAloud = message && (
+    <ReadAloudButton
+      messageId={message.messageId}
+      part={part}
+      start={() =>
+        startReadAloud({ ...message, text: readAloudDraftText({ title: post.title, destination, parts }), part })
+      }
+    />
+  );
   return (
     <DraftPostCard
       title={post.title}
-      destination={
-        postDestination(post.blocks) ?? (saved?.kind === "post" ? saved.destination : undefined) ?? marker?.destination
-      }
-      parts={feedPostParts(post.blocks, marker, saved)}
+      destination={destination}
+      parts={parts}
+      readAloud={readAloud}
       removed={removed}
       menuItems={marker ? libraryMenuItems(marker) : []}
       renderMarkdown={renderMarkdown}

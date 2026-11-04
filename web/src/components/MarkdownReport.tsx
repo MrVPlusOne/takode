@@ -10,8 +10,8 @@ import { exportContent, type ExportFormat } from "../utils/artifact-export.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { ReportCard } from "./ReportCard.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
-import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
-import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-player.js";
+import { ReadAloudButton, ReadAloudMessageContext, ReadAloudPlayer } from "./ReadAloudPlayer.js";
+import { startReadAloud } from "../read-aloud-player.js";
 import { readAloudMessageText } from "../read-aloud-text.js";
 import { GuidedReviewCard } from "./GuidedReviewCard.js";
 import { isSlideDeck } from "../../shared/slides.js";
@@ -149,8 +149,15 @@ function SharedDraft({ message, readOnly }: { message: ChatMessage; readOnly: bo
   const draft = message.metadata!.sharedDraft!;
   const source = message.metadata!.markdownReport!;
   const contentRef = useRef<HTMLDivElement>(null);
+  // Its draft cards read aloud from their headers; the report itself has no other Read aloud.
+  const readAloud = useMemo(
+    () =>
+      readOnly ? null : { sessionId: source.sessionId, messageId: message.id, historyIndex: message.historyIndex },
+    [readOnly, source.sessionId, message.id, message.historyIndex],
+  );
   return (
     <div ref={contentRef} className="relative min-w-0" data-testid="shared-draft">
+      {!readOnly && <ReadAloudPlayer messageId={message.id} />}
       <div className="mb-1 text-xs text-cc-muted">
         Draft by{" "}
         <SessionInlineLink
@@ -162,13 +169,15 @@ function SharedDraft({ message, readOnly }: { message: ChatMessage; readOnly: bo
         </SessionInlineLink>
       </div>
       <ArtifactMarkersContext.Provider value={readOnly ? undefined : message.metadata?.artifacts}>
-        <MarkdownContent
-          text={message.content}
-          sessionId={draft.sessionId}
-          enableChatSelectionMenu={!readOnly}
-          fileLinkMode={readOnly ? "text-only" : "interactive"}
-          questLinkSurface="chat-feed"
-        />
+        <ReadAloudMessageContext.Provider value={readAloud}>
+          <MarkdownContent
+            text={message.content}
+            sessionId={draft.sessionId}
+            enableChatSelectionMenu={!readOnly}
+            fileLinkMode={readOnly ? "text-only" : "interactive"}
+            questLinkSurface="chat-feed"
+          />
+        </ReadAloudMessageContext.Provider>
       </ArtifactMarkersContext.Provider>
       {!readOnly && (
         <AnnotationSourceMarkers sessionId={source.sessionId} messageId={message.id} contentRef={contentRef} />
@@ -281,42 +290,17 @@ function reportTitleOf(markdown: string, sourcePath: string): string {
 
 /** Reports have no message menu, so their header carries Read aloud (and Stop while reading). */
 function ReportReadAloudButton({ message, sessionId }: { message: ChatMessage; sessionId: string }) {
-  const readAloud = useReadAloudState(message.id);
-  const reading = readAloud?.status === "preparing" || readAloud?.status === "ready";
-  const label = reading ? "Stop reading aloud" : "Read aloud";
   return (
-    <span className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() =>
-          reading
-            ? stopReadAloud()
-            : startReadAloud({
-                sessionId,
-                messageId: message.id,
-                text: readAloudMessageText(message),
-                historyIndex: message.historyIndex,
-              })
-        }
-        aria-label={label}
-        title={label}
-        className={`inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-cc-hover ${reading ? "text-cc-primary" : "text-cc-muted hover:text-cc-fg"}`}
-      >
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
-          <path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z" strokeLinejoin="round" />
-          <path d="M11 5.5a3.5 3.5 0 010 5M12.8 3.5a6 6 0 010 9" strokeLinecap="round" />
-        </svg>
-      </button>
-      {readAloud?.status === "error" && (
-        <button
-          type="button"
-          role="alert"
-          onClick={stopReadAloud}
-          className="absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] rounded-md border border-cc-error/40 bg-cc-card px-2.5 py-1.5 text-left text-xs text-cc-error shadow-md"
-        >
-          {readAloud.error}
-        </button>
-      )}
-    </span>
+    <ReadAloudButton
+      messageId={message.id}
+      start={() =>
+        startReadAloud({
+          sessionId,
+          messageId: message.id,
+          text: readAloudMessageText(message),
+          historyIndex: message.historyIndex,
+        })
+      }
+    />
   );
 }

@@ -213,7 +213,9 @@ export function AssistantMessageMenu({
   const [copied, setCopied] = useState<string | null>(null);
   const starAction = useMessageStarActions(sessionId, message);
   const readAloud = useReadAloudState(message.id);
+  // Stop covers any read of this message; a draft card's own failed read shows on that card.
   const reading = readAloud?.status === "preparing" || readAloud?.status === "ready";
+  const readError = readAloud?.status === "error" && !readAloud.part ? readAloud.error : null;
   const sideChatAction = useSideChatActionState({
     currentThreadKey,
     message,
@@ -351,9 +353,7 @@ export function AssistantMessageMenu({
           message the time itself sits under the button. */}
       <span
         className={`relative z-20 float-right mb-0.5 ml-1 inline-flex opacity-100 transition-opacity ${
-          readAloud?.status === "error"
-            ? ""
-            : "sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
+          readError ? "" : "sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
         }`}
         data-message-action-menu-placement="first-line"
         data-message-action-menu-row
@@ -384,14 +384,14 @@ export function AssistantMessageMenu({
             </svg>
           )}
         </MessageTimestampMenuTrigger>
-        {readAloud?.status === "error" && (
+        {readError && (
           <button
             type="button"
             role="alert"
             onClick={stopReadAloud}
             className="absolute right-0 top-full mt-1 w-64 max-w-[calc(100vw-2rem)] rounded-md border border-cc-error/40 bg-cc-card px-2.5 py-1.5 text-left text-xs text-cc-error shadow-md"
           >
-            {readAloud.error}
+            {readError}
           </button>
         )}
       </span>

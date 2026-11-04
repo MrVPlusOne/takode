@@ -1,7 +1,17 @@
 import { compactionMarkerLabel } from "../../shared/compaction-marker.js";
 import { splitTrailingTranscriptionTag } from "../../shared/transcription-tag.js";
 import { AnnotationAttachments, AnnotationSourceMarkers } from "./AnnotationAttachments.js";
-import { useState, useMemo, useRef, useCallback, useContext, useLayoutEffect, useEffect, memo } from "react";
+import {
+  useState,
+  useMemo,
+  useRef,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useEffect,
+  memo,
+  type ComponentProps,
+} from "react";
 import type { ChatMessage, ContentBlock, ToolResultPreview } from "../types.js";
 import { isSubagentToolName } from "../types.js";
 import {
@@ -60,7 +70,7 @@ import {
 } from "./image-preview-utils.js";
 import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
-import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
+import { ReadAloudMessageContext, ReadAloudPlayer } from "./ReadAloudPlayer.js";
 import { MessageTimeLabel, isValidMessageTimestamp } from "./MessageTimestamp.js";
 import { ContinuedInLinks } from "./QuestForkLinks.js";
 import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
@@ -1097,7 +1107,21 @@ function getInlineToolNotificationCategory(blocks: ContentBlock[]): "review" | n
   return null;
 }
 
-function AssistantMessage({
+/** An assistant message; draft cards in it read aloud from their headers, in its player. */
+function AssistantMessage(props: ComponentProps<typeof AssistantMessageContent>) {
+  const { message, sessionId, readOnly } = props;
+  const readAloud = useMemo(
+    () => (readOnly || !sessionId ? null : { sessionId, messageId: message.id, historyIndex: message.historyIndex }),
+    [readOnly, sessionId, message.id, message.historyIndex],
+  );
+  return (
+    <ReadAloudMessageContext.Provider value={readAloud}>
+      <AssistantMessageContent {...props} />
+    </ReadAloudMessageContext.Provider>
+  );
+}
+
+function AssistantMessageContent({
   message,
   sessionId,
   showTimestamp,

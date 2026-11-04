@@ -1,3 +1,4 @@
+import { createContext } from "react";
 import {
   READ_ALOUD_PLAYBACK_RATES,
   READ_ALOUD_PLAYER_VOICES,
@@ -8,6 +9,7 @@ import {
   stopReadAloud,
   toggleReadAloudPause,
   useCurrentReadAloud,
+  useReadAloudState,
   useReadAloudPlayback,
   useReadAloudPreferences,
   type ReadAloudState,
@@ -33,6 +35,51 @@ export function ReadAloudPlayer({ messageId }: { messageId: string }) {
       <ReadAloudPlayerHeader read={read} />
       <ReadAloudControls read={read} />
     </div>
+  );
+}
+
+/** The message whose text is being shown, for controls inside it that read part of it aloud. */
+export interface ReadAloudMessage {
+  sessionId: string;
+  messageId: string;
+  historyIndex?: number;
+}
+
+/** Set by a message the user can have read aloud; absent in read-only and non-message views. */
+export const ReadAloudMessageContext = createContext<ReadAloudMessage | null>(null);
+
+/**
+ * A speaker button for controls without a message menu (a report's header, a draft card): Read
+ * aloud, or Stop while this read plays, with the read's error beside it when it fails. `part`
+ * names what it reads when that is not the whole message.
+ */
+export function ReadAloudButton({ messageId, part, start }: { messageId: string; part?: string; start: () => void }) {
+  const readAloud = useReadAloudState(messageId);
+  const mine = readAloud?.part === part ? readAloud : null;
+  const reading = mine?.status === "preparing" || mine?.status === "ready";
+  const label = reading ? "Stop reading aloud" : "Read aloud";
+  return (
+    <span className="relative shrink-0">
+      <button
+        type="button"
+        onClick={reading ? stopReadAloud : start}
+        aria-label={label}
+        title={label}
+        className={`inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-cc-hover ${reading ? "text-cc-primary" : "text-cc-muted hover:text-cc-fg"}`}
+      >
+        <SpeakerIcon className="" />
+      </button>
+      {mine?.status === "error" && (
+        <button
+          type="button"
+          role="alert"
+          onClick={stopReadAloud}
+          className="absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-2rem)] rounded-md border border-cc-error/40 bg-cc-card px-2.5 py-1.5 text-left text-xs text-cc-error shadow-md"
+        >
+          {mine.error}
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -165,15 +212,9 @@ function CloseButton() {
   );
 }
 
-function SpeakerIcon() {
+function SpeakerIcon({ className = "text-cc-primary" }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      className="h-3.5 w-3.5 text-cc-primary"
-    >
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className={`h-3.5 w-3.5 ${className}`}>
       <path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z" strokeLinejoin="round" />
       <path d="M11 5.5a3.5 3.5 0 010 5M12.8 3.5a6 6 0 010 9" strokeLinecap="round" />
     </svg>

@@ -76,6 +76,8 @@ First decide whether the message needs rewriting to be easy to follow when heard
   - Prefer short sentences, with a blank line between topics.
 - Write in the language of the message.
 
+Drafts. A <draft> section holds a message the agent drafted for the listener to send elsewhere, such as a Slack post with its replies; its Title and Goes to lines, when present, name it and where it goes. A message with a draft always needs rewriting. The listener wants to hear the draft itself, so read its text in full and close to word for word, only turning Markdown, links and symbols into speech as above. Introduce it in a few words, such as "Here's the draft for the T7 thread:", say where each reply starts, and mention attached files without their paths.
+
 Takode links. Agents write these as Markdown links with fixed kinds of targets, and in the app each one is something the listener can tap:
 - [q-42](quest:q-42): quest 42, a tracked piece of work. The message usually says what it is about.
 - [q-42 feedback #3](quest:q-42:feedback:3): note 3 on quest 42, such as an agent's report on its work.

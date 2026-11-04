@@ -44,6 +44,14 @@ const REPORT: ChatMessage = {
   },
 };
 
+const DRAFT: ChatMessage = {
+  id: "playground-read-aloud-draft",
+  role: "assistant",
+  content:
+    "Here's the update for the thread.\n\n```draft\ntitle: T7 eval start\n---\nQuick update on **T7**: evals start at `iter 2`.\n```\n\n```draft\nNumbers so far are in the sheet.\n```",
+  timestamp: Date.now() - 20_000,
+};
+
 const BUTTON = "rounded border border-cc-border px-2 py-1 text-xs text-cc-muted hover:bg-cc-hover";
 
 export function PlaygroundReadAloudSection() {
@@ -51,7 +59,7 @@ export function PlaygroundReadAloudSection() {
   return (
     <Section
       title="Read aloud"
-      description="Message options > Read aloud (or the speaker in a report header) rewrites the text for listening when needed, then plays OpenAI speech in a player with seek, back and forward 5 seconds, voice and speed. A failure shows beside the button until tapped."
+      description="Message options > Read aloud (or the speaker in a report or draft card header) rewrites the text for listening when needed, then plays OpenAI speech in a player with seek, back and forward 5 seconds, voice and speed. A failure shows beside the button until tapped."
     >
       <div className="max-w-3xl">
         <Card label="Assistant message and player">
@@ -83,6 +91,21 @@ export function PlaygroundReadAloudSection() {
             Report playing
           </button>
           <MessageBubble message={REPORT} sessionId={MOCK_SESSION_ID} />
+        </Card>
+        <Card label="Draft card: its speaker reads just the draft; the message's Read aloud reads drafts too">
+          <button
+            type="button"
+            onClick={() =>
+              previewReadAloudState(
+                { messageId: DRAFT.id, sessionId: MOCK_SESSION_ID, status: "ready", part: "draft:T7 eval start" },
+                { currentTime: 3, duration: 14, paused: false },
+              )
+            }
+            className={`${BUTTON} mb-3`}
+          >
+            Draft playing
+          </button>
+          <MessageBubble message={DRAFT} sessionId={MOCK_SESSION_ID} />
         </Card>
       </div>
     </Section>

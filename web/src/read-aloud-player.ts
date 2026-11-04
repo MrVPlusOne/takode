@@ -22,6 +22,8 @@ export interface ReadAloudState {
   error?: string;
   /** While a deck is played: the slide being read (from 0) and how many the deck has. */
   slide?: { index: number; count: number };
+  /** The part of the message being read, such as one draft card, when not the whole message. */
+  part?: string;
 }
 
 /** A slide deck to play slide by slide: what each slide says (its notes, else its text) and shows. */
@@ -81,6 +83,8 @@ interface ReadAloudInput {
   text: string;
   historyIndex?: number;
   slide?: { shown: string };
+  /** See {@link ReadAloudState.part}: names the control that started the read, which shows its error. */
+  part?: string;
 }
 
 /** Where to start playing: a piece and how far into it (0-1), so a voice change resumes in place. */
@@ -274,6 +278,7 @@ function load(input: ReadAloudInput, startAt: StartPoint): void {
   const read = {
     messageId: input.messageId,
     sessionId: input.sessionId,
+    ...(input.part ? { part: input.part } : {}),
     ...(deck ? { slide: { index: deck.index, count: deck.narration.slides.length } } : {}),
   };
   setState({ ...read, status: "preparing" });

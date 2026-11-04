@@ -85,4 +85,11 @@ describe("AssistantMessageMenu read aloud", () => {
     fireEvent.click(screen.getByRole("button", { name: "Message options" }));
     expect(screen.getByRole("button", { name: "Read aloud" })).toBeVisible();
   });
+
+  it("leaves a draft card's failed read to that card", () => {
+    // The error shows beside the control that started the read; a draft card has its own.
+    player.state = { messageId: "assistant-1", sessionId: "s1", status: "error", error: "quota", part: "draft:Note" };
+    renderMenu();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
