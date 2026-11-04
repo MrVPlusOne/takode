@@ -38,7 +38,8 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
   const focused = useChatFocused(useChatFocusId());
   useUnreadMessagesSeen({
     sessionId: leaderId,
-    feedKey: key,
+    threadKey: key,
+    feedKey: sideConversationFeedKey(leaderId, key),
     notifications,
     enabled: true,
     focused,

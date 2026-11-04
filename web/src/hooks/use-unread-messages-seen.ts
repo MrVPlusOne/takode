@@ -69,7 +69,8 @@ export function readsWhenSeen(notification: SessionNotification): boolean {
 
 export function useUnreadMessagesSeen({
   sessionId,
-  feedKey,
+  threadKey,
+  feedKey = null,
   notifications,
   enabled,
   focused = true,
@@ -78,7 +79,13 @@ export function useUnreadMessagesSeen({
 }: {
   sessionId: string;
   /** The thread key of the feed on screen (a quest, Main, All or a topic conversation). */
-  feedKey: string;
+  threadKey: string;
+  /**
+   * The feed's own key (`SecondaryFeedContext`): null for the main view's feed, set for one beside
+   * it, such as a side pane. A thread open in the main view and a side pane at once has two feeds
+   * with the same session and thread; each view reads, marks and measures its own.
+   */
+  feedKey?: string | null;
   notifications: ReadonlyArray<SessionNotification> | undefined;
   enabled: boolean;
   /** Whether the chat is the focused one: only then does a message on screen count. */
@@ -148,7 +155,7 @@ export function useUnreadMessagesSeen({
         openedAt = now;
       }
       for (const notification of unread) if (!arrivedAt.has(notification.id)) arrivedAt.set(notification.id, now);
-      const feed = visibleFeed(sessionId, feedKey);
+      const feed = visibleFeed(sessionId, threadKey, feedKey);
       if (!feed) return;
       remark(feed);
       // Answers read elsewhere (replying, another browser) show as read too.
@@ -187,7 +194,7 @@ export function useUnreadMessagesSeen({
       for (const { element } of marked.values()) element?.removeAttribute(MARK_ATTRIBUTE);
       setUnreadAbove(null);
     };
-  }, [enabled, feedKey, sessionId]);
+  }, [enabled, feedKey, sessionId, threadKey]);
 
   return unreadAbove;
 }
@@ -222,12 +229,14 @@ function findUnreadAbove(
   return { count: above.length, next };
 }
 
-function visibleFeed(sessionId: string, feedKey: string): HTMLElement | null {
-  const key = feedKey.toLowerCase();
+function visibleFeed(sessionId: string, threadKey: string, feedKey: string | null): HTMLElement | null {
+  const key = threadKey.toLowerCase();
   for (const feed of document.querySelectorAll<HTMLElement>('[data-testid="message-feed-scroll-container"]')) {
-    if (feed.dataset.feedSessionId === sessionId && feed.dataset.feedThreadKey?.toLowerCase() === key) {
-      if (feed.offsetParent || feed.getClientRects().length > 0) return feed;
-    }
+    if (feed.dataset.feedSessionId !== sessionId || feed.dataset.feedThreadKey?.toLowerCase() !== key) continue;
+    // Matching the session and thread alone found the main view's feed for a side pane showing the
+    // same thread: the pane then never read its own answers, and kept their marks and "N new".
+    if ((feed.dataset.feedKey ?? null) !== feedKey) continue;
+    if (feed.offsetParent || feed.getClientRects().length > 0) return feed;
   }
   return null;
 }

@@ -25,11 +25,17 @@ function mountFeed(threadKey: string, messages: Array<{ id: string; top: number;
   return mountFeedElement(threadKey, messages).elements;
 }
 
-function mountFeedElement(threadKey: string, messages: Array<{ id: string; top: number; height?: number }>) {
+/** `feedKey` is a side pane's own feed key (`data-feed-key`); the main view's feed has none. */
+function mountFeedElement(
+  threadKey: string,
+  messages: Array<{ id: string; top: number; height?: number }>,
+  feedKey?: string,
+) {
   const feed = document.createElement("div");
   feed.dataset.testid = "message-feed-scroll-container";
   feed.dataset.feedSessionId = "leader";
   feed.dataset.feedThreadKey = threadKey;
+  if (feedKey) feed.dataset.feedKey = feedKey;
   feed.getBoundingClientRect = () => rect(0, 600);
   feed.getClientRects = () => [rect(0, 600)] as unknown as DOMRectList;
   const elements: Record<string, HTMLElement> = {};
@@ -79,7 +85,7 @@ describe("useUnreadMessagesSeen", () => {
     renderHook(() =>
       useUnreadMessagesSeen({
         sessionId: "leader",
-        feedKey: "topic:t1",
+        threadKey: "topic:t1",
         notifications: [answer("a1", 1), answer("a2", 2)],
         enabled: true,
         inFeed: () => true,
@@ -100,7 +106,7 @@ describe("useUnreadMessagesSeen", () => {
     renderHook(() =>
       useUnreadMessagesSeen({
         sessionId: "leader",
-        feedKey: "q-1",
+        threadKey: "q-1",
         notifications: [answer("a1", 1)],
         enabled: true,
         onSeen,
@@ -124,7 +130,7 @@ describe("useUnreadMessagesSeen", () => {
     renderHook(() =>
       useUnreadMessagesSeen({
         sessionId: "leader",
-        feedKey: "q-1",
+        threadKey: "q-1",
         notifications: [answer("a1", 1)],
         enabled: true,
         inFeed: () => true,
@@ -152,7 +158,7 @@ describe("useUnreadMessagesSeen", () => {
       ({ focused }) =>
         useUnreadMessagesSeen({
           sessionId: "leader",
-          feedKey: "q-1",
+          threadKey: "q-1",
           notifications: [answer("a1", 1), answer("a2", 2)],
           enabled: true,
           focused,
@@ -176,7 +182,7 @@ describe("useUnreadMessagesSeen", () => {
     renderHook(() =>
       useUnreadMessagesSeen({
         sessionId: "leader",
-        feedKey: "q-1",
+        threadKey: "q-1",
         notifications: [answer("a1", 1)],
         enabled: true,
         onSeen: vi.fn(),
@@ -197,7 +203,7 @@ describe("useUnreadMessagesSeen", () => {
       ({ list }) =>
         useUnreadMessagesSeen({
           sessionId: "leader",
-          feedKey: "q-1",
+          threadKey: "q-1",
           notifications: list,
           enabled: true,
           onSeen: vi.fn(),
@@ -210,6 +216,53 @@ describe("useUnreadMessagesSeen", () => {
       vi.advanceTimersByTime(500);
     });
     expect(elements["m-a1"]!.getAttribute(MARK)).toBe("read");
+  });
+
+  it("reads and marks in its own feed when the main view and a side pane show the same thread", () => {
+    // Jiayi, Nov 3: a thread open in both the main view (scrolled to its latest, the answer above)
+    // and a side pane (the answer on screen). Both feeds share the session and thread, and the
+    // pane's hook used to find the main view's feed first: focusing and scrolling the pane never
+    // read the answer, and its blue bar and "1 new" stayed.
+    const main = mountFeedElement("q-1", [{ id: "m-a1", top: -800 }]).elements;
+    const side = mountFeedElement("q-1", [{ id: "m-a1", top: 200 }], "side:leader:q-1").elements;
+    const mainSeen = vi.fn();
+    const sideSeen = vi.fn();
+    let sideFocused = false;
+    renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        threadKey: "q-1",
+        notifications: [answer("a1", 1)],
+        enabled: true,
+        focused: !sideFocused,
+        onSeen: mainSeen,
+      }),
+    );
+    const { rerender } = renderHook(() =>
+      useUnreadMessagesSeen({
+        sessionId: "leader",
+        threadKey: "q-1",
+        feedKey: "side:leader:q-1",
+        notifications: [answer("a1", 1)],
+        enabled: true,
+        focused: sideFocused,
+        onSeen: sideSeen,
+      }),
+    );
+    // Each view marks its own element; the main view, focused, does not read an answer it shows
+    // scrolled away.
+    expect(main["m-a1"]!.getAttribute(MARK)).toBe("true");
+    expect(side["m-a1"]!.getAttribute(MARK)).toBe("true");
+    expect(mainSeen).not.toHaveBeenCalled();
+    // Focusing the pane, where the answer's beginning shows, reads it there.
+    sideFocused = true;
+    rerender();
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(sideSeen.mock.calls).toEqual([["a1"]]);
+    expect(side["m-a1"]!.getAttribute(MARK)).toBe("read");
+    expect(mainSeen).not.toHaveBeenCalled();
   });
 
   it("leaves finished quests and agent-sent results to the thread rule", () => {
@@ -231,7 +284,7 @@ describe("useUnreadMessagesSeen", () => {
     const { result } = renderHook(() =>
       useUnreadMessagesSeen({
         sessionId: "leader",
-        feedKey: "q-1",
+        threadKey: "q-1",
         notifications: [
           answer("above", 3),
           answer("unloaded", 2),
@@ -261,7 +314,7 @@ describe("useUnreadMessagesSeen", () => {
       ({ list }) =>
         useUnreadMessagesSeen({
           sessionId: "leader",
-          feedKey: "q-1",
+          threadKey: "q-1",
           notifications: list,
           enabled: true,
           inFeed: () => true,
@@ -299,7 +352,7 @@ describe("useUnreadMessagesSeen", () => {
     const { result } = renderHook(() =>
       useUnreadMessagesSeen({
         sessionId: "leader",
-        feedKey: "q-1",
+        threadKey: "q-1",
         notifications: [answer("unloaded", 2)],
         enabled: true,
         inFeed: () => true,
@@ -314,7 +367,7 @@ describe("useUnreadMessagesSeen", () => {
     const { result } = renderHook(() =>
       useUnreadMessagesSeen({
         sessionId: "leader",
-        feedKey: "q-1",
+        threadKey: "q-1",
         notifications: [answer("a1", 1)],
         enabled: true,
         inFeed: () => true,
@@ -339,7 +392,7 @@ describe("useUnreadMessagesSeen", () => {
     renderHook(() =>
       useUnreadMessagesSeen({
         sessionId: "leader",
-        feedKey: "q-1",
+        threadKey: "q-1",
         notifications: [answer("a1", 1)],
         enabled: true,
         focused: false,
@@ -359,7 +412,7 @@ describe("useUnreadMessagesSeen", () => {
     const { rerender } = renderHook(() =>
       useUnreadMessagesSeen({
         sessionId: "leader",
-        feedKey: "q-1",
+        threadKey: "q-1",
         notifications: [answer("a1", 1)],
         enabled: true,
         focused,
@@ -388,7 +441,7 @@ describe("useUnreadMessagesSeen", () => {
         ({ list }: { list: SessionNotification[] }) =>
           useUnreadMessagesSeen({
             sessionId: "leader",
-            feedKey: "q-1",
+            threadKey: "q-1",
             notifications: list,
             enabled: true,
             focused,

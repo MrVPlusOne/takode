@@ -651,7 +651,7 @@ export function ChatView({
   }, [preview, sessionId, feedThreadKey]);
   const unreadAbove = useUnreadMessagesSeen({
     sessionId,
-    feedKey: feedThreadKey,
+    threadKey: feedThreadKey,
     notifications: sessionNotifications,
     enabled: isLeaderSession && !preview,
     focused: mainFocused,
