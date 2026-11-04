@@ -6,13 +6,13 @@ import { SelectableMessage } from "../FullScreenPanel.js";
 import { useConversationShown } from "../KeptConversationViews.js";
 import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import {
-  NarrationControls,
+  DeckToolbar,
   NarrationProgress,
-  NotesToggle,
-  SlideCommentButton,
   SlideNotes,
+  handleDeckKey,
   slideCommentAttributes,
   usePresenterNotes,
+  useSlideClicks,
   type DeckComments,
 } from "./SlideControls.js";
 
@@ -132,64 +132,6 @@ function FittedSlide({ markdown, render }: { markdown: string; render: RenderSli
   );
 }
 
-/** Previous and next buttons around the slide picker ("3 / 17", which lists the slides' titles). */
-export function SlideNav({
-  slides,
-  index,
-  onChange,
-  className = "",
-}: {
-  slides: readonly Slide[];
-  index: number;
-  onChange: (index: number) => void;
-  className?: string;
-}) {
-  const button =
-    "inline-flex h-8 w-8 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-30 disabled:hover:bg-transparent pointer-coarse:h-10 pointer-coarse:w-10";
-  return (
-    <div className={`flex items-center justify-center gap-1 ${className}`} data-copy-exclude="">
-      <button
-        type="button"
-        className={button}
-        disabled={index === 0}
-        onClick={() => onChange(index - 1)}
-        aria-label="Previous slide"
-        title="Previous slide"
-      >
-        <Chevron direction="left" />
-      </button>
-      <label className="relative inline-flex items-center rounded-md px-2 py-1 text-[13px] tabular-nums text-cc-muted hover:bg-cc-hover hover:text-cc-fg">
-        <span>
-          {index + 1} / {slides.length}
-        </span>
-        {/* A native list: the phone's own picker on touch screens. */}
-        <select
-          value={index}
-          onChange={(event) => onChange(Number(event.target.value))}
-          aria-label="Go to slide"
-          className="absolute inset-0 cursor-pointer opacity-0"
-        >
-          {slides.map((slide, position) => (
-            <option key={position} value={position}>
-              {position + 1}. {slide.title || `Slide ${position + 1}`}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        type="button"
-        className={button}
-        disabled={index === slides.length - 1}
-        onClick={() => onChange(index + 1)}
-        aria-label="Next slide"
-        title="Next slide"
-      >
-        <Chevron direction="right" />
-      </button>
-    </div>
-  );
-}
-
 /** The width an element gets, kept current as it resizes. */
 export function useElementWidth<T extends HTMLElement>(): [(node: T | null) => void, number] {
   const [node, setNode] = useState<T | null>(null);
@@ -207,10 +149,10 @@ export function useElementWidth<T extends HTMLElement>(): [(node: T | null) => v
 
 /**
  * The deck over the whole screen, one slide at a time, for presenting: the browser goes full screen
- * where it can; arrow keys, Space and Page Up/Down move, Home and End go to the ends, swiping moves
- * on touch screens, and Escape, Close or the back gesture closes it. Notes shows each slide's speaker
- * notes under it; with `narration`, Play reads the slides aloud one by one; with `comments`, slides
- * can be commented on.
+ * where it can. A click or the arrow keys, Page Up/Down and swipes move (a right-click goes back),
+ * Home and End go to the ends, and Escape, Exit full screen or the back gesture closes it. Notes shows
+ * each slide's speaker notes under it; with `narration`, Play (or Space) reads the slides aloud one by
+ * one; with `comments`, slides can be commented on.
  */
 export function SlidePresenter({
   title,
@@ -254,22 +196,15 @@ export function SlidePresenter({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-      if ((event.target as HTMLElement | null)?.closest?.("select, input, textarea")) return;
       // On a page, up and down scroll the page; on the stage they move between slides too.
-      const vertical = layout === "stage";
-      const forward = ["ArrowRight", "PageDown", " "].includes(event.key) || (vertical && event.key === "ArrowDown");
-      const back = ["ArrowLeft", "PageUp"].includes(event.key) || (vertical && event.key === "ArrowUp");
-      if (forward || back) go(index + (forward ? 1 : -1));
-      else if (event.key === "Home") go(0);
-      else if (event.key === "End") go(slides.length - 1);
-      else if (event.key === "Escape") onClose();
-      else return;
+      const deck = { index, count: slides.length, go, narration, vertical: layout === "stage" };
+      if (handleDeckKey(event, deck) || event.defaultPrevented || event.key !== "Escape") return;
+      onClose();
       event.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, index, layout, onClose, slides.length]);
+  }, [go, index, layout, narration, onClose, slides.length]);
 
   useEffect(() => {
     // Full screen hides the browser's own bars; where it isn't offered (iPhone) the window is used.
@@ -287,6 +222,7 @@ export function SlidePresenter({
   }, [onClose]);
 
   const swipe = useSwipe((step) => go(index + step));
+  const clicks = useSlideClicks((step) => go(index + step));
   // Portaled outside its conversation, so it must leave when a kept conversation is hidden.
   const conversationShown = useConversationShown();
   if (!conversationShown) return null;
@@ -296,7 +232,7 @@ export function SlidePresenter({
   const shown = (
     <>
       {/* Measured inside its padding, so the slide keeps a margin from the screen's edges. */}
-      <div className="flex min-h-0 flex-1 px-2 py-1 sm:px-6 sm:py-2" {...swipe}>
+      <div className="flex min-h-0 flex-1 px-2 py-1 sm:px-6 sm:py-2" {...swipe} {...clicks}>
         <div ref={setFrame} className="flex min-w-0 flex-1 items-center justify-center">
           {slide && size.width > 0 && (
             <SlideView
@@ -328,15 +264,8 @@ export function SlidePresenter({
       aria-label={title}
       data-testid="slide-presenter"
     >
-      <div className="flex items-center gap-2 px-3 py-1.5 text-[13px] text-cc-muted" data-copy-exclude="">
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md px-2.5 py-1 text-[13px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg pointer-coarse:min-h-9"
-        >
-          Close
-        </button>
+      <div className="truncate px-3 py-1.5 text-center text-[13px] text-cc-muted" data-copy-exclude="">
+        {title}
       </div>
       {comments ? (
         // Text selected here is commented on like the deck in the conversation, naming its slide.
@@ -357,14 +286,16 @@ export function SlidePresenter({
         <div className="flex min-h-0 flex-1 flex-col">{shown}</div>
       )}
       {narration && <NarrationProgress messageId={narration.messageId} />}
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1 px-2 py-1.5" data-copy-exclude="">
-        <div className="flex items-center">{hasNotes && <NotesToggle shown={notesShown} onToggle={toggleNotes} />}</div>
-        <SlideNav slides={slides} index={index} onChange={go} />
-        <div className="flex items-center justify-end gap-1">
-          {comments && slide && <SlideCommentButton comments={comments} slide={slide} index={index} />}
-          {narration && <NarrationControls deck={narration} index={index} />}
-        </div>
-      </div>
+      <DeckToolbar
+        slides={slides}
+        index={index}
+        onChange={go}
+        narration={narration}
+        comments={comments}
+        notes={hasNotes ? { shown: notesShown, onToggle: toggleNotes } : undefined}
+        fullScreen={{ active: true, onToggle: onClose }}
+        className="px-2 py-1.5"
+      />
     </div>,
     document.body,
   );
@@ -389,33 +320,4 @@ export function useSwipe(onStep: (step: 1 | -1) => void) {
       if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) onStep(dx < 0 ? 1 : -1);
     },
   };
-}
-
-function Chevron({ direction }: { direction: "left" | "right" }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-4 w-4" aria-hidden="true">
-      <path
-        d={direction === "left" ? "M10 3.5L5.5 8l4.5 4.5" : "M6 3.5L10.5 8 6 12.5"}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** The icon of the Present button: a screen with a play mark. */
-export function PresentIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x="1.75" y="2.5" width="12.5" height="8.5" rx="1.2" />
-      <path d="M8 11v2.5M5.5 13.75h5M6.75 5.25l2.5 1.5-2.5 1.5z" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
 }

@@ -69,7 +69,7 @@ It renders the visual on the Takode server at a phone's and a desktop's message 
 
 ## Slides
 
-When asked for slides, a presentation or a deck, publish a `takode report` file written as a deck. Takode shows it one slide at a time with each slide's speaker notes under it, previous/next, Present (full screen) and Play, which presents the deck while reading each slide's notes aloud and turns to the next slide when they end. The user can comment on a whole slide or on text in it, and the comment tells you which slide. A PDF export has one slide per page.
+When asked for slides, a presentation or a deck, publish a `takode report` file written as a deck. Takode shows it one slide at a time with each slide's speaker notes under it, previous/next, full screen and Play, which reads each slide's notes aloud where the deck is shown and turns to the next slide when they end. The user can comment on a whole slide or on text in it, and the comment tells you which slide. A PDF export has one slide per page.
 
 **Write the script first.** Decide what you would say, slide by slide, and write it as the slide's notes: complete spoken sentences that carry the explanation. Then put on the slide only what the audience needs to see while hearing it: a short heading, a few words, and a visual, a chart of just the numbers you talk about, or a short code block. Most of the words belong in the notes, very few on the slide. A slide that reads like a page of the report has failed; a slide whose notes repeat it word for word has too.
 

@@ -166,8 +166,8 @@ describe("slide decks in the conversation", () => {
     expect(within(presenter).getByRole("heading", { name: "What goes into a key" })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "End" });
     expect(within(presenter).getByRole("heading", { name: "Next steps" })).toBeInTheDocument();
-    fireEvent.keyDown(window, { key: " " });
-    expect(within(presenter).getByText("3 / 3")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "PageUp" });
+    expect(within(presenter).getByText("2 / 3")).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Home" });
     expect(within(presenter).getByText("1 / 3")).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "PageDown" });
@@ -179,6 +179,79 @@ describe("slide decks in the conversation", () => {
     // The card stays on the slide the presentation ended on.
     expect(within(screen.getByTestId("slide-deck-card")).getByText("2 / 3")).toBeInTheDocument();
     delete (document.documentElement as { requestFullscreen?: unknown }).requestFullscreen;
+  });
+
+  it("turns to the next slide on a click and the previous one on a right-click, without the browser's menu", () => {
+    setBoxWidth(900);
+    renderDeckReport();
+    const stepper = screen.getByTestId("slide-stepper");
+    fireEvent.click(screen.getByRole("heading", { name: "Cache walkthrough" }));
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    // A right-click goes back and keeps the browser's own menu away.
+    const rightClick = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    act(() => {
+      screen.getByRole("heading", { name: "What goes into a key" }).dispatchEvent(rightClick);
+    });
+    expect(rightClick.defaultPrevented).toBe(true);
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+    // A click that extends a selection stays the browser's.
+    fireEvent.click(stepper, { shiftKey: true });
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+  });
+
+  it("leaves clicks on links and code, and clicks that end a text selection, to themselves", () => {
+    setBoxWidth(900);
+    renderDeckReport(
+      DECK.replace("File contents, not timestamps.", "File contents, see `hash()` and [the doc](https://example.com)."),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Next slide" }));
+    fireEvent.click(screen.getByText("hash()"));
+    fireEvent.click(screen.getByRole("link", { name: "the doc" }));
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+
+    // Text selected on the slide (for a comment or a copy): the click that ends the drag doesn't turn it.
+    const paragraph = screen.getByText(/File contents/);
+    const selection = window.getSelection()!;
+    selection.selectAllChildren(paragraph);
+    fireEvent.click(paragraph);
+    const rightClick = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    paragraph.dispatchEvent(rightClick);
+    expect(rightClick.defaultPrevented).toBe(false);
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    selection.removeAllRanges();
+  });
+
+  it("on a touch screen, a tap on the slide's left third goes back and elsewhere goes on", () => {
+    setBoxWidth(400);
+    renderDeckReport();
+    const stepper = screen.getByTestId("slide-stepper");
+    vi.spyOn(stepper, "getBoundingClientRect").mockReturnValue({ left: 0, width: 300 } as DOMRect);
+    const tap = (clientX: number) => {
+      fireEvent.pointerDown(stepper, { pointerType: "touch", clientX });
+      fireEvent.click(stepper, { clientX });
+    };
+    tap(250);
+    tap(150);
+    expect(screen.getByText("3 / 3")).toBeInTheDocument();
+    tap(50);
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+  });
+
+  it("takes the arrow keys once the deck is clicked, and leaves the feed's keys alone before", () => {
+    setBoxWidth(900);
+    renderDeckReport();
+    // Before, the keys belong to the page.
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+    const deck = screen.getByTestId("slide-stepper").parentElement!;
+    fireEvent.keyDown(deck, { key: "ArrowRight" });
+    fireEvent.keyDown(deck, { key: "ArrowRight" });
+    expect(screen.getByText("3 / 3")).toBeInTheDocument();
+    fireEvent.keyDown(deck, { key: "ArrowLeft" });
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    // Up and down still scroll the conversation.
+    fireEvent.keyDown(deck, { key: "ArrowDown" });
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
   });
 
   it("offers the deck's exports, PDF first, in its More menu", () => {
@@ -223,7 +296,7 @@ describe("speaker notes, comments and Play", () => {
     useStore.getState().setAnnotationEditor(null);
   });
 
-  it("Play presents the deck reading each slide's notes, the deck follows the reading, and Close ends it", () => {
+  it("Play reads each slide's notes right in the card, the deck follows the reading, and full screen keeps it going", () => {
     // The request never answers here: what matters is what is asked for and how the deck follows.
     const fetchMock = vi.fn((_url: string, _init: RequestInit) => new Promise<Response>(() => {}));
     vi.stubGlobal("fetch", fetchMock);
@@ -242,8 +315,9 @@ describe("speaker notes, comments and Play", () => {
       return state as ReturnType<typeof useReadAloudState>;
     };
 
-    fireEvent.click(screen.getByTestId("play-deck-button"));
-    const presenter = screen.getByTestId("slide-presenter");
+    fireEvent.click(screen.getByRole("button", { name: "Play: read each slide aloud" }));
+    // It plays where the deck is: nothing goes full screen.
+    expect(screen.queryByTestId("slide-presenter")).not.toBeInTheDocument();
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toMatchObject({
       messageId: report.id,
       text: "Today: what we cache and why.",
@@ -251,16 +325,49 @@ describe("speaker notes, comments and Play", () => {
     });
     expect(reading()).toMatchObject({ status: "preparing", slide: { index: 0, count: 3 } });
 
-    // The reading moves on (as when a slide's audio ends): the presentation turns with it.
+    // The reading moves on (as when a slide's audio ends): the card turns with it.
     act(() => goToPlayedSlide(2));
-    expect(within(presenter).getByText("3 / 3")).toBeInTheDocument();
+    const card = screen.getByTestId("slide-deck-card");
+    expect(within(card).getByText("3 / 3")).toBeInTheDocument();
     // A slide without notes is read from its own text.
     expect(JSON.parse(String(fetchMock.mock.calls.at(-1)![1].body))).toMatchObject({ text: "## Next steps" });
 
+    // Full screen and back keep reading.
+    fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
+    const presenter = screen.getByTestId("slide-presenter");
+    expect(within(presenter).getByText("3 / 3")).toBeInTheDocument();
     act(() => {
       fireEvent.keyDown(window, { key: "Escape" });
     });
-    expect(reading()).toBeNull();
+    expect(screen.queryByTestId("slide-presenter")).not.toBeInTheDocument();
+    expect(reading()).toMatchObject({ slide: { index: 2 } });
+    stopReadAloud();
+  });
+
+  it("Space starts the reading, in the card once clicked and in full screen", () => {
+    const fetchMock = vi.fn((_url: string, _init: RequestInit) => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    setBoxWidth(1200);
+    renderDeckReport(DECK_WITH_NOTES);
+    const deck = screen.getByTestId("slide-stepper").parentElement!;
+    const space = new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true });
+    act(() => {
+      deck.dispatchEvent(space);
+    });
+    // Taken, so the conversation doesn't scroll, and the deck is read from the slide shown.
+    expect(space.defaultPrevented).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+    stopReadAloud();
+
+    fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: " " });
+    expect(JSON.parse(String(fetchMock.mock.calls.at(-1)![1].body))).toMatchObject({
+      slide: { shown: "## What goes into a key\n\nFile contents, not timestamps." },
+    });
     stopReadAloud();
   });
 
@@ -268,7 +375,7 @@ describe("speaker notes, comments and Play", () => {
     setBoxWidth(1200);
     localStorage.removeItem("cc-slide-presenter-notes");
     renderDeckReport(DECK_WITH_NOTES);
-    fireEvent.click(screen.getByTestId("present-button"));
+    fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
     const presenter = screen.getByTestId("slide-presenter");
     expect(within(presenter).queryByTestId("slide-notes")).not.toBeInTheDocument();
     fireEvent.click(within(presenter).getByTestId("slide-notes-toggle"));

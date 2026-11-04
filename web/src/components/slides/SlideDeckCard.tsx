@@ -1,25 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { splitSlides } from "../../../shared/slides.js";
-import { goToPlayedSlide, stopPlayedDeck, useReadAloudState } from "../../read-aloud-player.js";
+import { goToPlayedSlide, useReadAloudState } from "../../read-aloud-player.js";
 import { exportDeck, type DeckExportFormat } from "../../utils/deck-export.js";
 import { CardMoreMenu, useCardExport } from "../CardMoreMenu.js";
 import type { ContextMenuItem } from "../ContextMenu.js";
+import { SlidePresenter, SlideView, slideLayoutFor, useElementWidth, useSwipe, type RenderSlide } from "./SlideDeck.js";
 import {
-  PresentIcon,
-  SlideNav,
-  SlidePresenter,
-  SlideView,
-  slideLayoutFor,
-  useElementWidth,
-  useSwipe,
-  type RenderSlide,
-} from "./SlideDeck.js";
-import {
-  PlayDeckButton,
-  SlideCommentButton,
+  DeckToolbar,
+  NarrationProgress,
   SlideNotes,
+  handleDeckKey,
   narratedDeck,
   slideCommentAttributes,
+  useSlideClicks,
   type DeckComments,
   type DeckMessage,
 } from "./SlideControls.js";
@@ -28,10 +21,12 @@ const DECK_EXPORT_FORMATS: readonly DeckExportFormat[] = ["pdf", "markdown", "ht
 
 /**
  * A slide deck (a report with `slides: true` front matter) in a conversation, the Library or an
- * artifact window: one slide at a time with its speaker notes below, previous and next, Present for
- * the whole screen, Play (Present while each slide is read aloud, where the deck is a conversation
- * message), comments on a slide in a conversation, and More, whose Export saves the deck as a PDF
- * with one slide per page.
+ * artifact window: one slide at a time with its speaker notes below and the deck's controls under
+ * it: previous and next, Play (each slide read aloud in turn, right here, where the deck is a
+ * conversation message), comments on a slide in a conversation, and Full screen to present it. A
+ * click on the slide turns to the next one and a right-click to the previous one; once clicked, the
+ * deck takes the arrow keys and Space (play and pause). More's Export saves the deck as a PDF with
+ * one slide per page.
  */
 export function SlideDeckCard({
   title,
@@ -75,14 +70,10 @@ export function SlideDeckCard({
     },
     [playing, slides.length],
   );
-  // Leaving Present ends the reading too. Kept stable while playing starts and stops: Present
-  // leaves full screen whenever its close handler changes.
-  const messageId = message?.messageId;
-  const close = useCallback(() => {
-    setPresenting(false);
-    if (messageId) stopPlayedDeck(messageId);
-  }, [messageId]);
+  // Leaving full screen keeps the reading going in the card.
+  const close = useCallback(() => setPresenting(false), []);
   const swipe = useSwipe((step) => go(index + step));
+  const clicks = useSlideClicks((step) => go(index + step));
   const { exportItems, task } = useCardExport(
     useCallback(
       (format) => exportDeck(format as DeckExportFormat, { markdown, title, render }),
@@ -102,32 +93,32 @@ export function SlideDeckCard({
           {framed && <div className="truncate font-medium text-cc-fg">{title}</div>}
           <div>{slides.length === 1 ? "1 slide" : `${slides.length} slides`}</div>
         </div>
-        <button
-          type="button"
-          onClick={() => setPresenting(true)}
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-cc-border px-2 text-[12.5px] text-cc-fg hover:bg-cc-hover pointer-coarse:h-9"
-          data-testid="present-button"
-        >
-          <PresentIcon />
-          Present
-        </button>
-        {narration && <PlayDeckButton deck={narration} index={shown} onPlay={() => setPresenting(true)} />}
         <CardMoreMenu items={[...menuItems, exportItems(DECK_EXPORT_FORMATS)]} task={task} />
       </div>
       {/* The slide and its notes: a comment made in either names the slide. */}
-      <div className="min-w-0" {...(slide ? slideCommentAttributes(slide, shown) : {})}>
-        <div ref={measureRef} className="min-w-0" {...swipe} data-testid="slide-stepper">
+      <div
+        className="min-w-0 outline-none"
+        tabIndex={-1}
+        onKeyDown={(event) =>
+          handleDeckKey(event, { index: shown, count: slides.length, go, narration, vertical: false })
+        }
+        {...(slide ? slideCommentAttributes(slide, shown) : {})}
+      >
+        <div ref={measureRef} className="min-w-0" {...swipe} {...clicks} data-testid="slide-stepper">
           {width > 0 && slide && (
             <SlideView key={shown} slide={slide} layout={layout} width={width} height={pageHeight()} render={render} />
           )}
         </div>
-        <div className="mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center" data-copy-exclude="">
-          <span />
-          <SlideNav slides={slides} index={shown} onChange={go} />
-          <span className="flex justify-end">
-            {comments && slide && <SlideCommentButton comments={comments} slide={slide} index={shown} />}
-          </span>
-        </div>
+        {narration && <NarrationProgress messageId={narration.messageId} className="mt-1.5" />}
+        <DeckToolbar
+          slides={slides}
+          index={shown}
+          onChange={go}
+          narration={narration}
+          comments={comments}
+          fullScreen={{ active: false, onToggle: () => setPresenting(true) }}
+          className="mt-1"
+        />
         {slide?.notes && (
           <SlideNotes notes={slide.notes} render={render} className="mt-2 border-t border-cc-border px-1 pt-2" />
         )}

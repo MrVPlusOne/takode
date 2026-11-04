@@ -12,7 +12,7 @@ Files above 2 MiB, invalid UTF-8, and empty files are rejected, never truncated.
 Comments on the report come to your session, like any other comment.
 The receipt contains identity and size only; use takode read for saved content.
 A file that opens with \`slides: true\` front matter is a slide deck: Takode shows it one slide
-at a time (slides separated by --- lines) with a full-screen Present. In each slide, a line
+at a time (slides separated by --- lines), with a full-screen view. In each slide, a line
 \`Notes:\` starts its speaker notes, which show under the slide and are read aloud on Play.
 Write the script first, as notes, and keep the slides to a few words and visuals. The
 visual-blocks skill explains how to write a deck.

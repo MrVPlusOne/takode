@@ -11,9 +11,10 @@ export function PlaygroundSlideDeckSection() {
     <section id="slide-decks" className="space-y-4 scroll-mt-24" data-testid="playground-slide-decks">
       <h2 className="text-lg font-semibold">Slide decks</h2>
       <p className="text-sm text-cc-muted">
-        A report whose front matter says <code>slides: true</code>: one slide at a time with its speaker notes under it,
-        Present for full screen, Play to present while each slide's notes are read aloud, and a comment button for the
-        whole slide.
+        A report whose front matter says <code>slides: true</code>: one slide at a time with its speaker notes under it
+        and its controls in one group below: speed and Play (each slide's notes read aloud, right in the card), the
+        slide picker, a comment button for the whole slide and Full screen. A click turns to the next slide and a
+        right-click to the previous one.
       </p>
       <div data-message-id={deck.id} data-message-role="assistant">
         <MessageBubble message={message} sessionId={deck.source.sessionId} />
