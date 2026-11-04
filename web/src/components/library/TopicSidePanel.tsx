@@ -272,6 +272,24 @@ export function TopicSidePanel({
   );
 }
 
+/** The narrowest the main view gets beside the side column: room for its composer and a message. */
+export const MAIN_VIEW_MIN_WIDTH = 420;
+
+/** The width of `ref`'s parent while `active` (its element shown), kept current; 0 until measured. */
+function useParentWidth(ref: RefObject<HTMLElement | null>, active: boolean): number {
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const parent = ref.current?.parentElement;
+    if (!parent) return;
+    const measure = () => setWidth(parent.clientWidth);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(parent);
+    return () => observer?.disconnect();
+  }, [ref, active]);
+  return width;
+}
+
 /**
  * The side column beside the main view on desktop: the column with a draggable divider, or the slim
  * rail when collapsed. One for the whole app (App renders it beside every conversation), so what is
@@ -282,8 +300,14 @@ export function SideColumnDock() {
   const sessionId = useMainViewStore((state) => state.sessionId);
   const threadKey = useMainViewStore((state) => state.threadKey) ?? "main";
   const leaderId = useMainViewLeader();
+  // The column can take the area beside the sessions panel (its row, measured) less the main
+  // view's minimum (Jiayi, Nov 3: it stopped at 820 px, about 40% of a wide window).
+  const columnRef = useRef<HTMLDivElement>(null);
+  const rowWidth = useParentWidth(columnRef, open && !!sessionId);
   const split = useSplitWidth("topic-panel", {
-    ...{ defaultWidth: 440, min: 320, max: 820, side: "right" },
+    ...{ defaultWidth: 440, min: 320, side: "right" },
+    // Until the row is measured (the first frame), the old fixed limit.
+    max: rowWidth ? Math.max(320, rowWidth - MAIN_VIEW_MIN_WIDTH) : 820,
     // Kept as a share of the window once the user drags it, so it follows the window.
     share: true,
   });
@@ -292,7 +316,7 @@ export function SideColumnDock() {
   return (
     <>
       <SplitHandle label="Resize the side column" {...split.handleProps} />
-      <div style={split.style} className="flex min-h-0 w-[var(--split-w)] shrink-0">
+      <div ref={columnRef} style={split.style} className="flex min-h-0 w-[var(--split-w)] shrink-0">
         <aside
           className="flex min-h-0 w-full flex-col border-l border-cc-border bg-cc-bg"
           aria-label="Side column"

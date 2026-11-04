@@ -21,7 +21,7 @@ import type { SdkSessionInfo, SessionNotification } from "../../types.js";
 import { artifactApi } from "../../api/artifacts.js";
 import { setTopicSheetOpen, useTopicPanel } from "../../utils/topic-panel.js";
 
-import { SideColumnDock, SideColumnPhoneSheet, TopicSidePanel } from "./TopicSidePanel.js";
+import { MAIN_VIEW_MIN_WIDTH, SideColumnDock, SideColumnPhoneSheet, TopicSidePanel } from "./TopicSidePanel.js";
 import { showMainView } from "../../utils/side-column.js";
 
 /**
@@ -507,6 +507,30 @@ describe("TopicSidePanel", () => {
     fireEvent.click(within(rail).getByRole("button", { name: "Show the topic T7 run" }));
     expect(await screen.findByTestId("topic-side-panel")).toBeInTheDocument();
     shown();
+  });
+
+  it("can take the row beside the sessions panel, less the main view's minimum", async () => {
+    // Jiayi (Nov 3): the divider stopped at 820 px, about 40% of a wide window. Now only the main
+    // view's minimum (MAIN_VIEW_MIN_WIDTH) limits it: a 1600 px window with a 260 px sessions panel
+    // leaves a 1340 px row, so the column can be 920 px.
+    mockApi();
+    vi.stubGlobal("innerWidth", 1600);
+    localStorage.setItem("cc-split-widths", JSON.stringify({ "topic-panel": 0.9 }));
+    useStore.setState({
+      sdkSessions: [{ sessionId: "l1", isOrchestrator: true, state: "connected", cwd: "/", createdAt: 1 }],
+    } as never);
+    const shown = showMainView("l1", "q-2713");
+    const row = document.body.appendChild(document.createElement("div"));
+    Object.defineProperty(row, "clientWidth", { value: 1340 });
+    try {
+      render(<SideColumnDock />, { container: row });
+      const column = (await screen.findByTestId("topic-side-panel")).parentElement!;
+      await waitFor(() => expect(column.style.getPropertyValue("--split-w")).toBe(`${1340 - MAIN_VIEW_MIN_WIDTH}px`));
+    } finally {
+      shown();
+      vi.unstubAllGlobals();
+      localStorage.removeItem("cc-split-widths");
+    }
   });
 
   it("opens as a sheet on phones and stays closed until asked", async () => {
