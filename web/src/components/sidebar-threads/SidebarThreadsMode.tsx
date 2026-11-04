@@ -509,10 +509,11 @@ function threadRowMenuItems(row: ThreadRow, open: () => void): ContextMenuItem[]
 
 /**
  * One thread: its leader's portrait, ringed in the thread's status colour as Sessions mode rings a
- * leader's (Jiayi, Nov 3: it took the status dot's place, so the update has the row's width), its
- * name and counts; then its update, the most informative recent news (Jiayi, Oct 31). A quest's
- * number is left out so its title gets the room (Jiayi, Nov 1); hovering shows it with the whole
- * title and update, and the row's menu and the thread itself open the quest.
+ * leader's (Jiayi, Nov 3: it took the status dot's place), its name and counts; then its update,
+ * the most informative recent news (Jiayi, Oct 31), from the row's left edge so the words get the
+ * row's width (Jiayi, Nov 3). A quest's number is left out so its title gets the room (Jiayi,
+ * Nov 1); hovering shows it with the whole title and update, and the row's menu and the thread
+ * itself open the quest.
  */
 function ThreadRowButton({
   row,
@@ -554,8 +555,10 @@ function ThreadRowButton({
         </span>
         <StatusCountDots counts={row.counts} />
       </div>
-      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-7 text-[11px] text-cc-muted">
-        {line && <UpdateMarker />}
+      {/* The update starts at the row's left edge, its mark centred under the portrait, so the
+          words get the row's width (Jiayi, Nov 3). */}
+      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-cc-muted">
+        <span className="flex w-5 shrink-0 justify-center">{line && <UpdateMarker />}</span>
         <span className="min-w-0 truncate" data-testid="threads-mode-line">
           {line ?? row.label ?? (row.activityAt ? `Updated ${timeAgo(row.activityAt)}` : "")}
         </span>
