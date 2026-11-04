@@ -181,6 +181,8 @@ export function Composer({
   const [isImageDragOver, setIsImageDragOver] = useState(false);
   const [voiceEditProposal, setVoiceEditProposal] = useState<VoiceEditProposal | null>(null);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
+  // A send pressed while images are still uploading waits for them instead of being refused.
+  const [sendQueued, setSendQueued] = useState(false);
   const [alternateVoiceRerun, setAlternateVoiceRerun] = useState<AlternateVoiceRerun | null>(null);
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -954,6 +956,10 @@ export function Composer({
       setSendNotice(sendBlockReason);
       return;
     }
+    if (waitingForUploads) {
+      setSendQueued(true);
+      return;
+    }
 
     // Auto-answer pending AskUserQuestion if user types a response.
     // The typed text becomes the "Other..." answer for each question.
@@ -1527,14 +1533,13 @@ export function Composer({
   const failedImageCount = images.filter((image) => image.status === "failed").length;
   const readyImageCount = images.filter((image) => image.status === "ready" && image.prepared).length;
   const allImagesReady = images.length === readyImageCount;
+  const pendingUploadCount = readingImageCount + uploadingImageCount;
+  // Reading or uploading images don't block a send: it waits for them (see the queued-send effect).
+  const waitingForUploads = pendingUploadCount > 0 && failedImageCount === 0;
   const attachmentBlockReason =
-    readingImageCount > 0
-      ? `Preparing ${readingImageCount} image${readingImageCount === 1 ? "" : "s"} before upload.`
-      : uploadingImageCount > 0
-        ? `${uploadingImageCount} image${uploadingImageCount === 1 ? "" : "s"} still uploading.`
-        : failedImageCount > 0
-          ? `Remove or retry ${failedImageCount} failed image${failedImageCount === 1 ? "" : "s"} before sending.`
-          : null;
+    failedImageCount > 0
+      ? `Remove or retry ${failedImageCount} failed image${failedImageCount === 1 ? "" : "s"} before sending.`
+      : null;
   const hasDraftContent = text.trim().length > 0 || images.length > 0 || !!annotations?.length;
   const sendBlockReason = !hasDraftContent
     ? null
@@ -1544,12 +1549,30 @@ export function Composer({
         ? "Accept or undo the voice edit first"
         : annotationEditorOpen
           ? "Save or cancel the open comment first"
-          : !allImagesReady
+          : !allImagesReady && !waitingForUploads
             ? (attachmentBlockReason ?? "Images are still being prepared.")
             : null;
   const canSend = hasDraftContent && !sendBlockReason;
   // The notice explains one press; any change to the draft or to what blocks it retires the notice.
   useEffect(() => setSendNotice(null), [text, images, annotations, sendBlockReason]);
+  // Declared after the notice reset above so a failure notice set here outlives that reset.
+  // handleSend is recreated every render; this render's copy already sees the settled draft.
+  useEffect(() => {
+    if (!sendQueued || waitingForUploads) return;
+    setSendQueued(false);
+    if (!hasDraftContent) return;
+    if (failedImageCount > 0) {
+      const one = failedImageCount === 1;
+      setSendNotice(
+        `${one ? "An image" : `${failedImageCount} images`} failed to upload, so nothing was sent. Retry or remove ${one ? "it" : "them"}, then send again.`,
+      );
+      return;
+    }
+    void handleSend();
+  }, [sendQueued, waitingForUploads, hasDraftContent, failedImageCount]); // eslint-disable-line react-hooks/exhaustive-deps
+  const queuedSendNotice = sendQueued
+    ? `Sends when ${pendingUploadCount === 1 ? "the image finishes" : `${pendingUploadCount} images finish`} uploading.`
+    : null;
   const isVoiceInteractionActive = isPreparing || isRecording || isTranscribing;
   const hasActiveReplyContext = !!replyContext;
   const placeholder =
@@ -1568,7 +1591,8 @@ export function Composer({
 
   // Active voice/comment editors remain usable even after the textarea loses focus.
   // The send squish plays on the expanded composer's button, so the composer stays open until it ends.
-  const keepComposerOpen = isVoiceInteractionActive || annotationEditorOpen || !!lightboxSrc || sendPressing;
+  const keepComposerOpen =
+    isVoiceInteractionActive || annotationEditorOpen || !!lightboxSrc || sendPressing || sendQueued;
   const isCollapsed = !composerExpanded && !keepComposerOpen;
 
   useEffect(() => {
@@ -1636,7 +1660,9 @@ export function Composer({
     : !canUseInput
       ? "Resume session to upload images"
       : "Upload image";
-  const sendButtonTitle = sendBlockReason ?? (canSend ? sendKey.hint : "Send message");
+  const sendButtonTitle =
+    sendBlockReason ??
+    (canSend && waitingForUploads ? "Send once images finish uploading" : canSend ? sendKey.hint : "Send message");
   const plainReferencePreviews = useMemo(() => {
     const questIds = new Set(previewQuestIds);
     const sessionNums = new Set(previewSessionNums);
@@ -1838,7 +1864,7 @@ export function Composer({
                 voiceButtonTitle={voiceButtonTitle}
                 canSend={canSend}
                 sendBlocked={!!sendBlockReason}
-                sendNotice={sendNotice}
+                sendNotice={sendNotice ?? queuedSendNotice}
                 isRunning={isRunning}
                 handleInterrupt={handleInterrupt}
                 handleSend={handleSend}

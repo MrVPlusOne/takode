@@ -853,7 +853,8 @@ describe("Composer sending messages", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uploads image attachments immediately and only enables send after preparation completes", async () => {
+  it("queues a send pressed while an image uploads and sends it once the upload finishes", async () => {
+    // Pressing Send mid-upload used to be refused; now it waits and sends by itself, exactly once.
     const prepared = deferred<{
       imageRefs: Array<{ imageId: string; media_type: string }>;
       paths: string[];
@@ -883,17 +884,16 @@ describe("Composer sending messages", () => {
       expect(screen.getByAltText("screenshot.png")).toBeTruthy();
     });
     expect(screen.getByText("Uploading...")).toBeTruthy();
-    expect(screen.getByTitle("1 image still uploading.").closest("button")!.getAttribute("aria-disabled")).toBe("true");
+    // Send stays pressable while the upload runs; its hover text says it will wait.
+    const sendButton = screen.getByTitle("Send once images finish uploading").closest("button")!;
+    expect(sendButton.getAttribute("aria-disabled")).toBeNull();
 
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
-    expect(mockSendToSession).not.toHaveBeenCalledWith(
-      "s1",
-      expect.objectContaining({
-        type: "user_message",
-      }),
-    );
-    // The blocked press must be visible: the reason appears next to Send.
-    expect(screen.getByRole("alert").textContent).toBe("1 image still uploading.");
+    // A second press while queued must not queue or send a second copy.
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "user_message" }));
+    expect(screen.getByRole("alert").textContent).toBe("Sends when the image finishes uploading.");
+    expect(textarea.value).toBe("inspect this screenshot");
 
     await act(async () => {
       prepared.resolve({
@@ -906,23 +906,62 @@ describe("Composer sending messages", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Ready")).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
+      expect(mockSendToSession).toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({
+          type: "user_message",
+          content: "inspect this screenshot",
+          deliveryContent: expect.stringContaining("Attachment 1: /Users/test/.companion/images/s1/img-1.orig.png"),
+          imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+          session_id: "s1",
+          client_msg_id: expect.any(String),
+        }),
+      );
+    });
+    const userMessageSends = mockSendToSession.mock.calls.filter(
+      ([, message]) => (message as { type?: string }).type === "user_message",
+    );
+    expect(userMessageSends).toHaveLength(1);
+    expect(screen.queryByText("Sends when the image finishes uploading.")).toBeNull();
+  });
+
+  it("gives up a queued send when its image upload fails and keeps the draft for a retry", async () => {
+    const prepared = deferred<{
+      imageRefs: Array<{ imageId: string; media_type: string }>;
+      paths: string[];
+      attachmentAnnotation: string;
+    }>();
+    mockPrepareUserMessageImages.mockReturnValue(prepared.promise);
+
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(textarea, { target: { value: "inspect this screenshot" } });
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [makeImageFile("broken.png")] } });
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Uploading...")).toBeTruthy();
+    });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    expect(screen.getByRole("alert").textContent).toBe("Sends when the image finishes uploading.");
+
+    await act(async () => {
+      prepared.reject(new Error("server rejected image"));
+      await prepared.promise.catch(() => {});
     });
 
-    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
-
-    expect(mockSendToSession).toHaveBeenCalledWith(
-      "s1",
-      expect.objectContaining({
-        type: "user_message",
-        content: "inspect this screenshot",
-        deliveryContent: expect.stringContaining("Attachment 1: /Users/test/.companion/images/s1/img-1.orig.png"),
-        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
-        session_id: "s1",
-        client_msg_id: expect.any(String),
-      }),
-    );
+    // The send is given up with a visible reason; the draft and the image's Retry stay.
+    await waitFor(() => {
+      expect(screen.getByText("Upload failed")).toBeTruthy();
+      expect(screen.getByRole("alert").textContent).toBe(
+        "An image failed to upload, so nothing was sent. Retry or remove it, then send again.",
+      );
+    });
+    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "user_message" }));
+    expect(textarea.value).toBe("inspect this screenshot");
+    expect(screen.getByText("Retry")).toBeTruthy();
   });
 
   it("blocks send on failed image preparation until the image is retried or removed", async () => {

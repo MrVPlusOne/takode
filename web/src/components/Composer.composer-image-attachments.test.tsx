@@ -533,7 +533,7 @@ beforeEach(() => {
 // ─── Basic rendering ────────────────────────────────────────────────────────
 
 describe("Composer image attachments", () => {
-  it("blocks send as soon as an image is attached, before local file reading finishes", async () => {
+  it("queues a send pressed before local file reading finishes instead of sending without the image", async () => {
     const previousFileReader = window.FileReader;
     const pendingReaders: Array<{
       complete: () => void;
@@ -566,11 +566,11 @@ describe("Composer image attachments", () => {
       fireEvent.change(fileInput, { target: { files: [makeImageFile("slow.png")] } });
 
       await waitFor(() => {
-        expect(screen.getByText("Preparing 1 image before upload.")).toBeTruthy();
         expect(screen.getAllByText("Preparing...").length).toBeGreaterThan(0);
       });
 
       fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+      expect(screen.getByRole("alert").textContent).toBe("Sends when the image finishes uploading.");
       expect(mockSendToSession).not.toHaveBeenCalledWith(
         "s1",
         expect.objectContaining({

@@ -36,7 +36,14 @@ export function PlaygroundStreamingComposerStates() {
       <Card label="Send pressed while blocked: the reason shows instead of nothing happening">
         <PlaygroundStreamingComposer
           initialDraft="See the attached screenshot"
-          blockedNotice="1 image still uploading."
+          blockedNotice="Remove or retry 1 failed image before sending."
+        />
+      </Card>
+      <div className="mt-4" />
+      <Card label="Send pressed while an image uploads: the send waits and goes out when the upload finishes">
+        <PlaygroundStreamingComposer
+          initialDraft="See the attached screenshot"
+          queuedNotice="Sends when the image finishes uploading."
         />
       </Card>
     </>
@@ -46,12 +53,14 @@ export function PlaygroundStreamingComposerStates() {
 function PlaygroundStreamingComposer({
   initialDraft,
   blockedNotice,
+  queuedNotice,
   recording = false,
   preparing = false,
   running = !recording,
 }: {
   initialDraft: string;
   blockedNotice?: string;
+  queuedNotice?: string;
   recording?: boolean;
   preparing?: boolean;
   running?: boolean;
@@ -68,7 +77,7 @@ function PlaygroundStreamingComposer({
   const sendKey = useSendKey();
 
   return (
-    <div className={`border-t border-cc-border bg-cc-card px-4 py-3 ${blockedNotice ? "pt-14" : ""}`}>
+    <div className={`border-t border-cc-border bg-cc-card px-4 py-3 ${blockedNotice || queuedNotice ? "pt-14" : ""}`}>
       <div className="rounded-[14px] border border-cc-border bg-cc-input-bg">
         <textarea
           value={draft}
@@ -123,7 +132,7 @@ function PlaygroundStreamingComposer({
           voiceButtonTitle="Voice input"
           canSend={canSend}
           sendBlocked={!!blockedNotice}
-          sendNotice={blockedNotice ?? null}
+          sendNotice={blockedNotice ?? queuedNotice ?? null}
           isRunning={running}
           handleInterrupt={() => {}}
           handleSend={() => {}}
