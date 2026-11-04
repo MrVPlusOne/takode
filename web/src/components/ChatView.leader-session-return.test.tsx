@@ -194,11 +194,11 @@ vi.mock("./WorkBoardBar.js", () => ({
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
     threadRows?: Array<{ threadKey: string; title: string }>;
-    onMoveHomeToSide?: () => void;
+    onMoveHomeToSide?: (keepHere: boolean) => void;
   }) => (
     <div data-testid="work-board-bar" data-current-thread-key={currentThreadKey}>
       {onMoveHomeToSide && (
-        <button type="button" data-testid="home-move-to-side" onClick={onMoveHomeToSide}>
+        <button type="button" data-testid="home-move-to-side" onClick={(event) => onMoveHomeToSide(event.shiftKey)}>
           Move Home
         </button>
       )}
@@ -502,6 +502,29 @@ describe("ChatView topics as tags", () => {
       expect.objectContaining({ kind: "home", leaderId: LEADER_SESSION_ID }),
     );
     await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    view.unmount();
+    useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
+  });
+
+  it("keeps the thread in the main view too on a Shift-click of move-to-side", async () => {
+    // Jiayi (Nov 4): the same chat in two views, so each can be scrolled to a different place.
+    // Shift-click opens it in the side column and the main view keeps showing it; Home likewise.
+    useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
+    const view = render(<RouteAwareChatView />);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    fireEvent.click(screen.getByTestId("thread-move-to-side"), { shiftKey: true });
+    expect(useSideColumnStore.getState().items).toEqual([
+      expect.objectContaining({ kind: "conversation", threadKey: QUEST_ID, leaderId: LEADER_SESSION_ID }),
+    ]);
+    expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID);
+    // A plain click on Home's button moves it; a Shift-click leaves Home on screen.
+    fireEvent.click(screen.getByRole("button", { name: "Main" }));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    fireEvent.click(await screen.findByTestId("home-move-to-side"), { shiftKey: true });
+    expect(useSideColumnStore.getState().items[0]).toEqual(
+      expect.objectContaining({ kind: "home", leaderId: LEADER_SESSION_ID }),
+    );
+    expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
     view.unmount();
     useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
   });

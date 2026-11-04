@@ -4,17 +4,23 @@ import { useThreadNews } from "./home/HomeExtras.js";
 import { InlineThreadUpdate } from "./ThreadUpdate.js";
 
 /**
+ * Moves what the main view shows into the side column; with `keepHere` (a Shift-click) it opens
+ * there too and stays in the main view, so one chat can be read at two places at once.
+ */
+export type MoveToSide = (keepHere: boolean) => void;
+
+/**
  * Moves the thread on screen into the side column, the mirror of a side pane's button that brings
  * its thread into the main view. Shown on desktop only, where the side column sits beside it.
  */
-export function MoveToSideButton({ onMove }: { onMove: () => void }) {
+export function MoveToSideButton({ onMove }: { onMove: MoveToSide }) {
   return (
     <button
       type="button"
-      onClick={onMove}
+      onClick={(event) => onMove(event.shiftKey)}
       className="-my-1 -mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
       aria-label="Move to the side column"
-      title="Move to the side column"
+      title="Move to the side column (Shift-click to keep it here too)"
       data-testid="thread-move-to-side"
     >
       <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">
@@ -31,7 +37,7 @@ export function MoveToSideButton({ onMove }: { onMove: () => void }) {
  * name, and on desktop the way to move it to the side column. Threads don't close; Home, in the
  * status row, is the way back. As tall as a quest's strip.
  */
-export function ThreadStrip({ thread, onMoveToSide }: { thread: ThreadSummary; onMoveToSide?: () => void }) {
+export function ThreadStrip({ thread, onMoveToSide }: { thread: ThreadSummary; onMoveToSide?: MoveToSide }) {
   const news = useThreadNews(thread.leaderId, thread.key);
   return (
     <div

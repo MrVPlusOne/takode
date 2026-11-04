@@ -863,8 +863,10 @@ export function ChatView({
   // where the column sits beside the view.
   const moveSelectedToSide =
     leaderNav && desktopShell
-      ? () => {
+      ? (keepHere: boolean) => {
           openInSide({ kind: "conversation", threadKey: selectedThreadKey, leaderId: sessionId });
+          // Kept here too (Shift-click): the same chat in two views, each scrolled on its own.
+          if (keepHere) return;
           const home = normalizeThreadKey(selectedThreadKey) === MAIN_THREAD_KEY;
           movedToSideRef.current = !home;
           handleSelectThread(home ? (lastThreadShownOf(sessionId) ?? ALL_THREADS_KEY) : MAIN_THREAD_KEY);

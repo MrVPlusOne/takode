@@ -34,7 +34,7 @@ import {
 import { SessionRoleLabel } from "./SessionRoleLabel.js";
 import { DiffChip, QuestDiffChips } from "./DiffChip.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
-import { MoveToSideButton } from "./ThreadStrip.js";
+import { MoveToSideButton, type MoveToSide } from "./ThreadStrip.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { resolveSessionNavigation, type ResolvedSessionNavigation } from "../utils/session-navigation-resolver.js";
@@ -573,7 +573,7 @@ export function QuestThreadBanner({
    */
   singleLine?: boolean;
   /** Moves the thread into the side column; passed on desktop, where the column sits beside it. */
-  onMoveToSide?: () => void;
+  onMoveToSide?: MoveToSide;
   row?: QuestThreadBannerRow;
   threadKey: string;
   /** Set when this quest is a side quest: the thread ("main" or a quest ID) where its answer is given. */

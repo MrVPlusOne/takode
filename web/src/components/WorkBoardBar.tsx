@@ -27,7 +27,7 @@ import {
 } from "./leader-board-summary.js";
 import { LeaderWorkboardControlButton, toggleLeaderWorkboard, WorkBoardIcon } from "./leader-workboard-controls.js";
 import { MainStripSummary } from "./WorkBoardMainStrip.js";
-import { MoveToSideButton } from "./ThreadStrip.js";
+import { MoveToSideButton, type MoveToSide } from "./ThreadStrip.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import {
@@ -498,7 +498,7 @@ function WorkBoardBarComponent({
   /** Hides Main's strip under the tabs (the phone topic panel covers the thread). */
   hideThreadStrip?: boolean;
   /** Moves the leader's Home, on screen, into the side column (desktop). */
-  onMoveHomeToSide?: () => void;
+  onMoveHomeToSide?: MoveToSide;
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
   // The Board button goes in the top bar (each conversation in its own box there, which the top bar

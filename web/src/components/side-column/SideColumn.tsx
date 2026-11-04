@@ -458,7 +458,7 @@ function SideItemRow({
     if (!item) return [];
     const moveOut = sideItemMoveOut(item);
     return [
-      ...(moveOut ? [{ label: moveOut.label, onClick: moveOut.go }] : []),
+      ...(moveOut ? [{ label: moveOut.label, onClick: () => moveOut.go(false) }] : []),
       { label: "Remove from the side column", onClick: () => closeSideItem(item.id) },
     ];
   };
@@ -542,9 +542,10 @@ function LeaderIcon({ leaderId }: { leaderId: string }) {
 
 /**
  * Where an item moves out of the column, and how: a conversation to the main view, an artifact to
- * the Library; it then leaves the column. None for items that stay (new chats, topics).
+ * the Library; it then leaves the column, unless `go` is asked to keep it (a Shift-click), so the
+ * same chat can be read at two places at once. None for items that stay (new chats, topics).
  */
-function sideItemMoveOut(item: SideItem): { label: string; go: () => void } | null {
+function sideItemMoveOut(item: SideItem): { label: string; go: (keepHere: boolean) => void } | null {
   const moveOut =
     item.kind === "conversation"
       ? {
@@ -570,9 +571,9 @@ function sideItemMoveOut(item: SideItem): { label: string; go: () => void } | nu
   return moveOut
     ? {
         label: moveOut.label,
-        go: () => {
+        go: (keepHere: boolean) => {
           moveOut.go();
-          closeSideItem(item.id);
+          if (!keepHere) closeSideItem(item.id);
         },
       }
     : null;
@@ -586,10 +587,10 @@ function ItemActions({ item }: { item: SideItem | null }) {
       {moveOut && (
         <button
           type="button"
-          onClick={moveOut.go}
+          onClick={(event) => moveOut.go(event.shiftKey)}
           className="flex h-7 w-7 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
           aria-label={moveOut.label}
-          title={moveOut.label}
+          title={`${moveOut.label} (Shift-click to keep it here too)`}
         >
           <OpenInMainIcon />
         </button>

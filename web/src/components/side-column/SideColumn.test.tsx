@@ -298,6 +298,21 @@ describe("SideColumn", () => {
     expect(useSideColumnStore.getState().items).toEqual([]);
   });
 
+  it("keeps a conversation in the column on a Shift-click of Open in the main view", () => {
+    // Jiayi (Nov 4): the same chat in both views, each scrolled on its own; the tooltip says so.
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    });
+    const button = screen.getByRole("button", { name: "Open in the main view" });
+    expect(button.getAttribute("title")).toBe("Open in the main view (Shift-click to keep it here too)");
+    fireEvent.click(button, { shiftKey: true });
+    expect(window.location.hash).toContain("thread=q-2");
+    expect(useSideColumnStore.getState().items).toEqual([
+      expect.objectContaining({ kind: "conversation", threadKey: "q-2", leaderId: "l1" }),
+    ]);
+  });
+
   it("offers a row's own buttons in its right-click menu", () => {
     // Right-click on an item's header names what its buttons do, in place of the browser's menu.
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
