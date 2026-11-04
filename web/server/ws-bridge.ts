@@ -629,6 +629,7 @@ export class WsBridge {
         buildTurnToolSummary: (session) => this.buildTurnToolSummary(session),
         pokeStaleCodexPendingDelivery: (session, reason) =>
           pokeStaleCodexPendingDeliveryController(session, reason, this.getCodexRecoveryOrchestratorDeps()),
+        restartBackend: (session) => this.onSessionRelaunchRequested?.(session.id),
       });
       this.sweepBoardStallWarnings(now);
       this.sweepBoardDispatchableWarnings(now);

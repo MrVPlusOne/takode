@@ -147,6 +147,8 @@ export interface StuckWatchdogDeps<S extends StuckWatchdogSession> {
   getRecoverableActiveCodexTurnId?: (session: S) => string | null;
   pokeStaleCodexPendingDelivery?: (session: S, reason: string) => boolean;
   recoverStuckOrchestratorCodexTurn?: (session: S) => boolean;
+  /** Start the session's backend afresh (a relaunch that resumes its conversation). */
+  restartBackend?: (session: S) => void;
 }
 
 export type UserDispatchTurnTarget = "current" | "queued";
@@ -819,21 +821,29 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
       }
     }
 
+    // A Claude turn that got nothing at all from a connected backend means its process stopped
+    // answering (such as one handed over dead after a restart). Retrying on it would stall every
+    // later turn the same way, so the backend starts afresh; a slow turn always shows some output.
+    const silentClaudeBackend =
+      session.backendType === "claude-sdk" && cliConnected && session.lastCliMessageAt < session.generationStartedAt;
     console.warn(
       `[ws-bridge] Auto-recovering stuck session ${sessionTag(session.id)} ` +
         `(${Math.round(elapsed / 1000)}s stuck, CLI ${cliConnected ? "connected" : "disconnected"}` +
-        `${isOrchestrator ? ", orchestrator" : ""}, force-clearing isGenerating)`,
+        `${isOrchestrator ? ", orchestrator" : ""}, force-clearing isGenerating` +
+        `${silentClaudeBackend ? ", no output this turn: restarting the backend" : ""})`,
     );
     deps.recordServerEvent?.(session, "stuck_auto_recovered", {
       elapsed,
       sinceLastActivity,
       cliConnected,
       isOrchestrator,
+      ...(silentClaudeBackend ? { restartedSilentBackend: true } : {}),
     });
     deps.markTurnInterrupted(session, "system");
     deps.setGenerating(session, false, "stuck_auto_recovery");
     session.toolStartTimes.clear();
     deps.broadcastMessage(session, { type: "status_change", status: "idle" });
     deps.broadcastMessage(session, { type: "session_unstuck" });
+    if (silentClaudeBackend) deps.restartBackend?.(session);
   }
 }

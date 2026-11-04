@@ -1092,6 +1092,62 @@ describe("runStuckSessionWatchdogSweep", () => {
     expect(deps.emitTakodeEvent).not.toHaveBeenCalled();
   });
 
+  it("restarts a connected Claude backend that gave no output for the whole stuck turn", () => {
+    // After a server restart, a session can be handed a process that no longer answers:
+    // every turn on it ran 5 minutes without a single message and was cut off, and the
+    // next turn stalled the same way. Silence from the very start of a turn means the
+    // process is unusable, so besides ending the turn the backend starts afresh.
+    const silent = makeStuckWatchdogSession({
+      id: "silent",
+      backendType: "claude-sdk",
+      isGenerating: true,
+      generationStartedAt: 100_000,
+      lastCliMessageAt: 50_000, // last heard from in an earlier turn
+    });
+    // A turn that produced output and then went quiet is slow, not dead: its process stays.
+    const slow = makeStuckWatchdogSession({
+      id: "slow",
+      backendType: "claude-sdk",
+      isGenerating: true,
+      generationStartedAt: 100_000,
+      lastCliMessageAt: 110_000,
+    });
+    const restartBackend = vi.fn();
+    const recordServerEvent = vi.fn();
+    const deps = makeStuckWatchdogDeps({
+      backendConnected: vi.fn(() => true),
+      getLauncherSessionInfo: vi.fn(() => ({})),
+      restartBackend,
+      recordServerEvent,
+    });
+
+    runStuckSessionWatchdogSweep([silent, slow], 100_000 + 300_001, deps);
+
+    expect(deps.setGenerating).toHaveBeenCalledWith(silent, false, "stuck_auto_recovery");
+    expect(deps.setGenerating).toHaveBeenCalledWith(slow, false, "stuck_auto_recovery");
+    expect(restartBackend).toHaveBeenCalledTimes(1);
+    expect(restartBackend).toHaveBeenCalledWith(silent);
+    expect(recordServerEvent).toHaveBeenCalledWith(
+      silent,
+      "stuck_auto_recovered",
+      expect.objectContaining({ restartedSilentBackend: true }),
+    );
+  });
+
+  it("does not restart a Claude backend that is disconnected (it relaunches on its own)", () => {
+    const session = makeStuckWatchdogSession({
+      backendType: "claude-sdk",
+      isGenerating: true,
+      generationStartedAt: 100_000,
+      lastCliMessageAt: 0,
+    });
+    const restartBackend = vi.fn();
+    const deps = makeStuckWatchdogDeps({ getLauncherSessionInfo: vi.fn(() => ({})), restartBackend });
+    runStuckSessionWatchdogSweep([session], 100_000 + 300_001, deps);
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "stuck_auto_recovery");
+    expect(restartBackend).not.toHaveBeenCalled();
+  });
+
   it("terminally clears a provisionally reported connected Codex worker after the recovery window expires", () => {
     const session = makeStuckWatchdogSession({
       isGenerating: true,

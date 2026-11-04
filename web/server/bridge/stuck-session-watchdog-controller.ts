@@ -47,6 +47,7 @@ export interface StuckSessionWatchdogBridgeDeps {
     session: Session,
   ) => Pick<TakodeTurnEndEventData, "tools" | "resultPreview" | "msgRange" | "questChange" | "userMsgs">;
   pokeStaleCodexPendingDelivery?: (session: Session, reason: string) => boolean;
+  restartBackend?: (session: Session) => void;
 }
 
 export function runWsBridgeStuckSessionWatchdogSweep(deps: StuckSessionWatchdogBridgeDeps): void {
@@ -77,6 +78,7 @@ export function runWsBridgeStuckSessionWatchdogSweep(deps: StuckSessionWatchdogB
       }),
     getRecoverableActiveCodexTurnId: getRecoverableActiveCodexTurnId,
     pokeStaleCodexPendingDelivery: deps.pokeStaleCodexPendingDelivery,
+    restartBackend: deps.restartBackend,
     recoverStuckOrchestratorCodexTurn: (session) => {
       const pending = getCodexTurnInRecovery(session);
       if (!pending) return false;

@@ -123,6 +123,46 @@ describe("taking over host processes after a coordinator restart", () => {
     await waitFor(() => launcher.getSession("s-1")?.state === "connected");
   });
 
+  // The process can end while the takeover is under way, as when the node restarts onto
+  // the coordinator's new build moments after the coordinator did. The Agent SDK only
+  // spawns once the adapter starts, so the hook must not hand it the dead process: the
+  // SDK would wait on it forever and every message would go nowhere. It starts a new
+  // process instead (resuming the conversation through the SDK's arguments).
+  it("starts a new process when the one being taken over ends before the SDK spawns it", async () => {
+    const original = manager.spawn(hostId, { command: process.execPath, args: ["-e", ECHO_PROGRAM], env: {} });
+    await waitFor(() => original.started && original.pid !== undefined);
+    const launcher = await restartCoordinator(original.procId);
+    link!.drop();
+    await waitFor(() => sdkAdapterLaunches.length === 1);
+    const { options } = sdkAdapterLaunches[0]!;
+    expect(options.reattach).toBe(true);
+
+    // The host's process ends before the SDK asks for it.
+    process.kill(original.pid!, "SIGKILL");
+    await waitFor(() => {
+      try {
+        process.kill(original.pid!, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const proc = options.spawnProcess({
+      command: process.execPath,
+      args: ["-e", ECHO_PROGRAM],
+      env: {},
+      signal: new AbortController().signal,
+    });
+    expect(proc.procId).not.toBe(original.procId);
+    expect(launcher.getSession("s-1")?.hostProcId).toBe(proc.procId);
+    const line = readLine(proc);
+    proc.stdin.write("fresh again\n");
+    expect(await line).toBe("FRESH AGAIN\n");
+    proc.kill("SIGTERM");
+  });
+
   // If the host lost the process (for example it restarted too), the session
   // starts a new one as before and saves the new process id.
   it("starts a new process when the host no longer runs the old one", async () => {

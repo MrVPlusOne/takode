@@ -35,7 +35,7 @@ import { withUserCodexDeveloperInstructions } from "./codex-user-config-carryove
 import { deliverMcpOAuthCallbackOnMachine } from "./mcp-oauth-callback.js";
 import { userContentService } from "./user-content-service.js";
 import { remoteSubprocess } from "./remote-host/remote-subprocess.js";
-import { replayOpenClaudeRequests, trackOpenClaudeRequests } from "./remote-host/claude-open-requests.js";
+import { claudeNodeSpawner, liveTakeover } from "./cli-launcher-host-takeover.js";
 
 /** Codex launch preparation on a host can seed a Codex home and caches. */
 const REMOTE_CODEX_PREPARE_TIMEOUT_MS = 120_000;
@@ -286,35 +286,6 @@ export class CliLauncher {
     delete info.hostCodexRequests;
     delete info.hostClaudeRequests;
     return undefined;
-  }
-
-  /**
-   * Process spawner for a host's node, in the shape the Agent SDK's custom
-   * spawn hook expects. It hands over `adopted` when given, and otherwise
-   * starts a process and saves its id for a later coordinator to take over.
-   */
-  private nodeSpawner(
-    hostId: string,
-    info: SdkSessionInfo,
-    adopted?: RemoteProcess,
-  ): (options: RemoteSpawnOptions) => RemoteProcess {
-    return (options) => {
-      const proc = adopted ?? this.startHostProcess(hostId, info, options);
-      const unanswered = adopted ? (info.hostClaudeRequests ?? []) : [];
-      // Saved so a coordinator that restarts while this process keeps running can ask them again.
-      trackOpenClaudeRequests(proc, unanswered, (open) => {
-        info.hostClaudeRequests = open;
-        this.persistState();
-      });
-      if (!adopted) return proc;
-      options.signal?.addEventListener("abort", () => adopted.kill("SIGTERM"), { once: true });
-      queueMicrotask(() => {
-        // It started long ago; the SDK still waits for the event.
-        adopted.emit("spawn");
-        replayOpenClaudeRequests(adopted, unanswered);
-      });
-      return adopted;
-    };
   }
 
   private startHostProcess(hostId: string, info: SdkSessionInfo, options: RemoteSpawnOptions): RemoteProcess {
@@ -1101,6 +1072,8 @@ export class CliLauncher {
       const bt = info.backendType ?? "claude-sdk";
 
       const extraInstructions = this.relaunchExtraInstructions(info, bt);
+      // The process to take over may have ended during the awaits above (its node restarted).
+      reattachHostProcess = liveTakeover(sessionId, reattachHostProcess);
 
       switch (bt) {
         case "codex":
@@ -1219,7 +1192,10 @@ export class CliLauncher {
       claudeBinary: info.hostId ? "claude" : options.claudeBinary || machineSettingsFor(null).claudeBinary || undefined,
       ...(nodeHost
         ? {
-            spawnProcess: this.nodeSpawner(nodeHost, info, options.reattachHostProcess),
+            spawnProcess: claudeNodeSpawner(info, options.reattachHostProcess, {
+              start: (spawnOptions) => this.startHostProcess(nodeHost, info, spawnOptions),
+              persist: () => this.persistState(),
+            }),
             reattach: !!options.reattachHostProcess,
           }
         : {}),
@@ -1375,9 +1351,10 @@ export class CliLauncher {
     let proc: ReturnType<typeof Bun.spawn>;
     try {
       serverWorkAdmission.assertOpen();
+      const reattach = liveTakeover(sessionId, options.reattachHostProcess);
       proc = nodeHost
         ? remoteSubprocess(
-            options.reattachHostProcess ??
+            reattach ??
               this.startHostProcess(
                 nodeHost,
                 info,

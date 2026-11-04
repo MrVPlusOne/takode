@@ -926,6 +926,11 @@ export class RemoteProcess extends EventEmitter {
     });
   }
 
+  /** Whether the process has ended: it exited on its host, or the host lost it. */
+  get hasExited(): boolean {
+    return this.exited;
+  }
+
   kill(signal: NodeJS.Signals = "SIGTERM"): boolean {
     if (this.exited) return false;
     this.killed = true;
