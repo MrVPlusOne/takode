@@ -245,7 +245,9 @@ function attentionByThread(
         add(normalizeThreadKey(quest), "permission", item.timestamp);
       continue;
     }
-    if (item.sessionId === leaderId)
+    // A Notify Me result is not unread: the status row doesn't count it under Unread (it has its own
+    // mark), so neither do these counts (Jiayi, Nov 3: two tracked results showed as 2 blue).
+    if (item.kind === "unread" && item.sessionId === leaderId)
       add(normalizeThreadKey(item.threadKey ?? MAIN_THREAD_KEY), "unread", item.timestamp);
   }
   return byThread;

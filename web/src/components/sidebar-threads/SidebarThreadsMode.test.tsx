@@ -175,6 +175,9 @@ describe("leaderCounts", () => {
       },
       // Another leader's answer doesn't count here.
       { kind: "unread", key: "u5", sessionId: "msi", threadKey: "q-3", timestamp: 7 },
+      // Nor a Notify Me result: the status row doesn't put it under Unread (Jiayi, Nov 3: Daily
+      // Leader's row showed 2 blue for two tracked results while its status row had no Unread).
+      { kind: "notify-me", key: "t1", sessionId: "takode", entry: {}, threadKey: "q-4", timestamp: 8 },
     ];
     // Running: q-4 and the thread being answered in.
     expect(leaderCounts(LEADERS[0]!, queue.items as never)).toEqual({ permission: 1, unread: 2, running: 2 });
