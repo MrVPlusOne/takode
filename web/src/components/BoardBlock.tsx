@@ -221,7 +221,7 @@ export const BoardBlock = memo(function BoardBlock({
           {proposalReview ? (
             <ProposalDependencyRow row={proposalRow} />
           ) : (
-            <BoardTable board={board} rowSessionStatuses={effectiveRowSessionStatuses} />
+            <BoardTable board={board} rowSessionStatuses={effectiveRowSessionStatuses} leaderSessionId={sessionId} />
           )}
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />
         </div>

@@ -34,7 +34,7 @@ interface MockStoreState {
 const { openQuestOverlay, useStoreMock } = vi.hoisted(() => {
   const openQuestOverlay = vi.fn();
   const useStoreMock = Object.assign((selector: (s: MockStoreState) => unknown) => selector(mockState), {
-    getState: () => ({ openQuestOverlay }),
+    getState: () => ({ openQuestOverlay, sdkSessions: mockState?.sdkSessions ?? [] }),
   });
   return { openQuestOverlay, useStoreMock };
 });
@@ -109,6 +109,30 @@ describe("BoardTable", () => {
     fireEvent.click(action);
     expect(onSelectQuestThread).toHaveBeenCalledWith("q-335");
     expect(screen.getByRole("button", { name: "q-335" })).toBeInTheDocument();
+  });
+
+  it("opens a row's quest menu on right-click: its leader's thread, its worker and the quest number", () => {
+    // Board rows are quests, so right-click offers the quest actions search results do, in place of
+    // the browser's menu.
+    mockState.sdkSessions = [
+      { sessionId: "leader-1", sessionNum: 3 },
+      { sessionId: "worker-1", sessionNum: 41 },
+    ];
+    const board: BoardRowData[] = [
+      { questId: "q-335", title: "Show completed time", updatedAt: 1, worker: "worker-1" },
+    ];
+    render(<BoardTable board={board} leaderSessionId="leader-1" />);
+    const row = screen.getByRole("button", { name: "q-335" }).closest("tr")!;
+    expect(fireEvent.contextMenu(row, { clientX: 10, clientY: 20 })).toBe(false);
+    const menu = document.querySelector<HTMLElement>("[data-context-menu]")!;
+    expect(Array.from(menu.querySelectorAll("button"), (button) => button.textContent)).toEqual([
+      "Open",
+      "Open thread in leader #3",
+      "Go to worker session #41",
+      "Copy quest number",
+    ]);
+    fireEvent.click(within(menu).getByRole("button", { name: "Open" }));
+    expect(openQuestOverlay).toHaveBeenCalledWith("q-335");
   });
 
   it("shows Completed Time instead of Wait For for completed rows", () => {

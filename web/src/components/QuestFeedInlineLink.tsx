@@ -15,6 +15,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
+import { useLongPress } from "../hooks/useLongPress.js";
+import { getQuestOwnerSessionId } from "../utils/quest-helpers.js";
+import { questMenuItems } from "../utils/quest-menu.js";
+import { selectedTextWithin } from "../utils/selection-text.js";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import { useStore } from "../store.js";
 import {
@@ -934,6 +939,29 @@ export function QuestFeedInlineLink({
     [normalizedQuestId, openExplicitRichPreview, openQuestView, stopPropagation],
   );
 
+  // Right-click (or long-press on touch): the quest actions search results offer, in place of the
+  // browser's link menu. Any preview closes first, so the menu is the only thing open.
+  const [menu, setMenu] = useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
+  const linkLongPress = useLongPress((x, y) => {
+    closeAllRef.current(false);
+    const state = useStore.getState();
+    setMenu({
+      x,
+      y,
+      items: questMenuItems({
+        questId: normalizedQuestId,
+        open: openQuestView,
+        leaderSessionId: selectQuestThreadLeaderId(state, normalizedQuestId),
+        workerSessionId: quest ? getQuestOwnerSessionId(quest) : null,
+        selectedText: selectedTextWithin(linkRef.current),
+        onLeave: () => {
+          onNavigate?.();
+          onSessionNavigate?.();
+        },
+      }),
+    });
+  });
+
   const retryRichPreview = useCallback(() => {
     if (!phaseRef.current.startsWith("rich")) return;
     const epoch = ++epochRef.current;
@@ -1198,6 +1226,7 @@ export function QuestFeedInlineLink({
       : `Open the ${questId} thread${titleSuffix}`;
   return (
     <>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       <span className="cc-feed-quest-link-pair" data-testid="quest-feed-link-pair">
         <a
           ref={linkRef}
@@ -1227,7 +1256,13 @@ export function QuestFeedInlineLink({
           onKeyDown={(event) => {
             if (event.key === "Escape" && dismissTransientWithEscape()) event.preventDefault();
           }}
-          className={className}
+          onTouchStart={linkLongPress.handlers.onTouchStart}
+          onTouchMove={linkLongPress.handlers.onTouchMove}
+          onTouchEnd={linkLongPress.handlers.onTouchEnd}
+          onTouchCancel={linkLongPress.handlers.onTouchCancel}
+          onContextMenu={linkLongPress.handlers.onContextMenu}
+          // iOS would show its own link menu over Takode's on a long press.
+          className={`${className} [-webkit-touch-callout:none]`}
         >
           {children ?? questId}
         </a>

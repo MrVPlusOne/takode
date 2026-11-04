@@ -12,6 +12,10 @@ import type { QuestmasterCompactSort, QuestmasterCompactSortColumn, QuestmasterC
 import { useStore } from "../store.js";
 import type { QuestListPreview, QuestStatus } from "../types.js";
 import { markdownToPlainText } from "../utils/copy-utils.js";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
+import { questMenuItems } from "../utils/quest-menu.js";
+import { selectedTextWithin } from "../utils/selection-text.js";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import {
   CopyableQuestId,
   getQuestDisplayOwner,
@@ -392,70 +396,97 @@ export const QuestmasterQuestRow = memo(function QuestmasterQuestRow({
     </span>
   );
 
+  // Right-click (or long-press on touch): the quest actions search results offer.
+  const [menu, setMenu] = useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const longPress = useLongPress((x, y) =>
+    setMenu({
+      x,
+      y,
+      items: questMenuItems({
+        questId: quest.questId,
+        open: () => onOpenQuest(quest),
+        leaderSessionId: getQuestLeaderSessionId(quest),
+        workerSessionId: getQuestOwnerSessionId(quest),
+        selectedText: selectedTextWithin(rowRef.current),
+      }),
+    }),
+  );
+  const menuElement = menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />;
+
   const rowProps = {
+    ref: rowRef,
     "data-quest-id": quest.questId,
     role: "button",
     tabIndex: 0,
     onClick: () => onOpenQuest(quest),
     onKeyDown: handleKeyDown,
+    ...longPress.handlers,
   } as const;
 
   if (layout === "phone") {
     return (
-      <div
-        {...rowProps}
-        className={`cursor-pointer px-3 py-2.5 focus-visible:bg-cc-hover/40 focus-visible:outline-none active:bg-cc-hover/40 ${
-          isCancelled ? "opacity-70" : ""
-        }`}
-      >
-        <div className="flex items-start gap-2">
-          <div className="line-clamp-2 min-w-0 flex-1 text-sm leading-snug">{title}</div>
-          <span className="mt-px shrink-0 text-xs text-cc-muted">{updated}</span>
-        </div>
-        {/* Fixed slots, so status, owner and feedback line up from row to row. */}
-        <div className="mt-1 grid min-w-0 items-center gap-2 text-xs" style={PHONE_META_COLUMNS}>
-          <div className="min-w-0">{statusLabel}</div>
-          <div className="flex min-w-0 items-center">
-            <QuestOwnerRef quest={quest} />
+      <>
+        <div
+          {...rowProps}
+          style={longPress.pressStyle}
+          className={`cursor-pointer px-3 py-2.5 focus-visible:bg-cc-hover/40 focus-visible:outline-none active:bg-cc-hover/40 ${LONG_PRESS_TARGET_CLASS} ${
+            isCancelled ? "opacity-70" : ""
+          }`}
+        >
+          <div className="flex items-start gap-2">
+            <div className="line-clamp-2 min-w-0 flex-1 text-sm leading-snug">{title}</div>
+            <span className="mt-px shrink-0 text-xs text-cc-muted">{updated}</span>
           </div>
-          <div className="min-w-0">{feedbackBadge}</div>
-          <div className="justify-self-end">{questId}</div>
+          {/* Fixed slots, so status, owner and feedback line up from row to row. */}
+          <div className="mt-1 grid min-w-0 items-center gap-2 text-xs" style={PHONE_META_COLUMNS}>
+            <div className="min-w-0">{statusLabel}</div>
+            <div className="flex min-w-0 items-center">
+              <QuestOwnerRef quest={quest} />
+            </div>
+            <div className="min-w-0">{feedbackBadge}</div>
+            <div className="justify-self-end">{questId}</div>
+          </div>
         </div>
-      </div>
+        {menuElement}
+      </>
     );
   }
 
   return (
-    <div
-      {...rowProps}
-      style={DESKTOP_COLUMNS}
-      className={`group grid cursor-pointer items-center gap-x-3 px-3 py-2 text-xs hover:bg-cc-hover/30 focus-visible:bg-cc-hover/40 focus-visible:outline-none ${
-        isCancelled ? "opacity-70" : ""
-      }`}
-    >
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
-          {feedbackBadge}
+    <>
+      <div
+        {...rowProps}
+        style={{ ...DESKTOP_COLUMNS, ...longPress.pressStyle }}
+        className={`group grid cursor-pointer items-center gap-x-3 px-3 py-2 text-xs hover:bg-cc-hover/30 focus-visible:bg-cc-hover/40 focus-visible:outline-none ${
+          isCancelled ? "opacity-70" : ""
+        }`}
+      >
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
+            {feedbackBadge}
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            {questId}
+            {tldr && (
+              <span data-testid="quest-row-tldr" className="truncate text-cc-muted">
+                {renderSearchHighlightText(tldr, searchText)}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="mt-0.5 flex min-w-0 items-center gap-2">
-          {questId}
-          {tldr && (
-            <span data-testid="quest-row-tldr" className="truncate text-cc-muted">
-              {renderSearchHighlightText(tldr, searchText)}
-            </span>
-          )}
+        <div className="min-w-0">{statusLabel}</div>
+        <div data-testid="quest-row-owner" className="flex min-w-0 items-center">
+          <QuestOwnerRef quest={quest} />
         </div>
+        <div data-testid="quest-row-leader" className="flex min-w-0 items-center">
+          <QuestLeaderRef quest={quest} />
+        </div>
+        <div className="text-right text-cc-muted">{updated}</div>
       </div>
-      <div className="min-w-0">{statusLabel}</div>
-      <div data-testid="quest-row-owner" className="flex min-w-0 items-center">
-        <QuestOwnerRef quest={quest} />
-      </div>
-      <div data-testid="quest-row-leader" className="flex min-w-0 items-center">
-        <QuestLeaderRef quest={quest} />
-      </div>
-      <div className="text-right text-cc-muted">{updated}</div>
-    </div>
+      {menuElement}
+    </>
   );
 });
 

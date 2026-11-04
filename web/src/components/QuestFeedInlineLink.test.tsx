@@ -58,6 +58,20 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
   });
 
+  it("opens the quest menu on right-click instead of the browser's link menu", () => {
+    // A quest link in a message (or a topic page) offers the quest actions search results do;
+    // Open does what a click does.
+    renderFeedLink("q-42", { title: "Stable exact target" });
+    const link = screen.getByRole("link", { name: "q-42" });
+    expect(fireEvent.contextMenu(link, { clientX: 5, clientY: 5 })).toBe(false);
+    const menu = within(document.querySelector<HTMLElement>("[data-context-menu]")!);
+    const labels = menu.getAllByRole("button").map((button) => button.textContent);
+    expect(labels[0]).toBe("Open");
+    expect(labels.at(-1)).toBe("Copy quest number");
+    fireEvent.click(menu.getByRole("button", { name: "Open" }));
+    expect(useStore.getState().questOverlayId).toBe("q-42");
+  });
+
   it("copies each adjacent anchor's rendered color without changing the protected sibling structure", () => {
     // Covers both ordinary and context-specific link colors while preserving
     // the separate native anchor and 26/44 px eye hit targets.

@@ -120,6 +120,39 @@ describe("LeaderHomePage", () => {
     ]);
   });
 
+  it("opens a row's thread menu on right-click, as the Threads view's rows do", () => {
+    // Home rows are a leader's threads, so they get the Threads view's thread actions in place of
+    // the browser's menu; a question from another session only opens that question.
+    const openQuestion = vi.fn();
+    useLeaderThreadMembers.setState({
+      byLeader: {
+        l1: [
+          member("q-4", { questId: "q-4", title: "Fix the relay", blueNudge: true }),
+          member("q-8", { questId: "q-8", title: "Asked elsewhere", needsInput: true, onOpen: openQuestion }),
+        ],
+      },
+    });
+    render(<LeaderHomePage leaderId="l1" />);
+    const row = (key: string) =>
+      screen.getAllByTestId("home-thread-row").find((candidate) => candidate.dataset.threadKey === key)!;
+    const labels = () =>
+      Array.from(document.querySelectorAll("[data-context-menu] button"), (button) => button.textContent);
+    expect(fireEvent.contextMenu(row("q-4"), { clientX: 5, clientY: 5 })).toBe(false);
+    expect(labels()).toEqual([
+      "Open",
+      "Open quest",
+      "Mark as read",
+      expect.stringContaining("Remind me later"),
+      "Copy link",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(navigateToSessionThread).toHaveBeenCalledWith("l1", "q-4");
+    fireEvent.contextMenu(row("q-8"), { clientX: 5, clientY: 5 });
+    expect(labels()).toEqual(["Open"]);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(openQuestion).toHaveBeenCalled();
+  });
+
   it("shows the question asked, a running quest's worker at work, and a finished quest's commits", async () => {
     // Home has room the sessions panel lacks: what the thread asks, what its worker is doing now.
     activityPreview.mockResolvedValue({

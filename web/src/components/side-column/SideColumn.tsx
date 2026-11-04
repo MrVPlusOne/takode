@@ -64,6 +64,8 @@ import {
   useSideChat,
 } from "../../utils/chat-focus.js";
 import { ChatFocusMark } from "../ChatFocusMark.js";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../../hooks/useLongPress.js";
+import { ContextMenu, type ContextMenuItem } from "../ContextMenu.js";
 import { InlineThreadUpdate } from "../ThreadUpdate.js";
 import { useThreadNews } from "../home/HomeExtras.js";
 
@@ -449,63 +451,80 @@ function SideItemRow({
   // answers, then work going on, else Idle. Its dot has that group's color and no other.
   const group: ThreadGroupId =
     questions > 0 ? "needs-input" : unread > 0 ? "new-results" : running ? "in-progress" : "idle";
+  // Right-click (or long-press on touch): the row's own buttons, named.
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const longPress = useLongPress(item ? (x, y) => setMenu({ x, y }) : undefined);
+  const menuItems = (): ContextMenuItem[] => {
+    if (!item) return [];
+    const moveOut = sideItemMoveOut(item);
+    return [
+      ...(moveOut ? [{ label: moveOut.label, onClick: moveOut.go }] : []),
+      { label: "Remove from the side column", onClick: () => closeSideItem(item.id) },
+    ];
+  };
   return (
-    <div
-      className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-1.5 text-[13px] ${
-        open ? "bg-cc-hover/40" : "hover:bg-cc-hover/30"
-      }`}
-      data-testid="side-item-row"
-      data-open={open}
-    >
-      {/* Not a <button>: the title holds a quest link, and a link may not sit inside a button. */}
+    <>
       <div
-        role="button"
-        tabIndex={0}
-        onClick={onOpen}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-          event.preventDefault();
-          onOpen();
-        }}
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left"
-        aria-expanded={open}
+        className={`group flex h-9 shrink-0 items-center gap-2 border-b border-cc-border/70 pl-3 pr-1.5 text-[13px] ${LONG_PRESS_TARGET_CLASS} ${
+          open ? "bg-cc-hover/40" : "hover:bg-cc-hover/30"
+        }`}
+        data-testid="side-item-row"
+        data-open={open}
+        {...longPress.handlers}
+        style={longPress.pressStyle}
       >
-        <SideItemIcon leaderId={owner} item={item} group={group} />
-        {/* Whose conversation it is (Jiayi, Nov 1): the leader's portrait, as Threads view rows show. */}
-        {(item?.kind === "conversation" ||
-          item?.kind === "new-chat" ||
-          item?.kind === "quest" ||
-          item?.kind === "home") && <LeaderIcon leaderId={owner} />}
-        <span className={`min-w-0 truncate ${open ? "text-cc-fg" : "text-cc-fg/80"}`}>
-          <SideItemTitle leaderId={owner} item={item} />
-        </span>
-        {questions > 0 && (
-          // A question waits on the user here: the amber bell that marks questions everywhere else
-          // (Needs you rows, the bell list). Jiayi (Oct 31): a "question" label read badly in light.
-          <span
-            key={`bell:${questionCue}`}
-            className="cc-cue-bell inline-flex shrink-0 text-cc-attention"
-            data-cue={questionCue > 0 ? "" : undefined}
-            title={questions === 1 ? "A question for you" : `${questions} questions for you`}
-            aria-label={questions === 1 ? "A question for you" : `${questions} questions for you`}
-            data-testid="side-item-questions"
-          >
-            <BellIcon className="h-3.5 w-3.5" />
+        {/* Not a <button>: the title holds a quest link, and a link may not sit inside a button. */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onOpen}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+            event.preventDefault();
+            onOpen();
+          }}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left"
+          aria-expanded={open}
+        >
+          <SideItemIcon leaderId={owner} item={item} group={group} />
+          {/* Whose conversation it is (Jiayi, Nov 1): the leader's portrait, as Threads view rows show. */}
+          {(item?.kind === "conversation" ||
+            item?.kind === "new-chat" ||
+            item?.kind === "quest" ||
+            item?.kind === "home") && <LeaderIcon leaderId={owner} />}
+          <span className={`min-w-0 truncate ${open ? "text-cc-fg" : "text-cc-fg/80"}`}>
+            <SideItemTitle leaderId={owner} item={item} />
           </span>
-        )}
-        {unread > 0 && (
-          <span
-            key={`unread:${unreadCue}`}
-            className="cc-cue-pill shrink-0 rounded-full bg-cc-info/15 px-1.5 text-[11px] tabular-nums text-cc-info"
-            data-cue={unreadCue > 0 ? "" : undefined}
-            data-testid="side-item-unread"
-          >
-            {unread} new
-          </span>
-        )}
+          {questions > 0 && (
+            // A question waits on the user here: the amber bell that marks questions everywhere else
+            // (Needs you rows, the bell list). Jiayi (Oct 31): a "question" label read badly in light.
+            <span
+              key={`bell:${questionCue}`}
+              className="cc-cue-bell inline-flex shrink-0 text-cc-attention"
+              data-cue={questionCue > 0 ? "" : undefined}
+              title={questions === 1 ? "A question for you" : `${questions} questions for you`}
+              aria-label={questions === 1 ? "A question for you" : `${questions} questions for you`}
+              data-testid="side-item-questions"
+            >
+              <BellIcon className="h-3.5 w-3.5" />
+            </span>
+          )}
+          {unread > 0 && (
+            <span
+              key={`unread:${unreadCue}`}
+              className="cc-cue-pill shrink-0 rounded-full bg-cc-info/15 px-1.5 text-[11px] tabular-nums text-cc-info"
+              data-cue={unreadCue > 0 ? "" : undefined}
+              data-testid="side-item-unread"
+            >
+              {unread} new
+            </span>
+          )}
+        </div>
+        <ItemActions item={item} />
       </div>
-      <ItemActions item={item} />
-    </div>
+      {/* Outside the row, so presses in the menu do not reach its gestures. */}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />}
+    </>
   );
 }
 
@@ -521,9 +540,11 @@ function LeaderIcon({ leaderId }: { leaderId: string }) {
   );
 }
 
-function ItemActions({ item }: { item: SideItem | null }) {
-  if (!item) return null;
-  // A conversation moves to the main view, an artifact to the Library; either leaves the column.
+/**
+ * Where an item moves out of the column, and how: a conversation to the main view, an artifact to
+ * the Library; it then leaves the column. None for items that stay (new chats, topics).
+ */
+function sideItemMoveOut(item: SideItem): { label: string; go: () => void } | null {
   const moveOut =
     item.kind === "conversation"
       ? {
@@ -546,15 +567,26 @@ function ItemActions({ item }: { item: SideItem | null }) {
             : item.kind === "artifact"
               ? { label: "Open in the Library", go: () => openLibraryArtifact(item.artifactId, item.version) }
               : null;
+  return moveOut
+    ? {
+        label: moveOut.label,
+        go: () => {
+          moveOut.go();
+          closeSideItem(item.id);
+        },
+      }
+    : null;
+}
+
+function ItemActions({ item }: { item: SideItem | null }) {
+  if (!item) return null;
+  const moveOut = sideItemMoveOut(item);
   return (
     <span className="flex shrink-0 items-center">
       {moveOut && (
         <button
           type="button"
-          onClick={() => {
-            moveOut.go();
-            closeSideItem(item.id);
-          }}
+          onClick={moveOut.go}
           className="flex h-7 w-7 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
           aria-label={moveOut.label}
           title={moveOut.label}

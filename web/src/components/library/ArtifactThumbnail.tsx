@@ -8,6 +8,9 @@ import {
 } from "../../../shared/artifact-library.js";
 import { useStore } from "../../store.js";
 import { StarIcon } from "../ArtifactInline.js";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../../hooks/useLongPress.js";
+import { libraryMenuItems } from "../artifact-card-menu.js";
+import { ContextMenu } from "../ContextMenu.js";
 
 /**
  * Gallery thumbnails. Figures and visuals show a small picture the server makes once per version
@@ -142,67 +145,93 @@ export function ArtifactCard({
   artifact: ArtifactSummary;
   showKind: boolean;
   showSpace: boolean;
-  /** Gets the click, so a modifier can open the artifact elsewhere (the side column). */
-  onOpen: (event: React.MouseEvent) => void;
+  /** Gets the click, so a modifier can open the artifact elsewhere (the side column); none from the menu. */
+  onOpen: (event?: React.MouseEvent) => void;
   onToggleStar?: () => void;
 }) {
+  // Right-click (or long-press on touch): the Library actions an artifact's card in a message offers,
+  // with Open doing what the card's click does here.
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const longPress = useLongPress((x, y) => setMenu({ x, y }));
+  const menuItems = () => {
+    const [, ...elsewhere] = libraryMenuItems({
+      id: artifact.id,
+      kind: artifact.kind,
+      title: artifact.title,
+      version: artifact.latest.n,
+      versionCount: artifact.versionCount,
+      ...(artifact.starred ? { starred: true } : {}),
+    });
+    const star = elsewhere.at(-1)!;
+    return [
+      { label: "Open", onClick: () => onOpen() },
+      ...elsewhere.slice(0, -1),
+      onToggleStar ? { ...star, onClick: onToggleStar } : star,
+    ];
+  };
   return (
-    <div
-      className="group relative flex min-w-0 flex-col rounded-xl hover:bg-cc-hover/60"
-      data-testid="library-artifact-card"
-      data-kind={artifact.kind}
-      data-starred={artifact.starred ? "true" : undefined}
-    >
-      <button
-        type="button"
-        onClick={onOpen}
-        className="flex min-w-0 flex-col gap-1.5 rounded-xl p-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+    <>
+      <div
+        {...longPress.handlers}
+        style={longPress.pressStyle}
+        className={`group relative flex min-w-0 flex-col rounded-xl hover:bg-cc-hover/60 ${LONG_PRESS_TARGET_CLASS}`}
+        data-testid="library-artifact-card"
+        data-kind={artifact.kind}
+        data-starred={artifact.starred ? "true" : undefined}
       >
-        <ArtifactThumbnail
-          artifact={artifact}
-          className={`aspect-[16/10] w-full ${artifact.starred ? "ring-2 ring-[var(--color-cc-phase-accent-amber)]/70" : ""}`}
-        />
-        <span className="min-w-0 px-0.5">
-          <span className="line-clamp-2 text-[13.5px] leading-snug text-cc-fg">{artifact.title}</span>
-          <span className="mt-0.5 block truncate text-[12px] text-cc-muted">
-            {[
-              showKind ? ARTIFACT_KIND_LABELS[artifact.kind] : null,
-              artifact.versionCount > 1 ? `v${artifact.versionCount}` : null,
-              showSpace ? artifact.space : null,
-              formatWhen(artifact.updatedAt),
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-        </span>
-      </button>
-      {onToggleStar ? (
         <button
           type="button"
-          onClick={onToggleStar}
-          aria-pressed={artifact.starred}
-          aria-label={artifact.starred ? `Unstar ${artifact.title}` : `Star ${artifact.title}`}
-          title={artifact.starred ? "Unstar" : "Star"}
-          className={`absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded-full border border-cc-border bg-cc-card/90 shadow-sm backdrop-blur-sm transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
-            artifact.starred
-              ? STAR_COLOR
-              : "text-cc-muted opacity-0 hover:text-cc-fg group-hover:opacity-100 pointer-coarse:opacity-100"
-          }`}
-          data-testid="artifact-card-star"
+          onClick={onOpen}
+          className="flex min-w-0 flex-col gap-1.5 rounded-xl p-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
         >
-          <StarIcon filled={artifact.starred} className="h-4 w-4" />
-        </button>
-      ) : (
-        artifact.starred && (
-          <span
-            className={`pointer-events-none absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-full bg-cc-card/90 ${STAR_COLOR}`}
-            aria-label="Starred"
-          >
-            <StarIcon filled className="h-3.5 w-3.5" />
+          <ArtifactThumbnail
+            artifact={artifact}
+            className={`aspect-[16/10] w-full ${artifact.starred ? "ring-2 ring-[var(--color-cc-phase-accent-amber)]/70" : ""}`}
+          />
+          <span className="min-w-0 px-0.5">
+            <span className="line-clamp-2 text-[13.5px] leading-snug text-cc-fg">{artifact.title}</span>
+            <span className="mt-0.5 block truncate text-[12px] text-cc-muted">
+              {[
+                showKind ? ARTIFACT_KIND_LABELS[artifact.kind] : null,
+                artifact.versionCount > 1 ? `v${artifact.versionCount}` : null,
+                showSpace ? artifact.space : null,
+                formatWhen(artifact.updatedAt),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
           </span>
-        )
-      )}
-    </div>
+        </button>
+        {onToggleStar ? (
+          <button
+            type="button"
+            onClick={onToggleStar}
+            aria-pressed={artifact.starred}
+            aria-label={artifact.starred ? `Unstar ${artifact.title}` : `Star ${artifact.title}`}
+            title={artifact.starred ? "Unstar" : "Star"}
+            className={`absolute right-2.5 top-2.5 flex h-8 w-8 items-center justify-center rounded-full border border-cc-border bg-cc-card/90 shadow-sm backdrop-blur-sm transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
+              artifact.starred
+                ? STAR_COLOR
+                : "text-cc-muted opacity-0 hover:text-cc-fg group-hover:opacity-100 pointer-coarse:opacity-100"
+            }`}
+            data-testid="artifact-card-star"
+          >
+            <StarIcon filled={artifact.starred} className="h-4 w-4" />
+          </button>
+        ) : (
+          artifact.starred && (
+            <span
+              className={`pointer-events-none absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-full bg-cc-card/90 ${STAR_COLOR}`}
+              aria-label="Starred"
+            >
+              <StarIcon filled className="h-3.5 w-3.5" />
+            </span>
+          )
+        )}
+      </div>
+      {/* Outside the card, so presses in the menu do not reach its gestures. */}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />}
+    </>
   );
 }
 

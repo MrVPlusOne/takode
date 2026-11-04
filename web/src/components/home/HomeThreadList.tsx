@@ -7,6 +7,9 @@
  * the worker and what it is doing now for a running quest, and a finished quest's commits.
  */
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../../hooks/useLongPress.js";
+import { threadListRowMenuItems } from "../../utils/attention-item-menu.js";
+import { ContextMenu, type ContextMenuItem } from "../ContextMenu.js";
 import { create } from "zustand";
 import { api } from "../../api.js";
 import { useStore } from "../../store.js";
@@ -111,8 +114,23 @@ export function HomeThreadList({
     else if (isOpenInSideClick(event)) details.openInSide(threadKey);
     else details.select(threadKey);
   };
+  // A row's menu (right-click, or long-press on touch): the Threads view's actions for a thread.
+  const [menu, setMenu] = useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
+  const menuItemsOf = (tab: PrimaryThreadChip): ContextMenuItem[] => {
+    const threadKey = normalizeThreadKey(tab.threadKey);
+    // A question another session asks about the quest opens that question, and nothing else.
+    if (tab.onOpen) return [{ label: "Open", onClick: tab.onOpen }];
+    return threadListRowMenuItems({
+      leaderId,
+      threadKey,
+      ...(tab.questId ? { questId: normalizeThreadKey(tab.questId) } : {}),
+      unread: tab.blueNudge,
+      open: () => details.select(threadKey),
+    });
+  };
   const row = (thread: HomeThread) => (
     <HomeThreadRow
+      onOpenMenu={(x, y) => setMenu({ items: menuItemsOf(thread.tab), x, y })}
       key={thread.tab.threadKey}
       thread={thread}
       line={lineOf(thread.tab.threadKey)}
@@ -126,6 +144,7 @@ export function HomeThreadList({
       className="overflow-hidden rounded-xl border border-cc-border bg-cc-card pb-1"
       data-testid="leader-home-threads"
     >
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       <div className="flex flex-wrap items-center gap-1 border-b border-cc-border/60 px-2 py-2 @xl:gap-1.5 @xl:px-3">
         {FILTERS.map(({ id, label }) => {
           const count = id === "all" ? ordered.length : ordered.filter((thread) => inHomeFilter(thread.tab, id)).length;
@@ -305,13 +324,16 @@ function HomeThreadRow({
   detail,
   writing,
   onOpen,
+  onOpenMenu,
 }: {
   thread: HomeThread;
   line?: string;
   detail: RowDetail;
   writing: boolean;
   onOpen: (threadKey: string, event: MouseEvent) => void;
+  onOpenMenu: (x: number, y: number) => void;
 }) {
+  const longPress = useLongPress(onOpenMenu);
   const threadKey = normalizeThreadKey(tab.threadKey);
   const plainThread = isTopicViewKey(threadKey) && !tab.questId;
   const questLabel = tab.questId ?? (plainThread || threadKey === ALL_THREADS_KEY ? null : threadKey);
@@ -323,7 +345,9 @@ function HomeThreadRow({
     <button
       type="button"
       onClick={(event) => onOpen(threadKey, event)}
-      className="flex w-full items-stretch gap-3 px-4 py-2 text-left hover:bg-cc-hover/40"
+      {...longPress.handlers}
+      style={longPress.pressStyle}
+      className={`flex w-full items-stretch gap-3 px-4 py-2 text-left hover:bg-cc-hover/40 ${LONG_PRESS_TARGET_CLASS}`}
       data-testid="home-thread-row"
       data-thread-key={threadKey}
       data-group={threadGroupOf(tab)}

@@ -298,6 +298,26 @@ describe("SideColumn", () => {
     expect(useSideColumnStore.getState().items).toEqual([]);
   });
 
+  it("offers a row's own buttons in its right-click menu", () => {
+    // Right-click on an item's header names what its buttons do, in place of the browser's menu.
+    render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    });
+    const labels = () =>
+      Array.from(document.querySelectorAll("[data-context-menu] button"), (button) => button.textContent);
+    expect(fireEvent.contextMenu(rows()[0]!, { clientX: 5, clientY: 5 })).toBe(false);
+    expect(labels()).toEqual(["Open in the main view", "Remove from the side column"]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove from the side column" }).at(-1)!);
+    expect(useSideColumnStore.getState().items).toEqual([]);
+    // A topic stays in the column, so its menu only removes it.
+    act(() => {
+      openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
+    });
+    fireEvent.contextMenu(rows()[0]!, { clientX: 5, clientY: 5 });
+    expect(labels()).toEqual(["Remove from the side column"]);
+  });
+
   it("shows a leader's Home, keeps its leader connected, and moves it to the main view", () => {
     // Jiayi (Nov 1): a leader's Home moves between the main view and the column, like a chat.
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);

@@ -8,6 +8,10 @@
 import { useState, useRef, useMemo, useEffect, useCallback, useLayoutEffect, memo, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
+import { useLongPress } from "../hooks/useLongPress.js";
+import { openQuestOverlayRouteAware } from "../utils/routing.js";
+import { questMenuItems } from "../utils/quest-menu.js";
+import { ContextMenu } from "./ContextMenu.js";
 import {
   QUEST_JOURNEY_STATES,
   formatWaitForRefLabel,
@@ -457,12 +461,15 @@ export const BoardTable = memo(function BoardTable({
   rowSessionStatuses,
   selectedThreadKey,
   onSelectQuestThread,
+  leaderSessionId,
 }: {
   board: BoardRowData[];
   mode?: BoardTableMode;
   rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
   selectedThreadKey?: string;
   onSelectQuestThread?: (questId: string) => void;
+  /** The leader whose board it is: its row menus open each quest's thread there. */
+  leaderSessionId?: string;
 }) {
   if (board.length === 0) {
     return <div className="px-3 py-3 text-xs text-cc-muted italic">Board is empty</div>;
@@ -491,13 +498,15 @@ export const BoardTable = memo(function BoardTable({
             const threadKey = row.questId.toLowerCase();
             const selected = normalizedSelectedThread === threadKey;
             return (
-              <tr
+              <BoardTableRow
                 key={row.questId}
+                row={row}
+                leaderSessionId={leaderSessionId}
                 className={`border-b border-cc-border last:border-0 ${
                   selected ? "bg-cc-primary/10" : "hover:bg-cc-hover"
                 }`}
-                data-testid={showThreadAction ? "board-thread-row" : undefined}
-                data-thread-key={showThreadAction ? threadKey : undefined}
+                testId={showThreadAction ? "board-thread-row" : undefined}
+                threadKey={showThreadAction ? threadKey : undefined}
               >
                 {showThreadAction && (
                   <td className="px-3 py-2 text-left whitespace-nowrap">
@@ -574,7 +583,7 @@ export const BoardTable = memo(function BoardTable({
                     </>
                   )}
                 </td>
-              </tr>
+              </BoardTableRow>
             );
           })}
         </tbody>
@@ -582,3 +591,53 @@ export const BoardTable = memo(function BoardTable({
     </div>
   );
 });
+
+/**
+ * A board row: right-click (or long-press on touch) opens the quest actions search results offer,
+ * with the quest's thread in the board's leader and its worker.
+ */
+function BoardTableRow({
+  row,
+  leaderSessionId,
+  className,
+  testId,
+  threadKey,
+  children,
+}: {
+  row: BoardRowData;
+  leaderSessionId?: string;
+  className: string;
+  testId?: string;
+  threadKey?: string;
+  children: React.ReactNode;
+}) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const longPress = useLongPress((x, y) => setMenu({ x, y }));
+  return (
+    <>
+      <tr
+        className={`${className} pointer-coarse:select-none [-webkit-touch-callout:none]`}
+        data-testid={testId}
+        data-thread-key={threadKey}
+        data-quest-id={row.questId}
+        {...longPress.handlers}
+        style={longPress.pressStyle}
+      >
+        {children}
+      </tr>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={questMenuItems({
+            questId: row.questId,
+            open: () => openQuestOverlayRouteAware(row.questId),
+            leaderSessionId,
+            workerSessionId: row.worker,
+          })}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </>
+  );
+}

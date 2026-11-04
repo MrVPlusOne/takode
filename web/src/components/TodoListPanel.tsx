@@ -35,7 +35,8 @@ import { activeTodoCategories, TodoManagementDrawer } from "./TodoManagementDraw
 import { TodoQuestChips } from "./TodoQuestChips.js";
 import { useTodoDueNow } from "./todo-due-clock.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
-import { selectedTextWithin, todoRowMenuItems } from "./todo-row-menu.js";
+import { selectedTextWithin } from "../utils/selection-text.js";
+import { todoRowMenuItems } from "./todo-row-menu.js";
 import { useSwipeActions } from "./todo-swipe.js";
 import {
   filterTodoItems,

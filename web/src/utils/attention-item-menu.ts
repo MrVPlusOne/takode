@@ -10,7 +10,7 @@ import type { SessionNotification } from "../types.js";
 import { parseQuestIdsFromReviewSummary } from "./attention-records.js";
 import type { NextAttentionItem } from "./next-attention.js";
 import { resolveNotificationOwnerThreadKey } from "./notification-thread.js";
-import { normalizeThreadKey } from "./thread-projection.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 import {
   absoluteUrlForHash,
   navigateToSession,
@@ -332,6 +332,48 @@ export function threadMenuItems(input: {
       })),
     },
     copyThreadLinkItem(leaderId, threadKey),
+  );
+  return items;
+}
+
+/**
+ * A row's actions in a list of a leader's threads (the Threads view, a leader's Home): open it (also
+ * in the side column), its quest and worker, mark it read or unread, remind me later, copy link. The
+ * leader log only opens and marks Main's results read.
+ */
+export function threadListRowMenuItems(input: {
+  leaderId: string;
+  threadKey: string;
+  questId?: string;
+  unread: boolean;
+  open: () => void;
+}): ContextMenuItem[] {
+  const { leaderId, threadKey, questId, unread, open } = input;
+  const items: ContextMenuItem[] = [{ label: "Open", onClick: open }];
+  if (normalizeThreadKey(threadKey) === ALL_THREADS_KEY) {
+    if (unread) {
+      items.push({
+        label: "Mark as read",
+        onClick: () => void markThreadRead(leaderId, MAIN_THREAD_KEY).catch(logFailure("Mark as read")),
+      });
+    }
+    return items;
+  }
+  const state = useStore.getState();
+  const boardRow = questId
+    ? state.sessionBoards.get(leaderId)?.find((candidate) => normalizeThreadKey(candidate.questId) === questId)
+    : undefined;
+  items.push(
+    ...threadMenuItems({
+      leaderId,
+      threadKey,
+      ...(questId ? { questId } : {}),
+      ...(boardRow?.worker ? { workerId: boardRow.worker, workerNum: boardRow.workerNum } : {}),
+      read: {
+        unread,
+        canMarkUnread: !!latestReadThreadResult(state.sessionNotifications.get(leaderId), threadKey),
+      },
+    }),
   );
   return items;
 }

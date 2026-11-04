@@ -316,6 +316,7 @@ function DetailedWorkBoardPanel({
           rowSessionStatuses={rowSessionStatuses}
           selectedThreadKey={currentThreadKey}
           onSelectQuestThread={onSelectThread}
+          leaderSessionId={sessionId}
         />
       )}
       {view === "active" && activeBoardRows.length === 0 && (
@@ -328,6 +329,7 @@ function DetailedWorkBoardPanel({
           rowSessionStatuses={rowSessionStatuses}
           selectedThreadKey={currentThreadKey}
           onSelectQuestThread={onSelectThread}
+          leaderSessionId={sessionId}
         />
       )}
       {view === "completed" && completedBoardRows.length === 0 && (

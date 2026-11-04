@@ -456,6 +456,25 @@ describe("QuestmasterPage status display", () => {
     expect(mockState.questOverlayId).toBe("q-1");
   });
 
+  it("opens a row's quest menu on right-click and copies the quest number from it", async () => {
+    // Right-click on a quest row offers the quest actions search results offer, in place of the
+    // browser's menu; Open does what the row's click does.
+    renderQuestmaster({ isActive: true });
+    const row = screen.getByRole("button", { name: /Fresh verification quest/ });
+    expect(fireEvent.contextMenu(row, { clientX: 5, clientY: 5 })).toBe(false);
+    const menu = within(document.querySelector<HTMLElement>("[data-context-menu]")!);
+    expect(menu.getAllByRole("button").map((button) => button.textContent)).toEqual(
+      expect.arrayContaining(["Open", "Copy quest number"]),
+    );
+    fireEvent.click(menu.getByRole("button", { name: "Copy quest number" }));
+    await waitFor(() => expect(mockClipboardWriteText).toHaveBeenCalledWith("q-1"));
+    fireEvent.contextMenu(row, { clientX: 5, clientY: 5 });
+    fireEvent.click(
+      within(document.querySelector<HTMLElement>("[data-context-menu]")!).getByRole("button", { name: "Open" }),
+    );
+    expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1", undefined);
+  });
+
   it("copies the quest id from a card without opening the overlay", async () => {
     renderQuestmaster({ isActive: true });
 

@@ -20,7 +20,7 @@ import { handleOpenInSideClick, openInSideOnScreen } from "../../utils/side-colu
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../../utils/thread-projection.js";
 import type { TreeViewGroupData } from "../../utils/tree-grouping.js";
 import { useLongPress } from "../../hooks/useLongPress.js";
-import { latestReadThreadResult, markThreadRead, threadMenuItems } from "../../utils/attention-item-menu.js";
+import { threadListRowMenuItems } from "../../utils/attention-item-menu.js";
 import type { CommonSessionItemProps } from "../ArchivedSessionSection.js";
 import { ContextMenu, TOUCH_MENU_ITEM_CLASS, type ContextMenuItem } from "../ContextMenu.js";
 import { SessionArchiveConfirmation } from "../SessionArchiveConfirmation.js";
@@ -403,9 +403,15 @@ export function SidebarThreadsMode({
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={threadRowMenuItems(menu.row, () => {
-            navigateToSessionThread(menu.row.leader.leader.id, menu.row.threadKey);
-            onOpened();
+          items={threadListRowMenuItems({
+            leaderId: menu.row.leader.leader.id,
+            threadKey: menu.row.threadKey,
+            ...(menu.row.questId ? { questId: menu.row.questId } : {}),
+            unread: menu.row.counts.unread > 0,
+            open: () => {
+              navigateToSessionThread(menu.row.leader.leader.id, menu.row.threadKey);
+              onOpened();
+            },
           })}
           onClose={() => setMenu(null)}
         />
@@ -477,44 +483,6 @@ export function SidebarThreadsMode({
       />
     </>
   );
-}
-
-/**
- * A thread row's actions: open it (also in the side column), its quest and worker, mark it read
- * or unread, remind me later, copy link. The leader log only opens and marks Main's results read.
- */
-function threadRowMenuItems(row: ThreadRow, open: () => void): ContextMenuItem[] {
-  const leaderId = row.leader.leader.id;
-  const items: ContextMenuItem[] = [{ label: "Open", onClick: open }];
-  if (row.threadKey === ALL_THREADS_KEY) {
-    if (row.counts.unread > 0) {
-      items.push({
-        label: "Mark as read",
-        onClick: () =>
-          void markThreadRead(leaderId, MAIN_THREAD_KEY).catch((error) =>
-            console.error("[threads-view] Mark as read failed:", error),
-          ),
-      });
-    }
-    return items;
-  }
-  const state = useStore.getState();
-  const boardRow = row.questId
-    ? state.sessionBoards.get(leaderId)?.find((candidate) => normalizeThreadKey(candidate.questId) === row.questId)
-    : undefined;
-  items.push(
-    ...threadMenuItems({
-      leaderId,
-      threadKey: row.threadKey,
-      ...(row.questId ? { questId: row.questId } : {}),
-      ...(boardRow?.worker ? { workerId: boardRow.worker, workerNum: boardRow.workerNum } : {}),
-      read: {
-        unread: row.counts.unread > 0,
-        canMarkUnread: !!latestReadThreadResult(state.sessionNotifications.get(leaderId), row.threadKey),
-      },
-    }),
-  );
-  return items;
 }
 
 /**

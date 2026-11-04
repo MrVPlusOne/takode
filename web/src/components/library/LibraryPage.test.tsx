@@ -181,6 +181,34 @@ describe("LibraryPage", () => {
     expect(screen.getByTestId("library-filter-button").className).not.toContain("bg-cc-primary/10");
   });
 
+  it("offers a card's Library actions on right-click: open, a window of its own, star", async () => {
+    // The same actions an artifact's card in a message has in its More menu, with Open doing what
+    // the card's click does here; the star goes through the grid's own toggle.
+    const open = vi.fn(() => ({ focus: vi.fn() }) as unknown as Window);
+    vi.stubGlobal("open", open);
+    render(<LibraryPage />);
+    const card = await screen.findByTestId("library-artifact-card");
+    expect(fireEvent.contextMenu(card, { clientX: 5, clientY: 5 })).toBe(false);
+    const menu = () => within(document.querySelector<HTMLElement>("[data-context-menu]")!);
+    expect(
+      menu()
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Open", expect.stringContaining("Open in new window"), "Star"]);
+    fireEvent.click(menu().getByRole("button", { name: /Open in new window/ }));
+    expect(open).toHaveBeenCalledWith(
+      expect.stringMatching(/#\/artifact\/a1\?v=3$/),
+      "takode-artifact-a1",
+      expect.any(String),
+    );
+    fireEvent.contextMenu(card, { clientX: 5, clientY: 5 });
+    fireEvent.click(menu().getByRole("button", { name: "Star" }));
+    await waitFor(() => expect(screen.getByTestId("library-artifact-card")).toHaveAttribute("data-starred", "true"));
+    fireEvent.contextMenu(screen.getByTestId("library-artifact-card"), { clientX: 5, clientY: 5 });
+    fireEvent.click(menu().getByRole("button", { name: "Open" }));
+    expect(await screen.findByTestId("artifact-viewer")).toBeTruthy();
+  });
+
   it("opens an artifact in a window of its own from a Ctrl-click on its card or the viewer's button", async () => {
     // jsdom is not a Mac, so Ctrl is the new-window key. The gallery stays where it is.
     const open = vi.fn(() => ({ focus: vi.fn() }) as unknown as Window);

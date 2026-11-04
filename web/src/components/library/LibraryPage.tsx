@@ -328,7 +328,7 @@ function Gallery({
   showSpace: boolean;
   filtered: boolean;
   onMore: () => void;
-  onOpen: (artifactId: string, event: React.MouseEvent) => void;
+  onOpen: (artifactId: string, event?: React.MouseEvent) => void;
   onToggleStar: (artifact: ArtifactSummary) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
