@@ -13,6 +13,7 @@ import { isTodoOverdue } from "../../shared/todo-due.js";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import {
   TODO_STATUSES,
+  type TodoCategory,
   type TodoCompletionUndoHandle,
   type TodoItem,
   type TodoLinkedQuest,
@@ -20,6 +21,8 @@ import {
   type TodoStatus,
 } from "../../shared/todo-types.js";
 import { api } from "../api.js";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
+import { writeClipboardText } from "../utils/copy-utils.js";
 import { TODO_STATE_UPDATED_EVENT } from "../todo-events.js";
 import { useRememberedFolds } from "../utils/remembered-folds.js";
 import { celebrationAnchor, playCompletionCelebration } from "./completion-celebration.js";
@@ -31,6 +34,8 @@ import { TodoStatusCircle } from "./TodoItemDesktopLayout.js";
 import { activeTodoCategories, TodoManagementDrawer } from "./TodoManagementDrawer.js";
 import { TodoQuestChips } from "./TodoQuestChips.js";
 import { useTodoDueNow } from "./todo-due-clock.js";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { selectedTextWithin, todoRowMenuItems } from "./todo-row-menu.js";
 import { useSwipeActions } from "./todo-swipe.js";
 import {
   filterTodoItems,
@@ -128,6 +133,8 @@ interface TodoRowProps {
   item: TodoItem;
   siblings: TodoItem[];
   categoryLabel?: string;
+  /** Active categories, for the menu's Move to. */
+  categories: TodoCategory[];
   linkedQuests: ReadonlyMap<string, TodoLinkedQuest>;
   /** Current time for due dates, refreshed when one passes. */
   now: number;
@@ -147,13 +154,15 @@ interface TodoRowProps {
 /**
  * A quiet to-do row: the status circle and the text. Tapping the text opens the to-do sheet with
  * every action. On touch screens a swipe right completes it and a swipe left reveals Start (or
- * Pause) and More; with a mouse, a drag handle appears on hover. Keyboard: Enter opens, Alt+Enter
- * adds below, Alt+↑/↓ reorders.
+ * Pause) and More; with a mouse, a drag handle appears on hover. Right-click or a long press opens
+ * a menu of quick actions (status, due date, moving, archiving, copying). Keyboard: Enter opens,
+ * Alt+Enter adds below, Alt+↑/↓ reorders.
  */
 function TodoRow({
   item,
   siblings,
   categoryLabel,
+  categories,
   linkedQuests,
   now,
   isDragging,
@@ -200,6 +209,35 @@ function TodoRow({
 
   const swipe = useSwipeActions({ enabled: active && !busy, onComplete: toggleCompletion });
 
+  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+  const articleRef = useRef<HTMLElement>(null);
+  const longPress = useLongPress((x, y) => {
+    // Built when opened, so the selection to copy and the item's state are current.
+    const items = todoRowMenuItems({
+      item,
+      siblings,
+      categories,
+      selectedText: selectedTextWithin(articleRef.current),
+      now,
+      actions: {
+        open: onOpen,
+        complete: toggleCompletion,
+        setStatus: (status) => run(() => api.setTodoItemStatus(item.id, status)),
+        insertBelow: onInsertBelow,
+        move: (input) => run(() => api.moveTodoItem(item.id, input)),
+        setDue: (due) => run(() => api.setTodoItemDue(item.id, due)),
+        setArchived: (archived) => run(() => (archived ? api.archiveTodoItem(item.id) : api.restoreTodoItem(item.id))),
+        copy: (text) =>
+          void writeClipboardText(text).catch((error: unknown) =>
+            onError(error instanceof Error ? error.message : String(error)),
+          ),
+      },
+    });
+    setMenu({ x, y, items });
+  });
+  // Outside the row, so taps and right-clicks in the menu do not reach the row's gestures.
+  const menuElement = menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />;
+
   const openFromClick = (event: MouseEvent<HTMLElement>) => {
     if ((event.target as HTMLElement).closest("a,button,select,summary")) return;
     if (swipe.consumeClick()) return;
@@ -234,11 +272,14 @@ function TodoRow({
 
   const row = (
     <article
+      ref={articleRef}
       data-todo-id={item.id}
       data-overdue={overdue || undefined}
-      className={`group relative flex items-start gap-2.5 rounded-lg bg-cc-bg py-1.5 pl-2 pr-1 transition-colors hover:bg-cc-hover/50 ${item.archivedAt ? "opacity-65" : ""} ${isDragging ? "opacity-35" : ""}`}
-      style={swipe.rowStyle}
+      // Text stays selectable with a mouse (the menu then offers Copy); a touch press opens the menu instead.
+      className={`group relative flex items-start gap-2.5 rounded-lg bg-cc-bg py-1.5 pl-2 pr-1 transition-colors hover:bg-cc-hover/50 [-webkit-touch-callout:none] pointer-coarse:select-none ${item.archivedAt ? "opacity-65" : ""} ${isDragging ? "opacity-35" : ""}`}
+      style={{ ...swipe.rowStyle, ...longPress.pressStyle }}
       {...swipe.handlers}
+      {...longPress.handlers}
       onDragOver={(event) => {
         if (!active) return;
         event.preventDefault();
@@ -313,17 +354,26 @@ function TodoRow({
     </article>
   );
 
-  if (!active) return row;
+  if (!active)
+    return (
+      <>
+        {row}
+        {menuElement}
+      </>
+    );
   return (
-    <div ref={swipe.containerRef} className="relative overflow-hidden rounded-lg">
-      {swipe.renderBackground({
-        item,
-        busy,
-        onSetStatus: (status) => run(() => api.setTodoItemStatus(item.id, status)),
-        onMore: onOpen,
-      })}
-      {row}
-    </div>
+    <>
+      <div ref={swipe.containerRef} className="relative overflow-hidden rounded-lg">
+        {swipe.renderBackground({
+          item,
+          busy,
+          onSetStatus: (status) => run(() => api.setTodoItemStatus(item.id, status)),
+          onMore: onOpen,
+        })}
+        {row}
+      </div>
+      {menuElement}
+    </>
   );
 }
 
@@ -344,6 +394,7 @@ function SectionHeader({
   collapsed,
   onToggle,
   onAdd,
+  onManage,
   children,
 }: {
   name: string;
@@ -351,36 +402,53 @@ function SectionHeader({
   collapsed: boolean;
   onToggle: () => void;
   onAdd?: () => void;
+  /** Opens category management, offered in the header's right-click (long-press) menu. */
+  onManage?: () => void;
   children?: ReactNode;
 }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const longPress = useLongPress((x, y) => setMenu({ x, y }));
+  const menuItems: ContextMenuItem[] = [
+    ...(onAdd ? [{ label: "Add to-do", onClick: onAdd }] : []),
+    { label: collapsed ? "Expand" : "Collapse", onClick: onToggle },
+    ...(onManage ? [{ label: "Manage categories", onClick: onManage }] : []),
+  ];
   return (
-    <div className="flex items-center gap-1 pr-1">
-      <button
-        type="button"
-        aria-expanded={!collapsed}
-        onClick={onToggle}
-        className="-ml-1 flex min-h-8 min-w-0 items-center gap-1.5 rounded-md px-1 text-[13px] text-cc-muted hover:text-cc-fg"
+    <>
+      <div
+        className={`flex items-center gap-1 pr-1 ${LONG_PRESS_TARGET_CLASS}`}
+        style={longPress.pressStyle}
+        {...longPress.handlers}
       >
-        <Icon
-          path={ICONS.chevron}
-          className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
-        />
-        <span className="truncate font-medium text-cc-fg">{name}</span>
-        <span className="text-[11px]">{count}</span>
-        {children}
-      </button>
-      {onAdd && (
         <button
           type="button"
-          aria-label={`Add to ${name}`}
-          title={`Add to ${name}`}
-          onClick={onAdd}
-          className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+          aria-expanded={!collapsed}
+          onClick={onToggle}
+          className="-ml-1 flex min-h-8 min-w-0 items-center gap-1.5 rounded-md px-1 text-[13px] text-cc-muted hover:text-cc-fg"
         >
-          <Icon path={ICONS.plus} className="h-3.5 w-3.5" />
+          <Icon
+            path={ICONS.chevron}
+            className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
+          />
+          <span className="truncate font-medium text-cc-fg">{name}</span>
+          <span className="text-[11px]">{count}</span>
+          {children}
         </button>
-      )}
-    </div>
+        {onAdd && (
+          <button
+            type="button"
+            aria-label={`Add to ${name}`}
+            title={`Add to ${name}`}
+            onClick={onAdd}
+            className="ml-auto flex h-8 w-8 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+          >
+            <Icon path={ICONS.plus} className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {/* Outside the header, so presses in the menu do not reach its gestures. */}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
+    </>
   );
 }
 
@@ -625,6 +693,7 @@ export function TodoListPanel() {
         item={item}
         siblings={siblings}
         categoryLabel={categoryLabel}
+        categories={categories}
         linkedQuests={linkedQuests}
         now={now}
         isDragging={draggedItemId === item.id}
@@ -731,6 +800,7 @@ export function TodoListPanel() {
                   collapsed={hidden}
                   onToggle={() => toggleCollapsed(category.id)}
                   onAdd={() => setComposer({ categoryId: category.id })}
+                  onManage={() => setManageOpen(true)}
                 >
                   {overdueCount > 0 && <span className="text-[11px] text-cc-error">{overdueCount} overdue</span>}
                 </SectionHeader>

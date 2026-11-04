@@ -578,4 +578,110 @@ describe("TodoListPanel", () => {
       "Added by Daily briefing 2h ago · from Slack DM from Junhong",
     );
   });
+
+  describe("right-click and long-press menu", () => {
+    // Jiayi right-clicked a to-do and got the browser's menu (Look Up, Copy, Search Google…); rows
+    // and category headers now open Takode's menu of quick actions instead.
+    const menu = () => within(document.querySelector<HTMLElement>("[data-context-menu]")!);
+    const labels = () =>
+      Array.from(document.querySelectorAll("[data-context-menu] button"), (button) => button.textContent?.trim());
+
+    it("offers a row's quick actions in place of the browser's menu, running the row's own actions", async () => {
+      mocks.setTodoItemStatus.mockResolvedValue({ state: makeState(2) });
+      mocks.archiveTodoItem.mockResolvedValue({ state: makeState(3) });
+      const { container } = render(<TodoListPanel />);
+      await screen.findByText("Plan the offsite");
+
+      // The browser's own menu is prevented.
+      expect(fireEvent.contextMenu(rowOf(container, "td-4"), { clientX: 40, clientY: 60 })).toBe(false);
+      expect(labels()).toEqual([
+        "Open",
+        "Mark Doing",
+        "Mark Done",
+        expect.stringContaining("Due"),
+        "Add below",
+        "Move up",
+        expect.stringContaining("Move to"),
+        "Copy text",
+        "Archive",
+      ]);
+      fireEvent.click(menu().getByRole("button", { name: "Mark Doing" }));
+      await waitFor(() => expect(mocks.setTodoItemStatus).toHaveBeenCalledWith("td-4", "doing"));
+      expect(document.querySelector("[data-context-menu]")).toBeNull();
+
+      // Done goes through the row's completion: it celebrates and offers Undo.
+      mocks.setTodoItemStatus.mockResolvedValue({
+        state: makeState(4),
+        completionUndo: { token: "undo-1", itemId: "td-4", expiresAt: Date.now() + 60_000 },
+      });
+      fireEvent.contextMenu(rowOf(container, "td-4"), { clientX: 40, clientY: 60 });
+      fireEvent.click(menu().getByRole("button", { name: "Mark Done" }));
+      await waitFor(() => expect(mocks.setTodoItemStatus).toHaveBeenLastCalledWith("td-4", "done"));
+      await waitFor(() => expect(celebrate).toHaveBeenCalled());
+      expect(await screen.findByRole("status")).toHaveTextContent("Done: Plan the offsite");
+
+      fireEvent.contextMenu(rowOf(container, "td-4"), { clientX: 40, clientY: 60 });
+      fireEvent.click(menu().getByRole("button", { name: "Archive" }));
+      await waitFor(() => expect(mocks.archiveTodoItem).toHaveBeenCalledWith("td-4"));
+    });
+
+    it("copies the selected text or the whole to-do, and shows Restore for an archived one", async () => {
+      const writeText = vi.fn(async () => {});
+      Object.assign(navigator, { clipboard: { writeText } });
+      const state = makeState();
+      state.items[3] = { ...state.items[3]!, archivedAt: 400 };
+      mocks.getTodoState.mockResolvedValue(state);
+      mocks.restoreTodoItem.mockResolvedValue({ state: makeState(2) });
+      const { container } = render(<TodoListPanel />);
+      await screen.findByText("Reply to **Alice**");
+
+      // A selection inside the row keeps a Copy, first, so right-click doesn't take that away.
+      const text = within(rowOf(container, "td-1")).getByText("Reply to **Alice**");
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+      fireEvent.contextMenu(rowOf(container, "td-1"), { clientX: 40, clientY: 60 });
+      expect(labels()[0]).toBe("Copy");
+      fireEvent.click(menu().getByRole("button", { name: "Copy" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("Reply to **Alice**"));
+      window.getSelection()!.removeAllRanges();
+
+      fireEvent.contextMenu(rowOf(container, "td-1"), { clientX: 40, clientY: 60 });
+      expect(labels()).not.toContain("Copy");
+      fireEvent.click(menu().getByRole("button", { name: "Copy text" }));
+      await waitFor(() =>
+        expect(writeText).toHaveBeenLastCalledWith("Reply to **Alice**\n[Thread](https://example.slack.com/thread)"),
+      );
+
+      // An archived to-do can only be opened, copied or restored, as in its sheet.
+      fireEvent.click(screen.getByRole("button", { name: /^Archived/ }));
+      fireEvent.contextMenu(await waitFor(() => rowOf(container, "td-4")), { clientX: 40, clientY: 60 });
+      expect(labels()).toEqual(["Open", "Copy text", "Restore"]);
+      fireEvent.click(menu().getByRole("button", { name: "Restore" }));
+      await waitFor(() => expect(mocks.restoreTodoItem).toHaveBeenCalledWith("td-4"));
+    });
+
+    it("opens on a touch long-press, below the row", async () => {
+      const { container } = render(<TodoListPanel />);
+      await screen.findByText("Plan the offsite");
+      vi.useFakeTimers();
+      try {
+        fireEvent.touchStart(rowOf(container, "td-4"), { touches: [{ clientX: 30, clientY: 40 }] });
+        act(() => vi.advanceTimersByTime(600));
+        expect(labels()).toContain("Mark Doing");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("gives a category header Add to-do, Collapse and Manage categories", async () => {
+      render(<TodoListPanel />);
+      await screen.findByText("Plan the offsite");
+      fireEvent.contextMenu(screen.getByRole("button", { name: "Add to Slack" }), { clientX: 40, clientY: 60 });
+      expect(labels()).toEqual(["Add to-do", "Collapse", "Manage categories"]);
+      fireEvent.click(menu().getByRole("button", { name: "Manage categories" }));
+      expect(screen.getByRole("button", { name: "Manage categories" })).toHaveAttribute("aria-pressed", "true");
+    });
+  });
 });
