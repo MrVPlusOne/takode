@@ -12,12 +12,16 @@ It is a user-facing feature only: use it when the user asks for a review they wi
 ## Workflow
 
 1. Settle the range: `base` and `head` revisions in one repository, usually the commits of the change under review. Line numbers in the map are **new-file line numbers at `head`**. `takode review --outline <base>..<head> [--repo <dir>]` lists each changed file's changed line ranges; read files at `head` (`git show <head>:<path>`) for the code around them.
-2. Review the whole change properly before writing anything. Run the tests when you can. The map is a summary of a real review, never a substitute for one.
+2. Review the whole change properly before writing anything. Run the tests when you can. When it adds or changes shared code, check whether the default branch already has it (below). The map is a summary of a real review, never a substitute for one.
 3. Write the map as a JSON file outside the repository, such as a `reviews/` folder in your home directory (format below, and in `takode review --help`). Its path is shown as the review's source.
 4. Check it: `takode review <map.json> --check [--repo <dir>]`. It prints every changed line the map leaves out or claims twice; fix the map until it reports "Map OK".
 5. Publish: `takode review <map.json> --thread <main|q-N> [--repo <dir>]`. Leaders publish into the quest's thread. A worker publishes into its own session (`--thread main`) and tells its leader, who shares it where the user reads it (below).
 6. When the answers arrive, read them as the user's review, not as orders to implement. They may start with the user's message about the whole review; follow it and the context: whose change it is and what the user asked for. A review of the user's own change often leads to making the changes; a review of someone else's pull request usually does not, and the user may want only your answers, or comments drafted for them to post. When it is unclear what should happen next, ask before acting. Never post to GitHub or message other people as the user.
    Comments on the code come last, under "Comments on the code", each naming the file and lines (numbered as in the file after the change; "removed lines" are numbered as before it), the stop they were made on, the lines quoted as a diff and the comment. Treat each like a review comment on those exact lines, read with the same judgment as the answers: open the file at the head of the range, respond to every comment, and when replying name the file and lines so the user can tell which comment you mean.
+
+## Does the default branch already have it?
+
+A change can add what the project already has, sometimes landed after the change branched. When it adds or changes shared code (code outside the area its authors own, used by others), fetch and search the newest default branch, usually `origin/main` (`git fetch`, then `git grep <term> origin/main`), for functions, settings, hooks or config that already do the job, including sibling methods and base classes of what the change touches. Search by what the code does, not only by its names. Say in the overview what you searched and each candidate you found, with whether it fits. Each candidate that fits is a **decide** stop on the new code: whether to use it instead is the user's call.
 
 ## Sharing a review into another thread
 
@@ -33,7 +37,7 @@ The overview, stop notes and summary texts are Markdown shown the way chat shows
 
 Each stop has a tier. Keep the review short: about 3-12 stops for a change of a few thousand lines.
 
-- **decide**: only the user can choose. Cost (paid APIs, more requests, bigger bills), privacy or data leaving the machine (what is sent where, on whose key), security and authority, data kept or deleted, licences and new dependencies, behavior that changes beyond the feature (shared components, app-wide defaults), anything that departs from what the user asked, and anything hard to undo. Write a real question with 2-4 short answers (at most 40 characters each, such as "Keep 4", "Cap at 2", "Ask me").
+- **decide**: only the user can choose. Cost (paid APIs, more requests, bigger bills), privacy or data leaving the machine (what is sent where, on whose key), security and authority, data kept or deleted, licences and new dependencies, behavior that changes beyond the feature (shared components, app-wide defaults), anything that departs from what the user asked, existing code on the default branch that already does the job, and anything hard to undo. Write a real question with 2-4 short answers (at most 40 characters each, such as "Keep 4", "Cap at 2", "Ask me").
 - **check**: worth the user's careful look, but no decision needed: non-obvious mechanisms, assumptions later changes could break, behavior no test can cover, risky code that is right but subtle.
 - **checked**: looked risky, and you verified it is fine. The note is the evidence ("every lookup checks the ID before joining the path; a test sends unsafe IDs").
 - **summaries**: everything routine: tests, wiring, renames, plumbing, UI details the user already approved, decisions the user already made (say when: "you approved this licence on Oct 19"). Group files by what they do, one sentence or two per group. Takode lists each summary's files with the lines it covers, counted from the diff, so the text needn't name files or count lines.

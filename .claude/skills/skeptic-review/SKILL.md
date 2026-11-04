@@ -79,6 +79,14 @@ Evaluate against these criteria:
 4. **Correctness**: Could the change introduce new bugs or regressions?
 5. **Honesty**: Does the worker's report accurately describe what they did?
    Any exaggerations or omissions?
+6. **Reuse**: Does the change add what the project already has? When the
+   diff adds or changes shared code (code outside the area its authors own,
+   used by others), fetch and search the newest default branch, usually
+   `origin/main` (`git fetch`, then `git grep <term> origin/main`), for
+   functions, settings, hooks or config that already do the job, including
+   sibling methods and base classes of what the change touches. Search by
+   what the code does, not only by its names. A fitting candidate the worker
+   neither used nor explained is a CHALLENGE question.
 
 ### Submission Quality Checks
 
@@ -130,6 +138,9 @@ critical worker misunderstanding.
    - If the checklist needs rewriting or you cannot verify the item yourself, CHALLENGE: "User review check #N ('tests pass') can be verified by the agent -- remove it and only keep checks requiring post-completion user attention"
 
 ### Step 3: Deliver Verdict
+
+When the reuse check applied, either verdict includes `Reuse search: ...`:
+what you searched and each candidate found, with whether it fits.
 
 Respond with exactly one of:
 
