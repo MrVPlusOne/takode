@@ -177,18 +177,18 @@ export function Walkthrough({
 }
 
 /**
- * One stop: when the review is at least 70rem wide, the explanation, answer and comments on the
- * code stay in a narrow left column while the code takes the rest; narrower, where side by side
- * would cramp the code (below roughly 80 characters), they stack as explanation, code, comments,
- * answer.
+ * One stop: when the review is at least 70rem wide, the code takes the left and the explanation,
+ * answer and comments on the code stay in a narrow right column, next to Back and Next in the
+ * footer; narrower, where side by side would cramp the code (below roughly 80 characters), they
+ * stack as explanation, code, comments, answer.
  */
 function WalkthroughStop({ target, entry: { stop, index } }: { target: GuidedReviewTarget; entry: IndexedStop }) {
   return (
     <div
-      className="flex flex-col gap-4 @min-[70rem]:grid @min-[70rem]:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)] @min-[70rem]:items-start @min-[70rem]:gap-6"
+      className="flex flex-col gap-4 @min-[70rem]:grid @min-[70rem]:grid-cols-[minmax(0,1fr)_minmax(18rem,26rem)] @min-[70rem]:items-start @min-[70rem]:gap-6"
       data-testid="guided-review-stop"
     >
-      <div className="contents @min-[70rem]:sticky @min-[70rem]:top-0 @min-[70rem]:block @min-[70rem]:space-y-4">
+      <div className="contents @min-[70rem]:sticky @min-[70rem]:top-0 @min-[70rem]:col-start-2 @min-[70rem]:row-start-1 @min-[70rem]:block @min-[70rem]:space-y-4">
         <div className="order-1">
           <StopHeading stop={stop} sessionId={target.sessionId} />
         </div>
@@ -200,7 +200,7 @@ function WalkthroughStop({ target, entry: { stop, index } }: { target: GuidedRev
           <StopLineComments target={target} stop={index} />
         </div>
       </div>
-      <div className="order-2 min-w-0">
+      <div className="order-2 min-w-0 @min-[70rem]:col-start-1 @min-[70rem]:row-start-1">
         <ReviewCode refs={stop.code} target={target} stop={index} full />
       </div>
     </div>
