@@ -21,7 +21,7 @@ export function AppTooltips() {
   return createPortal(
     <div
       role="tooltip"
-      className="pointer-events-none fixed z-[1000] max-w-[min(20rem,calc(100vw-16px))] rounded-md border border-cc-border bg-cc-card px-2 py-1 text-[12px] leading-snug text-cc-fg shadow-lg"
+      className="pointer-events-none fixed z-[1000] max-w-[min(20rem,calc(100vw-16px))] whitespace-pre-line rounded-md border border-cc-border bg-cc-card px-2 py-1 text-[12px] leading-snug text-cc-fg shadow-lg"
       style={{ left: tip.left, top: tip.top, visibility: tip.measured ? "visible" : "hidden" }}
       ref={(element) => {
         if (!element || tip.measured) return;

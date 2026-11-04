@@ -30,7 +30,7 @@ import { questOf } from "../library/topic-questions.js";
 import { listedSpaces, useAnchoredPopover } from "../RecentSessionList.js";
 import { StatusCountDots } from "../SessionItem.js";
 import { StackedPanes } from "../StackedPanes.js";
-import { THREAD_GROUP_DOT, type ThreadGroupId } from "../ThreadTabGroups.js";
+import type { ThreadGroupId } from "../ThreadTabGroups.js";
 
 /**
  * The sessions panel's Threads view: every leader's threads (quest threads and its other threads, as
@@ -508,10 +508,11 @@ function threadRowMenuItems(row: ThreadRow, open: () => void): ContextMenuItem[]
 }
 
 /**
- * One thread: its status dot, name and counts, then its leader and its news line (Jiayi, Oct 31:
- * the most informative recent update, not its phase or topic; the dot's color already says where
- * it stands). A quest's number is left out so its title gets the room (Jiayi, Nov 1); hovering
- * shows it with the whole title, and the row's menu and the thread itself open the quest.
+ * One thread: its leader's portrait, ringed in the thread's status colour as Sessions mode rings a
+ * leader's (Jiayi, Nov 3: it took the status dot's place, so the update has the row's width), its
+ * name and counts; then its update, the most informative recent news (Jiayi, Oct 31). A quest's
+ * number is left out so its title gets the room (Jiayi, Nov 1); hovering shows it with the whole
+ * title and update, and the row's menu and the thread itself open the quest.
  */
 function ThreadRowButton({
   row,
@@ -529,7 +530,6 @@ function ThreadRowButton({
   onOpen: (event: MouseEvent) => void;
   onOpenMenu: (x: number, y: number) => void;
 }) {
-  const leader = row.leader.leader;
   const quiet = row.group === "idle";
   const longPress = useLongPress(onOpenMenu);
   const button = (
@@ -542,34 +542,19 @@ function ThreadRowButton({
         current ? "bg-cc-active" : "hover:bg-cc-hover"
       }`}
       aria-current={current ? "page" : undefined}
-      title={row.questId ? `${row.questId} ${row.title}` : row.title}
+      title={[row.questId ? `${row.questId} ${row.title}` : row.title, line].filter(Boolean).join("\n")}
       data-testid="threads-mode-row"
       data-thread-key={row.threadKey}
       data-group={row.group}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        {row.questId ? (
-          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-            <span
-              className={`h-2 w-2 rounded-full ${THREAD_GROUP_DOT[row.group]}`}
-              data-testid="threads-mode-row-dot"
-            />
-          </span>
-        ) : (
-          <NewThreadIcon className="h-3.5 w-3.5 shrink-0 text-cc-primary" />
-        )}
+      <div className="flex min-w-0 items-center gap-2">
+        <ThreadStatusPortrait row={row} />
         <span className={`min-w-0 flex-1 truncate text-[13px] ${quiet ? "text-cc-muted" : "text-cc-fg"}`}>
           {row.title}
         </span>
         <StatusCountDots counts={row.counts} />
       </div>
-      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-5 text-[11px] text-cc-muted">
-        {/* The leader as its picture, named on hover. */}
-        {leader.leaderProfilePortrait && (
-          <span title={leader.name ?? "Leader"} className="flex shrink-0">
-            <LeaderProfilePortraitImage portrait={leader.leaderProfilePortrait} size="sm" />
-          </span>
-        )}
+      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-7 text-[11px] text-cc-muted">
         {line && <UpdateMarker />}
         <span className="min-w-0 truncate" data-testid="threads-mode-line">
           {line ?? row.label ?? (row.activityAt ? `Updated ${timeAgo(row.activityAt)}` : "")}
@@ -583,6 +568,47 @@ function ThreadRowButton({
       {button}
       <div className="mx-2 my-1 border-t border-cc-border/60" data-testid="threads-mode-pinned-end" />
     </>
+  );
+}
+
+/** A thread's ring colours by status group: Sessions mode's for running, needs you, unread and idle. */
+const GROUP_RING: Record<ThreadRow["group"], string> = {
+  "needs-input": "ring-2 ring-amber-400/80",
+  "new-results": "ring-2 ring-blue-500/70",
+  "in-progress": "ring-2 ring-emerald-500/80",
+  idle: "ring-2 ring-cc-muted/35",
+};
+
+/**
+ * The thread's leader, ringed in the thread's status colour; a plain thread (no quest) carries the
+ * new-thread mark on the portrait's corner. The leader is named on hover through the row.
+ */
+function ThreadStatusPortrait({ row }: { row: ThreadRow }) {
+  const portrait = row.leader.leader.leaderProfilePortrait;
+  const badge = !row.questId && (
+    <span className="flex translate-x-1 translate-y-1 rounded-full bg-cc-bg p-px">
+      <NewThreadIcon className="h-2.5 w-2.5 text-cc-primary" />
+    </span>
+  );
+  if (!portrait) {
+    return (
+      <span
+        className={`relative h-5 w-5 shrink-0 rounded-full bg-cc-hover ${GROUP_RING[row.group]}`}
+        data-testid="threads-mode-row-status"
+        data-status={row.group}
+      >
+        {badge && <span className="absolute -bottom-px -right-px flex">{badge}</span>}
+      </span>
+    );
+  }
+  return (
+    <LeaderProfilePortraitImage
+      portrait={portrait}
+      size="sm"
+      statusRing={{ className: GROUP_RING[row.group], status: row.group }}
+      cornerBadge={badge || undefined}
+      testId="threads-mode-row-status"
+    />
   );
 }
 

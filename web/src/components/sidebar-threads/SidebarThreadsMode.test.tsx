@@ -226,14 +226,18 @@ describe("SidebarThreadsMode", () => {
     // label (the dot's color says where it stands). Jiayi (Nov 1): no quest number before the title,
     // so the title gets the room; hovering the row still shows the number with the whole title.
     expect(within(rows[0]!).queryByTestId("threads-mode-quest")).toBeNull();
-    expect(rows[0]!.getAttribute("title")).toBe("q-1 Quest q-1");
     expect(await within(rows[0]!).findByText("Waiting on your pick of the layout")).toBeTruthy();
+    // Hovering shows the number with the whole title, and the whole update (Jiayi, Nov 3).
+    expect(rows[0]!.getAttribute("title")).toBe("q-1 Quest q-1\nWaiting on your pick of the layout");
     expect(homeLines).toHaveBeenCalledWith("takode", expect.arrayContaining(["q-1"]));
     expect(rows[0]!.textContent).not.toContain("Work");
     expect(within(rows[0]!).queryByTestId("threads-mode-topic")).toBeNull();
     expect(within(rows[0]!).getByTestId("status-count-permission").textContent).toBe("1");
-    // A quest's dot has its status group's color, never its phase's (Jiayi, Oct 31).
-    expect(within(rows[0]!).getByTestId("threads-mode-row-dot").className).toContain("bg-cc-attention");
+    // The leader's portrait leads the row, ringed in its status group's color, never its phase's
+    // (Jiayi, Oct 31; the ring replaced the dot on Nov 3).
+    const status = within(rows[0]!).getByTestId("threads-mode-row-status");
+    expect(status.className).toContain("ring-amber-400/80");
+    expect(status.dataset.status).toBe("needs-input");
     fireEvent.click(rows[0]!);
     expect(navigateToSessionThread).toHaveBeenCalledWith("takode", "q-1", false, "takode", {
       preserveMainThreadRoute: true,
@@ -260,7 +264,7 @@ describe("SidebarThreadsMode", () => {
       />,
     );
     const row = screen.getAllByTestId("threads-mode-row").find((candidate) => candidate.dataset.threadKey === "q-4")!;
-    expect(row.getAttribute("title")).toBe("q-4 Quest q-4");
+    expect(row.getAttribute("title")).toBe("q-4 Quest q-4\nLanded.");
     expect(within(row).getByTestId("threads-mode-line").textContent).toBe("Landed.");
     expect(within(row).getByTestId("thread-update-mark")).toBeTruthy();
     // Without a news line, a row's second line is no update and has no mark.
