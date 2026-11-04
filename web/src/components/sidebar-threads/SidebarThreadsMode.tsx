@@ -100,73 +100,80 @@ export interface LeaderThreadsInput {
  * status row.
  */
 export function threadRows(leaders: readonly LeaderThreadsInput[], queue: readonly NextAttentionItem[]): ThreadRow[] {
-  const rows: ThreadRow[] = [];
-  for (const { node, tabs, runningQuestIds, threads, writingThreadKey, userInteractionAt = {} } of leaders) {
-    const leaderId = node.leader.id;
-    const attention = attentionByThread(leaderId, queue, new Set(tabs.map((tab) => normalizeThreadKey(tab.threadKey))));
-    const writing = writingThreadKey ? normalizeThreadKey(writingThreadKey) : null;
-    const counts = (threadKey: string, running = false): ThreadCounts => ({
-      permission: attention.get(threadKey)?.permission ?? 0,
-      unread: attention.get(threadKey)?.unread ?? 0,
-      running: running || threadKey === writing ? 1 : 0,
-      permissionAt: attention.get(threadKey)?.permissionAt ?? 0,
-      unreadAt: attention.get(threadKey)?.unreadAt ?? 0,
-    });
-    const row = (input: Omit<ThreadRow, "key" | "leader" | "group">): ThreadRow => ({
-      ...input,
-      key: `${leaderId}:${input.threadKey}`,
-      leader: node,
-      group: groupOf(input.counts),
-    });
-    for (const tab of tabs) {
-      const threadKey = normalizeThreadKey(tab.threadKey);
-      const running = !!tab.questId && runningQuestIds.includes(normalizeThreadKey(tab.questId));
-      rows.push(
-        row({
-          threadKey,
-          questId: tab.questId,
-          title: tab.title ?? tab.questId ?? threadKey,
-          counts: counts(threadKey, running),
-          at: userInteractionAt[threadKey] ?? 0,
-          activityAt: tab.groupChangedAt || tab.updatedAt,
-        }),
-      );
-    }
-    for (const thread of threads) {
-      if (thread.empty) continue;
-      const threadKey = normalizeThreadKey(thread.key);
-      rows.push(
-        row({
-          threadKey,
-          questId: null,
-          title: thread.name,
-          label: "Thread",
-          counts: counts(threadKey),
-          // Starting a thread is dealing with it: it is on top from the start.
-          at: Math.max(userInteractionAt[threadKey] ?? 0, thread.startedBy ? 0 : thread.createdAt),
-          activityAt: thread.interactionAt ?? thread.activityAt,
-        }),
-      );
-    }
-    const main = counts(MAIN_THREAD_KEY);
-    if (main.permission || main.unread) {
-      rows.push(
-        row({
-          threadKey: ALL_THREADS_KEY,
-          questId: null,
-          title: "Leader log",
-          label: "Main's messages",
-          counts: main,
-          at: userInteractionAt[MAIN_THREAD_KEY] ?? 0,
-          activityAt: sessionInteractionAt(node.leader),
-        }),
-      );
-    }
-  }
+  const rows = leaders.flatMap((input) => leaderThreadRows(input, queue));
   const asking = (row: ThreadRow) => (row.group === "needs-input" ? 1 : 0);
   return withoutRepeatedQuests(rows, leaders).sort(
     (a, b) => asking(b) - asking(a) || b.at - a.at || b.activityAt - a.activityAt,
   );
+}
+
+/** One leader's threads as rows, each in one status group, as its status row has them. */
+function leaderThreadRows(
+  { node, tabs, runningQuestIds, threads, writingThreadKey, userInteractionAt = {} }: LeaderThreadsInput,
+  queue: readonly NextAttentionItem[],
+): ThreadRow[] {
+  const rows: ThreadRow[] = [];
+  const leaderId = node.leader.id;
+  const attention = attentionByThread(leaderId, queue, new Set(tabs.map((tab) => normalizeThreadKey(tab.threadKey))));
+  const writing = writingThreadKey ? normalizeThreadKey(writingThreadKey) : null;
+  const counts = (threadKey: string, running = false): ThreadCounts => ({
+    permission: attention.get(threadKey)?.permission ?? 0,
+    unread: attention.get(threadKey)?.unread ?? 0,
+    running: running || threadKey === writing ? 1 : 0,
+    permissionAt: attention.get(threadKey)?.permissionAt ?? 0,
+    unreadAt: attention.get(threadKey)?.unreadAt ?? 0,
+  });
+  const row = (input: Omit<ThreadRow, "key" | "leader" | "group">): ThreadRow => ({
+    ...input,
+    key: `${leaderId}:${input.threadKey}`,
+    leader: node,
+    group: groupOf(input.counts),
+  });
+  for (const tab of tabs) {
+    const threadKey = normalizeThreadKey(tab.threadKey);
+    const running = !!tab.questId && runningQuestIds.includes(normalizeThreadKey(tab.questId));
+    rows.push(
+      row({
+        threadKey,
+        questId: tab.questId,
+        title: tab.title ?? tab.questId ?? threadKey,
+        counts: counts(threadKey, running),
+        at: userInteractionAt[threadKey] ?? 0,
+        activityAt: tab.groupChangedAt || tab.updatedAt,
+      }),
+    );
+  }
+  for (const thread of threads) {
+    if (thread.empty) continue;
+    const threadKey = normalizeThreadKey(thread.key);
+    rows.push(
+      row({
+        threadKey,
+        questId: null,
+        title: thread.name,
+        label: "Thread",
+        counts: counts(threadKey),
+        // Starting a thread is dealing with it: it is on top from the start.
+        at: Math.max(userInteractionAt[threadKey] ?? 0, thread.startedBy ? 0 : thread.createdAt),
+        activityAt: thread.interactionAt ?? thread.activityAt,
+      }),
+    );
+  }
+  const main = counts(MAIN_THREAD_KEY);
+  if (main.permission || main.unread) {
+    rows.push(
+      row({
+        threadKey: ALL_THREADS_KEY,
+        questId: null,
+        title: "Leader log",
+        label: "Main's messages",
+        counts: main,
+        at: userInteractionAt[MAIN_THREAD_KEY] ?? 0,
+        activityAt: sessionInteractionAt(node.leader),
+      }),
+    );
+  }
+  return rows;
 }
 
 /**
@@ -191,17 +198,20 @@ function withoutRepeatedQuests(rows: ThreadRow[], leaders: readonly LeaderThread
   });
 }
 
-/** A leader's counts as a whole: its own questions and results, and its running quests. */
+/**
+ * A leader's counts as a whole, in threads as its status row counts its groups (`groupThreads`;
+ * Jiayi, Nov 3: the row said 9 unread while the status row's Unread said 3): threads with a
+ * question (Needs you), else with something unread (Unread), and every thread with work going on
+ * (In progress, which a thread needing the user is in as well; not the leader log).
+ */
 export function leaderCounts(input: LeaderThreadsInput, queue: readonly NextAttentionItem[]): ThreadCounts {
-  const leaderId = input.node.leader.id;
-  let permission = 0;
-  let unread = 0;
-  for (const item of queue) {
-    if (item.sessionId !== leaderId) continue;
-    if (item.kind === "needs-input") permission++;
-    else unread++;
-  }
-  return { permission, unread, running: input.runningQuestIds.length };
+  const rows = leaderThreadRows(input, queue);
+  const count = (test: (row: ThreadRow) => boolean) => rows.filter(test).length;
+  return {
+    permission: count((row) => row.counts.permission > 0),
+    unread: count((row) => row.counts.permission === 0 && row.counts.unread > 0),
+    running: count((row) => row.counts.running > 0 && row.threadKey !== ALL_THREADS_KEY),
+  };
 }
 
 function groupOf(counts: ThreadCounts): ThreadGroupId {

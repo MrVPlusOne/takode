@@ -39,6 +39,7 @@ import {
 import {
   SidebarThreadsMode,
   ThreadsModeNewButton,
+  leaderCounts,
   threadRows,
   useThreadsModeData,
   type LeaderThreadsInput,
@@ -150,6 +151,41 @@ describe("threadRows", () => {
     // No phase words: a quest has no label (its dot says where it stands); a thread says so.
     expect(rows.find((row) => row.threadKey === "q-4")!.label).toBeUndefined();
     expect(rows.find((row) => row.threadKey === "topic:aa")!.label).toBe("Thread");
+  });
+});
+
+describe("leaderCounts", () => {
+  it("counts threads, as the leader's status row does, not answers or questions", () => {
+    // Jiayi (Nov 3): a leader's row said 9 unread while its status row's Unread said 3 threads.
+    queue.items = [
+      // Three answers in q-2 and one in Main's log: two threads with something unread.
+      { kind: "unread", key: "u1", sessionId: "takode", threadKey: "q-2", timestamp: 1 },
+      { kind: "unread", key: "u2", sessionId: "takode", threadKey: "q-2", timestamp: 2 },
+      { kind: "unread", key: "u3", sessionId: "takode", threadKey: "q-2", timestamp: 3 },
+      { kind: "unread", key: "u4", sessionId: "takode", threadKey: "main", timestamp: 4 },
+      // Two questions in q-1, one of them from its worker: one thread needs the user.
+      { kind: "needs-input", key: "n1", sessionId: "takode", entry: {}, threadKey: "q-1", timestamp: 5 },
+      {
+        kind: "needs-input",
+        key: "n2",
+        sessionId: "worker",
+        entry: { questId: "q-1" },
+        threadKey: "q-1",
+        timestamp: 6,
+      },
+      // Another leader's answer doesn't count here.
+      { kind: "unread", key: "u5", sessionId: "msi", threadKey: "q-3", timestamp: 7 },
+    ];
+    // Running: q-4 and the thread being answered in.
+    expect(leaderCounts(LEADERS[0]!, queue.items as never)).toEqual({ permission: 1, unread: 2, running: 2 });
+    // As in the status row, a running quest with an unread answer is under Unread and In progress,
+    // and a thread with a question and an answer only under Needs you.
+    queue.items = [
+      { kind: "unread", key: "u", sessionId: "takode", threadKey: "q-4", timestamp: 1 },
+      { kind: "unread", key: "v", sessionId: "takode", threadKey: "q-1", timestamp: 2 },
+      { kind: "needs-input", key: "n", sessionId: "takode", entry: {}, threadKey: "q-1", timestamp: 3 },
+    ];
+    expect(leaderCounts(LEADERS[0]!, queue.items as never)).toEqual({ permission: 1, unread: 1, running: 2 });
   });
 });
 
