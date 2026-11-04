@@ -8,6 +8,8 @@ import { navigateToSessionThread } from "../utils/routing.js";
 import { openTopicsInSide } from "../utils/side-column.js";
 import { ALL_THREADS_KEY } from "../utils/thread-projection.js";
 import { Composer } from "./Composer.js";
+import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
+import { NotificationChip } from "./NotificationChip.js";
 import { threadNameFromMessage } from "./side-column/thread-names.js";
 import { sideComposerDraftKey } from "../draft-sync-bridge.js";
 import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
@@ -19,13 +21,25 @@ import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThrea
  */
 export function LeaderHomePage({ leaderId }: { leaderId: string }) {
   const threads = useLeaderThreadMembers((state) => state.byLeader[leaderId]) ?? EMPTY_THREADS;
+  const composerOverlayLift = useComposerOverlayLift();
   return (
     <>
-      {/* Wider as the main view grows (by its own width: the side column takes room from it), so
-          rows truncate no more than they must (Jiayi, Nov 1). */}
-      <div className="@container min-h-0 flex-1 overflow-y-auto" data-testid="leader-home">
-        <div className="mx-auto w-full max-w-3xl px-3 py-4 sm:px-6 @5xl:max-w-4xl @6xl:max-w-5xl">
-          <LeaderHomeContent leaderId={leaderId} threads={threads} composerBelow />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Wider as the main view grows (by its own width: the side column takes room from it), so
+            rows truncate no more than they must (Jiayi, Nov 1). The bottom room keeps the last row
+            clear of the Next chip. */}
+        <div className="@container min-h-0 flex-1 overflow-y-auto" data-testid="leader-home">
+          <div className="mx-auto w-full max-w-3xl px-3 pb-14 pt-4 sm:px-6 @5xl:max-w-4xl @6xl:max-w-5xl">
+            <LeaderHomeContent leaderId={leaderId} threads={threads} composerBelow />
+          </div>
+        </div>
+        {/* The leader's Next chip, where a conversation has it (Jiayi, Nov 3: it was missing on Home). */}
+        <div
+          style={composerOverlayLift}
+          className="pointer-events-none absolute bottom-2 right-2 z-10 flex sm:bottom-3 sm:right-3"
+          data-testid="leader-home-next"
+        >
+          <NotificationChip sessionId={leaderId} />
         </div>
       </div>
       <NewThreadComposer leaderId={leaderId} />

@@ -26,6 +26,9 @@ vi.mock("./Composer.js", () => ({
     return <div data-testid="composer" />;
   },
 }));
+vi.mock("./NotificationChip.js", () => ({
+  NotificationChip: ({ sessionId }: { sessionId: string }) => <div data-testid="next-chip">{sessionId}</div>,
+}));
 vi.mock("./side-column/thread-names.js", () => ({ threadNameFromMessage: (text: string) => `named: ${text}` }));
 const navigateToSessionThread = vi.hoisted(() => vi.fn());
 vi.mock("../utils/routing.js", () => ({ navigateToSessionThread }));
@@ -211,6 +214,12 @@ describe("LeaderHomePage", () => {
     // Topics are browsed beside: the side column opens on their list.
     fireEvent.click(screen.getByTestId("leader-home-topics"));
     expect(useTopicPanel.getState().open).toBe(true);
+  });
+
+  it("shows the leader's Next chip at its lower right, as a conversation does", () => {
+    // Jiayi (Nov 3): the Next chip was missing on a leader's Home.
+    render(<LeaderHomePage leaderId="l1" />);
+    expect(within(screen.getByTestId("leader-home-next")).getByTestId("next-chip").textContent).toBe("l1");
   });
 
   it("starts a new thread from its message box and opens it in the main view", async () => {
