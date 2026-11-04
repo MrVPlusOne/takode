@@ -20,6 +20,7 @@ import { hostIsOnline, machineFor, type Machine, type MachineFileStat } from "..
 import { localCopyOfHostFile } from "../remote-host/host-file-cache.js";
 import { onMachine } from "../remote-host/host-operations.js";
 import { remoteHostFailure } from "./session-remote-host.js";
+import { MAX_FILE_LINK_DOWNLOAD_BYTES } from "../../shared/file-link-download.js";
 
 const execPromise = promisify(childProcess.exec);
 
@@ -262,6 +263,14 @@ function fileLinkRequestFromQuery(
 function parseImageVariantKind(raw: string | undefined): LocalImageVariantKind | null {
   if (raw === "thumbnail" || raw === "full") return raw;
   return null;
+}
+
+/** A Content-Disposition that saves a file under its own name; `filename` is an ASCII fallback for old browsers. */
+function attachmentDisposition(name: string): string {
+  const fallback = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  // RFC 5987 also reserves the few characters encodeURIComponent leaves alone.
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
 /**
@@ -558,6 +567,38 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       });
     } catch (error) {
       return c.text(error instanceof Error ? error.message : "Cannot read the PDF", 404);
+    }
+  });
+
+  /**
+   * A linked file's original bytes as a download to the browser's device, read on the machine that
+   * holds the linking session's files. Served as an attachment of no particular type, so the browser
+   * saves it and never shows it as a page from Takode's origin.
+   */
+  api.get("/fs/file-link/download", async (c) => {
+    const request = fileLinkRequestFromQuery(c.req.query("path"), c.req.query("isRelative"), c.req.query("sessionId"));
+    if (!request) return c.text("path required", 400);
+    try {
+      const target = await resolveFileLinkPath(request, wsBridge);
+      if (!target.exists) {
+        if (target.hostId && !hostIsOnline(target.hostId)) {
+          const host = await ctx.launcher.remoteHosts?.registry.get(target.hostId);
+          return c.text(`The file is on ${host?.name ?? "a remote host"}, which is offline.`, 503);
+        }
+        return c.text(`No file at ${target.absolutePath}`, 404);
+      }
+      if (!target.isFile) return c.text("Only files can be downloaded", 400);
+      if ((target.size ?? 0) > MAX_FILE_LINK_DOWNLOAD_BYTES) return c.text("The file is larger than 100 MB", 413);
+      const bytes = await machineFor(target.hostId).readFile(target.absolutePath);
+      return c.body(new Uint8Array(bytes), 200, {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": attachmentDisposition(basename(target.absolutePath)),
+        "Content-Security-Policy": "sandbox",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+    } catch (error) {
+      return c.text(error instanceof Error ? error.message : "Cannot read the file", 404);
     }
   });
 

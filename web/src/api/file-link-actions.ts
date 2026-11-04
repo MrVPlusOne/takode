@@ -88,6 +88,19 @@ export function buildFileLinkBrowserUrl(target: FileLinkActionTarget): string {
   return `/file-preview/open?${fileLinkParams(target)}`;
 }
 
+/**
+ * Save a linked file, as its original bytes and name, to the device the browser runs on. The file
+ * is read on the machine that holds the linking session's files, so this works for remote hosts too.
+ */
+export function downloadFileLink(target: FileLinkActionTarget): void {
+  const link = document.createElement("a");
+  link.href = `${BASE}/fs/file-link/download?${fileLinkParams(target)}`;
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 export function buildFileLinkImageVariantUrl(target: FileLinkActionTarget, variant: "thumbnail" | "full"): string {
   const params = new URLSearchParams({
     path: target.path,

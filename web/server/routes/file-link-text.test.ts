@@ -119,6 +119,25 @@ describe("GET /api/fs/file-link/text", () => {
     );
   });
 
+  // Download reads a remote session's file on its host too, so it reaches the browser's device.
+  it("downloads a remote session's file from its host", async () => {
+    const request = vi.spyOn(manager, "request");
+    const file = join(dir, "results.csv");
+    await writeFile(file, "a,b\n1,2\n");
+
+    const res = await app.request(
+      `/api/fs/file-link/download?path=${encodeURIComponent(file)}&isRelative=0&sessionId=remote`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toContain("attachment");
+    expect(await res.text()).toBe("a,b\n1,2\n");
+    expect(request).toHaveBeenCalledWith(
+      hostId,
+      expect.objectContaining({ kind: "read_file", path: file }),
+      expect.any(Number),
+    );
+  });
+
   // Missing files, folders and oversized files fail with a message the viewer can show.
   it("rejects missing files, folders and files over 2 MB", async () => {
     const missing = await app.request(textUrl(join(dir, "missing.md")));

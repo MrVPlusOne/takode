@@ -7,12 +7,14 @@ import { useStore } from "../store.js";
 const mockReadFileLinkText = vi.fn();
 const mockGetSettings = vi.fn();
 const mockUseFileMachine = vi.fn();
+const mockDownloadFileLink = vi.fn();
 
 vi.mock("../api/file-link-actions.js", async () => {
   const actual = await vi.importActual<typeof import("../api/file-link-actions.js")>("../api/file-link-actions.js");
   return {
     ...actual,
     readFileLinkText: (...args: unknown[]) => mockReadFileLinkText(...args),
+    downloadFileLink: (...args: unknown[]) => mockDownloadFileLink(...args),
     // Files in FILES exist; anything else is missing.
     resolveFileLinkAction: async ({ path }: { path: string }) => ({
       absolutePath: path,
@@ -21,6 +23,7 @@ vi.mock("../api/file-link-actions.js", async () => {
       isFile: path in FILES,
       isDirectory: false,
       isImage: false,
+      size: SIZES[path] ?? FILES[path]?.length,
       canRevealInFinder: false,
       platform: "linux",
     }),
@@ -42,7 +45,11 @@ const FILES: Record<string, string> = {
   "/reports/briefing.md": "# Briefing\n\nSee [the details](notes/details.md).",
   "/reports/notes/details.md": "# Details\n\nNothing else.",
   "/home/coder/run.py": "print('hi')",
+  "/data/model.bin": "",
 };
+
+/** Sizes the resolver reports where a file's text stands in for much larger content. */
+const SIZES: Record<string, number> = { "/data/model.bin": 200 * 1024 * 1024 };
 
 function popstateOnce(): Promise<void> {
   return new Promise((resolve) => window.addEventListener("popstate", () => resolve(), { once: true }));
@@ -58,6 +65,7 @@ describe("FileViewer", () => {
     useStore.getState().reset();
     window.history.replaceState(null, "", "#/session/s1");
     mockReadFileLinkText.mockReset();
+    mockDownloadFileLink.mockReset();
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
     mockUseFileMachine.mockReturnValue({ name: "devbox", settings: { claudeBinary: "", codexBinary: "" } });
     act(() => closeFileViewers());
@@ -158,6 +166,27 @@ describe("FileViewer", () => {
       "noopener,noreferrer",
     );
     openSpy.mockRestore();
+  });
+
+  // Download saves the viewed file to the browser's device, read through the linking session so a
+  // remote host's file comes from that host; a file over the limit says why it can't be downloaded.
+  it("downloads the viewed file through its session, and explains files too large to download", async () => {
+    render(<FileViewerHost />);
+    act(() => openFileViewer({ path: "/home/coder/run.py", isRelative: false, sessionId: "s1" }));
+    const viewer = await screen.findByRole("dialog", { name: "run.py" });
+    fireEvent.click(await within(viewer).findByRole("button", { name: "Download" }));
+    expect(mockDownloadFileLink).toHaveBeenCalledWith({
+      path: "/home/coder/run.py",
+      isRelative: false,
+      sessionId: "s1",
+    });
+
+    act(() => openFileViewer({ path: "/data/model.bin", isRelative: false, sessionId: "s1" }));
+    const big = await screen.findByRole("dialog", { name: "model.bin" });
+    const button = await within(big).findByRole("button", { name: "Too large to download (over 100 MB)" });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(button);
+    expect(mockDownloadFileLink).toHaveBeenCalledTimes(1);
   });
 
   // On wide screens the app registers a secondary view area floating over the app: files open

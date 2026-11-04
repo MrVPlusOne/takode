@@ -64,11 +64,13 @@ import { openFileViewer, opensInBrowserTab } from "./FileViewer.js";
 import {
   buildFileLinkBrowserUrl,
   buildFileLinkImageVariantUrl,
+  downloadFileLink,
   resolveFileLinkAction,
   revealFileLinkInFinder,
   type FileLinkActionTarget,
   type FileLinkResolveResponse,
 } from "../api/file-link-actions.js";
+import { MAX_FILE_LINK_DOWNLOAD_BYTES } from "../../shared/file-link-download.js";
 import { wrapSpacedFileLinkDestinations } from "../utils/markdown-file-link-destinations.js";
 import { REMARK_GFM_OPTIONS } from "../utils/markdown-syntax.js";
 import {
@@ -1346,6 +1348,15 @@ function FileMarkdownLink({
     if (fileInfo?.isImage) {
       items.push({ label: "Preview in Takode", onClick: previewBackendResolvedImage });
     }
+    if (fileInfo?.exists && fileInfo.isFile) {
+      const tooLarge = (fileInfo.size ?? 0) > MAX_FILE_LINK_DOWNLOAD_BYTES;
+      items.push({
+        label: tooLarge ? "Download: over 100 MB" : "Download",
+        disabled: tooLarge,
+        onClick: () =>
+          downloadFileLink({ path: fileInfo.absolutePath, isRelative: false, sessionId: actionTarget.sessionId }),
+      });
+    }
     if (fileInfo && !fileInfo.exists) {
       items.push({ label: "File unavailable", onClick: () => {}, disabled: true });
     } else if (fileInfoError) {
@@ -1353,6 +1364,7 @@ function FileMarkdownLink({
     }
     return items;
   }, [
+    actionTarget.sessionId,
     copyBackendResolvedPath,
     editorOpen,
     fileInfo,

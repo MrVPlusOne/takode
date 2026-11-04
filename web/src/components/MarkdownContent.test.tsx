@@ -11,6 +11,7 @@ const mockResolveFileLinkAction = vi.fn();
 const mockRevealFileLinkInFinder = vi.fn();
 const mockReadFileLinkText = vi.fn();
 const mockReadFileLinkFolder = vi.fn();
+const mockDownloadFileLink = vi.fn();
 const mockUseFileMachine = vi.fn();
 
 vi.mock("../api.js", () => ({
@@ -31,6 +32,7 @@ vi.mock("../api/file-link-actions.js", async () => {
     revealFileLinkInFinder: (...args: unknown[]) => mockRevealFileLinkInFinder(...args),
     readFileLinkText: (...args: unknown[]) => mockReadFileLinkText(...args),
     readFileLinkFolder: (...args: unknown[]) => mockReadFileLinkFolder(...args),
+    downloadFileLink: (...args: unknown[]) => mockDownloadFileLink(...args),
   };
 });
 
@@ -1320,6 +1322,41 @@ describe("MarkdownContent quest links", () => {
     expect(image.getAttribute("src")).toContain("variant=full");
     expect(image.getAttribute("src")).toContain("path=artifacts%2Fpreview.png");
     expect(image.getAttribute("src")).toContain("sessionId=s1");
+  });
+
+  // HTML pages, PDFs and images open outside the file viewer, so the link's menu offers Download too:
+  // the resolved file, read through the linking session, which may live on a remote host.
+  it("downloads a linked file from its context menu, and not files over the limit", async () => {
+    mockDownloadFileLink.mockReset();
+    const resolved = {
+      absolutePath: "/repo/out/report.html",
+      requestedPath: "out/report.html",
+      exists: true,
+      isFile: true,
+      isDirectory: false,
+      isImage: false,
+      size: 1200,
+      canRevealInFinder: false,
+      platform: "linux",
+    };
+    mockResolveFileLinkAction.mockResolvedValue(resolved);
+    setRepoSession();
+
+    const view = render(<MarkdownContent text="[report](file:out/report.html)" />);
+    fireEvent.contextMenu(screen.getByRole("link", { name: "report" }), { clientX: 10, clientY: 12 });
+    fireEvent.click(await screen.findByText("Download"));
+    expect(mockDownloadFileLink).toHaveBeenCalledWith({
+      path: "/repo/out/report.html",
+      isRelative: false,
+      sessionId: "s1",
+    });
+    view.unmount();
+
+    mockResolveFileLinkAction.mockResolvedValue({ ...resolved, size: 101 * 1024 * 1024 });
+    render(<MarkdownContent text="[report](file:out/report.html)" />);
+    fireEvent.contextMenu(screen.getByRole("link", { name: "report" }), { clientX: 10, clientY: 12 });
+    fireEvent.click(await screen.findByText("Download: over 100 MB"));
+    expect(mockDownloadFileLink).toHaveBeenCalledTimes(1);
   });
 
   it("copies the backend-resolved absolute file path from the context menu", async () => {

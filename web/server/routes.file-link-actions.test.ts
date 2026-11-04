@@ -191,6 +191,38 @@ describe("file-link filesystem actions", () => {
     expect((await get("/fs/file-link/pdf", { path: join(tempDir, "gone.pdf"), isRelative: "0" })).status).toBe(404);
   });
 
+  // Download saves any file's original bytes under its own name. It is an attachment of no type,
+  // with a sandbox CSP and nosniff, so even an HTML file is saved rather than run as a Takode page.
+  it("serves a linked file as a download of its original bytes and name", async () => {
+    await writeFile(join(tempDir, "page (1).html"), "<script>alert(1)</script>");
+    await writeFile(join(tempDir, "bytes.bin"), Buffer.from([0, 255, 1]));
+    await writeFile(join(tempDir, "résumé.txt"), "cv");
+
+    const page = await get("/fs/file-link/download", { path: join(tempDir, "page (1).html"), isRelative: "0" });
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toBe("application/octet-stream");
+    expect(page.headers.get("content-disposition")).toBe(
+      `attachment; filename="page (1).html"; filename*=UTF-8''page%20%281%29.html`,
+    );
+    expect(page.headers.get("content-security-policy")).toBe("sandbox");
+    expect(page.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await page.text()).toBe("<script>alert(1)</script>");
+
+    const binary = await get("/fs/file-link/download", { path: join(tempDir, "bytes.bin"), isRelative: "0" });
+    expect([...new Uint8Array(await binary.arrayBuffer())]).toEqual([0, 255, 1]);
+
+    // Non-ASCII names keep their real name in filename* and fall back to underscores in filename.
+    const named = await get("/fs/file-link/download", { path: join(tempDir, "résumé.txt"), isRelative: "0" });
+    expect(named.headers.get("content-disposition")).toBe(
+      `attachment; filename="r_sum_.txt"; filename*=UTF-8''r%C3%A9sum%C3%A9.txt`,
+    );
+
+    expect((await get("/fs/file-link/download", { path: tempDir, isRelative: "0" })).status).toBe(400);
+    expect((await get("/fs/file-link/download", { path: join(tempDir, "gone.txt"), isRelative: "0" })).status).toBe(
+      404,
+    );
+  });
+
   it("reports unsupported local folder open platforms", async () => {
     Object.defineProperty(process, "platform", { value: "aix", configurable: true });
 

@@ -6,12 +6,15 @@ import {
   FileLinkRequestError,
   buildFileLinkBrowserUrl,
   buildFileLinkImageVariantUrl,
+  downloadFileLink,
   readFileLinkFolder,
   readFileLinkText,
   resolveFileLinkAction,
   type FileLinkActionTarget,
   type FileLinkFolderEntry,
+  type FileLinkResolveResponse,
 } from "../api/file-link-actions.js";
+import { MAX_FILE_LINK_DOWNLOAD_BYTES } from "../../shared/file-link-download.js";
 import { useFileMachine } from "../remote-hosts.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
@@ -84,10 +87,10 @@ type ViewerContent =
 async function loadContent(
   target: FileViewerTarget,
   signal: AbortSignal,
-  onMachine: (hostId: string | null) => void,
+  onResolved: (info: FileLinkResolveResponse) => void,
 ): Promise<ViewerContent> {
   const info = await resolveFileLinkAction(target);
-  if (!signal.aborted) onMachine(info.hostId ?? null);
+  if (!signal.aborted) onResolved(info);
   if (!info.exists) return { status: "error", message: `Nothing at ${info.absolutePath}` };
   const absolutePath = info.absolutePath;
   if (info.isDirectory) {
@@ -123,8 +126,8 @@ async function loadContent(
 function FileViewer({ target, isTop, onClose }: { target: FileViewerTarget; isTop: boolean; onClose: () => void }) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const [content, setContent] = useState<ViewerContent>({ status: "loading" });
-  // The remote host holding the file, or null for the server's machine; undefined until resolved.
-  const [hostId, setHostId] = useState<string | null | undefined>(undefined);
+  // Where the file is and what it is; undefined until resolved.
+  const [info, setInfo] = useState<FileLinkResolveResponse | undefined>(undefined);
   usePreviewSheetHistoryEntry(true, sheetRef, onClose);
   // Wide screens show the file in the secondary view, over the app's right side; code needs the width.
   const dockTarget = useSecondaryViewTarget(true, onClose, content.status === "text" ? "wide" : "reading");
@@ -132,7 +135,7 @@ function FileViewer({ target, isTop, onClose }: { target: FileViewerTarget; isTo
 
   useEffect(() => {
     const controller = new AbortController();
-    loadContent(target, controller.signal, setHostId)
+    loadContent(target, controller.signal, setInfo)
       .then((loaded) => {
         if (!controller.signal.aborted) setContent(loaded);
       })
@@ -200,7 +203,15 @@ function FileViewer({ target, isTop, onClose }: { target: FileViewerTarget; isTo
         }
         onClick={(event) => event.stopPropagation()}
       >
-        <ViewerHeader name={name} path={path} content={content} hostId={hostId} line={target.line} onClose={onClose} />
+        <ViewerHeader
+          name={name}
+          path={path}
+          content={content}
+          info={info}
+          sessionId={target.sessionId}
+          line={target.line}
+          onClose={onClose}
+        />
         <div className={`min-h-0 flex-1 overflow-y-auto ${content.status === "text" ? "" : "px-4 py-3"}`}>
           {content.status === "loading" && <div className="text-sm text-cc-muted">Loading…</div>}
           {content.status === "error" && (
@@ -211,7 +222,7 @@ function FileViewer({ target, isTop, onClose }: { target: FileViewerTarget; isTo
           {content.status === "unsupported" && (
             <div className="space-y-1 text-sm text-cc-muted">
               <p>{content.reason}</p>
-              <p>Copy its path, or open it in your editor if your editor can reach this machine.</p>
+              <p>Download it, copy its path, or open it in your editor if your editor can reach this machine.</p>
             </div>
           )}
           {content.status === "markdown" && (
@@ -260,18 +271,21 @@ function ViewerHeader({
   name,
   path,
   content,
-  hostId,
+  info,
+  sessionId,
   line,
   onClose,
 }: {
   name: string;
   path: string;
   content: ViewerContent;
-  hostId: string | null | undefined;
+  info: FileLinkResolveResponse | undefined;
+  sessionId?: string;
   line?: number;
   onClose: () => void;
 }) {
-  const machine = useFileMachine(hostId);
+  // The remote host holding the file, or null for the server's machine; undefined until resolved.
+  const machine = useFileMachine(info ? (info.hostId ?? null) : undefined);
   const editor = useEditorChoice();
   const [copied, setCopied] = useState(false);
   const loaded = content.status !== "loading" && content.status !== "error";
@@ -309,6 +323,12 @@ function ViewerHeader({
             />
           </span>
         )}
+        {loaded && info?.isFile && (
+          <DownloadButton
+            tooLarge={(info.size ?? 0) > MAX_FILE_LINK_DOWNLOAD_BYTES}
+            onClick={() => downloadFileLink({ path: info.absolutePath, isRelative: false, sessionId })}
+          />
+        )}
         {loaded && (
           <button
             type="button"
@@ -343,6 +363,28 @@ function ViewerHeader({
         </button>
       </div>
     </div>
+  );
+}
+
+/** Saves the file to the device the browser runs on. */
+function DownloadButton({ tooLarge, onClick }: { tooLarge: boolean; onClick: () => void }) {
+  const title = tooLarge ? "Too large to download (over 100 MB)" : "Download";
+  return (
+    <button
+      type="button"
+      onClick={() => !tooLarge && onClick()}
+      // aria-disabled rather than disabled, so the explaining tooltip still shows on hover.
+      aria-disabled={tooLarge || undefined}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+        tooLarge ? "cursor-default text-cc-muted/50" : "cursor-pointer text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+      }`}
+      aria-label={title}
+      title={title}
+    >
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
+        <path d="M8 2.5v7.5M4.75 7l3.25 3.25L11.25 7M3 13.5h10" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
   );
 }
 
