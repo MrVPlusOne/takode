@@ -28,6 +28,8 @@ import {
   MessageThreadHeaderOwnedContext,
 } from "./MessageThreadHeader.js";
 import { HidePawContext } from "./PawTrail.js";
+import { MessageTimeLabel, isValidMessageTimestamp } from "./MessageTimestamp.js";
+import { MessageTimeShownByWrapperContext } from "./message-time-labels.js";
 import type { ThreadResponseReferencedUserMessage } from "./thread-response-presentation.js";
 
 function ReplyIcon() {
@@ -462,16 +464,19 @@ function ReferencedMessagesPreview({ messages }: { messages: readonly ThreadResp
  * its message on hover and jumps to it on click; on touch screens, where such
  * links are too small to tap, tapping the quote opens the messages in full. An
  * answer right under the message it answers points up instead of repeating it,
- * and an answer naming no message is marked as a new result.
+ * and an answer naming no message is marked as a new result. A one-line reference starts
+ * with `time`, the answer's own time, so the two share a line.
  */
 export function AnswerReference({
   answer,
   sessionId,
   currentThreadKey,
+  time,
 }: {
   answer: AnswerChrome;
   sessionId?: string;
   currentThreadKey?: string;
+  time?: ReactNode;
 }) {
   // Every form carries the same test hooks: what kind of reference it is and how many messages it answers.
   const hooks = (variant: "quote" | "above" | "new-result" | "count") => ({
@@ -480,7 +485,8 @@ export function AnswerReference({
     "data-answer-count": answer.messageCount,
   });
   const line = (variant: "above" | "new-result" | "count", icon: ReactNode, text: string) => (
-    <div className="mb-1.5 flex items-center gap-1 text-[12px] leading-none text-cc-muted" {...hooks(variant)}>
+    <div className="relative mb-1.5 flex items-center gap-1 text-[12px] leading-none text-cc-muted" {...hooks(variant)}>
+      {time}
       {icon}
       <span className="min-w-0 truncate">{text}</span>
     </div>
@@ -488,9 +494,7 @@ export function AnswerReference({
   if (answer.messageCount <= 0) return line("new-result", <NewResultIcon />, "New result");
   if (answer.answersMessageAbove) return line("above", <UpIcon />, "Answers the message above");
   const countLabel = `Answers ${answer.messageCount} ${answer.messageCount === 1 ? "message" : "messages"}`;
-  if (!hasCompletePreview(answer.messageCount, answer.referencedMessages)) {
-    return line("count", <ReplyIcon />, countLabel);
-  }
+  if (!quotesAnsweredMessages(answer)) return line("count", <ReplyIcon />, countLabel);
 
   const messages = answer.referencedMessages!;
   const shown = messages.slice(0, 3);
@@ -601,6 +605,15 @@ function QuotedMessageLink({
   );
 }
 
+/** Whether an answer's reference quotes the messages it answers; otherwise it is one line. */
+function quotesAnsweredMessages(answer: AnswerChrome): boolean {
+  return (
+    answer.messageCount > 0 &&
+    !answer.answersMessageAbove &&
+    hasCompletePreview(answer.messageCount, answer.referencedMessages)
+  );
+}
+
 /** What an answer's header shows: its thread and the messages it answers. */
 export interface AnswerChrome {
   message: ChatMessage;
@@ -632,6 +645,18 @@ export function AnsweredMessage({
 }) {
   const outerHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
   const outerHidePaw = useContext(HidePawContext);
+  const outerTimeOwner = useContext(MessageTimeShownByWrapperContext);
+  // A one-line reference carries the answer's time at its start, in place of the message's own.
+  const time =
+    answer && !quotesAnsweredMessages(answer) && isValidMessageTimestamp(answer.message.timestamp) ? (
+      <MessageTimeLabel
+        id={answer.message.id}
+        side="assistant"
+        timestamp={answer.message.timestamp}
+        turnDurationMs={answer.message.turnDurationMs}
+        inline
+      />
+    ) : null;
   return (
     <>
       {answer && (
@@ -646,9 +671,15 @@ export function AnsweredMessage({
           }
         />
       )}
-      {answer && <AnswerReference answer={answer} sessionId={sessionId} currentThreadKey={currentThreadKey} />}
+      {answer && (
+        <AnswerReference answer={answer} sessionId={sessionId} currentThreadKey={currentThreadKey} time={time} />
+      )}
       <MessageThreadHeaderOwnedContext.Provider value={outerHeaderOwned || answer !== null}>
-        <HidePawContext.Provider value={outerHidePaw || answer !== null}>{children}</HidePawContext.Provider>
+        <HidePawContext.Provider value={outerHidePaw || answer !== null}>
+          <MessageTimeShownByWrapperContext.Provider value={time ? answer!.message.id : outerTimeOwner}>
+            {children}
+          </MessageTimeShownByWrapperContext.Provider>
+        </HidePawContext.Provider>
       </MessageThreadHeaderOwnedContext.Provider>
     </>
   );

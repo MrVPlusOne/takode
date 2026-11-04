@@ -209,10 +209,10 @@ describe("MessageBubble - user messages", () => {
     expect(screen.queryByTestId("user-message-transcribed-tag")).toBeNull();
   });
 
-  it("puts the user message time above the bubble's left edge, ahead of the text", () => {
+  it("puts the user message time on the bubble's line, just left of the bubble", () => {
     // Times sit at the start of messages so you can see how new one is before reading it.
-    // The label comes first in the column that holds the bubble, aligned to its start, and
-    // nothing is kept in the bubble's last line for it any more.
+    // A user's time shares the bubble's line instead of taking a line of its own above it
+    // (`data-inline`): it is the bubble's sibling in the row, ahead of it, not inside it.
     const ts = 1700000000000;
     const msg = makeMessage({ role: "user", content: "With timestamp", timestamp: ts });
     render(<MessageBubble message={msg} />);
@@ -223,10 +223,11 @@ describe("MessageBubble - user messages", () => {
     expect(time.textContent).toBe(formatMessageTimestamp(ts));
     expect(time.classList.contains("message-start-time")).toBe(true);
     expect(time.getAttribute("data-side")).toBe("user");
+    expect(time.getAttribute("data-inline")).toBe("true");
     const bubble = screen.getByTestId("user-message-bubble");
     expect(time.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(bubble.contains(time)).toBe(false);
-    expect(time.parentElement?.className).toContain("self-start");
+    expect(time.nextElementSibling?.contains(bubble)).toBe(true);
   });
 
   it("keeps the transcribed line to the transcription marker", () => {

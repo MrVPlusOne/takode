@@ -94,3 +94,10 @@ export function useMessageTimeLabelHidden(id: string, side: MessageTimeSide, tim
     () => false,
   );
 }
+
+/**
+ * The id of a message whose time its wrapper already shows: an answer's one-line reference
+ * ("Answers the message above") carries the answer's time at its start, so the message itself
+ * shows none.
+ */
+export const MessageTimeShownByWrapperContext = createContext<string | null>(null);

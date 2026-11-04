@@ -72,6 +72,7 @@ import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import { ReadAloudMessageContext, ReadAloudPlayer } from "./ReadAloudPlayer.js";
 import { MessageTimeLabel, isValidMessageTimestamp } from "./MessageTimestamp.js";
+import { MessageTimeShownByWrapperContext } from "./message-time-labels.js";
 import { ContinuedInLinks } from "./QuestForkLinks.js";
 import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
@@ -916,7 +917,13 @@ function UserMessage({
   // A pending message holds its time's place invisibly, so landing changes no layout.
   const timeLabel =
     showTimestamp && isValidMessageTimestamp(message.timestamp) ? (
-      <MessageTimeLabel id={message.id} side="user" timestamp={message.timestamp} pending={!!message.pendingState} />
+      <MessageTimeLabel
+        id={message.id}
+        side="user"
+        timestamp={message.timestamp}
+        pending={!!message.pendingState}
+        inline
+      />
     ) : null;
 
   return (
@@ -930,9 +937,9 @@ function UserMessage({
           <span className="pointer-events-none ml-1 h-px min-w-0 flex-1 bg-gradient-to-r from-amber-300/30 to-amber-300/0" />
         </span>
       )}
-      {/* The time sits above the bubble's left edge, or beside it in a wide feed's margin. */}
+      {/* The time sits on the bubble's line, just left of it. */}
+      {timeLabel}
       <div className="relative z-10 flex min-w-0 max-w-[calc(100%_-_2rem)] flex-col items-end sm:max-w-[80%] sm:min-w-[200px]">
-        {timeLabel && <div className="self-start">{timeLabel}</div>}
         <div
           data-testid="user-message-bubble"
           className="relative min-w-0 max-w-full self-stretch px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg"
@@ -1219,8 +1226,9 @@ function AssistantMessageContent({
     />
   );
 
+  const timeShownByWrapper = useContext(MessageTimeShownByWrapperContext) === message.id;
   const timeLabel =
-    showTimestamp && isValidMessageTimestamp(message.timestamp) ? (
+    showTimestamp && !timeShownByWrapper && isValidMessageTimestamp(message.timestamp) ? (
       <MessageTimeLabel
         id={message.id}
         side="assistant"

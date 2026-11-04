@@ -100,7 +100,8 @@ export function MessageTimestamp({ timestamp, turnDurationMs }: { timestamp: num
 
 /**
  * A message's time in the feed, at the message's start: on a line of its own just above the
- * message, or, where the feed has a wide enough left margin, in that margin beside the first
+ * message, at the start of a line it shares (beside a user's bubble, before an answer's
+ * reference), or, where the feed has a wide enough left margin, in that margin beside the first
  * line (`.message-start-time` in index.css). When an earlier message from the same side already
  * shows a time less than MESSAGE_TIME_CLUSTER_MS before it, the label takes no room and shows
  * nothing. A pending message (not delivered yet) holds its label's place invisibly, so landing
@@ -112,12 +113,15 @@ export function MessageTimeLabel({
   timestamp,
   turnDurationMs,
   pending = false,
+  inline = false,
 }: {
   id: string;
   side: MessageTimeSide;
   timestamp: number;
   turnDurationMs?: number;
   pending?: boolean;
+  /** Shares its line with what follows it (a user's bubble, an answer's reference) instead of taking a line of its own. */
+  inline?: boolean;
 }) {
   const hidden = useMessageTimeLabelHidden(id, side, timestamp);
   const showDuration = useContext(InlineMessageTimingVisibilityContext);
@@ -128,6 +132,7 @@ export function MessageTimeLabel({
     <time
       data-testid="message-time-label"
       data-side={side}
+      data-inline={inline ? "true" : undefined}
       data-hidden={hidden ? "true" : undefined}
       data-pending={pending ? "true" : undefined}
       data-feed-time={timestamp}

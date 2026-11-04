@@ -66,8 +66,8 @@ describe("message options button on a framed answer card", () => {
     const later = [...message.querySelectorAll("*")].filter(
       (element) => positioned(element) && row.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    // The message's time now comes before the button, at the message's start.
-    const time = message.querySelector("[data-testid=message-time-label]")!;
+    // The answer's time comes before the button: it starts the "New result" line above the message.
+    const time = document.querySelector("[data-testid=message-time-label]")!;
     expect(time.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     expect(positioned(row)).toBe(true);
