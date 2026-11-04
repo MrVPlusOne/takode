@@ -18,6 +18,7 @@ import { resolveSessionNavigation } from "../utils/session-navigation-resolver.j
 import { SessionInfoQuests, sessionInfoQuests } from "./SessionInfoQuests.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionMachineRow } from "./HostBadge.js";
+import { SessionPauseSourcesControl } from "./SessionPauseControls.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type SessionDirectoryOpenTarget } from "../api.js";
 import type { CodexContextWindowDiagnostics, SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
@@ -283,6 +284,7 @@ export function SessionInfoPopover({
               Configure Session
             </button>
           )}
+          <SessionPauseSourcesControl sessionId={sessionId} />
           {recoverableConnectionPresentation && (
             <div
               className="rounded-lg border border-cc-border/70 bg-cc-hover/20 px-2.5 py-2"

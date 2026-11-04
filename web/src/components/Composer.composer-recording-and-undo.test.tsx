@@ -546,7 +546,7 @@ beforeEach(() => {
 describe("Composer recording controls", () => {
   // While recording, cancel, the running time and the level take over the left of the button
   // row, next to the mic, so a phone user can throw a recording away with one thumb tap.
-  it("replaces pause with cancel and the running time while recording, keeping mic and send in place", () => {
+  it("replaces voiceback with cancel and the running time while recording, keeping mic and send in place", () => {
     mockVoiceState.isRecordingOverride = true;
     setupMockStore({ draftText: "Existing draft" });
     render(<Composer sessionId="s1" />);
@@ -554,7 +554,7 @@ describe("Composer recording controls", () => {
     const bar = screen.getByTestId("composer-recording-bar");
     expect(within(bar).getByRole("button", { name: "Cancel recording" })).toBeTruthy();
     expect(within(bar).getByTestId("voice-recording-elapsed").textContent).toBe("0:00");
-    expect(screen.queryByRole("button", { name: "Pause other input sources" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Turn on voiceback" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Undo last change" })).toBeNull();
 
     // The habitual mic-then-send order is unchanged.
@@ -620,12 +620,12 @@ describe("Composer recording controls", () => {
     expect(mockVoiceState.cancelRecording).toHaveBeenCalledTimes(1);
   });
 
-  it("shows pause and the edit buttons again when not recording", () => {
+  it("shows voiceback and the edit buttons again when not recording", () => {
     setupMockStore();
     render(<Composer sessionId="s1" />);
 
     expect(screen.queryByTestId("composer-recording-bar")).toBeNull();
-    expect(screen.getByRole("button", { name: "Pause other input sources" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Turn on voiceback" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Undo last change" })).toBeTruthy();
   });
 });

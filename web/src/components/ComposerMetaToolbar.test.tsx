@@ -11,7 +11,7 @@ function ToolbarHarness({ warmMicrophone = () => {} }: { warmMicrophone?: () => 
       <ComposerMetaToolbar
         imageUploadDisabled={false}
         imageUploadTitle="Upload image"
-        pauseControl={null}
+        voicebackControl={null}
         onOpenFilePicker={() => {}}
         warmMicrophone={warmMicrophone}
         voiceSupported={true}

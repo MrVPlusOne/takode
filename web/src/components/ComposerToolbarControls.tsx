@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toggleVoiceback, useVoiceback } from "../voiceback.js";
 import type { VoiceLevelSample } from "./composer-voice-types.js";
 import { VoiceLevelWaveform } from "./VoiceRecordingStatus.js";
 
@@ -73,6 +74,62 @@ export function ComposerRecordingBar({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Turns voiceback on or off for this session (voiceback.ts): new final messages are read aloud as
+ * they arrive.
+ */
+export function ComposerVoicebackButton({ sessionId, leader }: { sessionId: string; leader: boolean }) {
+  const voiceback = useVoiceback();
+  const on = voiceback?.sessionId === sessionId;
+  return (
+    <VoicebackButton on={on} waiting={on ? voiceback.waiting : 0} onToggle={() => toggleVoiceback(sessionId, leader)} />
+  );
+}
+
+/** The voiceback toggle: lit while on, with how many replies wait to be read after the current one. */
+export function VoicebackButton({ on, waiting, onToggle }: { on: boolean; waiting: number; onToggle: () => void }) {
+  const title = on
+    ? "Voiceback is on: new replies are read aloud as they arrive, and the screen stays awake. Tap to turn off."
+    : "Voiceback: read new replies aloud as they arrive, and keep the screen awake";
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      data-testid="composer-voiceback-button"
+      aria-pressed={on}
+      aria-label={on ? "Turn off voiceback" : "Turn on voiceback"}
+      title={title}
+      className={`inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 text-[11px] font-medium transition-colors cursor-pointer sm:h-8 sm:min-w-8 ${
+        on
+          ? "border border-cc-primary/60 bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20"
+          : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+      }`}
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        className="h-5 w-5 sm:h-4 sm:w-4"
+        aria-hidden="true"
+      >
+        <path d="M2.5 10V8a5.5 5.5 0 0111 0v2" strokeLinecap="round" />
+        <rect x="2" y="9.5" width="3" height="4.5" rx="1" />
+        <rect x="11" y="9.5" width="3" height="4.5" rx="1" />
+      </svg>
+      <span className="hidden sm:inline">Voiceback</span>
+      {waiting > 0 && (
+        <span
+          data-testid="composer-voiceback-waiting"
+          className="rounded border border-cc-primary/40 bg-cc-card/70 px-1.5 py-0.5 font-mono-code text-[10px]"
+        >
+          {waiting}
+        </span>
+      )}
+    </button>
   );
 }
 

@@ -12,8 +12,9 @@ import { ReportCard } from "./ReportCard.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
 import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-player.js";
+import { readAloudMessageText } from "../read-aloud-text.js";
 import { GuidedReviewCard } from "./GuidedReviewCard.js";
-import { isSlideDeck, withoutFrontMatter } from "../../shared/slides.js";
+import { isSlideDeck } from "../../shared/slides.js";
 import { SlideDeckCard } from "./slides/SlideDeckCard.js";
 
 /**
@@ -293,7 +294,7 @@ function ReportReadAloudButton({ message, sessionId }: { message: ChatMessage; s
             : startReadAloud({
                 sessionId,
                 messageId: message.id,
-                text: withoutFrontMatter(message.content),
+                text: readAloudMessageText(message),
                 historyIndex: message.historyIndex,
               })
         }

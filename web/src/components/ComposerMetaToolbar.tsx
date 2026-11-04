@@ -12,7 +12,7 @@ function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
 export function ComposerMetaToolbar({
   imageUploadDisabled,
   imageUploadTitle,
-  pauseControl,
+  voicebackControl,
   editControls,
   recordingBar,
   onOpenFilePicker,
@@ -35,8 +35,9 @@ export function ComposerMetaToolbar({
 }: {
   imageUploadDisabled: boolean;
   imageUploadTitle: string;
-  pauseControl: ReactNode;
-  /** Undo and redo, after pause. */
+  /** The voiceback toggle, first on the left. */
+  voicebackControl: ReactNode;
+  /** Undo and redo, after voiceback. */
   editControls?: ReactNode;
   /** While recording, replaces the left side of the row. */
   recordingBar?: ReactNode;
@@ -62,11 +63,12 @@ export function ComposerMetaToolbar({
 }) {
   return (
     <div data-testid="composer-footer-toolbar" className="flex items-center gap-x-2 px-2.5 pb-2.5 pt-1">
-      {/* Model, effort and access live in the session title (SessionSettingsMenu); only pause stays here. */}
+      {/* Model, effort and access live in the session title (SessionSettingsMenu), and pausing input
+          sources in Session Info. */}
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         {recordingBar ?? (
           <>
-            <div className="shrink-0">{pauseControl}</div>
+            <div className="shrink-0">{voicebackControl}</div>
             {editControls}
           </>
         )}

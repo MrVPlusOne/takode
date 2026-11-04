@@ -59,5 +59,6 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 - **See what needs you**: open the bell for every leader, or a leader's Needs you group for that leader.
 - **Catch up on a leader**: read the news lines on its Home, or switch Home to By topic.
 - **Wait without stopping**: move the thread you are waiting on into the side column, keep working, and close it once unblocked; Unread brings it back when it finishes.
+- **Listen on the go**: turn on Voiceback, the headphones button in a session's message box, and each new answer is read aloud as it arrives, one after another, and marked read. The screen stays on meanwhile.
 - **Steer a quest**: reply in its thread and the leader passes it on to the worker, or open the worker session and talk to it directly.
 - **Find something from last week**: the sessions panel's Threads view, a topic page's finished quests, or Universal Search, or just ask a leader to search for you.

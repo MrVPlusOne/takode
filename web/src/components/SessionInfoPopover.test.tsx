@@ -343,6 +343,8 @@ vi.mock("../api.js", () => ({
     openSessionDirectory: vi.fn(),
     relaunchSession: vi.fn(),
     updateLeaderProfilePortrait: vi.fn(),
+    pauseSession: vi.fn(() => Promise.resolve({ ok: true })),
+    unpauseSession: vi.fn(() => Promise.resolve({ ok: true })),
   },
 }));
 
@@ -426,6 +428,15 @@ describe("SessionInfoPopover", () => {
 
     fireEvent.click(screen.getByTestId("session-info-configure-session"));
     expect(onConfigure).toHaveBeenCalledWith("s1");
+  });
+
+  it("pauses other input sources from Session Info, where it moved from the composer", async () => {
+    resetStore([]);
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const row = screen.getByTestId("session-info-pause-sources");
+    fireEvent.click(within(row).getByRole("button", { name: "Pause other input sources" }));
+    await waitFor(() => expect(api.pauseSession).toHaveBeenCalledWith("s1"));
   });
 
   it("renders Codex instruction sources instead of Claude files", async () => {

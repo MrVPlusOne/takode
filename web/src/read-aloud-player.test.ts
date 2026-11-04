@@ -309,6 +309,50 @@ describe("read-aloud player", () => {
     expect(srcAtPlay.at(-1)).toBe("blob:reply-audio-2");
   });
 
+  it("tells voiceback when a message is read to its end, and is busy until then", async () => {
+    // Voiceback reads the next waiting reply only once nothing is being read.
+    const { respond } = deferredFetch();
+    const ended = vi.fn();
+    player.onReadAloudEnd(ended);
+    expect(player.isReadAloudBusy()).toBe(false);
+
+    act(() => player.startReadAloud(input));
+    expect(player.isReadAloudBusy()).toBe(true);
+    await respond(mp3(10));
+    const audio = lastAudio();
+    Object.defineProperty(audio, "ended", { configurable: true, value: true });
+    act(() => {
+      audio.dispatchEvent(new Event("ended"));
+    });
+
+    expect(ended).toHaveBeenCalledWith("m1");
+    expect(player.isReadAloudBusy()).toBe(false);
+  });
+
+  it("does not report a stopped read as read to its end", async () => {
+    const { respond } = deferredFetch();
+    const ended = vi.fn();
+    player.onReadAloudEnd(ended);
+    act(() => player.startReadAloud(input));
+    await respond(mp3(10));
+    act(() => player.stopReadAloud());
+    expect(ended).not.toHaveBeenCalled();
+    expect(player.isReadAloudBusy()).toBe(false);
+  });
+
+  it("unlocks audio from a tap for reads started later, but never cuts off a read", async () => {
+    act(() => player.unlockReadAloudAudio());
+    expect(srcAtPlay).toHaveLength(1);
+    expect(srcAtPlay[0]).toMatch(/^data:audio\/wav;base64,/);
+
+    const { respond } = deferredFetch();
+    act(() => player.startReadAloud(input));
+    await respond(mp3());
+    const plays = srcAtPlay.length;
+    act(() => player.unlockReadAloudAudio());
+    expect(srcAtPlay).toHaveLength(plays);
+  });
+
   it("reading another message replaces the current one", async () => {
     const { respond } = deferredFetch();
     const first = renderHook(() => player.useReadAloudState("m1"));

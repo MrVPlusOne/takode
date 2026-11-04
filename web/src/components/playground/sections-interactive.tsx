@@ -7,7 +7,8 @@ import { PlaygroundNeedsInputHistory } from "./PlaygroundNeedsInputHistory.js";
 import { BoardBlock } from "../BoardBlock.js";
 import type { BoardRowData } from "../BoardTable.js";
 import { ReplyChip } from "../Composer.js";
-import { PausedInputChip, PauseOtherSourcesButton } from "../SessionPauseComposerControls.js";
+import { PausedInputChip, PauseOtherSourcesButton } from "../SessionPauseControls.js";
+import { VoicebackButton } from "../ComposerToolbarControls.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
 import { useStore } from "../../store.js";
 import type { QuestJourneyPhaseId } from "../../../shared/quest-journey.js";
@@ -140,12 +141,13 @@ export function PlaygroundInteractiveSections() {
           <div className="mt-4" />
           <PlaygroundAutoPauseBannerStates />
           <div className="mt-4" />
-          <Card label="Paused other input sources">
+          <Card label="Paused other input sources (paused from Session Info; Resume in the banner), voiceback on">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-visible">
                 <PausedInputChip
                   heldCount={2}
                   directComposerMessagesSend={true}
+                  onResume={() => {}}
                   pause={{
                     pausedAt: Date.now() - 90_000,
                     queuedMessages: [
@@ -177,13 +179,7 @@ export function PlaygroundInteractiveSections() {
                 />
                 <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <PauseOtherSourcesButton
-                      isPaused={true}
-                      heldCount={2}
-                      busy={false}
-                      directComposerMessagesSend={true}
-                      onToggle={() => {}}
-                    />
+                    <VoicebackButton on={true} waiting={1} onToggle={() => {}} />
                   </div>
                   <div className="flex items-center justify-center w-8 h-8 rounded-full bg-cc-primary text-white">
                     <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
@@ -192,6 +188,25 @@ export function PlaygroundInteractiveSections() {
                   </div>
                 </div>
               </div>
+            </div>
+          </Card>
+          <div className="mt-4" />
+          <Card label="Session Info: pause other input sources (not paused, then paused with 2 held)">
+            <div className="space-y-2 border-t border-cc-border bg-cc-card px-4 py-3">
+              {[false, true].map((paused) => (
+                <div key={String(paused)} className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 text-[11px] leading-snug text-cc-muted">
+                    {paused ? "Other input sources are paused" : "Other input sources"}
+                  </span>
+                  <PauseOtherSourcesButton
+                    isPaused={paused}
+                    heldCount={paused ? 2 : 0}
+                    busy={false}
+                    directComposerMessagesSend={true}
+                    onToggle={() => {}}
+                  />
+                </div>
+              ))}
             </div>
           </Card>
           <div className="mt-4" />

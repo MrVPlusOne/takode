@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
+import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseControls.js";
 import type { CodexResultErrorAutoPauseState, SessionPauseState } from "../types.js";
 
 afterEach(() => {
@@ -65,7 +65,7 @@ function makeAutoPauseState(
 }
 
 describe("PauseOtherSourcesButton", () => {
-  it("uses explanatory tooltip copy and toggles pause from the composer area", async () => {
+  it("uses explanatory tooltip copy and toggles pause", async () => {
     const onToggle = vi.fn();
     render(
       <PauseOtherSourcesButton
@@ -77,7 +77,7 @@ describe("PauseOtherSourcesButton", () => {
       />,
     );
 
-    const button = screen.getByTestId("composer-pause-sources-button");
+    const button = screen.getByTestId("session-pause-sources-button");
     expect(button.getAttribute("title")).toBe(
       "Pause other input sources. Direct composer messages still send; CLI, timer, herd, and programmatic work is held.",
     );
@@ -98,7 +98,7 @@ describe("PauseOtherSourcesButton", () => {
       />,
     );
 
-    const button = screen.getByTestId("composer-pause-sources-button");
+    const button = screen.getByTestId("session-pause-sources-button");
     expect(button.className).toContain("border-cc-attention/75");
     expect(button.className).toContain("bg-cc-attention-bg");
     expect(button.className).toContain("text-cc-attention-strong");
@@ -116,7 +116,7 @@ describe("PauseOtherSourcesButton", () => {
       />,
     );
 
-    expect(screen.getByTestId("composer-pause-sources-button").getAttribute("title")).toBe(
+    expect(screen.getByTestId("session-pause-sources-button").getAttribute("title")).toBe(
       "Pause other input sources. Direct composer messages still need the session to resume.",
     );
   });

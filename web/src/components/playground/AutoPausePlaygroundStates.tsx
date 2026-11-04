@@ -6,7 +6,7 @@ import type {
   CodexResultErrorAutoPauseState,
 } from "../../types.js";
 import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
-import { PausedInputChip } from "../SessionPauseComposerControls.js";
+import { PausedInputChip } from "../SessionPauseControls.js";
 import { Card } from "./shared.js";
 
 const NOW = Date.now();

@@ -53,6 +53,8 @@ let state: ReadAloudState | null = null;
 let playback: ReadAloudPlayback = IDLE_PLAYBACK;
 let preferences: ReadAloudPreferences = loadPreferences();
 const listeners = new Set<() => void>();
+/** Hear each message read through to its end (not a stopped or failed one). */
+const endListeners = new Set<(messageId: string) => void>();
 let audio: HTMLAudioElement | null = null;
 /** The current read, from tap until stopped; aborting it cancels its requests (a played deck's slides too). */
 let currentRead: AbortController | null = null;
@@ -106,6 +108,39 @@ export function playDeck(narration: NarratedDeck, index: number): void {
   currentRead = new AbortController();
   deck = { narration, index: clampSlide(narration, index), audio: new Map() };
   load(slideInput(deck.index), { piece: 0, fraction: 0 });
+}
+
+/**
+ * Let reads started later, outside a tap, play: call from a tap. Voiceback starts reads when
+ * replies arrive, so its toggle unlocks the shared element (see SILENT_WAV). Does nothing while
+ * something is being read, since the element is unlocked then and playing it would cut the read off.
+ */
+export function unlockReadAloudAudio(): void {
+  if (state) return;
+  const element = getAudioElement();
+  element.src = SILENT_WAV;
+  element.play().catch(() => {});
+}
+
+/** Whether a read is preparing, playing or paused, rather than finished, failed or closed. */
+export function isReadAloudBusy(): boolean {
+  return !!state && state.status !== "error" && !finished();
+}
+
+/** Calls `listener` with the message id each time a message is read through to its end. */
+export function onReadAloudEnd(listener: (messageId: string) => void): () => void {
+  endListeners.add(listener);
+  return () => endListeners.delete(listener);
+}
+
+/** Calls `listener` whenever the read or its playback changes (often, while playing). */
+export function subscribeReadAloud(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
+/** The read the player shows, outside React. */
+export function getReadAloudState(): ReadAloudState | null {
+  return state;
 }
 
 /** Move a played deck to slide `index` and read it from its start. */
@@ -341,6 +376,7 @@ function pieceEnded(): void {
 function readEnded(): void {
   if (deck && deck.index + 1 < deck.narration.slides.length) return goToPlayedSlide(deck.index + 1);
   updatePlayback();
+  if (!deck && state) for (const listener of [...endListeners]) listener(state.messageId);
 }
 
 /** The whole read has played to its end. */

@@ -17,10 +17,10 @@ import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
 import { buildComposerPlaceholder } from "./composer-placeholder.js";
 import { ComposerReferencePreview } from "./ComposerReferencePreview.js";
 import { ComposerInputSurface } from "./ComposerSurface.js";
-import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
+import { PausedInputChip, useTogglePauseSources } from "./SessionPauseControls.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
 import { useComposerUndoHistory } from "./composer-undo-history.js";
-import { ComposerRecordingBar, ComposerUndoRedoButtons } from "./ComposerToolbarControls.js";
+import { ComposerRecordingBar, ComposerUndoRedoButtons, ComposerVoicebackButton } from "./ComposerToolbarControls.js";
 import { useComposerNavigationFocus } from "./use-composer-navigation-focus.js";
 import {
   createComposerDraftImage,
@@ -819,7 +819,6 @@ export function Composer({
   }, [voiceError, failedTranscription, setVoiceError]);
 
   const sessionView = useComposerSessionView(sessionId);
-  const [pauseBusy, setPauseBusy] = useState(false);
   const vscodeSelectionState = useStore((s) => s.vscodeSelectionContext);
   const previewQuestIds = useStore(useShallow((s) => s.quests.map((quest) => quest.questId.toLowerCase())));
   const previewSessionNums = useStore(
@@ -875,8 +874,8 @@ export function Composer({
   const uiMode = isCodex ? "agent" : (sessionView.serverUiMode ?? deriveUiMode(currentMode));
   const isPlan = uiMode === "plan";
   const pauseState = sessionView.pause as SessionPauseState | null;
-  const isPaused = !!pauseState?.pausedAt;
   const pausedInputQueueCount = sessionView.pausedInputQueueCount;
+  const resumeSources = useTogglePauseSources(sessionId, !!pauseState?.pausedAt);
   const codexResultErrorAutoPause = sessionView.codexResultErrorAutoPause;
   const codexAutoPauseRecoveryProgress = sessionView.codexAutoPauseRecoveryProgress;
   const codexAutoPausedInputCount = sessionView.codexAutoPausedInputCount;
@@ -945,22 +944,6 @@ export function Composer({
     setAlternateVoiceRerun(null);
     textareaRef.current?.focus();
   }, [setText, voiceEditProposal]);
-
-  const handleTogglePause = useCallback(async () => {
-    if (pauseBusy) return;
-    setPauseBusy(true);
-    try {
-      if (isPaused) {
-        await api.unpauseSession(sessionId);
-      } else {
-        await api.pauseSession(sessionId);
-      }
-    } catch (err) {
-      console.error("[composer] failed to toggle pause:", err);
-    } finally {
-      setPauseBusy(false);
-    }
-  }, [isPaused, pauseBusy, sessionId]);
 
   async function handleSend() {
     const store = useStore.getState();
@@ -1805,6 +1788,8 @@ export function Composer({
                 onReleaseAutoPausedInputs={(pausedAt) =>
                   sendToSession(sessionId, { type: "release_codex_auto_paused_inputs", pausedAt })
                 }
+                onResume={() => void resumeSources.toggle()}
+                resuming={resumeSources.busy}
               />
               <ComposerAnnotations
                 sessionId={sessionId}
@@ -1821,14 +1806,8 @@ export function Composer({
               <ComposerMetaToolbar
                 imageUploadDisabled={imageUploadDisabled}
                 imageUploadTitle={imageUploadTitle}
-                pauseControl={
-                  <PauseOtherSourcesButton
-                    isPaused={isPaused}
-                    heldCount={pausedInputQueueCount}
-                    busy={pauseBusy}
-                    directComposerMessagesSend={isConnected}
-                    onToggle={handleTogglePause}
-                  />
+                voicebackControl={
+                  <ComposerVoicebackButton sessionId={sessionId} leader={sessionView.isLeaderSession} />
                 }
                 editControls={
                   <ComposerUndoRedoButtons

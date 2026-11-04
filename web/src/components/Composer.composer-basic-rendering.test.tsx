@@ -798,7 +798,8 @@ describe("Composer basic rendering", () => {
     expect(within(footer).queryByText("feature/composer-footer")).toBeNull();
   });
 
-  it("places pause controls in the composer footer and exposes held input state", async () => {
+  it("shows held input while paused and resumes from the banner, with voiceback in pause's old place", async () => {
+    // Pausing moved to Session Info (rarely used); the composer keeps the banner and its way back.
     setupMockStore({
       session: {
         pause: {
@@ -817,14 +818,15 @@ describe("Composer basic rendering", () => {
 
     render(<Composer sessionId="s1" />);
 
-    const pauseButton = screen.getByTestId("composer-pause-sources-button");
-    expect(pauseButton.closest('[data-testid="composer-footer-toolbar"]')).toBeTruthy();
+    expect(screen.queryByTestId("session-pause-sources-button")).toBeNull();
+    const voiceback = screen.getByTestId("composer-voiceback-button");
+    expect(voiceback.closest('[data-testid="composer-footer-toolbar"]')).toBeTruthy();
     expect(screen.getByTestId("composer-paused-chip").textContent).toContain("Other sources paused");
 
     await userEvent.click(screen.getByTestId("composer-paused-chip"));
     expect(screen.getByTestId("composer-held-input-list").textContent).toContain("Held external reminder");
 
-    await userEvent.click(pauseButton);
+    await userEvent.click(screen.getByTestId("composer-pause-resume"));
     await waitFor(() => expect(mockUnpauseSession).toHaveBeenCalledWith("s1"));
   });
 

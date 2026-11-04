@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { api } from "../api.js";
+import { useStore } from "../store.js";
 import type {
   CodexAutoPauseHeldInput,
   CodexResultErrorFamily,
@@ -106,6 +108,50 @@ function getHeldCount(item: HeldInputListItem): number {
   return "count" in item ? Math.max(1, item.count) : 1;
 }
 
+/**
+ * Pause other input sources, in Session Info: CLI, timer, herd and programmatic input wait until
+ * resumed, while the user's own messages still send. Rarely used, so it moved there from the
+ * composer, whose place went to the voiceback toggle (Jiayi, Nov 4); the composer still shows the
+ * paused banner, with Resume.
+ */
+export function SessionPauseSourcesControl({ sessionId }: { sessionId: string }) {
+  const pause = useStore((s) => s.sessions.get(sessionId)?.pause ?? null);
+  const connected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
+  const { busy, toggle } = useTogglePauseSources(sessionId, !!pause?.pausedAt);
+  return (
+    <div data-testid="session-info-pause-sources" className="flex items-center justify-between gap-2">
+      <span className="min-w-0 text-[11px] leading-snug text-cc-muted">
+        {pause?.pausedAt ? "Other input sources are paused" : "Other input sources"}
+      </span>
+      <PauseOtherSourcesButton
+        isPaused={!!pause?.pausedAt}
+        heldCount={pause?.queuedMessages.length ?? 0}
+        busy={busy}
+        directComposerMessagesSend={connected}
+        onToggle={toggle}
+      />
+    </div>
+  );
+}
+
+/** Pause or resume a session's other input sources, one request at a time. */
+export function useTogglePauseSources(sessionId: string, isPaused: boolean) {
+  const [busy, setBusy] = useState(false);
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (isPaused) await api.unpauseSession(sessionId);
+      else await api.pauseSession(sessionId);
+    } catch (err) {
+      console.error("[session-pause] failed to toggle pause:", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, toggle };
+}
+
 export function PauseOtherSourcesButton({
   isPaused,
   heldCount,
@@ -132,7 +178,7 @@ export function PauseOtherSourcesButton({
       type="button"
       onClick={onToggle}
       disabled={busy}
-      data-testid="composer-pause-sources-button"
+      data-testid="session-pause-sources-button"
       aria-pressed={isPaused}
       aria-label={isPaused ? "Resume other input sources" : "Pause other input sources"}
       title={title}
@@ -145,7 +191,7 @@ export function PauseOtherSourcesButton({
       }`}
     >
       {isPaused ? <PlayIcon /> : <PauseIcon />}
-      <span className="hidden sm:inline">{isPaused ? "Resume sources" : "Pause sources"}</span>
+      <span>{isPaused ? "Resume sources" : "Pause sources"}</span>
       {isPaused && heldCount > 0 && (
         <span className="rounded border border-cc-attention/45 bg-cc-card/70 px-1.5 py-0.5 font-mono-code text-[10px] text-cc-attention-strong">
           {heldCount}
@@ -163,6 +209,8 @@ export function PausedInputChip({
   autoPausedHeldCount = 0,
   directComposerMessagesSend,
   onReleaseAutoPausedInputs,
+  onResume,
+  resuming = false,
 }: {
   pause: SessionPauseState | null | undefined;
   autoPause?: SessionState["codex_result_error_auto_pause"];
@@ -171,6 +219,9 @@ export function PausedInputChip({
   autoPausedHeldCount?: number;
   directComposerMessagesSend: boolean;
   onReleaseAutoPausedInputs?: (pausedAt: number) => void;
+  /** Resumes a manual pause; its toggle lives in Session Info, so the banner offers the way back. */
+  onResume?: () => void;
+  resuming?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const isManualPause = !!pause?.pausedAt;
@@ -269,6 +320,20 @@ export function PausedInputChip({
                 ? "Direct composer messages still send. External input waits here."
                 : "Direct composer messages still need the session to resume. External input waits here."}
             </span>
+          )}
+          {isManualPause && onResume && (
+            <button
+              type="button"
+              data-testid="composer-pause-resume"
+              disabled={resuming}
+              onClick={onResume}
+              title="Resume other input sources. Releases held CLI, timer, herd, and programmatic work."
+              className={`ml-auto inline-flex min-h-8 shrink-0 items-center rounded-md border border-cc-attention/55 bg-cc-card/65 px-2.5 py-1 text-[11px] font-medium text-cc-attention-strong transition-colors hover:bg-cc-warning/10 ${
+                resuming ? "cursor-wait opacity-60" : "cursor-pointer"
+              }`}
+            >
+              Resume
+            </button>
           )}
         </div>
         {open && (

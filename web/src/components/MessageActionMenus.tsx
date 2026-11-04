@@ -14,6 +14,7 @@ import { MessageTimeMenuMetadata, MessageTimestampMenuTrigger } from "./MessageR
 import { useSideChatActionState } from "./SideChatControls.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
 import { startReadAloud, stopReadAloud, useReadAloudState } from "../read-aloud-player.js";
+import { readAloudMessageText } from "../read-aloud-text.js";
 
 function buildCopyMessageLink(sessionId: string | undefined, message: ChatMessage, sdkSessions: SdkSessionInfo[]) {
   if (!sessionId) return null;
@@ -274,7 +275,7 @@ export function AssistantMessageMenu({
     startReadAloud({
       sessionId,
       messageId: message.id,
-      text: getMessageMarkdown(message),
+      text: readAloudMessageText(message),
       historyIndex: message.historyIndex,
     });
   }, [message, sessionId]);

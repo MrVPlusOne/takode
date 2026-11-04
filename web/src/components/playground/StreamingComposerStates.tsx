@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ComposerMetaToolbar } from "../ComposerMetaToolbar.js";
-import { ComposerRecordingBar, ComposerUndoRedoButtons } from "../ComposerToolbarControls.js";
+import { ComposerRecordingBar, ComposerUndoRedoButtons, VoicebackButton } from "../ComposerToolbarControls.js";
 import { Card } from "./shared.js";
 import { useSendKey } from "../../hooks/useSendKey.js";
 
@@ -57,6 +57,8 @@ function PlaygroundStreamingComposer({
   running?: boolean;
 }) {
   const [draft, setDraft] = useState(initialDraft);
+  // Tap the headphones to see voiceback on, with two replies waiting.
+  const [voiceback, setVoiceback] = useState(false);
   const [history, setHistory] = useState<{ past: string[]; future: string[] }>({ past: [], future: [] });
   const changeDraft = (next: string) => {
     setHistory((h) => ({ past: [...h.past, draft], future: [] }));
@@ -79,7 +81,9 @@ function PlaygroundStreamingComposer({
         <ComposerMetaToolbar
           imageUploadDisabled={false}
           imageUploadTitle="Upload image"
-          pauseControl={null}
+          voicebackControl={
+            <VoicebackButton on={voiceback} waiting={voiceback ? 2 : 0} onToggle={() => setVoiceback((on) => !on)} />
+          }
           editControls={
             <ComposerUndoRedoButtons
               canUndo={history.past.length > 0}
