@@ -392,6 +392,7 @@ async function planHandoff(input: {
     `browser-login/${serverId}.json`,
     `landing-gates/${serverId}.json`,
     `landing-queue/${serverId}.json`,
+    `work-tracks/${serverId}.json`,
     `tree-groups/${serverId}.json`,
     `new-session-defaults/${serverId}.json`,
     "session-names.json",

@@ -59,6 +59,7 @@ import { handlePermission } from "./takode-permission-commands.js";
 import { handleReconnect } from "./takode-reconnect.js";
 import { handleWorktreeCleanup } from "./takode-worktree-cleanup.js";
 import { handleWorktree } from "./takode-worktree.js";
+import { handleTrack } from "./takode-track.js";
 import { handleHost } from "./takode-host-commands.js";
 import { handleExec } from "./takode-exec.js";
 import { handleBundle } from "./takode-bundle-commands.js";
@@ -143,6 +144,7 @@ try {
     ["permission", { requireOrchestrator: true }],
     ["worktree-cleanup", { requireOrchestrator: true }],
     ["worktree", {}],
+    ["track", {}],
     ["openai-test-key", {}],
     ["exec", {}],
   ]);
@@ -333,6 +335,9 @@ try {
       break;
     case "worktree":
       await handleWorktree(base, args);
+      break;
+    case "track":
+      await handleTrack(base, args);
       break;
     case "host":
       await handleHost(base, args);

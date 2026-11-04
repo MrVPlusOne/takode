@@ -184,6 +184,8 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
     sourceLabel?: string;
     /** Remote host the port target checkout is on; absent for the coordinator's machine. */
     hostId?: string;
+    /** The track (`takode track`) whose integration branch this is; its checkout is `worktreePath`. */
+    track?: string;
   };
 
   /** Whether this is an assistant-mode session */

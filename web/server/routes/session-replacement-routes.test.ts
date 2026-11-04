@@ -223,6 +223,29 @@ describe("session replacement routes", () => {
     );
   });
 
+  // `--replace-worktree-worker <n> --track fv` reuses a worker on the track's branch
+  // for track work: the replacement lands into the track, not the old worker's target.
+  it("gives the replacement the requested track port target", async () => {
+    const { app, deps } = makeApp({
+      worktreePortTarget: { repoRoot: "/repo", branch: "main", worktreePath: "/wt/leader" },
+    });
+    const trackTarget = { repoRoot: "/repo", branch: "main", worktreePath: "/tracks/repo/fv", track: "fv" };
+
+    const res = await app.request("/sessions/worker-1/replace-worktree-worker", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        create: { backend: "claude", cwd: "/repo", useWorktree: true, worktreePortTarget: trackTarget },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(deps.createSessionFromBody).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ portTarget: trackTarget }),
+    );
+  });
+
   it("refuses dirty worktrees before archiving", async () => {
     vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(true);
     const { app, deps } = makeApp();

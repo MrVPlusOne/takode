@@ -32,6 +32,8 @@ export interface WorktreeSessionInfo {
     sourceLabel?: string;
     /** Remote host the port target checkout is on; absent for the coordinator's machine. */
     hostId?: string;
+    /** The track (`takode track`) whose integration branch this is; its checkout is `worktreePath`. */
+    track?: string;
   };
 }
 
@@ -144,6 +146,9 @@ export async function prepareWorktreeForSessionCreate(options: {
           ? { sourceLabel: requestedPortTarget.sourceLabel.trim() }
           : {}),
         ...(portTargetHostId ? { hostId: portTargetHostId } : {}),
+        ...(typeof requestedPortTarget?.track === "string" && requestedPortTarget.track.trim()
+          ? { track: requestedPortTarget.track.trim() }
+          : {}),
       },
     },
   };

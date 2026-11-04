@@ -37,6 +37,7 @@ import { SPAWN_FLAG_USAGE } from "./takode-orchestration-commands.js";
 import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./takode-permission-commands.js";
 import { WORKTREE_CLEANUP_HELP } from "./takode-worktree-cleanup.js";
 import { WORKTREE_HELP } from "./takode-worktree.js";
+import { TRACK_HELP } from "./takode-track.js";
 import { BUNDLE_HELP } from "./takode-bundle-commands.js";
 import { LAND_GATE_HELP, LAND_HELP } from "./takode-land.js";
 import { EXEC_HELP } from "./takode-exec.js";
@@ -622,6 +623,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "worktree":
       console.log(WORKTREE_HELP);
       return true;
+    case "track":
+      console.log(TRACK_HELP);
+      return true;
     case "host":
       console.log(HOST_HELP);
       return true;
@@ -812,6 +816,7 @@ Commands:
   port             Track private review, squashed commits, and exact port receipts
   worktree-cleanup  List or retry archived worktree cleanup
   worktree         Register and inspect auxiliary worktree retention
+  track            Lines of work with their own integration branch (takode track list|add)
   host             Register machines that run sessions for this server (takode host add <name>)
   exec             Run a command on another machine (takode exec --host <machine> -- <command>)
   user-content     The user's instructions and skills on every machine (status, import, take-over)

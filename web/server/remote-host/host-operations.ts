@@ -22,6 +22,7 @@ import { assessWorktreeCleanupSafety, removeWorktreeCheckout } from "../routes/w
 import { collectUserLevelContent, summarizeUserLevelContent } from "../user-content.js";
 import { defaultMachineRoots, installUserContent, retireUserSkills } from "../user-content-install.js";
 import { verifyReplacementWorkEvidence } from "../work-evidence-replacement.js";
+import { prepareTrackCheckout, pullTrackCheckout, readTrackStatus, removeTrackCheckout } from "../work-tracks.js";
 import { realpath } from "node:fs/promises";
 import { sep } from "node:path";
 import { requestOnHost } from "./session-machine.js";
@@ -57,6 +58,11 @@ const operations = {
   auxiliaryWorktreeKeepReason: (...args: Parameters<typeof auxiliaryWorktreeKeepReason>) =>
     auxiliaryWorktreeKeepReason(...args),
   removeAuxiliaryWorktree: (repoRoot: string, worktreePath: string) => removeAuxiliaryWorktree(repoRoot, worktreePath),
+  // Tracks (`takode track`): the checkout of a track's integration branch on its machine.
+  prepareTrackCheckout: (input: Parameters<typeof prepareTrackCheckout>[0]) => prepareTrackCheckout(input),
+  readTrackStatus: (input: Parameters<typeof readTrackStatus>[0]) => readTrackStatus(input),
+  pullTrackCheckout: (input: Parameters<typeof pullTrackCheckout>[0]) => pullTrackCheckout(input),
+  removeTrackCheckout: (input: Parameters<typeof removeTrackCheckout>[0]) => removeTrackCheckout(input),
   recreateSessionCheckout: (input: Parameters<typeof recreateSessionCheckout>[0]) => recreateSessionCheckout(input),
   // Delivery evidence: Git checks and reads of the checkout a Work delivery names.
   verifyPublishedDeliveryTarget: (...args: Parameters<typeof verifyPublishedDeliveryTarget>) =>

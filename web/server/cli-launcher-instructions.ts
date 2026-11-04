@@ -34,6 +34,8 @@ export interface CompanionInstructionBuildOptions {
       sourceLabel?: string;
       /** Remote host the port target is on; absent for the coordinator's machine. */
       hostId?: string;
+      /** The track whose integration branch this is; its checkout is `worktreePath`. */
+      track?: string;
     };
     /** Remote host this session runs on; absent for the coordinator's machine. */
     hostId?: string;
@@ -68,11 +70,15 @@ export function buildCompanionInstructions(opts?: CompanionInstructionBuildOptio
   if (opts?.worktree) {
     const { branch, repoRoot, parentBranch, portTarget, hostId } = opts.worktree;
     const branchLabel = parentBranch ? `\`${branch}\` (created from \`${parentBranch}\`)` : `\`${branch}\``;
-    const syncRepoRoot = portTarget?.repoRoot || repoRoot;
+    // A track's branch is remote-backed, and its own checkout is the base repo checkout to land through.
+    const track = portTarget?.track && portTarget.worktreePath ? portTarget.track : undefined;
+    const syncRepoRoot = (track && portTarget?.worktreePath) || portTarget?.repoRoot || repoRoot;
     const syncBaseBranch = portTarget?.branch || parentBranch || branch;
-    const portTargetWorktree = portTarget?.worktreePath
-      ? `\n- Port target worktree: \`${portTarget.worktreePath}\``
-      : "";
+    const portTargetWorktree = track
+      ? `\n- Track: \`${track}\` (a remote-backed target: land with the checkout above as the base repo checkout; \`takode track show ${track}\` shows where it stands)`
+      : portTarget?.worktreePath
+        ? `\n- Port target worktree: \`${portTarget.worktreePath}\``
+        : "";
     const portTargetSource = portTarget?.sourceLabel
       ? `\n- Port target source: ${portTarget.sourceLabel}`
       : portTarget?.sourceSessionNum !== undefined && portTarget.sourceSessionNum !== null

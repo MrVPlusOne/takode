@@ -27,6 +27,7 @@ Every commit runs the commit hooks, including intermediate, WIP and throwaway co
 
 - **Remote-backed target with a saved landing gate**: land through the **landing queue** below. It replaces the classic remote-backed port for these branches. The gate (the branch's full verification commands) is saved per repository branch on the Takode server, not in the repository; `takode land gate show` in your worktree tells you whether your target has one.
 - **Worktree target**, a remote-backed target **without** a saved gate, or a server that answers that it has no landing queue or does not store landing gates yet (it needs a restart onto a newer build): use the **classic port workflow** further down. Opting a branch in or out (`takode land gate try` / `save` / `remove`) changes how everyone lands on it, so do it only when your leader or the user asked for it.
+- **Track target** (your sync context names a `Track`): a remote-backed target whose base repo checkout is the track's own checkout, the `Base repo checkout` in your sync context. Land it like any remote-backed target, through the landing queue when its branch has a saved gate and otherwise the classic workflow, with that checkout as `<BASE_REPO>`. Where step 3 names Takode's gate, run the checks the track's repository requires.
 - **Approved independent publication** outside the inherited target: the "Independent published targets" section of [port-tracking.md](references/port-tracking.md).
 
 ## Landing queue (remote-backed targets with a saved landing gate)

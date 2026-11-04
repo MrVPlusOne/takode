@@ -1251,6 +1251,49 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
+  // `takode spawn --track` starts the worker from the track's checkout and names the
+  // track in its port target; the track branch is also the session's diff base.
+  it("keeps a track port target and bases the worker on the track branch", async () => {
+    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
+      repoRoot: "/repo",
+      repoName: "yolo",
+      currentBranch: "fv-evals",
+      defaultBranch: "main",
+      isWorktree: true,
+    });
+    vi.mocked(gitUtils.ensureWorktreeAsync).mockResolvedValueOnce({
+      worktreePath: "/home/.companion/worktrees/yolo/fv-evals-wt-12",
+      branch: "fv-evals",
+      actualBranch: "fv-evals-wt-12",
+      isNew: true,
+    });
+    const portTarget = {
+      repoRoot: "/repo",
+      branch: "fv-evals",
+      worktreePath: "/home/.companion/tracks/yolo/fv",
+      track: "fv",
+      sourceLabel: "track fv",
+    };
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/home/.companion/tracks/yolo/fv",
+        useWorktree: true,
+        branch: "fv-evals",
+        worktreePortTarget: portTarget,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktreeInfo: expect.objectContaining({ branch: "fv-evals", portTarget }),
+      }),
+    );
+  });
+
   it("returns 400 when useWorktree is enabled without cwd", async () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",

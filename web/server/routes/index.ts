@@ -43,6 +43,7 @@ import { createResourceLeaseRoutes } from "./resource-leases.js";
 import { createBundleRoutes } from "./bundles.js";
 import { createLandingQueueRoutes } from "./landing-queue.js";
 import { createHostExecRoutes } from "./host-exec.js";
+import { createWorkTrackRoutes } from "./work-tracks.js";
 import { createStreamRoutes } from "./streams.js";
 import { createMemoryRoutes } from "./memory.js";
 import { createCodexSidecarRoutes } from "./codex-sidecar.js";
@@ -292,6 +293,7 @@ export function createRoutes(
   api.route("/", createBundleRoutes(ctx));
   api.route("/", createLandingQueueRoutes(ctx));
   api.route("/", createHostExecRoutes(ctx));
+  api.route("/", createWorkTrackRoutes(ctx));
   api.route("/", createStreamRoutes(ctx));
   api.route("/", createMemoryRoutes(ctx));
   api.route("/", createCodexSidecarRoutes(ctx));

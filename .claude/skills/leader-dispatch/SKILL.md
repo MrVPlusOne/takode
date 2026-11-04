@@ -159,6 +159,16 @@ Rules:
 - **Queue only with explicit blockers.** Use `--wait-for #N`, `--wait-for q-N`, `--wait-for free-worker`, or one comma-separated value such as `--wait-for q-1143,#12,free-worker`.
 - **Do not leave a queued row without `--wait-for`.** Do not ask workers to queue themselves.
 
+### Tracks
+
+When two or more quests will change the same code and land somewhere other than your own branch (another project, or parallel lines of work in one repository), declare a track before dispatching the first: `takode track add <name> --repo <path> --branch <integration-branch> [--follows <branch>] [--create]`. Then spawn every worker for that work with `takode spawn --track <name>` (and `--replace-worktree-worker <session> --track <name>` to reuse one). The worker starts from the track's latest commit, diffs against it and lands into it through the normal `/port-changes`, landing queue and delivery recording, so no `approve-delivery-target` is needed. Without a track, each quest branches off whichever branch it needs, nobody can tell which branch is current, the same files change on parallel branches, and nothing picks up the main branch: in November 2026 one leader's formal-verification evals spread over 18 branches in four unconnected lines.
+
+- Use one track per body of shared code, not one per sub-line: lines that share a harness belong on one branch.
+- An experiment is a worker on the track that lands back or is dropped. A results-only snapshot branch may stay as a frozen record.
+- `takode track list` shows each track's owner, workers and how far behind its followed branch it is. Keep a track current by merging the followed branch into it (never rebase it), as an ordinary small quest, when the gap starts to matter or before a pull request. Opening that pull request is the user's call.
+- Any leader may spawn onto a track; only the leader that declared it closes it (`takode track close <name>`), which keeps the branch.
+- A leader whose work all lands on its own branch needs no track.
+
 ### Capacity
 
 Each leader's worker slots are limited by its backend, a Settings value that defaults to 8 for Claude leaders and 5 for Codex leaders; `takode list` and `takode spawn` show your limit. The limit is a ceiling for the worst case, not a reason to parallelize: dispatch in parallel only when work dependencies allow it, and the rules here (fresh worker by default, reclaiming completed workers) apply at any limit. Reviewer sessions do not use worker slots, and archiving reviewers does not free worker capacity.

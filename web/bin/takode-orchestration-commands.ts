@@ -34,6 +34,7 @@ import { printSessionLine } from "./takode-session-commands.js";
 import { handleThreadHandoff, THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
 import { awaitDelivery, printDelivery, type MessageDelivery } from "./takode-send.js";
 import { resolveLeaderSpawnSessionSpace, validateLeaderSpawnFlags } from "./takode-spawn-leader.js";
+import { assertTrackSpawnFlags, resolveTrackForSpawn, spawnTrackNote } from "./takode-track.js";
 
 const THREAD_HELP = `Usage: takode thread new "<name>" [--topic "<topic>"] [--json]
        takode thread attach <quest-id|t-N> --message <index> [more-indices...] [--json]
@@ -289,6 +290,7 @@ Options:
   --speed <tier>               Alias for --service-tier
   --max-context <tokens>       Override max context length
   --no-worktree                Disable worktree creation
+  --track <name>               Start from and land into a track (takode track list)
   --fixed-name <name>          Set a fixed session name (disables auto-naming)
   --reviewer <session>         Create a reviewer session tied to a parent worker (by session number)
   --replace-worktree-worker <session>
@@ -333,6 +335,7 @@ const SPAWN_ALLOWED_FLAGS = new Set([
   "fixed-name",
   "reviewer",
   "replace-worktree-worker",
+  "track",
   "leader",
   "session-space",
   "memory-space",
@@ -604,7 +607,10 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     err(`Invalid backend: ${backendRaw}. Expected "claude", "codex", or "claude-sdk".`);
   }
 
-  const explicitCwd = typeof flags.cwd === "string" ? flags.cwd : undefined;
+  if (flags.track !== undefined) assertTrackSpawnFlags(flags);
+  // A track sets the checkout to start from (on its machine) and the port target.
+  const trackSpawn = typeof flags.track === "string" ? await resolveTrackForSpawn(base, flags.track.trim()) : undefined;
+  const explicitCwd = trackSpawn?.track.checkoutPath ?? (typeof flags.cwd === "string" ? flags.cwd : undefined);
   let cwd = explicitCwd ?? process.cwd();
   const hostName = typeof flags.host === "string" ? flags.host.trim() : undefined;
   if (flags.host !== undefined && !hostName) err("--host requires a host name.");
@@ -629,7 +635,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   // Workers run on the leader's machine unless `--host` names another; a
   // leader without a host is on the coordinator's machine.
   const leaderHostId = leader.hostId || undefined;
-  const hostId = hostName ? await resolveHostId(base, hostName) : leaderHostId;
+  const hostId = trackSpawn ? trackSpawn.track.hostId : hostName ? await resolveHostId(base, hostName) : leaderHostId;
   const workerOnOtherMachine = hostId !== leaderHostId;
   // This CLI runs on the leader's machine, so it cannot infer a path on another one.
   if (workerOnOtherMachine && !explicitCwd) {
@@ -642,13 +648,14 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
       ? resolve(explicitCwd) === resolve(leader.cwd)
       : false;
   const shouldUseLeaderWorktreeTarget =
+    !trackSpawn &&
     leaderWorktreeTargetBranch !== undefined &&
     useWorktree &&
     (explicitCwd === undefined || explicitCwdMatchesLeaderWorktree);
   // A worker on another machine still lands its commits in the leader's checkout.
   // On the leader's own machine, the `--cwd` checkout's branch applies, as for local spawns.
   const remotePortTargetBranch =
-    workerOnOtherMachine && useWorktree
+    workerOnOtherMachine && useWorktree && !trackSpawn
       ? (leaderWorktreeTargetBranch ?? namedBranch(leader.gitBranch || leader.branch))
       : undefined;
 
@@ -789,7 +796,10 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
 
     const portTargetBranch = shouldUseLeaderWorktreeTarget ? leaderWorktreeTargetBranch : remotePortTargetBranch;
     if (sessionHostId) createPayload.hostId = sessionHostId;
-    if (portTargetBranch && reviewerOfNum === undefined) {
+    if (trackSpawn) {
+      createPayload.branch = trackSpawn.track.branch;
+      createPayload.worktreePortTarget = trackSpawn.portTarget;
+    } else if (portTargetBranch && reviewerOfNum === undefined) {
       createPayload.branch = portTargetBranch;
       createPayload.worktreePortTarget = {
         repoRoot: leader.repoRoot || leader.cwd || undefined,
@@ -875,6 +885,8 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     printReplacementSummary(replacement, newSession);
     printReplacementBoardWorkerUpdate(boardWorkerUpdate, newSession);
     printSpawnedSession(newSession);
+    const replacementNote = await spawnTrackNote(base, trackSpawn, newSession.repoRoot ?? undefined);
+    if (replacementNote) console.log(replacementNote);
     return;
   }
 
@@ -951,6 +963,8 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   for (const session of spawned) {
     printSpawnedSession(session);
   }
+  const trackNote = asLeader ? null : await spawnTrackNote(base, trackSpawn, spawned[0]?.repoRoot ?? undefined);
+  if (trackNote) console.log(trackNote);
   if (herdWarning) {
     console.log(
       `\n\u26a0 Worker slots used: ${herdWarning.workerSlotsUsed}/${herdWarning.limit}. Please archive ${herdWarning.excessWorkers} worker session${herdWarning.excessWorkers === 1 ? "" : "s"} least likely to be reused. Reviewers and Scribes do not use worker slots, and archiving them will not free worker-slot capacity; a Scribe is never reused for quest work. Archived sessions' history remains readable via takode peek/read.`,

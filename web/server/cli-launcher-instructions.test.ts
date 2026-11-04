@@ -184,6 +184,31 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Port target source: #2468 QA Data Leader");
   });
 
+  // A track's integration branch is remote-backed: its own checkout is the base repo
+  // checkout /port-changes lands through (lease, pull, push), so the worktree-target
+  // line, which means "do not push", must not appear.
+  it("renders a track target as a remote-backed target landed through the track's checkout", () => {
+    const result = buildCompanionInstructions({
+      worktree: {
+        branch: "fv-evals-wt-12",
+        parentBranch: "fv-evals",
+        repoRoot: "/repo/yolo",
+        portTarget: {
+          repoRoot: "/repo/yolo",
+          branch: "fv-evals",
+          worktreePath: "/home/me/.companion/tracks/yolo/fv",
+          track: "fv",
+          sourceLabel: "track fv",
+        },
+      },
+    });
+
+    expect(result).toContain("Base repo checkout: `/home/me/.companion/tracks/yolo/fv`");
+    expect(result).toContain("Base branch / port target: `fv-evals`");
+    expect(result).toContain("Track: `fv`");
+    expect(result).not.toContain("Port target worktree");
+  });
+
   // A worker whose port target is on another machine cannot cherry-pick into it,
   // so it gets the bundle hand-off instead of the local port workflow.
   it("selects the bundle hand-off only when the port target is on another machine", () => {

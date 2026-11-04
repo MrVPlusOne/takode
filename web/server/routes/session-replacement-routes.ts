@@ -25,7 +25,20 @@ interface RecycledWorktreeInfo {
     sourceSessionId?: string;
     sourceSessionNum?: number | null;
     sourceLabel?: string;
+    hostId?: string;
+    track?: string;
   };
+}
+
+/**
+ * A replacement asked for with `--track` lands into that track, even when the
+ * reused worker was spawned onto the same branch without it.
+ */
+function requestedTrackPortTarget(createBody: ReplacementCreateBody): RecycledWorktreeInfo["portTarget"] | undefined {
+  const target = createBody.worktreePortTarget as RecycledWorktreeInfo["portTarget"] | undefined;
+  return target && typeof target.track === "string" && target.worktreePath && target.repoRoot && target.branch
+    ? target
+    : undefined;
 }
 
 interface ReplacementSessionResult {
@@ -326,7 +339,7 @@ export function registerSessionReplacementRoutes(api: Hono, deps: SessionReplace
         disposableBranch: worker.disposableBranch,
         worktreePath: worker.cwd,
         defaultBranch: intendedDefaultBranch,
-        portTarget: worker.worktreePortTarget,
+        portTarget: requestedTrackPortTarget(createBody) ?? worker.worktreePortTarget,
       });
 
       // Retirement is committed only after replacement succeeds. Never route

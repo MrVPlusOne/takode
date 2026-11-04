@@ -95,6 +95,8 @@ const INVENTORY: Record<string, string> = {
   "server/remote-host/host-operations.ts -> server/landing-runner-launcher.ts": LANDING_RUNNERS,
   "server/remote-host/host-operations.ts -> server/path-resolver.ts":
     "Finds programs on this machine's PATH for the New Session backend picker",
+  "server/remote-host/host-operations.ts -> server/work-tracks.ts":
+    "A track's checkout of its integration branch is a checkout on this machine, under its ~/.companion/tracks",
   "server/remote-host/host-operations.ts -> server/user-content-install.ts":
     "This machine's copy of the user's skills, which files Takode wrote here, and backups of files it replaced; the content itself comes from the coordinator",
 };
