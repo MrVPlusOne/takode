@@ -5,7 +5,7 @@
  *
  *     ```visual
  *     title: How the landing queue works
- *     alt: Plain-text version, used by read aloud, Copy for Slack and search.
+ *     alt: Plain-text version, used by read aloud, copying and search.
  *     caption: Optional muted line under the visual saying what it shows.
  *     ---
  *     <div class="tk-flow">...</div>

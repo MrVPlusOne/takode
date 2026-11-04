@@ -58,7 +58,7 @@ describe("draft card", () => {
 
   it("copies exactly the draft for Slack: formatting kept, nothing around it", async () => {
     render(<MarkdownContent text={MESSAGE} />);
-    fireEvent.click(screen.getByRole("button", { name: "Copy for Slack" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
 
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0]!["text/html"]).toBe(
@@ -72,7 +72,7 @@ describe("draft card", () => {
     const html = messageCopyForSlack(container).html!;
     expect(html).toContain("<p>Here's a draft for the T7 thread:</p>");
     expect(html).toContain("Quick update on <b>T7</b>:");
-    expect(html).not.toMatch(/Copy for Slack|>Draft</);
+    expect(html).not.toMatch(/>Copy<|>Draft</);
   });
 
   it("turns Slack's own <url|name> links into real links, so the pasted link opens the page", async () => {
@@ -85,7 +85,7 @@ describe("draft card", () => {
     render(<MarkdownContent text={text} />);
     const link = screen.getByRole("link", { name: "jiayi/fv-harder-tasks" });
     expect(link).toHaveAttribute("href", url);
-    fireEvent.click(screen.getByRole("button", { name: "Copy for Slack" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0]!["text/html"]).toBe(
       `<p>Branch: <a href="${url}">jiayi/fv-harder-tasks</a>, docs <a href="https://example.com/docs">https://example.com/docs</a></p>`,
@@ -102,7 +102,7 @@ describe("draft card", () => {
     expect(warning).toHaveTextContent("<#C01ABCDEF|eval-runs>");
     expect(warning).toHaveTextContent("<!here>");
     expect(warning).toHaveTextContent("Write @Full Name instead.");
-    fireEvent.click(screen.getByRole("button", { name: "Copy for Slack" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0]!["text/plain"]).not.toContain("Full Name");
   });

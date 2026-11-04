@@ -20,7 +20,7 @@ Draw when the reader needs to see **order** (three or more steps, a pipeline, a 
 ````
 ```visual
 title: Short title shown above the visual
-alt: Plain-text version of everything the visual says. Read aloud, Copy for Slack and search use it, so make it complete.
+alt: Plain-text version of everything the visual says. Read aloud, copying and search use it, so make it complete.
 caption: Optional. One muted line under the visual stating its takeaway.
 ---
 <div class="tk-flow tk-numbered">...</div>

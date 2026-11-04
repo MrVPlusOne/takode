@@ -536,7 +536,7 @@ describe("versions and projection", () => {
   });
 
   it("remembers which parts of a post were copied, and a revision keeps that only for unchanged parts", async () => {
-    // Copy for Slack records the copied parts on the version, so every device dims those buttons. A
+    // A draft card's Copy records the copied parts on the version, so every device dims those buttons. A
     // new version starts with the parts it kept unchanged from a copied part; edited parts are new.
     const block = (header: string, body: string) => `\`\`\`draft\ntitle: Note for Dan\n${header}---\n${body}\n\`\`\``;
     const session: LibrarySessionLike = {

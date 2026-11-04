@@ -134,7 +134,7 @@ describe("artifacts in the feed", () => {
 
   it("shows a post's message and replies as one card, with marks, attachments and removed parts", async () => {
     // The T7 status update before Wednesday: three blocks, the second with a figure, after a
-    // revision that edited reply 1 and dropped a reply. One card, a Copy for Slack per part plus
+    // revision that edited reply 1 and dropped a reply. One card, a Copy per part plus
     // Copy all, the figure under its part, and the dropped reply as a line that opens.
     const fetchMock = vi.fn(
       async () =>

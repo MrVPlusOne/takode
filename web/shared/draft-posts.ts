@@ -229,7 +229,7 @@ export function formatDraftPost(post: {
 
 /**
  * A draft's text with Slack's own link syntax (`<url|name>`, as Slack's API writes links) rewritten as
- * Markdown links, outside code. Copy for Slack copies the rendered draft, and Markdown would otherwise
+ * Markdown links, outside code. The draft card's Copy copies the rendered draft, and Markdown would otherwise
  * read `<url|name>` as one autolink whose address ends in `|name`, which pastes as a broken link.
  * A bare `<url>` is already a Markdown link and stays.
  */

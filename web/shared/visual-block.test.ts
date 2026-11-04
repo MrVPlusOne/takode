@@ -40,7 +40,7 @@ describe("visual fallbacks", () => {
   });
 
   it("adds the caption to plain-text surfaces, since readers see it under the visual", () => {
-    // Read aloud, Copy for Slack and search use this text; a takeaway caption must not be lost there.
+    // Read aloud, copying and search use this text; a takeaway caption must not be lost there.
     expect(visualPlainText({ title: "T", alt: "A", caption: "C.", html: "" })).toBe("T: A C.");
     expect(visualPlainText({ title: "T", alt: "A", html: "" })).toBe("T: A");
     expect(markdownWithVisualFallbacks("```visual\nalt: A\ncaption: C.\n---\n<div></div>\n```")).toBe("[Visual] A C.");

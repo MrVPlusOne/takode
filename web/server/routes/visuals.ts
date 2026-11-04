@@ -122,10 +122,10 @@ export function checkVisual(
   const block = parseVisualBlock(source);
   checks.push(
     block.alt
-      ? { level: "ok", text: "Has alt text for read aloud, Copy for Slack and search." }
+      ? { level: "ok", text: "Has alt text for read aloud, copying and search." }
       : {
           level: "warn",
-          text: "No `alt:` line. Add a plain-text version: read aloud, Copy for Slack and search use it.",
+          text: "No `alt:` line. Add a plain-text version: read aloud, copying and search use it.",
         },
   );
   const failed = renders.find((render) => render.status !== "ok");

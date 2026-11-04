@@ -19,7 +19,7 @@ import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
 
 /**
  * A post drafted for the user to send: one card for the message and its replies (a Slack thread),
- * each part with its own Copy for Slack and its attached files, and Copy all in the header. A
+ * each part with its own Copy button and its attached files, and Copy all in the header. A
  * revision's card marks parts new or edited and lists removed ones, which open to their old text.
  */
 
@@ -109,9 +109,9 @@ export function DraftPostCard({
           {expandable && <FullScreenButton onClick={() => setFullScreen(true)} />}
           <CardMoreMenu items={moreItems} task={task} />
           {single ? (
-            <CopyForSlack target={partsRef} primary copiedBefore={allCopied} onCopied={recordAll} />
+            <CopyButton target={partsRef} primary copiedBefore={allCopied} onCopied={recordAll} />
           ) : (
-            <CopyForSlack
+            <CopyButton
               target={partsRef}
               label="Copy all"
               testId="draft-post-copy-all"
@@ -192,7 +192,7 @@ function DraftPostPart({
             </span>
           )}
           <span className="ml-auto" />
-          <CopyForSlack target={bodyRef} primary copiedBefore={copiedBefore} onCopied={onCopied} />
+          <CopyButton target={bodyRef} primary copiedBefore={copiedBefore} onCopied={onCopied} />
         </div>
       )}
       <div ref={bodyRef} className={single ? "px-3 py-2.5" : "px-3 pb-2.5 pt-1"}>
@@ -259,10 +259,10 @@ function RemovedPart({ label, open }: { label: string; open: () => ReactNode }) 
   );
 }
 
-function CopyForSlack({
+function CopyButton({
   target,
   primary = false,
-  label = "Copy for Slack",
+  label = "Copy",
   testId = "markdown-draft-copy",
   copiedBefore = false,
   onCopied,

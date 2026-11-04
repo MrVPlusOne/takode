@@ -18,7 +18,7 @@ export const TAKODE_LINK_SYNTAX_INSTRUCTIONS = [
 
 /**
  * Drafts of messages the user will send elsewhere (Slack, email, PR comments) render as a draft card with
- * a Copy for Slack button, so they must not be quoted or italicized.
+ * a Copy button, so they must not be quoted or italicized.
  */
 export const MESSAGE_DRAFT_INSTRUCTIONS = [
   "## Message Drafts",
@@ -33,7 +33,7 @@ export const MESSAGE_DRAFT_INSTRUCTIONS = [
   "```",
   "````",
   "",
-  "Takode shows it as a card that looks like the sent message, with a Copy for Slack button that copies exactly the draft. Do not put drafts in quotes (`>`) or italics: they paste as quotes or italics. Write links as Markdown `[name](url)` and mentions as `@Full Name`, never in Slack's own syntax (`<url|name>`, `<@U…>`, `<#C…>`, `<!here>`): that syntax only works through Slack's API and pastes as broken links or plain text. Keep notes about the draft outside the block, and put each alternative in its own block. If the draft itself contains a code block, open the draft block with four backticks.",
+  "Takode shows it as a card that looks like the sent message, with a Copy button that copies exactly the draft. Do not put drafts in quotes (`>`) or italics: they paste as quotes or italics. Write links as Markdown `[name](url)` and mentions as `@Full Name`, never in Slack's own syntax (`<url|name>`, `<@U…>`, `<#C…>`, `<!here>`): that syntax only works through Slack's API and pastes as broken links or plain text. Keep notes about the draft outside the block, and put each alternative in its own block. If the draft itself contains a code block, open the draft block with four backticks.",
   "",
   "Takode saves every draft in the user's Library and groups its revisions as versions by title. Always start a draft with a `title: <short name>` line and a `---` line, as in the example (neither is shown or copied), even for a short one-off message, and reuse the exact title for each revision in the same thread so it becomes a new version instead of a separate untitled post. Do this even if earlier drafts in this conversation had no title line. Give alternatives different titles. `takode artifact list` and `takode artifact show <id>` find earlier drafts, reports and figures, with links to them.",
   "",

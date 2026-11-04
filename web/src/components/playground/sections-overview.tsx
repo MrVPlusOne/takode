@@ -955,7 +955,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Message Drafts"
-        description="A ```draft block shows the draft as the message it will become, with one Copy for Slack button that copies exactly the draft, formatting kept."
+        description="A ```draft block shows the draft as the message it will become, with one Copy button that copies exactly the draft, formatting kept."
       >
         <div className="space-y-4 max-w-4xl">
           <Card label="Draft card inside an assistant answer">
