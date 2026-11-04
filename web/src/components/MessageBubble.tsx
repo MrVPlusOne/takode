@@ -61,15 +61,7 @@ import {
 import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import { ReadAloudPlayer } from "./ReadAloudPlayer.js";
-import {
-  InlineMessageTimingVisibilityContext,
-  MessageTimeLabel,
-  MessageTimePlaceholder,
-  formatMessageTimeLabel,
-  isValidMessageTimestamp,
-  messageTimeLabelReserve,
-} from "./MessageTimestamp.js";
-import { useLocalToday } from "./local-today.js";
+import { MessageTimeLabel, isValidMessageTimestamp } from "./MessageTimestamp.js";
 import { ContinuedInLinks } from "./QuestForkLinks.js";
 import { TranscriptionTagMarker } from "./TranscriptionTagMarker.js";
 import { shouldShowCompactGuidance } from "../utils/assistant-message-guidance.js";
@@ -386,23 +378,24 @@ export const MessageBubble = memo(function MessageBubble({
 const COLLAPSE_THRESHOLD = 300;
 
 /**
- * Clips long user messages behind Show more. `trailing` (the message time) sits in the
- * lower-right corner: on the last text line, or on the Show more row while clipped.
- * Whether a message with a stable ID is expanded is the session's state, the same in
- * every browser.
+ * A wide feed puts an assistant message's time in the left margin, ending just left of the
+ * paw rail: the rail (14px) and its gap (12px) are how far the text starts right of the
+ * column's edge. Cards around answers add their own offset (`--message-time-card-shift`).
+ */
+const RAIL_TIME_SHIFT = { "--message-time-rail-shift": "1.625rem" } as React.CSSProperties;
+
+/**
+ * Clips long user messages behind Show more. Whether a message with a stable ID is expanded
+ * is the session's state, the same in every browser.
  */
 function CollapsibleContent({
   sessionId,
   messageId,
   children,
-  trailing,
-  trailingReserve,
 }: {
   sessionId?: string;
   messageId: string | null;
   children: React.ReactNode;
-  trailing?: React.ReactNode;
-  trailingReserve?: string;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [needsCollapse, setNeedsCollapse] = useState(false);
@@ -431,12 +424,7 @@ function CollapsibleContent({
   return (
     <div className="relative">
       <div style={isCollapsed ? { maxHeight: COLLAPSE_THRESHOLD, overflow: "hidden" } : undefined}>
-        <div
-          ref={contentRef}
-          data-testid="user-message-content"
-          className={trailing ? "message-time-trail" : undefined}
-          style={trailing ? ({ "--message-time-reserve": trailingReserve } as React.CSSProperties) : undefined}
-        >
+        <div ref={contentRef} data-testid="user-message-content">
           {children}
         </div>
       </div>
@@ -454,7 +442,6 @@ function CollapsibleContent({
           </button>
         </div>
       )}
-      {trailing && <span className="absolute bottom-0.5 right-0 z-10">{trailing}</span>}
     </div>
   );
 }
@@ -911,24 +898,16 @@ function UserMessage({
     setLightboxSelection(null);
   }, [message.id]);
   const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
-  const today = useLocalToday();
   const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
   // In a leader's Main, the strip above the request names the quest it continued in (`MainQuestStrip`).
   const continued = useContinuedQuest(message, currentThreadKey);
   const mainStrips = useContext(MainQuestStripsContext);
   const namedByStrip = !!continued && mainStrips && isMainThreadKey(currentThreadKey ?? "");
-  // A pending message keeps its future time's space invisibly, so landing changes no line breaks.
+  // A pending message holds its time's place invisibly, so landing changes no layout.
   const timeLabel =
     showTimestamp && isValidMessageTimestamp(message.timestamp) ? (
-      message.pendingState ? (
-        <MessageTimePlaceholder timestamp={message.timestamp} />
-      ) : (
-        <MessageTimeLabel id={message.id} side="user" timestamp={message.timestamp} />
-      )
+      <MessageTimeLabel id={message.id} side="user" timestamp={message.timestamp} pending={!!message.pendingState} />
     ) : null;
-  const timeLabelReserve = timeLabel
-    ? messageTimeLabelReserve(formatMessageTimeLabel(message.timestamp, undefined, today))
-    : undefined;
 
   return (
     <div className="relative flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
@@ -941,84 +920,82 @@ function UserMessage({
           <span className="pointer-events-none ml-1 h-px min-w-0 flex-1 bg-gradient-to-r from-amber-300/30 to-amber-300/0" />
         </span>
       )}
-      <div
-        data-testid="user-message-bubble"
-        className="relative z-10 min-w-0 max-w-[calc(100%_-_2rem)] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg"
-      >
-        <MessageThreadHeader
-          threadKey={threadKey}
-          onSelectThread={onSelectThread}
-          message={{ sessionId, id: message.id }}
-        />
-        {onSelectThread && !namedByStrip && (
-          <MessageTopicLabel message={message} sessionId={sessionId} currentThreadKey={currentThreadKey} />
-        )}
-        {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
-        {replyContext && <UserReplyChip previewText={replyContext.previewText} messageId={replyContext.messageId} />}
-        {message.metadata?.vscodeSelection && (
-          <div className="mb-2 flex">
-            <div
-              className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted"
-              title={message.metadata.vscodeSelection.relativePath}
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 opacity-70">
-                <path d="M3.75 1.5A2.25 2.25 0 001.5 3.75v8.5A2.25 2.25 0 003.75 14.5h8.5a2.25 2.25 0 002.25-2.25v-5a.75.75 0 00-1.5 0v5A.75.75 0 0112.25 13h-8.5a.75.75 0 01-.75-.75v-8.5A.75.75 0 013.75 3h5a.75.75 0 000-1.5h-5z" />
-                <path d="M9.53 1.47a.75.75 0 011.06 0l3.94 3.94a.75.75 0 010 1.06l-5.5 5.5a.75.75 0 01-.33.2l-2.5.63a.75.75 0 01-.91-.91l.63-2.5a.75.75 0 01.2-.33l5.5-5.5z" />
-              </svg>
-              <span className="truncate font-mono-code">
-                {formatVsCodeSelectionAttachmentLabel(message.metadata.vscodeSelection)}
-              </span>
-            </div>
-          </div>
-        )}
-        <ImagePreviewGroup
-          key={message.id}
-          images={imagePreviewItems}
-          className="!mt-0 mb-1"
-          testId="user-image-preview-group"
-          onOpenImage={(image) =>
-            setLightboxSelection({
-              id: image.id,
-              src: image.fullUrl,
-              usesLocalPreview: Boolean(image.localImageId && image.fallback),
-            })
-          }
-          onImageSettled={retireLocalImage}
-          onImageError={handleImageError}
-          localPreviewSessionId={sessionId}
-          onLocalPreviewReleased={handleLocalPreviewReleased}
-          size="message"
-        />
-        <CollapsibleContent
-          sessionId={sessionId}
-          messageId={isStarActionableMessage(message) ? message.id : null}
-          trailing={transcribed ? null : timeLabel}
-          trailingReserve={timeLabelReserve}
+      {/* The time sits above the bubble's left edge, or beside it in a wide feed's margin. */}
+      <div className="relative z-10 flex min-w-0 max-w-[calc(100%_-_2rem)] flex-col items-end sm:max-w-[80%] sm:min-w-[200px]">
+        {timeLabel && <div className="self-start">{timeLabel}</div>}
+        <div
+          data-testid="user-message-bubble"
+          className="relative min-w-0 max-w-full self-stretch px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg"
         >
-          {message.metadata?.annotations?.length ? (
-            <AnnotationAttachments annotations={message.metadata.annotations} variant="message" />
-          ) : null}
-          <MarkdownContent
-            text={displayContent}
-            variant="conservative"
-            sessionId={sessionId}
-            searchHighlight={searchHighlight}
-            fileLinkMode={readOnly ? "text-only" : "interactive"}
-            questLinkSurface={questLinkSurface}
+          <MessageThreadHeader
+            threadKey={threadKey}
+            onSelectThread={onSelectThread}
+            message={{ sessionId, id: message.id }}
           />
-        </CollapsibleContent>
-        {transcribed && (
-          <div className="flex items-center justify-between gap-3">
-            <TranscriptionTagMarker testId="user-message-transcribed-tag" />
-            {timeLabel}
-          </div>
-        )}
-        <ContinuedInLinks
-          message={message}
-          currentThreadKey={currentThreadKey}
-          onSelectThread={onSelectThread}
-          exclude={namedByStrip ? continued?.questId : undefined}
-        />
+          {onSelectThread && !namedByStrip && (
+            <MessageTopicLabel message={message} sessionId={sessionId} currentThreadKey={currentThreadKey} />
+          )}
+          {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
+          {replyContext && <UserReplyChip previewText={replyContext.previewText} messageId={replyContext.messageId} />}
+          {message.metadata?.vscodeSelection && (
+            <div className="mb-2 flex">
+              <div
+                className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted"
+                title={message.metadata.vscodeSelection.relativePath}
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 opacity-70">
+                  <path d="M3.75 1.5A2.25 2.25 0 001.5 3.75v8.5A2.25 2.25 0 003.75 14.5h8.5a2.25 2.25 0 002.25-2.25v-5a.75.75 0 00-1.5 0v5A.75.75 0 0112.25 13h-8.5a.75.75 0 01-.75-.75v-8.5A.75.75 0 013.75 3h5a.75.75 0 000-1.5h-5z" />
+                  <path d="M9.53 1.47a.75.75 0 011.06 0l3.94 3.94a.75.75 0 010 1.06l-5.5 5.5a.75.75 0 01-.33.2l-2.5.63a.75.75 0 01-.91-.91l.63-2.5a.75.75 0 01.2-.33l5.5-5.5z" />
+                </svg>
+                <span className="truncate font-mono-code">
+                  {formatVsCodeSelectionAttachmentLabel(message.metadata.vscodeSelection)}
+                </span>
+              </div>
+            </div>
+          )}
+          <ImagePreviewGroup
+            key={message.id}
+            images={imagePreviewItems}
+            className="!mt-0 mb-1"
+            testId="user-image-preview-group"
+            onOpenImage={(image) =>
+              setLightboxSelection({
+                id: image.id,
+                src: image.fullUrl,
+                usesLocalPreview: Boolean(image.localImageId && image.fallback),
+              })
+            }
+            onImageSettled={retireLocalImage}
+            onImageError={handleImageError}
+            localPreviewSessionId={sessionId}
+            onLocalPreviewReleased={handleLocalPreviewReleased}
+            size="message"
+          />
+          <CollapsibleContent sessionId={sessionId} messageId={isStarActionableMessage(message) ? message.id : null}>
+            {message.metadata?.annotations?.length ? (
+              <AnnotationAttachments annotations={message.metadata.annotations} variant="message" />
+            ) : null}
+            <MarkdownContent
+              text={displayContent}
+              variant="conservative"
+              sessionId={sessionId}
+              searchHighlight={searchHighlight}
+              fileLinkMode={readOnly ? "text-only" : "interactive"}
+              questLinkSurface={questLinkSurface}
+            />
+          </CollapsibleContent>
+          {transcribed && (
+            <div className="flex">
+              <TranscriptionTagMarker testId="user-message-transcribed-tag" />
+            </div>
+          )}
+          <ContinuedInLinks
+            message={message}
+            currentThreadKey={currentThreadKey}
+            onSelectThread={onSelectThread}
+            exclude={namedByStrip ? continued?.questId : undefined}
+          />
+        </div>
       </div>
       {!readOnly && !message.pendingState && (
         <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
@@ -1173,8 +1150,6 @@ function AssistantMessage({
   const compactToolActivity = useStore((state) => state.compactToolActivity);
   const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
   const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
-  const showDuration = useContext(InlineMessageTimingVisibilityContext);
-  const today = useLocalToday();
   const starred = useFeedStarredMessage(sessionId, message);
   const starAction = useMessageStarActions(sessionId, message);
   const sideChat = useSideChatForMessage(sessionId, message);
@@ -1229,49 +1204,6 @@ function AssistantMessage({
         turnDurationMs={message.turnDurationMs}
       />
     ) : null;
-  const timeLabelReserve = timeLabel
-    ? messageTimeLabelReserve(
-        formatMessageTimeLabel(message.timestamp, showDuration ? message.turnDurationMs : undefined, today),
-      )
-    : undefined;
-  // The time trails the last line of text when the message ends with text; otherwise it
-  // gets its own line under the message.
-  const lastGroup = renderedGroups[renderedGroups.length - 1];
-  const nothingAfterText =
-    !collapseRejectedText &&
-    assistantImagePreviewItems.length === 0 &&
-    !(!readOnly && resolvedNotification) &&
-    !(!readOnly && compactInlineNotificationCategory) &&
-    !(showSideChatActions && sideChat);
-  const trailingTextIndex =
-    timeLabel && nothingAfterText
-      ? blocks.length === 0 && projection.shouldRenderContentFallback
-        ? -1
-        : lastGroup?.kind === "content" && lastGroup.block.type === "text"
-          ? renderedGroups.length - 1
-          : null
-      : null;
-  const trailingTime = (index: number) =>
-    trailingTextIndex === index ? <span className="absolute bottom-0.5 right-0 z-10">{timeLabel}</span> : null;
-  // On phones the "⋯" button always shows, floating at the top right of the first text
-  // block. When the time trails that same block, a one-line message would put the time
-  // under the button, so the block is made tall enough for the time to get a line below it:
-  // two text lines at the default line height, so longer messages keep their height.
-  const timeBesideMenu = !readOnly && hasTextContent && trailingTextIndex === firstContentGroupIndex;
-  const trailingProps = (index: number) =>
-    trailingTextIndex === index
-      ? {
-          className: `relative message-time-trail${timeBesideMenu ? " max-sm:min-h-10" : ""}`,
-          style: { "--message-time-reserve": timeLabelReserve } as React.CSSProperties,
-        }
-      : { className: "relative" };
-  const ownLineTime =
-    timeLabel && trailingTextIndex === null ? (
-      <div data-testid="message-time-own-line" className="!mt-1 text-right">
-        {timeLabel}
-      </div>
-    ) : null;
-
   if (!projection.renderable) return null;
 
   if (blocks.length === 0 && projection.shouldRenderContentFallback) {
@@ -1285,7 +1217,8 @@ function AssistantMessage({
           ) : (
             <PawTrailAvatar messageId={message.id} />
           ))}
-        <div ref={contentRef} className="relative flex-1 min-w-0">
+        <div ref={contentRef} className="relative flex-1 min-w-0" style={showRailMarker ? RAIL_TIME_SHIFT : undefined}>
+          {timeLabel}
           <ImagePathLinkContext.Provider value={imagePathLinks.links}>
             <ArtifactMarkersContext.Provider value={readOnly ? undefined : message.metadata?.artifacts}>
               {!readOnly && (
@@ -1312,7 +1245,7 @@ function AssistantMessage({
                       showSideChatActions={showSideChatActions}
                     />
                   )}
-                  <div {...trailingProps(-1)}>
+                  <div className="relative">
                     {readOnly ? (
                       <MarkdownContent
                         text={projection.fallbackText}
@@ -1330,7 +1263,6 @@ function AssistantMessage({
                         questLinkSurface={questLinkSurface}
                       />
                     )}
-                    {trailingTime(-1)}
                   </div>
                 </>
               )}
@@ -1353,7 +1285,6 @@ function AssistantMessage({
             />
           )}
           {projection.quietSummary && <QuietTurnNote summary={projection.quietSummary} />}
-          {ownLineTime}
           {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
         </div>
       </div>
@@ -1370,7 +1301,12 @@ function AssistantMessage({
         ) : (
           <PawTrailAvatar messageId={message.id} />
         ))}
-      <div ref={contentRef} className="relative flex-1 min-w-0 space-y-3">
+      <div
+        ref={contentRef}
+        className="relative flex-1 min-w-0 space-y-3"
+        style={showRailMarker ? RAIL_TIME_SHIFT : undefined}
+      >
+        {timeLabel}
         <ImagePathLinkContext.Provider value={imagePathLinks.links}>
           <ArtifactMarkersContext.Provider value={readOnly ? undefined : message.metadata?.artifacts}>
             {!readOnly && (
@@ -1433,15 +1369,6 @@ function AssistantMessage({
                     questLinkSurface={questLinkSurface}
                   />
                 );
-                const textBlock =
-                  trailingTextIndex === i ? (
-                    <div {...trailingProps(i)}>
-                      {renderedBlock}
-                      {trailingTime(i)}
-                    </div>
-                  ) : (
-                    renderedBlock
-                  );
                 if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
                   return (
                     <div key={i} className="flow-root">
@@ -1454,11 +1381,11 @@ function AssistantMessage({
                           showSideChatActions={showSideChatActions}
                         />
                       )}
-                      {textBlock}
+                      {renderedBlock}
                     </div>
                   );
                 }
-                return trailingTextIndex === i ? <div key={i}>{textBlock}</div> : renderedBlock;
+                return renderedBlock;
               }
               if (group.kind === "tool_activity") {
                 return (
@@ -1531,7 +1458,6 @@ function AssistantMessage({
           />
         )}
         {projection.quietSummary && <QuietTurnNote summary={projection.quietSummary} />}
-        {ownLineTime}
         {showSideChatActions && sideChat && <SideChatSummary sideChat={sideChat} sessionId={sessionId} />}
       </div>
     </div>

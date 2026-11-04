@@ -99,30 +99,25 @@ export function MessageTimestamp({ timestamp, turnDurationMs }: { timestamp: num
 }
 
 /**
- * Room the label needs at the end of a message's last line, as a CSS length. Labels use
- * 11px text, roughly 6px per character.
- */
-export function messageTimeLabelReserve(text: string): string {
-  return `${text.length * 6 + 10}px`;
-}
-
-/**
- * A message's time in the feed. When a newer message from the same side covers it, the
- * label turns invisible but keeps its space, so nothing in the feed moves. `data-feed-time`
- * lets the feed's day pill find which day is at the top of the view.
+ * A message's time in the feed, at the message's start: on a line of its own just above the
+ * message, or, where the feed has a wide enough left margin, in that margin beside the first
+ * line (`.message-start-time` in index.css). When an earlier message from the same side already
+ * shows a time less than MESSAGE_TIME_CLUSTER_MS before it, the label takes no room and shows
+ * nothing. A pending message (not delivered yet) holds its label's place invisibly, so landing
+ * moves nothing. `data-feed-time` lets the feed's day pill find which day is at the top of the view.
  */
 export function MessageTimeLabel({
   id,
   side,
   timestamp,
   turnDurationMs,
-  className = "",
+  pending = false,
 }: {
   id: string;
   side: MessageTimeSide;
   timestamp: number;
   turnDurationMs?: number;
-  className?: string;
+  pending?: boolean;
 }) {
   const hidden = useMessageTimeLabelHidden(id, side, timestamp);
   const showDuration = useContext(InlineMessageTimingVisibilityContext);
@@ -132,33 +127,17 @@ export function MessageTimeLabel({
   return (
     <time
       data-testid="message-time-label"
+      data-side={side}
       data-hidden={hidden ? "true" : undefined}
+      data-pending={pending ? "true" : undefined}
       data-feed-time={timestamp}
       dateTime={new Date(timestamp).toISOString()}
       title={formatExactMessageTimestamp(timestamp, today)}
-      aria-hidden={hidden ? true : undefined}
-      className={`whitespace-nowrap text-[11px] leading-4 tabular-nums text-cc-muted/70 ${hidden ? "invisible" : ""} ${className}`}
+      aria-hidden={hidden || pending ? true : undefined}
+      className={`message-start-time text-[11px] leading-4 tabular-nums text-cc-muted/70 ${pending ? "invisible" : ""}`}
     >
       {text}
     </time>
-  );
-}
-
-/**
- * Holds a time label's space without showing it, for a message that has not landed yet.
- * It stays out of the feed's label clustering, which only counts delivered messages.
- */
-export function MessageTimePlaceholder({ timestamp }: { timestamp: number }) {
-  const text = formatMessageTimeLabel(timestamp, undefined, useLocalToday());
-  if (!text) return null;
-  return (
-    <span
-      aria-hidden="true"
-      data-testid="message-time-placeholder"
-      className="invisible whitespace-nowrap text-[11px] leading-4 tabular-nums"
-    >
-      {text}
-    </span>
   );
 }
 

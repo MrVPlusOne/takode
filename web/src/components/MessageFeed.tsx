@@ -1869,7 +1869,8 @@ export function MessageFeed({
           data-feed-thread-key={normalizedThreadKey}
           data-feed-key={feedKey ?? undefined}
           data-feed-has-newer={hasNewerSections ? "true" : undefined}
-          className="message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
+          // A named container: message times move into the left margin when the feed is wide enough.
+          className="@container/feed message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
           // Quest chips float at the top: the feed starts below them, so its first line stays clear.
           style={feedScrollStyle(topRoom)}
         >

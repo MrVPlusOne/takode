@@ -687,9 +687,9 @@ describe("MessageFeed - empty state", () => {
     expect(screen.getByText(/Preserve unknown-route pending input/)).toBeTruthy();
   });
 
-  it("keeps a pending message's corner time invisible but holds its space", () => {
-    // Delivered user bubbles reserve room for their corner time even when it is hidden,
-    // so a pending bubble holds the same room and landing changes no line breaks.
+  it("keeps a pending message's time invisible but holds its place", () => {
+    // A pending bubble keeps its time label, invisible, where the delivered message shows it,
+    // so landing changes nothing in the layout.
     const sid = "test-pending-upload-time-space";
     setStoreMessages(sid, []);
     setStorePendingUserUploads(sid, [
@@ -705,11 +705,9 @@ describe("MessageFeed - empty state", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByText("Pending timing boundary")).toBeTruthy();
-    expect(screen.queryByTestId("message-time-label")).toBeNull();
-    const placeholder = screen.getByTestId("message-time-placeholder");
-    expect(placeholder.className).toContain("invisible");
-    // The last line reserves room for the time, as it does for a delivered message.
-    expect(document.querySelector(".message-time-trail")).toBeTruthy();
+    const time = screen.getByTestId("message-time-label");
+    expect(time.getAttribute("data-pending")).toBe("true");
+    expect(time.className).toContain("invisible");
   });
 
   it("renders prepared local messages as pending delivery while awaiting server acknowledgement", () => {

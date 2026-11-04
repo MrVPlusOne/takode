@@ -2,7 +2,7 @@ import { dividersAboveStrips } from "./feed-strip-dividers.js";
 import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 import { MainQuestStrip, MainQuestStripsContext, mainQuestStrips } from "./MainQuestStrip.js";
 import { StartedQuestsContext } from "./QuestForkLinks.js";
-import { Fragment, memo, useContext, useMemo, type ComponentProps, type ReactNode } from "react";
+import { Fragment, memo, useContext, useMemo, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { ChatMessage } from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { getEntryId, isUserBoundaryEntry, type FeedEntry, type Turn } from "../hooks/use-feed-model.js";
@@ -129,6 +129,11 @@ function questCompletionSummaryHost(
   if (nextIndex === 0) return hasOlderSections ? null : turns[0].id;
   return turns[nextIndex - 1].id;
 }
+
+/** Card border (1px) and row padding (12px): see the collapsed answer card below. */
+const CARD_TIME_SHIFT = { "--message-time-card-shift": "13px" } as CSSProperties;
+/** The same with the paw (14px) and its gap (12px) before the card. */
+const PAW_CARD_TIME_SHIFT = { "--message-time-card-shift": "39px" } as CSSProperties;
 
 function CollapsedTurnContent({
   turn,
@@ -334,7 +339,10 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
       <div
         key={run.key}
         className={
-          run.activity ? "space-y-2 border-l border-cc-border/70 pl-7 sm:space-y-3 sm:pl-9" : "space-y-2 sm:space-y-3"
+          run.activity
+            ? // The rail's border and padding indent its messages; their margin times allow for it.
+              "space-y-2 border-l border-cc-border/70 pl-7 [--message-time-activity-shift:29px] sm:space-y-3 sm:pl-9 sm:[--message-time-activity-shift:37px]"
+            : "space-y-2 sm:space-y-3"
         }
         data-turn-activity={run.activity ? "true" : undefined}
       >
@@ -696,9 +704,14 @@ export const TurnEntries = memo(function TurnEntries({
                           {!hasCollapsedCurrentAnswer && (
                             <PawTrailAvatar messageId={collapsedPawMessageId(turn, unansweredMessageEntry)} />
                           )}
-                          {/* Clip, not hide: a hidden overflow is a scroll container, which would keep an
-                            expanded report's collapse bar from sticking to the feed's top. */}
-                          <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-clip">
+                          {/* Not clipped: message times sit outside the card, in the feed's left margin. The
+                            shift is how far the card's text starts right of the column's edge (the paw
+                            and its gap, then the card's border and padding), so those times line up
+                            with the rest of the feed's. */}
+                          <div
+                            className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20"
+                            style={hasCollapsedCurrentAnswer ? CARD_TIME_SHIFT : PAW_CARD_TIME_SHIFT}
+                          >
                             <CollapsedTurnContent
                               turn={turn}
                               sessionId={sessionId}

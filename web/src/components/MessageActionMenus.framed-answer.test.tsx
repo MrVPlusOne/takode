@@ -23,7 +23,7 @@ import { useStore } from "../store.js";
 
 const SESSION_ID = "framed-answer-session";
 
-/** A leader answer naming no request, framed as a "New result" card, with its corner time. */
+/** A leader answer naming no request, framed as a "New result" card, with its time. */
 function renderFramedNewResult() {
   const message: ChatMessage = {
     id: "framed-new-result",
@@ -52,13 +52,13 @@ describe("message options button on a framed answer card", () => {
     useStore.setState({ sessions: new Map(), replyContexts: new Map(), compactToolActivity: false });
   });
 
-  it("is not painted under the positioned text and corner time that follow it", () => {
-    // Regression: the "⋯" button floats right in the answer's first line, and the text
-    // wrapper after it is `relative` for the corner time. Browsers paint (and hit-test) a
-    // positioned box over a plain float, so the button showed on hover but no click reached
-    // it. jsdom has no layout, so this checks the stacking rule the browser applies: the
-    // button's row must itself be positioned, with a z-index at least that of every
-    // positioned element after it in the message (later elements win ties).
+  it("is not painted under positioned content that follows it", () => {
+    // Regression: the "⋯" button floats right in the answer's first line. Browsers paint (and
+    // hit-test) a positioned box over a plain float, so when the text after it was positioned
+    // (it was, for the old corner time) the button showed on hover but took no click. jsdom
+    // has no layout, so this checks the stacking rule the browser applies: the button's row
+    // must itself be positioned, with a z-index above every positioned element after it in
+    // the message (later elements win ties).
     renderFramedNewResult();
     expect(screen.getByTestId("thread-response-current-expanded")).toBeTruthy();
     const row = document.querySelector("[data-message-action-menu-row]")!;
@@ -66,9 +66,9 @@ describe("message options button on a framed answer card", () => {
     const later = [...message.querySelectorAll("*")].filter(
       (element) => positioned(element) && row.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    // The corner time's wrapper and label are among them, or the check would prove nothing.
-    expect(later.some((element) => element.classList.contains("message-time-trail"))).toBe(true);
-    expect(later.some((element) => element.querySelector("[data-testid=message-time-label]"))).toBe(true);
+    // The message's time now comes before the button, at the message's start.
+    const time = message.querySelector("[data-testid=message-time-label]")!;
+    expect(time.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     expect(positioned(row)).toBe(true);
     for (const element of later) expect(zIndexClass(row)).toBeGreaterThan(zIndexClass(element));

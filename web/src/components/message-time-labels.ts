@@ -1,8 +1,8 @@
 import { createContext, useContext, useLayoutEffect, useSyncExternalStore } from "react";
 
 /**
- * A message shows no time of its own when the next time shown on its side of the feed
- * is less than this much later. Labels have minute resolution, so within a couple of
+ * A message shows no time of its own when the last time shown before it on its side of the
+ * feed is less than this much earlier. Labels have minute resolution, so within a couple of
  * minutes a second label repeats nearly the same time; from three minutes apart the
  * difference starts to say something.
  */
@@ -17,25 +17,24 @@ interface MessageTimeEntry {
 }
 
 /**
- * Which messages' time labels to hide: within a run of consecutive messages from the
- * same side, a message is covered by the next label shown after it when that label is
- * less than MESSAGE_TIME_CLUSTER_MS later. A message from the other side ends the run.
- * Hiding depends only on newer messages, so loading older history never changes the
- * labels already on screen.
+ * Which messages' time labels to hide: within a run of consecutive messages from the same
+ * side, a message shows no time when the last label shown before it is less than
+ * MESSAGE_TIME_CLUSTER_MS earlier. Times sit at the start of messages, so a run reads as
+ * starting at its first time. A message from the other side ends the run. Hiding depends only
+ * on older messages, so a new message never changes the labels above it.
  */
 export function hiddenMessageTimeLabels(entries: readonly MessageTimeEntry[]): Set<string> {
   const sorted = [...entries].sort((a, b) => a.timestamp - b.timestamp);
   const hidden = new Set<string>();
-  let nextSide: MessageTimeSide | null = null;
-  let nextShownAt = Number.POSITIVE_INFINITY;
-  for (let index = sorted.length - 1; index >= 0; index--) {
-    const entry = sorted[index]!;
-    if (entry.side === nextSide && nextShownAt - entry.timestamp < MESSAGE_TIME_CLUSTER_MS) {
+  let previousSide: MessageTimeSide | null = null;
+  let lastShownAt = Number.NEGATIVE_INFINITY;
+  for (const entry of sorted) {
+    if (entry.side === previousSide && entry.timestamp - lastShownAt < MESSAGE_TIME_CLUSTER_MS) {
       hidden.add(entry.id);
     } else {
-      nextShownAt = entry.timestamp;
+      lastShownAt = entry.timestamp;
     }
-    nextSide = entry.side;
+    previousSide = entry.side;
   }
   return hidden;
 }
@@ -85,7 +84,7 @@ export const MessageTimeLabelContext = createContext<MessageTimeLabelStore | nul
 
 const subscribeNothing = () => () => {};
 
-/** Whether a newer message on the same side covers this message's time. False outside a feed. */
+/** Whether an earlier message on the same side covers this message's time. False outside a feed. */
 export function useMessageTimeLabelHidden(id: string, side: MessageTimeSide, timestamp: number): boolean {
   const store = useContext(MessageTimeLabelContext);
   useLayoutEffect(() => store?.register({ id, side, timestamp }), [store, id, side, timestamp]);

@@ -7,6 +7,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -659,6 +660,8 @@ export function ExpandedCurrentThreadResponse(props: Parameters<typeof AnsweredM
     <div
       className={props.answer ? "rounded-xl border border-cc-primary/25 px-2.5 py-2 sm:px-3" : undefined}
       data-testid={props.answer ? "thread-response-current-expanded" : undefined}
+      // Its border and padding indent the answer; message times in the left margin allow for it.
+      style={props.answer ? ({ "--message-time-answer-shift": "13px" } as CSSProperties) : undefined}
     >
       <AnsweredMessage {...props} />
     </div>

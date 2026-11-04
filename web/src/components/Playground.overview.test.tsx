@@ -31,7 +31,7 @@ installPlaygroundTestEnvironment();
 // suite runs need more than the default 10 s (some took 30-45 s with two full runs at
 // once on the DevBox); tests with larger needs set their own.
 describe("Playground", { timeout: 60_000 }, () => {
-  it("documents corner message times, clustering and menu time metadata", async () => {
+  it("documents message start times, clustering and menu time metadata", async () => {
     useStore.getState().reset();
     render(<PlaygroundOverviewOnly />);
 
@@ -41,14 +41,14 @@ describe("Playground", { timeout: 60_000 }, () => {
     const leaderTiming = within(screen.getByTestId("playground-leader-inline-timing"));
     expect(leaderTiming.getByTestId("message-time-label")).not.toHaveTextContent("·");
 
-    // In the clustered exchange, the older message of each close pair keeps an invisible label.
+    // In the clustered exchange, the newer message of each close pair hides its label.
     const clustered = within(screen.getByTestId("playground-clustered-message-times"));
     await waitFor(() => {
       expect(clustered.getAllByTestId("message-time-label").map((label) => label.dataset.hidden === "true")).toEqual([
-        true,
         false,
         true,
         false,
+        true,
         false,
       ]);
     });

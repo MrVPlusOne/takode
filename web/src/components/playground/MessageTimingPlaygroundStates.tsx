@@ -26,7 +26,7 @@ const TIMED_LEADER_MESSAGE: ChatMessage = {
 };
 
 // A short exchange: the user sends two messages a minute apart, then two answers arrive a
-// minute apart, then a later answer. Only the newer message of each close pair shows its time.
+// minute apart, then a later answer. Only the first message of each close pair shows its time.
 const CLUSTERED_MESSAGES: ChatMessage[] = [
   { id: "playground-time-u1", role: "user", content: "Can you check the build?", timestamp: NOW - 20 * MINUTE },
   {
@@ -122,7 +122,7 @@ export function PlaygroundMessageTimingStates() {
   return (
     <Section
       title="Message Times"
-      description="Each message shows its time in the lower-right corner: on its transcribed line, or at the end of its last text line. Within a run on one side, a message less than 3 minutes before the next shown time keeps an invisible label, so nothing shifts. Normal feeds add the turn duration; exact time stays in the options menu. Messages not from today add their day (Yesterday, a weekday within the week, then the date), and a pill at the top of the feed names the day there whenever it isn't today."
+      description="Each message shows its time at its start: a small line right above it (as here, and on phones), or, in a feed with a wide enough left margin, in that margin beside the first line. Within a run on one side, a message less than 3 minutes after the last shown time shows none and takes no room. Normal feeds add the turn duration; exact time stays in the options menu. Messages not from today add their day (Yesterday, a weekday within the week, then the date), and a pill at the top of the feed names the day there whenever it isn't today."
     >
       <div className="grid max-w-3xl gap-4 md:grid-cols-2">
         <Card label="Normal session">

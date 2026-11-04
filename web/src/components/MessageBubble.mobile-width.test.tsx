@@ -66,8 +66,12 @@ describe("MessageBubble mobile width", () => {
     const msg = makeMessage({ role: "user", content: "Use more of the mobile line width" });
     render(<MessageBubble message={msg} />);
 
-    const className = screen.getByTestId("user-message-bubble").className;
+    // The width limits sit on the column that holds the bubble and its time above it; the
+    // bubble fills that column.
+    const bubble = screen.getByTestId("user-message-bubble");
+    const className = bubble.parentElement!.className;
     expect(className).toContain("max-w-[calc(100%_-_2rem)]");
     expect(className).toContain("sm:max-w-[80%]");
+    expect(bubble.className).toContain("self-stretch");
   });
 });

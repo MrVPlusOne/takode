@@ -5,13 +5,14 @@ const MINUTE = 60_000;
 const at = (minutes: number) => 1_000_000_000_000 + minutes * MINUTE;
 
 describe("hiddenMessageTimeLabels", () => {
-  it("hides an older label when the next message on the same side is under the cluster gap later", () => {
-    // Two quick assistant messages: only the newer one keeps its time.
+  it("hides a newer label when the previous message on the same side is under the cluster gap earlier", () => {
+    // Times sit at the start of messages, so two quick answers read as one run that started
+    // at the first answer's time: only the older one keeps its label.
     const hidden = hiddenMessageTimeLabels([
       { id: "a1", side: "assistant", timestamp: at(0) },
       { id: "a2", side: "assistant", timestamp: at(2) },
     ]);
-    expect([...hidden]).toEqual(["a1"]);
+    expect([...hidden]).toEqual(["a2"]);
   });
 
   it("keeps both labels once messages are at least the cluster gap apart", () => {
@@ -22,10 +23,10 @@ describe("hiddenMessageTimeLabels", () => {
     expect(hidden.size).toBe(0);
   });
 
-  it("measures against the next label shown, so a long chain of close messages still gets periodic times", () => {
+  it("measures against the last label shown, so a long chain of close messages still gets periodic times", () => {
     // Every message is 1 minute after the previous one. Measuring only against the
-    // immediate neighbour would hide everything but the last; instead no visible label
-    // is ever 3 or more minutes away from a hidden message it covers.
+    // immediate neighbour would hide everything but the first; instead no hidden message
+    // is 3 or more minutes after the visible label that covers it.
     const entries = [0, 1, 2, 3, 4, 5, 6].map((minute) => ({
       id: `u${minute}`,
       side: "user" as const,
@@ -51,6 +52,6 @@ describe("hiddenMessageTimeLabels", () => {
       { id: "newer", side: "assistant", timestamp: at(1) },
       { id: "older", side: "assistant", timestamp: at(0) },
     ]);
-    expect([...hidden]).toEqual(["older"]);
+    expect([...hidden]).toEqual(["newer"]);
   });
 });

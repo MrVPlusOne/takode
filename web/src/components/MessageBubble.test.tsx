@@ -209,9 +209,10 @@ describe("MessageBubble - user messages", () => {
     expect(screen.queryByTestId("user-message-transcribed-tag")).toBeNull();
   });
 
-  it("puts the user message time at the end of the last text line", () => {
-    // Without a footer line the time trails the text: the content reserves room for it at
-    // the end of its last line (message-time-trail), so it usually costs no extra height.
+  it("puts the user message time above the bubble's left edge, ahead of the text", () => {
+    // Times sit at the start of messages so you can see how new one is before reading it.
+    // The label comes first in the column that holds the bubble, aligned to its start, and
+    // nothing is kept in the bubble's last line for it any more.
     const ts = 1700000000000;
     const msg = makeMessage({ role: "user", content: "With timestamp", timestamp: ts });
     render(<MessageBubble message={msg} />);
@@ -220,26 +221,31 @@ describe("MessageBubble - user messages", () => {
     expect(time.getAttribute("dateTime")).toBe(new Date(ts).toISOString());
     // The label carries the day too (this timestamp is from 2023), as every message time does.
     expect(time.textContent).toBe(formatMessageTimestamp(ts));
-    expect(screen.getByTestId("user-message-content").className).toContain("message-time-trail");
+    expect(time.classList.contains("message-start-time")).toBe(true);
+    expect(time.getAttribute("data-side")).toBe("user");
+    const bubble = screen.getByTestId("user-message-bubble");
+    expect(time.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bubble.contains(time)).toBe(false);
+    expect(time.parentElement?.className).toContain("self-start");
   });
 
-  it("shares the transcribed line with the user message time instead of adding a line", () => {
+  it("keeps the transcribed line to the transcription marker", () => {
     const msg = makeMessage({ role: "user", content: "Dictated request\n[transcribed]", timestamp: 1700000000000 });
     render(<MessageBubble message={msg} />);
 
     const tag = screen.getByTestId("user-message-transcribed-tag");
-    expect(tag.parentElement?.contains(screen.getByTestId("message-time-label"))).toBe(true);
-    expect(screen.getByTestId("user-message-content").className).not.toContain("message-time-trail");
+    expect(tag.parentElement?.contains(screen.getByTestId("message-time-label"))).toBe(false);
   });
 
-  it("holds a pending user message's time space without showing a time", () => {
-    // The pending bubble must match its delivered form's layout, so the time's room is kept invisibly.
+  it("holds a pending user message's time place without showing a time", () => {
+    // The pending bubble must match its delivered form's layout, so its label is there, invisible.
     const msg = makeMessage({ role: "user", content: "Sending", timestamp: 1700000000000, pendingState: "queued" });
     render(<MessageBubble message={msg} />);
 
-    expect(screen.queryByTestId("message-time-label")).toBeNull();
-    expect(screen.getByTestId("message-time-placeholder").className).toContain("invisible");
-    expect(screen.getByTestId("user-message-content").className).toContain("message-time-trail");
+    const time = screen.getByTestId("message-time-label");
+    expect(time.getAttribute("data-pending")).toBe("true");
+    expect(time.className).toContain("invisible");
+    expect(time.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("renders the stable thread source badge for user messages", () => {
@@ -1372,94 +1378,53 @@ describe("MessageBubble - assistant messages", () => {
     expect(markdownBlocks[1].textContent).toBe("Final status for user @to(user)");
   });
 
-  it("puts the assistant message time at the end of its last text line", () => {
+  it("puts the assistant message time ahead of the message, whatever it ends with", () => {
+    // The label is the first thing in the message's content, before its text or tool cards,
+    // so it marks where the message starts; there is no lower-right time any more.
     const ts = 1700000003000;
-    const msg = makeMessage({ role: "assistant", content: "Timed response", timestamp: ts });
-    render(<MessageBubble message={msg} />);
-
-    const time = screen.getByTestId("message-time-label");
-    expect(time.getAttribute("dateTime")).toBe(new Date(ts).toISOString());
-    expect(time.closest(".message-time-trail")).not.toBeNull();
-    expect(screen.queryByTestId("message-time-own-line")).toBeNull();
+    for (const msg of [
+      makeMessage({ role: "assistant", content: "Timed response", timestamp: ts }),
+      makeMessage({
+        role: "assistant",
+        content: "",
+        timestamp: ts,
+        contentBlocks: [
+          { type: "text", text: "Running it" },
+          { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "ls" } },
+        ],
+      }),
+    ]) {
+      const view = render(<MessageBubble message={msg} />);
+      const time = screen.getByTestId("message-time-label");
+      expect(time.getAttribute("dateTime")).toBe(new Date(ts).toISOString());
+      expect(time.getAttribute("data-side")).toBe("assistant");
+      expect(time.parentElement?.firstElementChild).toBe(time);
+      expect(
+        time.compareDocumentPosition(screen.getAllByTestId("markdown")[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      view.unmount();
+    }
   });
 
-  it("on phones, makes room for the time below the options button when both share the first text block", () => {
-    // The "⋯" button floats at the top right of the first text block and always shows on
-    // phones. A one-line message would put the trailing time under it, so that block gets a
-    // phone-only minimum height that pushes the time to a line below the button. The class
-    // is set from the message's structure at render, never from measurement, so the feed
-    // does not shift. Real-browser geometry is checked at validation; jsdom has no layout.
-    const PHONE_TIME_ROOM = "max-sm:min-h-10";
-    const trailOf = () => screen.getByTestId("message-time-label").closest(".message-time-trail")!;
-
-    const short = render(
-      <MessageBubble
-        message={makeMessage({ role: "assistant", content: "Quest closed.", timestamp: 1700000003000 })}
-      />,
+  it("tells a margin time how far the paw rail indents the message", () => {
+    // In a wide feed the time moves into the left margin and must end left of the paw rail;
+    // the rail's width reaches the CSS through a variable on the message content.
+    const view = render(
+      <MessageBubble message={makeMessage({ role: "assistant", content: "Hi", timestamp: 1700000003000 })} />,
     );
-    expect(trailOf().classList.contains(PHONE_TIME_ROOM)).toBe(true);
-    short.unmount();
+    const content = screen.getByTestId("message-time-label").parentElement!;
+    expect(content.style.getPropertyValue("--message-time-rail-shift")).toBe("1.625rem");
+    view.unmount();
 
-    // Tool activity first: the button floats in the first text block, which the time also trails.
-    const afterTool = render(
-      <MessageBubble
-        message={makeMessage({
-          role: "assistant",
-          content: "",
-          timestamp: 1700000003000,
-          contentBlocks: [
-            { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "ls" } },
-            { type: "text", text: "Done." },
-          ],
-        })}
-      />,
-    );
-    expect(trailOf().classList.contains(PHONE_TIME_ROOM)).toBe(true);
-    afterTool.unmount();
-
-    // The time trails a later text block than the button's: they cannot meet.
-    const twoBlocks = render(
-      <MessageBubble
-        message={makeMessage({
-          role: "assistant",
-          content: "",
-          timestamp: 1700000003000,
-          contentBlocks: [
-            { type: "text", text: "Checking." },
-            { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "ls" } },
-            { type: "text", text: "Done." },
-          ],
-        })}
-      />,
-    );
-    expect(trailOf().classList.contains(PHONE_TIME_ROOM)).toBe(false);
-    twoBlocks.unmount();
-
-    // Read-only views have no options button.
+    // Inside an answer card the paw is the card's, so the message adds nothing of its own.
     render(
-      <MessageBubble
-        message={makeMessage({ role: "assistant", content: "Quest closed.", timestamp: 1700000003000 })}
-        interactionMode="read-only"
-      />,
+      <HidePawContext.Provider value={true}>
+        <MessageBubble message={makeMessage({ role: "assistant", content: "Hi", timestamp: 1700000003000 })} />
+      </HidePawContext.Provider>,
     );
-    expect(trailOf().classList.contains(PHONE_TIME_ROOM)).toBe(false);
-  });
-
-  it("gives the assistant time its own line when the message ends with something other than text", () => {
-    // A trailing tool card would sit under a time placed on the last text line, so the
-    // time moves below the whole message instead.
-    const msg = makeMessage({
-      role: "assistant",
-      content: "",
-      timestamp: 1700000003000,
-      contentBlocks: [
-        { type: "text", text: "Running it" },
-        { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "ls" } },
-      ],
-    });
-    render(<MessageBubble message={msg} />);
-
-    expect(screen.getByTestId("message-time-own-line").contains(screen.getByTestId("message-time-label"))).toBe(true);
+    expect(
+      screen.getByTestId("message-time-label").parentElement!.style.getPropertyValue("--message-time-rail-shift"),
+    ).toBe("");
   });
 
   it("shows assistant turn duration next to the time when present", () => {
@@ -1475,9 +1440,9 @@ describe("MessageBubble - assistant messages", () => {
     expect(screen.getByTestId("message-time-label").textContent).toContain("5.2s");
   });
 
-  it("hides the time of a message a newer one on the same side covers, keeping its space", () => {
-    // Two answers a minute apart: only the newer keeps a visible time. The older label
-    // stays in the layout (invisible) so the feed never shifts when a close message arrives.
+  it("hides the time of a message an earlier one on the same side covers", () => {
+    // Two answers a minute apart read as one run that started at the first: only the older
+    // keeps its time. A hidden label is marked for the CSS, which gives it no room.
     const store = new MessageTimeLabelStore();
     const older = makeMessage({ id: "a-older", role: "assistant", content: "First", timestamp: 1700000000000 });
     const newer = makeMessage({ id: "a-newer", role: "assistant", content: "Second", timestamp: 1700000060000 });
@@ -1490,9 +1455,9 @@ describe("MessageBubble - assistant messages", () => {
 
     return waitFor(() => {
       const [olderTime, newerTime] = screen.getAllByTestId("message-time-label");
-      expect(olderTime.className).toContain("invisible");
-      expect(olderTime.getAttribute("data-hidden")).toBe("true");
-      expect(newerTime.className).not.toContain("invisible");
+      expect(olderTime.getAttribute("data-hidden")).toBeNull();
+      expect(newerTime.getAttribute("data-hidden")).toBe("true");
+      expect(newerTime.getAttribute("aria-hidden")).toBe("true");
     });
   });
 

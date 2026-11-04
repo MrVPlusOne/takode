@@ -1487,23 +1487,58 @@ select {
 }
 
 /*
- * Message time labels sit in the lower-right corner of a message, on its last line of
- * text when there is room (like a phone messenger). An invisible spacer at the end of the
- * last paragraph or list item keeps that room free; when the line is full the spacer wraps
- * and the time gets the new line. Text that ends some other way (code, a table, a quote)
- * gets a line for the time below it.
+ * A message's time sits at its start, so you see how new a message is before reading it.
+ * By default (phones, and feeds without a wide left margin) it is a small line right above
+ * the message, aligned with its left edge: tight to the message below and with the feed's
+ * usual gap above, so it reads as that message's label. A time hidden by clustering takes
+ * no room.
  */
-.message-time-trail .markdown-body > p:last-child::after,
-.message-time-trail .markdown-body > :is(ul, ol):last-child > li:last-child::after {
-  content: "";
-  display: inline-block;
-  width: var(--message-time-reserve, 3.5rem);
+.message-start-time {
+  display: block;
+  width: fit-content;
+  white-space: nowrap;
+  margin-bottom: 0.125rem;
+}
+.message-start-time[data-hidden="true"] {
+  visibility: hidden;
+  height: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+}
+/* A message whose content is spaced with space-y-* keeps its first line tight to the label. */
+.message-start-time + * {
+  margin-top: 0 !important;
 }
 
-.message-time-trail .markdown-body:not(:has(> :is(p, ul, ol):last-child))::after {
-  content: "";
-  display: block;
-  height: 1rem;
+/*
+ * Where the feed has a left margin wide enough for the label (its content area at least
+ * 59rem, so each margin is at least about 5.5rem beside the 48rem column), the time moves
+ * into that margin, level with the message's first line, and takes no vertical room. An
+ * assistant message's label ends just left of the paw rail, so assistant times line up: the
+ * `--message-time-*-shift` variables add up to how far the message's text starts right of
+ * the column's left edge, each set by what indents it (the message row's paw, a collapsed
+ * answer card, an expanded answer's frame, an activity run's rail). A user message's label
+ * sits just left of its bubble.
+ */
+@container feed (min-width: 59rem) {
+  .message-start-time {
+    position: absolute;
+    top: 0.25rem;
+    right: calc(
+      100% + 0.75rem + var(--message-time-rail-shift, 0px) + var(--message-time-card-shift, 0px) +
+        var(--message-time-answer-shift, 0px) + var(--message-time-activity-shift, 0px)
+    );
+    width: 4.75rem;
+    margin: 0;
+    text-align: right;
+    white-space: normal;
+  }
+  .message-start-time[data-side="user"] {
+    right: calc(100% + 0.5rem);
+  }
+  .message-start-time[data-hidden="true"] {
+    height: auto;
+  }
 }
 
 /* Guided review walkthrough: each step slides in from the side it was reached from. */

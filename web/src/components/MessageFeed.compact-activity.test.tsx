@@ -499,12 +499,13 @@ describe("MessageFeed - compact activity", () => {
     expect(screen.queryByText("Read file")).toBeNull();
   });
 
-  it("keeps a leader note's command and the next command in one group, with the note's time on its text", () => {
+  it("keeps a leader note's command and the next command in one group, with the note's time ahead of it", () => {
     // Reported cases: a leader commentary note sent with its first command as one
     // message, then a second command. The note's time label sat on its own line between
     // the two commands, splitting them into two groups; when clustering hid that label
     // (the answer below is in the same minute), its invisible line left a blank gap
-    // instead. The commands form one group and the time trails the note's text.
+    // instead. The commands form one group, and the time now sits ahead of the note's text,
+    // nowhere between the commands.
     const sid = "test-compact-leader-commentary";
     mockStoreValues.compactToolActivity = true;
     const at = new Date(2026, 10, 1, 14, 40).getTime();
@@ -537,8 +538,11 @@ describe("MessageFeed - compact activity", () => {
 
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
     expect(screen.getByText("Ran 2 commands")).toBeTruthy();
-    expect(screen.queryByTestId("message-time-own-line")).toBeNull();
-    expect(screen.getByText("Looking into the duplicated quest link.").closest(".message-time-trail")).toBeTruthy();
+    const note = screen.getByText("Looking into the duplicated quest link.");
+    const noteTime = screen
+      .getAllByTestId("message-time-label")
+      .find((time) => time.getAttribute("dateTime") === new Date(at).toISOString())!;
+    expect(noteTime.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("sanitizes stale root Codex reasoning before grouping sibling tools", () => {
