@@ -604,7 +604,10 @@ export function updateLeaderThreadStatusesForAssistantOutput(
     statuses[key] = record;
     if (
       session.messageHistory &&
-      recordMonitoredThreadResult({ state: session.state, messageHistory: session.messageHistory }, record)
+      recordMonitoredThreadResult(
+        { state: session.state, messageHistory: session.messageHistory, notifications: session.notifications },
+        record,
+      )
     )
       monitoredThreadKeys.push(record.threadKey);
     records.push(record);

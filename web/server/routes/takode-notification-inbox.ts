@@ -9,6 +9,7 @@ import {
   snoozeNotification as snoozeNotificationController,
 } from "../bridge/session-registry-controller.js";
 import { cancelThreadReminder, setThreadReminder } from "../bridge/thread-reminders.js";
+import { acknowledgeMonitoredResultsRead } from "../thread-monitoring.js";
 import type { RouteContext } from "./context.js";
 import { reportNeedsInputDismissals, snapshotNeedsInputForDismissal } from "./notification-dismissal-events.js";
 
@@ -187,6 +188,14 @@ export function registerTakodeNotificationInboxRoutes(
     if (!ok) return c.json({ error: "Notification not found" }, 404);
     if (done) reportNeedsInputDismissals(ctx, session, before);
     if (done) settleReadThreads(session, notifId);
+    const read = done && session.notifications.find((notification) => notification.id === notifId);
+    if (
+      read &&
+      read.category === "review" &&
+      read.messageId &&
+      acknowledgeMonitoredResultsRead(session, read.messageId)
+    )
+      wsBridge.persistSessionById(session.id);
     return c.json({ ok: true });
   });
 

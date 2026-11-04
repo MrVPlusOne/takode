@@ -64,7 +64,7 @@ export function NotifyMeMenu({
   const status = reminder
     ? `Back in Notify Me ${formatSnoozeUntil(reminder.remindAt)}.`
     : tracking
-      ? "Notify Me is on: new results wait here until you acknowledge them."
+      ? "Notify Me is on: new results wait here until you read or acknowledge them."
       : onSetTracking
         ? "Get notified about new results now, or have this come back later."
         : "Have Main come back later, waiting for you to acknowledge it.";

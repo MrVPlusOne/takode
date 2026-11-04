@@ -936,6 +936,44 @@ describe("Takode notification inbox and answers", () => {
     expect(bridge._sessions["orch-1"].notifications[0].done).toBe(true);
   });
 
+  it("acknowledges the thread's Notify Me result when the user reads the answer it opens at", async () => {
+    // Jiayi, Nov 4: a tracked thread's answer read on screen kept its Notify Me result waiting, and
+    // Next later took her back to it as a new unread. Reading it is reading the result.
+    setupTakodeSessions();
+    const leader = bridge._sessions["orch-1"];
+    leader.notifications = [
+      { id: "n-1", category: "review", unreadReason: "answer", timestamp: 1000, messageId: "answer-1", done: false },
+    ];
+    leader.state.threadMonitoring = {
+      revision: 3,
+      alertVersion: 1,
+      threads: {
+        "q-42": {
+          trackedAt: 1,
+          afterHistoryIndex: 0,
+          pending: { id: "3", messageId: "answer-1", timestamp: 1000, summary: "Done" },
+        },
+        "q-43": {
+          trackedAt: 1,
+          afterHistoryIndex: 0,
+          pending: { id: "2", messageId: "other", timestamp: 900, summary: "Other" },
+        },
+      },
+    };
+
+    const res = await app.request("/api/sessions/orch-1/notifications/n-1/done", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ done: true }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(leader.state.threadMonitoring.threads["q-42"]).toMatchObject({ pending: null });
+    // Another thread's result is untouched, and the change is saved so browsers see it.
+    expect(leader.state.threadMonitoring.threads["q-43"].pending).toMatchObject({ id: "2" });
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("orch-1");
+  });
+
   it("mark-done defaults to true when done field is omitted", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].notifications = [

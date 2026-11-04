@@ -4,6 +4,7 @@ import { extractThreadStatusMarkersFromText } from "../shared/thread-status-mark
 import { updateLeaderThreadStatusesForAssistantOutput } from "./bridge/thread-routing-reminder.js";
 import { clearAttentionAndMarkRead } from "./bridge/session-notification-controller.js";
 import {
+  acknowledgeMonitoredResultsRead,
   acknowledgeMonitoredThreadResult,
   monitoredResultMessageId,
   recordMonitoredThreadResult,
@@ -267,5 +268,63 @@ describe("where a Notify Me result opens", () => {
     publish(fromMessage, "ready-commentary");
     recordReminderResult(fromMessage, "q-42", "Reminder", 50, "answer-1");
     expect(opensAt(fromMessage)).toBe("answer-1");
+  });
+
+  // Jiayi, Nov 4: Next took her back to a tracked thread's 2:45 PM answer, read at 3:14 PM, as if it
+  // were new. Reading the answer had left its Notify Me result waiting until Acknowledge or a reply.
+  function readAnswer(session: ReturnType<typeof fixture>, messageId: string) {
+    session.notifications.push({
+      id: `n-${messageId}`,
+      category: "review",
+      unreadReason: "answer",
+      messageId,
+      threadKey: "q-42",
+      timestamp: 1,
+      done: true,
+      doneAt: 2,
+      userDoneAt: 2,
+    });
+  }
+
+  it("acknowledges a result once the user reads the answer it opens at", () => {
+    const session = fixture();
+    setThreadMonitoring(session, "q-42", true);
+    answer(session, "answer-1");
+    publish(session, "ready-commentary");
+    // Reading another message leaves the result waiting.
+    expect(acknowledgeMonitoredResultsRead(session, "ready-commentary")).toBe(false);
+    expect(session.state.threadMonitoring!.threads["q-42"].pending).not.toBeNull();
+    expect(acknowledgeMonitoredResultsRead(session, "answer-1")).toBe(true);
+    expect(session.state.threadMonitoring!.threads["q-42"]).toMatchObject({ pending: null });
+    // Still tracked: the next result is pending again.
+    answer(session, "answer-2");
+    publish(session, "ready-commentary-2");
+    expect(opensAt(session)).toBe("answer-2");
+  });
+
+  it("does not hold a result whose answer the user read before its Ready came", () => {
+    // Watched as it arrived, the answer is read before the closing Ready line: no result, no alert.
+    const session = fixture();
+    setThreadMonitoring(session, "q-42", true);
+    answer(session, "answer-1");
+    readAnswer(session, "answer-1");
+    const alertVersion = session.state.threadMonitoring!.alertVersion;
+    publish(session, "ready-commentary");
+    expect(session.state.threadMonitoring!.threads["q-42"].pending).toBeNull();
+    expect(session.state.threadMonitoring!.alertVersion).toBe(alertVersion);
+    // A replay of that Ready doesn't bring it back, and a later unread answer is a result as usual.
+    publish(session, "ready-commentary");
+    expect(session.state.threadMonitoring!.threads["q-42"].pending).toBeNull();
+    answer(session, "answer-2");
+    publish(session, "ready-commentary-2");
+    expect(opensAt(session)).toBe("answer-2");
+  });
+
+  it("keeps a due reminder until it is acknowledged, even when its answer is read", () => {
+    const session = fixture();
+    answer(session, "answer-1");
+    recordReminderResult(session, "q-42", "Reminder", 50, "answer-1");
+    expect(acknowledgeMonitoredResultsRead(session, "answer-1")).toBe(false);
+    expect(session.state.threadMonitoring!.threads["q-42"].pending?.reminder).toBe(true);
   });
 });

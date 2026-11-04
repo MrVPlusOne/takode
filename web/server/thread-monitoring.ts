@@ -1,7 +1,7 @@
 import type { ThreadMonitoringState, MonitoredThreadResult } from "../shared/thread-monitoring.js";
 import { leaderMessageThreadKey } from "../shared/leader-thread-response-routing.js";
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
-import type { BrowserIncomingMessage } from "./session-types.js";
+import type { BrowserIncomingMessage, SessionNotification } from "./session-types.js";
 
 export interface ThreadMonitoringSession {
   state: {
@@ -9,6 +9,8 @@ export interface ThreadMonitoringSession {
     leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
   };
   messageHistory: readonly BrowserIncomingMessage[];
+  /** The leader's notifications: a result whose answer the user already read is not pending. */
+  notifications?: readonly SessionNotification[];
 }
 
 /**
@@ -50,15 +52,41 @@ export function recordMonitoredThreadResult(session: ThreadMonitoringSession, re
   );
   if (sourceIndex <= monitor.afterHistoryIndex) return false;
   const revision = current.revision + 1;
+  // The Ready often comes in a closing line after the answer: one the user already read on screen
+  // as it arrived is not a result to come back to, so it waits for the next one with no alert.
+  const read = readByUser(session, monitoredResultMessageId(session, record.threadKey, record));
   session.state.threadMonitoring = {
     revision,
-    alertVersion: current.alertVersion + 1,
+    alertVersion: current.alertVersion + (read ? 0 : 1),
     threads: {
       ...current.threads,
-      [record.threadKey]: { ...monitor, afterHistoryIndex: sourceIndex, pending: pendingResult(record, revision) },
+      [record.threadKey]: {
+        ...monitor,
+        afterHistoryIndex: sourceIndex,
+        pending: read ? null : pendingResult(record, revision),
+      },
     },
   };
-  return true;
+  return !read;
+}
+
+/**
+ * The user read a message (on screen, or with Mark as read): a pending result that opens at it has
+ * been read, so it is acknowledged, as Acknowledge does. Before, only Acknowledge or a reply cleared
+ * it, and Next later took the user back to an answer they had read as if it were new (Jiayi,
+ * Nov 4). A due reminder still waits for Acknowledge: it brings back a thread on purpose.
+ */
+export function acknowledgeMonitoredResultsRead(
+  session: Pick<ThreadMonitoringSession, "state" | "messageHistory">,
+  messageId: string,
+): boolean {
+  let changed = false;
+  for (const [threadKey, monitor] of Object.entries(session.state.threadMonitoring?.threads ?? {})) {
+    const pending = monitor.pending;
+    if (!pending || pending.reminder || monitoredResultMessageId(session, threadKey, pending) !== messageId) continue;
+    changed = acknowledgeMonitoredThreadResult(session, threadKey, pending.id) || changed;
+  }
+  return changed;
 }
 
 /** A stale acknowledgement is a no-op and can never consume a newer result. */
@@ -141,6 +169,13 @@ export function monitoredResultMessageId(
     if (isResult && leaderMessageThreadKey(entry) === threadKey) return historyMessageId(entry)!;
   }
   return result.messageId;
+}
+
+function readByUser(session: Pick<ThreadMonitoringSession, "notifications">, messageId: string): boolean {
+  return !!session.notifications?.some(
+    (notification) =>
+      notification.category === "review" && notification.messageId === messageId && !!notification.userDoneAt,
+  );
 }
 
 function historyMessageId(entry: BrowserIncomingMessage): string | undefined {
