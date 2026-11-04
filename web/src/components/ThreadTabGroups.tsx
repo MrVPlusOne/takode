@@ -24,7 +24,7 @@ import { LONG_PRESS_TARGET_CLASS, useLongPress, type OpenContextMenu } from "../
 import type { SessionNotification } from "../types.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import { timeAgo } from "../utils/quest-helpers.js";
-import { isOpenInSideClick } from "../utils/side-column.js";
+import { isOtherColumnClick } from "../utils/side-column.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { BellIcon } from "./AttentionKind.js";
 import { NewThreadIcon } from "./library/library-icons.js";
@@ -462,7 +462,7 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
         type="button"
         onClick={(event) => {
           if (tab.onOpen) tab.onOpen();
-          else if (context.onOpenInSide && isOpenInSideClick(event)) context.onOpenInSide(threadKey);
+          else if (context.onOpenInSide && isOtherColumnClick(event)) context.onOpenInSide(threadKey);
           else context.onSelect(threadKey);
         }}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"

@@ -506,7 +506,7 @@ describe("ChatView topics as tags", () => {
     useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
   });
 
-  it("keeps the thread in the main view too on a Shift-click of move-to-side", async () => {
+  it("keeps the thread in the main view too on the other-column click (Shift by default) of move-to-side", async () => {
     // Jiayi (Nov 4): the same chat in two views, so each can be scrolled to a different place.
     // Shift-click opens it in the side column and the main view keeps showing it; Home likewise.
     useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });

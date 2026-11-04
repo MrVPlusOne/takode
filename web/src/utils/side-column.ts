@@ -453,7 +453,7 @@ export function notePaneClick(itemId: string | null, event: OpenInSideEvent): vo
   const click = { itemId, event: { ...pickModifiers(event) } };
   paneClick = click;
   // A plain click there jumps to the pane's own messages in the pane (`navigateToSessionMessageId`).
-  noteClickedPaneFeed(isOpenInSideClick(event) ? null : paneFeedOf(itemId));
+  noteClickedPaneFeed(isOtherColumnClick(event) ? null : paneFeedOf(itemId));
   setTimeout(() => {
     if (paneClick === click) paneClick = null;
   }, 0);
@@ -464,7 +464,7 @@ export function notePaneClick(itemId: string | null, event: OpenInSideEvent): vo
  * side pane, a plain click (a click opens in the view it was made in, the other click in the other).
  */
 export function wantsSideClick(event: OpenInSideEvent | undefined = paneClick?.event): boolean {
-  return paneClick ? !isOpenInSideClick(event) : isOpenInSideClick(event);
+  return paneClick ? !isOtherColumnClick(event) : isOtherColumnClick(event);
 }
 
 /** The feed of a side column item that shows a conversation, for jumps to its messages. */
@@ -490,10 +490,12 @@ function pickModifiers(event: OpenInSideEvent): OpenInSideEvent {
 }
 
 /**
- * Whether a click asks to open its target in the side column rather than the main view: a click
- * with the key chosen in Settings > Keyboard held, and no other (Shift-click by default, like Logseq).
+ * Whether a click asks for the other column: a click with the key chosen in Settings > Keyboard held,
+ * and no other (Shift-click by default, like Logseq). A link clicked so in the main view opens in
+ * the side column and one in a side pane in the main view (`wantsSideClick`); on a button that moves
+ * a chat between the two, it keeps the chat in both.
  */
-export function isOpenInSideClick(event: OpenInSideEvent | undefined, chosen?: OpenInSideModifier): boolean {
+export function isOtherColumnClick(event: OpenInSideEvent | undefined, chosen?: OpenInSideModifier): boolean {
   // A plain click is never one; the setting is read only for a click with a key held.
   if (!event || !(event.shiftKey || event.altKey || event.metaKey || event.ctrlKey)) return false;
   const modifier = chosen ?? useStore.getState().shortcutSettings?.openInSideModifier ?? "shift";
@@ -506,13 +508,18 @@ export function isOpenInSideClick(event: OpenInSideEvent | undefined, chosen?: O
   return held[modifier] && Object.entries(held).every(([key, down]) => key === modifier || !down);
 }
 
-/** How the click that opens something in the side column is named, for tooltips: "Shift-click". */
-export function openInSideClickLabel(
+/** How the other-column click is named, for tooltips: "Shift-click". */
+export function otherColumnClickLabel(
   modifier: OpenInSideModifier = useStore.getState().shortcutSettings?.openInSideModifier ?? "shift",
 ): string {
   const mac = platformIsMac(currentPlatform());
   const key = { shift: "Shift", alt: mac ? "Option" : "Alt" }[modifier];
   return `${key}-click`;
+}
+
+/** `otherColumnClickLabel` for a tooltip, following the setting while it is on screen. */
+export function useOtherColumnClickLabel(): string {
+  return otherColumnClickLabel(useStore((state) => state.shortcutSettings?.openInSideModifier ?? "shift"));
 }
 
 function currentPlatform(): string | undefined {
@@ -566,7 +573,7 @@ export function openArtifact(target: { id: string; version?: number; title?: str
     openArtifactWindow(target);
     return;
   }
-  if (isOpenInSideClick(event) && openArtifactInSide(target)) return;
+  if (isOtherColumnClick(event) && openArtifactInSide(target)) return;
   openLibraryArtifact(target.id, target.version);
 }
 

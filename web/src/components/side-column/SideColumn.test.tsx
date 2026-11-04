@@ -298,19 +298,36 @@ describe("SideColumn", () => {
     expect(useSideColumnStore.getState().items).toEqual([]);
   });
 
-  it("keeps a conversation in the column on a Shift-click of Open in the main view", () => {
-    // Jiayi (Nov 4): the same chat in both views, each scrolled on its own; the tooltip says so.
+  it("keeps a conversation in the column on the other-column click of Open in the main view", () => {
+    // Jiayi (Nov 4): the same chat in both views, each scrolled on its own. The key is the one set
+    // for the other-column click (Shift by default); the tooltip names it.
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
       openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     });
-    const button = screen.getByRole("button", { name: "Open in the main view" });
-    expect(button.getAttribute("title")).toBe("Open in the main view (Shift-click to keep it here too)");
-    fireEvent.click(button, { shiftKey: true });
+    const button = () => screen.getByRole("button", { name: "Open in the main view" });
+    expect(button().getAttribute("title")).toBe("Open in the main view (Shift-click to keep it in both columns)");
+    fireEvent.click(button(), { shiftKey: true });
     expect(window.location.hash).toContain("thread=q-2");
     expect(useSideColumnStore.getState().items).toEqual([
       expect.objectContaining({ kind: "conversation", threadKey: "q-2", leaderId: "l1" }),
     ]);
+    // With Option/Alt chosen, Alt-click keeps it and a Shift-click moves it like a plain click.
+    const before = useStore.getState().shortcutSettings;
+    act(() => {
+      useStore.setState({ shortcutSettings: { ...before, openInSideModifier: "alt" } });
+    });
+    try {
+      expect(button().getAttribute("title")).toMatch(
+        /^Open in the main view \((Option|Alt)-click to keep it in both columns\)$/,
+      );
+      fireEvent.click(button(), { altKey: true });
+      expect(useSideColumnStore.getState().items).toHaveLength(1);
+      fireEvent.click(button(), { shiftKey: true });
+      expect(useSideColumnStore.getState().items).toEqual([]);
+    } finally {
+      useStore.setState({ shortcutSettings: before });
+    }
   });
 
   it("offers a row's own buttons in its right-click menu", () => {

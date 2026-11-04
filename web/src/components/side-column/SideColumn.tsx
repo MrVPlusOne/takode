@@ -22,6 +22,8 @@ import {
   sideItemLeader,
   useSideColumn,
   type SideItem,
+  isOtherColumnClick,
+  useOtherColumnClickLabel,
 } from "../../utils/side-column.js";
 import { setTopicPanelOpen, setTopicSheetOpen } from "../../utils/topic-panel.js";
 import { loadLeaderNamesOnce, useKnownThreadOfKey, useThreadDestinations } from "../../utils/leader-topics.js";
@@ -542,8 +544,8 @@ function LeaderIcon({ leaderId }: { leaderId: string }) {
 
 /**
  * Where an item moves out of the column, and how: a conversation to the main view, an artifact to
- * the Library; it then leaves the column, unless `go` is asked to keep it (a Shift-click), so the
- * same chat can be read at two places at once. None for items that stay (new chats, topics).
+ * the Library; it then leaves the column, unless `go` is asked to keep it (the other-column click,
+ * Shift by default), so the same chat can be read at two places at once. None for items that stay (new chats, topics).
  */
 function sideItemMoveOut(item: SideItem): { label: string; go: (keepHere: boolean) => void } | null {
   const moveOut =
@@ -580,6 +582,7 @@ function sideItemMoveOut(item: SideItem): { label: string; go: (keepHere: boolea
 }
 
 function ItemActions({ item }: { item: SideItem | null }) {
+  const otherColumnClick = useOtherColumnClickLabel();
   if (!item) return null;
   const moveOut = sideItemMoveOut(item);
   return (
@@ -587,10 +590,10 @@ function ItemActions({ item }: { item: SideItem | null }) {
       {moveOut && (
         <button
           type="button"
-          onClick={(event) => moveOut.go(event.shiftKey)}
+          onClick={(event) => moveOut.go(isOtherColumnClick(event))}
           className="flex h-7 w-7 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
           aria-label={moveOut.label}
-          title={`${moveOut.label} (Shift-click to keep it here too)`}
+          title={`${moveOut.label} (${otherColumnClick} to keep it in both columns)`}
         >
           <OpenInMainIcon />
         </button>

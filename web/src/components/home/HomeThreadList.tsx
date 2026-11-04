@@ -18,7 +18,7 @@ import { resolveLeaderThreadTabsProjection } from "../../utils/leader-thread-tab
 import { resolveNotificationOwnerThreadKey } from "../../utils/notification-thread.js";
 import { timeAgo } from "../../utils/quest-helpers.js";
 import { navigateToSessionThread } from "../../utils/routing.js";
-import { isOpenInSideClick, openInSide } from "../../utils/side-column.js";
+import { isOtherColumnClick, openInSide } from "../../utils/side-column.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../../utils/thread-projection.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { NewThreadIcon } from "../library/library-icons.js";
@@ -111,7 +111,7 @@ export function HomeThreadList({
   const open = (threadKey: string, event: MouseEvent) => {
     const tab = shown.find((thread) => normalizeThreadKey(thread.tab.threadKey) === threadKey)?.tab;
     if (tab?.onOpen) tab.onOpen();
-    else if (isOpenInSideClick(event)) details.openInSide(threadKey);
+    else if (isOtherColumnClick(event)) details.openInSide(threadKey);
     else details.select(threadKey);
   };
   // A row's menu (right-click, or long-press on touch): the Threads view's actions for a thread.

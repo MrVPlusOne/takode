@@ -217,8 +217,9 @@ export function SendKeySchemeSetting({
 }
 
 /**
- * The key held while clicking to open a quest, topic or artifact in a leader's side column. Always
- * active, independent of the keyboard shortcut toggle.
+ * The key held while clicking to open a quest, topic or artifact in the other column (the side column
+ * from the main view, the main view from a side chat). Always active, independent of the keyboard
+ * shortcut toggle.
  */
 export function OpenInSideModifierSetting({
   shortcutPlatform,
@@ -233,7 +234,7 @@ export function OpenInSideModifierSetting({
   return (
     <div hidden={hidden}>
       <label className="block text-sm font-medium mb-1.5" htmlFor="open-in-side-modifier">
-        Open in Side Column
+        Open in the Other Column
       </label>
       <select
         id="open-in-side-modifier"
@@ -245,8 +246,9 @@ export function OpenInSideModifierSetting({
         <option value="alt">{mac ? "Option-click" : "Alt-click"}</option>
       </select>
       <p className="mt-1.5 text-xs text-cc-muted">
-        Clicking a quest, topic, artifact or report with this key held opens it in the leader's side column, beside the
-        conversation, instead of in its place. {mac ? "⌘-click" : "Ctrl-click"} on an artifact opens it in a window of
+        Clicking a quest, topic, artifact or report with this key held opens it in the other column: from the main view
+        in the leader's side column, from a side chat in the main view. On Move to the side column or Open in the main
+        view, it keeps the chat in both columns. {mac ? "⌘-click" : "Ctrl-click"} on an artifact opens it in a window of
         its own.
       </p>
     </div>

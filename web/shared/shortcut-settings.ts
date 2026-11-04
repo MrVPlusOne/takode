@@ -48,8 +48,10 @@ export interface ShortcutSettings {
    */
   typeToCompose: boolean;
   /**
-   * Clicking a quest, topic, artifact or report with this key held opens it in the leader's side
-   * column. Independent of `enabled`, like `typeToCompose`.
+   * The other-column click: clicking a quest, topic, artifact or report with this key held opens it
+   * in the other column (the leader's side column from the main view, the main view from a side
+   * chat), and on a move-to-side or move-to-main button keeps the chat in both. Named before the
+   * click meant "other column"; kept for saved settings. Independent of `enabled`, like `typeToCompose`.
    */
   openInSideModifier: OpenInSideModifier;
 }

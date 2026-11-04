@@ -2,10 +2,12 @@ import type { ThreadSummary } from "../../shared/library-topics.js";
 import { NewThreadIcon } from "./library/library-icons.js";
 import { useThreadNews } from "./home/HomeExtras.js";
 import { InlineThreadUpdate } from "./ThreadUpdate.js";
+import { isOtherColumnClick, useOtherColumnClickLabel } from "../utils/side-column.js";
 
 /**
- * Moves what the main view shows into the side column; with `keepHere` (a Shift-click) it opens
- * there too and stays in the main view, so one chat can be read at two places at once.
+ * Moves what the main view shows into the side column; with `keepHere` (the other-column click,
+ * Shift by default) it opens there and stays in the main view, so one chat can be read at two
+ * places at once.
  */
 export type MoveToSide = (keepHere: boolean) => void;
 
@@ -14,13 +16,14 @@ export type MoveToSide = (keepHere: boolean) => void;
  * its thread into the main view. Shown on desktop only, where the side column sits beside it.
  */
 export function MoveToSideButton({ onMove }: { onMove: MoveToSide }) {
+  const otherColumnClick = useOtherColumnClickLabel();
   return (
     <button
       type="button"
-      onClick={(event) => onMove(event.shiftKey)}
+      onClick={(event) => onMove(isOtherColumnClick(event))}
       className="-my-1 -mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
       aria-label="Move to the side column"
-      title="Move to the side column (Shift-click to keep it here too)"
+      title={`Move to the side column (${otherColumnClick} to keep it in both columns)`}
       data-testid="thread-move-to-side"
     >
       <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5" aria-hidden="true">

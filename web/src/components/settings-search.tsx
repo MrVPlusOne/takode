@@ -89,7 +89,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       },
       {
         id: "open-in-side",
-        text: "Open in Side Column Shift-click Option-click Alt-click modifier thread new window Cmd-click Ctrl-click",
+        text: "Open in the Other Column side column main view keep in both Shift-click Option-click Alt-click modifier thread new window Cmd-click Ctrl-click",
         aliases: ["sidebar"],
       },
       {

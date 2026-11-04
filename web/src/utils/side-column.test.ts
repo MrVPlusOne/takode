@@ -5,14 +5,14 @@ import {
   closeSideItem,
   HOME_ITEM,
   handleOpenInSideClick,
-  isOpenInSideClick,
+  isOtherColumnClick,
   lastThreadShownOf,
   mergeLeaderColumns,
   newSideChat,
   notePaneClick,
   noteSideItemUsed,
   openConversationInSide,
-  openInSideClickLabel,
+  otherColumnClickLabel,
   openQuestInSide,
   openSessionInSide,
   openInSide,
@@ -312,15 +312,15 @@ describe("one column from the leaders' columns", () => {
 describe("opening in the side", () => {
   it("takes a click with the chosen key alone as asking for the side column, Shift by default", () => {
     const click = { shiftKey: false, altKey: false, metaKey: false, ctrlKey: false };
-    expect(isOpenInSideClick({ ...click, shiftKey: true })).toBe(true);
-    expect(isOpenInSideClick(click)).toBe(false);
-    expect(isOpenInSideClick({ ...click, shiftKey: true, metaKey: true })).toBe(false);
-    expect(isOpenInSideClick(undefined)).toBe(false);
-    expect(openInSideClickLabel()).toBe("Shift-click");
+    expect(isOtherColumnClick({ ...click, shiftKey: true })).toBe(true);
+    expect(isOtherColumnClick(click)).toBe(false);
+    expect(isOtherColumnClick({ ...click, shiftKey: true, metaKey: true })).toBe(false);
+    expect(isOtherColumnClick(undefined)).toBe(false);
+    expect(otherColumnClickLabel()).toBe("Shift-click");
     // Chosen in Settings > Keyboard. Cmd/Ctrl-click opens a window of its own instead.
-    expect(isOpenInSideClick({ ...click, altKey: true }, "alt")).toBe(true);
-    expect(isOpenInSideClick({ ...click, shiftKey: true }, "alt")).toBe(false);
-    expect(isOpenInSideClick({ ...click, ctrlKey: true })).toBe(false);
+    expect(isOtherColumnClick({ ...click, altKey: true }, "alt")).toBe(true);
+    expect(isOtherColumnClick({ ...click, shiftKey: true }, "alt")).toBe(false);
+    expect(isOtherColumnClick({ ...click, ctrlKey: true })).toBe(false);
   });
 
   it("opens any leader's conversation while a conversation is on screen", () => {
