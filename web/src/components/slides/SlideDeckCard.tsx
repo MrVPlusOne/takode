@@ -25,8 +25,8 @@ const DECK_EXPORT_FORMATS: readonly DeckExportFormat[] = ["pdf", "markdown", "ht
  * it: previous and next, Play (each slide read aloud in turn, right here, where the deck is a
  * conversation message), comments on a slide in a conversation, and Full screen to present it. A
  * click on the slide turns to the next one and a right-click to the previous one; once clicked, the
- * deck takes the arrow keys and Space (play and pause). More's Export saves the deck as a PDF with
- * one slide per page.
+ * deck takes the arrow keys and Space (play and pause). More's Download saves its Markdown and
+ * Export saves it as a PDF with one slide per page.
  */
 export function SlideDeckCard({
   title,
@@ -74,7 +74,7 @@ export function SlideDeckCard({
   const close = useCallback(() => setPresenting(false), []);
   const swipe = useSwipe((step) => go(index + step));
   const clicks = useSlideClicks((step) => go(index + step));
-  const { exportItems, task } = useCardExport(
+  const { saveItems, task } = useCardExport(
     useCallback(
       (format) => exportDeck(format as DeckExportFormat, { markdown, title, render }),
       [markdown, title, render],
@@ -93,7 +93,7 @@ export function SlideDeckCard({
           {framed && <div className="truncate font-medium text-cc-fg">{title}</div>}
           <div>{slides.length === 1 ? "1 slide" : `${slides.length} slides`}</div>
         </div>
-        <CardMoreMenu items={[...menuItems, exportItems(DECK_EXPORT_FORMATS)]} task={task} />
+        <CardMoreMenu items={[...menuItems, ...saveItems(DECK_EXPORT_FORMATS)]} task={task} />
       </div>
       {/* The slide and its notes: a comment made in either names the slide. */}
       <div

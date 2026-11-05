@@ -78,7 +78,7 @@ function MarkdownReportBody({
   // The Library's name for the report (the agent's or the user's), else its first heading or file name.
   const title = reportMarker?.title || reportTitleOf(message.content, source.sourcePath);
   const cardContentRef = useRef<HTMLDivElement>(null);
-  const { exportItems, task } = useCardExport(
+  const { saveItems, task } = useCardExport(
     useCallback(
       (format: ExportFormat) =>
         exportContent(format, { markdown: message.content, content: cardContentRef.current, title }),
@@ -89,7 +89,7 @@ function MarkdownReportBody({
   const menuItems = [
     ...(!readOnly && reportMarker ? libraryMenuItems(reportMarker) : []),
     { label: "Copy Markdown", onClick: () => void writeClipboardText(message.content).catch(console.error) },
-    exportItems(["markdown", "pdf", "png", "html"]),
+    ...saveItems(["markdown", "pdf", "png", "html"]),
   ];
   const actions = (
     <>

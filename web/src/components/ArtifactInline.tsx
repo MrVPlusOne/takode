@@ -1,6 +1,6 @@
 import { GuidedReviewCard } from "./GuidedReviewCard.js";
 import { Lightbox } from "./Lightbox.js";
-import { useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ARTIFACT_KIND_LABELS,
   type ArtifactMessageMarker,
@@ -100,6 +100,7 @@ export function ArtifactVersionLoader({
   renderMarkdown,
   copied,
   onCopied,
+  onLoaded,
 }: {
   id: string;
   version: number;
@@ -113,7 +114,11 @@ export function ArtifactVersionLoader({
   /** For a post: the parts the user copied, and how to record a copy. */
   copied?: readonly number[];
   onCopied?: (parts: number[]) => void;
+  /** Told the version's content once it has loaded. */
+  onLoaded?: (content: ArtifactVersionContent) => void;
 }) {
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
   const [state, setState] = useState<{
     content?: ArtifactVersionContent;
     error?: string;
@@ -123,7 +128,11 @@ export function ArtifactVersionLoader({
     setState({});
     artifactApi
       .versionContent(id, version)
-      .then((content) => !cancelled && setState({ content }))
+      .then((content) => {
+        if (cancelled) return;
+        setState({ content });
+        onLoadedRef.current?.(content);
+      })
       .catch((error: Error) => !cancelled && setState({ error: error.message }));
     return () => {
       cancelled = true;

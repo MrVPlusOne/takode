@@ -77,7 +77,7 @@ export function DraftPostCard({
   const known = parts.flatMap((part) => (part.versionPart === undefined ? [] : [part.versionPart]));
   const allCopied = parts.length > 0 && parts.every(isCopied);
   const recordAll = onCopied && known.length > 0 ? () => onCopied(known) : undefined;
-  const { start, task } = useCardExport(
+  const { saveItems, task } = useCardExport(
     useCallback(
       () =>
         exportContent("markdown", {
@@ -88,7 +88,7 @@ export function DraftPostCard({
       [parts, title],
     ),
   );
-  const moreItems = [...menuItems, { label: "Export as Markdown (.md)", onClick: () => start("markdown") }];
+  const moreItems = [...menuItems, ...saveItems(["markdown"])];
   return (
     <>
       <div

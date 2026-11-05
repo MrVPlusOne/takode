@@ -254,13 +254,14 @@ describe("slide decks in the conversation", () => {
     expect(screen.getByText("2 / 3")).toBeInTheDocument();
   });
 
-  it("offers the deck's exports, PDF first, in its More menu", () => {
+  it("offers Download and the deck's exports, PDF first, in its More menu", () => {
     setBoxWidth(900);
     renderDeckReport();
     fireEvent.click(screen.getByTestId("card-more-menu"));
     expect(screen.getByText("Copy Markdown")).toBeInTheDocument();
+    expect(screen.getByText("Download (.md)")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Export"));
-    const labels = ["PDF (.pdf)", "Markdown (.md)", "Web page (.html)"];
+    const labels = ["PDF (.pdf)", "Web page (.html)"];
     for (const label of labels) expect(screen.getByText(label)).toBeInTheDocument();
     // A deck has no single long picture to export.
     expect(screen.queryByText("Image (.png)")).not.toBeInTheDocument();

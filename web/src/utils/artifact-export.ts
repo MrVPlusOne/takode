@@ -126,13 +126,18 @@ export async function standalonePage(content: HTMLElement, title: string, styles
 /** Hands a file to the browser's downloads. */
 export function saveFile(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
+  saveUrl(url, name);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Hands the file at `url` to the browser's downloads, named `name` (the server's name when empty). */
+export function saveUrl(url: string, name: string): void {
   const link = document.createElement("a");
   link.href = url;
   link.download = name;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 const EXPORT_STYLES = `

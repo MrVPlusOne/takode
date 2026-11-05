@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store.js";
@@ -187,6 +187,44 @@ describe("FileViewer", () => {
     expect(button.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(button);
     expect(mockDownloadFileLink).toHaveBeenCalledTimes(1);
+  });
+
+  // A Markdown file has what report cards have: Download (the file itself, from its machine) and
+  // exports made from the file as the viewer renders it, all in the Download button's menu.
+  it("offers Download and the report exports for a Markdown file", async () => {
+    const fetchMock = vi.fn(async () => new Response("%PDF-"));
+    vi.stubGlobal("fetch", fetchMock);
+    const createObjectURL = vi.fn(() => "blob:export");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    try {
+      render(<FileViewerHost />);
+      act(() => openFileViewer({ path: "/reports/briefing.md", isRelative: false, sessionId: "s1" }));
+      const viewer = await screen.findByRole("dialog", { name: "briefing.md" });
+      await within(viewer).findByRole("heading", { name: "Briefing" });
+
+      fireEvent.click(within(viewer).getByRole("button", { name: "Download or export" }));
+      for (const name of ["Export as PDF (.pdf)", "Export as image (.png)", "Export as web page (.html)"]) {
+        expect(screen.getByRole("button", { name })).toBeTruthy();
+      }
+      fireEvent.click(screen.getByRole("button", { name: "Download (.md)" }));
+      expect(mockDownloadFileLink).toHaveBeenCalledWith({
+        path: "/reports/briefing.md",
+        isRelative: false,
+        sessionId: "s1",
+      });
+
+      fireEvent.click(within(viewer).getByRole("button", { name: "Download or export" }));
+      fireEvent.click(screen.getByRole("button", { name: "Export as PDF (.pdf)" }));
+      await waitFor(() => expect(createObjectURL).toHaveBeenCalled());
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("/api/exports/document");
+      const body = JSON.parse(String(init.body)) as { html: string; format: string };
+      expect(body.format).toBe("pdf");
+      expect(body.html).toContain("<title>briefing.md</title>");
+      expect(body.html).toContain("the details");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   // On wide screens the app registers a secondary view area floating over the app: files open

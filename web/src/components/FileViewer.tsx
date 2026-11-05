@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
 import { api, type EditorKind } from "../api.js";
@@ -24,6 +24,8 @@ import { highlightCode, inferLanguageFromPath, splitHighlightedHtmlByLine } from
 import { editorOpenFor } from "../utils/editor-open.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
+import { exportContent, type ExportFormat } from "../utils/artifact-export.js";
+import { DownloadButton, useCardExport } from "./CardMoreMenu.js";
 
 /** A file or folder to show, with the lines a link points at. */
 export interface FileViewerTarget extends FileLinkActionTarget {
@@ -125,6 +127,8 @@ async function loadContent(
 
 function FileViewer({ target, isTop, onClose }: { target: FileViewerTarget; isTop: boolean; onClose: () => void }) {
   const sheetRef = useRef<HTMLDivElement>(null);
+  // The rendered Markdown, which its exports are made from.
+  const markdownRef = useRef<HTMLDivElement>(null);
   const [content, setContent] = useState<ViewerContent>({ status: "loading" });
   // Where the file is and what it is; undefined until resolved.
   const [info, setInfo] = useState<FileLinkResolveResponse | undefined>(undefined);
@@ -210,6 +214,7 @@ function FileViewer({ target, isTop, onClose }: { target: FileViewerTarget; isTo
           info={info}
           sessionId={target.sessionId}
           line={target.line}
+          markdownRef={markdownRef}
           onClose={onClose}
         />
         <div className={`min-h-0 flex-1 overflow-y-auto ${content.status === "text" ? "" : "px-4 py-3"}`}>
@@ -226,15 +231,17 @@ function FileViewer({ target, isTop, onClose }: { target: FileViewerTarget; isTo
             </div>
           )}
           {content.status === "markdown" && (
-            <MarkdownContent
-              text={content.content}
-              // Links in the file resolve beside it, on the same machine as the file itself.
-              sessionId={target.sessionId}
-              fileBasePath={content.absolutePath}
-              wrapLongContent
-              onSessionNavigate={closeFileViewers}
-              questLinkSurface="chat-feed"
-            />
+            <div ref={markdownRef}>
+              <MarkdownContent
+                text={content.content}
+                // Links in the file resolve beside it, on the same machine as the file itself.
+                sessionId={target.sessionId}
+                fileBasePath={content.absolutePath}
+                wrapLongContent
+                onSessionNavigate={closeFileViewers}
+                questLinkSurface="chat-feed"
+              />
+            </div>
           )}
           {content.status === "text" && (
             <TextFileView
@@ -274,6 +281,7 @@ function ViewerHeader({
   info,
   sessionId,
   line,
+  markdownRef,
   onClose,
 }: {
   name: string;
@@ -282,6 +290,7 @@ function ViewerHeader({
   info: FileLinkResolveResponse | undefined;
   sessionId?: string;
   line?: number;
+  markdownRef: RefObject<HTMLDivElement | null>;
   onClose: () => void;
 }) {
   // The remote host holding the file, or null for the server's machine; undefined until resolved.
@@ -324,9 +333,12 @@ function ViewerHeader({
           </span>
         )}
         {loaded && info?.isFile && (
-          <DownloadButton
-            tooLarge={(info.size ?? 0) > MAX_FILE_LINK_DOWNLOAD_BYTES}
-            onClick={() => downloadFileLink({ path: info.absolutePath, isRelative: false, sessionId })}
+          <FileDownloadButton
+            info={info}
+            sessionId={sessionId}
+            name={name}
+            markdown={content.status === "markdown" ? content.content : null}
+            markdownRef={markdownRef}
           />
         )}
         {loaded && (
@@ -366,25 +378,48 @@ function ViewerHeader({
   );
 }
 
-/** Saves the file to the device the browser runs on. */
-function DownloadButton({ tooLarge, onClick }: { tooLarge: boolean; onClick: () => void }) {
-  const title = tooLarge ? "Too large to download (over 100 MB)" : "Download";
+/**
+ * Saves the file to the device the browser runs on: Download is the file itself, and a Markdown
+ * file adds the exports reports have, made from it as the viewer renders it.
+ */
+function FileDownloadButton({
+  info,
+  sessionId,
+  name,
+  markdown,
+  markdownRef,
+}: {
+  info: FileLinkResolveResponse;
+  sessionId?: string;
+  name: string;
+  /** The file's text when it is Markdown, else null. */
+  markdown: string | null;
+  markdownRef: RefObject<HTMLDivElement | null>;
+}) {
+  const download = useCallback(
+    () => downloadFileLink({ path: info.absolutePath, isRelative: false, sessionId }),
+    [info.absolutePath, sessionId],
+  );
+  const { saveItems, task } = useCardExport(
+    useCallback(
+      async (format: ExportFormat) => {
+        if (format === "markdown") return download();
+        await exportContent(format, { markdown: markdown ?? "", content: markdownRef.current, title: name });
+      },
+      [download, markdown, markdownRef, name],
+    ),
+  );
+  const tooLarge = (info.size ?? 0) > MAX_FILE_LINK_DOWNLOAD_BYTES;
   return (
-    <button
-      type="button"
-      onClick={() => !tooLarge && onClick()}
-      // aria-disabled rather than disabled, so the explaining tooltip still shows on hover.
-      aria-disabled={tooLarge || undefined}
-      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
-        tooLarge ? "cursor-default text-cc-muted/50" : "cursor-pointer text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-      }`}
-      aria-label={title}
-      title={title}
-    >
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
-        <path d="M8 2.5v7.5M4.75 7l3.25 3.25L11.25 7M3 13.5h10" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </button>
+    <DownloadButton
+      items={
+        markdown === null
+          ? [{ label: "Download", onClick: download }]
+          : saveItems(["markdown", "pdf", "png", "html"], { flat: true })
+      }
+      task={task}
+      disabledReason={tooLarge ? "Too large to download (over 100 MB)" : undefined}
+    />
   );
 }
 

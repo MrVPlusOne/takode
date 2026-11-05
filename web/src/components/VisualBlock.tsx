@@ -217,13 +217,13 @@ export function VisualBlock({ source }: { source: string }) {
   };
   // Run is offered where running shows something the still picture can't.
   const runnable = plan === "still" && interactive && !problem;
-  const { start: startExport, task: exportTask } = useCardExport(
+  const { saveItems, task: exportTask } = useCardExport(
     useCallback(() => exportVisualImage(source, block.title ?? "Visual"), [source, block.title]),
   );
   const menuItems = [
     ...(marker ? libraryMenuItems(marker) : []),
     { label: showSource ? "Hide source" : "Show source", onClick: () => setShowSource((value) => !value) },
-    ...(!tooLarge ? [{ label: "Export as image (.png)", onClick: () => startExport("png") }] : []),
+    ...(!tooLarge ? saveItems(["png"]) : []),
   ];
 
   return (

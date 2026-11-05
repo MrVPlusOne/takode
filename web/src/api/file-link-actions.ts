@@ -1,3 +1,5 @@
+import { saveUrl } from "../utils/artifact-export.js";
+
 const BASE = "/api";
 
 export interface FileLinkActionTarget {
@@ -93,12 +95,7 @@ export function buildFileLinkBrowserUrl(target: FileLinkActionTarget): string {
  * is read on the machine that holds the linking session's files, so this works for remote hosts too.
  */
 export function downloadFileLink(target: FileLinkActionTarget): void {
-  const link = document.createElement("a");
-  link.href = `${BASE}/fs/file-link/download?${fileLinkParams(target)}`;
-  link.download = "";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+  saveUrl(`${BASE}/fs/file-link/download?${fileLinkParams(target)}`, "");
 }
 
 export function buildFileLinkImageVariantUrl(target: FileLinkActionTarget, variant: "thumbnail" | "full"): string {

@@ -180,7 +180,7 @@ describe("saved Markdown reports", () => {
       ...message.metadata,
       artifacts: [{ id: "artifact-r", kind: "report", title: "Daily engineering report", version: 2, versionCount: 2 }],
     };
-    const fetchMock = vi.fn(async () => new Response(new Blob(["%PDF-"]), { status: 200 }));
+    const fetchMock = vi.fn(async () => new Response("%PDF-", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const createObjectURL = vi.fn(() => "blob:report");
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
@@ -191,12 +191,13 @@ describe("saved Markdown reports", () => {
     fireEvent.click(screen.getByTestId("card-more-menu"));
     expect(screen.getByRole("button", { name: "Open version 2 of 2 in Library" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy Markdown" })).toBeTruthy();
+    // Download (the Markdown as written) sits beside Export, whose submenu has the converted formats.
+    expect(screen.getByRole("button", { name: "Download (.md)" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Export" }));
     expect(
-      ["Markdown (.md)", "PDF (.pdf)", "Image (.png)", "Web page (.html)"].map(
-        (name) => !!screen.getByRole("button", { name }),
-      ),
-    ).toEqual([true, true, true, true]);
+      ["PDF (.pdf)", "Image (.png)", "Web page (.html)"].map((name) => !!screen.getByRole("button", { name })),
+    ).toEqual([true, true, true]);
+    expect(screen.queryByRole("button", { name: "Markdown (.md)" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "PDF (.pdf)" }));
 
     await waitFor(() => expect(createObjectURL).toHaveBeenCalled());

@@ -82,7 +82,7 @@ describe("artifacts in the feed", () => {
     expect(screen.getByTestId("card-more-menu").closest("[data-markdown-draft]")).not.toBeNull();
     fireEvent.click(screen.getByTestId("card-more-menu"));
     expect(screen.getByRole("button", { name: "Open version 3 of 3 in Library" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Export as Markdown (.md)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download (.md)" })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("card-more-menu"));
 
     // A view without markers (read-only) has no Library item.

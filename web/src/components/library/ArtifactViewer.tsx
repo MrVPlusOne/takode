@@ -4,7 +4,11 @@ import {
   formatArtifactLink,
   shortArtifactId,
   type ArtifactDetail,
+  type ArtifactVersionContent,
 } from "../../../shared/artifact-library.js";
+import { isSlideDeck } from "../../../shared/slides.js";
+import { exportContent, saveUrl, type ExportFormat } from "../../utils/artifact-export.js";
+import { DownloadButton, useCardExport } from "../CardMoreMenu.js";
 import type { QuestTopicMap } from "../../../shared/library-topics.js";
 import { topicApi } from "../../api/topics.js";
 import { writeClipboardText } from "../../utils/copy-utils.js";
@@ -49,6 +53,9 @@ export function ArtifactViewer({
   const [error, setError] = useState<string | null>(null);
   const [shown, setShown] = useState<number | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  // The shown version's content once loaded, for Download; and the element showing it, for exports.
+  const [loaded, setLoaded] = useState<{ n: number; content: ArtifactVersionContent } | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,6 +151,9 @@ export function ArtifactViewer({
               </button>
             </form>
           )}
+          {loaded?.n === version.n && (
+            <ArtifactDownloadButton content={loaded.content} title={detail.title} contentRef={contentRef} />
+          )}
           {version.kept && <ArtifactSideChatButton detail={detail} version={version.n} />}
           <button
             type="button"
@@ -227,25 +237,28 @@ export function ArtifactViewer({
       </div>
       {version.kept ? (
         <ArtifactConversation detail={detail} version={version.n}>
-          <ArtifactVersionLoader
-            id={detail.id}
-            version={version.n}
-            title={detail.title}
-            changes={version.changes}
-            copied={version.copied}
-            onCopied={(parts) =>
-              void artifactApi.markCopied(detail.id, version.n, parts).then(update).catch(console.error)
-            }
-            renderMarkdown={(markdown, options) => (
-              <MarkdownContent
-                text={markdown}
-                sessionId={source.sessionId}
-                fileBasePath={options?.fileBasePath}
-                sectionJumpList={options?.sectionJumpList}
-                enableChatSelectionMenu
-              />
-            )}
-          />
+          <div ref={contentRef}>
+            <ArtifactVersionLoader
+              id={detail.id}
+              version={version.n}
+              title={detail.title}
+              changes={version.changes}
+              copied={version.copied}
+              onCopied={(parts) =>
+                void artifactApi.markCopied(detail.id, version.n, parts).then(update).catch(console.error)
+              }
+              onLoaded={(content) => setLoaded({ n: version.n, content })}
+              renderMarkdown={(markdown, options) => (
+                <MarkdownContent
+                  text={markdown}
+                  sessionId={source.sessionId}
+                  fileBasePath={options?.fileBasePath}
+                  sectionJumpList={options?.sectionJumpList}
+                  enableChatSelectionMenu
+                />
+              )}
+            />
+          </div>
         </ArtifactConversation>
       ) : (
         <p className="px-4 py-2 text-[13px] text-cc-muted">
@@ -254,6 +267,39 @@ export function ArtifactViewer({
       )}
     </ViewerFrame>
   );
+}
+
+/**
+ * Download and Export for an artifact shown without a card of its own: a report or table (its
+ * Markdown, plus the exports report cards have, made from it as shown here) and a figure (its
+ * image). Posts, visuals and decks show their card, whose More menu has Download and Export.
+ */
+function ArtifactDownloadButton({
+  content,
+  title,
+  contentRef,
+}: {
+  content: ArtifactVersionContent;
+  title: string;
+  contentRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const markdown = content.kind === "report" || content.kind === "table" ? content.markdown : "";
+  const { saveItems, task } = useCardExport(
+    useCallback(
+      (format: ExportFormat) => exportContent(format, { markdown, content: contentRef.current, title }),
+      [contentRef, markdown, title],
+    ),
+  );
+  if (content.kind === "figure") {
+    const { fileUrl, path } = content;
+    if (!fileUrl) return null;
+    const name = path.split(/[\\/]/).pop() ?? "";
+    return <DownloadButton items={[{ label: "Download", onClick: () => saveUrl(fileUrl, name) }]} />;
+  }
+  if (content.kind === "table" || (content.kind === "report" && !isSlideDeck(content.markdown))) {
+    return <DownloadButton items={saveItems(["markdown", "pdf", "png", "html"], { flat: true })} task={task} />;
+  }
+  return null;
 }
 
 /** How often a window of its own reads its artifact again while visible. */
