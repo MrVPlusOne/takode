@@ -157,9 +157,11 @@ export class HostRegistry {
   }
 
   /** Change some of a host's machine settings. Returns null for an unknown host. */
-  async updateMachineSettings(hostId: string, patch: Partial<MachineSettings>): Promise<MachineSettings | null> {
+  async updateMachineSettings(hostId: string, patch: MachineSettingsPatch): Promise<MachineSettings | null> {
     const hosts = await this.load();
     const next = { ...this.machineSettings(hostId), ...definedSettings(patch) };
+    // The keep-alive limit set back to the server's default.
+    if (patch.maxKeepAlive === null) delete next.maxKeepAlive;
     if (hostId === LOCAL_HOST_ID) {
       this.local = { ...this.localEntry(), settings: next };
     } else {
@@ -265,8 +267,11 @@ function publicHost({ id, name, createdAt }: StoredHost): RegisteredHost {
   return { id, name, createdAt };
 }
 
+/** A change to some machine settings; `maxKeepAlive: null` returns that machine to the server's default. */
+export type MachineSettingsPatch = Partial<Omit<MachineSettings, "maxKeepAlive">> & { maxKeepAlive?: number | null };
+
 /** The fields of a settings patch that hold valid values, strings trimmed. */
-function definedSettings(patch: Partial<MachineSettings>): Partial<MachineSettings> {
+function definedSettings(patch: MachineSettingsPatch): Partial<MachineSettings> {
   const defined: Partial<MachineSettings> = {};
   if (typeof patch.claudeBinary === "string") defined.claudeBinary = patch.claudeBinary.trim();
   if (typeof patch.codexBinary === "string") defined.codexBinary = patch.codexBinary.trim();
@@ -277,6 +282,10 @@ function definedSettings(patch: Partial<MachineSettings>): Partial<MachineSettin
   if (typeof patch.sshHost === "string") defined.sshHost = patch.sshHost.trim();
   if (typeof patch.execDisabled === "boolean") defined.execDisabled = patch.execDisabled;
   if (typeof patch.note === "string") defined.note = patch.note.trim();
+  if (typeof patch.maxKeepAlive === "number" && Number.isFinite(patch.maxKeepAlive) && patch.maxKeepAlive >= 0) {
+    defined.maxKeepAlive = Math.floor(patch.maxKeepAlive);
+  }
+  if (typeof patch.keepAwake === "boolean") defined.keepAwake = patch.keepAwake;
   return defined;
 }
 

@@ -101,6 +101,23 @@ describe("HostRegistry", () => {
     expect(reloaded.machineSettings(host.id)).toEqual({ claudeBinary: "", codexBinary: "", worktreeRoot: "" });
   });
 
+  // A machine's keep-alive limit overrides the server's default until it is set back
+  // (null); invalid values are ignored. Its keep-awake switch is stored as given.
+  it("stores a machine's keep-alive limit until it returns to the default, and its keep-awake switch", async () => {
+    const registry = new HostRegistry(join(dir, "hosts.json"));
+    const { host } = await registry.register("laptop");
+
+    await registry.updateMachineSettings(host.id, { maxKeepAlive: 8.7, keepAwake: false });
+    expect(registry.machineSettings(host.id)).toMatchObject({ maxKeepAlive: 8, keepAwake: false });
+
+    await registry.updateMachineSettings(host.id, { maxKeepAlive: -3 });
+    expect(registry.machineSettings(host.id).maxKeepAlive).toBe(8);
+
+    await registry.updateMachineSettings(host.id, { maxKeepAlive: null });
+    expect(registry.machineSettings(host.id)).not.toHaveProperty("maxKeepAlive");
+    expect(registry.machineSettings(host.id).keepAwake).toBe(false);
+  });
+
   // The old global binaries become this machine's settings once; a later start
   // never overwrites what is stored since. The answer says whether the caller
   // may delete its old copy: only when that copy is what this machine now has.

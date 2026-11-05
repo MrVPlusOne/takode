@@ -80,3 +80,90 @@ describe("HostCliSettings note for agents", () => {
     );
   });
 });
+
+/**
+ * Each machine's own keep-alive limit (empty returns it to the server's default) and,
+ * on a Mac only, whether it stays awake while its sessions work.
+ */
+describe("HostCliSettings keep-alive and keep-awake", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubSave(saved: Record<string, unknown>) {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
+      url.endsWith("/settings")
+        ? new Response(JSON.stringify({ settings: { claudeBinary: "", codexBinary: "", ...saved } }))
+        : new Response(JSON.stringify({ hosts: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const putBodies = (fetchMock: ReturnType<typeof stubSave>) =>
+    fetchMock.mock.calls.flatMap(([url, init]) => (url.endsWith("/settings") ? [JSON.parse(String(init?.body))] : []));
+
+  it("saves a machine's own limit, and clearing the field returns it to the default", async () => {
+    const fetchMock = stubSave({ maxKeepAlive: 8 });
+    const { rerender } = render(
+      <HostCliSettings hostId="laptop" settings={{ claudeBinary: "", codexBinary: "" }} defaultWorktreeRoot={null} />,
+    );
+    const field = screen.getByLabelText("Max Keep-Alive") as HTMLInputElement;
+    expect(field.value).toBe("");
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: "8" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(putBodies(fetchMock)).toEqual([{ maxKeepAlive: 8 }]));
+
+    rerender(
+      <HostCliSettings
+        hostId="laptop"
+        settings={{ claudeBinary: "", codexBinary: "", maxKeepAlive: 8 }}
+        defaultWorktreeRoot={null}
+      />,
+    );
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: "" } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(putBodies(fetchMock)).toEqual([{ maxKeepAlive: 8 }, { maxKeepAlive: null }]));
+  });
+
+  it("refuses a limit that is not a whole number without saving it", () => {
+    const fetchMock = stubSave({});
+    render(
+      <HostCliSettings hostId="laptop" settings={{ claudeBinary: "", codexBinary: "" }} defaultWorktreeRoot={null} />,
+    );
+    const field = screen.getByLabelText("Max Keep-Alive");
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: "2.5" } });
+    fireEvent.blur(field);
+    expect(screen.getByText(/Enter a whole number/)).toBeTruthy();
+    expect(putBodies(fetchMock)).toEqual([]);
+  });
+
+  it("offers the keep-awake switch on a Mac only, on by default, and saves turning it off", async () => {
+    const fetchMock = stubSave({ keepAwake: false });
+    const { rerender } = render(
+      <HostCliSettings
+        hostId="devbox"
+        settings={{ claudeBinary: "", codexBinary: "" }}
+        defaultWorktreeRoot={null}
+        platform="linux"
+      />,
+    );
+    expect(screen.queryByRole("switch", { name: "Keep this Mac awake during turns" })).toBeNull();
+
+    rerender(
+      <HostCliSettings
+        hostId="laptop"
+        settings={{ claudeBinary: "", codexBinary: "" }}
+        defaultWorktreeRoot={null}
+        platform="darwin"
+      />,
+    );
+    const toggle = screen.getByRole("switch", { name: "Keep this Mac awake during turns" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(putBodies(fetchMock)).toEqual([{ keepAwake: false }]));
+  });
+});

@@ -89,7 +89,7 @@ export interface CompanionSettings {
   needsInputReminders?: NeedsInputReminderSettings;
   /** External base URL for deep links in push notifications */
   pushoverBaseUrl: string;
-  /** Max number of live CLI processes to keep alive (0 = unlimited) */
+  /** Default limit of live CLI processes on each machine (0 = unlimited); a machine may set its own (`maxKeepAlive` in its settings) */
   maxKeepAlive: number;
   /** Whether session list git refreshes should run in the background for large/slow repos */
   heavyRepoModeEnabled: boolean;
@@ -101,9 +101,7 @@ export interface CompanionSettings {
   transcriptionConfig: TranscriptionConfig;
   /** Preferred local editor for clickable file: links */
   editorConfig: EditorConfig;
-  /** Whether sleep inhibition via caffeinate is enabled (macOS only, default: false) */
-  sleepInhibitorEnabled: boolean;
-  /** Duration in minutes for each caffeinate engagement (default: 5, minimum: 1) */
+  /** How long a Mac stays awake after its sessions' turns end, in minutes (default: 5, minimum: 1); see each machine's keepAwake */
   sleepInhibitorDurationMinutes: number;
   /** Session sidebar layout, shared by every browser. Optional for backward-compatible tests/mocks. */
   sidebarViewMode?: SidebarViewMode;
@@ -288,7 +286,6 @@ let settings: CompanionSettings = {
     sttLanguageHints: [],
   },
   editorConfig: { editor: "none" },
-  sleepInhibitorEnabled: false,
   sleepInhibitorDurationMinutes: 5,
   sidebarViewMode: "spaces",
   questmasterCompactSort: DEFAULT_QUESTMASTER_COMPACT_SORT,
@@ -555,7 +552,6 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     autoNamerEnabled: typeof raw?.autoNamerEnabled === "boolean" ? raw.autoNamerEnabled : true,
     transcriptionConfig: normalizeTranscriptionConfig(raw),
     editorConfig: normalizeEditorConfig(raw),
-    sleepInhibitorEnabled: typeof raw?.sleepInhibitorEnabled === "boolean" ? raw.sleepInhibitorEnabled : false,
     sleepInhibitorDurationMinutes:
       typeof raw?.sleepInhibitorDurationMinutes === "number" && raw.sleepInhibitorDurationMinutes >= 1
         ? Math.floor(raw.sleepInhibitorDurationMinutes)
@@ -721,7 +717,6 @@ export function updateSettings(
       | "autoNamerEnabled"
       | "transcriptionConfig"
       | "editorConfig"
-      | "sleepInhibitorEnabled"
       | "sleepInhibitorDurationMinutes"
       | "sidebarViewMode"
       | "questmasterCompactSort"

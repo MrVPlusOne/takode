@@ -1,328 +1,86 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { spawn } from "node:child_process";
+import { describe, it, expect, vi } from "vitest";
+import { SleepInhibitor } from "./sleep-inhibitor.js";
+import type { Caffeinate } from "./caffeinate.js";
 
-// SleepInhibitor uses `spawn` from node:child_process at module level.
-// We mock the module so tests don't actually run caffeinate.
-vi.mock("node:child_process", () => ({
-  spawn: vi.fn(),
-}));
-
-// Import after mock is set up.
-const { SleepInhibitor } = await import("./sleep-inhibitor.js");
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function mockWsBridge(sessions: Record<string, { isGenerating: boolean }>) {
-  return {
-    getSession(id: string) {
-      return sessions[id] ? { isGenerating: sessions[id].isGenerating } : undefined;
-    },
-  } as any;
+function fakeCaffeinate() {
+  return { keepAwakeFor: vi.fn(), stop: vi.fn() };
 }
 
-function mockLauncher(entries: Array<{ sessionId: string; state?: string }>) {
-  return {
-    listSessions: () => entries.map((e) => ({ sessionId: e.sessionId, state: e.state ?? "running" })),
-  } as any;
+/** Sessions by id: the machine they run on (`hostId`, none for this one) and whether they are mid-turn. */
+function inhibitorFor(
+  sessions: Record<string, { hostId?: string; generating: boolean; state?: string }>,
+  keepAwake: Record<string, boolean> = {},
+) {
+  const caffeinate = fakeCaffeinate();
+  const keepHostAwake = vi.fn();
+  const inhibitor = new SleepInhibitor({
+    wsBridge: { getSession: (id: string) => ({ isGenerating: sessions[id]?.generating }) } as never,
+    launcher: {
+      listSessions: () =>
+        Object.entries(sessions).map(([sessionId, s]) => ({
+          sessionId,
+          hostId: s.hostId,
+          state: s.state ?? "connected",
+        })),
+    } as never,
+    getSettings: () => ({ sleepInhibitorDurationMinutes: 10 }),
+    keepAwakeOn: (machineId) => keepAwake[machineId] !== false,
+    keepHostAwake,
+    caffeinate: caffeinate as unknown as Caffeinate,
+  });
+  return { inhibitor, caffeinate, keepHostAwake };
 }
 
-function defaultSettings(overrides?: { sleepInhibitorEnabled?: boolean; sleepInhibitorDurationMinutes?: number }) {
-  return {
-    sleepInhibitorEnabled: false,
-    sleepInhibitorDurationMinutes: 5,
-    ...overrides,
-  };
-}
-
-/** Create a mock ChildProcess returned by spawn. */
-function mockProc() {
-  return {
-    on: vi.fn(),
-    kill: vi.fn(),
-    unref: vi.fn(),
-    exitCode: null,
-    signalCode: null,
-  };
-}
-
+// Each machine is kept awake while one of its own sessions is mid-turn: this machine with
+// caffeinate here, a remote host by asking its node, which does it on macOS.
 describe("SleepInhibitor", () => {
-  const originalPlatform = process.platform;
-  const spawnMock = spawn as unknown as ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    spawnMock.mockReset();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    // Restore platform in case a test changed it.
-    Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
-  });
-
-  function setPlatform(p: string) {
-    Object.defineProperty(process, "platform", { value: p, configurable: true });
-  }
-
-  // ── Platform guard ──────────────────────────────────────────────────
-
-  it("is a no-op on non-macOS: start() never sets an interval or spawns", () => {
-    setPlatform("linux");
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true }),
+  it("keeps only the machines with a session mid-turn awake, each its own way", () => {
+    const { inhibitor, caffeinate, keepHostAwake } = inhibitorFor({
+      here: { generating: true },
+      "laptop-busy": { hostId: "laptop", generating: true },
+      "laptop-idle": { hostId: "laptop", generating: false },
+      "condor-idle": { hostId: "condor", generating: false },
     });
-
-    inhibitor.start(1000);
-    vi.advanceTimersByTime(5000);
-    expect(spawnMock).not.toHaveBeenCalled();
-    inhibitor.stop();
+    inhibitor.sweep();
+    expect(caffeinate.keepAwakeFor).toHaveBeenCalledWith(600);
+    expect(keepHostAwake).toHaveBeenCalledTimes(1);
+    expect(keepHostAwake).toHaveBeenCalledWith("laptop", 600);
   });
 
-  // ── Disabled setting ───────────────────────────────────────────────
-
-  it("does not spawn caffeinate when disabled, even with generating sessions", () => {
-    setPlatform("darwin");
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: false }),
+  it("leaves this machine alone when only another machine's session is mid-turn", () => {
+    const { inhibitor, caffeinate, keepHostAwake } = inhibitorFor({
+      "laptop-busy": { hostId: "laptop", generating: true },
     });
+    inhibitor.sweep();
+    expect(caffeinate.keepAwakeFor).not.toHaveBeenCalled();
+    expect(keepHostAwake).toHaveBeenCalledWith("laptop", 600);
+  });
 
+  it("skips machines whose keep-awake setting is off, and lets this machine sleep at once", () => {
+    const { inhibitor, caffeinate, keepHostAwake } = inhibitorFor(
+      { here: { generating: true }, laptop: { hostId: "laptop", generating: true } },
+      { local: false, laptop: false },
+    );
+    inhibitor.sweep();
+    expect(caffeinate.keepAwakeFor).not.toHaveBeenCalled();
+    expect(caffeinate.stop).toHaveBeenCalled();
+    expect(keepHostAwake).not.toHaveBeenCalled();
+  });
+
+  it("ignores exited sessions and machines with no turn under way", () => {
+    const { inhibitor, caffeinate, keepHostAwake } = inhibitorFor({
+      gone: { hostId: "laptop", generating: true, state: "exited" },
+      idle: { generating: false },
+    });
+    inhibitor.sweep();
+    expect(caffeinate.keepAwakeFor).not.toHaveBeenCalled();
+    expect(keepHostAwake).not.toHaveBeenCalled();
+  });
+
+  it("stops keeping this machine awake when it stops", () => {
+    const { inhibitor, caffeinate } = inhibitorFor({});
     inhibitor.start(60_000);
-    expect(spawnMock).not.toHaveBeenCalled();
     inhibitor.stop();
-  });
-
-  // ── Happy path: spawns when generating ─────────────────────────────
-
-  it("spawns caffeinate when enabled and a session is generating", () => {
-    setPlatform("darwin");
-    const proc = mockProc();
-    spawnMock.mockReturnValue(proc);
-
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true, sleepInhibitorDurationMinutes: 5 }),
-    });
-
-    inhibitor.start(60_000);
-
-    // Should have spawned caffeinate with -t 300 (5 min * 60 sec)
-    expect(spawnMock).toHaveBeenCalledWith("caffeinate", ["-t", "300"], expect.objectContaining({ stdio: "ignore" }));
-    expect(proc.unref).toHaveBeenCalled();
-
-    inhibitor.stop();
-    // stop() kills the process
-    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
-  });
-
-  // ── No spawn when idle ─────────────────────────────────────────────
-
-  it("does not spawn caffeinate when no sessions are generating", () => {
-    setPlatform("darwin");
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: false } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true }),
-    });
-
-    inhibitor.start(60_000);
-    expect(spawnMock).not.toHaveBeenCalled();
-    inhibitor.stop();
-  });
-
-  // ── Kill-before-respawn ────────────────────────────────────────────
-
-  it("kills the old caffeinate before spawning a new one on subsequent sweeps", () => {
-    setPlatform("darwin");
-    const procs = [mockProc(), mockProc()];
-    let callIdx = 0;
-    spawnMock.mockImplementation(() => procs[callIdx++]);
-
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true }),
-    });
-
-    inhibitor.start(60_000);
-    // First sweep spawns procs[0]
-    expect(callIdx).toBe(1);
-
-    vi.advanceTimersByTime(60_000);
-    // Should have killed procs[0] and spawned procs[1]
-    expect(procs[0].kill).toHaveBeenCalledWith("SIGTERM");
-    expect(callIdx).toBe(2);
-
-    inhibitor.stop();
-    expect(procs[1].kill).toHaveBeenCalledWith("SIGTERM");
-  });
-
-  // ── Duration config ────────────────────────────────────────────────
-
-  it("converts duration in minutes to seconds for caffeinate -t argument", () => {
-    setPlatform("darwin");
-    spawnMock.mockReturnValue(mockProc());
-
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true, sleepInhibitorDurationMinutes: 15 }),
-    });
-
-    inhibitor.start(60_000);
-    expect(spawnMock).toHaveBeenCalledWith("caffeinate", ["-t", "900"], expect.any(Object));
-    inhibitor.stop();
-  });
-
-  // ── Skips exited sessions ──────────────────────────────────────────
-
-  it("skips exited sessions even if their bridge state shows generating", () => {
-    setPlatform("darwin");
-    const inhibitor = new SleepInhibitor({
-      // Bridge says generating, but launcher says exited -- should not trigger
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1", state: "exited" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true }),
-    });
-
-    inhibitor.start(60_000);
-    expect(spawnMock).not.toHaveBeenCalled();
-    inhibitor.stop();
-  });
-
-  // ── Spawn error handling ───────────────────────────────────────────
-
-  it("handles caffeinate spawn error gracefully without crashing", () => {
-    setPlatform("darwin");
-    spawnMock.mockImplementation(() => {
-      throw new Error("spawn ENOENT");
-    });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true }),
-    });
-
-    // Should not throw
-    inhibitor.start(60_000);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("caffeinate spawn error"));
-
-    inhibitor.stop();
-    warnSpy.mockRestore();
-  });
-
-  // ── Toggle off mid-run kills caffeinate ────────────────────────────
-
-  it("kills caffeinate when feature is toggled off mid-run", () => {
-    setPlatform("darwin");
-    const proc = mockProc();
-    spawnMock.mockReturnValue(proc);
-
-    let enabled = true;
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: enabled }),
-    });
-
-    inhibitor.start(60_000);
-    // caffeinate spawned
-    expect(proc.unref).toHaveBeenCalled();
-
-    // User disables the feature
-    enabled = false;
-    vi.advanceTimersByTime(60_000);
-    // Should have killed caffeinate
-    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
-
-    inhibitor.stop();
-  });
-
-  // ── Multiple sessions: any generating triggers ─────────────────────
-
-  it("triggers caffeinate if any one session out of many is generating", () => {
-    setPlatform("darwin");
-    spawnMock.mockReturnValue(mockProc());
-
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({
-        s1: { isGenerating: false },
-        s2: { isGenerating: false },
-        s3: { isGenerating: true },
-      }),
-      launcher: mockLauncher([{ sessionId: "s1" }, { sessionId: "s2" }, { sessionId: "s3" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true }),
-    });
-
-    inhibitor.start(60_000);
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    inhibitor.stop();
-  });
-
-  // ── getStatus() ────────────────────────────────────────────────────
-
-  it("getStatus() returns inactive when no caffeinate is running", () => {
-    setPlatform("darwin");
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({}),
-      launcher: mockLauncher([]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true }),
-    });
-
-    const status = inhibitor.getStatus();
-    expect(status.active).toBe(false);
-    expect(status.engagedAt).toBeNull();
-    expect(status.expiresAt).toBeNull();
-  });
-
-  // getStatus() should report active with correct timestamps after spawning
-  it("getStatus() returns active with timestamps after caffeinate spawns", () => {
-    setPlatform("darwin");
-    const proc = mockProc();
-    spawnMock.mockReturnValue(proc);
-    vi.setSystemTime(new Date("2026-01-15T10:00:00Z"));
-
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true, sleepInhibitorDurationMinutes: 10 }),
-    });
-
-    inhibitor.start(60_000);
-
-    const status = inhibitor.getStatus();
-    expect(status.active).toBe(true);
-    expect(status.engagedAt).toBe(new Date("2026-01-15T10:00:00Z").getTime());
-    // 10 minutes * 60 seconds * 1000 ms = 600_000 ms after engagedAt
-    expect(status.expiresAt).toBe(new Date("2026-01-15T10:00:00Z").getTime() + 600_000);
-
-    inhibitor.stop();
-  });
-
-  // getStatus() should return inactive after stop() kills caffeinate
-  it("getStatus() returns inactive after stop() kills caffeinate", () => {
-    setPlatform("darwin");
-    const proc = mockProc();
-    spawnMock.mockReturnValue(proc);
-
-    const inhibitor = new SleepInhibitor({
-      wsBridge: mockWsBridge({ s1: { isGenerating: true } }),
-      launcher: mockLauncher([{ sessionId: "s1" }]),
-      getSettings: () => defaultSettings({ sleepInhibitorEnabled: true }),
-    });
-
-    inhibitor.start(60_000);
-    expect(inhibitor.getStatus().active).toBe(true);
-
-    inhibitor.stop();
-    expect(inhibitor.getStatus().active).toBe(false);
-    expect(inhibitor.getStatus().engagedAt).toBeNull();
-    expect(inhibitor.getStatus().expiresAt).toBeNull();
+    expect(caffeinate.stop).toHaveBeenCalled();
   });
 });

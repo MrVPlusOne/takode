@@ -126,7 +126,6 @@ export const mockApi = {
     publicKey: "test-key",
     subscriptionCount: 0,
   }),
-  getCaffeinateStatus: vi.fn(),
 };
 export const mockCheckReadinessStatus = vi.fn().mockResolvedValue({
   ok: true,
@@ -228,11 +227,6 @@ export function resetSettingsPageMocks() {
   resetBuildCompatibilityForTest();
   mockApi.updateSettings.mockResolvedValue(settingsResponse());
   mockApi.getNamerLogs.mockResolvedValue([]);
-  mockApi.getCaffeinateStatus.mockResolvedValue({
-    active: false,
-    engagedAt: null,
-    expiresAt: null,
-  });
 }
 
 export async function waitForSettingsPage() {

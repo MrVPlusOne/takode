@@ -1379,7 +1379,13 @@ if (recorder.isGloballyEnabled()) {
 }
 
 // ── Sleep inhibitor — prevent macOS sleep during generation ──────────────────
-const sleepInhibitor = new SleepInhibitor({ wsBridge, launcher, getSettings });
+const sleepInhibitor = new SleepInhibitor({
+  wsBridge,
+  launcher,
+  getSettings,
+  keepAwakeOn: (machineId) => hostRegistry.machineSettings(machineId).keepAwake !== false,
+  keepHostAwake: (hostId, seconds) => hostLinks.keepAwake(hostId, seconds),
+});
 
 const app = new Hono();
 
@@ -1453,7 +1459,6 @@ app.route(
       hostExec,
     },
     perfTracer,
-    sleepInhibitor,
     resourceLeaseManager,
     modelProvenanceMigrationAcknowledgementStore,
   ),
@@ -1787,8 +1792,13 @@ await captureStartupInjectedRelaunches(async () => {
 
 void codexWorkerV2RolloutService.schedule("startup");
 
-// ── Idle session manager — enforce maxKeepAlive ─────────────────────────────
-const idleManager = new IdleManager(launcher, wsBridge, getSettings);
+// ── Idle session manager — enforce each machine's maxKeepAlive ─────────────
+// Each machine's own limit, else the server's default for every machine.
+const idleManager = new IdleManager(
+  launcher,
+  wsBridge,
+  (machineId) => hostRegistry.machineSettings(machineId).maxKeepAlive ?? getSettings().maxKeepAlive,
+);
 idleManager.start();
 
 // ── Sleep inhibitor — start polling ──────────────────────────────────────────

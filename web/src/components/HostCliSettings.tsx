@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { updateMachineSettings, type MachineSettings } from "../remote-hosts.js";
 import { SettingsToggle } from "./settings-controls.js";
+import { HostPowerSettings } from "./HostPowerSettings.js";
 
 type Program = "claude" | "codex";
 
@@ -23,6 +24,7 @@ export function HostCliSettings({
   defaultWorktreeRoot,
   overrides = {},
   local = false,
+  platform,
 }: {
   hostId: string;
   settings: MachineSettings;
@@ -31,6 +33,8 @@ export function HostCliSettings({
   /** Programs the host's `takode node` was started with, which win over these settings. */
   overrides?: { claude?: string; codex?: string };
   local?: boolean;
+  /** `process.platform` of the machine; null or absent while a host has not reported it. */
+  platform?: string | null;
 }) {
   return (
     <div className="mt-2 space-y-2" data-testid={`host-cli-settings-${hostId}`}>
@@ -49,6 +53,12 @@ export function HostCliSettings({
       <WorktreeFolderField hostId={hostId} value={settings.worktreeRoot ?? ""} defaultRoot={defaultWorktreeRoot} />
       <EditorAccessField hostId={hostId} access={settings.editorAccess ?? ""} sshHost={settings.sshHost ?? ""} />
       <AgentCommandsField hostId={hostId} allowed={settings.execDisabled !== true} />
+      <HostPowerSettings
+        hostId={hostId}
+        maxKeepAlive={settings.maxKeepAlive}
+        keepAwake={settings.keepAwake !== false}
+        platform={platform ?? null}
+      />
       <MachineNoteField hostId={hostId} value={settings.note ?? ""} />
     </div>
   );

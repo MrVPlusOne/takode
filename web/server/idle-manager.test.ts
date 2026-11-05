@@ -26,9 +26,9 @@ function createMocks(sessions: SdkSessionInfo[], busyIds: Set<string> = new Set(
     killSession: vi.fn().mockResolvedValue(true),
   } as unknown as WsBridge;
 
-  const getSettings = () => ({ maxKeepAlive });
+  const limitFor = () => maxKeepAlive;
 
-  return { launcher, wsBridge, getSettings };
+  return { launcher, wsBridge, limitFor };
 }
 
 describe("IdleManager", () => {
@@ -38,8 +38,8 @@ describe("IdleManager", () => {
 
   it("does nothing when maxKeepAlive is 0 (disabled)", async () => {
     const sessions = [makeSession("s1"), makeSession("s2"), makeSession("s3"), makeSession("s4")];
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 0);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 0);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     expect(killed).toBe(0);
@@ -48,8 +48,8 @@ describe("IdleManager", () => {
 
   it("does nothing when alive count is within limit", async () => {
     const sessions = [makeSession("s1"), makeSession("s2")];
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 3);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 3);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     expect(killed).toBe(0);
@@ -63,8 +63,8 @@ describe("IdleManager", () => {
       makeSession("s2", { lastActivityAt: now - 2000 }),
       makeSession("s3", { lastActivityAt: now - 1000 }), // most recent
     ];
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 2);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 2);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     expect(killed).toBe(1);
@@ -80,8 +80,8 @@ describe("IdleManager", () => {
       makeSession("s3", { lastActivityAt: now - 1000 }),
     ];
     // s1 is busy — should be skipped
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(["s1"]), 2);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(["s1"]), 2);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     // s1 is busy so can't be killed; s2 is next oldest
@@ -93,8 +93,8 @@ describe("IdleManager", () => {
   it("skips exited sessions when counting alive", async () => {
     const sessions = [makeSession("s1", { state: "exited" }), makeSession("s2"), makeSession("s3")];
     // Only s2 and s3 are alive — within limit of 2
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 2);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 2);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     expect(killed).toBe(0);
@@ -102,8 +102,8 @@ describe("IdleManager", () => {
 
   it("skips archived sessions when counting alive", async () => {
     const sessions = [makeSession("s1", { archived: true }), makeSession("s2"), makeSession("s3")];
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 2);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 2);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     expect(killed).toBe(0);
@@ -116,8 +116,8 @@ describe("IdleManager", () => {
       makeSession("s2", { lastActivityAt: now - 1000 }),
       makeSession("s3", { lastActivityAt: now }),
     ];
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 2);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 2);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     expect(killed).toBe(1);
@@ -133,8 +133,8 @@ describe("IdleManager", () => {
       makeSession("s4", { lastActivityAt: now - 1000 }),
       makeSession("s5", { lastActivityAt: now }),
     ];
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 2);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 2);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     expect(killed).toBe(3);
@@ -153,8 +153,8 @@ describe("IdleManager", () => {
       makeSession("s3", { lastActivityAt: now - 1000 }), // killable
     ];
     // Need to kill 1 to reach limit of 2, but s1 and s2 are busy — s3 is newest but killable
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(["s1", "s2"]), 2);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(["s1", "s2"]), 2);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     expect(killed).toBe(1);
@@ -170,8 +170,8 @@ describe("IdleManager", () => {
       makeSession("s2", { lastActivityAt: now - 2000 }),
       makeSession("s3", { lastActivityAt: now - 1000 }),
     ];
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 2);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 2);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     await mgr.sweep();
     // s1 is the oldest and should be killed — verify flag was set
@@ -191,10 +191,10 @@ describe("IdleManager", () => {
       makeSession("s2", { lastActivityAt: now - 2000 }),
       makeSession("s3", { lastActivityAt: now - 1000 }),
     ];
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 2);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 2);
     // killSession returns false for s1 (simulating SDK session kill failure)
     (wsBridge.killSession as ReturnType<typeof vi.fn>).mockImplementation((id: string) => Promise.resolve(id !== "s1"));
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     const killed = await mgr.sweep();
     // s1 failed to kill, s2 succeeded — only 1 actual kill
@@ -205,11 +205,33 @@ describe("IdleManager", () => {
     expect(wsBridge.killSession).toHaveBeenCalledTimes(1);
   });
 
+  it("enforces each machine's own limit on that machine's sessions only", async () => {
+    // Every machine counts its own live sessions against its own limit. The laptop is over
+    // its limit of 1, so its longest-idle session stops; this machine's three sessions are
+    // within its limit of 5 and stay, even though they are older and the total is over both.
+    const now = Date.now();
+    const sessions = [
+      makeSession("here-1", { lastActivityAt: now - 900_000 }),
+      makeSession("here-2", { lastActivityAt: now - 800_000 }),
+      makeSession("here-3", { lastActivityAt: now - 700_000 }),
+      makeSession("laptop-old", { hostId: "laptop", lastActivityAt: now - 500_000 }),
+      makeSession("laptop-new", { hostId: "laptop", lastActivityAt: now - 10_000 }),
+    ];
+    const { launcher, wsBridge } = createMocks(sessions);
+    const limits: Record<string, number> = { local: 5, laptop: 1 };
+    const mgr = new IdleManager(launcher, wsBridge, (machineId) => limits[machineId] ?? 0);
+
+    const killed = await mgr.sweep();
+    expect(killed).toBe(1);
+    expect(wsBridge.killSession).toHaveBeenCalledTimes(1);
+    expect(wsBridge.killSession).toHaveBeenCalledWith("laptop-old");
+  });
+
   it("start/stop controls the interval timer", () => {
     vi.useFakeTimers();
     const sessions = [makeSession("s1"), makeSession("s2"), makeSession("s3"), makeSession("s4")];
-    const { launcher, wsBridge, getSettings } = createMocks(sessions, new Set(), 2);
-    const mgr = new IdleManager(launcher, wsBridge, getSettings);
+    const { launcher, wsBridge, limitFor } = createMocks(sessions, new Set(), 2);
+    const mgr = new IdleManager(launcher, wsBridge, limitFor);
 
     mgr.start(1000);
     expect(wsBridge.killSession).not.toHaveBeenCalled();

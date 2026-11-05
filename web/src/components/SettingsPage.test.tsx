@@ -1657,150 +1657,15 @@ describe("SettingsPage", () => {
     expect(toggle).toHaveAttribute("aria-checked", "true");
   });
 
-  it("ignores stale Sessions collapse state while polling sleep inhibitor status", async () => {
-    vi.useFakeTimers();
-    localStorage.setItem("cc-settings-collapsed", JSON.stringify(["sessions"]));
-    mockApi.getSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      sleepInhibitorEnabled: true,
-      sleepInhibitorDurationMinutes: 5,
-      editorConfig: { editor: "none" },
+  it("saves the keep-awake grace period on its own; each machine's switch is under Hosts", async () => {
+    // The switch moved to each machine's settings; this section keeps only the grace period.
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+    expect(screen.queryByText("Prevent Sleep During Generation")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Increase grace period/i }));
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({ sleepInhibitorDurationMinutes: 6 });
     });
-
-    try {
-      render(<SettingsPage />);
-      await act(async () => {
-        await Promise.resolve();
-      });
-      expect(settingsSection("Notifications")).toBeInTheDocument();
-
-      expect(mockApi.getCaffeinateStatus).toHaveBeenCalled();
-
-      await act(async () => {
-        vi.advanceTimersByTime(20_000);
-      });
-
-      expect(mockApi.getCaffeinateStatus).toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("pauses sleep inhibitor polling while the tab is hidden and resumes on visibility", async () => {
-    vi.useFakeTimers();
-    let visibilityState: DocumentVisibilityState = "hidden";
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => visibilityState,
-    });
-    mockApi.getSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      sleepInhibitorEnabled: true,
-      sleepInhibitorDurationMinutes: 5,
-      editorConfig: { editor: "none" },
-    });
-
-    try {
-      render(<SettingsPage />);
-      await act(async () => {
-        await Promise.resolve();
-      });
-      expect(settingsSection("Notifications")).toBeInTheDocument();
-
-      expect(mockApi.getCaffeinateStatus).not.toHaveBeenCalled();
-
-      await act(async () => {
-        vi.advanceTimersByTime(20_000);
-      });
-      expect(mockApi.getCaffeinateStatus).not.toHaveBeenCalled();
-
-      visibilityState = "visible";
-      act(() => {
-        document.dispatchEvent(new Event("visibilitychange"));
-      });
-      await act(async () => {
-        await Promise.resolve();
-      });
-      expect(mockApi.getCaffeinateStatus).toHaveBeenCalledTimes(1);
-
-      await act(async () => {
-        vi.advanceTimersByTime(5_000);
-      });
-      expect(mockApi.getCaffeinateStatus).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("pauses the sleep inhibitor countdown while the tab is hidden", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-04-19T12:00:00.000Z"));
-    let visibilityState: DocumentVisibilityState = "visible";
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => visibilityState,
-    });
-    mockApi.getSettings.mockResolvedValue({
-      serverName: "",
-      serverId: "test-id",
-      serverSlug: "prod",
-      pushoverConfigured: false,
-      pushoverEnabled: true,
-      pushoverDelaySeconds: 30,
-      pushoverBaseUrl: "",
-      maxKeepAlive: 0,
-      heavyRepoModeEnabled: false,
-      sleepInhibitorEnabled: true,
-      sleepInhibitorDurationMinutes: 5,
-      editorConfig: { editor: "none" },
-    });
-    mockApi.getCaffeinateStatus.mockResolvedValue({
-      active: true,
-      engagedAt: Date.now(),
-      expiresAt: Date.now() + 60_000,
-    });
-
-    try {
-      render(<SettingsPage />);
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      expect(screen.getByText("Awake for 0s · expires in 1m 0s")).toBeInTheDocument();
-
-      await act(async () => {
-        vi.advanceTimersByTime(1_000);
-      });
-      expect(screen.getByText("Awake for 1s · expires in 59s")).toBeInTheDocument();
-
-      visibilityState = "hidden";
-      act(() => {
-        document.dispatchEvent(new Event("visibilitychange"));
-      });
-
-      await act(async () => {
-        vi.advanceTimersByTime(5_000);
-      });
-      expect(screen.getByText("Awake for 1s · expires in 59s")).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("requests desktop permission before enabling desktop alerts", async () => {

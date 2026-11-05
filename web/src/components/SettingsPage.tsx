@@ -27,7 +27,7 @@ import {
   type ShortcutActionId,
   type ShortcutBinding,
 } from "../shortcuts.js";
-import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
+import { CollapsibleSection } from "./CollapsibleSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
@@ -215,19 +215,10 @@ export function SettingsPage({
   const [heavyRepoSaving, setHeavyRepoSaving] = useState(false);
   const [heavyRepoError, setHeavyRepoError] = useState("");
 
-  // Sleep inhibitor state
-  const [sleepInhibitorEnabled, setSleepInhibitorEnabled] = useState(false);
+  // Keep-awake grace period (each machine's switch is under Hosts)
   const [sleepInhibitorDuration, setSleepInhibitorDuration] = useState(5);
-  const [sleepInhibitorSaving, setSleepInhibitorSaving] = useState(false);
   const [sleepInhibitorError, setSleepInhibitorError] = useState("");
-  const [caffeinateStatus, setCaffeinateStatus] = useState<{
-    active: boolean;
-    engagedAt: number | null;
-    expiresAt: number | null;
-  }>({ active: false, engagedAt: null, expiresAt: null });
-  const [caffeinateTick, setCaffeinateTick] = useState(0);
   const lifecycleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [performanceCollapsed, setPerformanceCollapsed] = useState(() => isCollapsibleSectionCollapsed("performance"));
   const [documentVisible, setDocumentVisible] = useState(
     () => typeof document === "undefined" || document.visibilityState === "visible",
   );
@@ -285,7 +276,6 @@ export function SettingsPage({
         setChatMessageLineHeight(normalizedChatMessageLineHeight);
         latestChatMessageLineHeightRef.current = normalizedChatMessageLineHeight;
         persistedChatMessageLineHeightRef.current = normalizedChatMessageLineHeight;
-        setSleepInhibitorEnabled(s.sleepInhibitorEnabled ?? false);
         setSleepInhibitorDuration(s.sleepInhibitorDurationMinutes ?? 5);
         setRestartSupported(s.restartSupported);
         setServerSlug(s.serverSlug || "");
@@ -402,38 +392,6 @@ export function SettingsPage({
     };
   }, [documentVisible, isActive]);
 
-  // Poll caffeinate status every 5s when sleep inhibitor is enabled
-  useEffect(() => {
-    if (!sleepInhibitorEnabled) {
-      setCaffeinateStatus({ active: false, engagedAt: null, expiresAt: null });
-      return;
-    }
-    if (!isActive || performanceCollapsed || !documentVisible) return;
-    let cancelled = false;
-    const poll = () => {
-      api
-        .getCaffeinateStatus()
-        .then((s) => {
-          if (!cancelled) setCaffeinateStatus(s);
-        })
-        .catch(() => {});
-    };
-    poll();
-    const id = setInterval(poll, 5_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [documentVisible, isActive, performanceCollapsed, sleepInhibitorEnabled]);
-
-  // Tick every second to update elapsed/countdown display
-  useEffect(() => {
-    if (!isActive || performanceCollapsed || !documentVisible) return;
-    if (!sleepInhibitorEnabled || !caffeinateStatus.active) return;
-    const id = setInterval(() => setCaffeinateTick((t) => t + 1), 1_000);
-    return () => clearInterval(id);
-  }, [caffeinateStatus.active, documentVisible, isActive, performanceCollapsed, sleepInhibitorEnabled]);
-
   // Restore scroll position on mount, save on scroll (debounced) and unmount
   useEffect(() => {
     if (!isActive) return;
@@ -546,20 +504,13 @@ export function SettingsPage({
     }
   }
 
-  async function saveSleepInhibitor(enabled: boolean, duration: number) {
-    setSleepInhibitorSaving(true);
+  async function saveSleepInhibitorDuration(duration: number) {
     setSleepInhibitorError("");
     try {
-      const res = await api.updateSettings({
-        sleepInhibitorEnabled: enabled,
-        sleepInhibitorDurationMinutes: duration,
-      });
-      setSleepInhibitorEnabled(res.sleepInhibitorEnabled ?? false);
+      const res = await api.updateSettings({ sleepInhibitorDurationMinutes: duration });
       setSleepInhibitorDuration(res.sleepInhibitorDurationMinutes ?? 5);
     } catch (err: unknown) {
       setSleepInhibitorError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSleepInhibitorSaving(false);
     }
   }
 
@@ -1077,15 +1028,12 @@ export function SettingsPage({
             </CollapsibleSection>
 
             {/* ── Performance & Power ──────────────────────────────── */}
-            <CollapsibleSection
-              {...settingsSearch.sectionProps("performance")}
-              onCollapsedChange={setPerformanceCollapsed}
-            >
+            <CollapsibleSection {...settingsSearch.sectionProps("performance")}>
               <SettingsRow
-                label="Max Keep-Alive"
+                label="Max Keep-Alive per Machine"
                 htmlFor="max-keep-alive"
                 hidden={settingsSearch.rowHidden("performance", "max-keep-alive")}
-                description="Maximum number of live CLI processes. Set to 0 for unlimited. Oldest idle sessions are killed first. Busy sessions are never killed."
+                description="How many sessions may keep a live process on each machine; a machine can set its own limit under Hosts. 0 means no limit. When a machine has more, its longest-idle sessions stop and start again on their next message; busy sessions are never stopped."
               >
                 <input
                   id="max-keep-alive"
@@ -1117,39 +1065,26 @@ export function SettingsPage({
               />
               {heavyRepoError && errorBox(heavyRepoError)}
 
-              <div className="space-y-3" hidden={settingsSearch.rowHidden("performance", "sleep-inhibitor")}>
-                <SettingsToggle
-                  label="Prevent Sleep During Generation"
-                  description="Keep your Mac awake while sessions are actively generating. Applies to every session on this Takode server. Uses macOS caffeinate; no effect on other platforms."
-                  checked={sleepInhibitorEnabled}
-                  disabled={sleepInhibitorSaving}
-                  onChange={(next) => {
-                    setSleepInhibitorEnabled(next);
-                    void saveSleepInhibitor(next, sleepInhibitorDuration);
-                  }}
-                />
-                {sleepInhibitorEnabled && <CaffeinateStatusLine status={caffeinateStatus} tick={caffeinateTick} />}
-                {sleepInhibitorEnabled && (
-                  <SettingsRow
-                    label="Grace Period"
-                    htmlFor="sleep-inhibitor-duration"
-                    description="Each poll (every 60s) resets the timer while any session is generating."
-                  >
-                    <NumberStepper
-                      id="sleep-inhibitor-duration"
-                      label="grace period"
-                      value={sleepInhibitorDuration}
-                      step={1}
-                      min={1}
-                      max={240}
-                      suffix="min"
-                      onChange={(v) => {
-                        setSleepInhibitorDuration(v);
-                        void saveSleepInhibitor(sleepInhibitorEnabled, v);
-                      }}
-                    />
-                  </SettingsRow>
-                )}
+              <div hidden={settingsSearch.rowHidden("performance", "sleep-inhibitor")}>
+                <SettingsRow
+                  label="Keep-Awake Grace Period"
+                  htmlFor="sleep-inhibitor-duration"
+                  description="A Mac stays awake while one of its own sessions is mid-turn, and this long after; turn it off per machine under Hosts."
+                >
+                  <NumberStepper
+                    id="sleep-inhibitor-duration"
+                    label="grace period"
+                    value={sleepInhibitorDuration}
+                    step={1}
+                    min={1}
+                    max={30}
+                    suffix="min"
+                    onChange={(v) => {
+                      setSleepInhibitorDuration(v);
+                      void saveSleepInhibitorDuration(v);
+                    }}
+                  />
+                </SettingsRow>
                 {sleepInhibitorError && errorBox(sleepInhibitorError)}
               </div>
             </CollapsibleSection>
@@ -1196,48 +1131,6 @@ export function SettingsPage({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-/** Live caffeinate state for the sleep inhibitor; `tick` only forces the per-second re-render. */
-function CaffeinateStatusLine({
-  status,
-  tick,
-}: {
-  status: {
-    active: boolean;
-    engagedAt: number | null;
-    expiresAt: number | null;
-  };
-  tick: number;
-}) {
-  void tick;
-  const now = Date.now();
-  const { active, engagedAt, expiresAt } = status;
-  const fmtDuration = (ms: number) => {
-    const totalSec = Math.max(0, Math.floor(ms / 1000));
-    const m = Math.floor(totalSec / 60);
-    const s = totalSec % 60;
-    return m > 0 ? `${m}m ${s}s` : `${s}s`;
-  };
-  const remaining = expiresAt ? expiresAt - now : 0;
-  if (!active || !engagedAt || !expiresAt || remaining <= 0) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-muted">
-        <span className="w-2 h-2 rounded-full bg-cc-muted/40 shrink-0" />
-        <span>
-          {active && engagedAt && expiresAt ? "Idle -- caffeinate expired" : "Idle -- no sessions generating"}
-        </span>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-fg">
-      <span className="w-2 h-2 rounded-full bg-green-500 shrink-0 animate-pulse" />
-      <span>
-        Awake for {fmtDuration(now - engagedAt)} · expires in {fmtDuration(remaining)}
-      </span>
     </div>
   );
 }

@@ -424,6 +424,12 @@ export class HostLinkManager {
     if (link?.online && link.socket) this.sendSettings(hostId, link.socket);
   }
 
+  /** Ask a connected host to keep its machine awake for `seconds` (see the `keep_awake` message). */
+  keepAwake(hostId: string, seconds: number): void {
+    const link = this.links.get(hostId);
+    if (link?.online && link.socket) this.send(link.socket, { t: "keep_awake", seconds });
+  }
+
   private sendSettings(hostId: string, socket: HostLinkSocket): void {
     if (this.machineSettingsFor) this.send(socket, { t: "settings", settings: this.machineSettingsFor(hostId) });
   }

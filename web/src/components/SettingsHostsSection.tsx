@@ -74,6 +74,7 @@ export function SettingsHostsSection() {
               hostId={local.id}
               settings={local.settings}
               defaultWorktreeRoot={local.defaultWorktreeRoot}
+              platform={local.platform}
               local
             />
           </li>
@@ -116,6 +117,7 @@ export function SettingsHostsSection() {
               settings={host.settings}
               defaultWorktreeRoot={host.defaultWorktreeRoot}
               overrides={host.commandOverrides}
+              platform={host.platform}
             />
           </li>
         ))}

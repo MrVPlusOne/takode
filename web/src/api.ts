@@ -687,7 +687,6 @@ export interface AppSettings {
   autoNamerEnabled: boolean;
   transcriptionConfig: TranscriptionConfig;
   editorConfig: EditorConfig;
-  sleepInhibitorEnabled: boolean;
   sleepInhibitorDurationMinutes: number;
   sidebarViewMode: "spaces" | "recent" | "threads";
   questmasterCompactSort: QuestmasterCompactSort;
@@ -1387,7 +1386,6 @@ export const api = {
     autoNamerEnabled?: boolean;
     transcriptionConfig?: Partial<TranscriptionConfig>;
     editorConfig?: EditorConfig;
-    sleepInhibitorEnabled?: boolean;
     sleepInhibitorDurationMinutes?: number;
     sidebarViewMode?: "spaces" | "recent" | "threads";
     questmasterCompactSort?: QuestmasterCompactSort;
@@ -1426,8 +1424,6 @@ export const api = {
   reportUserActivity: () => post<{ ok: boolean }>("/user-activity"),
   reportInputTrace: (report: InputTraceReport) =>
     post<{ ok: boolean; eventCount: number }>("/diagnostics/input-trace", report),
-  getCaffeinateStatus: () =>
-    get<{ active: boolean; engagedAt: number | null; expiresAt: number | null }>("/caffeinate-status"),
 
   // Git operations
   // `hostId` names a registered remote host whose repo to read instead of this machine's.

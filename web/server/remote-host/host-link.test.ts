@@ -64,6 +64,22 @@ describe("host link", () => {
     agent?.stop();
   });
 
+  // While one of a host's sessions is mid-turn the coordinator asks its node to keep the
+  // machine awake; the node hands that to its own caffeinate (a no-op off macOS), and lets
+  // the machine sleep again when it stops.
+  it("keeps the host's machine awake when the coordinator asks", async () => {
+    const caffeinate = { keepAwakeFor: vi.fn(), stop: vi.fn() };
+    agent = startAgent(20, { caffeinate: caffeinate as never });
+    await waitFor(() => manager.status(hostId).online);
+
+    manager.keepAwake(hostId, 600);
+    await waitFor(() => caffeinate.keepAwakeFor.mock.calls.length > 0);
+    expect(caffeinate.keepAwakeFor).toHaveBeenCalledWith(600);
+
+    await agent.stop();
+    expect(caffeinate.stop).toHaveBeenCalled();
+  });
+
   // The basic contract: a process started through the coordinator runs on the
   // host, receives stdin in order, and its output and exit reach the coordinator.
   it("runs a process on the host and relays stdin, stdout and exit", async () => {

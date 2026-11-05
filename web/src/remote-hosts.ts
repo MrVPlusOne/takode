@@ -17,6 +17,10 @@ export interface MachineSettings {
   execDisabled?: boolean;
   /** The user's note about this machine for agents, added to every session's instructions there. */
   note?: string;
+  /** How many sessions may keep a live process here; missing means the server's default, 0 no limit. */
+  maxKeepAlive?: number;
+  /** A Mac stays awake while one of its sessions is mid-turn; missing means on. */
+  keepAwake?: boolean;
 }
 
 /** The machine holding files of a host id from the server (null or absent for the server's own machine). */
@@ -56,6 +60,8 @@ export interface RemoteHost {
   commandOverrides: { claude?: string; codex?: string };
   /** Folders that slow Bun starts on the machine, found when its node started. */
   crowdedDirectories: CrowdedDirectory[];
+  /** `process.platform` the host reported, such as "darwin"; null or absent until it connects. */
+  platform?: string | null;
 }
 
 /** The server's own machine, which runs sessions that have no host. */
@@ -66,11 +72,16 @@ export interface LocalHost {
   settings: MachineSettings;
   /** Where this machine puts session worktrees when `settings.worktreeRoot` is empty. */
   defaultWorktreeRoot: string;
+  /** This machine's `process.platform`, such as "darwin". */
+  platform?: string;
   /**
    * This machine's own `takode node`, which runs these sessions so they
    * outlive server restarts. Carries the same link status as a remote host.
    */
-  node: Omit<RemoteHost, "id" | "name" | "createdAt" | "settings" | "defaultWorktreeRoot" | "commandOverrides">;
+  node: Omit<
+    RemoteHost,
+    "id" | "name" | "createdAt" | "settings" | "defaultWorktreeRoot" | "commandOverrides" | "platform"
+  >;
 }
 
 const POLL_MS = 10_000;
@@ -173,7 +184,10 @@ function shortCommit(commit: string): string {
 }
 
 /** Change a machine's settings (`local` for this machine); a connected host receives them at once. */
-export async function updateMachineSettings(id: string, patch: Partial<MachineSettings>): Promise<MachineSettings> {
+export async function updateMachineSettings(
+  id: string,
+  patch: Partial<Omit<MachineSettings, "maxKeepAlive">> & { maxKeepAlive?: number | null },
+): Promise<MachineSettings> {
   const response = await fetch(`/api/hosts/${encodeURIComponent(id)}/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

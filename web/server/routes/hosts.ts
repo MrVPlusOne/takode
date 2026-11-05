@@ -36,6 +36,8 @@ export function createHostRoutes(
           ...links.status(host.id),
           settings: registry.machineSettings(host.id),
           defaultWorktreeRoot: home ? defaultWorktreesBase(home) : null,
+          // `process.platform` the host reported (null until it connects): Mac-only settings show for Macs.
+          platform: links.machineDetails(host.id)?.platform ?? null,
         };
       }),
       build: links.build,
@@ -44,6 +46,7 @@ export function createHostRoutes(
         name: thisMachine.name,
         settings: registry.machineSettings(LOCAL_HOST_ID),
         defaultWorktreeRoot: WORKTREES_BASE,
+        platform: process.platform,
         node: links.status(LOCAL_HOST_ID),
       },
     });
@@ -62,8 +65,17 @@ export function createHostRoutes(
     if (typeof body.worktreeRoot === "string" && body.worktreeRoot.trim() && !isAbsolute(body.worktreeRoot.trim())) {
       return c.json({ error: "The worktree folder must be an absolute path" }, 400);
     }
-    if (body.execDisabled !== undefined && typeof body.execDisabled !== "boolean") {
-      return c.json({ error: "execDisabled must be true or false" }, 400);
+    for (const field of ["execDisabled", "keepAwake"]) {
+      if (body[field] !== undefined && typeof body[field] !== "boolean") {
+        return c.json({ error: `${field} must be true or false` }, 400);
+      }
+    }
+    if (
+      body.maxKeepAlive !== undefined &&
+      body.maxKeepAlive !== null &&
+      !(typeof body.maxKeepAlive === "number" && Number.isInteger(body.maxKeepAlive) && body.maxKeepAlive >= 0)
+    ) {
+      return c.json({ error: "maxKeepAlive must be a whole number of 0 or more, or null for the default" }, 400);
     }
     if (
       body.editorAccess !== undefined &&
@@ -85,6 +97,8 @@ export function createHostRoutes(
       ...(typeof body.sshHost === "string" ? { sshHost: body.sshHost } : {}),
       ...(typeof body.execDisabled === "boolean" ? { execDisabled: body.execDisabled } : {}),
       ...(typeof body.note === "string" ? { note: body.note } : {}),
+      ...(body.maxKeepAlive !== undefined ? { maxKeepAlive: body.maxKeepAlive as number | null } : {}),
+      ...(typeof body.keepAwake === "boolean" ? { keepAwake: body.keepAwake } : {}),
     });
     if (!settings) return c.json({ error: "Host not found" }, 404);
     links.pushSettings(id);

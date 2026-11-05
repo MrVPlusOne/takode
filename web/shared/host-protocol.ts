@@ -92,6 +92,14 @@ export interface HostMachineSettings {
    * Machine section of the instructions of every session that runs there.
    */
   note?: string;
+  /**
+   * How many sessions may keep a live process on this machine; when more do,
+   * the longest-idle ones there are stopped. Absent means the server's default
+   * (Settings > Performance & Power); 0 means no limit.
+   */
+  maxKeepAlive?: number;
+  /** A Mac stays awake while one of its sessions is mid-turn; absent means on. */
+  keepAwake?: boolean;
 }
 
 export type EditorAccess = "" | "local" | "ssh";
@@ -309,6 +317,12 @@ export type CoordinatorToHost =
    * they change; the host resolves the programs it runs with them.
    */
   | { t: "settings"; settings: HostMachineSettings }
+  /**
+   * One of the host's sessions is mid-turn: keep the machine from sleeping for
+   * this long (seconds), restarting the countdown. Sent about every minute while
+   * that lasts; the host does it only where it can (macOS `caffeinate`).
+   */
+  | { t: "keep_awake"; seconds: number }
   /** The user renamed this machine; the host keeps the new name. */
   | { t: "machine_name"; name: string }
   /**

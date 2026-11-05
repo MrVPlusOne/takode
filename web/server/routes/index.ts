@@ -198,7 +198,6 @@ export function createRoutes(
     webPush?: import("../web-push.js").WebPushChannel;
   },
   perfTracer?: PerfTracer,
-  sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor,
   resourceLeaseManager?: import("../resource-lease-manager.js").ResourceLeaseManager,
   modelProvenanceMigrationAcknowledgementStore?: import("../model-provenance-migration-acknowledgement-store.js").ModelProvenanceMigrationAcknowledgementStore,
 ) {
@@ -249,7 +248,6 @@ export function createRoutes(
     modelProvenanceMigrationAcknowledgementStore,
     imageStore,
     pushoverNotifier,
-    sleepInhibitor,
     options,
     perfTracer,
     checkFrontendAvailability: options?.checkFrontendAvailability,

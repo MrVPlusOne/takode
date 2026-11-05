@@ -100,6 +100,27 @@ describe("host routes", () => {
     expect((await (await put(host.id, { execDisabled: false })).json()).settings.execDisabled).toBe(false);
   });
 
+  // A machine's own keep-alive limit (null returns it to the server's default) and its
+  // keep-awake switch; the list reports each machine's platform so Mac-only settings show for Macs.
+  it("stores a machine's keep-alive limit and keep-awake switch, and reports its platform", async () => {
+    const { host } = await registry.register("laptop");
+    expect((await (await put(host.id, { maxKeepAlive: 6, keepAwake: false })).json()).settings).toMatchObject({
+      maxKeepAlive: 6,
+      keepAwake: false,
+    });
+    expect((await (await put(host.id, { maxKeepAlive: null })).json()).settings).not.toHaveProperty("maxKeepAlive");
+    expect((await put(host.id, { maxKeepAlive: 2.5 })).status).toBe(400);
+    expect((await put(host.id, { maxKeepAlive: -1 })).status).toBe(400);
+    expect((await put(host.id, { keepAwake: "no" })).status).toBe(400);
+
+    const listed = (await (await app.request("/api/hosts")).json()) as {
+      hosts: Array<{ platform: string | null }>;
+      local: { platform: string };
+    };
+    expect(listed.local.platform).toBe(process.platform);
+    expect(listed.hosts[0]!.platform).toBeNull();
+  });
+
   // The user's note for agents on a machine, for this machine too: kept trimmed, and cleared when emptied.
   it("stores a machine's note for agents", async () => {
     const res = await put("local", { note: "  15 CPUs and 56 GB shared with the coordinator.\n" });

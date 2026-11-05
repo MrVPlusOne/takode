@@ -264,7 +264,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     items: [
       {
         id: "max-keep-alive",
-        text: "Max Keep-Alive live CLI processes idle sessions",
+        text: "Max Keep-Alive per machine live CLI processes idle sessions limit",
       },
       {
         id: "heavy-repo",
@@ -272,7 +272,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       },
       {
         id: "sleep-inhibitor",
-        text: "Prevent Sleep During Generation caffeinate awake macOS grace period",
+        text: "Keep-Awake Grace Period prevent sleep caffeinate awake Mac macOS",
       },
     ],
   },
@@ -285,7 +285,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     items: [
       {
         id: "hosts",
-        text: "Hosts this machine local other machines remote devbox takode node token coordinator add host remove online offline Claude Code Codex binary path command auto-detect CLI keep sessions running survive server restart local node open files in your editor VS Code Remote-SSH SSH host",
+        text: "Hosts this machine local other machines remote devbox takode node token coordinator add host remove online offline Claude Code Codex binary path command auto-detect CLI keep sessions running survive server restart local node open files in your editor VS Code Remote-SSH SSH host max keep-alive live sessions limit keep awake sleep caffeinate Mac",
       },
       {
         id: "user-content",

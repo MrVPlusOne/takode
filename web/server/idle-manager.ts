@@ -1,5 +1,6 @@
 import { serverWorkAdmission } from "./server-work-admission.js";
-import type { CliLauncher } from "./cli-launcher.js";
+import type { CliLauncher, SdkSessionInfo } from "./cli-launcher.js";
+import { LOCAL_HOST_ID } from "../shared/host-protocol.js";
 import type { WsBridge } from "./ws-bridge.js";
 
 export function wakeIdleKilledSession(
@@ -16,13 +17,21 @@ export function wakeIdleKilledSession(
   return true;
 }
 
+/**
+ * Keeps each machine's live session processes within its keep-alive limit: when
+ * more sessions there have a live process than its limit allows, the longest-idle
+ * ones there are stopped (they start again on their next message). Mid-turn
+ * sessions and ones waiting on a permission are never stopped. Each machine counts
+ * only its own sessions, so a busy machine never stops sessions on another.
+ */
 export class IdleManager {
   private timer: ReturnType<typeof setInterval> | null = null;
 
+  /** `limitFor` gives a machine's limit (`local` for this one); 0 means no limit. */
   constructor(
     private launcher: CliLauncher,
     private wsBridge: WsBridge,
-    private getSettings: () => { maxKeepAlive: number },
+    private limitFor: (machineId: string) => number,
   ) {}
 
   start(intervalMs = 60_000): void {
@@ -40,38 +49,29 @@ export class IdleManager {
     }
   }
 
-  /**
-   * Enforce maxKeepAlive: if alive session count exceeds the limit,
-   * kill the oldest idle sessions. Never kills busy or archived sessions.
-   * Returns the number of sessions killed.
-   */
+  /** Enforce every machine's limit once. Returns the number of sessions stopped. */
   async sweep(): Promise<number> {
     if (serverWorkAdmission.isStopping()) return 0;
-    const { maxKeepAlive } = this.getSettings();
-    if (maxKeepAlive <= 0) return 0;
+    const byMachine = new Map<string, SdkSessionInfo[]>();
+    for (const session of this.launcher.listSessions()) {
+      if (session.state === "exited" || session.archived) continue;
+      const machineId = session.hostId || LOCAL_HOST_ID;
+      byMachine.set(machineId, [...(byMachine.get(machineId) ?? []), session]);
+    }
+    let killed = 0;
+    for (const [machineId, alive] of byMachine) {
+      killed += await this.enforce(machineId, alive);
+    }
+    return killed;
+  }
 
-    const alive = this.launcher.listSessions().filter((s) => s.state !== "exited" && !s.archived);
-
-    if (alive.length <= maxKeepAlive) return 0;
+  private async enforce(machineId: string, alive: SdkSessionInfo[]): Promise<number> {
+    const maxKeepAlive = this.limitFor(machineId);
+    if (maxKeepAlive <= 0 || alive.length <= maxKeepAlive) return 0;
 
     // Sort non-busy sessions by lastActivityAt ascending (oldest first)
     const killable = alive
-      .filter((s) => {
-        const bridge = this.wsBridge as unknown as {
-          getSession?: (
-            sessionId: string,
-          ) => { isGenerating?: boolean; pendingPermissions?: { size: number } } | null | undefined;
-          isSessionBusy?: (sessionId: string) => boolean;
-        };
-        if (typeof bridge.getSession === "function") {
-          const bridgeSession = bridge.getSession(s.sessionId);
-          return !(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions?.size);
-        }
-        if (typeof bridge.isSessionBusy === "function") {
-          return !bridge.isSessionBusy(s.sessionId);
-        }
-        return true;
-      })
+      .filter((s) => !this.isBusy(s.sessionId))
       .sort((a, b) => (a.lastActivityAt ?? a.createdAt) - (b.lastActivityAt ?? b.createdAt));
 
     const toKill = alive.length - maxKeepAlive;
@@ -82,7 +82,7 @@ export class IdleManager {
       const s = killable[i];
       const age = s.lastActivityAt ? `${Math.round((Date.now() - s.lastActivityAt) / 1000)}s ago` : "no activity";
       console.log(
-        `[idle-manager] Killing session ${s.sessionId.slice(0, 8)} (lastActivity: ${age}, name: ${s.name ?? "unnamed"})`,
+        `[idle-manager] Killing session ${s.sessionId.slice(0, 8)} on ${machineId} (lastActivity: ${age}, name: ${s.name ?? "unnamed"})`,
       );
       // Mark session so the UI can show a less alarming indicator for idle kills
       s.killedByIdleManager = true;
@@ -98,10 +98,23 @@ export class IdleManager {
 
     if (killed > 0) {
       console.log(
-        `[idle-manager] Killed ${killed} idle session(s) to enforce maxKeepAlive=${maxKeepAlive} (${alive.length} alive, ${killable.length} killable)`,
+        `[idle-manager] Killed ${killed} idle session(s) on ${machineId} to enforce its maxKeepAlive=${maxKeepAlive} (${alive.length} alive, ${killable.length} killable)`,
       );
     }
-
     return killed;
+  }
+
+  private isBusy(sessionId: string): boolean {
+    const bridge = this.wsBridge as unknown as {
+      getSession?: (
+        sessionId: string,
+      ) => { isGenerating?: boolean; pendingPermissions?: { size: number } } | null | undefined;
+      isSessionBusy?: (sessionId: string) => boolean;
+    };
+    if (typeof bridge.getSession === "function") {
+      const bridgeSession = bridge.getSession(sessionId);
+      return !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions?.size);
+    }
+    return bridge.isSessionBusy?.(sessionId) ?? false;
   }
 }

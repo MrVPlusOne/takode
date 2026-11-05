@@ -1077,7 +1077,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       autoNamerEnabled: settings.autoNamerEnabled,
       transcriptionConfig: maskTranscriptionConfig(settings.transcriptionConfig),
       editorConfig: settings.editorConfig,
-      sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       sidebarViewMode: normalizeSidebarViewMode(settings.sidebarViewMode),
       questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
@@ -1110,15 +1109,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       ...(extras?.claudeDefaultModel !== undefined ? { claudeDefaultModel: extras.claudeDefaultModel } : {}),
     };
   }
-
-  // ─── Caffeinate status ──────────────────────────────────────────
-
-  api.get("/caffeinate-status", (c) => {
-    if (!ctx.sleepInhibitor) {
-      return c.json({ active: false, engagedAt: null, expiresAt: null });
-    }
-    return c.json(ctx.sleepInhibitor.getStatus());
-  });
 
   api.get("/settings", async (c) => {
     const settings = getSettings();
@@ -1300,9 +1290,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
           400,
         );
       }
-    }
-    if (body.sleepInhibitorEnabled !== undefined && typeof body.sleepInhibitorEnabled !== "boolean") {
-      return c.json({ error: "sleepInhibitorEnabled must be a boolean" }, 400);
     }
     if (body.restartUpdatesCheckout !== undefined && typeof body.restartUpdatesCheckout !== "boolean") {
       return c.json({ error: "restartUpdatesCheckout must be a boolean" }, 400);
@@ -1493,7 +1480,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "autoNamerEnabled",
       "transcriptionConfig",
       "editorConfig",
-      "sleepInhibitorEnabled",
       "sleepInhibitorDurationMinutes",
       "sidebarViewMode",
       "questmasterCompactSort",
@@ -1539,7 +1525,6 @@ export function createSettingsRoutes(ctx: RouteContext) {
         ? parseTranscriptionConfigFromBody(body.transcriptionConfig)
         : undefined,
       editorConfig: body.editorConfig ? parseEditorConfigFromBody(body.editorConfig) : undefined,
-      sleepInhibitorEnabled: typeof body.sleepInhibitorEnabled === "boolean" ? body.sleepInhibitorEnabled : undefined,
       restartUpdatesCheckout:
         typeof body.restartUpdatesCheckout === "boolean" ? body.restartUpdatesCheckout : undefined,
       diagnostics: body.diagnostics === undefined ? undefined : parseDiagnosticsSettings(body.diagnostics),

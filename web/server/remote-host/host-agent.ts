@@ -15,6 +15,7 @@ import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js
 import { thisMachineDetails } from "../machine-identity.js";
 import { stopProcessTree } from "./process-tree.js";
 import { MemoryGuard, raiseOomScore, type MemoryGuardOptions } from "./memory-guard.js";
+import { Caffeinate } from "../caffeinate.js";
 import { REMOTE_HOST_ENV } from "../../shared/remote-host-env.js";
 import {
   API_PROXY_RELAYS_ENCODING_HEADER,
@@ -58,6 +59,8 @@ export interface HostAgentOptions {
    * `--codex`). They win over the machine settings the coordinator sends.
    */
   commands?: Partial<Record<HostProgramRole, string>>;
+  /** Keeps this machine awake while its sessions are mid-turn (macOS); a stand-in in tests. */
+  caffeinate?: Caffeinate;
   /** Codex launch preparation; the real one (`prepareCodexSpawn`) unless a test supplies another. */
   prepareCodexLaunch?: (
     sessionId: string,
@@ -180,9 +183,11 @@ export class HostAgent {
   private lastRefusal: string | null = null;
   private readonly log: (message: string) => void;
   private readonly memoryGuard: MemoryGuard | null;
+  private readonly caffeinate: Caffeinate;
 
   constructor(private readonly options: HostAgentOptions) {
     this.log = options.log ?? ((message) => console.log(`[takode node] ${message}`));
+    this.caffeinate = options.caffeinate ?? new Caffeinate(this.log);
     this.machineName = options.machineName ?? null;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
     this.maxReconnectDelayMs = isLoopbackHost(new URL(options.coordinatorUrl).hostname)
@@ -212,6 +217,7 @@ export class HostAgent {
   async stop(): Promise<void> {
     this.stopped = true;
     this.memoryGuard?.stop();
+    this.caffeinate.stop();
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.socket?.close(1000, "Host stopping");
@@ -379,6 +385,10 @@ export class HostAgent {
         return;
       case "machine_name":
         this.keepMachineName(message.name);
+        return;
+      case "keep_awake":
+        // One of this machine's sessions is mid-turn.
+        this.caffeinate.keepAwakeFor(message.seconds);
         return;
     }
   }
