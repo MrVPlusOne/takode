@@ -5,6 +5,7 @@ import type { VsCodeSelectionContextPayload } from "../utils/vscode-context.js";
 import { formatReplyContentForAssistant } from "../utils/reply-context.js";
 import { nextPendingUploadId } from "./composer-image-utils.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
+import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 
 /** Send a draft, retaining editable attachments when delivery has a local pending owner. */
 export function sendComposerDraft(
@@ -68,8 +69,37 @@ export function sendComposerDraft(
       error: sent ? undefined : "Connection lost before delivery.",
     }));
   if (!sent && !ownsPending) return "failed";
-  store.clearComposerDraft(draftKey);
+  clearSentComposerDraft(draftKey, draft.annotations);
   store.setReplyContext(draftKey, null);
   if (sent) store.requestBottomAlignOnNextUserMessage(sessionId);
   return sent ? "sent" : "retained";
+}
+
+/**
+ * Empty a draft whose message went out, keeping the comments it did not carry: those a leader made in
+ * its other threads, which wait in the same main draft (see `commentsShownIn`).
+ */
+export function clearSentComposerDraft(draftKey: string, sent: readonly ConversationAnnotation[] | undefined): void {
+  const store = useStore.getState();
+  const sentIds = new Set(sent?.map((annotation) => annotation.id));
+  const kept = store.composerDrafts.get(draftKey)?.annotations?.filter((annotation) => !sentIds.has(annotation.id));
+  if (kept?.length) store.setComposerDraft(draftKey, { text: "", images: [], annotations: kept });
+  else store.clearComposerDraft(draftKey);
+}
+
+/**
+ * The comments of a draft that a message's comments are put back into (a failed delivery's Edit, a
+ * revert): those, then the ones already waiting there, such as a leader's comments in other threads.
+ */
+export function withWaitingComments(
+  draftKey: string,
+  restored: readonly ConversationAnnotation[] | undefined,
+): ConversationAnnotation[] | undefined {
+  const restoredIds = new Set(restored?.map((annotation) => annotation.id));
+  const waiting = useStore
+    .getState()
+    .composerDrafts.get(draftKey)
+    ?.annotations?.filter((annotation) => !restoredIds.has(annotation.id));
+  const merged = [...(restored ?? []), ...(waiting ?? [])];
+  return merged.length ? merged : undefined;
 }

@@ -3,7 +3,7 @@ import type { ConversationAnnotation } from "../../shared/conversation-annotatio
 import { useStore } from "../store.js";
 import { annotationHighlightPath, annotationPassageRects, resolveAnnotationRange } from "./annotation-passages.js";
 import { useAnnotationPreview } from "./use-annotation-preview.js";
-import { useComposerTarget } from "./composer-target.js";
+import { useComposerComments, useComposerTarget } from "./composer-target.js";
 
 interface Rect {
   left: number;
@@ -17,7 +17,6 @@ interface Position {
   top: number;
   rects: Rect[];
 }
-const EMPTY: ConversationAnnotation[] = [];
 
 /** Overlay source passages without rewriting Markdown, links, or the user's DOM selection. */
 export function AnnotationSourceMarkers({
@@ -34,9 +33,8 @@ export function AnnotationSourceMarkers({
 }) {
   // The comments of the composer this conversation writes into (a side chat's, or the main one).
   const draftKey = useComposerTarget(sessionId ?? "");
-  const annotations = useStore((state) =>
-    sessionId ? (state.composerDrafts.get(draftKey)?.annotations ?? EMPTY) : EMPTY,
-  );
+  // Only the ones that composer shows here, numbered as its chips are.
+  const annotations = useComposerComments(sessionId);
   const editor = useStore((state) =>
     state.annotationEditor?.sessionId === sessionId && (state.annotationEditor?.draftKey ?? sessionId) === draftKey
       ? state.annotationEditor

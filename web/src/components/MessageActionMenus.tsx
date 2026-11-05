@@ -9,6 +9,7 @@ import { COPY_EXCLUDE_SELECTOR, messageCopyForSlack } from "../utils/slack-copy.
 import { generateReplyPreview } from "../utils/reply-preview.js";
 import { absoluteUrlForHash, routeSessionRefForId, sessionMessageHash } from "../utils/routing.js";
 import { createComposerDraftImage } from "./composer-image-utils.js";
+import { withWaitingComments } from "./composer-message-send.js";
 import { ContextMenu, useMenuButton, type ContextMenuItem } from "./ContextMenu.js";
 import { MessageTimeMenuMetadata, MessageTimestampMenuTrigger } from "./MessageRailTimestamp.js";
 import { useSideChatActionState } from "./SideChatControls.js";
@@ -111,7 +112,7 @@ export function UserMessageMenu({
       store.setComposerDraft(draftKey, {
         text: message.content,
         images: [],
-        annotations: message.metadata?.annotations,
+        annotations: withWaitingComments(draftKey, message.metadata?.annotations),
       });
       if (message.images?.length) {
         try {
@@ -119,7 +120,7 @@ export function UserMessageMenu({
           store.setComposerDraft(draftKey, {
             text: message.content,
             images,
-            annotations: message.metadata?.annotations,
+            annotations: useStore.getState().composerDrafts.get(draftKey)?.annotations,
           });
         } catch (imageErr) {
           console.error("Failed to restore images after revert:", imageErr);

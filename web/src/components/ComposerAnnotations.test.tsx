@@ -101,6 +101,48 @@ describe("composer annotation attachments", () => {
     ).toEqual(["On the side chat"]);
   });
 
+  it("keeps a leader's unsent comments with the thread they were made in", () => {
+    // Jiayi's bug: comments made in one thread stayed in the main message box after switching to another
+    // thread, so they could go out with a message to the wrong thread. The main draft is shared by every
+    // thread of the main view, so each comment names its thread and shows only there; one saved before
+    // comments named a thread (`first`) shows everywhere.
+    const elsewhere = [
+      { id: "elsewhere-1", selectedText: "Other thread passage", comment: "On q-2", threadKey: "q-2" },
+      { id: "elsewhere-2", selectedText: "Another passage there", comment: "Also q-2", threadKey: "q-2" },
+    ];
+    useStore.setState({
+      composerDrafts: new Map([["session", { text: "Main draft", images: [], annotations: [first, ...elsewhere] }]]),
+    });
+    useStore.getState().setAnnotationEditor({ sessionId: "session", annotation: second });
+    const view = render(<ComposerAnnotations sessionId="session" threadKey="q-1" />);
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "On q-1" } });
+    fireEvent.click(screen.getByText("Save"));
+    expect(useStore.getState().composerDrafts.get("session")?.annotations).toEqual([
+      first,
+      ...elsewhere,
+      { ...second, comment: "On q-1", threadKey: "q-1" },
+    ]);
+    const chips = () => screen.queryAllByRole("button", { name: /^Comment \d+$/ }).length;
+    // In q-1: the older comment and the new one.
+    expect(chips()).toBe(2);
+
+    // Switching to q-2 shows its two comments (and the older one) instead; coming back restores q-1's.
+    view.rerender(<ComposerAnnotations sessionId="session" threadKey="q-2" />);
+    expect(chips()).toBe(3);
+    view.rerender(<ComposerAnnotations sessionId="session" threadKey="q-1" />);
+    expect(chips()).toBe(2);
+    expect(useStore.getState().composerDrafts.get("session")?.annotations).toHaveLength(4);
+  });
+
+  it("does not tie a side chat's comments to a thread: its draft belongs to one conversation", () => {
+    const sideKey = "session#side:q-1";
+    useStore.getState().setAnnotationEditor({ sessionId: "session", draftKey: sideKey, annotation: second });
+    render(<ComposerAnnotations sessionId="session" draftKey={sideKey} threadKey="q-1" />);
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Side note" } });
+    fireEvent.click(screen.getByText("Save"));
+    expect(useStore.getState().composerDrafts.get(sideKey)?.annotations).toEqual([{ ...second, comment: "Side note" }]);
+  });
+
   it("saves, edits and removes pairs without expanding the main text draft", () => {
     // All mutations are browser-local drafts; no message is admitted until the existing send path runs.
     openNewComment();
@@ -209,7 +251,7 @@ describe("composer annotation attachments", () => {
     fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Kept comment" } });
     clickOutside();
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(annotations()).toEqual([first, { ...second, comment: "Kept comment" }]);
+    expect(annotations()).toEqual([first, { ...second, comment: "Kept comment", threadKey: "main" }]);
 
     fireEvent.click(screen.getByLabelText("Comment 2"));
     fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Revised outside" } });

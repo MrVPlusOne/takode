@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useStore } from "../store.js";
+import { withWaitingComments } from "./composer-message-send.js";
 import { sendToSession } from "../ws.js";
 import type { ChatMessage, PendingCodexInput, PendingUserUpload } from "../types.js";
 import { MessageBubble, rendersAsUserBubble } from "./MessageBubble.js";
@@ -201,7 +202,11 @@ function uploadItem(sessionId: string, upload: PendingUserUpload): PendingInputI
     store.removePendingUserUpload(sessionId, upload.id);
     // Back into the composer it was sent from (a side chat's, or the main one).
     const draftKey = upload.draftKey ?? sessionId;
-    store.setComposerDraft(draftKey, { text: upload.content, images: upload.images, annotations: upload.annotations });
+    store.setComposerDraft(draftKey, {
+      text: upload.content,
+      images: upload.images,
+      annotations: withWaitingComments(draftKey, upload.annotations),
+    });
     store.setReplyContext(draftKey, upload.replyContext ?? null);
     store.focusComposer(draftKey);
   };

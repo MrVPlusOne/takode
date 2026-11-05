@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import { ComposerThreadContext } from "./composer-target.js";
 import { useLeaderNavigation } from "../utils/top-bar-slots.js";
 import { LeaderHomePage, NewThreadComposer } from "./LeaderHomePage.js";
 import { SideColumnPhoneSheet } from "./library/TopicSidePanel.js";
@@ -1090,241 +1091,252 @@ export function ChatView({
         {...chatFocusHandlers(MAIN_CHAT)}
       >
         {mainFocusMarked && <ChatFocusMark />}
-        <ComposerFeedLayout>
-          {preview ? (
-            <div className="shrink-0 px-4 py-2 border-b border-cc-border bg-cc-card/80 text-[11px] text-cc-muted font-medium">
-              Previewing search result. Press Enter to select this conversation.
-            </div>
-          ) : (
-            /* Within-session message search bar */
-            <SearchBar sessionId={sessionId} inputRef={searchInputRef} />
-          )}
-
-          {/* Archived session banner */}
-          {!preview && isArchived && (
-            <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/25 flex items-center justify-center gap-3">
-              <span className="text-xs text-amber-300 font-medium">
-                This session is archived. History is read-only.
-              </span>
-              <button
-                onClick={() => void unarchive.run(() => api.unarchiveSession(sessionId))}
-                aria-busy={unarchive.pending || undefined}
-                title={unarchive.error ?? undefined}
-                className="text-xs font-medium px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
-              >
-                Unarchive
-              </button>
-            </div>
-          )}
-
-          {!preview && modelProvenanceMigration && (
-            <ModelProvenanceMigrationBanner
-              migration={modelProvenanceMigration}
-              onAcknowledge={(eventId) => api.acknowledgeModelProvenanceMigration(sessionId, eventId)}
-            />
-          )}
-
-          {/* Session task outline — horizontal milestone chips */}
-          {!preview && !isLeaderSession && !sessionQuestBannerRow && <TaskOutlineBar sessionId={sessionId} />}
-
-          {/* Persistent work board for orchestrator sessions -- primary thread navigation above the feed */}
-          {!preview && (
-            <WorkBoardBar
-              sessionId={sessionId}
-              currentThreadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-              onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-              openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
-              threadRows={isLeaderSession ? workBoardThreadRows : undefined}
-              hideThreadStrip={phoneTopicsOpen}
-              onMoveHomeToSide={homePage ? moveSelectedToSide : undefined}
-            />
-          )}
-
-          {/* Plan overlay fills the chat area, OR show the normal message feed */}
-          {!preview && showPlanOverlay ? (
-            <PlanReviewOverlay permission={planPerm} sessionId={sessionId} onCollapse={() => setPlanCollapsed(true)} />
-          ) : (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="flex min-h-0 flex-1">
-                <div className="flex min-w-0 flex-1 flex-col">
-                  {!preview && !phoneTopicsOpen && selectedThread && (
-                    <div ref={questStripRef} className="contents">
-                      <ThreadStrip thread={selectedThread} onMoveToSide={moveSelectedToSide} />
-                    </div>
-                  )}
-                  {!preview && !phoneTopicsOpen && showQuestThreadBanner && (
-                    <div ref={questStripRef} className="contents">
-                      <QuestThreadBanner
-                        row={selectedThreadRow}
-                        threadKey={selectedThreadKey}
-                        sideQuestOf={selectedSideQuestOf}
-                        monitorSessionId={sessionId}
-                        diffSessionId={sessionId}
-                        singleLine={leaderNav}
-                        onMoveToSide={moveSelectedToSide}
-                      />
-                    </div>
-                  )}
-                  {!preview && !phoneTopicsOpen && !showQuestThreadBanner && sessionQuestBannerRow && (
-                    <QuestThreadBanner
-                      row={sessionQuestBannerRow}
-                      threadKey={sessionQuestBannerRow.threadKey}
-                      variant="session"
-                      currentSessionId={sessionId}
-                      diffSessionId={sessionId}
-                    />
-                  )}
-                  {!preview && sessionMetadataKnown && !isLeaderSession && !sessionQuestBannerRow && (
-                    <SessionDiffBanner sessionId={sessionId} />
-                  )}
-                  {/* Where the phone topic panel starts: just under the thread strip. */}
-                  <div ref={phoneTopicTopRef} aria-hidden="true" />
-                  {homePage ? (
-                    <LeaderHomePage leaderId={sessionId} />
-                  ) : (
-                    <div className="contents">
-                      <ViewportHandoffThreadEntryGate
-                        key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
-                        sessionId={preview ? null : sessionId}
-                        threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-                        entryId={viewportHandoffThreadEntryRef.current.entryId}
-                        fallback={
-                          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
-                            Loading conversation...
-                          </div>
-                        }
-                      >
-                        {/* Reload fork links when the user changes threads or a new quest thread appears. */}
-                        <StartedQuestsProvider
-                          sessionId={sessionId}
-                          enabled={isLeaderSession && !preview}
-                          refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
-                        >
-                          <MessageFeed
-                            sessionId={sessionId}
-                            threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
-                            projectThreadRoutes={isLeaderSession}
-                            onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-                            showCodexSubagentControl={!preview}
-                            markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
-                            unreadAboveIndicator={unreadAboveIndicator}
-                            questChips={
-                              leaderNav && showQuestThreadBanner ? (
-                                <QuestThreadFeedChips
-                                  row={selectedThreadRow}
-                                  threadKey={selectedThreadKey}
-                                  diffSessionId={sessionId}
-                                />
-                              ) : undefined
-                            }
-                          />
-                        </StartedQuestsProvider>
-                      </ViewportHandoffThreadEntryGate>
-                    </div>
-                  )}
-                </div>
-                {!preview && selectedSideChat && (
-                  <SideChatPanel
-                    rootSessionId={sessionId}
-                    sideChat={selectedSideChat}
-                    onClose={() => setSelectedSideChatId(null)}
-                  />
-                )}
+        {/* The feed's comment marks and question cards use the comments the composer shows in its thread. */}
+        <ComposerThreadContext.Provider value={composerThreadKey}>
+          <ComposerFeedLayout>
+            {preview ? (
+              <div className="shrink-0 px-4 py-2 border-b border-cc-border bg-cc-card/80 text-[11px] text-cc-muted font-medium">
+                Previewing search result. Press Enter to select this conversation.
               </div>
-            </div>
-          )}
-
-          {/* Collapsed plan chip (when plan exists but is collapsed) */}
-          {!preview && planPerm && planCollapsed && (
-            <div className="shrink-0 border-t border-cc-border bg-cc-card px-2 sm:px-4 py-2">
-              <PlanCollapsedChip permission={planPerm} sessionId={sessionId} onExpand={() => setPlanCollapsed(false)} />
-            </div>
-          )}
-
-          {/* Non-plan permission banners — collapsible */}
-          {!preview &&
-            otherPerms.length > 0 &&
-            (permsCollapsed ? (
-              <PermissionsCollapsedChip permissions={otherPerms} onExpand={() => setPermsCollapsed(false)} />
             ) : (
-              <div className="shrink-0 max-h-[60dvh] overflow-y-auto border-t border-cc-border bg-cc-card">
-                <div
-                  onClick={() => setPermsCollapsed(true)}
-                  className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-cc-card border-b border-cc-border/50 cursor-pointer hover:bg-cc-hover/50 transition-colors"
-                  role="button"
-                  title="Minimize approvals"
+              /* Within-session message search bar */
+              <SearchBar sessionId={sessionId} inputRef={searchInputRef} />
+            )}
+
+            {/* Archived session banner */}
+            {!preview && isArchived && (
+              <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/25 flex items-center justify-center gap-3">
+                <span className="text-xs text-amber-300 font-medium">
+                  This session is archived. History is read-only.
+                </span>
+                <button
+                  onClick={() => void unarchive.run(() => api.unarchiveSession(sessionId))}
+                  aria-busy={unarchive.pending || undefined}
+                  title={unarchive.error ?? undefined}
+                  className="text-xs font-medium px-3 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
                 >
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-cc-warning">
-                    <path
-                      fillRule="evenodd"
-                      d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <span className="text-[11px] font-medium text-cc-warning">
-                    {otherPerms.length} pending approval{otherPerms.length !== 1 ? "s" : ""}
-                  </span>
-                  <span className="ml-auto p-1.5 rounded-md text-cc-muted">
-                    <svg
-                      className="w-3.5 h-3.5"
-                      viewBox="0 0 12 12"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
-                      <path d="M4 8h4" />
-                    </svg>
-                  </span>
-                </div>
-                {otherPerms.map((p) => (
-                  <PermissionBanner key={p.request_id} permission={p} sessionId={sessionId} />
-                ))}
+                  Unarchive
+                </button>
               </div>
-            ))}
+            )}
 
-          {!preview && <HostOfflineBanner sessionId={sessionId} />}
+            {!preview && modelProvenanceMigration && (
+              <ModelProvenanceMigrationBanner
+                migration={modelProvenanceMigration}
+                onAcknowledge={(eventId) => api.acknowledgeModelProvenanceMigration(sessionId, eventId)}
+              />
+            )}
 
-          {liveConnectionStatus && (!preview || liveConnectionStatus === "server-unreachable") && (
-            <LiveConnectionStatusBanner
-              status={liveConnectionStatus}
-              backendState={backendState}
-              backendError={backendError}
-              reconnectProgress={backendReconnect}
-              hasEverConnected={cliEverConnected}
-              idlePaused={cliDisconnectReason === "idle_limit"}
-              isResumeMissingRolloutError={isResumeMissingRolloutError}
-              onRelaunch={
-                liveConnectionStatus === "broken" ||
-                liveConnectionStatus === "cli-disconnected" ||
-                liveConnectionStatus === "recovery-suppressed"
-                  ? () => api.relaunchSession(sessionId)
-                  : undefined
-              }
-            />
-          )}
+            {/* Session task outline — horizontal milestone chips */}
+            {!preview && !isLeaderSession && !sessionQuestBannerRow && <TaskOutlineBar sessionId={sessionId} />}
 
-          {/* Compacting indicator — fixed above composer, green like running state */}
-          {!preview && <CompactingIndicator sessionId={sessionId} />}
+            {/* Persistent work board for orchestrator sessions -- primary thread navigation above the feed */}
+            {!preview && (
+              <WorkBoardBar
+                sessionId={sessionId}
+                currentThreadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+                onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
+                threadRows={isLeaderSession ? workBoardThreadRows : undefined}
+                hideThreadStrip={phoneTopicsOpen}
+                onMoveHomeToSide={homePage ? moveSelectedToSide : undefined}
+              />
+            )}
 
-          {/* Active todo status — shows current in-progress task */}
-          {!preview && <TodoStatusLine sessionId={sessionId} />}
+            {/* Plan overlay fills the chat area, OR show the normal message feed */}
+            {!preview && showPlanOverlay ? (
+              <PlanReviewOverlay
+                permission={planPerm}
+                sessionId={sessionId}
+                onCollapse={() => setPlanCollapsed(true)}
+              />
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex min-h-0 flex-1">
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    {!preview && !phoneTopicsOpen && selectedThread && (
+                      <div ref={questStripRef} className="contents">
+                        <ThreadStrip thread={selectedThread} onMoveToSide={moveSelectedToSide} />
+                      </div>
+                    )}
+                    {!preview && !phoneTopicsOpen && showQuestThreadBanner && (
+                      <div ref={questStripRef} className="contents">
+                        <QuestThreadBanner
+                          row={selectedThreadRow}
+                          threadKey={selectedThreadKey}
+                          sideQuestOf={selectedSideQuestOf}
+                          monitorSessionId={sessionId}
+                          diffSessionId={sessionId}
+                          singleLine={leaderNav}
+                          onMoveToSide={moveSelectedToSide}
+                        />
+                      </div>
+                    )}
+                    {!preview && !phoneTopicsOpen && !showQuestThreadBanner && sessionQuestBannerRow && (
+                      <QuestThreadBanner
+                        row={sessionQuestBannerRow}
+                        threadKey={sessionQuestBannerRow.threadKey}
+                        variant="session"
+                        currentSessionId={sessionId}
+                        diffSessionId={sessionId}
+                      />
+                    )}
+                    {!preview && sessionMetadataKnown && !isLeaderSession && !sessionQuestBannerRow && (
+                      <SessionDiffBanner sessionId={sessionId} />
+                    )}
+                    {/* Where the phone topic panel starts: just under the thread strip. */}
+                    <div ref={phoneTopicTopRef} aria-hidden="true" />
+                    {homePage ? (
+                      <LeaderHomePage leaderId={sessionId} />
+                    ) : (
+                      <div className="contents">
+                        <ViewportHandoffThreadEntryGate
+                          key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY)}`}
+                          sessionId={preview ? null : sessionId}
+                          threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+                          entryId={viewportHandoffThreadEntryRef.current.entryId}
+                          fallback={
+                            <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
+                              Loading conversation...
+                            </div>
+                          }
+                        >
+                          {/* Reload fork links when the user changes threads or a new quest thread appears. */}
+                          <StartedQuestsProvider
+                            sessionId={sessionId}
+                            enabled={isLeaderSession && !preview}
+                            refreshKey={`${navigationThreadRows.length}:${selectedThreadKey}`}
+                          >
+                            <MessageFeed
+                              sessionId={sessionId}
+                              threadKey={isLeaderSession ? feedThreadKey : MAIN_THREAD_KEY}
+                              projectThreadRoutes={isLeaderSession}
+                              onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                              showCodexSubagentControl={!preview}
+                              markSharedResultsRead={isLeaderSession && selectedThreadReadOnScreen}
+                              unreadAboveIndicator={unreadAboveIndicator}
+                              questChips={
+                                leaderNav && showQuestThreadBanner ? (
+                                  <QuestThreadFeedChips
+                                    row={selectedThreadRow}
+                                    threadKey={selectedThreadKey}
+                                    diffSessionId={sessionId}
+                                  />
+                                ) : undefined
+                              }
+                            />
+                          </StartedQuestsProvider>
+                        </ViewportHandoffThreadEntryGate>
+                      </div>
+                    )}
+                  </div>
+                  {!preview && selectedSideChat && (
+                    <SideChatPanel
+                      rootSessionId={sessionId}
+                      sideChat={selectedSideChat}
+                      onClose={() => setSelectedSideChatId(null)}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
 
-          {/* Composer (a leader's home has its own, which starts a thread) */}
-          {!preview && leaderLog && <NewThreadComposer leaderId={sessionId} />}
-          {!preview && !homePage && !leaderLog && (
-            <Composer
-              sessionId={sessionId}
-              threadKey={composerThreadKey}
-              questId={composerQuestId}
-              topicName={selectedThread?.name}
-              transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
-              transcriptionThreadTitle={composerThreadTitle}
-            />
-          )}
-        </ComposerFeedLayout>
+            {/* Collapsed plan chip (when plan exists but is collapsed) */}
+            {!preview && planPerm && planCollapsed && (
+              <div className="shrink-0 border-t border-cc-border bg-cc-card px-2 sm:px-4 py-2">
+                <PlanCollapsedChip
+                  permission={planPerm}
+                  sessionId={sessionId}
+                  onExpand={() => setPlanCollapsed(false)}
+                />
+              </div>
+            )}
+
+            {/* Non-plan permission banners — collapsible */}
+            {!preview &&
+              otherPerms.length > 0 &&
+              (permsCollapsed ? (
+                <PermissionsCollapsedChip permissions={otherPerms} onExpand={() => setPermsCollapsed(false)} />
+              ) : (
+                <div className="shrink-0 max-h-[60dvh] overflow-y-auto border-t border-cc-border bg-cc-card">
+                  <div
+                    onClick={() => setPermsCollapsed(true)}
+                    className="sticky top-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-cc-card border-b border-cc-border/50 cursor-pointer hover:bg-cc-hover/50 transition-colors"
+                    role="button"
+                    title="Minimize approvals"
+                  >
+                    <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-cc-warning">
+                      <path
+                        fillRule="evenodd"
+                        d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <span className="text-[11px] font-medium text-cc-warning">
+                      {otherPerms.length} pending approval{otherPerms.length !== 1 ? "s" : ""}
+                    </span>
+                    <span className="ml-auto p-1.5 rounded-md text-cc-muted">
+                      <svg
+                        className="w-3.5 h-3.5"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" />
+                        <path d="M4 8h4" />
+                      </svg>
+                    </span>
+                  </div>
+                  {otherPerms.map((p) => (
+                    <PermissionBanner key={p.request_id} permission={p} sessionId={sessionId} />
+                  ))}
+                </div>
+              ))}
+
+            {!preview && <HostOfflineBanner sessionId={sessionId} />}
+
+            {liveConnectionStatus && (!preview || liveConnectionStatus === "server-unreachable") && (
+              <LiveConnectionStatusBanner
+                status={liveConnectionStatus}
+                backendState={backendState}
+                backendError={backendError}
+                reconnectProgress={backendReconnect}
+                hasEverConnected={cliEverConnected}
+                idlePaused={cliDisconnectReason === "idle_limit"}
+                isResumeMissingRolloutError={isResumeMissingRolloutError}
+                onRelaunch={
+                  liveConnectionStatus === "broken" ||
+                  liveConnectionStatus === "cli-disconnected" ||
+                  liveConnectionStatus === "recovery-suppressed"
+                    ? () => api.relaunchSession(sessionId)
+                    : undefined
+                }
+              />
+            )}
+
+            {/* Compacting indicator — fixed above composer, green like running state */}
+            {!preview && <CompactingIndicator sessionId={sessionId} />}
+
+            {/* Active todo status — shows current in-progress task */}
+            {!preview && <TodoStatusLine sessionId={sessionId} />}
+
+            {/* Composer (a leader's home has its own, which starts a thread) */}
+            {!preview && leaderLog && <NewThreadComposer leaderId={sessionId} />}
+            {!preview && !homePage && !leaderLog && (
+              <Composer
+                sessionId={sessionId}
+                threadKey={composerThreadKey}
+                questId={composerQuestId}
+                topicName={selectedThread?.name}
+                transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
+                transcriptionThreadTitle={composerThreadTitle}
+              />
+            )}
+          </ComposerFeedLayout>
+        </ComposerThreadContext.Provider>
       </div>
       {/* On desktop the side column sits beside every conversation (App); on a phone it is a sheet. */}
       {!preview && !desktopShell && (

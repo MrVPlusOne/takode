@@ -16,6 +16,11 @@ export interface ConversationAnnotation {
   artifact?: AnnotationArtifact;
   /** Rendered-text offsets within one source Markdown scope; text verifies the anchor after remounts. */
   sourceAnchor?: { scopeIndex: number; start: number; end: number; text: string };
+  /**
+   * The thread a comment in a session's main message box was made in. A leader's main view shows one
+   * thread at a time in that one box, so an unsent comment shows (and is sent) only in its own thread.
+   */
+  threadKey?: string;
 }
 
 /** A comment's slide: its number (from 1) and title, and whether it is on the whole slide rather than a passage. */
@@ -63,7 +68,8 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
       typeof entry.selectedText !== "string" ||
       !entry.selectedText.trim() ||
       typeof entry.comment !== "string" ||
-      (entry.sourceMessageId !== undefined && typeof entry.sourceMessageId !== "string")
+      (entry.sourceMessageId !== undefined && typeof entry.sourceMessageId !== "string") ||
+      (entry.threadKey !== undefined && (typeof entry.threadKey !== "string" || !entry.threadKey))
     )
       throw new Error("Each annotation needs a unique ID, selected text, and a comment string.");
     ids.add(entry.id);
@@ -140,6 +146,7 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
       ...(anchor
         ? { sourceAnchor: { scopeIndex: anchor.scopeIndex, start: anchor.start, end: anchor.end, text: anchor.text } }
         : {}),
+      ...(entry.threadKey !== undefined ? { threadKey: entry.threadKey } : {}),
     };
   });
 }

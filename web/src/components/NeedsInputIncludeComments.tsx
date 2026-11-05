@@ -1,9 +1,7 @@
 import { useCallback, useState } from "react";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { useStore } from "../store.js";
-import { useComposerTarget } from "./composer-target.js";
-
-const NO_COMMENTS: ConversationAnnotation[] = [];
+import { useComposerComments, useComposerTarget } from "./composer-target.js";
 
 /**
  * The user's pending conversation comments (the composer draft's unsent comments) that a needs-input reply
@@ -12,10 +10,10 @@ const NO_COMMENTS: ConversationAnnotation[] = [];
  * the reply is on its way stay pending.
  */
 export function usePendingReplyComments(sessionId: string | undefined) {
-  // The comments of the composer of the conversation the card is in (a side chat's, or the main one).
+  // The comments the composer of the conversation the card is in shows (a side chat's, or the main one's
+  // in the thread it is on).
   const draftKey = useComposerTarget(sessionId ?? "");
-  const pending = useStore((s) => (sessionId ? s.composerDrafts.get(draftKey)?.annotations : undefined));
-  const comments = pending ?? NO_COMMENTS;
+  const comments = useComposerComments(sessionId);
   const [checked, setChecked] = useState(false);
   const include = checked && comments.length > 0;
 

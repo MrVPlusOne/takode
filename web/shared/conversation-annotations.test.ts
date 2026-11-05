@@ -127,6 +127,15 @@ describe("conversation annotations", () => {
     expect(() => readConversationAnnotations([entries[0], entries[0]])).toThrow("unique ID");
   });
 
+  it("keeps the thread an unsent comment was made in, so synced drafts still show it only there", () => {
+    // The server re-reads draft comments with this function; dropping the field would show every
+    // leader thread's comments in every thread again after one sync.
+    const entry = { id: "c1", selectedText: "passage", comment: "note", threadKey: "q-7" };
+    expect(readConversationAnnotations([entry])).toEqual([entry]);
+    expect(() => readConversationAnnotations([{ ...entry, threadKey: "" }])).toThrow("unique ID");
+    expect(() => readConversationAnnotations([{ ...entry, threadKey: 7 }])).toThrow("unique ID");
+  });
+
   it("bounds only recognition/reference copies while keeping editable and spoken text complete", () => {
     const context = {
       activeId: "active",

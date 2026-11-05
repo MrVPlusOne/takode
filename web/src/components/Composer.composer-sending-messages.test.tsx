@@ -853,6 +853,28 @@ describe("Composer sending messages", () => {
     vi.unstubAllGlobals();
   });
 
+  it("sends only the comments made in its thread and keeps the leader's other threads' comments", () => {
+    // Jiayi's bug: unsent comments made in one thread followed the main message box to other threads and
+    // could go out with a message there. Each comment names its thread; older untagged ones show anywhere.
+    const here = { id: "here", selectedText: "Passage in q-1", comment: "About q-1", threadKey: "q-1" };
+    const legacy = { id: "legacy", selectedText: "Older passage", comment: "Saved before threads" };
+    const elsewhere = { id: "elsewhere", selectedText: "Passage in q-2", comment: "About q-2", threadKey: "q-2" };
+    setupMockStore({ draft: { text: "Reply", images: [], annotations: [here, legacy, elsewhere] } });
+    render(<Composer sessionId="s1" threadKey="q-1" questId="q-1" />);
+    expect(screen.getAllByRole("button", { name: /^Comment \d+$/ })).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ type: "user_message", threadKey: "q-1", annotations: [here, legacy] }),
+    );
+    expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual({
+      text: "",
+      images: [],
+      annotations: [elsewhere],
+    });
+  });
+
   it("queues a send pressed while an image uploads and sends it once the upload finishes", async () => {
     // Pressing Send mid-upload used to be refused; now it waits and sends by itself, exactly once.
     const prepared = deferred<{

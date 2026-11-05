@@ -4,6 +4,7 @@ import { useStore } from "../store.js";
 import { AnnotationAttachments } from "./AnnotationAttachments.js";
 import { AnnotationEditor } from "./AnnotationEditor.js";
 import { editsHere } from "./annotation-editor-target.js";
+import { commentsShownIn } from "./composer-target.js";
 
 export function ComposerAnnotations({
   sessionId,
@@ -22,7 +23,9 @@ export function ComposerAnnotations({
   const openSource = useAnnotationSourceNavigation(sessionId, threadKey, draftKey);
   const draft = useStore((state) => state.composerDrafts.get(draftKey));
   const editor = useStore((state) => state.annotationEditor);
-  const annotations = draft?.annotations ?? [];
+  // A session's main draft is shared by the threads of a leader's main view: show this thread's comments.
+  const mainDraft = draftKey === sessionId;
+  const annotations = commentsShownIn(draft?.annotations, mainDraft, threadKey);
   const activeEditor = editsHere(editor, sessionId, draftKey, threadKey) ? editor : null;
   useEffect(
     () => () => {
@@ -92,7 +95,9 @@ export function ComposerAnnotations({
           onSave={(comment) => {
             const state = useStore.getState();
             const current = state.composerDrafts.get(draftKey) ?? { text: "", images: [] };
-            const saved = { ...activeEditor.annotation, comment };
+            // A comment in the main draft stays with the thread it was made in (an edit keeps its thread).
+            const ownThread = activeEditor.annotation.threadKey ?? threadKey;
+            const saved = { ...activeEditor.annotation, comment, ...(mainDraft ? { threadKey: ownThread } : {}) };
             const previous = current.annotations ?? [];
             state.setComposerDraft(draftKey, {
               ...current,

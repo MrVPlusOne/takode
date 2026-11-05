@@ -1,10 +1,11 @@
 import { ComposerMinimizer } from "./ComposerMinimizer.js";
 import { useComposerTypeToCompose } from "./use-composer-type-to-compose.js";
 import { useChatFocused, useChatFocusId } from "../utils/chat-focus.js";
-import { sendComposerDraft } from "./composer-message-send.js";
+import { clearSentComposerDraft, sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { editsHere } from "./annotation-editor-target.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
+import { commentsShownIn } from "./composer-target.js";
 import { addTranscriptionTag } from "../../shared/transcription-tag.js";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -152,7 +153,11 @@ export function Composer({
   const replyContext = useStore((s) => s.replyContexts.get(draftKey));
   const text = draft?.text ?? "";
   const images = draft?.images ?? EMPTY_COMPOSER_IMAGES;
-  const annotations = draft?.annotations;
+  // The comments made in this thread: a leader's other threads keep theirs in the same main draft.
+  const annotations = useMemo(
+    () => commentsShownIn(draft?.annotations, draftKey === sessionId, threadKey),
+    [draft?.annotations, draftKey, sessionId, threadKey],
+  );
   // Only a comment this composer shows (or is opening) holds back its Send.
   const annotationEditorOpen = useStore((state) => editsHere(state.annotationEditor, sessionId, draftKey, threadKey));
   const setText = useCallback(
@@ -980,7 +985,7 @@ export function Composer({
         updated_input: { ...pendingAskUserPerm.input, answers },
       });
       store.removePermission(sessionId, pendingAskUserPerm.request_id);
-      store.clearComposerDraft(draftKey);
+      clearSentComposerDraft(draftKey, annotations);
       setComposerExpanded(false);
       setAlternateVoiceRerun(null);
       closeAutocompleteMenus();
@@ -1012,7 +1017,7 @@ export function Composer({
           mode: resolveCodexPermissionCliMode(targetMode.permissionMode),
         });
         if (!switched) return;
-        store.clearComposerDraft(draftKey);
+        clearSentComposerDraft(draftKey, annotations);
         setComposerExpanded(false);
         setAlternateVoiceRerun(null);
         closeAutocompleteMenus();

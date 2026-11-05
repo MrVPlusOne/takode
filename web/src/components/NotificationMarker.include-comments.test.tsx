@@ -8,6 +8,7 @@ import { applySessionNotifications } from "../notification-status.js";
 import { useStore } from "../store.js";
 import type { SessionNotification } from "../types.js";
 import { NotificationMarker } from "./NotificationMarker.js";
+import { ComposerThreadContext } from "./composer-target.js";
 
 vi.mock("../api.js", () => ({
   api: {
@@ -60,6 +61,20 @@ describe("needs-input card: include my pending comments", () => {
   it("offers no checkbox when there are no pending comments", () => {
     renderCard();
     expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("offers only the comments made in the thread the main composer is on", () => {
+    // A leader's main draft holds every thread's unsent comments; a card in one thread must not offer to
+    // send comments made in another (Jiayi's bug of comments following the message box across threads).
+    setPendingComments([{ ...comment("a"), threadKey: "q-1" }, { ...comment("b"), threadKey: "q-2" }, comment("c")]);
+    act(() => applySessionNotifications(SESSION, [notification], {}));
+    render(
+      <ComposerThreadContext.Provider value="q-1">
+        <NotificationMarker sessionId={SESSION} category="needs-input" notificationId="n-1" />
+      </ComposerThreadContext.Provider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
+    expect(screen.getByRole("checkbox", { name: "Include my 2 comments" })).toBeInTheDocument();
   });
 
   it("leaves the box clear by default: only the answer is sent and the comments stay pending", async () => {
