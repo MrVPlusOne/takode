@@ -204,6 +204,21 @@ export async function startLibraryTopics(input: {
   return service;
 }
 
+/**
+ * Archives Scribes left running for a leader that is archived or gone: a Scribe is archived with
+ * its leader, but one could outlive it before that (or start again as the leader was archived).
+ */
+export async function archiveScribesOfArchivedLeaders(launcher: CliLauncher): Promise<void> {
+  for (const session of launcher.listSessions()) {
+    if (!session.scribeFor || session.archived) continue;
+    const leader = launcher.getSession(session.scribeFor);
+    if (leader && !leader.archived) continue;
+    await archiveLibrarySession(session.sessionId).catch((error) =>
+      console.error(`[library-topics] Could not archive Scribe ${session.sessionId} of an archived leader:`, error),
+    );
+  }
+}
+
 /** The Scribe's backend: the leader's own unless Settings name one. */
 function scribeBackendFor(leader: TopicLeaderInfo): "claude" | "codex" {
   const setting = getSettings().scribeBackend ?? "leader";

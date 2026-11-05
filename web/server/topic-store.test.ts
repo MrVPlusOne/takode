@@ -6,7 +6,14 @@ import type { BrowserIncomingMessage } from "./session-types.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { questSources } from "./quest-source-index.js";
 import { CHANGE_SHOWN_MS, TopicStore, pageSummary } from "./topic-store.js";
-import { PAGE_FORMAT, TopicService, historyMessageText, pageImages, type TopicSessionLike } from "./topic-service.js";
+import {
+  PAGE_FORMAT,
+  TopicService,
+  historyMessageText,
+  pageImages,
+  type TopicLeaderInfo,
+  type TopicSessionLike,
+} from "./topic-service.js";
 import { TOPIC_TENTATIVE_MS, type TopicRenameSuggestion } from "../shared/library-topics.js";
 
 /**
@@ -463,10 +470,12 @@ async function setupService() {
   const hosts = new Map<string, string>();
   const leaderHosts = new Map<string, string>();
   const unstartable = new Set<string>();
+  const archivedLeaders = new Set<string>();
   const leaderInfo = (id: string) => {
     const leader = LEADERS[id as keyof typeof LEADERS];
     const hostId = leaderHosts.get(id);
-    return leader && hostId ? { ...leader, hostId } : leader;
+    if (!leader) return leader;
+    return { ...leader, ...(hostId ? { hostId } : {}), ...(archivedLeaders.has(id) ? { archived: true } : {}) };
   };
   // Files on the leader's machine, by path: their modification times.
   const files = new Map<string, number>();
@@ -512,7 +521,7 @@ async function setupService() {
   });
   return {
     ...{ store, service, leader, sessions, quests, injected, notices, created, busy, retired, messages },
-    ...{ leaderHosts, unstartable, files, stopped, relaunched },
+    ...{ leaderHosts, unstartable, archivedLeaders, files, stopped, relaunched },
   };
 }
 
@@ -1196,6 +1205,38 @@ describe("topic service", () => {
       sessionId: "scribe-leader-1",
       text: expect.stringContaining("Launch now"),
     });
+  });
+  it("starts no Scribe for an archived leader, even when its archived Scribe's last turn ends", async () => {
+    // Archiving a leader with its workers archived its Scribe first; the Scribe's killed turn then
+    // ended, its delivery retried, and a new Scribe started for the leader, left running after the
+    // leader was archived (Feng, Nov 5). The Scribe now goes after its leader, and none starts for
+    // an archived leader, also when the leader is archived while a new one is starting.
+    const { service, store, created, retired, sessions, archivedLeaders } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    archivedLeaders.add("leader");
+    sessions.delete(scribe);
+    await service.scribeTurnEnded(scribe, { unfinished: true });
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(await service.deliver("leader")).toBe("off");
+    expect(created).toEqual([scribe]);
+
+    // Restored, the leader gets a new Scribe at its next message, as a new leader does.
+    archivedLeaders.delete("leader");
+    await service.deliver("leader");
+    expect(created).toEqual([scribe, "scribe-leader-2"]);
+
+    // Archived again while its next Scribe was starting: that Scribe is archived, not used.
+    const deps = (service as unknown as { deps: { createScribe: (leader: TopicLeaderInfo) => Promise<string> } }).deps;
+    const createScribe = deps.createScribe;
+    deps.createScribe = async (leader) => {
+      archivedLeaders.add("leader");
+      return createScribe(leader);
+    };
+    sessions.delete("scribe-leader-2");
+    expect(await service.deliver("leader")).toBe("waiting");
+    expect(created).toEqual([scribe, "scribe-leader-2", "scribe-leader-3"]);
+    expect(retired).toEqual(["scribe-leader-3"]);
+    expect(store.scribeSession("leader")).toBe("scribe-leader-2");
   });
   it("starts a Scribe on its leader's machine and moves one started elsewhere at its next message", async () => {
     // A leader on a remote host gets its Scribe there. A Scribe started on another machine (before

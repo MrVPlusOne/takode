@@ -2,8 +2,8 @@ import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
 import type { CliLauncher } from "./cli-launcher.js";
 import type { WsBridge } from "./ws-bridge.js";
-import { setLibrarySessionCreator } from "./library-session-creator.js";
-import { startLibraryTopics } from "./topic-service-startup.js";
+import { setLibrarySessionArchiver, setLibrarySessionCreator } from "./library-session-creator.js";
+import { archiveScribesOfArchivedLeaders, startLibraryTopics } from "./topic-service-startup.js";
 
 /**
  * A leader's Scribe starts on the leader's machine: a leader on a remote host gets one created on
@@ -59,5 +59,36 @@ describe("startLibraryTopics Scribe creation", () => {
     const body = await scribeBodyFor({ cwd: "/repo" }, "/unused");
     expect(body).toMatchObject({ cwd: homedir() });
     expect(body).not.toHaveProperty("hostId");
+  });
+});
+
+/**
+ * Scribes that outlived their leader before Scribes were archived with it (archiving a leader with
+ * its workers used to leave one running) are archived at server start. Scribes of active leaders,
+ * already archived Scribes and ordinary workers are left alone.
+ */
+describe("archiveScribesOfArchivedLeaders", () => {
+  it("archives running Scribes whose leader is archived or gone, and nothing else", async () => {
+    const archived: string[] = [];
+    setLibrarySessionArchiver(async (sessionId) => {
+      archived.push(sessionId);
+    });
+    const sessions = [
+      { sessionId: "active-leader", isOrchestrator: true },
+      { sessionId: "archived-leader", isOrchestrator: true, archived: true },
+      { sessionId: "scribe-of-active", scribeFor: "active-leader" },
+      { sessionId: "scribe-of-archived", scribeFor: "archived-leader" },
+      { sessionId: "scribe-of-deleted", scribeFor: "deleted-leader" },
+      { sessionId: "old-scribe", scribeFor: "archived-leader", archived: true },
+      { sessionId: "worker", herdedBy: "active-leader" },
+    ];
+    const launcher = {
+      listSessions: () => sessions,
+      getSession: (id: string) => sessions.find((session) => session.sessionId === id),
+    } as unknown as CliLauncher;
+
+    await archiveScribesOfArchivedLeaders(launcher);
+
+    expect(archived).toEqual(["scribe-of-archived", "scribe-of-deleted"]);
   });
 });

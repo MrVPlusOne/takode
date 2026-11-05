@@ -68,7 +68,7 @@ import { prepareChatImages, prepareLibraryThumbnail } from "./chat-image-prepara
 import { ArtifactLibrary, setArtifactLibrary, type LibrarySessionLike } from "./artifact-library.js";
 import { ArtifactLibraryStore } from "./artifact-library-store.js";
 import { ArtifactThumbnails, setArtifactThumbnails } from "./artifact-thumbnails.js";
-import { startLibraryTopics } from "./topic-service-startup.js";
+import { archiveScribesOfArchivedLeaders, startLibraryTopics } from "./topic-service-startup.js";
 import { overdueTodosIn, TodoOverdueAlerts } from "./todo-overdue-alerts.js";
 import { normalizeNeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
 import { listWaitingUserQuestions } from "./bridge/session-notification-controller.js";
@@ -1604,11 +1604,11 @@ const websocketHandlers: WebSocketHandler<SocketData> = {
   },
 };
 
-// Archive the page writers of the retired one-per-space design, now that sessions can be archived,
-// ask Scribes whose pages predate the current page format to rewrite them, and give topics to
-// leaders that have none.
-void topicService
-  .retireLegacyWriters()
+// Archive the page writers of the retired one-per-space design and Scribes of archived leaders, now
+// that sessions can be archived, ask Scribes whose pages predate the current page format to rewrite
+// them, and give topics to leaders that have none.
+void archiveScribesOfArchivedLeaders(launcher)
+  .then(() => topicService.retireLegacyWriters())
   .then(() => topicService.askOutdatedScribes())
   .then(() => topicService.startLeaderTopics())
   .catch((error) => console.error("[library-topics] Startup work failed:", error));

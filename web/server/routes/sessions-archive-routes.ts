@@ -149,6 +149,18 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
         }
       }
     }
+
+    // A leader's Scribe keeps only that leader's topic pages, so it goes with its leader. It is
+    // archived after the leader so its last turn ending can't start a replacement for it. A Scribe
+    // that fails to archive here is retried at the next server start.
+    if (archivedSessionInfo?.isOrchestrator) {
+      for (const s of launcher.listSessions()) {
+        if (s.scribeFor !== id || s.archived) continue;
+        await archiveSingleSession(s.sessionId).catch((error) =>
+          console.error(`[routes] Failed to archive Scribe ${s.sessionId} of leader ${id}:`, error),
+        );
+      }
+    }
     return worktreeResult;
   }
 
@@ -181,8 +193,8 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
 
     const actorId = getActorSessionId(authenticateCompanionCallerOptional(c));
 
-    // Find all non-archived herded workers
-    const workers = launcher.getHerdedSessions(id).filter((s) => !s.archived);
+    // Find all non-archived herded workers; the leader's Scribe is archived with the leader itself.
+    const workers = launcher.getHerdedSessions(id).filter((s) => !s.archived && s.scribeFor !== id);
     const results: Array<{ sessionId: string; ok: boolean; error?: string }> = [];
 
     // Archive workers first, then the leader (avoids herd events to a dead leader)

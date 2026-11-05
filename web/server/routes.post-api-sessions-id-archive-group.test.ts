@@ -580,6 +580,55 @@ describe("POST /api/sessions/:id/archive-group", () => {
     expect(launcher.setArchived).toHaveBeenCalledWith("leader-1", true);
   });
 
+  it("archives the leader's Scribe after the leader, so the Scribe can't be restarted for it", async () => {
+    // Feng (Nov 5): archiving a leader with its workers left its Scribe running. The Scribe is a
+    // herded worker, but archiving it first let its ending turn start a new Scribe for the still
+    // active leader. The Scribe now goes after its leader, with the leader's own archive.
+    const sessions = new Map<string, any>([
+      ["leader-1", { sessionId: "leader-1", state: "connected", cwd: "/test", isOrchestrator: true }],
+      ["worker-1", { sessionId: "worker-1", state: "connected", cwd: "/test", herdedBy: "leader-1" }],
+      ["scribe-1", { sessionId: "scribe-1", cwd: "/test", herdedBy: "leader-1", scribeFor: "leader-1" }],
+      ["scribe-other", { sessionId: "scribe-other", cwd: "/test", scribeFor: "leader-2" }],
+    ]);
+    launcher.getSession.mockImplementation((id: string) => sessions.get(id));
+    launcher.listSessions.mockImplementation(() => [...sessions.values()]);
+    launcher.getHerdedSessions.mockImplementation((id: string) =>
+      [...sessions.values()].filter((s) => s.herdedBy === id && !s.archived),
+    );
+    launcher.setArchived.mockImplementation((id: string, archived: boolean) => {
+      sessions.get(id).archived = archived;
+    });
+
+    const res = await app.request("/api/sessions/leader-1/archive-group", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, failed: 0 });
+    expect(launcher.kill.mock.calls.map(([id]: [string]) => id)).toEqual(["worker-1", "leader-1", "scribe-1"]);
+    expect(sessions.get("scribe-1").archived).toBe(true);
+    expect(sessionStore.setArchived).toHaveBeenCalledWith("scribe-1", true);
+    expect(sessions.get("scribe-other").archived).toBeUndefined();
+  });
+
+  it("archives the leader's Scribe when the leader is archived alone", async () => {
+    // Archiving a leader alone keeps its workers running, but its Scribe serves only that leader.
+    const sessions = new Map<string, any>([
+      ["leader-1", { sessionId: "leader-1", state: "connected", cwd: "/test", isOrchestrator: true }],
+      ["worker-1", { sessionId: "worker-1", state: "connected", cwd: "/test", herdedBy: "leader-1" }],
+      ["scribe-1", { sessionId: "scribe-1", cwd: "/test", herdedBy: "leader-1", scribeFor: "leader-1" }],
+    ]);
+    launcher.getSession.mockImplementation((id: string) => sessions.get(id));
+    launcher.listSessions.mockImplementation(() => [...sessions.values()]);
+    launcher.setArchived.mockImplementation((id: string, archived: boolean) => {
+      sessions.get(id).archived = archived;
+    });
+
+    const res = await app.request("/api/sessions/leader-1/archive", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    expect(launcher.kill.mock.calls.map(([id]: [string]) => id)).toEqual(["leader-1", "scribe-1"]);
+    expect(sessions.get("worker-1").archived).toBeUndefined();
+  });
+
   it("skips already-archived herded workers", async () => {
     launcher.getSession.mockReturnValue({
       sessionId: "leader-1",

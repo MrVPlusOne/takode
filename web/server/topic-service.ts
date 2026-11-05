@@ -635,7 +635,8 @@ export class TopicService {
 
   private async deliverNow(leaderId: string): Promise<DeliveryResult> {
     const leader = this.deps.getLeaderInfo(leaderId);
-    if (!leader || !this.store.isLeaderEnabled(leaderId)) return "off";
+    // An archived leader's Scribe is archived with it; its last turn ending must not start another.
+    if (!leader || leader.archived || !this.store.isLeaderEnabled(leaderId)) return "off";
     const forcedIds = [...(this.forced.get(leaderId) ?? [])];
     if (!forcedIds.length) {
       if (this.store.isScribePaused(leaderId)) return "paused";
@@ -1238,6 +1239,11 @@ export class TopicService {
     } catch (error) {
       console.warn(`[library-topics] Could not start a Scribe for leader ${leader.sessionId}:`, error);
       return alive ? existing : null;
+    }
+    // The leader was archived while its new Scribe started, too late for the archive to take it.
+    if (this.deps.getLeaderInfo(leader.sessionId)?.archived) {
+      await this.deps.retireScribe(sessionId);
+      return null;
     }
     this.store.setScribeSession(leader.sessionId, sessionId);
     await this.store.flush();
