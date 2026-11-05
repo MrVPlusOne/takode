@@ -72,6 +72,16 @@ describe("copying a message for Slack", () => {
     );
   });
 
+  it("keeps a link whose label is inline code as a link", () => {
+    // Slack pastes <a><code>…</code></a> as a code span and loses the link, so the label's code is
+    // dropped and the link kept. Code outside links and internal links' code stay code.
+    const text =
+      "See [`get_container_resources()`](https://example.com/r), [the `f()` docs](https://example.com/f), `g()` and [`x`](quest:q-12).";
+    expect(messageCopyForSlack(rendered(text)).html).toBe(
+      '<p>See <a href="https://example.com/r">get_container_resources()</a>, <a href="https://example.com/f">the f() docs</a>, <code>g()</code> and <code>x</code>.</p>',
+    );
+  });
+
   it("copies only the rendered Markdown: no classes, controls, menu or time label", () => {
     const { html, plain } = messageCopyForSlack(rendered());
     expect(html).not.toMatch(/class=|style=|<div|<span|<button|<svg|python/);

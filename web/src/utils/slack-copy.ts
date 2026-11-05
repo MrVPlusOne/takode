@@ -184,7 +184,10 @@ function convertInline(node: Node): string {
   if (node.tagName === "CODE") return `<code>${escapeHtml(node.textContent ?? "")}</code>`;
   if (node.tagName === "A") {
     const href = node.getAttribute("href");
-    return href && /^(https?:|mailto:)/i.test(href) ? `<a href="${escapeAttribute(href)}">${inner}</a>` : inner;
+    if (!href || !/^(https?:|mailto:)/i.test(href)) return inner;
+    // Slack pastes inline code inside a link as code and drops the link, so the label's code becomes plain
+    // text. Text inside <code> is escaped, so the pattern only meets the tags written above.
+    return `<a href="${escapeAttribute(href)}">${inner.replace(/<\/?code>/g, "")}</a>`;
   }
   if (node.tagName === "IMG") return "";
   const tag = INLINE_TAGS[node.tagName];
