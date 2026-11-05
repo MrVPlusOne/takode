@@ -169,11 +169,11 @@ describe("withGuidedReviewSnippets and outlineGuidedReviewDiff", () => {
 
   it("lists each file's changed new-file ranges with git's context", () => {
     expect(outlineGuidedReviewDiff(files).split("\n")).toEqual([
-      "src/retry.ts  +13 -0",
+      "src/retry.ts (new file)  +13 -0",
       "  1-13",
       "src/client.ts  +5 -3",
       "  2-10",
-      "src/retry.test.ts  +6 -0",
+      "src/retry.test.ts (new file)  +6 -0",
       "  1-6",
     ]);
   });
@@ -210,7 +210,7 @@ describe("formatGuidedReviewMarkdown", () => {
     expect(markdown).toContain("- **Tests** (1 file): One test for the first success.");
     // Each summarized file is listed with the lines its summary covers, as counted from the diff.
     expect(markdown).toContain("  - `src/client.ts` +1 −0 (more in stops)");
-    expect(markdown).toContain("  - `src/retry.test.ts` +6 −0");
+    expect(markdown).toContain("  - `src/retry.test.ts` (new file) +6 −0");
   });
 });
 
@@ -221,12 +221,12 @@ describe("prepareGuidedReview", () => {
     expect(problems).toEqual([]);
     expect(map.summaries.map((summary) => summary.files)).toEqual([
       [{ path: "src/client.ts", additions: 1, deletions: 0, alsoInStops: true }],
-      [{ path: "src/retry.test.ts", additions: 6, deletions: 0, alsoInStops: false }],
+      [{ path: "src/retry.test.ts", status: "added", additions: 6, deletions: 0, alsoInStops: false }],
     ]);
     expect(map.stops[0].code[0].snippet).toContain("export async function withRetry");
   });
 
-  it("names a renamed file by its new path and keeps the order the author listed", () => {
+  it("names a renamed file by its new path, says how git changed each whole file, and keeps the author's order", () => {
     const renamed = parseGuidedReviewDiff(
       [
         "diff --git a/docs/old.md b/docs/new.md",
@@ -245,6 +245,17 @@ describe("prepareGuidedReview", () => {
         "@@ -1 +1,2 @@",
         " # A",
         "+more",
+        // An empty new file has no line changes; only git's header says it is new.
+        "diff --git a/docs/__init__.py b/docs/__init__.py",
+        "new file mode 100644",
+        "index 0000000..e69de29",
+        "diff --git a/docs/gone.md b/docs/gone.md",
+        "deleted file mode 100644",
+        "index 5555555..0000000",
+        "--- a/docs/gone.md",
+        "+++ /dev/null",
+        "@@ -1 +0,0 @@",
+        "-gone",
         "",
       ].join("\n"),
     );
@@ -253,13 +264,24 @@ describe("prepareGuidedReview", () => {
         title: "Docs",
         overview: "Docs.",
         stops: [],
-        summaries: [{ title: "Docs", text: "Edits.", paths: ["docs/a.md", "docs/old.md"] }],
+        summaries: [
+          { title: "Docs", text: "Edits.", paths: ["docs/a.md", "docs/old.md", "docs/__init__.py", "docs/gone.md"] },
+        ],
       },
       renamed,
     );
     expect(map.summaries[0].files).toEqual([
       { path: "docs/a.md", additions: 1, deletions: 0, alsoInStops: false },
-      { path: "docs/new.md", additions: 1, deletions: 1, alsoInStops: false },
+      {
+        path: "docs/new.md",
+        status: "renamed",
+        oldPath: "docs/old.md",
+        additions: 1,
+        deletions: 1,
+        alsoInStops: false,
+      },
+      { path: "docs/__init__.py", status: "added", additions: 0, deletions: 0, alsoInStops: false },
+      { path: "docs/gone.md", status: "deleted", additions: 0, deletions: 1, alsoInStops: false },
     ]);
   });
 

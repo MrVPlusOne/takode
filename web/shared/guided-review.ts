@@ -43,9 +43,16 @@ export interface GuidedReviewSummary {
   files?: GuidedReviewSummaryFile[];
 }
 
+/** How git changed a whole file; absent for a file edited in place. */
+export type GuidedReviewFileStatus = "added" | "deleted" | "renamed";
+
 export interface GuidedReviewSummaryFile {
   /** The file's path in the change (the new path of a renamed file). */
   path: string;
+  /** Set when the change added, deleted or renamed the file, from git's diff header. */
+  status?: GuidedReviewFileStatus;
+  /** A renamed file's path before the change. */
+  oldPath?: string;
   /** Added lines the summary covers: the file's added lines no stop shows. */
   additions: number;
   /** Removed lines the summary covers. */
@@ -133,6 +140,7 @@ export interface DiffHunk {
 export interface DiffFile {
   path: string;
   oldPath?: string;
+  status?: GuidedReviewFileStatus;
   /** git's header lines (`diff --git`, `---`, `+++` and the like), kept to rebuild snippets. */
   header: string[];
   hunks: DiffHunk[];
@@ -164,7 +172,9 @@ export function parseGuidedReviewDiff(diff: string): DiffFile[] {
     }
     if (!hunk) {
       file.header.push(line);
-      if (line.startsWith("+++ b/")) file.path = line.slice(6);
+      if (line.startsWith("new file mode")) file.status = "added";
+      else if (line.startsWith("deleted file mode")) file.status = "deleted";
+      else if (line.startsWith("+++ b/")) file.path = line.slice(6);
       else if (line.startsWith("--- a/")) file.oldPath = line.slice(6);
       continue;
     }
@@ -174,7 +184,10 @@ export function parseGuidedReviewDiff(diff: string): DiffFile[] {
     else if (kind === " ") hunk.lines.push({ kind: "context", text: line.slice(1), oldNo: oldNo++, newNo: newNo++ });
     // "\ No newline at end of file" and the trailing empty line carry no numbered content.
   }
-  for (const entry of files) if (entry.oldPath === entry.path) delete entry.oldPath;
+  for (const entry of files) {
+    if (entry.oldPath === entry.path) delete entry.oldPath;
+    else if (entry.oldPath && !entry.status) entry.status = "renamed";
+  }
   return files;
 }
 
@@ -379,6 +392,8 @@ export function checkGuidedReviewCoverage(
     if (summary !== undefined) {
       summaryFiles[summary].push({
         path: file.path,
+        ...(file.status && { status: file.status }),
+        ...(file.oldPath && { oldPath: file.oldPath }),
         additions: uncoveredAdded.length,
         deletions: uncoveredDeleted,
         alsoInStops: Boolean(added?.size || deleted?.size),
@@ -500,8 +515,7 @@ export function outlineGuidedReviewDiff(files: DiffFile[]): string {
   for (const file of files) {
     const changed = changedLines(file);
     const adds = changed.filter((line) => line.kind === "add").length;
-    const renamed = file.oldPath ? ` (renamed from ${file.oldPath})` : "";
-    lines.push(`${file.path}${renamed}  +${adds} -${changed.length - adds}`);
+    lines.push(`${file.path}${fileStatusNote(file)}  +${adds} -${changed.length - adds}`);
     if (!changed.length) lines.push("  no line changes; name the path in a stop or summary");
     for (const hunk of file.hunks) {
       const hunkChanged = hunk.lines.filter((line) => line.kind !== "context");
@@ -553,7 +567,9 @@ export function formatGuidedReviewMarkdown(meta: Omit<GuidedReviewMeta, "reviewI
       "",
       ...map.summaries.flatMap((summary) => [
         `- **${summary.title}** (${summary.paths.length} file${summary.paths.length === 1 ? "" : "s"}): ${summary.text}`,
-        ...guidedReviewSummaryFiles(summary).map((file) => `  - \`${file.path}\`${fileCounts(file)}`),
+        ...guidedReviewSummaryFiles(summary).map(
+          (file) => `  - \`${file.path}\`${fileStatusNote(file)}${fileCounts(file)}`,
+        ),
       ]),
     );
   }
@@ -566,6 +582,13 @@ export function guidedReviewSummaryFiles(
   summary: GuidedReviewSummary,
 ): Array<Pick<GuidedReviewSummaryFile, "path"> & Partial<GuidedReviewSummaryFile>> {
   return summary.files ?? summary.paths.map((path) => ({ path }));
+}
+
+/** " (new file)", " (deleted file)" or " (renamed from old/path)", for text versions of a file list. */
+function fileStatusNote(file: { status?: GuidedReviewFileStatus; oldPath?: string }): string {
+  if (file.status === "added") return " (new file)";
+  if (file.status === "deleted") return " (deleted file)";
+  return file.oldPath ? ` (renamed from ${file.oldPath})` : "";
 }
 
 function fileCounts(file: Partial<GuidedReviewSummaryFile>): string {

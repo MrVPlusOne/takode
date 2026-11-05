@@ -252,6 +252,59 @@ diff --git a/src/b.ts b/src/b.ts
     expect(screen.getAllByText("Keep bullet-format instructions in voice edit mode").length).toBeGreaterThan(0);
   });
 
+  it("labels files git's header says were added, deleted or renamed, including an empty new file", () => {
+    // The empty file has no ---/+++ lines or hunks, so its name comes from the `diff --git` line
+    // and only the header says it is new; its counts alone (+0 −0) would not.
+    const unifiedDiff = [
+      "diff --git a/pkg/new.py b/pkg/new.py",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/pkg/new.py",
+      "@@ -0,0 +1 @@",
+      "+print('hi')",
+      "diff --git a/pkg/__init__.py b/pkg/__init__.py",
+      "new file mode 100644",
+      "index 0000000..e69de29",
+      "diff --git a/pkg/old.yaml b/pkg/old.yaml",
+      "deleted file mode 100644",
+      "--- a/pkg/old.yaml",
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-key: value",
+      "diff --git a/docs/before.md b/docs/after.md",
+      "similarity index 90%",
+      "rename from docs/before.md",
+      "rename to docs/after.md",
+      "--- a/docs/before.md",
+      "+++ b/docs/after.md",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "diff --git a/src/edited.ts b/src/edited.ts",
+      "--- a/src/edited.ts",
+      "+++ b/src/edited.ts",
+      "@@ -1 +1 @@",
+      "-a",
+      "+b",
+    ].join("\n");
+    const { container } = render(<DiffViewer unifiedDiff={unifiedDiff} mode="full" />);
+    const labels = [...container.querySelectorAll(".diff-file-header")].map((header) => ({
+      name: header.querySelector(".font-semibold")?.textContent,
+      status: header.querySelector("[data-file-status]")?.textContent ?? null,
+    }));
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        { name: "new.py", status: "New" },
+        { name: "__init__.py", status: "New" },
+        { name: "old.yaml", status: "Deleted" },
+        { name: "after.md", status: "Renamed" },
+        { name: "edited.ts", status: null },
+      ]),
+    );
+    // Renamed within its folder, so only the old name is repeated.
+    expect(screen.getByText("from before.md")).toBeTruthy();
+  });
+
   it("renders file path with directory in muted style", () => {
     render(<DiffViewer oldText="a" newText="b" fileName="src/components/Button.tsx" />);
     expect(screen.getByText("src/components/")).toBeTruthy();

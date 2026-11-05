@@ -3,8 +3,10 @@ import {
   GUIDED_REVIEW_TIERS,
   GUIDED_REVIEW_MORE_CONTEXT_LINES,
   guidedReviewFocus,
+  parseGuidedReviewDiff,
   guidedReviewSummaryFiles,
   type GuidedReviewCodeRef,
+  type GuidedReviewFileStatus,
   type GuidedReviewMap,
   type GuidedReviewMeta,
   type GuidedReviewStop,
@@ -22,6 +24,7 @@ import {
 } from "../guided-review-state.js";
 import { sendGuidedReviewAnswers } from "../guided-review-send.js";
 import { DiffViewer, type DiffLineEmphasis, type DiffLineNumbers } from "./DiffViewer.js";
+import { FileStatusBadge, renamedFromLabel } from "./FileStatusBadge.js";
 import { reviewCodeAttributes } from "./GuidedReviewLineComments.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { VoiceAnswerField } from "./NeedsInputAnswerField.js";
@@ -403,7 +406,8 @@ export function ReviewEndSections({
 
 /**
  * The files a summary covers, each with the lines it summarizes, counted from the diff when the
- * review was published. Reviews published before that list only the paths.
+ * review was published, and whether the change added, deleted or renamed it. Reviews published
+ * before those were recorded list less.
  */
 function SummaryFiles({ summary }: { summary: GuidedReviewSummary }) {
   return (
@@ -418,7 +422,11 @@ function SummaryFiles({ summary }: { summary: GuidedReviewSummary }) {
             <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
               <span className="text-cc-fg">{file.path.slice(slash + 1)}</span>
               {slash > 0 && <span className="ml-1.5 text-cc-muted">{file.path.slice(0, slash)}</span>}
+              {file.oldPath && (
+                <span className="ml-1.5 text-cc-muted">{renamedFromLabel(file.path, file.oldPath)}</span>
+              )}
             </span>
+            {file.status && <FileStatusBadge status={file.status} />}
             {file.alsoInStops && <span className="shrink-0 text-[12px] text-cc-muted">also in stops</span>}
             {file.additions !== undefined && (
               <span className="shrink-0 tabular-nums">
@@ -436,7 +444,7 @@ function SummaryFiles({ summary }: { summary: GuidedReviewSummary }) {
 /** A checked stop: one line that opens, like any disclosure, to its evidence and code. */
 function CheckedRow({ stop, index, target }: { stop: GuidedReviewStop; index: number; target: GuidedReviewTarget }) {
   const [open, setOpen] = useState(false);
-  const files = [...new Set(stop.code.map((ref) => ref.path.split("/").pop()))].join(", ");
+  const files = stopFiles(stop);
   return (
     <div className="px-3 py-2.5">
       <button
@@ -448,7 +456,17 @@ function CheckedRow({ stop, index, target }: { stop: GuidedReviewStop; index: nu
         <Chevron open={open} />
         <span className="min-w-0">
           <span className="block text-[15px] text-cc-fg">{stop.title}</span>
-          <span className="block truncate text-[12px] text-cc-muted">{files}</span>
+          <span className="flex min-w-0 items-center gap-1 text-[12px] text-cc-muted">
+            {files.map(({ name, status }, index) => (
+              <span key={name} className="flex min-w-0 items-center gap-1">
+                <span className="truncate">
+                  {name}
+                  {index < files.length - 1 ? "," : ""}
+                </span>
+                {status && <FileStatusBadge status={status} />}
+              </span>
+            ))}
+          </span>
         </span>
       </button>
       {open && (
@@ -461,6 +479,19 @@ function CheckedRow({ stop, index, target }: { stop: GuidedReviewStop; index: nu
       )}
     </div>
   );
+}
+
+/**
+ * The names of the files a stop's code is in, each with whether the change added, deleted or
+ * renamed it, read from the header of its saved code.
+ */
+function stopFiles(stop: GuidedReviewStop): { name: string; status?: GuidedReviewFileStatus }[] {
+  const files = new Map<string, GuidedReviewFileStatus | undefined>();
+  for (const ref of stop.code) {
+    const name = ref.path.split("/").pop() ?? ref.path;
+    if (!files.has(name)) files.set(name, ref.snippet ? parseGuidedReviewDiff(ref.snippet)[0]?.status : undefined);
+  }
+  return [...files].map(([name, status]) => ({ name, status }));
 }
 
 function Chevron({ open }: { open: boolean }) {

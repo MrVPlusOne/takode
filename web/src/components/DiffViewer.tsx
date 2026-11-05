@@ -10,6 +10,7 @@ import {
   splitSourceToLines,
 } from "../utils/syntax-highlighting.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
+import { FILE_STATUS_LABELS, FileStatusBadge, renamedFromLabel, type FileStatus } from "./FileStatusBadge.js";
 
 export interface DiffViewerProps {
   /** Original text (for computing diff from old/new) */
@@ -86,6 +87,10 @@ interface DiffHunk {
 
 interface ParsedFileDiff {
   fileName: string;
+  /** Set when git's header says the change added, deleted or renamed the whole file. */
+  status?: FileStatus;
+  /** A renamed file's path before the change. */
+  previousFileName?: string;
   hunks: DiffHunk[];
 }
 
@@ -207,7 +212,8 @@ function parseUnifiedDiffToFiles(diffStr: string, fallbackFileName = ""): Parsed
     if (line.startsWith("diff --git") || line.startsWith("diff --cc")) {
       if (currentHunk && currentFile) currentFile.hunks.push(currentHunk);
       if (currentFile) files.push(currentFile);
-      currentFile = { fileName: "", hunks: [] };
+      // Named from this line too, for files git shows without ---/+++ lines (empty, binary, pure renames).
+      currentFile = { fileName: line.match(/^diff --git a\/.* b\/(.*)$/)?.[1] ?? "", hunks: [] };
       currentHunk = null;
       continue;
     }
@@ -215,6 +221,14 @@ function parseUnifiedDiffToFiles(diffStr: string, fallbackFileName = ""): Parsed
       if (!currentFile) currentFile = { fileName: fallbackFileName, hunks: [] };
       if (!currentFile.fileName) currentFile.fileName = line.slice(6);
       continue;
+    }
+    if (currentFile && !currentHunk) {
+      if (line.startsWith("new file mode")) currentFile.status = "added";
+      else if (line.startsWith("deleted file mode")) currentFile.status = "deleted";
+      else if (line.startsWith("rename from ")) {
+        currentFile.status = "renamed";
+        currentFile.previousFileName = line.slice(12);
+      }
     }
     if (line.startsWith("--- /dev/null")) {
       if (!currentFile) currentFile = { fileName: fallbackFileName, hunks: [] };
@@ -655,6 +669,8 @@ function buildRenderBlocks(
 
 function FileHeader({
   fileName,
+  status,
+  previousFileName,
   fileStatsLabel,
   headerActions,
   collapsible,
@@ -662,6 +678,8 @@ function FileHeader({
   onToggleCollapsed,
 }: {
   fileName: string;
+  status?: FileStatus;
+  previousFileName?: string;
   fileStatsLabel?: string;
   headerActions?: ReactNode;
   collapsible?: boolean;
@@ -706,6 +724,12 @@ function FileHeader({
           {dirLabel && <span className="text-cc-muted">{dirLabel}</span>}
           <span className="font-semibold text-cc-fg">{baseLabel}</span>
         </span>
+        {status && <FileStatusBadge status={status} />}
+        {previousFileName && (
+          <span className="diff-file-path text-cc-muted" title={previousFileName}>
+            {renamedFromLabel(fileName, previousFileName)}
+          </span>
+        )}
         {fileStatsLabel && <span className="ml-2 text-cc-muted text-[11px] font-mono-code">{fileStatsLabel}</span>}
         {headerActions && <div className="diff-file-header-actions">{headerActions}</div>}
       </div>
@@ -939,6 +963,8 @@ export const DiffViewer = memo(function DiffViewer({
             {resolvedFileName && (
               <FileHeader
                 fileName={resolvedFileName}
+                status={file.status}
+                previousFileName={file.previousFileName}
                 fileStatsLabel={data.length === 1 ? fileStatsLabel : undefined}
                 headerActions={resolvedHeaderActions}
                 collapsible={collapsibleFiles}
@@ -988,6 +1014,7 @@ export const DiffViewer = memo(function DiffViewer({
             {data.map((file, index) => (
               <option key={index} value={index}>
                 {file.fileName || fileName || "File"}
+                {file.status ? ` (${FILE_STATUS_LABELS[file.status].toLowerCase()})` : ""}
               </option>
             ))}
           </select>,

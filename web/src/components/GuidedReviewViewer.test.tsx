@@ -107,7 +107,10 @@ describe("guided review", () => {
     fireEvent.click(within(viewer).getByRole("button", { name: "Wrap up" }));
     expect(within(viewer).queryByTestId("guided-review-stop")).toBeNull();
     expect(viewer).toHaveTextContent("Your answers");
-    fireEvent.click(within(viewer).getByRole("button", { name: /The helper's comment/ }));
+    // A checked stop's row names its files, labeling one the change added (from its saved diff header).
+    const checkedRow = within(viewer).getByRole("button", { name: /The helper's comment/ });
+    expect(checkedRow).toHaveTextContent("retry.tsNew");
+    fireEvent.click(checkedRow);
     expect(viewer).toHaveTextContent("Matches what the code does.");
     expect(viewer).toHaveTextContent("Summarized (2)");
     fireEvent.click(within(viewer).getByRole("button", { name: "Back" }));
@@ -250,9 +253,10 @@ describe("guided review", () => {
   it("lists each summarized area's files with the lines it covers, counted from the diff", async () => {
     const viewer = await openTour();
     for (let n = 0; n < 4; n++) fireEvent.keyDown(document.body, { key: "ArrowRight" });
-    // The client's other changes are in stops, which its row says; the test file is all summarized.
+    // The client's other changes are in stops, which its row says; the test file is all summarized,
+    // and labeled New because git's diff says the change added it.
     expect(fileRows(viewer, "Import")).toEqual(["client.ts src also in stops +1 −0"]);
-    expect(fileRows(viewer, "Tests")).toEqual(["retry.test.ts src +6 −0"]);
+    expect(fileRows(viewer, "Tests")).toEqual(["retry.test.ts src New +6 −0"]);
   });
 
   it("lists only the paths of a review published before the counts existed", async () => {

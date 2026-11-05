@@ -116,7 +116,8 @@ describe("guided review publication", () => {
     const message = history[0] as Extract<BrowserIncomingMessage, { type: "markdown_report" }>;
     expect(message.guidedReview!.map.summaries.map((summary) => summary.files)).toEqual([
       [{ path: "src/client.ts", additions: 1, deletions: 0, alsoInStops: true }],
-      [{ path: "src/retry.test.ts", additions: 6, deletions: 0, alsoInStops: false }],
+      // The test file is new in the change, which git's header says and the server records.
+      [{ path: "src/retry.test.ts", status: "added", additions: 6, deletions: 0, alsoInStops: false }],
     ]);
   });
 

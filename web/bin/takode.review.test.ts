@@ -83,7 +83,8 @@ it("outlines each changed file's line ranges to help write a map", async () => {
   const { repo } = await makeRepo();
   const result = await runTakode(["review", "--outline", "HEAD~1..HEAD", "--repo", repo]);
   expect(result.stderr).toBe("");
-  expect(result.stdout.trim().split("\n")).toEqual(["a.ts  +2 -1", "  2-3", "b.ts  +1 -0", "  1"]);
+  // b.ts is new in the commit, which the outline says so the map's author knows.
+  expect(result.stdout.trim().split("\n")).toEqual(["a.ts  +2 -1", "  2-3", "b.ts (new file)  +1 -0", "  1"]);
 });
 
 it("reports the lines a map leaves out", async () => {
