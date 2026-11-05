@@ -78,22 +78,39 @@ export function ComposerRecordingBar({
 }
 
 /**
- * Turns voiceback on or off for this session (voiceback.ts): new final messages are read aloud as
- * they arrive.
+ * Turns voiceback on or off on this device (voiceback.ts): new final messages of the session on
+ * screen are read aloud as they arrive, in every session until it is turned off.
  */
-export function ComposerVoicebackButton({ sessionId, leader }: { sessionId: string; leader: boolean }) {
+export function ComposerVoicebackButton() {
   const voiceback = useVoiceback();
-  const on = voiceback?.sessionId === sessionId;
   return (
-    <VoicebackButton on={on} waiting={on ? voiceback.waiting : 0} onToggle={() => toggleVoiceback(sessionId, leader)} />
+    <VoicebackButton
+      on={!!voiceback}
+      waiting={voiceback?.waiting ?? 0}
+      ready={voiceback?.ready ?? true}
+      onToggle={toggleVoiceback}
+    />
   );
 }
 
 /** The voiceback toggle: lit while on, with how many replies wait to be read after the current one. */
-export function VoicebackButton({ on, waiting, onToggle }: { on: boolean; waiting: number; onToggle: () => void }) {
-  const title = on
-    ? "Voiceback is on: new replies are read aloud as they arrive, and the screen stays awake. Tap to turn off."
-    : "Voiceback: read new replies aloud as they arrive, and keep the screen awake";
+export function VoicebackButton({
+  on,
+  waiting,
+  ready = true,
+  onToggle,
+}: {
+  on: boolean;
+  waiting: number;
+  /** False after a reload until a first tap lets audio play. */
+  ready?: boolean;
+  onToggle: () => void;
+}) {
+  const title = !on
+    ? "Voiceback: read new replies aloud as they arrive, in every session, and keep the screen awake"
+    : ready
+      ? "Voiceback is on: new replies are read aloud as they arrive, and the screen stays awake. Tap to turn off."
+      : "Voiceback is on: tap anywhere to let replies play after the reload. Tap here to turn off.";
   return (
     <button
       type="button"
@@ -104,7 +121,7 @@ export function VoicebackButton({ on, waiting, onToggle }: { on: boolean; waitin
       title={title}
       className={`inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 text-[11px] font-medium transition-colors cursor-pointer sm:h-8 sm:min-w-8 ${
         on
-          ? "border border-cc-primary/60 bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20"
+          ? `border border-cc-primary/60 bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20 ${ready ? "" : "border-dashed"}`
           : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
       }`}
     >

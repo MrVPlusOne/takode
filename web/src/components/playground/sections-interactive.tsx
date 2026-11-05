@@ -180,6 +180,8 @@ export function PlaygroundInteractiveSections() {
                 <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
                   <div className="flex min-w-0 items-center gap-1.5">
                     <VoicebackButton on={true} waiting={1} onToggle={() => {}} />
+                    {/* After a reload: still on, waiting for a first tap before replies can play. */}
+                    <VoicebackButton on={true} waiting={2} ready={false} onToggle={() => {}} />
                   </div>
                   <div className="flex items-center justify-center w-8 h-8 rounded-full bg-cc-primary text-white">
                     <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">

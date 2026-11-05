@@ -341,7 +341,7 @@ describe("read-aloud player", () => {
   });
 
   it("unlocks audio from a tap for reads started later, but never cuts off a read", async () => {
-    act(() => player.unlockReadAloudAudio());
+    act(() => void player.unlockReadAloudAudio());
     expect(srcAtPlay).toHaveLength(1);
     expect(srcAtPlay[0]).toMatch(/^data:audio\/wav;base64,/);
 
@@ -349,7 +349,7 @@ describe("read-aloud player", () => {
     act(() => player.startReadAloud(input));
     await respond(mp3());
     const plays = srcAtPlay.length;
-    act(() => player.unlockReadAloudAudio());
+    act(() => void player.unlockReadAloudAudio());
     expect(srcAtPlay).toHaveLength(plays);
   });
 

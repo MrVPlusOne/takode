@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeSharedDraftFixture } from "../shared/test-fixtures/markdown-report.js";
-import { readAloudDraftText, readAloudMessageText } from "./read-aloud-text.js";
+import { readAloudDraftText, readAloudMessageText, readAloudQuestionText } from "./read-aloud-text.js";
 import type { ChatMessage } from "./types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
 
@@ -83,5 +83,36 @@ describe("readAloudDraftText", () => {
         parts: [{ label: "Message", text: "Hi all.", attachments: [] }],
       }),
     ).toBe("<draft>\nHi all.\n</draft>");
+  });
+});
+
+describe("readAloudQuestionText", () => {
+  // The rewrite reads a <question> section out in full, so the card's title, numbered questions and
+  // each one's suggested answers must all be in it.
+  it("writes out a card's title and each question with its suggested answers", () => {
+    const text = readAloudQuestionText({
+      summary: "Batch 2: what to do?",
+      questions: [
+        { prompt: "How should batch 2 handle the 11 tasks?", suggestedAnswers: ["Launch all", "Hold them back"] },
+        { prompt: "Pair every structure with lemmas?", suggestedAnswers: ["Yes", "No"] },
+      ],
+    });
+    expect(text).toBe(
+      [
+        "<question>",
+        "Title: Batch 2: what to do?",
+        "1. How should batch 2 handle the 11 tasks?",
+        "Suggested answers: Launch all; Hold them back",
+        "2. Pair every structure with lemmas?",
+        "Suggested answers: Yes; No",
+        "</question>",
+      ].join("\n"),
+    );
+  });
+
+  it("reads an older single prompt, whose title is the question", () => {
+    expect(readAloudQuestionText({ summary: "Deploy now?", suggestedAnswers: ["yes", "no"] })).toBe(
+      "<question>\nTitle: Deploy now?\nSuggested answers: yes; no\n</question>",
+    );
   });
 });

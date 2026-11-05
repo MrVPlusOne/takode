@@ -37,6 +37,7 @@ import type { PhoneAlertSubject } from "../phone-alert-status.js";
 import { leaderTurnObservedHistoryLength } from "./thread-routing-reminder.js";
 import { removeResolvedQuestionFromBoardRow } from "./board-user-checkpoint.js";
 import { markdownToPlainText } from "../../shared/markdown-plain-text.js";
+import { needsInputContextMessageId } from "../../shared/notification-link.js";
 import type { QuestStartedFrom } from "../quest-types.js";
 import { findSupportingQuestSource, indexLeaderRequests } from "../supporting-quest.js";
 import { topicThreadLabel } from "../topic-views.js";
@@ -1369,7 +1370,7 @@ function buildNeedsInputContextMessage(
   const message: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
     type: "assistant",
     message: {
-      id: `needs-input-context-${options.notificationId}`,
+      id: needsInputContextMessageId(options.notificationId),
       type: "message",
       role: "assistant",
       model: session.state?.model || "",

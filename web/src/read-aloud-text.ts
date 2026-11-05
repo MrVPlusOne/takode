@@ -8,7 +8,7 @@ import {
   type DraftDestination,
 } from "../shared/draft-posts.js";
 import { withoutFrontMatter } from "../shared/slides.js";
-import type { ChatMessage } from "./types.js";
+import type { ChatMessage, SessionNotification } from "./types.js";
 import { getMessageMarkdown } from "./utils/copy-utils.js";
 
 /**
@@ -44,6 +44,28 @@ export function readAloudDraftText(post: ReadableDraftPost): string {
     for (const attachment of part.attachments) lines.push(`(Attached file: ${attachment.path.split("/").pop()})`);
   }
   lines.push("</draft>");
+  return lines.join("\n");
+}
+
+/**
+ * A question an agent is waiting on (a needs-input prompt) as a `<question>` section: its title,
+ * each question and its suggested answers, as the question card shows them. The server's rewrite
+ * reads it out in full, so a listener hears the choices without looking at the card.
+ */
+export function readAloudQuestionText(
+  notification: Pick<SessionNotification, "summary" | "questions" | "suggestedAnswers">,
+): string {
+  const lines = ["<question>"];
+  if (notification.summary) lines.push(`Title: ${notification.summary}`);
+  const questions = notification.questions ?? [];
+  questions.forEach((question, index) => {
+    lines.push(questions.length > 1 ? `${index + 1}. ${question.prompt}` : question.prompt);
+    if (question.suggestedAnswers?.length) lines.push(`Suggested answers: ${question.suggestedAnswers.join("; ")}`);
+  });
+  if (questions.length === 0 && notification.suggestedAnswers?.length) {
+    lines.push(`Suggested answers: ${notification.suggestedAnswers.join("; ")}`);
+  }
+  lines.push("</question>");
   return lines.join("\n");
 }
 

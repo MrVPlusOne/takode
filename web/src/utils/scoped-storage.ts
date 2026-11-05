@@ -32,6 +32,7 @@ const GLOBAL_KEYS = new Set([
   "cc-session-sort-mode",
   "cc-sidebar-locked",
   "cc-read-aloud-preferences",
+  "cc-voiceback",
 ]);
 
 /** Server-scoped key names (without dynamic suffixes) for migration */

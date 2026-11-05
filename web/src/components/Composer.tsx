@@ -1832,9 +1832,7 @@ export function Composer({
               <ComposerMetaToolbar
                 imageUploadDisabled={imageUploadDisabled}
                 imageUploadTitle={imageUploadTitle}
-                voicebackControl={
-                  <ComposerVoicebackButton sessionId={sessionId} leader={sessionView.isLeaderSession} />
-                }
+                voicebackControl={<ComposerVoicebackButton />}
                 editControls={
                   <ComposerUndoRedoButtons
                     canUndo={undoHistory.canUndo}

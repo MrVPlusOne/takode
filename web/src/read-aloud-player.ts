@@ -118,12 +118,17 @@ export function playDeck(narration: NarratedDeck, index: number): void {
  * Let reads started later, outside a tap, play: call from a tap. Voiceback starts reads when
  * replies arrive, so its toggle unlocks the shared element (see SILENT_WAV). Does nothing while
  * something is being read, since the element is unlocked then and playing it would cut the read off.
+ * Resolves to whether the page may play audio now; called outside a tap, that says whether the
+ * browser allows playing without one.
  */
-export function unlockReadAloudAudio(): void {
-  if (state) return;
+export function unlockReadAloudAudio(): Promise<boolean> {
+  if (state) return Promise.resolve(true);
   const element = getAudioElement();
   element.src = SILENT_WAV;
-  element.play().catch(() => {});
+  return Promise.resolve(element.play()).then(
+    () => true,
+    () => false,
+  );
 }
 
 /** Whether a read is preparing, playing or paused, rather than finished, failed or closed. */

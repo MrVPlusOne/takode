@@ -29,3 +29,18 @@ export function formatNotificationMarkdownLink(sessionNum: number, notificationI
   const safeLabel = singleLine ? singleLine.replace(/[\\[\]]/g, "\\$&") : "question";
   return `[${safeLabel}](session:${sessionNum}:notification:${numericId})`;
 }
+
+const NEEDS_INPUT_CONTEXT_PREFIX = "needs-input-context-";
+
+/** The id of the feed message that holds a needs-input prompt's decision context. */
+export function needsInputContextMessageId(notificationId: string): string {
+  return `${NEEDS_INPUT_CONTEXT_PREFIX}${notificationId}`;
+}
+
+/**
+ * Whether a message is a needs-input prompt's context. It can reach a browser before its prompt,
+ * so this tells it apart before the prompt is known.
+ */
+export function isNeedsInputContextMessageId(messageId: string): boolean {
+  return messageId.startsWith(NEEDS_INPUT_CONTEXT_PREFIX);
+}
