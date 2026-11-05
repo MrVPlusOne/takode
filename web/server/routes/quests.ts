@@ -50,6 +50,7 @@ import type { SdkSessionInfo } from "../session-info.js";
 import { normalizeTldr, QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../quest-tldr.js";
 import {
   hasServerAuthorizedLocalCompletionTarget,
+  workerCommitsLanded,
   validateV2CompletionCodeCommitSubmission,
   validateV2CompletionGitState,
 } from "./quest-completion-checks.js";
@@ -63,10 +64,7 @@ import { evaluateQuestStatusMutationGuard, getQuestStatusOwnerSessionIds } from 
 import { formatLeaderRecoveryWarning, QUEST_LEADER_RECOVERY_WARNING_HEADER } from "../quest-recovery.js";
 import { getQuestSessionSpaceCandidates } from "../quest-session-space.js";
 import type { MemoryRepoOptions } from "../workstream-memory-types.js";
-import {
-  checkoutCommitsLanded,
-  refreshGitInfoPublic as refreshGitInfoPublicController,
-} from "../bridge/session-git-state.js";
+import { refreshGitInfoPublic as refreshGitInfoPublicController } from "../bridge/session-git-state.js";
 import { isBoardLeaderStopped, preferRowsOnRunningLeaders } from "../bridge/board-stale-rows.js";
 import {
   getPreviousQuestOwners,
@@ -664,9 +662,12 @@ export function createQuestRoutes(ctx: RouteContext) {
       hasServerAuthorizedLocalCompletionTarget(workerState, launcher.getSession(workerSessionId));
     // A change still in the landing queue is ahead of the target by design; the quest waits for it in Landing.
     const awaitingLanding = !!row.landing && !row.landing.deliveryId;
-    // Commits the queue landed are on the target under other IDs: the checkout is ahead only by name.
+    // Commits landed under other IDs, on the target or an approved published branch: ahead only by name.
     const commitsLanded =
-      !awaitingLanding && !localOnly && (workerState.git_ahead ?? 0) > 0 && (await checkoutCommitsLanded(workerState));
+      !awaitingLanding &&
+      !localOnly &&
+      (workerState.git_ahead ?? 0) > 0 &&
+      (await workerCommitsLanded(workerState, currentQuest, workerSessionId));
     const gitStateError = awaitingLanding
       ? undefined
       : validateV2CompletionGitState(workerState, currentQuest.commitShas, { localOnly, commitsLanded });

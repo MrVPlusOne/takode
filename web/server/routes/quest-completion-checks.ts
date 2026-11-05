@@ -2,6 +2,27 @@ import type { QuestmasterTask } from "../quest-types.js";
 import { normalizeCommitShas } from "../quest-store-helpers.js";
 import type { SessionState } from "../session-types.js";
 import type { SdkSessionInfo } from "../session-info.js";
+import { checkoutCommitsLanded } from "../bridge/session-git-state.js";
+
+/**
+ * Whether the worker's commits ahead of its comparison target are already delivered under other
+ * commit IDs: landed on the target by the landing queue, or on a published branch head that one of
+ * the worker's recorded deliveries for this quest was verified on (an approved delivery target, used
+ * when the branch is chosen after the work or for a clean PR branch). Commits whose content is on
+ * none of them, such as unpublished leftovers, keep the checkout ahead.
+ */
+export async function workerCommitsLanded(
+  state: Parameters<typeof checkoutCommitsLanded>[0],
+  quest: QuestmasterTask,
+  workerSessionId: string,
+): Promise<boolean> {
+  if (await checkoutCommitsLanded(state)) return true;
+  const heads = (quest.codeDeliveries ?? [])
+    .filter((delivery) => delivery.actorSessionId === workerSessionId)
+    .flatMap((delivery) => delivery.target.publication?.refs.map((ref) => ref.sha) ?? []);
+  for (const head of new Set(heads)) if (await checkoutCommitsLanded(state, head)) return true;
+  return false;
+}
 
 /** Git-state and commit-evidence checks of v2 final Memory completion. */
 export function hasServerAuthorizedLocalCompletionTarget(

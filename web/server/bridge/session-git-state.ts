@@ -169,16 +169,17 @@ async function resolveAheadBehindDirect(state: SessionState): Promise<void> {
 }
 
 /**
- * Whether the checkout's commits are already in its comparison target under other commit IDs: the
- * landing queue rebases a change onto the remote tip (batched with others, maybe squashed), so the
- * landed commits are not the worker's. Merging HEAD into the target then changes nothing, which is
- * what this checks; a commit whose change isn't on the target, or a merge that conflicts, is not
- * landed. False when it cannot tell (no target, a git without `merge-tree --write-tree`).
+ * Whether the checkout's commits are already in `ref` (its comparison target by default) under other
+ * commit IDs: the landing queue rebases a change onto the remote tip (batched with others, maybe
+ * squashed), and a clean branch published for an approved delivery target holds a reshaped copy, so
+ * the commits there are not the worker's. Merging HEAD into `ref` then changes nothing, which is what
+ * this checks; a commit whose change isn't there, or a merge that conflicts, is not landed. False when
+ * it cannot tell (no ref, an object the checkout lacks, a git without `merge-tree --write-tree`).
  */
 export async function checkoutCommitsLanded(
   state: Pick<SessionState, "cwd" | "host_id" | "diff_base_branch" | "git_default_branch">,
+  ref = getGitComparisonRef(state as SessionState),
 ): Promise<boolean> {
-  const ref = getGitComparisonRef(state as SessionState);
   if (!ref || !state.cwd) return false;
   try {
     const [merged, target] = await Promise.all([

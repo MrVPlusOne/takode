@@ -168,6 +168,7 @@ When two or more quests will change the same code and land somewhere other than 
 - `takode track list` shows each track's owner, workers and how far behind its followed branch it is. Keep a track current by merging the followed branch into it (never rebase it), as an ordinary small quest, when the gap starts to matter or before a pull request. Opening that pull request is the user's call.
 - Any leader may spawn onto a track; only the leader that declared it closes it (`takode track close <name>`), which keeps the branch.
 - A leader whose work all lands on its own branch needs no track.
+- A branch chosen after the work, such as a one-off clean PR branch the user asks for once the change is done, is not a track: approve it as the quest's delivery target (`takode board approve-delivery-target`, see `/port-changes`). Final completion accepts the worker's checkout once its content is on that published branch, so no override is needed. Use a track when several quests will keep going to the same branch.
 
 ### Capacity
 

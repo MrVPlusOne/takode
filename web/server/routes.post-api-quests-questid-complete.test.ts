@@ -572,6 +572,34 @@ describe("POST /api/quests/:questId/complete", () => {
       expect(await res.json()).toMatchObject({ error: expect.stringContaining("ahead of its comparison target") });
     });
 
+    it("completes when the worker's change is on the approved published branch it delivered to", async () => {
+      // The branch was chosen after the work (or is a clean PR branch): the worker recorded its
+      // delivery against an approved published head, so its checkout stays "ahead" of main. Merging
+      // HEAD into that recorded head changes nothing, so completion needs no leader override.
+      const head = "e".repeat(40);
+      const auth = installV2MemoryFixture({
+        workerState: { git_ahead: 2 },
+        quest: {
+          codeDeliveries: [
+            {
+              actorSessionId: "worker-1",
+              target: { mode: "published", publication: { refs: [{ ref: "refs/heads/me/clean", sha: head }] } },
+            },
+          ],
+        },
+      });
+      mockExecSync.mockImplementation((cmd?: string) => {
+        if (!cmd?.includes("merge-tree --write-tree") && !cmd?.includes("^{tree}")) return "";
+        // Against the comparison target the checkout is ahead; against the published head it is not.
+        return cmd.includes(head) ? "tree-published\n" : cmd.includes("merge-tree") ? "tree-more\n" : "tree-main\n";
+      });
+
+      const res = await postV2Complete({}, auth);
+
+      expect(res.status, await res.clone().text()).toBe(200);
+      expect(questStore.completeQuest).toHaveBeenCalled();
+    });
+
     it("completes normally, with the usual git checks, once the landed commits are recorded", async () => {
       const auth = installV2MemoryFixture({
         row: landingRow({ outcome: "landed", deliveryId: "d".repeat(32) }),
