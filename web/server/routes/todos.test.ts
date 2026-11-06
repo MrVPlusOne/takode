@@ -265,6 +265,31 @@ describe("to-do routes", () => {
     ).toBe(409);
   });
 
+  it("reorders categories from the UI and by an agent with the user's approval", async () => {
+    const today = (await (await jsonRequest("/todos/categories", "POST", { name: "Today" })).json()).category;
+    const moved = await jsonRequest(`/todos/categories/${today.id}/move`, "POST", { beforeCategoryId: "cat-inbox" });
+    expect(moved.status).toBe(200);
+    expect((await moved.json()).state.categories.map((category: any) => category.name)).toEqual(["Today", "Inbox"]);
+    expect(broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "todo_state_updated" }));
+    expect(
+      (await jsonRequest(`/todos/categories/${today.id}/move`, "POST", { beforeCategoryId: today.id })).status,
+    ).toBe(400);
+
+    // An agent passes the user's approving reply, which is recorded on the moved category.
+    optionalCaller = caller();
+    bridgeSession = {
+      messageHistory: [{ type: "user_message", content: "Yes, put Inbox first again", timestamp: 1 }],
+    };
+    const approved = await jsonRequest("/todos/categories/cat-inbox/move", "POST", {
+      beforeCategoryId: today.id,
+      authorizedBy: 0,
+    });
+    expect(approved.status).toBe(200);
+    const body = await approved.json();
+    expect(body.state.categories.map((category: any) => category.name)).toEqual(["Inbox", "Today"]);
+    expect(body.category.lastModifiedBy.authorization).toMatchObject({ kind: "direct_message" });
+  });
+
   it("keeps category archival reversible and refuses silent item loss", async () => {
     const category = (await (await jsonRequest("/todos/categories", "POST", { name: "Results" })).json()).category;
     const item = (
@@ -375,6 +400,7 @@ describe("to-do routes", () => {
       .item;
     const archived = (await (await jsonRequest("/todos/items", "POST", { markdown: "Parked" })).json()).item;
     await jsonRequest(`/todos/items/${archived.id}/archive`, "POST", {});
+    const category = (await (await jsonRequest("/todos/categories", "POST", { name: "Today" })).json()).category;
 
     optionalCaller = caller();
     const allowed: Array<[string, string, unknown]> = [
@@ -406,6 +432,7 @@ describe("to-do routes", () => {
       [`/todos/items/${item.id}/move`, "POST", { beforeItemId: done.id }],
       ["/todos/categories", "POST", { name: "New category" }],
       ["/todos/categories/cat-inbox", "PATCH", { name: "Renamed" }],
+      [`/todos/categories/${category.id}/move`, "POST", { beforeCategoryId: "cat-inbox" }],
     ];
     for (const [path, method, body] of needsApproval) {
       const response = await jsonRequest(path, method, body);

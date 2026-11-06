@@ -123,6 +123,12 @@ export interface TodoCategoryCreateInput {
   name: string;
 }
 
+/** Where to put a category in the list's category order: before or after another active category. */
+export interface TodoCategoryMoveInput {
+  beforeCategoryId?: string;
+  afterCategoryId?: string;
+}
+
 /** What to-do links and the overdue count need to know about one to-do. */
 export type TodoItemSummary = Pick<TodoItem, "status" | "due" | "archivedAt">;
 
@@ -143,6 +149,7 @@ export interface TodoState {
   updatedAt: number;
   nextItemId: number;
   nextCategoryId: number;
+  /** In the order the user arranged them; every category list follows it. */
   categories: TodoCategory[];
   items: TodoItem[];
 }

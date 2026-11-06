@@ -1,4 +1,5 @@
 import type {
+  TodoCategoryMoveInput,
   TodoItemCreateInput,
   TodoItemEditInput,
   TodoItemMoveInput,
@@ -81,6 +82,12 @@ export const todoApi = {
     request<TodoStateMutationResponse>(`/todos/categories/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: { name },
+    }),
+
+  moveTodoCategory: (id: string, input: TodoCategoryMoveInput) =>
+    request<TodoStateMutationResponse>(`/todos/categories/${encodeURIComponent(id)}/move`, {
+      method: "POST",
+      body: input,
     }),
 
   archiveTodoCategory: (id: string) =>

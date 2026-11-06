@@ -463,6 +463,7 @@ Mutation commands:
   archive|restore <td-id> [<approval>] [--json]
   link|unlink <td-id> <q-id>... [--json]
   category create|rename|archive|restore ... [<approval>] [--json]
+  category move <category> (--before <category> | --after <category>) [<approval>] [--json]
 
   <approval> is --authorized-by <human-message-index> or --standing-approval "<where it is written>: <the rule>".
 
@@ -480,7 +481,7 @@ Quest links:
   A to-do can link related quests as metadata (many-to-many). Links are informational only: a quest's progress never changes a to-do's status, so judge whether the to-do is done and change it yourself when authorized. list shows each linked quest's current status, show adds titles, \`find --quest\` lists the to-dos linked to a quest, and \`quest show\` lists them too. Linking and unlinking are low-risk changes an agent may make on its own judgment.
 
 Markdown and ordering:
-  Each item is one Markdown body: the first non-empty line is its derived title and later lines are collapsible details. Prefer --markdown-file (use \`-\` for stdin) for links or shell-sensitive content. Legacy --title-file/--details-file inputs remain compatibility aliases. Use --before/--after for active Todo/Doing order; Done remains grouped by completion time. Default list/find output is compact; show and explicit JSON reveal the raw body and provenance.
+  Each item is one Markdown body: the first non-empty line is its derived title and later lines are collapsible details. Prefer --markdown-file (use \`-\` for stdin) for links or shell-sensitive content. Legacy --title-file/--details-file inputs remain compatibility aliases. Use --before/--after for active Todo/Doing order; Done remains grouped by completion time. Categories show in the order the user arranged them (category list prints it; Inbox moves like any other). A category can be archived once it has no open to-dos; its Done to-dos stay in it. Default list/find output is compact; show and explicit JSON reveal the raw body and provenance.
 `;
 
 const TIMER_HELP = `Usage: takode timer <create|list|cancel> ...

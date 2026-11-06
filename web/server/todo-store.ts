@@ -6,6 +6,7 @@ import {
   TODO_STATUSES,
   type TodoCategory,
   type TodoCategoryCreateInput,
+  type TodoCategoryMoveInput,
   type TodoItem,
   type TodoItemCreateInput,
   type TodoItemEditInput,
@@ -789,6 +790,14 @@ export class TodoStore {
     const item = itemById(state, itemId);
     const status = normalizeStatus(statusValue);
     if (item.status === status) return item;
+    // A Done to-do can stay in an archived category, but an open one would vanish from the list.
+    const category = categoryById(state, item.categoryId, { allowArchived: true });
+    if (status !== "done" && !item.archivedAt && category.archivedAt) {
+      throw new TodoStoreError(
+        `The "${category.name}" category is archived; restore it or move this to-do to another category before reopening it`,
+        "conflict",
+      );
+    }
     const previous = clone(item);
     item.status = status;
     item.statusChangedAt = provenance.at;
@@ -1008,12 +1017,45 @@ export class TodoStore {
     });
   }
 
+  /**
+   * Put a category before or after another active one. Categories are kept in the user's order, so
+   * this reorders the stored list; Inbox moves like any other category. Moving it to where it already
+   * is records nothing.
+   */
+  async moveCategory(
+    categoryId: string,
+    input: TodoCategoryMoveInput,
+    provenance: TodoMutationProvenance,
+  ): Promise<TodoCategory> {
+    return this.mutate((state) => {
+      const category = categoryById(state, categoryId);
+      const referenceId = input.beforeCategoryId || input.afterCategoryId;
+      if (!referenceId || (input.beforeCategoryId && input.afterCategoryId)) {
+        throw new TodoStoreError("Use beforeCategoryId or afterCategoryId, exactly one", "invalid");
+      }
+      if (referenceId === categoryId) {
+        throw new TodoStoreError("A category cannot be positioned relative to itself", "invalid");
+      }
+      const reference = categoryById(state, referenceId);
+      const previousOrder = state.categories.map((candidate) => candidate.id);
+      const others = state.categories.filter((candidate) => candidate.id !== categoryId);
+      others.splice(others.indexOf(reference) + (input.afterCategoryId ? 1 : 0), 0, category);
+      if (others.every((candidate, index) => candidate.id === previousOrder[index])) return category;
+      state.categories = others;
+      category.updatedAt = provenance.at;
+      category.lastModifiedBy = provenance;
+      touchState(state, provenance.at);
+      return category;
+    });
+  }
+
   async archiveCategory(categoryId: string, provenance: TodoMutationProvenance): Promise<TodoCategory> {
     return this.mutate((state) => {
       if (categoryId === INBOX_ID) throw new TodoStoreError("Inbox cannot be archived", "conflict");
       const category = categoryById(state, categoryId);
-      if (state.items.some((item) => item.categoryId === categoryId && !item.archivedAt)) {
-        throw new TodoStoreError("Move or archive active items before archiving this category", "conflict");
+      // Done to-dos stay in it, so the Done history keeps showing where they were.
+      if (state.items.some((item) => item.categoryId === categoryId && !item.archivedAt && item.status !== "done")) {
+        throw new TodoStoreError("Finish, move or archive the category's open to-dos before archiving it", "conflict");
       }
       category.archivedAt = provenance.at;
       category.updatedAt = provenance.at;

@@ -11,12 +11,14 @@ type ManagerProps = {
 function CategoryManager({ state, onState, onError }: ManagerProps) {
   const [name, setName] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const activeCounts = useMemo(
+  // Open (Todo/Doing) to-dos keep a category from being archived; Done ones stay in it.
+  const openCounts = useMemo(
     () =>
       new Map(
         state.categories.map((category) => [
           category.id,
-          state.items.filter((item) => !item.archivedAt && item.categoryId === category.id).length,
+          state.items.filter((item) => !item.archivedAt && item.status !== "done" && item.categoryId === category.id)
+            .length,
         ]),
       ),
     [state],
@@ -67,7 +69,7 @@ function CategoryManager({ state, onState, onError }: ManagerProps) {
                 aria-label={`Category name ${category.id}`}
                 className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 text-xs text-cc-fg focus:border-cc-border"
               />
-              <span className="text-[10px] text-cc-muted">{activeCounts.get(category.id) ?? 0} items</span>
+              <span className="text-[10px] text-cc-muted">{openCounts.get(category.id) ?? 0} open</span>
               <button
                 type="button"
                 onClick={() =>
@@ -80,9 +82,11 @@ function CategoryManager({ state, onState, onError }: ManagerProps) {
               {category.id !== "cat-inbox" && (
                 <button
                   type="button"
-                  disabled={(activeCounts.get(category.id) ?? 0) > 0}
+                  disabled={(openCounts.get(category.id) ?? 0) > 0}
                   title={
-                    (activeCounts.get(category.id) ?? 0) > 0 ? "Move or archive active items first" : "Archive category"
+                    (openCounts.get(category.id) ?? 0) > 0
+                      ? "Finish, move or archive its open to-dos first"
+                      : "Archive category; its Done to-dos stay in the Done history"
                   }
                   onClick={() => void run(() => api.archiveTodoCategory(category.id))}
                   className="rounded-md border border-cc-border px-2 py-1 text-[11px] text-cc-muted hover:text-cc-fg disabled:cursor-not-allowed disabled:opacity-40"

@@ -460,10 +460,16 @@ async function handleCategory(base: string, args: string[], flags: Record<string
     }
     return;
   }
+  const CATEGORY_MOVE_USAGE =
+    "Usage: takode todo category move <category> (--before <category> | --after <category>) [--authorized-by <message-index> | --standing-approval <citation>] [--json]";
   assertKnownFlags(
     flags,
-    new Set(["authorized-by", "standing-approval", "json"]),
-    "Usage: takode todo category <create|rename|archive|restore> ... [--authorized-by <message-index> | --standing-approval <citation>] [--json]",
+    action === "move"
+      ? new Set(["before", "after", "authorized-by", "standing-approval", "json"])
+      : new Set(["authorized-by", "standing-approval", "json"]),
+    action === "move"
+      ? CATEGORY_MOVE_USAGE
+      : "Usage: takode todo category <create|rename|move|archive|restore> ... [--authorized-by <message-index> | --standing-approval <citation>] [--json]",
   );
   let response: TodoStateMutationResponse;
   if (action === "create") {
@@ -483,6 +489,16 @@ async function handleCategory(base: string, args: string[], flags: Record<string
     const id = await resolveCategoryId(base, first);
     response = (await apiPatch(base, `/todos/categories/${encodeURIComponent(id)}`, {
       name: second,
+      ...authorizationBody(flags),
+    })) as TodoStateMutationResponse;
+  } else if (action === "move") {
+    const before = resolveStringFlag(flags, "before", "category to move before");
+    const after = resolveStringFlag(flags, "after", "category to move after");
+    if (!first || !before === !after) err(CATEGORY_MOVE_USAGE);
+    const id = await resolveCategoryId(base, first);
+    const referenceId = await resolveCategoryId(base, (before ?? after)!);
+    response = (await apiPost(base, `/todos/categories/${encodeURIComponent(id)}/move`, {
+      ...(before ? { beforeCategoryId: referenceId } : { afterCategoryId: referenceId }),
       ...authorizationBody(flags),
     })) as TodoStateMutationResponse;
   } else if (action === "archive" || action === "restore") {
@@ -510,6 +526,13 @@ async function handleCategory(base: string, args: string[], flags: Record<string
     err(`Unknown todo category action: ${action}`);
   }
   if (jsonOutput(flags, response!.category)) return;
+  if (action === "move") {
+    const order = response!.state.categories
+      .filter((category) => !category.archivedAt)
+      .map((category) => category.name);
+    console.log(`Moved ${response!.category!.name}. Category order: ${order.join(", ")}`);
+    return;
+  }
   console.log(
     `${response!.category!.id}: ${response!.category!.name}${response!.category!.archivedAt ? " (archived)" : ""}`,
   );

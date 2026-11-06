@@ -510,6 +510,28 @@ export function createTodoRoutes(
     }
   });
 
+  // Reordering changes where the user looks for things, so like moving a to-do it needs approval.
+  api.post("/todos/categories/:id/move", async (c) => {
+    try {
+      const body = await requestBody(c);
+      const categoryId = c.req.param("id");
+      const auth = await authorize(c, ctx, body);
+      if (!auth.ok) return auth.response;
+      return withMutation(c, ctx, store, async () => ({
+        category: await store.moveCategory(
+          categoryId,
+          {
+            beforeCategoryId: typeof body.beforeCategoryId === "string" ? body.beforeCategoryId : undefined,
+            afterCategoryId: typeof body.afterCategoryId === "string" ? body.afterCategoryId : undefined,
+          },
+          auth.provenance,
+        ),
+      }));
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
   api.post("/todos/categories/:id/archive", async (c) => {
     try {
       const body = await requestBody(c);

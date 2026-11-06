@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TodoState } from "../../shared/todo-types.js";
@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   renameTodoCategory: vi.fn(),
   archiveTodoCategory: vi.fn(),
   restoreTodoCategory: vi.fn(),
+  moveTodoCategory: vi.fn(),
 }));
 
 vi.mock("../api.js", () => ({ api: mocks }));
@@ -513,6 +514,41 @@ describe("TodoListPanel", () => {
     );
   });
 
+  it("drags a category by its header handle above another, showing where it will land", async () => {
+    mocks.moveTodoCategory.mockResolvedValue({ state: makeState(2), category: makeState(2).categories[1] });
+    const { container } = render(<TodoListPanel />);
+    const dataTransfer = { effectAllowed: "none", setData: vi.fn(), setDragImage: vi.fn() };
+    fireEvent.dragStart(await screen.findByRole("button", { name: "Drag Slack" }), { dataTransfer });
+
+    const inbox = container.querySelector<HTMLElement>('[data-todo-category-id="cat-inbox"]')!;
+    vi.spyOn(inbox, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 100,
+      top: 100,
+      left: 0,
+      right: 500,
+      bottom: 300,
+      width: 500,
+      height: 200,
+      toJSON: () => ({}),
+    });
+    // jsdom drops clientY from drag event init, so set it on the event itself.
+    const dragAt = (kind: "dragOver" | "drop", target: HTMLElement, clientY: number) => {
+      const event = createEvent[kind](target, { dataTransfer });
+      Object.defineProperty(event, "clientY", { value: clientY });
+      fireEvent(target, event);
+    };
+    // Over a to-do row in the upper half of Inbox: the category, not the row, is the drop target.
+    dragAt("dragOver", rowOf(container, "td-2"), 120);
+    expect(await screen.findByTestId("todo-category-drop-line")).toBeInTheDocument();
+    expect(screen.queryByTestId("todo-drop-placeholder")).not.toBeInTheDocument();
+    dragAt("drop", rowOf(container, "td-2"), 120);
+    await waitFor(() =>
+      expect(mocks.moveTodoCategory).toHaveBeenCalledWith("cat-1", { beforeCategoryId: "cat-inbox" }),
+    );
+    expect(mocks.moveTodoItem).not.toHaveBeenCalled();
+  });
+
   it("keeps the sheet's text editor focused while the list refreshes", async () => {
     // On a phone, losing focus closes the keyboard. The list refreshes every 30 seconds and on every
     // change broadcast, and each refresh re-renders the page with a new sheet close callback; the
@@ -555,6 +591,29 @@ describe("TodoListPanel", () => {
     expect(screen.getByTestId("todo-management-drawer")).toBeInTheDocument();
     const archiveButtons = screen.getAllByRole("button", { name: "Archive" });
     expect(archiveButtons.some((button) => button.hasAttribute("disabled"))).toBe(true);
+  });
+
+  it("lets a category with only Done to-dos be archived, and keeps its name in the Done history", async () => {
+    const state = makeState();
+    state.categories.push({ ...state.categories[1]!, id: "cat-2", name: "Coding Captain" });
+    state.items.push({ ...state.items[2]!, id: "td-5", markdown: "Shipped the fix", categoryId: "cat-2" });
+    mocks.getTodoState.mockResolvedValue(state);
+    const archived = structuredClone(state);
+    archived.revision = 2;
+    archived.categories[2]!.archivedAt = 500;
+    mocks.archiveTodoCategory.mockResolvedValue({ state: archived, category: archived.categories[2] });
+    const { container } = render(<TodoListPanel />);
+    await screen.findByText("Reply to **Alice**");
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage categories" }));
+    const row = screen.getByRole("textbox", { name: "Category name cat-2" }).parentElement!;
+    expect(within(row).getByText("0 open")).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(mocks.archiveTodoCategory).toHaveBeenCalledWith("cat-2"));
+
+    // Its section is gone, but its Done to-do still says where it was.
+    await waitFor(() => expect(container.querySelector('[data-todo-category-id="cat-2"]')).toBeNull());
+    expect(within(rowOf(container, "td-5")).getByText("Coding Captain")).toBeInTheDocument();
   });
 
   it("says in an agent-added to-do's sheet who added it and where it came from", async () => {
@@ -675,13 +734,36 @@ describe("TodoListPanel", () => {
       }
     });
 
-    it("gives a category header Add to-do, Collapse and Manage categories", async () => {
+    it("gives a category header Add to-do, Collapse, Move up/down and Manage categories", async () => {
       render(<TodoListPanel />);
       await screen.findByText("Plan the offsite");
       fireEvent.contextMenu(screen.getByRole("button", { name: "Add to Slack" }), { clientX: 40, clientY: 60 });
-      expect(labels()).toEqual(["Add to-do", "Collapse", "Manage categories"]);
+      expect(labels()).toEqual(["Add to-do", "Collapse", "Move up", "Manage categories"]);
       fireEvent.click(menu().getByRole("button", { name: "Manage categories" }));
       expect(screen.getByRole("button", { name: "Manage categories" })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("moves a category up or down from its header menu, the touch way to reorder", async () => {
+      // Inbox moves like any other category, so a category can be placed above it.
+      const reordered = makeState(2);
+      reordered.categories.reverse();
+      mocks.moveTodoCategory.mockResolvedValue({ state: reordered, category: reordered.categories[0] });
+      const { container } = render(<TodoListPanel />);
+      await screen.findByText("Plan the offsite");
+      fireEvent.contextMenu(screen.getByRole("button", { name: "Add to Inbox" }), { clientX: 40, clientY: 60 });
+      expect(labels()).toEqual(["Add to-do", "Collapse", "Move down", "Manage categories"]);
+      fireEvent.click(menu().getByRole("button", { name: "Move down" }));
+      await waitFor(() =>
+        expect(mocks.moveTodoCategory).toHaveBeenCalledWith("cat-inbox", { afterCategoryId: "cat-1" }),
+      );
+      // The page follows the server's order.
+      await waitFor(() =>
+        expect(
+          [...container.querySelectorAll("[data-todo-category-id]")].map((section) =>
+            section.getAttribute("aria-label"),
+          ),
+        ).toEqual(["Slack", "Inbox"]),
+      );
     });
   });
 });

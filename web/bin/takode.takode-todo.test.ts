@@ -243,6 +243,48 @@ describe("takode todo", () => {
     }
   });
 
+  it("moves a category before or after another by name and prints the new order", async () => {
+    const category = (id: string, name: string) => ({ ...snapshot().categories[0], id, name });
+    const categories = [category("cat-inbox", "Inbox"), category("cat-1", "Reading"), category("cat-2", "Today")];
+    let received: JsonObject | null = null;
+    const server = createServer(async (req, res) => {
+      if (req.url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ sessionId: "worker-1", isOrchestrator: false }));
+      }
+      if (req.url === "/api/todos/categories") {
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ categories, revision: 2 }));
+      }
+      if (req.method === "POST" && req.url === "/api/todos/categories/cat-2/move") {
+        received = await readJson(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        const order = [categories[2], categories[0], categories[1]];
+        return res.end(JSON.stringify({ state: { ...snapshot(), categories: order }, category: categories[2] }));
+      }
+      res.writeHead(404).end();
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const result = await runTakode(
+        ["todo", "category", "move", "today", "--before", "Inbox", "--authorized-by", "12"],
+        port,
+      );
+      expect(result.status).toBe(0);
+      expect(received).toEqual({ beforeCategoryId: "cat-inbox", authorizedBy: 12 });
+      expect(result.stdout).toContain("Moved Today. Category order: Today, Inbox, Reading");
+
+      // Exactly one of --before and --after.
+      const missing = await runTakode(["todo", "category", "move", "Today"], port);
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toContain("--before <category> | --after <category>");
+    } finally {
+      server.close();
+    }
+  });
+
   it("sets and clears due dates, sends --due on add, and marks overdue items in list output", async () => {
     const received: Array<[string, JsonObject]> = [];
     const server = createServer(async (req, res) => {

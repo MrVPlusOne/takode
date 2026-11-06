@@ -438,6 +438,69 @@ describe("TodoStore", () => {
     });
   });
 
+  it("reorders categories, Inbox included, and records nothing for a move to the same place", async () => {
+    // Categories show in stored order, so a new Today category can be moved above Inbox.
+    const reading = await store.createCategory({ name: "Reading" }, provenance(10));
+    const today = await store.createCategory({ name: "Today" }, provenance(20));
+    const names = async () => (await store.snapshot()).categories.map((category) => category.name);
+    expect(await names()).toEqual(["Inbox", "Reading", "Today"]);
+
+    const moved = await store.moveCategory(today.id, { beforeCategoryId: TODO_INBOX_CATEGORY_ID }, provenance(30));
+    expect(moved.lastModifiedBy.at).toBe(30);
+    expect(await names()).toEqual(["Today", "Inbox", "Reading"]);
+    await store.moveCategory(TODO_INBOX_CATEGORY_ID, { afterCategoryId: reading.id }, provenance(40));
+    expect(await names()).toEqual(["Today", "Reading", "Inbox"]);
+
+    // Already there: no revision bump and no provenance stamp.
+    const before = await store.snapshot();
+    await store.moveCategory(reading.id, { afterCategoryId: today.id }, provenance(50));
+    const after = await store.snapshot();
+    expect(after.revision).toBe(before.revision);
+    expect(after.categories.find((category) => category.id === reading.id)?.updatedAt).toBe(10);
+
+    // The order survives a reload from disk.
+    expect((await new TodoStore(path).snapshot()).categories.map((category) => category.name)).toEqual([
+      "Today",
+      "Reading",
+      "Inbox",
+    ]);
+
+    await expect(store.moveCategory(today.id, {}, provenance(60))).rejects.toMatchObject({ code: "invalid" });
+    await expect(
+      store.moveCategory(today.id, { beforeCategoryId: reading.id, afterCategoryId: reading.id }, provenance(60)),
+    ).rejects.toMatchObject({ code: "invalid" });
+    await expect(store.moveCategory(today.id, { beforeCategoryId: today.id }, provenance(60))).rejects.toMatchObject({
+      code: "invalid",
+    });
+    await expect(store.moveCategory(today.id, { beforeCategoryId: "cat-99" }, provenance(60))).rejects.toMatchObject({
+      code: "not_found",
+    });
+    await store.archiveCategory(reading.id, provenance(70));
+    await expect(store.moveCategory(today.id, { afterCategoryId: reading.id }, provenance(80))).rejects.toMatchObject({
+      code: "conflict",
+    });
+  });
+
+  it("archives a category whose to-dos are all Done, keeping them there, and refuses to reopen one", async () => {
+    // An old category with only finished work can be retired; its Done history keeps the category.
+    const slack = await store.createCategory({ name: "Slack" }, provenance(10));
+    const done = await store.createItem({ markdown: "Replied", categoryId: slack.id, status: "done" }, provenance(20));
+    const open = await store.createItem({ markdown: "Reply later", categoryId: slack.id }, provenance(30));
+    await expect(store.archiveCategory(slack.id, provenance(40))).rejects.toMatchObject({ code: "conflict" });
+    await store.setItemStatus(open.id, "done", provenance(50));
+    expect((await store.archiveCategory(slack.id, provenance(60))).archivedAt).toBe(60);
+    expect((await store.getItem(done.id)).categoryId).toBe(slack.id);
+    expect((await store.listItems({ statuses: ["done"] })).map((item) => item.id)).toEqual([open.id, done.id]);
+
+    // Reopening would leave an open to-do in a hidden category; moving it out first works.
+    await expect(store.setItemStatus(done.id, "todo", provenance(70))).rejects.toMatchObject({
+      code: "conflict",
+      message: expect.stringContaining('"Slack" category is archived'),
+    });
+    await store.moveItem(done.id, { categoryId: TODO_INBOX_CATEGORY_ID }, provenance(80));
+    expect((await store.setItemStatus(done.id, "todo", provenance(90))).status).toBe("todo");
+  });
+
   it("keeps an optional due date through status changes and refuses bad stored ones", async () => {
     // The due date is plain item metadata: completing and reopening keep it, setting null clears it.
     const item = await store.createItem({ markdown: "Book flights", due: "2026-10-20" }, provenance(10));

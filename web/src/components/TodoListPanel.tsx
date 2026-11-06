@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
@@ -98,6 +99,12 @@ interface DropTarget {
   before?: boolean;
 }
 
+/** Where a dragged category would land: before or after another category's section. */
+interface CategoryDropTarget {
+  categoryId: string;
+  before: boolean;
+}
+
 function shouldIgnoreRowShortcut(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && !!target.closest("button,select,input,textarea,a,summary");
 }
@@ -140,6 +147,8 @@ interface TodoRowProps {
   /** Current time for due dates, refreshed when one passes. */
   now: number;
   isDragging: boolean;
+  /** A to-do (not a category) is being dragged, so this row is a drop target. */
+  itemDragActive: boolean;
   dropBefore?: boolean;
   onState: (state: TodoState) => void;
   onError: (message: string) => void;
@@ -167,6 +176,7 @@ function TodoRow({
   linkedQuests,
   now,
   isDragging,
+  itemDragActive,
   dropBefore,
   onState,
   onError,
@@ -282,13 +292,13 @@ function TodoRow({
       {...swipe.handlers}
       {...longPress.handlers}
       onDragOver={(event) => {
-        if (!active) return;
+        if (!active || !itemDragActive) return;
         event.preventDefault();
         const rect = event.currentTarget.getBoundingClientRect();
         onDragHover(item, event.clientY < rect.top + rect.height / 2);
       }}
       onDrop={(event) => {
-        if (!active) return;
+        if (!active || !itemDragActive) return;
         event.preventDefault();
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
@@ -389,6 +399,18 @@ function TodoDropPlaceholder() {
   );
 }
 
+/** A line between category sections showing where a dragged category will land. */
+function CategoryDropLine() {
+  return (
+    <div
+      role="separator"
+      aria-label="Drop category here"
+      data-testid="todo-category-drop-line"
+      className="my-0.5 h-0.5 rounded-full bg-cc-primary"
+    />
+  );
+}
+
 function SectionHeader({
   name,
   count,
@@ -396,6 +418,10 @@ function SectionHeader({
   onToggle,
   onAdd,
   onManage,
+  onMoveUp,
+  onMoveDown,
+  onDragStart,
+  onDragEnd,
   children,
 }: {
   name: string;
@@ -405,6 +431,12 @@ function SectionHeader({
   onAdd?: () => void;
   /** Opens category management, offered in the header's right-click (long-press) menu. */
   onManage?: () => void;
+  /** Move the category one place up or down; absent at the ends of the list. */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  /** Dragging the header's handle reorders categories (mouse only, like rows). */
+  onDragStart?: (event: DragEvent<HTMLElement>) => void;
+  onDragEnd?: () => void;
   children?: ReactNode;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -412,12 +444,14 @@ function SectionHeader({
   const menuItems: ContextMenuItem[] = [
     ...(onAdd ? [{ label: "Add to-do", onClick: onAdd }] : []),
     { label: collapsed ? "Expand" : "Collapse", onClick: onToggle },
+    ...(onMoveUp ? [{ label: "Move up", onClick: onMoveUp }] : []),
+    ...(onMoveDown ? [{ label: "Move down", onClick: onMoveDown }] : []),
     ...(onManage ? [{ label: "Manage categories", onClick: onManage }] : []),
   ];
   return (
     <>
       <div
-        className={`flex items-center gap-1 pr-1 ${LONG_PRESS_TARGET_CLASS}`}
+        className={`group/header flex items-center gap-1 pr-1 ${LONG_PRESS_TARGET_CLASS}`}
         style={longPress.pressStyle}
         {...longPress.handlers}
       >
@@ -435,6 +469,19 @@ function SectionHeader({
           <span className="text-[11px]">{count}</span>
           {children}
         </button>
+        {onDragStart && (
+          <button
+            type="button"
+            draggable
+            aria-label={`Drag ${name}`}
+            title="Drag to reorder categories"
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            className="hidden shrink-0 cursor-grab rounded px-1 py-0.5 text-xs text-cc-muted opacity-0 hover:bg-cc-hover hover:text-cc-fg group-hover/header:opacity-100 focus-visible:opacity-100 pointer-fine:block"
+          >
+            ⠿
+          </button>
+        )}
         {onAdd && (
           <button
             type="button"
@@ -522,6 +569,8 @@ export function TodoListPanel() {
   const [composer, setComposer] = useState<ComposerTarget | null>(null);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null);
+  const [categoryDrop, setCategoryDrop] = useState<CategoryDropTarget | null>(null);
   const [completionUndo, setCompletionUndo] = useState<CompletionUndoNotice | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const [sheetItemId, setSheetItemId] = useState<string | null>(null);
@@ -621,6 +670,20 @@ export function TodoListPanel() {
     [applyState],
   );
 
+  const runCategoryMove = useCallback(
+    async (categoryId: string, input: { beforeCategoryId?: string; afterCategoryId?: string }) => {
+      try {
+        applyState((await api.moveTodoCategory(categoryId, input)).state);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        setDraggedCategoryId(null);
+        setCategoryDrop(null);
+      }
+    },
+    [applyState],
+  );
+
   const toggleCompletion = useCallback(
     async (item: TodoItem) => {
       const response = await api.setTodoItemStatus(item.id, item.status === "done" ? "todo" : "done");
@@ -698,6 +761,7 @@ export function TodoListPanel() {
         linkedQuests={linkedQuests}
         now={now}
         isDragging={draggedItemId === item.id}
+        itemDragActive={!!draggedItemId}
         dropBefore={dropTarget?.itemId === item.id ? dropTarget.before : undefined}
         onState={applyState}
         onError={setError}
@@ -780,11 +844,24 @@ export function TodoListPanel() {
             const items = activeGroupByCategory.get(category.id)?.items ?? [];
             const hidden = isCollapsed(category.id);
             const overdueCount = hidden ? items.filter((item) => isTodoOverdue(item, now)).length : 0;
+            // Move up/down step past neighbors hidden by a search too, as the stored order has them.
+            const index = categories.findIndex((candidate) => candidate.id === category.id);
+            const previous = categories[index - 1];
+            const next = categories[index + 1];
+            const categoryDropHere = categoryDrop?.categoryId === category.id;
             return (
               <section
                 key={category.id}
                 aria-label={category.name}
+                data-todo-category-id={category.id}
                 onDragOver={(event) => {
+                  if (draggedCategoryId) {
+                    event.preventDefault();
+                    if (draggedCategoryId === category.id) return setCategoryDrop(null);
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setCategoryDrop({ categoryId: category.id, before: event.clientY < rect.top + rect.height / 2 });
+                    return;
+                  }
                   if (!draggedItemId) return;
                   event.preventDefault();
                   if ((event.target as HTMLElement).closest("[data-todo-id]")) return;
@@ -792,9 +869,18 @@ export function TodoListPanel() {
                 }}
                 onDrop={(event) => {
                   event.preventDefault();
+                  if (draggedCategoryId) {
+                    if (!categoryDropHere) return;
+                    void runCategoryMove(
+                      draggedCategoryId,
+                      categoryDrop.before ? { beforeCategoryId: category.id } : { afterCategoryId: category.id },
+                    );
+                    return;
+                  }
                   if (draggedItemId) void runMove(draggedItemId, { categoryId: category.id });
                 }}
               >
+                {categoryDropHere && categoryDrop.before && <CategoryDropLine />}
                 <SectionHeader
                   name={category.name}
                   count={items.length}
@@ -802,6 +888,20 @@ export function TodoListPanel() {
                   onToggle={() => toggleCollapsed(category.id)}
                   onAdd={() => setComposer({ categoryId: category.id })}
                   onManage={() => setManageOpen(true)}
+                  onMoveUp={previous && (() => void runCategoryMove(category.id, { beforeCategoryId: previous.id }))}
+                  onMoveDown={next && (() => void runCategoryMove(category.id, { afterCategoryId: next.id }))}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", category.name);
+                    const section = event.currentTarget.closest<HTMLElement>("[data-todo-category-id]");
+                    if (section) event.dataTransfer.setDragImage?.(section, 24, 16);
+                    setDraggedCategoryId(category.id);
+                    setCategoryDrop(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedCategoryId(null);
+                    setCategoryDrop(null);
+                  }}
                 >
                   {overdueCount > 0 && <span className="text-[11px] text-cc-error">{overdueCount} overdue</span>}
                 </SectionHeader>
@@ -811,6 +911,7 @@ export function TodoListPanel() {
                   !composer.afterItemId &&
                   !composer.top &&
                   renderComposer(composer)}
+                {categoryDropHere && !categoryDrop.before && <CategoryDropLine />}
               </section>
             );
           })}
@@ -837,7 +938,8 @@ export function TodoListPanel() {
                   renderRow(
                     item,
                     group.items,
-                    categories.find((category) => category.id === item.categoryId)?.name ?? item.categoryId,
+                    // All categories: Done to-dos of an archived category keep its name.
+                    state.categories.find((category) => category.id === item.categoryId)?.name ?? item.categoryId,
                   ),
                 )}
               </section>
