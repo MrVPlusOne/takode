@@ -5,6 +5,8 @@
  * finished-command chip read these shapes.
  */
 
+import { formatBytes } from "./memory-guard.js";
+
 /** Source of the message that tells a session its background command finished. */
 export const HOST_EXEC_MESSAGE_SOURCE = { sessionId: "host-exec", sessionLabel: "Remote Command" } as const;
 
@@ -41,11 +43,32 @@ export interface ExecJob {
   error: string | null;
   /** Output bytes produced so far (stdout and stderr together). */
   outputBytes: number;
+  /** The memory its processes may use together (`--memory-limit`); absent or null for none. */
+  memoryLimitBytes?: number | null;
+  /** Why the node's memory guard killed it, when it did. */
+  memoryKill?: ExecMemoryKill | null;
+}
+
+/** A command the memory guard of its machine's node killed. */
+export interface ExecMemoryKill {
+  /** `command_limit`: over its own `memoryLimitBytes`; `machine`: the machine was nearly out of memory. */
+  reason: "machine" | "command_limit";
+  /** Memory its killed processes held. */
+  bytes: number;
+  /** Their program names, largest first, such as `lean ×93`. */
+  programs: string[];
 }
 
 /** One-line outcome such as "exit 0", "killed by SIGTERM" or "failed: <reason>". */
-export function describeExecOutcome(job: Pick<ExecJob, "status" | "exitCode" | "signal" | "error">): string {
+export function describeExecOutcome(
+  job: Pick<ExecJob, "status" | "exitCode" | "signal" | "error" | "memoryLimitBytes" | "memoryKill">,
+): string {
   if (job.status === "running") return "running";
+  const kill = job.memoryKill;
+  if (kill?.reason === "command_limit" && job.memoryLimitBytes) {
+    return `killed for using ${formatBytes(kill.bytes)}, over its ${formatBytes(job.memoryLimitBytes)} memory limit (${kill.programs.join(", ")})`;
+  }
+  if (kill) return `killed by the memory guard: the machine was nearly out of memory`;
   if (job.signal) return `killed by ${job.signal}`;
   if (job.status === "failed" || job.exitCode === null) return `failed: ${job.error ?? "the process was lost"}`;
   return `exit ${job.exitCode}`;

@@ -2,11 +2,12 @@ import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { HostProcessEvent } from "../../shared/host-protocol.js";
-import { MEMORY_GUARD_MESSAGE_TAG } from "../../shared/memory-guard.js";
+import { formatBytes, MEMORY_GUARD_MESSAGE_TAG } from "../../shared/memory-guard.js";
+import { jobProcessGroups } from "./process-tree.js";
 
 const execFileAsync = promisify(execFile);
 
-/** What the memory guard reports when it kills a session's processes. */
+/** What the memory guard reports when it kills a session's processes, or a command over its own limit. */
 export type MemoryKill = Omit<Extract<HostProcessEvent, { kind: "memory_kill" }>, "kind">;
 
 /** A process the node started, whose tree the guard may kill. */
@@ -20,6 +21,12 @@ export interface GuardedProcess {
    * the memory.
    */
   command: boolean;
+  /**
+   * A command's own memory limit (`takode exec --memory-limit`): once its
+   * processes together use more, the guard kills all of them, however much
+   * memory the machine has left.
+   */
+  memoryLimitBytes?: number;
 }
 
 /** Memory in use (not counting reclaimable file cache) against what this machine or container may use. */
@@ -31,6 +38,11 @@ export interface MemoryUse {
 export interface ListedProcess {
   pid: number;
   ppid: number;
+  pgid: number;
+  /** Its session id; 0 where `ps` does not show it (macOS). */
+  sid: number;
+  /** Resident memory as `ps` shows it, which counts shared and file pages in full. */
+  rssBytes: number;
   /** Program name, as `ps` shows it. */
   name: string;
 }
@@ -46,6 +58,8 @@ export interface MemoryGuardOptions {
   listProcesses?: () => Promise<ListedProcess[]>;
   /** Anonymous (non-file) resident memory of a process in bytes; 0 once it has ended. */
   anonBytes?: (pid: number) => Promise<number>;
+  /** A process's share of the memory it uses (see {@link readMemoryShare}); null where it cannot be read. */
+  memoryShare?: (pid: number) => Promise<number | null>;
   kill?: (pid: number) => void;
   now?: () => number;
 }
@@ -72,6 +86,10 @@ const COOLDOWN_MS = 15_000;
  * node may manage, which containers usually do not delegate. The kernel's own
  * OOM killer stays the backstop: `raiseOomScore` makes it pick session
  * processes before the Takode server and node.
+ *
+ * The same checks enforce the memory limit a command may be given: past it,
+ * the whole command goes, as for `takode exec kill`. That needs no cgroup and
+ * works off Linux too, where the machine-wide check finds nothing to read.
  */
 export class MemoryGuard {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -79,6 +97,8 @@ export class MemoryGuard {
   private quietUntil = 0;
   /** Memory has stayed nearly full with nothing worth killing since this was logged. */
   private loggedNothingToKill = false;
+  /** Commands killed for passing their limit, which may take a moment to end. */
+  private readonly overLimit = new Set<string>();
 
   constructor(private readonly options: MemoryGuardOptions) {}
 
@@ -93,24 +113,87 @@ export class MemoryGuard {
     this.timer = null;
   }
 
-  /** One check; acts when memory use is over the threshold. */
+  /** One check: kills commands over their own limit, then acts if the machine's memory use is over the threshold. */
   async check(): Promise<void> {
-    const now = this.options.now ?? Date.now;
-    if (this.checking || now() < this.quietUntil) return;
+    if (this.checking) return;
     this.checking = true;
     try {
-      const use = await (this.options.readMemory ?? readMemoryUse)();
-      if (!use || use.usedBytes < use.limitBytes * MEMORY_GUARD_THRESHOLD) {
-        this.loggedNothingToKill = false;
-        return;
-      }
-      // A runaway that is still small is checked again next time, as it grows.
-      if (await this.killLargest(use)) this.quietUntil = now() + COOLDOWN_MS;
-    } catch (error) {
-      this.options.log(`Memory guard check failed: ${error instanceof Error ? error.message : String(error)}`);
+      await this.enforceCommandLimits().catch((error) => this.logFailure("Command memory limit check", error));
+      await this.guardMachine().catch((error) => this.logFailure("Memory guard check", error));
     } finally {
       this.checking = false;
     }
+  }
+
+  private async guardMachine(): Promise<void> {
+    const now = this.options.now ?? Date.now;
+    if (now() < this.quietUntil) return;
+    const use = await (this.options.readMemory ?? readMemoryUse)();
+    if (!use || use.usedBytes < use.limitBytes * MEMORY_GUARD_THRESHOLD) {
+      this.loggedNothingToKill = false;
+      return;
+    }
+    // A runaway that is still small is checked again next time, as it grows.
+    if (await this.killLargest(use)) this.quietUntil = now() + COOLDOWN_MS;
+  }
+
+  /**
+   * Kill each command whose processes together use more memory than its
+   * limit. Its processes are those `takode exec kill` stops: the members of
+   * its process groups, including the ones `timeout` or `setsid` moved to
+   * groups of their own.
+   */
+  private async enforceCommandLimits(): Promise<void> {
+    const limited = this.options.processes().filter((proc) => proc.memoryLimitBytes !== undefined);
+    for (const procId of this.overLimit) {
+      if (!limited.some((proc) => proc.procId === procId)) this.overLimit.delete(procId);
+    }
+    const pending = limited.filter((proc) => !this.overLimit.has(proc.procId));
+    if (pending.length === 0) return;
+    const listed = await (this.options.listProcesses ?? listProcesses)();
+    const memoryShare = this.options.memoryShare ?? readMemoryShare;
+    for (const command of pending) {
+      const limit = command.memoryLimitBytes!;
+      const groups = jobProcessGroups(command.pid, listed);
+      const members = listed.filter((proc) => groups.includes(proc.pgid));
+      // `ps` is cheap but counts a page every process maps in full, such as the
+      // copy-on-write memory forked workers share, so it can only clear a command.
+      if (sum(members.map((member) => member.rssBytes)) <= limit) continue;
+      const measured = await Promise.all(
+        members.map(async (member) => ({ ...member, bytes: (await memoryShare(member.pid)) ?? member.rssBytes })),
+      );
+      const bytes = sum(measured.map((member) => member.bytes));
+      if (bytes <= limit) continue;
+      this.overLimit.add(command.procId);
+      // Whole groups, so processes started since the listing go too.
+      for (const pgid of groups) this.killQuietly(-pgid);
+      const report: MemoryKill = {
+        reason: "command_limit",
+        processes: members.length,
+        bytes,
+        programs: programSummary(measured),
+        usedBytes: bytes,
+        limitBytes: limit,
+      };
+      this.options.log(
+        `Command ${command.procId} used ${formatBytes(bytes)}, over its ${formatBytes(limit)} memory limit; ` +
+          `killed its ${report.processes} processes (${report.programs.join(", ")})`,
+      );
+      this.options.onKill(command.procId, report);
+    }
+  }
+
+  private killQuietly(pid: number): void {
+    try {
+      (this.options.kill ?? ((target: number) => process.kill(target, "SIGKILL")))(pid);
+    } catch (error) {
+      // One that already ended.
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  }
+
+  private logFailure(what: string, error: unknown): void {
+    this.options.log(`${what} failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   /** Kill what holds the most memory, if anything holds enough; whether it did. */
@@ -158,15 +241,7 @@ export class MemoryGuard {
       this.loggedNothingToKill = true;
       return false;
     }
-    const kill = this.options.kill ?? ((pid: number) => process.kill(pid, "SIGKILL"));
-    for (const victim of largest.victims) {
-      try {
-        kill(victim.pid);
-      } catch (error) {
-        // One that already ended.
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-      }
-    }
+    for (const victim of largest.victims) this.killQuietly(victim.pid);
     const report: MemoryKill = {
       processes: largest.victims.length,
       bytes: largest.bytes,
@@ -201,11 +276,6 @@ export async function raiseOomScore(pid: number): Promise<void> {
  */
 export async function readMemoryUse(fsRoot = ""): Promise<MemoryUse | null> {
   return (await cgroupMemoryUse(fsRoot).catch(() => null)) ?? (await machineMemoryUse(fsRoot).catch(() => null));
-}
-
-/** Format a byte count for people, such as `47.3 GB`. */
-export function formatBytes(bytes: number): string {
-  return `${(bytes / 2 ** 30).toFixed(1)} GB`;
 }
 
 /**
@@ -306,10 +376,9 @@ async function cgroupMemoryUse(fsRoot: string): Promise<MemoryUse | null> {
 
 async function machineMemoryUse(fsRoot: string): Promise<MemoryUse> {
   const meminfo = await readFile(`${fsRoot}/proc/meminfo`, "utf-8");
-  const kib = (key: string) => Number(meminfo.match(new RegExp(`^${key}:\\s+(\\d+) kB`, "m"))?.[1] ?? 0) * 1024;
   return {
-    usedBytes: kib("MemTotal") - kib("MemAvailable"),
-    limitBytes: kib("MemTotal"),
+    usedBytes: kibValue(meminfo, "MemTotal") - kibValue(meminfo, "MemAvailable"),
+    limitBytes: kibValue(meminfo, "MemTotal"),
   };
 }
 
@@ -318,18 +387,23 @@ function statValue(stat: string, key: string): number {
 }
 
 async function listProcesses(): Promise<ListedProcess[]> {
-  const { stdout } = await execFileAsync("ps", ["-A", "-o", "pid=", "-o", "ppid=", "-o", "comm="], {
+  const columns = ["pid=", "ppid=", "pgid=", "sess=", "rss=", "comm="].flatMap((column) => ["-o", column]);
+  const { stdout } = await execFileAsync("ps", ["-A", ...columns], {
     timeout: 5_000,
     maxBuffer: 16 * 1024 * 1024,
   });
   return stdout.split("\n").flatMap((line) => {
-    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+    // The program name comes last, as it may hold spaces (macOS shows its path).
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
     return match
       ? [
           {
             pid: Number(match[1]),
             ppid: Number(match[2]),
-            name: match[3]!.trim(),
+            pgid: Number(match[3]),
+            sid: Number(match[4]),
+            rssBytes: Number(match[5]) * 1024,
+            name: match[6]!.trim(),
           },
         ]
       : [];
@@ -338,5 +412,26 @@ async function listProcesses(): Promise<ListedProcess[]> {
 
 async function readAnonBytes(pid: number): Promise<number> {
   const status = await readFile(`/proc/${pid}/status`, "utf-8").catch(() => "");
-  return Number(status.match(/^RssAnon:\s+(\d+) kB/m)?.[1] ?? 0) * 1024;
+  return kibValue(status, "RssAnon");
+}
+
+/**
+ * What a process uses of memory that cannot be dropped, anonymous and shared
+ * (tmpfs, shared memory) alike, counting pages it shares with others in part
+ * (PSS), so forked workers' shared copy-on-write memory counts once among
+ * them. Older kernels lack that split; there it is the resident anonymous
+ * and shared memory. 0 once the process ended; null without
+ * `/proc` (macOS), where `ps` must do.
+ */
+export async function readMemoryShare(pid: number): Promise<number | null> {
+  if (process.platform !== "linux") return null;
+  const rollup = await readFile(`/proc/${pid}/smaps_rollup`, "utf-8").catch(() => "");
+  if (rollup.includes("Pss_Anon:")) return kibValue(rollup, "Pss_Anon") + kibValue(rollup, "Pss_Shmem");
+  const status = await readFile(`/proc/${pid}/status`, "utf-8").catch(() => "");
+  return kibValue(status, "RssAnon") + kibValue(status, "RssShmem");
+}
+
+/** A `Key:   123 kB` line of a /proc file, in bytes; 0 when it is missing. */
+function kibValue(text: string, key: string): number {
+  return Number(text.match(new RegExp(`^${key}:\\s+(\\d+) kB`, "m"))?.[1] ?? 0) * 1024;
 }

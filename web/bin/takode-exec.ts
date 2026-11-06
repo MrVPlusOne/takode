@@ -7,11 +7,12 @@
 
 import { constants } from "node:os";
 import { describeExecOutcome, type ExecJob } from "../shared/host-exec.js";
+import { formatBytes } from "../shared/memory-guard.js";
 import { formatLeaseWaitDuration as formatDuration } from "../shared/resource-lease-message.js";
 import { apiPost, err, takodeAuthHeaders } from "./takode-core.js";
 
 export const EXEC_USAGE = [
-  "Usage: takode exec --host <machine> [--cwd <dir>] [--background] [--json] -- <command...>",
+  "Usage: takode exec --host <machine> [--cwd <dir>] [--memory-limit <size>] [--background] [--json] -- <command...>",
   "       takode exec status <id> [--json]",
   "       takode exec logs <id> [--lines <from>-<to> | --bytes <from>-<to> | --tail <lines>]",
   "       takode exec kill <id>",
@@ -33,6 +34,13 @@ takode exec logs shows.
                 session stops or disconnects, and you get a message when it
                 finishes. A foreground run that is interrupted or times out
                 becomes a background run the same way.
+  --memory-limit <size>
+                Kill the command and everything it started once they use
+                more memory than this together, such as 64G or 512M. Its
+                outcome then says so. Off unless given; set it for work whose
+                memory could run away, such as big evaluations or builds.
+                The node checks every 2 seconds, so memory that grows faster
+                can briefly pass it.
   status <id>   The command's state, exit code and times.
   logs <id>     All of its output; save a long one to a file
                 (takode exec logs <id> > out.log). --lines 200-400 or
@@ -73,6 +81,7 @@ export async function handleExec(base: string, args: string[]): Promise<void> {
 export function parseExecRun(args: string[]): {
   host?: string;
   cwd?: string;
+  memoryLimitBytes?: number;
   background: boolean;
   json: boolean;
   command: string;
@@ -89,6 +98,10 @@ export function parseExecRun(args: string[]): {
       const value = args[++index];
       if (value === undefined) err(`${arg} needs a value\n${EXEC_USAGE}`);
       parsed[arg === "--host" ? "host" : "cwd"] = value;
+    } else if (arg === "--memory-limit") {
+      const value = args[++index];
+      if (value === undefined) err(`--memory-limit needs a size, such as 64G\n${EXEC_USAGE}`);
+      parsed.memoryLimitBytes = parseMemorySize(value);
     } else if (arg === "--background") parsed.background = true;
     else if (arg === "--json") parsed.json = true;
     else if (arg.startsWith("--")) err(`Unknown option ${arg}\n${EXEC_USAGE}`);
@@ -96,6 +109,17 @@ export function parseExecRun(args: string[]): {
   }
   parsed.command = args.slice(index).join(" ");
   return parsed;
+}
+
+/**
+ * A memory size such as `64G`, `512M`, `1.5T` or `64GiB`, in bytes. The unit
+ * is required, so a bare `64` cannot mean 64 bytes by mistake.
+ */
+export function parseMemorySize(value: string): number {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*([KMGT])(?:i?B)?$/i);
+  const bytes = match ? Math.round(Number(match[1]) * 1024 ** ("KMGT".indexOf(match[2]!.toUpperCase()) + 1)) : 0;
+  if (bytes <= 0) err(`--memory-limit needs a size with a unit, such as 64G or 512M (got ${value})`);
+  return bytes;
 }
 
 async function runCommand(base: string, args: string[]): Promise<void> {
@@ -106,6 +130,7 @@ async function runCommand(base: string, args: string[]): Promise<void> {
     host: options.host,
     command: options.command,
     ...(options.cwd ? { cwd: options.cwd } : {}),
+    ...(options.memoryLimitBytes ? { memoryLimitBytes: options.memoryLimitBytes } : {}),
     background: options.background,
   })) as { job: ExecJob };
 
@@ -148,6 +173,7 @@ async function showStatus(base: string, args: string[]): Promise<void> {
   console.log(formatJobLine(job));
   console.log(`  $ ${job.command}`);
   if (job.cwd) console.log(`  in ${job.cwd}`);
+  if (job.memoryLimitBytes) console.log(`  memory limit ${formatBytes(job.memoryLimitBytes)}`);
   if (job.error) console.log(`  ${job.error}`);
 }
 

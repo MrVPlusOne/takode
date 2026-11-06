@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { inheritedLaunchEnv } from "../cli-launcher-env.js";
 import { getEnrichedPath } from "../path-resolver.js";
-import { LOCAL_HOST_ID } from "../../shared/host-protocol.js";
+import { LOCAL_HOST_ID, type HostProcessEvent } from "../../shared/host-protocol.js";
 import { describeExecOutcome, HOST_EXEC_MESSAGE_TAG, type ExecJob } from "../../shared/host-exec.js";
 import { formatLeaseWaitDuration as formatDuration } from "../../shared/resource-lease-message.js";
 import type { BackgroundTaskSnapshot } from "../bridge/adapter-interface.js";
@@ -23,7 +23,7 @@ export class HostExecError extends Error {
 }
 
 export interface HostExecDeps {
-  links: Pick<HostLinkManager, "spawn" | "adopt" | "startBlocker">;
+  links: Pick<HostLinkManager, "spawn" | "adopt" | "startBlocker" | "supports">;
   /** The machine a name or id names: a registered host, or this machine as `local`. */
   resolveHost: (nameOrId: string) => Promise<{ id: string; name: string } | null>;
   /** Names of every machine `takode exec` can reach, for the unknown-host error. */
@@ -49,6 +49,8 @@ export interface ExecStartInput {
   command: string;
   cwd?: string | null;
   background: boolean;
+  /** Kill it all once its processes use more memory than this together. */
+  memoryLimitBytes?: number | null;
 }
 
 export interface ExecOutput {
@@ -176,6 +178,13 @@ export class HostExec {
     }
     const blocker = this.deps.links.startBlocker(machine.id);
     if (blocker) throw new HostExecError(409, `Host ${machine.name} ${blocker}`);
+    const memoryLimitBytes = input.memoryLimitBytes ?? null;
+    if (memoryLimitBytes !== null && !this.deps.links.supports(machine.id, "memory_limit")) {
+      throw new HostExecError(
+        409,
+        `The Takode node on ${machine.name} cannot enforce --memory-limit yet; it updates itself once its sessions are idle`,
+      );
+    }
     const cwd = input.cwd?.trim() || null;
     const proc = this.deps.links.spawn(machine.id, {
       command: "/bin/sh",
@@ -183,6 +192,7 @@ export class HostExec {
       // This machine's own node takes a complete environment; other hosts use their own.
       env: machine.id === LOCAL_HOST_ID ? { ...inheritedLaunchEnv(process.env), PATH: getEnrichedPath() } : {},
       group: true,
+      ...(memoryLimitBytes !== null ? { memoryLimitBytes } : {}),
     });
     // Like `ssh -n`: a command waiting for input would otherwise hang.
     proc.stdin.end();
@@ -204,6 +214,8 @@ export class HostExec {
       signal: null,
       error: null,
       outputBytes: 0,
+      memoryLimitBytes,
+      memoryKill: null,
     };
     this.jobs.set(job.id, job);
     this.attach(job, proc, 0);
@@ -223,6 +235,18 @@ export class HostExec {
   forProcess(procId: string): ExecJob | null {
     const job = [...this.jobs.values()].find((candidate) => candidate.procId === procId);
     return job ? publicJob(job) : null;
+  }
+
+  /**
+   * The node's memory guard killed the command running as host-link process
+   * `procId`: kept for its outcome. Returns the command, or null when the
+   * process is not one.
+   */
+  memoryKilled(procId: string, kill: Extract<HostProcessEvent, { kind: "memory_kill" }>): ExecJob | null {
+    const job = [...this.jobs.values()].find((candidate) => candidate.procId === procId);
+    if (!job) return null;
+    job.memoryKill = { reason: kill.reason ?? "machine", bytes: kill.bytes, programs: kill.programs };
+    return publicJob(job);
   }
 
   /** Records newest first, optionally only one session's. */

@@ -2,7 +2,7 @@ import { constants, deflateRawSync, inflateRawSync } from "node:zlib";
 import type { HostLinkFeature, ProcessData } from "../../shared/host-protocol.js";
 
 /** Link features this build can use; both sides offer or accept them (see `host-protocol.ts`). */
-export const HOST_LINK_FEATURES: readonly HostLinkFeature[] = ["text", "deflate"];
+export const HOST_LINK_FEATURES: readonly HostLinkFeature[] = ["text", "deflate", "memory_limit"];
 
 /** History each direction compresses against, the largest raw deflate window. */
 const WINDOW_BYTES = 32 * 1024;

@@ -3,7 +3,7 @@ import { tmpdir, userInfo } from "node:os";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
 import { join } from "node:path";
-import { HostAgent } from "./host-agent.js";
+import { HostAgent, type HostAgentOptions } from "./host-agent.js";
 import { HostExec, HostExecError, type HostExecDeps } from "./host-exec.js";
 import { HostLinkManager } from "./host-link-manager.js";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
@@ -59,8 +59,9 @@ describe("HostExec", () => {
     await rm(home, { recursive: true, force: true });
   });
 
-  function connectHost(): void {
+  function connectHost(extra: Partial<HostAgentOptions> = {}): void {
     agent = new HostAgent({
+      ...extra,
       coordinatorUrl: "http://coordinator.test",
       token: "token",
       apiProxyPort: 45_678,
@@ -88,7 +89,11 @@ describe("HostExec", () => {
     });
   }
 
-  const run = (exec: HostExec, command: string, extra: { background?: boolean; cwd?: string } = {}) =>
+  const run = (
+    exec: HostExec,
+    command: string,
+    extra: { background?: boolean; cwd?: string; memoryLimitBytes?: number } = {},
+  ) =>
     exec.start({
       sessionId: "session-a",
       sessionNum: 7,
@@ -97,6 +102,7 @@ describe("HostExec", () => {
       command,
       background: extra.background ?? false,
       ...(extra.cwd ? { cwd: extra.cwd } : {}),
+      ...(extra.memoryLimitBytes ? { memoryLimitBytes: extra.memoryLimitBytes } : {}),
     });
 
   async function finished(exec: HostExec, id: string) {
@@ -290,6 +296,36 @@ describe("HostExec", () => {
         }
       }),
     );
+  });
+
+  // `--memory-limit` end to end: the command's workers pass its limit, the
+  // node kills them all, and the outcome its session reads says why. The
+  // machine-wide check reads nothing, so only the command's limit can act.
+  it("kills a command over its memory limit and says so in its outcome", async () => {
+    const MB = 2 ** 20;
+    connectHost({ guardMemory: { readMemory: async () => null } });
+    await waitFor(() => manager.status(HOST_ID).online);
+    const exec = createExec();
+    manager.onMemoryKill = (_host, procId, kill) => void exec.memoryKilled(procId, kill);
+    const worker = `${JSON.stringify(process.execPath)} -e 'const b = Buffer.alloc(80e6, 1); setInterval(() => b[0]++, 1000)'`;
+    const started = await run(exec, `${worker} & ${worker} & wait`, { background: true, memoryLimitBytes: 100 * MB });
+    expect(started.memoryLimitBytes).toBe(100 * MB);
+    const job = await finished(exec, started.id);
+    expect(job).toMatchObject({ signal: "SIGKILL", memoryKill: { reason: "command_limit" } });
+    expect(job.memoryKill!.bytes).toBeGreaterThan(100 * MB);
+    await waitFor(() => notices.length === 1);
+    expect(notices[0]!.text.split("\n")[0]).toMatch(
+      /^\[Command finished\] x-1 on condor: killed for using \d+ MB, over its 100 MB memory limit \(.+\) after /,
+    );
+  });
+
+  // A node too old to enforce a limit (or without its memory guard) would run the command uncapped; it is refused.
+  it("refuses a memory limit on a node that cannot enforce it", async () => {
+    connectHost();
+    await waitFor(() => manager.status(HOST_ID).online);
+    const exec = createExec();
+    await expect(run(exec, "true", { memoryLimitBytes: 2 ** 30 })).rejects.toMatchObject({ status: 409 });
+    expect(exec.list()).toEqual([]);
   });
 
   // The user's off switch, unknown names and an offline host are refused before anything starts.

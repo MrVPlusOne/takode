@@ -30,6 +30,13 @@ export function createHostExecRoutes(ctx: RouteContext) {
     if (typeof body.host !== "string" || !body.host.trim()) return c.json({ error: "host is required" }, 400);
     if (typeof body.command !== "string") return c.json({ error: "command is required" }, 400);
     if (body.cwd !== undefined && typeof body.cwd !== "string") return c.json({ error: "cwd must be a string" }, 400);
+    const memoryLimitBytes = body.memoryLimitBytes;
+    if (
+      memoryLimitBytes !== undefined &&
+      (typeof memoryLimitBytes !== "number" || !Number.isSafeInteger(memoryLimitBytes) || memoryLimitBytes <= 0)
+    ) {
+      return c.json({ error: "memoryLimitBytes must be a positive whole number" }, 400);
+    }
     try {
       const job = await g.exec.start({
         sessionId: g.auth.callerId,
@@ -39,6 +46,7 @@ export function createHostExecRoutes(ctx: RouteContext) {
         command: body.command,
         cwd: typeof body.cwd === "string" ? body.cwd : null,
         background: body.background === true,
+        ...(memoryLimitBytes !== undefined ? { memoryLimitBytes } : {}),
       });
       return c.json({ job }, 201);
     } catch (error) {

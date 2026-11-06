@@ -436,4 +436,41 @@ describe("host link", () => {
     proc.kill("SIGTERM");
     await once(proc, "exit");
   });
+
+  // A command's own memory limit end to end with real processes: a command
+  // whose shell starts two workers, one moved to a session of its own as
+  // `setsid` does, which together pass its limit while the machine has room.
+  // The node kills the whole command and tells the coordinator why. The
+  // machine-wide check reads nothing, so only the command's limit can act.
+  it("kills a command whose processes together pass its memory limit", async () => {
+    const MB = 2 ** 20;
+    const worker = `${JSON.stringify(process.execPath)} -e 'const b = Buffer.alloc(150e6, 1); setInterval(() => b[0]++, 1000)'`;
+    const reports: Array<{ procId: string; reason?: string; processes: number; bytes: number }> = [];
+    manager.onMemoryKill = (_host, procId, kill) =>
+      reports.push({ procId, reason: kill.reason, processes: kill.processes, bytes: kill.bytes });
+    agent = startAgent(20, { guardMemory: { readMemory: async () => null } });
+    await waitFor(() => manager.status(hostId).online);
+    expect(manager.supports(hostId, "memory_limit")).toBe(true);
+
+    const proc = manager.spawn(hostId, {
+      command: "/bin/sh",
+      args: ["-c", `${worker} & setsid ${worker} & wait`],
+      env: {},
+      group: true,
+      memoryLimitBytes: 200 * MB,
+    });
+    const [code, signal] = (await once(proc, "exit")) as [number | null, string | null];
+    expect(signal).toBe("SIGKILL");
+    expect(code).toBeNull();
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatchObject({ procId: proc.procId, reason: "command_limit", processes: 3 });
+    expect(reports[0]!.bytes).toBeGreaterThan(200 * MB);
+  }, 15_000);
+
+  // A node without the memory guard could not enforce a limit, so it does not offer to.
+  it("offers memory limits only with the memory guard", async () => {
+    agent = startAgent(20);
+    await waitFor(() => manager.status(hostId).online);
+    expect(manager.supports(hostId, "memory_limit")).toBe(false);
+  });
 });

@@ -13,14 +13,17 @@ import {
 const GB = 2 ** 30;
 
 /**
- * A guard over a fake machine: `memory` is what it reads, `table` the process
- * table with each process's anonymous memory, and killed pids are recorded.
+ * A process of the fake table: `bytes` is its anonymous memory and its share
+ * of the memory it uses (PSS); `ps` shows `rssBytes`, by default the same. Its
+ * group defaults to its own pid, and its session to none (as on macOS).
  */
-function fakeGuard(options: {
-  memory: MemoryUse;
-  table: Array<ListedProcess & { bytes: number }>;
-  processes: GuardedProcess[];
-}) {
+type FakeProcess = Pick<ListedProcess, "pid" | "ppid" | "name"> & Partial<ListedProcess> & { bytes: number };
+
+/**
+ * A guard over a fake machine: `memory` is what it reads, `table` the process
+ * table, and killed pids (negative for process groups) are recorded.
+ */
+function fakeGuard(options: { memory: MemoryUse | null; table: FakeProcess[]; processes: GuardedProcess[] }) {
   const killed: number[] = [];
   const kills: Array<{ procId: string; kill: MemoryKill }> = [];
   const logs: string[] = [];
@@ -30,8 +33,9 @@ function fakeGuard(options: {
     onKill: (procId, kill) => kills.push({ procId, kill }),
     log: (message) => logs.push(message),
     readMemory: async () => options.memory,
-    listProcesses: async () => options.table,
+    listProcesses: async () => options.table.map((proc) => ({ pgid: proc.pid, sid: 0, rssBytes: proc.bytes, ...proc })),
     anonBytes: async (pid) => options.table.find((proc) => proc.pid === pid)?.bytes ?? 0,
+    memoryShare: async (pid) => options.table.find((proc) => proc.pid === pid)?.bytes ?? 0,
     kill: (pid) => void killed.push(pid),
     now: () => now,
   });
@@ -173,6 +177,79 @@ describe("MemoryGuard", () => {
     fake.advance(20_000);
     await fake.guard.check();
     expect(fake.kills).toHaveLength(2);
+  });
+});
+
+describe("command memory limits", () => {
+  /**
+   * A `takode exec` command (pid 400, its own session and group) running an
+   * evaluation: `timeout` moved to a group of its own in the same session, as
+   * GNU timeout does, and its workers are in that group.
+   */
+  function evaluation(workerBytes: number, rssBytes = workerBytes): FakeProcess[] {
+    return [
+      { pid: 1, ppid: 0, name: "init", bytes: 0 },
+      { pid: 100, ppid: 1, name: "claude", bytes: 0.3 * GB },
+      { pid: 400, ppid: 1, sid: 400, name: "bash", bytes: 0.01 * GB },
+      { pid: 401, ppid: 400, pgid: 401, sid: 400, name: "timeout", bytes: 0.001 * GB },
+      ...[402, 403, 404, 405].map((pid) => ({
+        pid,
+        ppid: 401,
+        pgid: 401,
+        sid: 400,
+        name: "lean",
+        bytes: workerBytes,
+        rssBytes,
+      })),
+      // Another command, without a limit, holding more than the limit.
+      { pid: 500, ppid: 1, sid: 500, name: "python3", bytes: 30 * GB },
+    ];
+  }
+
+  const PROCESSES: GuardedProcess[] = [
+    { procId: "p-claude", pid: 100, command: false },
+    { procId: "p-eval", pid: 400, command: true, memoryLimitBytes: 16 * GB },
+    { procId: "p-other", pid: 500, command: true },
+  ];
+
+  // The Condor incident's fix: a command past its own limit goes whole, every
+  // group it spans, while the machine itself is nowhere near full (here the
+  // machine's memory cannot even be read, as on macOS).
+  it("kills all of a command once its processes use more than its limit", async () => {
+    const fake = fakeGuard({ memory: null, table: evaluation(5 * GB), processes: PROCESSES });
+    await fake.guard.check();
+    expect(fake.killed.sort((a, b) => a - b)).toEqual([-401, -400]);
+    expect(fake.kills).toEqual([
+      {
+        procId: "p-eval",
+        kill: {
+          reason: "command_limit",
+          processes: 6,
+          bytes: 20.011 * GB,
+          programs: ["lean ×4", "bash", "timeout"],
+          usedBytes: 20.011 * GB,
+          limitBytes: 16 * GB,
+        },
+      },
+    ]);
+    // It is reported once, though it may take a moment to end.
+    await fake.guard.check();
+    expect(fake.kills).toHaveLength(1);
+  });
+
+  it("leaves a command under its limit alone", async () => {
+    const fake = fakeGuard({ memory: null, table: evaluation(3 * GB), processes: PROCESSES });
+    await fake.guard.check();
+    expect(fake.killed).toEqual([]);
+    expect(fake.kills).toEqual([]);
+  });
+
+  // Forked workers share their parent's copy-on-write memory, which `ps`
+  // counts in each of them: 4 x 6 GB there, 4 x 2 GB in fact (PSS).
+  it("counts memory that processes share once before killing", async () => {
+    const fake = fakeGuard({ memory: null, table: evaluation(2 * GB, 6 * GB), processes: PROCESSES });
+    await fake.guard.check();
+    expect(fake.kills).toEqual([]);
   });
 });
 

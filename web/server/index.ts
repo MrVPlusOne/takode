@@ -464,12 +464,13 @@ hostLinks.updateBundle = (commit, hostHaves) => createUpdateBundle(packageRoot, 
 // A node's memory guard killed a session's (or command's) processes: tell that session why.
 hostLinks.onMemoryKill = (hostId, procId, kill) => {
   const machine = hostId === LOCAL_HOST_ID ? thisMachine.name : (hostRegistry.nameOf(hostId) ?? hostId);
-  const job = hostExec.forProcess(procId);
+  const job = hostExec.memoryKilled(procId, kill);
   const sessionId =
     job?.sessionId ??
     launcher.listSessions().find((s) => s.hostProcId === procId && processHostOf(s) === hostId)?.sessionId;
   console.warn(`[memory-guard] ${machine} killed processes of ${job ? job.id : (sessionId ?? procId)}`);
-  if (!sessionId) return;
+  // A command over its own limit says so in its outcome, which its session reads anyway.
+  if (!sessionId || kill.reason === "command_limit") return;
   wsBridge.injectUserMessage(
     sessionId,
     memoryKillNotice(kill, machine, job ? `your command ${job.id}` : undefined),

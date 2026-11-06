@@ -94,10 +94,11 @@ export interface HostAgentOptions {
   /** Folders that slow Bun starts on this machine (findCrowdedDirectories), reported to the coordinator. */
   crowdedDirectories?: CrowdedDirectory[];
   /**
-   * Guard this machine's memory (Linux): the kernel's OOM killer picks the
+   * Guard this machine's memory: on Linux the kernel's OOM killer picks the
    * processes this node starts before others, and when memory nears the limit
-   * the node kills the session tree holding the most (see `MemoryGuard`).
-   * Tests may pass how it reads memory use instead of `true`.
+   * the node kills the session tree holding the most; everywhere, commands
+   * given a memory limit are killed past it (see `MemoryGuard`). Tests may
+   * pass how it reads memory use instead of `true`.
    */
   guardMemory?: boolean | Pick<MemoryGuardOptions, "readMemory">;
   /** Link features to offer the coordinator; all this build knows unless a test stands in for an older host. */
@@ -126,6 +127,8 @@ interface HostedProcess {
   pid?: number;
   /** A command (`takode exec`) rather than an agent CLI: the memory guard may end all of it. */
   command?: boolean;
+  /** A command's own memory limit, past which the memory guard kills it. */
+  memoryLimitBytes?: number;
   nextSeq: number;
   /** Events the coordinator has not acknowledged yet, oldest first. */
   pending: { seq: number; event: HostedEvent }[];
@@ -197,7 +200,16 @@ export class HostAgent {
       ? new MemoryGuard({
           processes: () =>
             [...this.processes].flatMap(([procId, hosted]) =>
-              hosted.pid && !hosted.exited ? [{ procId, pid: hosted.pid, command: hosted.command === true }] : [],
+              hosted.pid && !hosted.exited
+                ? [
+                    {
+                      procId,
+                      pid: hosted.pid,
+                      command: hosted.command === true,
+                      ...(hosted.memoryLimitBytes ? { memoryLimitBytes: hosted.memoryLimitBytes } : {}),
+                    },
+                  ]
+                : [],
             ),
           onKill: (procId, kill) => this.emit(procId, { kind: "memory_kill", ...kill }),
           log: this.log,
@@ -256,7 +268,10 @@ export class HostAgent {
         platform: details.platform ?? undefined,
         ...(details.user ? { user: details.user } : {}),
         processes: [...this.processes.keys()],
-        features: [...(this.options.linkFeatures ?? HOST_LINK_FEATURES)],
+        // Without the guard, nothing would enforce a command's memory limit.
+        features: (this.options.linkFeatures ?? HOST_LINK_FEATURES).filter(
+          (feature) => feature !== "memory_limit" || this.memoryGuard !== null,
+        ),
         ...(this.options.build ? { build: this.options.build } : {}),
         ...(this.options.update ? { autoUpdate: true } : {}),
         ...(this.options.update && this.options.prepareUpdate ? { preparesUpdates: true } : {}),
@@ -548,6 +563,7 @@ export class HostAgent {
       unfinishedLine: Buffer.alloc(0),
       exited: false,
       ...(command.group ? { command: true } : {}),
+      ...(command.group && command.memoryLimitBytes ? { memoryLimitBytes: command.memoryLimitBytes } : {}),
     };
     this.processes.set(command.procId, hosted);
     const port = String(this.options.apiProxyPort);

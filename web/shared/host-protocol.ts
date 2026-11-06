@@ -30,6 +30,10 @@
  * - `deflate`: after the welcome, messages may also be sent as binary frames
  *   holding raw deflate data compressed against the previous 32 KiB of that
  *   direction's compressed messages on this connection (see `host-link-codec.ts`).
+ *
+ * A feature may also name something a host can do that older ones would
+ * silently skip:
+ * - `memory_limit`: the host enforces a command's `memoryLimitBytes`.
  */
 
 import type { CrowdedDirectory } from "./crowded-directories.js";
@@ -48,8 +52,8 @@ export const HOST_HEARTBEAT_MS = 10_000;
 /** Host id of the coordinator's own machine, which always exists and is not registered. */
 export const LOCAL_HOST_ID = "local";
 
-/** Optional ways to shrink link traffic, negotiated per connection (see above). */
-export type HostLinkFeature = "text" | "deflate";
+/** Optional link features, negotiated per connection (see above). */
+export type HostLinkFeature = "text" | "deflate" | "memory_limit";
 
 /**
  * Request header with which a `takode node` API proxy says it relays response
@@ -131,6 +135,12 @@ export type HostCommand =
        * follows SIGTERM with SIGKILL to survivors (`takode exec`).
        */
       group?: boolean;
+      /**
+       * With `group`: once the processes it started use more memory than
+       * this together, the host kills them all and reports `memory_kill`.
+       * Only for hosts that offered `memory_limit`; others ignore it.
+       */
+      memoryLimitBytes?: number;
     }
   /**
    * Write a file on the host, in order with the other commands, e.g. an image
@@ -156,18 +166,24 @@ export type HostProcessEvent =
   | { kind: "error"; message: string }
   /**
    * The host's memory guard killed this process's tree, or what it started,
-   * because the machine was nearly out of memory (see `memory-guard.ts`).
-   * Coordinators that predate it ignore it.
+   * because the machine was nearly out of memory, or killed a command that
+   * used more than its own limit (see `memory-guard.ts`). Coordinators that
+   * predate it ignore it.
    */
   | {
       kind: "memory_kill";
+      /** `command_limit` for a command over its `memoryLimitBytes`; absent (`machine`) from older hosts. */
+      reason?: "machine" | "command_limit";
       /** How many processes it killed. */
       processes: number;
       /** Their memory, not counting shared file mappings. */
       bytes: number;
       /** Their program names, largest first, such as `lean ×93`. */
       programs: string[];
-      /** Memory in use on the machine (or its container) and its limit when it acted. */
+      /**
+       * Memory in use on the machine (or its container) and its limit when it
+       * acted; for `command_limit`, the command's use and its own limit.
+       */
       usedBytes: number;
       limitBytes: number;
     };

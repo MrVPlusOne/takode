@@ -107,6 +107,8 @@ export interface RemoteSpawnOptions {
   preparedLaunchId?: string;
   /** Run it in its own session and process group, so a kill also stops the processes it started. */
   group?: boolean;
+  /** With `group`: kill it all once its processes use more memory than this (check {@link HostLinkManager.supports}). */
+  memoryLimitBytes?: number;
 }
 
 /**
@@ -496,6 +498,12 @@ export class HostLinkManager {
     return this.links.get(hostId)?.homeDir ?? null;
   }
 
+  /** Whether the host's current connection has a link feature, such as `memory_limit`, which older nodes lack. */
+  supports(hostId: string, feature: HostLinkFeature): boolean {
+    const socket = this.links.get(hostId)?.socket;
+    return socket ? (this.codecs.get(socket)?.has(feature) ?? false) : false;
+  }
+
   /** Platform, user and home a host reported since this coordinator started; null before it connected. */
   machineDetails(hostId: string): { platform: string | null; user: string | null; home: string | null } | null {
     const link = this.links.get(hostId);
@@ -536,6 +544,7 @@ export class HostLinkManager {
       ...(sameMachine ? { fullEnv: true } : {}),
       ...(options.preparedLaunchId ? { preparedLaunchId: options.preparedLaunchId } : {}),
       ...(options.group ? { group: true } : {}),
+      ...(options.memoryLimitBytes ? { memoryLimitBytes: options.memoryLimitBytes } : {}),
     }));
     options.signal?.addEventListener("abort", () => proc.kill("SIGTERM"), { once: true });
     return proc;

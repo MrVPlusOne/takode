@@ -66,6 +66,18 @@ describe("takode exec routes", () => {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
 
+  // A memory limit reaches HostExec in bytes; anything but a positive whole number is refused.
+  it("passes a memory limit on and refuses a malformed one", async () => {
+    const res = await post("/takode/exec", { host: "condor", command: "make", memoryLimitBytes: 2 ** 30 });
+    expect(res.status).toBe(201);
+    expect(exec.start).toHaveBeenCalledWith(expect.objectContaining({ memoryLimitBytes: 2 ** 30 }));
+    for (const memoryLimitBytes of [0, -1, 1.5, "1G"]) {
+      const bad = await post("/takode/exec", { host: "condor", command: "make", memoryLimitBytes });
+      expect(bad.status).toBe(400);
+    }
+    expect(exec.start).toHaveBeenCalledTimes(1);
+  });
+
   it("starts a command for the calling session with its claimed quest", async () => {
     const res = await post("/takode/exec", { host: "condor", command: "make", cwd: "~/repo", background: true });
     expect(res.status).toBe(201);

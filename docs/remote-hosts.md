@@ -240,6 +240,20 @@ left its process group or session (GNU `timeout`, `setsid`): SIGTERM, then
 SIGKILL 10 seconds later to whatever still runs. A daemon that started a
 session of its own and whose parent then exited is no longer part of it.
 
+`--memory-limit <size>` (such as `64G` or `512M`) caps the memory the command
+and everything it started may use together. The node checks it every 2
+seconds, with the same memory guard as below, and past it kills them all
+(the processes `takode exec kill` would stop); the outcome then reads
+"killed for using 65.1 GB, over its 64.0 GB memory limit (lean ×12)". It is
+off unless given. It counts resident memory that cannot be dropped (anonymous
+and shared memory, not file cache), sharing pages that several processes map,
+such as forked workers' copy-on-write memory, among them (PSS); on macOS it
+uses `ps`'s resident memory. Memory that grows faster than the checks can
+briefly pass it. It is not a kernel limit, which would need a cgroup the node
+may manage (see below): every machine we use lacks one, and an address-space
+limit (`ulimit -v`) applies per process and breaks programs that reserve large
+address ranges. A node too old to enforce it refuses the option.
+
 Turn **Agents may run commands here** off for a machine in
 **Settings → Hosts** to refuse new commands on it. The calling session's own
 permission mode still applies to its `takode exec` call.
@@ -261,7 +275,7 @@ start.
 
 ## When a machine runs out of memory
 
-On Linux, each `takode node` guards its machine's memory, so one session's
+Each Linux `takode node` guards its machine's memory, so one session's
 runaway job (a build or test run that starts a process per CPU) cannot take
 down the machine's other sessions, or the Takode server when it runs there:
 
@@ -269,8 +283,9 @@ down the machine's other sessions, or the Takode server when it runs there:
   the highest OOM score, which what they start inherits, so when memory runs
   out the kernel kills one of them rather than the server or the node.
 - Every 2 seconds the node compares memory in use (file cache excluded) with
-  the closest cgroup limit (a container's or a cluster job's), or the
-  machine's memory when there is none. At 90% it kills what holds the most
+  the closest cgroup limit (a container's or a cluster job's, from cgroup v2
+  or the v1 `memory` controller, which a Slurm job on a hybrid machine uses),
+  or the machine's memory when there is none. At 90% it kills what holds the most
   memory among its sessions: one process tree an agent CLI started (usually a
   command it ran, such as a build), the agent CLI itself, or a whole
   `takode exec` command. One holding less than a tenth of the limit is
