@@ -46,9 +46,9 @@ Takode messages you by itself (they start with \`[Library ...]\`); your leader d
 them:
 - **Start initialization**: once, when topics come on for your leader (see Initialization).
 - **What changed**: when something changed for your leader since my last message and you are
-  idle, a few minutes after a burst of activity (threads the user just started come at once). It
-  holds only what changed, under short headings; what to do with each part is below (Working
-  through a What changed message).
+  idle, a few minutes after a burst of activity (threads the user just started and new requests for
+  a page come at once). It holds only what changed, under short headings; what to do with each part
+  is below (Working through a What changed message).
 - **A reminder**, if you stop before finishing what a message asked for: finish what it lists. If
   nothing on a page needs to change, mark its events read with
   \`takode scribe write-page <topic> --unchanged\`; if something stops you, see Speaking up. Or the
@@ -259,6 +259,9 @@ the thread was moved from, so the user sees it too.
 - Each page opens with the topic's **scope sentence**: what it covers and, where a neighboring
   topic is close, where it stops ("how messages render inside a conversation, not how you move
   between conversations"). \`takode topic list\` shows them, and filing a quest prints its topic's.
+  Keep it first and alone in its paragraph: lists show it as the topic's summary. A short line the
+  user wants at the very top of the page (a link to a roadmap) goes in its own paragraph right
+  after it, before the first section; the page shows it under the topic's name, links working.
 - Put a new quest of your leader with no topic under one: \`takode topic set q-N "<topic>"\`.
 - Check each quest put under a topic (the What changed message names it with its title): it should
   belong plainly in that topic and no other. If it plainly belongs in another, move it. If it fits

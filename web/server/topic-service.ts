@@ -118,7 +118,7 @@ export const PAGE_FORMAT = 9;
 export type DeliveryResult = "sent" | "nothing" | "waiting" | "paused" | "busy" | "off";
 
 /** How urgent an event kind is for its Scribe (see `TopicService.schedule`). */
-type EventTiming = "ride" | "user" | "leader";
+type EventTiming = "ride" | "user" | "leader" | "now";
 
 /** The user's own page actions ride along; their other actions and the leader's activity are scheduled. */
 /**
@@ -155,6 +155,8 @@ function eventTiming(kind: TopicEvent["kind"]): EventTiming {
   // A saved artifact or a note on a quest rarely changes a page by itself: they go with the next
   // message rather than waking the Scribe (a note often repeats a message of the user's anyway).
   if (kind === "now_done" || kind === "artifact" || kind === "note") return "ride";
+  // New requests for a page are the user asking for that page now: it shouldn't wait for a pause.
+  if (kind === "page_request") return "now";
   if (kind === "message" || kind === "undone") return "user";
   return "leader";
 }
@@ -217,6 +219,8 @@ export class TopicService {
   private notes = new Map<string, { blocks: string[]; timer: ReturnType<typeof setTimeout> }>();
   /** Per leader: topics the user asked to have updated now, sent with the next message. */
   private forced = new Map<string, Set<string>>();
+  /** Per leader: topics whose page the user has open, whose events go with the next message even if they only ride. */
+  private viewed = new Map<string, Set<string>>();
   /**
    * Per leader: the message its Scribe stopped on again after a reminder (shown in its status), until
    * a later finished turn leaves nothing of it or a new message goes.
@@ -595,35 +599,91 @@ export class TopicService {
     this.store.addEvent(topicId, { ...event, leaderId });
     void this.store.flush();
     this.deps.broadcastChanged();
-    this.schedule(leaderId, eventTiming(event.kind));
+    // The Scribe's own doing is no news to it (`deliverNow` leaves it out): nothing to wake it for.
+    if (!event.byScribe) this.schedule(leaderId, eventTiming(event.kind));
+  }
+
+  /**
+   * The events of a topic its leader's Scribe gets and hasn't put on the page yet: what the page
+   * counts as new. Events of other leaders are their Scribes' (those of another space, none's),
+   * and a Scribe's own filing or tidying is never sent to it.
+   */
+  waitingEvents(topicId: string, leaderId: string): TopicEvent[] {
+    const space = this.deps.getLeaderInfo(leaderId)?.space;
+    if (space && this.store.resolve(topicId)?.space !== space) return [];
+    return this.store
+      .pendingEvents(topicId, leaderId)
+      .filter((event) => event.leaderId === leaderId && !event.byScribe && event.kind !== "now_done");
+  }
+
+  /**
+   * The user has a topic's page open in the leader's panel (it asks for the page every 20 seconds
+   * while shown): its events not sent yet go at most DEBOUNCE_MS after the oldest of them, rather
+   * than waiting for a burst to pause or, for events that only ride along, for the next message.
+   * Still at most one message every few minutes, so an open page costs little more.
+   */
+  pageViewed(leaderId: string, topicId: string): void {
+    if (!this.store.isLeaderEnabled(leaderId)) return;
+    const since = this.store.deliveredSeq(leaderId);
+    const unsent = this.waitingEvents(topicId, leaderId).filter((event) => (event.seq ?? 0) > since);
+    if (!unsent.length) return;
+    const viewed = this.viewed.get(leaderId) ?? new Set<string>();
+    viewed.add(topicId);
+    this.viewed.set(leaderId, viewed);
+    const oldest = Math.min(...unsent.map((event) => event.at));
+    this.setDue(leaderId, Math.max(this.now(), oldest + DEBOUNCE_MS), false);
+  }
+
+  /**
+   * Where the leader's Scribe is with a topic's page, for the page: working on it now, or when its
+   * waiting events go (null when none wait, or the Scribe is paused).
+   */
+  pageUpdate(leaderId: string, topicId: string): { updating: boolean; dueAt: number | null } {
+    const scribe = this.store.scribeSession(leaderId);
+    const delivery = this.awaiting.get(leaderId);
+    const name = this.store.resolve(topicId)?.name;
+    const updating =
+      !!scribe &&
+      !!delivery &&
+      this.isWorking(leaderId, scribe) &&
+      (delivery.rewrite || (!!name && delivery.topics.includes(name)));
+    const due = this.dueAt.get(leaderId);
+    const waiting = due !== undefined && !this.store.isScribePaused(leaderId);
+    // After failed turns, nothing goes before the retry.
+    const at = Math.max(due ?? 0, this.failing.get(leaderId)?.retryAt ?? 0);
+    return { updating, dueAt: waiting && this.waitingEvents(topicId, leaderId).length ? at : null };
   }
 
   /**
    * When new events go to the Scribe. Events that rarely change a page ("ride") wait for the next
-   * message. The others, the user's and the leader's alike, wait for a pause of DEBOUNCE_MS, so a
-   * burst becomes one message; none waits longer than MAX_WAIT_MS.
+   * message, and new requests for a page go at once. The others, the user's and the leader's alike,
+   * wait for a pause of DEBOUNCE_MS, so a burst becomes one message; none waits longer than MAX_WAIT_MS.
    */
   private schedule(leaderId: string, timing: EventTiming): void {
     if (timing === "ride" || !this.store.isLeaderEnabled(leaderId)) return;
     const now = this.now();
+    if (timing === "now") return this.setDue(leaderId, now, false);
+    const first = this.firstPendingAt.get(leaderId) ?? now;
+    this.firstPendingAt.set(leaderId, first);
+    this.setDue(leaderId, Math.min(now + DEBOUNCE_MS, first + MAX_WAIT_MS), true);
+  }
+
+  /**
+   * Sets when the leader's waiting events go. `later` lets a new event of a burst push the time back;
+   * otherwise it only ever moves earlier.
+   */
+  private setDue(leaderId: string, due: number, later: boolean): void {
+    const now = this.now();
     // Already due (its delivery is underway or waits for the Scribe's turn to end): keep it due.
     const existing = this.dueAt.get(leaderId);
-    if (existing !== undefined && existing <= now) {
-      this.changed(leaderId);
-      return;
-    }
-    const first = this.firstPendingAt.get(leaderId) ?? now;
-    const due = Math.min(now + DEBOUNCE_MS, first + MAX_WAIT_MS);
-    this.firstPendingAt.set(leaderId, first);
-    this.dueAt.set(leaderId, due);
-    if (due <= now) {
-      this.changed(leaderId);
-      return;
-    }
+    if (existing !== undefined && existing <= now) return this.changed(leaderId);
+    const at = existing !== undefined && !later ? Math.min(due, existing) : due;
+    this.dueAt.set(leaderId, at);
+    if (at <= now) return this.changed(leaderId);
     clearTimeout(this.dueTimers.get(leaderId));
     this.dueTimers.set(
       leaderId,
-      setTimeout(() => this.changed(leaderId), due - now),
+      setTimeout(() => this.changed(leaderId), at - now),
     );
   }
 
@@ -765,8 +825,12 @@ export class TopicService {
       newTopics.length > 0 ||
       !!consolidate;
     if (!urgent) {
-      const news = topics.some((topic) => topic.events.some((event) => eventTiming(event.kind) !== "ride"));
-      if (!news && !results.length) return "nothing";
+      // Events that only ride along go too when the user has their page open (`pageViewed`).
+      const viewed = this.viewed.get(leaderId);
+      const news = topics.some(
+        (topic) => viewed?.has(topic.id) || topic.events.some((event) => eventTiming(event.kind) !== "ride"),
+      );
+      if (!news && !results.length) return this.nothingDue(leaderId);
       if ((this.dueAt.get(leaderId) ?? 0) > this.now()) return "waiting";
     }
     const text = updateMessage(
@@ -801,7 +865,8 @@ export class TopicService {
       (sessionId) => this.deps.sessionNum(sessionId),
     );
     this.forced.delete(leaderId);
-    if (!text) return "nothing";
+    this.viewed.delete(leaderId);
+    if (!text) return this.nothingDue(leaderId);
     if (!this.deps.inject(scribe, text)) return "busy";
     this.store.markDelivered(
       leaderId,
@@ -823,10 +888,7 @@ export class TopicService {
     this.store.reviewed(newTopics.map((topic) => topic.id));
     if (consolidate) this.store.setConsolidationAskedAt(leaderId, consolidate.count);
     this.stalled.delete(leaderId);
-    this.dueAt.delete(leaderId);
-    this.firstPendingAt.delete(leaderId);
-    clearTimeout(this.dueTimers.get(leaderId));
-    this.dueTimers.delete(leaderId);
+    this.clearDue(leaderId);
     const names = rewritePages
       ? this.store
           .list(leader.space)
@@ -894,6 +956,22 @@ export class TopicService {
     this.store.markForReview(topicId, leaderId);
     void this.store.flush();
     this.schedule(leaderId, "leader");
+  }
+
+  /**
+   * Nothing to send after all (the events were the Scribe's own, or no Scribe's): nothing is due,
+   * so the next event waits for its pause again instead of going at once.
+   */
+  private nothingDue(leaderId: string): DeliveryResult {
+    this.clearDue(leaderId);
+    return "nothing";
+  }
+
+  private clearDue(leaderId: string): void {
+    this.dueAt.delete(leaderId);
+    this.firstPendingAt.delete(leaderId);
+    clearTimeout(this.dueTimers.get(leaderId));
+    this.dueTimers.delete(leaderId);
   }
 
   private sent(): DeliveryResult {
@@ -1313,11 +1391,7 @@ export class TopicService {
     const alive = !!scribe && this.deps.isScribeAlive(scribe);
     const pending = this.store
       .list(leader.space)
-      .reduce(
-        (sum, topic) =>
-          sum + this.store.pendingEvents(topic.id, leaderId).filter((event) => event.kind !== "now_done").length,
-        0,
-      );
+      .reduce((sum, topic) => sum + this.waitingEvents(topic.id, leaderId).length, 0);
     const lastPageAt = this.store
       .list(leader.space)
       .filter((topic) => topic.questIds.length)

@@ -1374,7 +1374,9 @@ describe("topic service", () => {
     injected.length = 0;
 
     service.setPageRequests(topic.id, "leader", "  Keep links to the two newest reports at the top. ");
-    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    // At once, not after the few minutes' pause other news waits for: the user asked for this page
+    // now, and waited on a page that still showed the old layout (Jiayi, Nov 6).
+    await vi.advanceTimersByTimeAsync(0);
     expect(store.detail(topic.id).instructions).toBe("Keep links to the two newest reports at the top.");
     expect(injected.at(-1)?.text).toContain(
       `the user's requests for this page are now: "Keep links to the two newest reports at the top."`,
@@ -1385,6 +1387,54 @@ describe("topic service", () => {
     await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(store.detail(topic.id).instructions).toBe("Also a status table.");
     expect(injected).toEqual([]);
+  });
+
+  it("hurries the events of a page the user has open, and counts only what its Scribe gets", async () => {
+    // Jiayi (Nov 6) waited on "7 new events · Update now" and clicked it: three of the events were
+    // another leader's (whose Scribe works in another space) and four were the Scribe's own filings,
+    // none of which any Scribe would ever be sent. While a page is open (its panel asks for it every
+    // 20 seconds), its waiting events go within a few minutes of the oldest, ride-alongs included.
+    const { service, injected, store, leader } = await setupService();
+    const scribe = await enable(service, store, "leader");
+    const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true });
+    writePage(store, "T7 run");
+    await service.scribeTurnEnded(scribe);
+    injected.length = 0;
+    vi.advanceTimersByTime(1000);
+
+    service.artifactSaved({ sessionId: "leader", threadKey: "q-1", title: "Plots", kind: "figure", version: 1 });
+    service.event(topic.id, "leader", { at: Date.now(), kind: "quest_filed", questId: "q-2", byScribe: true });
+    store.addEvent(topic.id, { at: Date.now(), kind: "message", leaderId: "other", text: "elsewhere" });
+    // Alone, an artifact only rides along with the next message.
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+    expect(injected).toHaveLength(0);
+    expect(service.waitingEvents(topic.id, "leader").map((event) => event.kind)).toEqual(["artifact"]);
+    expect(service.pageUpdate("leader", topic.id)).toEqual({ updating: false, dueAt: null });
+
+    // Opening the page sends it: it has waited longer than a burst's pause already.
+    service.pageViewed("leader", topic.id);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain('figure "Plots" was saved in q-1');
+    expect(service.pageUpdate("leader", topic.id).updating).toBe(true);
+    writePage(store, "T7 run");
+    await service.scribeTurnEnded(scribe);
+    vi.advanceTimersByTime(1000);
+
+    // A steady conversation would push its message back until a pause; with the page open it goes
+    // three minutes after the first message, and the page says when.
+    const started = Date.now();
+    for (let minute = 0; minute < 3; minute += 1) {
+      leader.messageHistory.push(userMessage(`Note ${minute}`, "q-1", Date.now()));
+      service.sessionSaved("leader");
+      await vi.advanceTimersByTimeAsync(0);
+      service.pageViewed("leader", topic.id);
+      if (minute === 0) expect(service.pageUpdate("leader", topic.id).dueAt).toBe(started + 3 * 60_000);
+      await vi.advanceTimersByTimeAsync(60_000);
+    }
+    expect(injected).toHaveLength(2);
+    expect(injected[1]!.text).toContain('"Note 0"');
+    expect(injected[1]!.text).toContain('"Note 2"');
   });
 
   it("leaves the checks a finished quest left for the user with the quest", async () => {

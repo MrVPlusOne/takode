@@ -175,6 +175,11 @@ export interface TopicDetail extends TopicSummary {
   pictures?: Record<string, number>;
   /** Some of those images were redrawn after the page's text was last brought up to date with them. */
   picturesNewerThanText?: boolean;
+  /**
+   * Asked for a leader's panel (`pendingEvents` then counts that leader's events only): whether its
+   * Scribe is updating the page now, and when its waiting events go to it otherwise.
+   */
+  scribeUpdate?: { updating: boolean; dueAt: number | null };
 }
 
 /** Where a topic stands for one leader's work: one to three short lines its Scribe rewrites on every update. */

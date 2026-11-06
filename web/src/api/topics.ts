@@ -34,7 +34,9 @@ export const topicApi = {
     request<TopicListResponse>(
       `/topics?space=${encodeURIComponent(space || "all")}${leader ? `&leader=${encodeURIComponent(leader)}` : ""}`,
     ),
-  get: (id: string) => request<TopicDetail>(topicPath(id)),
+  /** A topic's page; with `leader`, as that leader's panel shows it (the server then knows it is open). */
+  get: (id: string, leader?: string | null) =>
+    request<TopicDetail>(`${topicPath(id)}${leader ? `?leader=${encodeURIComponent(leader)}` : ""}`),
   /** Starts a new thread in a leader, named `name` until the leader names it. */
   startThread: (leader: string, name: string, startedFrom?: string, firstMessage?: string, artifact?: ThreadArtifact) =>
     request<{ thread: ThreadSummary }>("/topics/threads", {

@@ -462,12 +462,22 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       });
       const detail = svc.store.detail(topicId);
       const quests = await Promise.all(detail.questIds.map((questId) => getQuest(questId)));
+      // In a leader's panel (the page asks every 20 seconds while it shows), the page counts what
+      // that leader's Scribe has yet to put on it and says when it comes; having it open hurries it.
+      const leaderId = c.req.query("leader") ? leaderFor(svc, c) : undefined;
+      if (leaderId) svc.pageViewed(leaderId, topicId);
       return {
         ...detail,
+        ...(leaderId
+          ? {
+              pendingEvents: svc.waitingEvents(topicId, leaderId).length,
+              scribeUpdate: svc.pageUpdate(leaderId, topicId),
+            }
+          : {}),
         pictures,
         picturesNewerThanText: svc.store.picturesNewerThanText(topicId),
         stands: svc.store
-          .stands(detail.id, leaderFor(svc, c))
+          .stands(detail.id, leaderId ?? leaderFor(svc, c))
           .map((stand) => ({ ...stand, leaderNum: ctx.launcher.getSessionNum(stand.leaderId) ?? null })),
         quests: quests.flatMap((quest) => (quest ? [questForPage(quest, svc)] : [])),
       };

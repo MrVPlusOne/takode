@@ -76,7 +76,7 @@ export function TopicView({
 
   const load = useCallback(() => {
     topicApi
-      .get(id)
+      .get(id, leaderId)
       .then((next) => {
         setDetail(next);
         setError(null);
@@ -86,7 +86,7 @@ export function TopicView({
           .then((list) => setArtifacts({ items: list.artifacts, total: list.total }));
       })
       .catch((reason: Error) => setError(reason.message));
-  }, [id]);
+  }, [id, leaderId]);
 
   useEffect(() => {
     if (loadedFor.current !== id) {
@@ -136,9 +136,11 @@ export function TopicView({
           leaderId={leaderId}
         />
         {lead && (
-          <p className="mt-1 text-[14px] leading-snug text-cc-muted" data-testid="topic-lead">
-            {plainText(lead)}
-          </p>
+          // The scope sentence, and any line the Scribe keeps beside it (a link the user asked for at
+          // the top): Markdown like the rest of the page, so links work and each line stays its own.
+          <div className="mt-1 [&_.markdown-body]:text-cc-muted" data-testid="topic-lead">
+            <MarkdownContent text={lead} size="md" questLinkSurface="chat-feed" />
+          </div>
         )}
         <div className="relative mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12px] text-cc-muted">
           <span className="inline-flex flex-wrap items-center gap-x-1">
@@ -154,17 +156,23 @@ export function TopicView({
             )}
             {detail.writtenAt ? <span>· page updated {clock(detail.writtenAt)}</span> : null}
           </span>
-          {detail.pendingEvents > 0 && (
-            <span>
-              · {detail.pendingEvents} new event{detail.pendingEvents === 1 ? "" : "s"} ·{" "}
-              <button
-                type="button"
-                onClick={() => act(topicApi.updateNow(detail.id, leaderId), "Updating the page…")}
-                className="text-cc-primary hover:underline"
-              >
-                Update now
-              </button>
-            </span>
+          {detail.scribeUpdate?.updating ? (
+            <span data-testid="topic-update-state">· the Scribe is updating it</span>
+          ) : (
+            detail.pendingEvents > 0 && (
+              // The Scribe picks new events up by itself; the time says when, so a click is never needed.
+              <span data-testid="topic-update-state">
+                · {detail.pendingEvents} new event{detail.pendingEvents === 1 ? "" : "s"}
+                {dueText(detail.scribeUpdate?.dueAt)} ·{" "}
+                <button
+                  type="button"
+                  onClick={() => act(topicApi.updateNow(detail.id, leaderId))}
+                  className="text-cc-primary hover:underline"
+                >
+                  Update now
+                </button>
+              </span>
+            )
           )}
         </div>
         {notice && <div className="mt-1 text-[13px] text-cc-muted">{notice}</div>}
@@ -678,6 +686,12 @@ function TopicFrame({
       {children}
     </div>
   );
+}
+
+/** When waiting events go to the Scribe, after the count: "" when no update is scheduled. */
+function dueText(dueAt: number | null | undefined): string {
+  if (dueAt === null || dueAt === undefined) return "";
+  return dueAt <= Date.now() ? " · updating shortly" : ` · updates by ${clock(dueAt)}`;
 }
 
 function clock(at: number): string {

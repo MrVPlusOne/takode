@@ -599,4 +599,21 @@ describe("topic routes", () => {
       expect((await send("/scribe/lines", "POST", { lines: [bad] })).status).toBe(400);
     }
   });
+
+  it("counts a page's new events for the panel's leader, with when its Scribe takes them up", async () => {
+    // A leader's panel shows its own Scribe's backlog: another leader's events, and a Scribe's own
+    // filings, never go to this Scribe, so counting them asked the user to click for nothing.
+    const { app, store } = await setup();
+    store.enableLeader("leader");
+    const { topic } = store.assign({ questId: "q-1", space: "MSI", name: "T7 run", by: "agent", byAgent: true });
+    store.addEvent(topic.id, { at: 10, kind: "message", leaderId: "leader", text: "mine" });
+    store.addEvent(topic.id, { at: 11, kind: "message", leaderId: "other", text: "theirs" });
+
+    const all = await (await app.request(`/topics/${topic.id}`)).json();
+    expect(all.pendingEvents).toBe(3);
+    expect(all.scribeUpdate).toBeUndefined();
+    const own = await (await app.request(`/topics/${topic.id}?leader=leader`)).json();
+    expect(own.pendingEvents).toBe(1);
+    expect(own.scribeUpdate).toEqual({ updating: false, dueAt: expect.any(Number) });
+  });
 });
