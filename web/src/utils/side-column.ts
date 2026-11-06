@@ -183,6 +183,13 @@ function asSideTarget<Item extends SideItem | SideItemInput>(input: Item): Item 
   return { ...rest, kind: "home" } as unknown as Item;
 }
 
+/**
+ * The remembered fold of the column's group: everything put in the column, above the topic page it
+ * follows. Folded, the group shows only its header row and the topic page takes the column (Jiayi,
+ * Nov 6: the topic page was below every chat).
+ */
+export const SIDE_GROUP_FOLD = "side-group";
+
 /** The remembered fold of an item of the column, or of the topic page it follows (HOME_ITEM). */
 export function sideFoldId(itemId: string): string {
   return `side:${itemId}`;
@@ -264,6 +271,8 @@ function foldBeyondOpenLimit(): void {
 
 /** Unfolds an item and scrolls the column to it. */
 function focusSideItem(id: string): void {
+  // Something put in the column shows in its group, which opens if it was folded.
+  if (id !== HOME_ITEM) setRememberedFolded(SIDE_GROUP_FOLD, false);
   unfoldSideItem(id);
   update((column) => ({ ...column, focus: id, focusAt: Date.now() }));
 }

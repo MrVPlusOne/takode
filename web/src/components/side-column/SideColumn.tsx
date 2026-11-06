@@ -1,7 +1,7 @@
 import { useShallow } from "zustand/react/shallow";
 import { Activity, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { holdSessionConnection } from "../../ws.js";
-import { useRememberedFolds } from "../../utils/remembered-folds.js";
+import { useRememberedFold, useRememberedFolds } from "../../utils/remembered-folds.js";
 import { SectionEdge, useSectionHeights } from "../StackedPanes.js";
 import { useStore } from "../../store.js";
 import {
@@ -17,6 +17,7 @@ import {
   noteSideItemUsed,
   replaceSideItem,
   unfoldSideItem,
+  SIDE_GROUP_FOLD,
   SIDE_HEIGHTS_STACK,
   sideFoldId,
   sideItemLeader,
@@ -43,7 +44,8 @@ import { getQuestLeaderSessionId } from "../../utils/quest-helpers.js";
 import { QuestInlineLink } from "../QuestInlineLink.js";
 import { THREAD_GROUP_DOT, type ThreadGroupId } from "../ThreadTabGroups.js";
 import { SideConversation } from "./SideConversation.js";
-import { NewSideChat } from "./NewSideChat.js";
+import { NewSideChat, newSideChatDraftKey } from "./NewSideChat.js";
+import { SideGroupToggleButton } from "./SideGroupToggle.js";
 import { SideChatLeaderMenu, useLeaderCard } from "./SideChatLeaders.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { SideQuest } from "./SideQuest.js";
@@ -78,11 +80,12 @@ const KEPT_MOUNTED = 3;
 const ROW_HEIGHT = 36;
 
 /**
- * The side column (Logseq's right sidebar), from the top: whatever the user put beside the
- * conversation (threads, other conversations, topic pages, artifacts), newest first, each with its
- * own leader; then the main view's leader's topics, for browsing (the topic page of the thread on
- * screen, else the list). One column for the whole app: what is in it stays when the main view
- * switches leader or session (Jiayi, Nov 1). Each section folds on its own from its header row,
+ * The side column (Logseq's right sidebar), from the top: a group of whatever the user put beside
+ * the conversation (threads, other conversations, topic pages, artifacts), newest first, each with
+ * its own leader; then the main view's leader's topics, for browsing (the topic page of the thread
+ * on screen, else the list). The group folds from the column's top row, which then says what waits
+ * in it, and the topic page takes the column (Jiayi, Nov 6: it was below every chat). One column
+ * for the whole app: what is in it stays when the main view switches leader or session (Jiayi, Nov 1). Each section folds on its own from its header row,
  * any number can be open, and the column scrolls when they don't fit. An open section's bottom edge
  * drags to set its height (Jiayi's choice, Oct 31: like Logseq, the panel scrolls rather than
  * squeezing each section). Folds and heights are remembered in this browser. On a phone it is the
@@ -101,16 +104,20 @@ export function SideColumn({
 }) {
   const { items, focus, focusAt, chatHeight, oneAtATime = false } = useSideColumn();
   const folds = useRememberedFolds();
-  const isOpen = (id: string) => !folds.isFolded(sideFoldId(id));
+  const [groupFolded, toggleGroup] = useRememberedFold(SIDE_GROUP_FOLD);
+  // A folded group shows none of its items: they are as good as folded, and their feeds unmount.
+  const isOpen = (id: string) => (id === HOME_ITEM || !groupFolded) && !folds.isFolded(sideFoldId(id));
   // Unfolding goes through the column's open limit: a fourth open conversation folds the oldest.
   const toggle = (id: string) => (isOpen(id) ? folds.toggle(sideFoldId(id)) : unfoldSideItem(id));
   const heights = useSectionHeights(SIDE_HEIGHTS_STACK);
-  const sectionIds = [...items.map((item) => item.id), ...(leaderId ? [HOME_ITEM] : [])];
-  const idsKey = sectionIds.join(",");
+  const allIds = [...items.map((item) => item.id), ...(leaderId ? [HOME_ITEM] : [])];
+  // The sections on screen, which share the column's height.
+  const sectionIds = groupFolded ? allIds.filter((id) => id === HOME_ITEM) : allIds;
+  const idsKey = allIds.join(",");
   useEffect(() => heights.keepOnly(idsKey.split(",")), [idsKey]);
   // A new thread starts as tall as the side conversation last resized (Jiayi, Nov 1): one height
   // doesn't suit everyone, and their last drag says what suits them.
-  const seenIds = useRef(new Set(sectionIds));
+  const seenIds = useRef(new Set(allIds));
   useEffect(() => {
     for (const item of items) {
       if (seenIds.current.has(item.id)) continue;
@@ -301,24 +308,31 @@ export function SideColumn({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="side-column">
+    <div className="@container/side flex h-full min-h-0 flex-col" data-testid="side-column">
       {/* As tall as the strip under the top bar, so their lines meet. */}
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-cc-border/80 px-2">
         {leaderId && (
           <button
             type="button"
-            onClick={() => openInSide(newSideChat(leaderId))}
+            onClick={() => {
+              // Opens in the group (unfolding it), at its top, ready to type.
+              openInSide(newSideChat(leaderId));
+              useStore.getState().focusComposer(newSideChatDraftKey(leaderId), { whenShown: true });
+            }}
             className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[13px] text-cc-primary hover:bg-cc-hover"
             title="Start a thread with the leader about what's on screen"
+            aria-label="New thread"
             data-testid="side-new-chat"
           >
             <NewThreadIcon className="h-4 w-4" />
-            New thread
+            {/* A narrow column keeps the icon, so the group's summary beside it fits. */}
+            <span className="hidden @[24rem]/side:inline">New thread</span>
           </button>
         )}
         <SideChatLeaderMenu mainLeaderId={leaderId} />
         <span className="flex-1" />
         <OneAtATimeToggle on={oneAtATime} />
+        {items.length > 0 && <GroupToggle items={items} folded={groupFolded} onToggle={toggleGroup} />}
         <button
           type="button"
           onClick={close}
@@ -330,10 +344,58 @@ export function SideColumn({
         </button>
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
-        {items.map(itemSection)}
+        {!groupFolded && items.length > 0 && <div data-testid="side-group">{items.map(itemSection)}</div>}
         {leaderId && itemSection(null)}
       </div>
     </div>
+  );
+}
+
+/** The group's fold button, with what waits in its chats (`SideGroupToggleButton`). */
+function GroupToggle({ items, folded, onToggle }: { items: SideItem[]; folded: boolean; onToggle: () => void }) {
+  const attention = useChatsAttention(items);
+  const questionCue = useAttentionCue(attention.questions, attention.questionsAt);
+  const unreadCue = useAttentionCue(attention.unread, attention.unreadAt);
+  const chats = items.filter(isChatItem).length;
+  return (
+    <SideGroupToggleButton
+      folded={folded}
+      onToggle={onToggle}
+      questions={attention.questions}
+      unread={attention.unread}
+      chats={chats}
+      pages={items.length - chats}
+      questionCue={questionCue}
+      unreadCue={unreadCue}
+    />
+  );
+}
+
+/** What waits in the group's chats: open questions and unread answers, and when each came last. */
+function useChatsAttention(items: SideItem[]) {
+  const keysKey = items
+    .flatMap((item) => (item.kind === "conversation" ? [`${item.leaderId}\t${item.threadKey}`] : []))
+    .join("\n");
+  return useStore(
+    useShallow((state) => {
+      const result = { questions: 0, questionsAt: 0, unread: 0, unreadAt: 0 };
+      for (const key of keysKey ? keysKey.split("\n") : []) {
+        const [leaderId = "", threadKey = ""] = key.split("\t");
+        for (const notification of state.sessionNotifications.get(leaderId) ?? []) {
+          if (notification.done) continue;
+          if (resolveNotificationOwnerThreadKey(notification) !== normalizeThreadKey(threadKey)) continue;
+          const at = notification.timestamp ?? 0;
+          if (notification.category === "needs-input") {
+            result.questions++;
+            result.questionsAt = Math.max(result.questionsAt, at);
+          } else if (notification.category === "review") {
+            result.unread++;
+            result.unreadAt = Math.max(result.unreadAt, at);
+          }
+        }
+      }
+      return result;
+    }),
   );
 }
 

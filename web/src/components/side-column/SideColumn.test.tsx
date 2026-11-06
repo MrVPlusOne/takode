@@ -32,6 +32,7 @@ vi.mock("./SideConversation.js", () => ({
   ),
 }));
 vi.mock("./NewSideChat.js", () => ({
+  newSideChatDraftKey: (leaderId: string) => `${leaderId}#side:new`,
   NewSideChat: ({ item }: { item: { startedFrom: string | null; leaderId: string } }) => (
     <div data-testid="mock-new-chat" data-leader={item.leaderId}>
       {item.startedFrom ?? "none"}
@@ -73,14 +74,21 @@ vi.mock("../../utils/leader-topics.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../utils/leader-topics.js")>()),
   useLeaderThreads: () => threads.list,
 }));
-import { closeSideItem, openInSide, replaceSideItem, useSideColumnStore } from "../../utils/side-column.js";
+import {
+  closeSideItem,
+  openInSide,
+  openTopicsInSide,
+  replaceSideItem,
+  SIDE_GROUP_FOLD,
+  useSideColumnStore,
+} from "../../utils/side-column.js";
 import { rememberThreads } from "../../utils/leader-topics.js";
 import { useLibraryNav } from "../../utils/library-nav.js";
 import { markLeaderThreadDisplayed } from "../../utils/thread-viewport.js";
 import { showMainView } from "../../utils/side-column.js";
 import { useTopicPanel } from "../../utils/topic-panel.js";
 import { useStore } from "../../store.js";
-import { isRememberedFolded } from "../../utils/remembered-folds.js";
+import { isRememberedFolded, setRememberedFolded } from "../../utils/remembered-folds.js";
 import { SideColumn } from "./SideColumn.js";
 import { focusedChat, MAIN_CHAT, sideChatId, useChatFocusStore } from "../../utils/chat-focus.js";
 
@@ -920,5 +928,94 @@ describe("SideColumn", () => {
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="sheet" />);
     fireEvent.click(screen.getByRole("button", { name: "Close the side column" }));
     expect(useTopicPanel.getState().sheet).toBe(false);
+  });
+
+  describe("the group of what was put in the column", () => {
+    // Jiayi (Nov 6): the topic page sat below every side chat, so reaching it meant scrolling past
+    // all of them. Everything put in the column is one group, folded from the column's top row; the
+    // topic page is the column's own content below it.
+    const note = (id: string, threadKey: string, category: "needs-input" | "review") => ({
+      id,
+      category,
+      summary: "",
+      timestamp: 1,
+      threadKey,
+      questId: threadKey,
+      done: false,
+    });
+    afterEach(() => useStore.setState({ sessionNotifications: new Map() } as never));
+
+    it("folds the group to its header, leaving the topic page, and remembers the fold", () => {
+      render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+      act(() => {
+        openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+        openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+      });
+      expect(screen.getAllByTestId("mock-conversation")).toHaveLength(2);
+      fireEvent.click(screen.getByTestId("side-group-toggle"));
+      // The chats leave the column (their feeds unmount, as a folded chat's do); the topic page stays.
+      expect(screen.queryByTestId("side-group")).toBeNull();
+      expect(screen.queryAllByTestId("mock-conversation")).toHaveLength(0);
+      expect(rows().map((row) => row.textContent)).toEqual(["Topics"]);
+      expect(screen.getByTestId("mock-topic-page").textContent).toBe("followed");
+      expect(isRememberedFolded(SIDE_GROUP_FOLD)).toBe(true);
+      // Each chat keeps its own fold for when the group opens again.
+      fireEvent.click(screen.getByTestId("side-group-toggle"));
+      expect(screen.getAllByTestId("mock-conversation")).toHaveLength(2);
+    });
+
+    it("says, folded, what waits in its chats and how many it holds", () => {
+      useStore.setState({
+        sessionNotifications: new Map([
+          ["l1", [note("n-1", "q-1", "needs-input"), note("n-2", "q-2", "review"), note("n-3", "q-2", "review")]],
+        ]),
+      } as never);
+      act(() => {
+        openInSide({ kind: "quest", questId: "q-9" });
+        openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+        openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+      });
+      render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+      // Open, the rows show these cues themselves.
+      expect(screen.queryByTestId("side-group-count")).toBeNull();
+      fireEvent.click(screen.getByTestId("side-group-toggle"));
+      expect(screen.getByTestId("side-group-questions")).toBeTruthy();
+      expect(screen.getByTestId("side-group-unread").textContent).toBe("2 new");
+      expect(screen.getByTestId("side-group-count").textContent).toBe("2 chats · 1 page");
+    });
+
+    it("opens a new thread at the top of a folded group, ready to type", () => {
+      setRememberedFolded(SIDE_GROUP_FOLD, true);
+      act(() => {
+        openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+      });
+      setRememberedFolded(SIDE_GROUP_FOLD, true);
+      const focusComposer = vi.spyOn(useStore.getState(), "focusComposer");
+      try {
+        render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+        expect(screen.queryByTestId("side-group")).toBeNull();
+        fireEvent.click(screen.getByTestId("side-new-chat"));
+        expect(isRememberedFolded(SIDE_GROUP_FOLD)).toBe(false);
+        expect(rows()[0]!.textContent).toContain("New thread");
+        expect(within(screen.getByTestId("side-group")).getByTestId("mock-new-chat")).toBeTruthy();
+        expect(focusComposer).toHaveBeenCalledWith("l1#side:new", { whenShown: true });
+      } finally {
+        focusComposer.mockRestore();
+      }
+    });
+
+    it("opens the group for anything put in the column, but not for the topic page", () => {
+      setRememberedFolded(SIDE_GROUP_FOLD, true);
+      render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+      act(() => {
+        openInSide({ kind: "artifact", artifactId: "a-1" });
+      });
+      expect(isRememberedFolded(SIDE_GROUP_FOLD)).toBe(false);
+      expect(screen.getByTestId("mock-artifact")).toBeTruthy();
+      // Home's Topics link shows the topic page, which is not in the group.
+      act(() => setRememberedFolded(SIDE_GROUP_FOLD, true));
+      act(() => openTopicsInSide());
+      expect(isRememberedFolded(SIDE_GROUP_FOLD)).toBe(true);
+    });
   });
 });
