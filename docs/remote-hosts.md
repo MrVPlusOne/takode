@@ -336,9 +336,11 @@ a pending permission prompt is asked again. A session whose instructions from
 Takode have changed since its process started is not taken over: its process is
 ended, and the session starts afresh with the new instructions on its next
 message. A turn the ending cut off is continued at once, as Restart Server
-continues the turns it interrupts. When the restart brings new code, the node
-is updated before anything is taken over (see [Updating Takode](#updating-takode)):
-the update ends its processes, and each session starts once, on the new build.
+continues the turns it interrupts. When the restart brings new code, Restart
+Server first interrupts the node's busy sessions and queues them to continue,
+as it does sessions without a node, and the new server updates the node before
+anything is taken over (see [Updating Takode](#updating-takode)): the update
+ends its processes, and each session starts once, on the new build.
 **Settings → Hosts** shows the
 node's status on the coordinator's own machine, the first entry. Sessions that start
 while the node is still connecting, such as just after the server starts, wait
@@ -410,7 +412,11 @@ shares no history with the coordinator's. When the update happens:
   as it is and updated as described below.
 - **After Restart Server**, every such host (and the coordinator's own node)
   updates right away, so all sessions run the new build as on a single
-  machine. Usually that happens when it connects, as above; a host updated
+  machine. Restart Server knows which connected hosts will update to the code
+  it loads, and interrupts their busy sessions before restarting, queuing them
+  to continue, as it does sessions without a node (a session that will not
+  stop blocks the restart). The update then usually happens when the host
+  reconnects, as above; a host updated
   later (it could not be updated first) has its turns in progress interrupted,
   its sessions stopped, and each interrupted session told to continue once the
   node is back (or if the update fails).

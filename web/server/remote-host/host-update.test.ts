@@ -216,6 +216,23 @@ describe("host builds and auto-update over the link", () => {
     expect(manager.updatesFirst(hostId)).toBe(false);
   });
 
+  // Restart Server asks which connected hosts the restarted server will update to
+  // the build it loads: those that let it and run another build.
+  it("names the hosts a coordinator on a given build would update", async () => {
+    agent = startAgent({ build: HOST_BUILD, update: async () => {} });
+    await waitFor(() => manager.status(hostId).online);
+    expect(manager.hostsUpdatedTo(COORDINATOR_BUILD)).toEqual([hostId]);
+    expect(manager.hostsUpdatedTo(HOST_BUILD)).toEqual([]);
+    expect(manager.hostsUpdatedTo(null)).toEqual([]);
+
+    agent.stop();
+    await waitFor(() => !manager.status(hostId).online);
+    expect(manager.hostsUpdatedTo(COORDINATOR_BUILD)).toEqual([]);
+    agent = startAgent({ build: HOST_BUILD });
+    await waitFor(() => manager.status(hostId).online);
+    expect(manager.hostsUpdatedTo(COORDINATOR_BUILD)).toEqual([]);
+  });
+
   // A host without --auto-update is never asked, however idle it is.
   it("never updates a host that did not opt in", async () => {
     manager.updateBlocker = () => null;

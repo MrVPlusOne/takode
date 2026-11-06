@@ -1453,6 +1453,8 @@ app.route(
       checkBackendStartup: () => checkBackendStartup(packageRoot),
       serverCheckout,
       updateCheckoutOnRestart: frontendRequired,
+      // The restarted server runs the commit its checkout is at now (after any update before the restart).
+      nodesUpdatedAfterRestart: async () => new Set(hostLinks.hostsUpdatedTo(await readCheckoutCommit(packageRoot))),
       restartSupported,
       buildIdentity: runtimeBuildIdentity,
       codexSidecarRegistry,

@@ -425,6 +425,18 @@ export class HostLinkManager {
   }
 
   /**
+   * The connected hosts a coordinator running `commit` would update: they let
+   * it, and run another build. Restart Server asks this about the build it is
+   * about to load, since those nodes' processes end with their update.
+   */
+  hostsUpdatedTo(commit: string | null): string[] {
+    if (!commit) return [];
+    return [...this.links]
+      .filter(([, link]) => link.online && link.socket && link.autoUpdate && link.build !== commit)
+      .map(([hostId]) => hostId);
+  }
+
+  /**
    * Whether the host is updated before this coordinator uses it: nothing is
    * taken over or started on its current instance, which the update ends.
    */

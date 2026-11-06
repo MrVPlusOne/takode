@@ -138,8 +138,8 @@ export interface LeftoverProcessSession {
  * Get a session going again whose process outlived a restart but ended before
  * it was taken over: ended for running outdated instructions, or lost when its
  * node restarted (say, updated before anything used it). Restart Server leaves
- * such processes running mid-turn, and the restored session does not know a
- * turn was under way, so a Claude turn the ending cut off is continued as if
+ * such processes running mid-turn unless their node is updated after it, and
+ * the restored session does not know a turn was under way, so a Claude turn the ending cut off is continued as if
  * Restart Server had interrupted it; delivering the continuation relaunches the
  * session. Without it the turn never ends and the session's leader never hears
  * of it. Codex keeps its unfinished turns and resumes them when relaunched, as
@@ -149,7 +149,8 @@ export function resumeAfterLeftoverProcess(
   session: LeftoverProcessSession,
   actions: { continueTurn: () => void; relaunch: () => void },
 ): "continued" | "relaunched" | null {
-  if (session.backendType !== "codex" && endsInUnfinishedTurn(session.messageHistory)) {
+  const inputWaits = session.pendingMessages.length > 0;
+  if (session.backendType !== "codex" && endsInUnfinishedTurn(session.messageHistory, inputWaits)) {
     actions.continueTurn();
     return "continued";
   }
@@ -163,9 +164,17 @@ export function resumeAfterLeftoverProcess(
   return "relaunched";
 }
 
-/** Whether the history's last turn never ended: its newest input or output came after its last result. */
-function endsInUnfinishedTurn(history: ReadonlyArray<{ type: string }>): boolean {
-  for (let index = history.length - 1; index >= 0; index--) {
+/**
+ * Whether the history's last turn never ended: its newest input or output came
+ * after its last result. Input still waiting for delivery (`inputWaits`) is in
+ * the history already but started no turn, so the turn before it decides: a
+ * session Restart Server interrupted and queued a continuation for is not
+ * continued twice.
+ */
+function endsInUnfinishedTurn(history: ReadonlyArray<{ type: string }>, inputWaits: boolean): boolean {
+  let index = history.length - 1;
+  if (inputWaits) while (index >= 0 && history[index].type === "user_message") index--;
+  for (; index >= 0; index--) {
     const type = history[index].type;
     if (type === "result") return false;
     if (type === "user_message" || type === "assistant") return true;

@@ -50,6 +50,12 @@ export interface RouteContext {
      * their working tree as it is.
      */
     updateCheckoutOnRestart?: boolean;
+    /**
+     * The hosts whose node the restarted server will update right away (they
+     * run another build than the one the restart loads), so their processes
+     * end; Restart Server interrupts and continues their busy sessions first.
+     */
+    nodesUpdatedAfterRestart?: () => Promise<ReadonlySet<string>>;
     restartSupported?: boolean;
     buildIdentity?: TakodeRuntimeBuildIdentity;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;

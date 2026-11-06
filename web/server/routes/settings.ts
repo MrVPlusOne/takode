@@ -96,6 +96,7 @@ import {
 } from "../../shared/scribe-context-limit.js";
 
 const restartLog = createLogger("server-restart");
+const NO_HOSTS: ReadonlySet<string> = new Set();
 
 export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -164,12 +165,19 @@ export function createSettingsRoutes(ctx: RouteContext) {
     getRestartPrepOperationSnapshot: (operationId: string) => RestartPrepOperationSnapshot | null;
   }
 
-  function getRestartBlockingSessions(): RestartBlockingSession[] {
+  /**
+   * The sessions a restart must interrupt first. `updatedNodes` are the hosts
+   * whose node the restarted server updates right away, ending its processes.
+   */
+  function getRestartBlockingSessions(updatedNodes: ReadonlySet<string> = NO_HOSTS): RestartBlockingSession[] {
     return launcher.listSessions().flatMap((sessionInfo, originalIndex) => {
       if (sessionInfo.state === "exited") return [];
       // Its host's node (or this machine's) keeps the process running through
-      // the restart, and the next server takes it over.
-      if (processHostOf(sessionInfo)) return [];
+      // the restart, and the next server takes it over, unless it updates that
+      // node first: then the session is interrupted and continued like one
+      // without a node, rather than cut off by the update.
+      const nodeHost = processHostOf(sessionInfo);
+      if (nodeHost && !updatedNodes.has(nodeHost)) return [];
       const bridgeSession = wsBridge.getSession(sessionInfo.sessionId);
       if (!bridgeSession) return [];
 
@@ -380,14 +388,15 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
   async function waitForRestartReadiness(
     timeoutMs: number,
+    updatedNodes: ReadonlySet<string> = NO_HOSTS,
   ): Promise<{ timedOut: boolean; blockers: RestartBlockingSession[] }> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const blockers = getRestartBlockingSessions();
+      const blockers = getRestartBlockingSessions(updatedNodes);
       if (blockers.length === 0) return { timedOut: false, blockers: [] };
       await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
     }
-    const blockers = getRestartBlockingSessions();
+    const blockers = getRestartBlockingSessions(updatedNodes);
     return { timedOut: blockers.length > 0, blockers };
   }
 
@@ -395,6 +404,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
     initialBlockers: RestartBlockingSession[],
     operationId: string | null,
     timeoutMs: number,
+    updatedNodes: ReadonlySet<string> = NO_HOSTS,
   ): Promise<{
     interrupted: RestartPrepResult["interrupted"];
     skipped: RestartPrepResult["skipped"];
@@ -417,7 +427,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       for (const item of result.skipped) skipped.set(`${item.sessionId}:${item.detail}`, item);
       latestFailures = result.failures;
 
-      const readiness = await waitForRestartReadiness(attemptWaitMs);
+      const readiness = await waitForRestartReadiness(attemptWaitMs, updatedNodes);
       timedOut ||= readiness.timedOut;
       blockers = readiness.blockers;
       retryAttempts.push({
@@ -705,7 +715,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
       }
 
       // Block restart while sessions are still holding the restart readiness gate.
-      const busySessions = getRestartBlockingSessions();
+      const updatedNodes = (await options.nodesUpdatedAfterRestart?.()) ?? NO_HOSTS;
+      const busySessions = getRestartBlockingSessions(updatedNodes);
       if (busySessions.length > 0) {
         restartLog.info("Stopping sessions that block restart", {
           sessions: busySessions.map((session) => session.label),
@@ -713,12 +724,12 @@ export function createSettingsRoutes(ctx: RouteContext) {
         const timeoutMs = restartPrepTimeoutMs;
         const operationId = beginRestartPrepOperation(busySessions, "restart", timeoutMs);
         const protectedLeaders = getProtectedLeaders(busySessions);
-        const prep = await runRestartPrepAttempts(busySessions, operationId, timeoutMs);
+        const prep = await runRestartPrepAttempts(busySessions, operationId, timeoutMs, updatedNodes);
         const fallback = await applyCodexRestartPrepFallbacks(prep.blockers, operationId);
         const fallbackSessionIds = new Set(fallback.fallbacks.map((item) => item.sessionId));
         const readiness =
           fallback.fallbacks.length > 0
-            ? await waitForRestartReadiness(1)
+            ? await waitForRestartReadiness(1, updatedNodes)
             : { timedOut: false, blockers: prep.blockers };
         const failures = [...(readiness.blockers.length > 0 ? prep.failures : []), ...fallback.failures];
         if (readiness.blockers.length > 0 || failures.length > 0) {

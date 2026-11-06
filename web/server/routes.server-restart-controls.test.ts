@@ -40,6 +40,7 @@ import { getSettings } from "./settings-manager.js";
 import type { PermissionRequest } from "./session-types.js";
 import { WsBridge } from "./ws-bridge.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
+import { LOCAL_HOST_ID } from "./remote-host/host-registry.js";
 import type { ServerCheckout, ServerCheckoutStatus, ServerCheckoutUpdate } from "./server-checkout.js";
 
 type TestClaudeAdapter = {
@@ -419,9 +420,56 @@ describe("server restart controls", () => {
     expect(requestRestart).toHaveBeenCalledOnce();
   });
 
+  // A node the restarted server updates right away ends its processes, so their
+  // busy sessions are interrupted and queued for continuation first, like
+  // sessions without a node, instead of being cut off by the update with what
+  // they did meanwhile lost to the feed. Sessions on a node that is not updated
+  // keep running as before.
+  it("interrupts and continues the sessions of a node the restarted server updates", async () => {
+    const nodesUpdatedAfterRestart = vi.fn(async () => new Set([LOCAL_HOST_ID]));
+    const restartApp = new Hono();
+    restartApp.route(
+      "/api",
+      createSettingsRoutes({
+        launcher,
+        wsBridge: bridge,
+        sessionStore: { directory: tempDir },
+        options: { requestRestart, prepareRestart, nodesUpdatedAfterRestart },
+        pushoverNotifier: undefined,
+      } as any),
+    );
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "remote-worker", state: "connected", name: "Remote worker", hostId: "host-1" },
+      { sessionId: "local-node-worker", state: "connected", name: "Local node worker", hostProcId: "proc-1" },
+    ]);
+    attachBlockingSession("remote-worker", { isGenerating: true });
+    attachBlockingSession("local-node-worker", { isGenerating: true });
+    const originalInterruptSession = bridge.interruptSession.bind(bridge);
+    vi.spyOn(bridge, "interruptSession").mockImplementation(async (...args) => {
+      const routed = await originalInterruptSession(...args);
+      const session = bridge.getSession(args[0]);
+      if (session) session.isGenerating = false;
+      return routed;
+    });
+
+    const res = await restartApp.request("/api/server/restart", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      restartRequested: true,
+      interrupted: [{ sessionId: "local-node-worker", label: "Local node worker", reasons: ["running"] }],
+    });
+    expect(bridge.getSession("remote-worker")?.isGenerating).toBe(true);
+    const plan = JSON.parse(await readFile(join(tempDir, "restart-continuations.json"), "utf-8"));
+    expect(plan.sessions).toEqual([{ sessionId: "local-node-worker", label: "Local node worker" }]);
+    expect(requestRestart).toHaveBeenCalledOnce();
+  });
+
   // Host sessions keep running through the restart; the request tells the next
-  // server to update their hosts right away, which interrupts and continues
-  // their turns then. A restart that does not happen leaves no request.
+  // server to update their hosts right away. A restart that does not happen
+  // leaves no request.
   it("asks the next server to update hosts right away only when the restart goes ahead", async () => {
     const requestFile = join(tempDir, "restart-host-updates.json");
     prepareRestart.mockRejectedValueOnce(new Error("Vite build failed"));

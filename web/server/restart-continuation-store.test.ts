@@ -204,6 +204,29 @@ describe("restart-continuation-store", () => {
       expect(continueTurn).not.toHaveBeenCalled();
     });
 
+    // Input queued while the session waited for its node is in its history already. It
+    // started no turn, so only the turn before it decides whether a continuation is needed:
+    // a session Restart Server interrupted, then queued its continuation for, only relaunches
+    // to deliver it, while a cut-off turn with a herd event queued after it is still continued.
+    it("judges the turn before input that waits for delivery", () => {
+      const interrupted = run(
+        idleSession({
+          messageHistory: [{ type: "user_message" }, { type: "result" }, { type: "user_message" }],
+          pendingMessages: ["restart continuation"],
+        }),
+      );
+      expect(interrupted.outcome).toBe("relaunched");
+      expect(interrupted.continueTurn).not.toHaveBeenCalled();
+
+      const cutOff = run(
+        idleSession({
+          messageHistory: [{ type: "user_message" }, { type: "assistant" }, { type: "user_message" }],
+          pendingMessages: ["herd event"],
+        }),
+      );
+      expect(cutOff.outcome).toBe("continued");
+    });
+
     it("relaunches Codex for its unfinished turns, which it resumes itself", () => {
       // Codex persists its turns, so a continuation message would duplicate the resumed turn.
       const codex = (pendingCodexTurns: Array<{ status?: string }>) =>
