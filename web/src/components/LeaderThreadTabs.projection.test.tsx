@@ -20,6 +20,7 @@ import { MessageFeed } from "./MessageFeed.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 import { listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
+import { rememberThreadNumbers, resetThreadNumbersForTest } from "../../shared/topic-thread-key.js";
 
 const mockSendToSession = vi.hoisted(() => vi.fn(() => true));
 
@@ -115,6 +116,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   useStore.getState().reset();
+  resetThreadNumbersForTest();
 });
 
 describe("leader thread tabs projected component behavior", () => {
@@ -679,6 +681,62 @@ describe("leader thread tabs projected component behavior", () => {
     render(<MessageFeed sessionId="leader" threadKey="all" />);
     expect(screen.queryByLabelText("Thread Ready for Main: main result ready")).toBeNull();
     expect(screen.queryByTestId("turn-thread-status-footer")).toBeNull();
+  });
+
+  it("shows a plain thread's projected status in that thread's feed", () => {
+    // A thread that is not a quest (t-147, keyed by its topic handle) has no tab; its
+    // Thread Waiting status must still reach its own feed, labeled by its t-N address.
+    rememberThreadNumbers([[147, "9c206818-47dd-43c5-9ac3-ed7d439d86ad"]]);
+    const waiting = {
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "topic:9c206818",
+      summary: "numbers coming; cap question open",
+      messageId: "a-thread-waiting",
+      timestamp: 3,
+      updatedAt: 3,
+    };
+    installLeaderProjection(createLeaderThreadTabsProjectionValue({ threadStatuses: { "topic:9c206818": waiting } }));
+    const threadRefs = [{ threadKey: "topic:9c206818", source: "explicit" as const }];
+    const messages: ChatMessage[] = [
+      {
+        id: "u-thread",
+        role: "user",
+        content: "how do context limits matter?",
+        timestamp: 1,
+        historyIndex: 0,
+        metadata: { threadKey: "topic:9c206818", threadRefs },
+      },
+      {
+        id: "a-thread-waiting",
+        role: "assistant",
+        content: "I asked the worker for the real numbers.",
+        timestamp: 3,
+        historyIndex: 1,
+        metadata: { threadKey: "topic:9c206818", threadRefs, threadStatusMarkers: [waiting] },
+      },
+    ];
+    useStore.getState().setThreadWindow(
+      "leader",
+      "topic:9c206818",
+      {
+        thread_key: "topic:9c206818",
+        from_item: 0,
+        item_count: 2,
+        total_items: 2,
+        has_older_items: false,
+        has_newer_items: false,
+        source_history_length: 2,
+        section_item_count: 10,
+        visible_item_count: 2,
+      },
+      messages,
+    );
+
+    render(<MessageFeed sessionId="leader" threadKey="t-147" />);
+
+    expect(screen.getByText("I asked the worker for the real numbers.")).toBeTruthy();
+    expect(screen.getByLabelText("Thread Waiting for thread:t-147: numbers coming; cap question open")).toBeTruthy();
   });
 
   it("uses projected Ready status for collapse policy and honors an explicit status clear", () => {

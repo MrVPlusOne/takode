@@ -1,5 +1,6 @@
 import {
   LEADER_THREAD_TABS_PROJECTION,
+  LEADER_THREAD_TABS_PROJECTION_MAX_PLAIN_THREAD_STATUSES,
   isLeaderThreadTabsProjectionValue,
   reconcileLeaderThreadTabsProjectionValue,
   type LeaderThreadTabsProjectionAttention,
@@ -18,6 +19,7 @@ import { isInMotionLeaderThreadTabRow } from "../../shared/leader-thread-tab-pri
 import { normalizeLeaderOpenThreadKeys, normalizeLeaderThreadKey } from "../../shared/leader-open-thread-tabs.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import type { BoardRowData } from "../components/BoardTable.js";
 import type { QuestmasterTask, SessionAttentionRecord } from "../types.js";
 
@@ -302,6 +304,14 @@ function relevantThreadStatuses(
       label: status.kind === "waiting" ? "Thread Waiting" : "Thread Ready",
       ...(key === "main" ? { questId: undefined } : { questId: status.questId ?? key }),
     };
+  }
+  // Like the server, plain threads (`topic:<handle>`) send their newest statuses without a tab.
+  const plainThreadStatuses = Object.entries(source)
+    .filter(([key]) => isTopicViewKey(key))
+    .sort(([, left], [, right]) => (right.updatedAt || right.timestamp) - (left.updatedAt || left.timestamp))
+    .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_PLAIN_THREAD_STATUSES);
+  for (const [key, status] of plainThreadStatuses) {
+    result[key] = { ...status, threadKey: key, label: status.kind === "waiting" ? "Thread Waiting" : "Thread Ready" };
   }
   return result;
 }

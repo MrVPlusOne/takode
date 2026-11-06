@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
-import { threadStatusKey } from "../../shared/thread-status-marker.js";
+import { threadAddress } from "../../shared/topic-thread-key.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import { WaitingWorkerPreview, type WaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 
@@ -12,13 +12,13 @@ export function getVisibleCurrentThreadStatuses(
   const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
   if (isAllThreadsKey(normalizedCurrentThread)) return [];
   const visible = Object.entries(currentStatuses).flatMap(([entryKey, status]) => {
-    const key = threadStatusKey(status.threadKey || entryKey);
+    const key = normalizeThreadKey(status.threadKey || entryKey);
     return key === normalizedCurrentThread ? [status] : [];
   });
   return visible.sort(
     (a, b) =>
       (a.updatedAt || a.timestamp) - (b.updatedAt || b.timestamp) ||
-      threadStatusKey(a.threadKey).localeCompare(threadStatusKey(b.threadKey)),
+      normalizeThreadKey(a.threadKey).localeCompare(normalizeThreadKey(b.threadKey)),
   );
 }
 
@@ -52,8 +52,8 @@ function ThreadStatusMetadata({
         const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
         const selectable =
           !!onSelectThread && !isAllThreadsKey(normalizedCurrentThread) && status.threadKey !== normalizedCurrentThread;
-        const destinationLabel = status.threadKey === "main" ? "Main" : status.threadKey;
-        const accessibleDestinationLabel = status.threadKey === "main" ? "Main" : `thread:${status.threadKey}`;
+        const destinationLabel = status.threadKey === "main" ? "Main" : threadAddress(status.threadKey);
+        const accessibleDestinationLabel = status.threadKey === "main" ? "Main" : `thread:${destinationLabel}`;
         const content = (
           <>
             <span

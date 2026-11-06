@@ -2,6 +2,7 @@ import type { LeaderActivePhaseSummarySegment } from "./leader-active-phase-summ
 import { LEADER_OPEN_THREAD_TABS_VERSION } from "./leader-open-thread-tabs.js";
 import type { QuestJourneyDurationSummary, QuestJourneyLifecycleMode, QuestJourneyPhaseId } from "./quest-journey.js";
 import { THREAD_STATUS_MESSAGE_ID_HASH_LENGTH, type LeaderThreadStatus } from "./thread-status-marker.js";
+import { normalizeTopicKey } from "./topic-thread-key.js";
 import {
   isBoundedNullableString,
   isBoundedString,
@@ -20,7 +21,13 @@ import {
 export const LEADER_THREAD_TABS_PROJECTION = "leader-thread-tabs" as const;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES = 64 * 1024;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_TABS = 50;
-export const LEADER_THREAD_TABS_PROJECTION_MAX_STATUSES = LEADER_THREAD_TABS_PROJECTION_MAX_TABS + 1;
+/**
+ * Statuses of the leader's threads that are not quests (`topic:<handle>`). They have no tab, so
+ * only the most recently updated ones are sent, on top of Main's and the quest tabs'.
+ */
+export const LEADER_THREAD_TABS_PROJECTION_MAX_PLAIN_THREAD_STATUSES = 20;
+export const LEADER_THREAD_TABS_PROJECTION_MAX_STATUSES =
+  LEADER_THREAD_TABS_PROJECTION_MAX_TABS + 1 + LEADER_THREAD_TABS_PROJECTION_MAX_PLAIN_THREAD_STATUSES;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_ACTIVE_PHASE_SEGMENTS = 16;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH = 80;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH = 160;
@@ -353,7 +360,7 @@ export function isLeaderThreadTabsProjectionValue(value: unknown): value is Lead
       ([key, status]) =>
         !isBoundedString(key, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) ||
         key !== key.trim().toLowerCase() ||
-        (key !== "main" && !/^q-\d+$/.test(key)) ||
+        (key !== "main" && !/^q-\d+$/.test(key) && normalizeTopicKey(key) !== key) ||
         !isThreadStatus(status, key),
     )
   ) {
