@@ -19,7 +19,7 @@ import { HOST_LINK_FEATURES, HostLinkCodec, processBytes, processData } from "./
 import { LOCAL_HOST_ID } from "./host-registry.js";
 import { shortCommit } from "./host-update.js";
 import { formatLeaseWaitDuration as formatDuration } from "../../shared/resource-lease-message.js";
-import type { HostUpdateMode } from "./host-update-sessions.js";
+import type { HostUpdateMode, HostUpdateTiming } from "./host-update-sessions.js";
 import type { CrowdedDirectory } from "../../shared/crowded-directories.js";
 
 /**
@@ -154,6 +154,14 @@ interface HostLink {
   updateSent: boolean;
   /** When the update was sent, for {@link HOST_UPDATE_RESTART_TIMEOUT_MS}. */
   updateSentAt: number;
+  /**
+   * The host's current instance connected on another build when it could be
+   * updated at once, so it is updated before anything uses it: its processes
+   * are not taken over and commands wait for its next instance, as after
+   * {@link updateSent}. Otherwise sessions would load their histories to take
+   * over processes, and again after the update ended them.
+   */
+  updateFirst: boolean;
   /** This coordinator already sent the host an immediate update; later ones wait for idle. */
   immediateUpdateSent: boolean;
   updateError: string | null;
@@ -207,7 +215,7 @@ export class HostLinkManager {
    * What updating a host must wait for now (see {@link HostUpdateSessions.blocker}),
    * or null when it may update. Without it hosts are never auto-updated.
    */
-  updateBlocker: ((hostId: string, mode: HostUpdateMode) => string | null) | null = null;
+  updateBlocker: ((hostId: string, mode: HostUpdateMode, timing?: HostUpdateTiming) => string | null) | null = null;
   /**
    * Get the host's sessions ready just before an update restarts it. The
    * restart ends every process there; stopped first, the sessions relaunch on
@@ -275,7 +283,7 @@ export class HostLinkManager {
         link && this.wantsUpdate(link) && link.updateRequested !== this.build
           ? link.preparing
             ? "the new code has reached it"
-            : (this.updateBlocker?.(hostId, this.updateMode(link)) ?? null)
+            : this.currentUpdateBlocker(hostId, link)
           : null,
       commandOverrides: { ...link?.commandOverrides },
       crowdedDirectories: link?.crowdedDirectories ?? [],
@@ -358,7 +366,7 @@ export class HostLinkManager {
     const link = this.links.get(hostId);
     if (!link?.online || !link.socket) return Promise.reject(new HostUnavailableError(hostId));
     // Its launch would be prepared on the instance that is about to end.
-    if (request.kind === "prepare_codex" && link.updateSent) {
+    if (request.kind === "prepare_codex" && this.holdsCommands(link)) {
       return Promise.reject(new Error(`Host ${hostId} is restarting for an update`));
     }
     const socket = link.socket;
@@ -396,7 +404,7 @@ export class HostLinkManager {
   startBlocker(hostId: string): string | null {
     const link = this.links.get(hostId);
     if (!link?.online || !link.socket) return "is offline";
-    if (link.updateSent) return "is restarting for a Takode update; try again once it is back";
+    if (this.holdsCommands(link)) return "is restarting for a Takode update; try again once it is back";
     return null;
   }
 
@@ -410,12 +418,25 @@ export class HostLinkManager {
     link.updateError = error;
     console.warn(`[host-link] Host ${hostId} could not update to ${shortCommit(link.updateRequested ?? "")}: ${error}`);
     link.updateSent = false;
-    if (link.online && link.socket) {
-      for (const queued of link.unacked)
-        this.send(link.socket, { t: "command", seq: queued.seq, command: queued.command });
-    }
+    link.updateFirst = false;
+    this.sendHeldCommands(link);
     this.onHostRestarted?.(hostId);
     this.notifyStatus(hostId);
+  }
+
+  /**
+   * Whether the host is updated before this coordinator uses it: nothing is
+   * taken over or started on its current instance, which the update ends.
+   */
+  updatesFirst(hostId: string): boolean {
+    return this.links.get(hostId)?.updateFirst ?? false;
+  }
+
+  /** Send the host what waited for an update that is not coming; a host ignores commands it already applied. */
+  private sendHeldCommands(link: HostLink): void {
+    if (!link.online || !link.socket || this.holdsCommands(link)) return;
+    for (const queued of link.unacked)
+      this.send(link.socket, { t: "command", seq: queued.seq, command: queued.command });
   }
 
   /** Send a host its current machine settings, e.g. after they changed. A host that is away gets them when it connects. */
@@ -603,6 +624,11 @@ export class HostLinkManager {
       link.mismatchWarned = false;
       link.commandOverrides = { ...hello.commandOverrides };
       link.crowdedDirectories = hello.crowdedDirectories ?? [];
+      // Decided before the host counts as online, when sessions would start taking over its processes.
+      link.updateFirst =
+        this.updateBlocker !== null &&
+        this.wantsUpdate(link, { connecting: true }) &&
+        this.currentUpdateBlocker(hostId, link, true) === null;
     }
     if (hello.homeDir) link.homeDir = hello.homeDir;
     link.lastStartAt = this.now();
@@ -627,7 +653,7 @@ export class HostLinkManager {
     // Applied sequence numbers only mean something for commands this coordinator instance numbered.
     const applied = hello.appliedFrom === this.instanceId ? hello.appliedCommandSeq : 0;
     for (const queued of link.unacked) {
-      if (queued.seq > applied && !link.updateSent)
+      if (queued.seq > applied && !this.holdsCommands(link))
         this.send(socket, { t: "command", seq: queued.seq, command: queued.command });
     }
     // The node is back without restarting while its update is outstanding. If
@@ -639,6 +665,7 @@ export class HostLinkManager {
     }
     this.setOnline(hostId, link, true);
     if (restarted) this.onHostRestarted?.(hostId);
+    if (link.updateFirst) this.maybeUpdate(hostId, link);
   }
 
   /** Whether the host runs a build other than this coordinator's, or one it does not report. */
@@ -651,13 +678,38 @@ export class HostLinkManager {
     return `host ${hostId} runs ${hostBuild} and this server runs ${shortCommit(this.build ?? "")}`;
   }
 
-  /** Whether the host is one this coordinator should update: connected, opted in and on another build. */
-  private wantsUpdate(link: HostLink): boolean {
-    return Boolean(link.online && link.socket && link.autoUpdate && this.build && this.buildMismatch(link));
+  /**
+   * Whether the host is one this coordinator should update: connected (or
+   * just saying hello), opted in and on another build.
+   */
+  private wantsUpdate(link: HostLink, options: { connecting?: boolean } = {}): boolean {
+    const connected = link.socket && (link.online || options.connecting);
+    return Boolean(connected && link.autoUpdate && this.build && this.buildMismatch(link));
   }
 
   private updateMode(link: HostLink): HostUpdateMode {
     return this.immediateUpdates && !link.immediateUpdateSent ? "immediate" : "when_idle";
+  }
+
+  /** Whether commands wait for the host's next instance, because the current one is about to restart for an update. */
+  private holdsCommands(link: HostLink): boolean {
+    return link.updateSent || link.updateFirst;
+  }
+
+  /** What updating the host must wait for now, or null; an update that comes first is not held up by takeovers. */
+  private currentUpdateBlocker(hostId: string, link: HostLink, updateFirst = link.updateFirst): string | null {
+    return this.updateBlocker?.(hostId, this.updateMode(link), { beforeTakeover: updateFirst }) ?? null;
+  }
+
+  /**
+   * The host is no longer updated before it is used (something the update must
+   * wait for began, or it could not get ready): what waited is sent to it, and
+   * sessions take over their processes there.
+   */
+  private useBeforeUpdate(hostId: string, link: HostLink): void {
+    link.updateFirst = false;
+    this.sendHeldCommands(link);
+    this.notifyStatus(hostId);
   }
 
   /**
@@ -673,8 +725,12 @@ export class HostLinkManager {
     if (!this.wantsUpdate(link) || link.updateRequested === this.build || link.preparing) return;
     const mode = this.updateMode(link);
     const settleMs = mode === "immediate" ? HOST_IMMEDIATE_UPDATE_SETTLE_MS : HOST_UPDATE_SETTLE_MS;
-    if (this.now() - link.lastStartAt < settleMs) return;
-    if (!this.updateBlocker || this.updateBlocker(hostId, mode) !== null) return;
+    // Nothing started on a host updated first.
+    if (!link.updateFirst && this.now() - link.lastStartAt < settleMs) return;
+    if (!this.updateBlocker || this.currentUpdateBlocker(hostId, link) !== null) {
+      if (link.updateFirst) this.useBeforeUpdate(hostId, link);
+      return;
+    }
     const commit = this.build!;
     if (link.preparesUpdates && link.preparedCommit !== commit) {
       void this.prepareUpdate(hostId, link, commit);
@@ -684,7 +740,10 @@ export class HostLinkManager {
     link.updateRequested = commit;
     link.updateError = null;
     console.log(`[host-link] Updating host ${hostId} to ${shortCommit(commit)}${mode === "immediate" ? " now" : ""}`);
-    void Promise.resolve(this.prepareHostUpdate?.(hostId, mode) ?? true)
+    // A host updated first runs nothing of this coordinator's to stop or interrupt; its sessions
+    // still wait to take over the processes the update ends, and start afresh after it.
+    const prepared = link.updateFirst ? true : this.prepareHostUpdate?.(hostId, mode);
+    void Promise.resolve(prepared ?? true)
       .catch((error) => {
         console.warn(`[host-link] Could not stop the sessions on host ${hostId} before updating it:`, error);
         return true;
@@ -694,6 +753,12 @@ export class HostLinkManager {
         if (link.hostInstanceId !== instanceId || link.updateRequested !== commit) return;
         if (!ready || !link.online || !link.socket) {
           link.updateRequested = null;
+          return;
+        }
+        // Checked again at the last moment: a landing run may have started there meanwhile.
+        if (link.updateFirst && this.currentUpdateBlocker(hostId, link) !== null) {
+          link.updateRequested = null;
+          this.useBeforeUpdate(hostId, link);
           return;
         }
         if (mode === "immediate") link.immediateUpdateSent = true;
@@ -744,6 +809,10 @@ export class HostLinkManager {
       link.updateRequested = commit;
       link.updateError = failure;
       console.warn(`[host-link] Host ${hostId} could not get ready to update to ${shortCommit(commit)}: ${failure}`);
+      if (link.updateFirst) {
+        this.useBeforeUpdate(hostId, link);
+        return;
+      }
     }
     this.notifyStatus(hostId);
     if (link.preparedCommit === commit) this.maybeUpdate(hostId, link);
@@ -806,7 +875,7 @@ export class HostLinkManager {
   private enqueue(link: HostLink, command: HostCommand): void {
     const queued = { seq: link.nextCommandSeq++, command };
     link.unacked.push(queued);
-    if (link.online && link.socket && !link.updateSent)
+    if (link.online && link.socket && !this.holdsCommands(link))
       this.send(link.socket, { t: "command", seq: queued.seq, command });
   }
 
@@ -832,6 +901,7 @@ export class HostLinkManager {
         updateRequested: null,
         updateSent: false,
         updateSentAt: 0,
+        updateFirst: false,
         immediateUpdateSent: false,
         updateError: null,
         mismatchWarned: false,

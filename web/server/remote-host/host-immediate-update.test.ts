@@ -33,6 +33,7 @@ describe("immediate host updates after Restart Server", () => {
   let clock = 0;
   let modes: HostUpdateMode[] = [];
   let updates: string[] = [];
+  let landingRun = false;
 
   function startAgent(options: { build: string; update?: (commit: string) => Promise<void> }): HostAgent {
     const agent = new HostAgent({
@@ -59,6 +60,19 @@ describe("immediate host updates after Restart Server", () => {
     (manager as unknown as { tick(): void }).tick();
   }
 
+  /**
+   * Connect a host that sessions use before it is updated: a landing run is
+   * under way there when it connects, so the update cannot come first, and
+   * the run finishes right after.
+   */
+  async function connectInUse(options: Parameters<typeof startAgent>[0]): Promise<HostAgent> {
+    landingRun = true;
+    const agent = startAgent(options);
+    await waitFor(() => manager.status(hostId).online);
+    landingRun = false;
+    return agent;
+  }
+
   /** Every message the coordinator sends the current link from now on. */
   function recordSent(): () => CoordinatorToHost[] {
     const current = link!;
@@ -72,9 +86,11 @@ describe("immediate host updates after Restart Server", () => {
     updates = [];
     manager = new HostLinkManager({ build: COORDINATOR_BUILD, now: () => clock });
     manager.immediateUpdates = true;
+    landingRun = false;
     // Sessions are "in turns": a non-immediate update would wait.
     manager.updateBlocker = (_host, mode) => {
       modes.push(mode);
+      if (landingRun) return "the landing run there finishes";
       return mode === "immediate" ? null : "its sessions finish their turns";
     };
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -90,8 +106,7 @@ describe("immediate host updates after Restart Server", () => {
   // The update goes out after a short settle even though sessions are in
   // turns; afterwards the host reports which update it is waiting for.
   it("updates a busy host shortly after it connects", async () => {
-    startAgent({ build: HOST_BUILD });
-    await waitFor(() => manager.status(hostId).online);
+    await connectInUse({ build: HOST_BUILD });
     expect(manager.status(hostId).updateWaitingFor).toBeNull();
 
     tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS - 1);
@@ -110,15 +125,13 @@ describe("immediate host updates after Restart Server", () => {
   it("updates each host immediately only once", async () => {
     const restarted: string[] = [];
     manager.onHostRestarted = (host) => restarted.push(host);
-    const first = startAgent({ build: HOST_BUILD });
-    await waitFor(() => manager.status(hostId).online);
+    const first = await connectInUse({ build: HOST_BUILD });
     tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
     await waitFor(() => updates.length === 1);
 
     first.stop();
     await waitFor(() => !manager.status(hostId).online);
-    startAgent({ build: HOST_BUILD });
-    await waitFor(() => manager.status(hostId).online);
+    await connectInUse({ build: HOST_BUILD });
     // The node restarted: interrupted turns may go on.
     expect(restarted).toEqual([hostId]);
     expect(manager.status(hostId).updateWaitingFor).toBe("its sessions finish their turns");
@@ -133,8 +146,7 @@ describe("immediate host updates after Restart Server", () => {
   it("tries again when the sessions could not be got ready", async () => {
     let ready = false;
     manager.prepareHostUpdate = async () => ready;
-    startAgent({ build: HOST_BUILD });
-    await waitFor(() => manager.status(hostId).online);
+    await connectInUse({ build: HOST_BUILD });
 
     tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
     await waitFor(() => !manager.status(hostId).updating);
@@ -148,8 +160,7 @@ describe("immediate host updates after Restart Server", () => {
   // A session relaunched while the node is restarting would start on the old
   // node and end with it, so its spawn waits for the new instance.
   it("holds commands while the node restarts and sends them to its next instance", async () => {
-    const old = startAgent({ build: HOST_BUILD });
-    await waitFor(() => manager.status(hostId).online);
+    const old = await connectInUse({ build: HOST_BUILD });
     tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
     await waitFor(() => updates.length === 1);
 
@@ -170,7 +181,7 @@ describe("immediate host updates after Restart Server", () => {
 
     old.stop();
     await waitFor(() => !manager.status(hostId).online);
-    startAgent({ build: COORDINATOR_BUILD });
+    await connectInUse({ build: COORDINATOR_BUILD });
     await waitFor(() => output === "new build");
     expect(manager.status(hostId)).toMatchObject({ buildMismatch: false, updating: false });
   });
@@ -181,11 +192,10 @@ describe("immediate host updates after Restart Server", () => {
     const restarted: string[] = [];
     manager.onHostRestarted = (host) => restarted.push(host);
     let failUpdate = (_error: Error) => {};
-    startAgent({
+    await connectInUse({
       build: HOST_BUILD,
       update: () => new Promise<void>((_resolve, reject) => (failUpdate = reject)),
     });
-    await waitFor(() => manager.status(hostId).online);
     tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
     await waitFor(() => manager.status(hostId).updating);
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -226,11 +236,10 @@ describe("immediate host updates after Restart Server", () => {
     const restarted: string[] = [];
     manager.onHostRestarted = (host) => restarted.push(host);
     const attempts: Array<(error: Error) => void> = [];
-    startAgent({
+    await connectInUse({
       build: HOST_BUILD,
       update: () => new Promise<void>((_resolve, reject) => attempts.push(reject)),
     });
-    await waitFor(() => manager.status(hostId).online);
     tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
     await waitFor(() => attempts.length === 1);
 
@@ -252,8 +261,7 @@ describe("immediate host updates after Restart Server", () => {
   // repeated request instead of starting a second update.
   it("does not start a second update on a node that is still updating", async () => {
     const attempts: Array<() => void> = [];
-    startAgent({ build: HOST_BUILD, update: () => new Promise<void>((resolve) => attempts.push(resolve)) });
-    await waitFor(() => manager.status(hostId).online);
+    await connectInUse({ build: HOST_BUILD, update: () => new Promise<void>((resolve) => attempts.push(resolve)) });
     tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
     await waitFor(() => attempts.length === 1);
 
@@ -271,8 +279,7 @@ describe("immediate host updates after Restart Server", () => {
   it("gives up on an update that never brings the node back", async () => {
     const restarted: string[] = [];
     manager.onHostRestarted = (host) => restarted.push(host);
-    startAgent({ build: HOST_BUILD, update: () => new Promise<void>(() => {}) });
-    await waitFor(() => manager.status(hostId).online);
+    await connectInUse({ build: HOST_BUILD, update: () => new Promise<void>(() => {}) });
     tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
     await waitFor(() => manager.status(hostId).updating);
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -294,8 +301,7 @@ describe("immediate host updates after Restart Server", () => {
   // Session creation asks first whether the host can start a process now.
   it("says why a new process cannot start on the host", async () => {
     expect(manager.startBlocker(hostId)).toBe("is offline");
-    const agent = startAgent({ build: HOST_BUILD, update: () => new Promise<void>(() => {}) });
-    await waitFor(() => manager.status(hostId).online);
+    const agent = await connectInUse({ build: HOST_BUILD, update: () => new Promise<void>(() => {}) });
     expect(manager.startBlocker(hostId)).toBeNull();
     tick(HOST_IMMEDIATE_UPDATE_SETTLE_MS);
     await waitFor(() => manager.startBlocker(hostId) !== null);

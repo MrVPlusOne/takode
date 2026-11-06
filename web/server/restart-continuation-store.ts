@@ -125,7 +125,7 @@ export function sendRestartContinuation(
 }
 
 /** The parts of a restored session that show whether its ended process left work behind. */
-export interface OutdatedProcessSession {
+export interface LeftoverProcessSession {
   backendType?: string;
   messageHistory: ReadonlyArray<{ type: string }>;
   isGenerating: boolean;
@@ -135,17 +135,18 @@ export interface OutdatedProcessSession {
 }
 
 /**
- * Get a session going again whose process outlived a restart but was ended for
- * running outdated instructions. Restart Server leaves such processes running
- * mid-turn, and the restored session does not know a turn was under way, so a
- * Claude turn the ending cut off is continued as if Restart Server had
- * interrupted it; delivering the continuation relaunches the session. Without
- * it the turn never ends and the session's leader never hears of it. Codex
- * keeps its unfinished turns and resumes them when relaunched, as it does
- * input queued while the session waited for its host.
+ * Get a session going again whose process outlived a restart but ended before
+ * it was taken over: ended for running outdated instructions, or lost when its
+ * node restarted (say, updated before anything used it). Restart Server leaves
+ * such processes running mid-turn, and the restored session does not know a
+ * turn was under way, so a Claude turn the ending cut off is continued as if
+ * Restart Server had interrupted it; delivering the continuation relaunches the
+ * session. Without it the turn never ends and the session's leader never hears
+ * of it. Codex keeps its unfinished turns and resumes them when relaunched, as
+ * it does input queued while the session waited for its host.
  */
-export function resumeAfterOutdatedProcess(
-  session: OutdatedProcessSession,
+export function resumeAfterLeftoverProcess(
+  session: LeftoverProcessSession,
   actions: { continueTurn: () => void; relaunch: () => void },
 ): "continued" | "relaunched" | null {
   if (session.backendType !== "codex" && endsInUnfinishedTurn(session.messageHistory)) {

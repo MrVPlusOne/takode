@@ -6,7 +6,7 @@ import {
   buildRestartContinuationPlan,
   HOST_UPDATE_REQUEST_MAX_AGE_MS,
   RESTART_CONTINUE_MESSAGE,
-  resumeAfterOutdatedProcess,
+  resumeAfterLeftoverProcess,
   resumeRestartContinuations,
   saveHostUpdateRequest,
   saveRestartContinuationPlan,
@@ -154,8 +154,8 @@ describe("restart-continuation-store", () => {
   // them over, and the restored session does not know a turn was under way. In
   // the reported case a worker's turn was cut off this way: no turn end reached
   // its leader, and the session sat "running" in its history until someone looked.
-  describe("resumeAfterOutdatedProcess", () => {
-    const idleSession = (overrides: Partial<Parameters<typeof resumeAfterOutdatedProcess>[0]> = {}) => ({
+  describe("resumeAfterLeftoverProcess", () => {
+    const idleSession = (overrides: Partial<Parameters<typeof resumeAfterLeftoverProcess>[0]> = {}) => ({
       backendType: "claude-sdk",
       messageHistory: [{ type: "user_message" }, { type: "assistant" }, { type: "result" }],
       isGenerating: false,
@@ -164,9 +164,9 @@ describe("restart-continuation-store", () => {
       pendingCodexTurns: [],
       ...overrides,
     });
-    const run = (session: Parameters<typeof resumeAfterOutdatedProcess>[0]) => {
+    const run = (session: Parameters<typeof resumeAfterLeftoverProcess>[0]) => {
       const actions = { continueTurn: vi.fn(), relaunch: vi.fn() };
-      return { outcome: resumeAfterOutdatedProcess(session, actions), ...actions };
+      return { outcome: resumeAfterLeftoverProcess(session, actions), ...actions };
     };
 
     it("continues a Claude turn the ending cut off", () => {

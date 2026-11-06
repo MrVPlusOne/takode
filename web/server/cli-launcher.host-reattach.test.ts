@@ -163,12 +163,22 @@ describe("taking over host processes after a coordinator restart", () => {
     proc.kill("SIGTERM");
   });
 
-  // If the host lost the process (for example it restarted too), the session
-  // starts a new one as before and saves the new process id.
+  // If the host lost the process (for example its node restarted too), the
+  // session is stopped like an idle one, and the server is told so it can
+  // continue a cut turn or deliver waiting input. Its next launch starts a new
+  // process and saves the new process id.
   it("starts a new process when the host no longer runs the old one", async () => {
     const launcher = await restartCoordinator("proc-the-host-lost");
+    const ended: string[] = [];
+    launcher.onLeftoverProcessEndedCallback((sessionId) => ended.push(sessionId));
     link!.drop();
-    await waitFor(() => sdkAdapterLaunches.length === 1);
+    await waitFor(() => launcher.getSession("s-1")?.state === "exited");
+    expect(ended).toEqual(["s-1"]);
+    expect(launcher.isAwaitingHostReattach("s-1")).toBe(false);
+    expect(sdkAdapterLaunches).toHaveLength(0);
+
+    await launcher.relaunch("s-1");
+    expect(sdkAdapterLaunches).toHaveLength(1);
     const { options } = sdkAdapterLaunches[0]!;
     expect(options.reattach).toBe(false);
 
@@ -385,7 +395,7 @@ describe("sessions on this machine's own node", () => {
   it("tells the server when it ends an outdated process, so waiting input gets a fresh start", async () => {
     const launcher = await restartWithProcessRunning("instructions from before the restart");
     const ended: string[] = [];
-    launcher.onOutdatedProcessEndedCallback((sessionId) => ended.push(sessionId));
+    launcher.onLeftoverProcessEndedCallback((sessionId) => ended.push(sessionId));
 
     link!.drop();
     await waitFor(() => launcher.getSession("s-1")?.state === "exited");

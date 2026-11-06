@@ -123,7 +123,7 @@ export class CliLauncher {
     | ((sessionId: string, adapter: import("./claude-sdk-adapter.js").ClaudeSdkAdapter) => void)
     | null = null;
   private onBeforeRelaunch: ((sessionId: string, backendType: BackendType) => void) | null = null;
-  private onOutdatedProcessEnded: ((sessionId: string) => void) | null = null;
+  private onLeftoverProcessEnded: ((sessionId: string) => void) | null = null;
   private onModelProvenanceMigration: ((sessionId: string, migration: ModelProvenanceMigration) => void) | null = null;
   private exitHandlers: ((sessionId: string, exitCode: number | null) => void)[] = [];
   /** Why each session's latest launch failed, so a failed relaunch can say. */
@@ -181,7 +181,8 @@ export class CliLauncher {
   setRemoteHosts(remoteHosts: RemoteHosts): void {
     this.remoteHosts = remoteHosts;
     remoteHosts.links.onStatusChange((status) => {
-      if (!status.online) return;
+      // A node updated before use ends these processes itself; their sessions start once, on its new build.
+      if (!status.online || remoteHosts.links.updatesFirst(status.hostId)) return;
       for (const [sessionId, proc] of this.hostReattach) {
         const info = this.sessions.get(sessionId);
         if (!info || processHostOf(info) !== status.hostId) continue;
@@ -189,16 +190,24 @@ export class CliLauncher {
           void this.relaunch(sessionId);
           continue;
         }
-        // Stopped like an idle session, so it starts afresh on its next message (or now, when input
-        // already waits for it).
         this.hostReattach.delete(sessionId);
-        this.endOutdatedHostProcess(sessionId, proc);
-        info.state = "exited";
-        info.exitCode = -1;
-        this.persistState();
-        this.onOutdatedProcessEnded?.(sessionId);
+        this.endLeftoverHostProcess(sessionId, proc, "runs outdated instructions");
+        this.leftoverProcessEnded(sessionId);
       }
     });
+  }
+
+  /**
+   * A process the previous server left running ended without being taken over. The session is
+   * stopped like an idle one, so it starts afresh on its next message (or now, when work waits for it).
+   */
+  private leftoverProcessEnded(sessionId: string): void {
+    const info = this.sessions.get(sessionId);
+    if (!info) return;
+    info.state = "exited";
+    info.exitCode = -1;
+    this.persistState();
+    this.onLeftoverProcessEnded?.(sessionId);
   }
 
   /**
@@ -216,9 +225,16 @@ export class CliLauncher {
     );
   }
 
-  private endOutdatedHostProcess(sessionId: string, proc: RemoteProcess): void {
+  /** Why the session's leftover process is ended instead of taken over, or null when it is taken over. */
+  private whyNotTakenOver(info: SdkSessionInfo): string | null {
+    const host = processHostOf(info);
+    if (host && this.remoteHosts?.links.updatesFirst(host)) return "runs on a node about to restart for an update";
+    return this.runsCurrentInstructions(info) ? null : "runs outdated instructions";
+  }
+
+  private endLeftoverHostProcess(sessionId: string, proc: RemoteProcess, reason: string): void {
     console.log(
-      `[cli-launcher] Session ${sessionTag(sessionId)} runs outdated instructions; ending its process instead of taking it over`,
+      `[cli-launcher] Session ${sessionTag(sessionId)} ${reason}; ending its process instead of taking it over`,
     );
     proc.kill("SIGTERM");
   }
@@ -305,10 +321,10 @@ export class CliLauncher {
     this.hostReattach.set(sessionId, proc);
     proc.once("exit", () => {
       if (this.hostReattach.get(sessionId) !== proc) return;
-      // The host lost it, e.g. it restarted too; start the session afresh as before.
+      // The host lost it, e.g. its node restarted or was updated before anything used it.
       this.hostReattach.delete(sessionId);
-      console.log(`[cli-launcher] Host process of session ${sessionTag(sessionId)} is gone; relaunching`);
-      void this.relaunch(sessionId);
+      console.log(`[cli-launcher] Host process of session ${sessionTag(sessionId)} is gone`);
+      this.leftoverProcessEnded(sessionId);
     });
   }
 
@@ -354,12 +370,13 @@ export class CliLauncher {
   }
 
   /**
-   * Called when a session's process that outlived the previous server was ended for running outdated
-   * instructions instead of being taken over. A turn it was in was cut off, and input sent while it
-   * waited for its host (a message, a herd event) is still queued, so the server continues or relaunches it.
+   * Called when a session's process that outlived the previous server ended without being taken
+   * over: ended for running outdated instructions, or lost with its node (which may have restarted
+   * for an update). A turn it was in was cut off, and input sent while it waited for its host (a
+   * message, a herd event) is still queued, so the server continues or relaunches it.
    */
-  onOutdatedProcessEndedCallback(cb: (sessionId: string) => void): void {
-    this.onOutdatedProcessEnded = cb;
+  onLeftoverProcessEndedCallback(cb: (sessionId: string) => void): void {
+    this.onLeftoverProcessEnded = cb;
   }
 
   onModelProvenanceMigrationCallback(cb: (sessionId: string, migration: ModelProvenanceMigration) => void): void {
@@ -900,8 +917,9 @@ export class CliLauncher {
     // Taken now, before any await, so a second relaunch cannot take it as well.
     let reattachHostProcess = this.hostReattach.get(sessionId);
     this.hostReattach.delete(sessionId);
-    if (reattachHostProcess && !this.runsCurrentInstructions(info)) {
-      this.endOutdatedHostProcess(sessionId, reattachHostProcess);
+    const notTakenOver = reattachHostProcess && this.whyNotTakenOver(info);
+    if (reattachHostProcess && notTakenOver) {
+      this.endLeftoverHostProcess(sessionId, reattachHostProcess, notTakenOver);
       reattachHostProcess = undefined;
     }
     const binSettings = this.settingsGetter?.() ?? {};

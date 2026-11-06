@@ -11,6 +11,16 @@ import { hostCanRestart, type BridgeTurnView, type HostSessionView } from "./hos
  */
 export type HostUpdateMode = "immediate" | "when_idle";
 
+/** When the update would come, for {@link HostUpdateSessions.blocker}. */
+export interface HostUpdateTiming {
+  /**
+   * Before the sessions waiting for the host take over their processes: the
+   * update ends those processes and the sessions start afresh after it, so
+   * they do not hold it up, and those in a turn count as in one.
+   */
+  beforeTakeover?: boolean;
+}
+
 /** How long interrupted turns get to end before the host's sessions are stopped anyway. */
 export const HOST_UPDATE_INTERRUPT_TIMEOUT_MS = 10_000;
 
@@ -72,24 +82,25 @@ export class HostUpdateSessions {
   /**
    * What updating the host must wait for now, worded to follow "It updates
    * once", or null when it may update. A landing run or `takode exec` command
-   * there is never cut off, and sessions still waiting to take over their
-   * processes are let finish.
+   * there is never cut off, and sessions still taking over their processes are
+   * let finish, unless the update comes before their takeover.
    * Only a non-immediate update waits for turns and full test runs to end: an
    * immediate one would otherwise wait 10+ minutes per run, or forever on a
    * host where workers keep testing, so it ends them and has them rerun.
    */
-  blocker(hostId: string, mode: HostUpdateMode): string | null {
+  blocker(hostId: string, mode: HostUpdateMode, timing: HostUpdateTiming = {}): string | null {
     // Nodes may reconnect while the server stops; an update would end sessions the next server takes over.
     if (serverWorkAdmission.isStopping()) return "the server has restarted";
     if (this.deps.landingRunOn(hostId)) return "the landing run there finishes";
     if (this.deps.execRunningOn?.(hostId)) return "the commands sessions run there with takode exec finish";
     const live = this.liveOn(hostId);
-    if (live.some((session) => this.deps.awaitingReattach(session.sessionId))) return "its sessions are taken over";
+    const awaitingReattach = timing.beforeTakeover ? () => false : this.deps.awaitingReattach;
+    if (live.some((session) => awaitingReattach(session.sessionId))) return "its sessions are taken over";
     if (mode === "immediate") return null;
     if (this.testRunsOn(live).length > 0) return "the full test run there finishes";
     const idle = hostCanRestart(hostId, {
       sessions: live,
-      awaitingReattach: this.deps.awaitingReattach,
+      awaitingReattach,
       bridgeSession: this.deps.bridgeSession,
       coordinatorStartedAt: this.deps.coordinatorStartedAt,
     });

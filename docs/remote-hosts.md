@@ -336,9 +336,10 @@ a pending permission prompt is asked again. A session whose instructions from
 Takode have changed since its process started is not taken over: its process is
 ended, and the session starts afresh with the new instructions on its next
 message. A turn the ending cut off is continued at once, as Restart Server
-continues the turns it interrupts. When the restart brings new code,
-the node is then updated right away (see [Updating Takode](#updating-takode)),
-which interrupts such turns and continues them on the new build. **Settings → Hosts** shows the
+continues the turns it interrupts. When the restart brings new code, the node
+is updated before anything is taken over (see [Updating Takode](#updating-takode)):
+the update ends its processes, and each session starts once, on the new build.
+**Settings → Hosts** shows the
 node's status on the coordinator's own machine, the first entry. Sessions that start
 while the node is still connecting, such as just after the server starts, wait
 for it; if it does not connect within 30 seconds, they start without it.
@@ -398,11 +399,21 @@ shows why. It refuses to update a checkout with uncommitted changes, so give
 the node a checkout of its own rather than one you work in, and a checkout that
 shares no history with the coordinator's. When the update happens:
 
+- **When it connects** on another build and may update then (see the next
+  two points), a host is updated before anything uses it, so no session loads
+  its history once to take over its process and again after the update ended
+  it. The coordinator takes over none of the host's processes and starts
+  nothing there until the updated node is back; the update ends the old
+  processes. Then a session whose turn was cut off is told to continue, one
+  with input waiting starts, and the others start on their next message. A
+  host that cannot get ready, or where a landing run starts meanwhile, is used
+  as it is and updated as described below.
 - **After Restart Server**, every such host (and the coordinator's own node)
   updates right away, so all sessions run the new build as on a single
-  machine: once the host has reconnected and its sessions are taken over, turns
-  in progress are interrupted, the sessions stop, and each interrupted session
-  is told to continue once the node is back (or if the update fails).
+  machine. Usually that happens when it connects, as above; a host updated
+  later (it could not be updated first) has its turns in progress interrupted,
+  its sessions stopped, and each interrupted session told to continue once the
+  node is back (or if the update fails).
 - **Otherwise** (the coordinator started some other way, a host connected
   later on another build, or a host restarted on its old build after an
   update) it waits until none of the host's sessions is in a turn or running a

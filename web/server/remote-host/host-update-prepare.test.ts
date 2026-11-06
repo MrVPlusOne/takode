@@ -109,6 +109,9 @@ describe("preparing a host update before stopping its sessions", () => {
       events.push("stop sessions");
       return true;
     };
+    // A landing run there when it connects keeps the update from coming first, so its sessions are in use.
+    let landingRun = true;
+    host.manager.updateBlocker = () => (landingRun ? "the landing run there finishes" : null);
     agent = host.startAgent({
       prepareUpdate: async (commit, bundle) => {
         events.push(`prepare ${commit.slice(0, 1)}${bundle ? ` with ${bundle.toString()}` : ""}`);
@@ -117,6 +120,7 @@ describe("preparing a host update before stopping its sessions", () => {
       update: async (commit) => void events.push(`update ${commit.slice(0, 1)}`),
     });
     await waitFor(() => host.manager.status(hostId).online);
+    landingRun = false;
 
     host.tick();
     await waitFor(() => events.length === 5);
@@ -192,6 +196,40 @@ describe("preparing a host update before stopping its sessions", () => {
     host.tick();
     await waitFor(() => updates.length === 1);
     expect(prepares).toBe(1);
+  });
+
+  // A host updated before anything uses it holds what is started there while
+  // it gets the new code. When something the update must wait for begins
+  // meanwhile (a landing run), the update no longer comes first: the held
+  // process starts on the node as it is, and the update waits as usual.
+  it("uses the host after all when its update can no longer come first", async () => {
+    const host = linkedHost(COORDINATOR_BUILD);
+    let blocker: string | null = null;
+    host.manager.updateBlocker = () => blocker;
+    let finishPreparing = () => {};
+    const updates: string[] = [];
+    agent = host.startAgent({
+      prepareUpdate: () => new Promise((resolve) => (finishPreparing = () => resolve({ ready: true }))),
+      update: async (commit) => void updates.push(commit),
+    });
+    await waitFor(() => host.manager.status(hostId).online);
+    expect(host.manager.updatesFirst(hostId)).toBe(true);
+    const proc = host.manager.spawn(hostId, {
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('current build')"],
+      env: {},
+    });
+    let output = "";
+    proc.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(proc.started).toBe(false);
+
+    blocker = "the landing run there finishes";
+    finishPreparing();
+    await waitFor(() => output === "current build");
+    expect(host.manager.updatesFirst(hostId)).toBe(false);
+    expect(host.manager.status(hostId).updateWaitingFor).toBe("the landing run there finishes");
+    expect(updates).toEqual([]);
   });
 
   // A host on an older build does not offer `preparesUpdates`; it is sent

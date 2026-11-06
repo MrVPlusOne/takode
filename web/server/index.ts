@@ -119,7 +119,7 @@ import { createMessageDeliveryProbe, MessageDeliveryTracker } from "./message-de
 import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchestrator-recovery.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import {
-  resumeAfterOutdatedProcess,
+  resumeAfterLeftoverProcess,
   resumeRestartContinuations,
   sendRestartContinuation,
   takeHostUpdateRequest,
@@ -455,7 +455,7 @@ const hostUpdateSessions = new HostUpdateSessions({
     sendRestartContinuation(wsBridge, sessionId, operationId, message);
   },
 });
-hostLinks.updateBlocker = (hostId, mode) => hostUpdateSessions.blocker(hostId, mode);
+hostLinks.updateBlocker = (hostId, mode, timing) => hostUpdateSessions.blocker(hostId, mode, timing);
 hostLinks.prepareHostUpdate = (hostId, mode) => hostUpdateSessions.prepare(hostId, mode);
 hostLinks.onHostRestarted = (hostId) => hostUpdateSessions.hostRestarted(hostId);
 hostLinks.updateBundle = (commit, hostHaves) => createUpdateBundle(packageRoot, commit, hostHaves);
@@ -935,19 +935,20 @@ launcher.onBeforeRelaunchCallback((sessionId, backendType) => {
   }
 });
 
-// A process that outlived the restart but ran outdated instructions was ended rather than taken
-// over; the turn it was in, or input sent while it waited for its host, would otherwise be stuck.
-launcher.onOutdatedProcessEndedCallback((sessionId) => {
+// A process that outlived the restart ended without being taken over (it ran outdated instructions,
+// or its node restarted, say for an update); the turn it was in, or input sent while it waited for
+// its host, would otherwise be stuck.
+launcher.onLeftoverProcessEndedCallback((sessionId) => {
   const bridgeSession = wsBridge.getSession(sessionId);
   if (!bridgeSession) return;
-  const resumed = resumeAfterOutdatedProcess(bridgeSession, {
-    continueTurn: () => sendRestartContinuation(wsBridge, sessionId, `outdated-process:${randomUUID().slice(0, 8)}`),
+  const resumed = resumeAfterLeftoverProcess(bridgeSession, {
+    continueTurn: () => sendRestartContinuation(wsBridge, sessionId, `leftover-process:${randomUUID().slice(0, 8)}`),
     relaunch: () => relaunchQueue.request(sessionId, { trailing: false }),
   });
   if (resumed === "continued") {
-    console.log(`[server] Session ${sessionId} was mid-turn when its outdated process ended; continuing the turn`);
+    console.log(`[server] Session ${sessionId} was mid-turn when its leftover process ended; continuing the turn`);
   } else if (resumed === "relaunched") {
-    console.log(`[server] Input waits for session ${sessionId} after its outdated process ended; relaunching`);
+    console.log(`[server] Input waits for session ${sessionId} after its leftover process ended; relaunching`);
   }
 });
 

@@ -108,6 +108,26 @@ describe("HostUpdateSessions", () => {
     expect(updates.blocker("h1", "when_idle")).toBeNull();
   });
 
+  // An update that comes before the takeovers (the host just connected on another build) ends the
+  // processes the sessions wait for, so they do not hold it up. Turns still do when it waits for
+  // idle: a session waiting to take over its process counts as in a turn when its history shows one
+  // left open before this coordinator started.
+  it("lets an update come before the sessions take over their processes", () => {
+    const updates = create();
+    for (const session of ["leader", "busy", "asking", "quiet"]) reattaching.add(session);
+    bridges.get("busy")!.isGenerating = false;
+    bridges.get("asking")!.pendingPermissions = { size: 0 };
+    expect(updates.blocker("h1", "immediate")).toBe("its sessions are taken over");
+    expect(updates.blocker("h1", "immediate", { beforeTakeover: true })).toBeNull();
+    expect(updates.blocker("h1", "when_idle", { beforeTakeover: true })).toBeNull();
+
+    bridges.get("quiet")!.messageHistory = [{ type: "user_message", timestamp: STARTED_AT - 1 }];
+    expect(updates.blocker("h1", "when_idle", { beforeTakeover: true })).toBe("its sessions finish their turns");
+    expect(updates.blocker("h1", "immediate", { beforeTakeover: true })).toBeNull();
+    landing = true;
+    expect(updates.blocker("h1", "immediate", { beforeTakeover: true })).toBe("the landing run there finishes");
+  });
+
   // Before an update that waited for idle, the sessions are only stopped.
   it("only stops the sessions before an update that waited for idle", async () => {
     await expect(create().prepare("h1", "when_idle")).resolves.toBe(true);

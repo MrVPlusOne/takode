@@ -51,6 +51,20 @@ describe("host builds and auto-update over the link", () => {
     (manager as unknown as { tick(): void }).tick();
   }
 
+  /**
+   * Connect a host that sessions use before it is updated: a landing run is
+   * under way there when it connects, so the update cannot come first, and
+   * the run finishes right after. Afterwards the update may go ahead.
+   */
+  async function connectInUse(options: Parameters<typeof startAgent>[0]): Promise<HostAgent> {
+    let landingRun = true;
+    manager.updateBlocker = () => (landingRun ? "the landing run there finishes" : null);
+    const started = startAgent(options);
+    await waitFor(() => manager.status(hostId).online);
+    landingRun = false;
+    return started;
+  }
+
   beforeEach(() => {
     clock = 1_000_000;
     manager = new HostLinkManager({ build: COORDINATOR_BUILD, now: () => clock });
@@ -109,10 +123,8 @@ describe("host builds and auto-update over the link", () => {
   // they resume a turn or ask again for a permission. The update waits until
   // nothing has started on the host for the settle time.
   it("waits until nothing has started on the host for a while", async () => {
-    manager.updateBlocker = () => null;
     const requested: string[] = [];
-    agent = startAgent({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
-    await waitFor(() => manager.status(hostId).online);
+    agent = await connectInUse({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
 
     tick(0);
     manager.spawn(hostId, { command: process.execPath, args: ["-e", ""], env: {} });
@@ -129,15 +141,13 @@ describe("host builds and auto-update over the link", () => {
   // (as an idle stop would), so they relaunch on their next message instead of
   // reporting a crashed process; only then is the host asked to update.
   it("stops the host's sessions before asking it to update", async () => {
-    manager.updateBlocker = () => null;
     const events: string[] = [];
     let finishStopping = () => {};
     manager.prepareHostUpdate = (stoppingHost) => {
       events.push(`stop ${stoppingHost}`);
       return new Promise<boolean>((resolve) => (finishStopping = () => resolve(true)));
     };
-    agent = startAgent({ build: HOST_BUILD, update: async (commit) => void events.push(`update ${commit}`) });
-    await waitFor(() => manager.status(hostId).online);
+    agent = await connectInUse({ build: HOST_BUILD, update: async (commit) => void events.push(`update ${commit}`) });
 
     tick();
     expect(events).toEqual([`stop ${hostId}`]);
@@ -153,12 +163,10 @@ describe("host builds and auto-update over the link", () => {
   // If the link drops while the sessions are being stopped, the update is not
   // lost: the same host instance is asked again once it is back and settled.
   it("asks again when the host dropped off while its sessions were stopping", async () => {
-    manager.updateBlocker = () => null;
     let finishStopping = () => {};
     manager.prepareHostUpdate = () => new Promise<boolean>((resolve) => (finishStopping = () => resolve(true)));
     const requested: string[] = [];
-    agent = startAgent({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
-    await waitFor(() => manager.status(hostId).online);
+    agent = await connectInUse({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
 
     tick();
     link!.drop();
@@ -171,6 +179,41 @@ describe("host builds and auto-update over the link", () => {
     manager.prepareHostUpdate = async () => true;
     tick();
     await waitFor(() => requested.length === 1);
+  });
+
+  // A host that connects on another build when it may update at once (here
+  // all its sessions are idle) is updated before anything uses it: right
+  // away, without the settle time or stopping sessions, and what is started
+  // there meanwhile waits for its next instance instead of running on the
+  // build the update ends.
+  it("updates a host that connects on another build before anything uses it", async () => {
+    manager.updateBlocker = () => null;
+    const stopped: string[] = [];
+    manager.prepareHostUpdate = async (stoppingHost) => {
+      stopped.push(stoppingHost);
+      return true;
+    };
+    const requested: string[] = [];
+    agent = startAgent({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
+    await waitFor(() => requested.length === 1);
+    expect(manager.updatesFirst(hostId)).toBe(true);
+    expect(stopped).toEqual([]);
+    expect(manager.startBlocker(hostId)).toMatch(/restarting for a Takode update/);
+
+    const proc = manager.spawn(hostId, {
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('new build')"],
+      env: {},
+    });
+    let output = "";
+    proc.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(proc.started).toBe(false);
+
+    agent.stop();
+    agent = startAgent({ build: COORDINATOR_BUILD });
+    await waitFor(() => output === "new build");
+    expect(manager.updatesFirst(hostId)).toBe(false);
   });
 
   // A host without --auto-update is never asked, however idle it is.
