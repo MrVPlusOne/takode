@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { resolveQuietTurn, type QuietTurnSession } from "./quiet-turn.js";
 import type { TakodeTurnEndEventData } from "../session-types.js";
+import { HOST_EXEC_MESSAGE_SOURCE } from "../../shared/host-exec.js";
 
 const MARKED_TEXT = "No alert (2 PM check).\n\n{[(Quiet: 2 PM check, nothing new)]}";
 
@@ -70,6 +71,44 @@ describe("resolveQuietTurn", () => {
         quiet_ignored: "the turn answered a leader or user message",
       });
     }
+  });
+
+  it("accepts the marker on turns started only by `takode exec` completions and timers", () => {
+    // A worker running many background commands is woken by each completion notice;
+    // reacting to one is not answering a leader or user, so its quiet marker holds.
+    const execDone = { type: "user_message", content: "Command finished", agentSource: HOST_EXEC_MESSAGE_SOURCE };
+    const timerFired = {
+      type: "user_message",
+      content: "[⏰ Timer t1 reminder]",
+      agentSource: { sessionId: "timer:t1" },
+    };
+    const execOnly = timerTurn(MARKED_TEXT, {
+      userMessageIdsThisTurn: [1, 2],
+      messageHistory: [assistant("earlier turn"), execDone, execDone, assistant(MARKED_TEXT)],
+    });
+    const execAndTimer = timerTurn(MARKED_TEXT, {
+      userMessageIdsThisTurn: [1, 2],
+      messageHistory: [assistant("earlier turn"), execDone, timerFired, assistant(MARKED_TEXT)],
+    });
+    for (const session of [execOnly, execAndTimer]) {
+      expect(resolveQuietTurn(session, RESULT, 0, WITH_TIMER)).toEqual({
+        quiet: { summary: "2 PM check, nothing new" },
+      });
+    }
+
+    // A leader message joining the same turn still forces delivery.
+    const execAndLeader = timerTurn(MARKED_TEXT, {
+      userMessageIdsThisTurn: [1, 2],
+      messageHistory: [
+        assistant("earlier turn"),
+        execDone,
+        { type: "user_message", content: "status?", agentSource: { sessionId: "leader-session-id" } },
+        assistant(MARKED_TEXT),
+      ],
+    });
+    expect(resolveQuietTurn(execAndLeader, RESULT, 0, WITH_TIMER)).toEqual({
+      quiet_ignored: "the turn answered a leader or user message",
+    });
   });
 
   it("delivers when nothing will resume the worker", () => {

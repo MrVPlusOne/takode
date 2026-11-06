@@ -9,6 +9,7 @@
  * held, so the leader hears from it only when it failed, asked, or answered the leader.
  */
 import { extractQuietMarkerFromText } from "../../shared/quiet-turn-marker.js";
+import { HOST_EXEC_MESSAGE_SOURCE } from "../../shared/host-exec.js";
 import { LANDING_QUEUE_MESSAGE_SOURCE } from "../../shared/landing-queue.js";
 import { LIBRARY_MESSAGE_SOURCE } from "../../shared/library-topics.js";
 import type { ContentBlock, TakodeTurnEndEventData } from "../session-types.js";
@@ -102,12 +103,16 @@ function answeredSomeone(session: QuietTurnSession): boolean {
   });
 }
 
-/** Messages Takode itself sends: system notices, timer firings, landing-queue and lease outcomes, Scribe requests. */
+/**
+ * Messages Takode itself sends: system notices, timer firings, `takode exec` command
+ * completions, landing-queue and lease outcomes, Scribe requests.
+ */
 function isTakodeNoticeSource(agentSource: { sessionId: string } | undefined): boolean {
   if (!agentSource) return false;
   return (
     isSystemSourceTag(agentSource) ||
     isTimerSourceTag(agentSource) ||
+    agentSource.sessionId === HOST_EXEC_MESSAGE_SOURCE.sessionId ||
     agentSource.sessionId === LANDING_QUEUE_MESSAGE_SOURCE.sessionId ||
     agentSource.sessionId === LIBRARY_MESSAGE_SOURCE.sessionId ||
     agentSource.sessionId.startsWith("resource-lease:")
