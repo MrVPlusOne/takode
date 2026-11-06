@@ -123,6 +123,54 @@ describe("topic conversation answers", () => {
     }
   });
 
+  it("gives a plain thread's own answers at the top level, as a quest tab's are", () => {
+    // A plain thread (t-N) is keyed like a topic, so its window is built like a topic's, with any
+    // threads joined onto it as members. Its own answers were only under `members`, which the feed's
+    // answer presentation never reads: in the thread, an answer lost its "Answers the message
+    // above" card and could fold away into activity.
+    const threadKey = topicViewKey("bbbbbbbb-0000-0000-0000-000000000000");
+    const joinedKey = topicViewKey("cccccccc-0000-0000-0000-000000000000");
+    // Threads are not quests: their messages carry no quest ID.
+    const plain = (message: BrowserIncomingMessage, key: string) =>
+      ({
+        ...message,
+        questId: undefined,
+        threadRefs: [{ threadKey: key, source: "explicit" }],
+      }) as BrowserIncomingMessage;
+    const messages = [
+      plain(human("raw-u1", "u1", 1, joinedKey), joinedKey),
+      plain(answer("a1", 2, joinedKey, ["u1"]), joinedKey),
+      plain(human("raw-u2", "u2", 3, threadKey), threadKey),
+      plain(answer("a2", 4, threadKey, ["u2"]), threadKey),
+    ];
+    const sync = buildThreadWindowSync({
+      messageHistory: messages,
+      threadKey,
+      topicMembers: [joinedKey],
+      fromItem: -1,
+      itemCount: 10,
+      sectionItemCount: 10,
+      visibleItemCount: 1,
+      memberResponseProjection: (key) =>
+        ({
+          [joinedKey]: answered(joinedKey, "raw-u1", "u1", "a1", 1),
+          [threadKey]: answered(threadKey, "raw-u2", "u2", "a2", 3),
+        })[key],
+    });
+
+    const state = sync.threadResponseProjection!;
+    expect(state.threadKey).toBe(threadKey);
+    expect(state.currentAnswers.map((item) => item.currentMessageId)).toEqual(["a2"]);
+    expect(Object.keys(state.members!).sort()).toEqual([threadKey, joinedKey].sort());
+
+    const chat = sync.entries.flatMap((entry) =>
+      normalizeHistoryMessageToChatMessages(entry.message, entry.history_index),
+    );
+    const sections = buildFeedSections(buildFeedModel(chat, true, 0, undefined, undefined, undefined, true).turns, 30);
+    const presentation = resolveThreadResponses(sections, state, threadKey, true, chat);
+    expect(presentation?.currentResponses.map((item) => item.response.currentMessageId)).toEqual(["a2"]);
+  });
+
   it("asks only the quests with turns in the window for their answer state", () => {
     // Opening a topic of many quests was slow: every quest's answer state was built from the
     // whole history, and each quest's newest answer was pulled into the newest window even when

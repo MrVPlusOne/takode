@@ -471,17 +471,22 @@ function buildTopicWindowEntries(
     const authoredThreadKey = message.threadAnswer.authoredThreadKey ?? leaderResponseExactAnswerThreadKey(message);
     return !!authoredThreadKey && memberKeys.has(authoredThreadKey);
   });
+  // The view's own thread (a plain thread is keyed like a topic) answers at the top level, as a
+  // quest tab's does; the other members (threads joined onto it, a topic's quests) stay in `members`.
+  const own = projections[input.threadKey];
   return {
     entries: dedupeEntries(visible),
     threadResponseSupportComplete: true,
     threadResponseProjection: {
-      version: LEADER_THREAD_RESPONSE_VERSION,
-      threadKey: input.threadKey,
-      cutoverHistoryIndex: 0,
-      pendingMessageCount: 0,
-      pendingMessages: [],
-      currentAnswers: [],
-      ready: true,
+      ...(own ?? {
+        version: LEADER_THREAD_RESPONSE_VERSION,
+        threadKey: input.threadKey,
+        cutoverHistoryIndex: 0,
+        pendingMessageCount: 0,
+        pendingMessages: [],
+        currentAnswers: [],
+        ready: true,
+      }),
       members: projections,
     },
   };

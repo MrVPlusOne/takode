@@ -873,7 +873,9 @@ function isSubstantiveLeaderResponseEntry(entry: FeedEntry): boolean {
  * provider-phase finals and structural fallbacks as legacy evidence. Legacy
  * history gets at most one representative for the whole direct-human turn;
  * injected boundaries must not manufacture extra answers or anchor a partial
- * bounded-window tail. */
+ * bounded-window tail. An explicit answer resent after a model-only reminder
+ * repeats an answer the turn already shows, except when the turn shows none:
+ * then the first copy went unrouted or elsewhere, and the resend is the answer. */
 function collectLeaderSegmentResponseRepresentatives(
   rawAgentEntries: FeedEntry[],
   hasUserBoundary: boolean,
@@ -885,6 +887,7 @@ function collectLeaderSegmentResponseRepresentatives(
   let lastLegacyPhaseAnswer: FeedEntry | null = null;
   let lastUnknownResponse: FeedEntry | null = null;
   let lastLegacyRepresentative: FeedEntry | null = null;
+  let lastReminderAnswer: FeedEntry | null = null;
 
   const finishSegment = (allowLegacyFallback: boolean) => {
     if (segmentKind !== "eligible") return;
@@ -908,7 +911,11 @@ function collectLeaderSegmentResponseRepresentatives(
       continue;
     }
 
-    if (segmentKind !== "eligible" || !isAssistantTextResponseEntry(entry)) continue;
+    if (segmentKind === "unknown" || !isAssistantTextResponseEntry(entry)) continue;
+    if (segmentKind === "model-only") {
+      if (isExplicitLeaderAnswer(entry.msg)) lastReminderAnswer = entry;
+      continue;
+    }
     if (isExplicitLeaderAnswer(entry.msg)) {
       lastExplicitLeaderAnswer = entry;
     } else if (isLegacyPhaseFinalAnswer(entry.msg)) {
@@ -919,9 +926,8 @@ function collectLeaderSegmentResponseRepresentatives(
   }
 
   finishSegment(allowOrdinaryLegacyFallback);
-  if (representativeKeys.size === 0 && lastLegacyRepresentative) {
-    representativeKeys.add(getEntryId(lastLegacyRepresentative));
-  }
+  const fallback = representativeKeys.size === 0 ? (lastReminderAnswer ?? lastLegacyRepresentative) : null;
+  if (fallback) representativeKeys.add(getEntryId(fallback));
   return representativeKeys;
 }
 
@@ -941,6 +947,7 @@ function filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
   rawAgentEntries: FeedEntry[],
   visibleEntries: FeedEntry[],
   leaderMode: boolean,
+  representativeKeys: ReadonlySet<string>,
 ): FeedEntry[] {
   if (!leaderMode || visibleEntries.length === 0) return visibleEntries;
 
@@ -958,6 +965,7 @@ function filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
 
     if (
       modelOnlyReminderSegment &&
+      !representativeKeys.has(key) &&
       isPlainLeaderCollapsedSummaryEntry(entry) &&
       !(entry.kind === "message" && entry.msg.metadata?.markdownReport)
     )
@@ -1243,6 +1251,7 @@ function makeTurn(
     presentationAgentEntries,
     notificationEntryCandidates,
     leaderMode,
+    leaderSegmentRepresentativeKeys,
   );
   const notificationEntries = filterCollapsedVisibleEntriesForNeedsInputBookkeeping(
     presentationAgentEntries,

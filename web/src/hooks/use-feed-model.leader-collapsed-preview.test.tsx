@@ -772,6 +772,57 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
     expect(entryIds(turn.notificationEntries)).toEqual(["a-checkpoint", "a-waiting"]);
     expect(entryIds(turn.agentEntries)).not.toContain("a-checkpoint");
   });
+
+  it("shows an answer resent after a routing reminder when the turn shows no other answer", () => {
+    // Daily Leader, Nov 5: the first copy of a draft had no thread marker, so it went to Main and
+    // this thread never got it. The Thread Routing Reminder made the leader resend it as an
+    // explicit answer here. That resend is the thread's only answer, so it must not fold away.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "draft the follow-up", timestamp: 1 }),
+      makeInjectedUserMessage(
+        "u-reminder",
+        "[Thread routing reminder] Missing thread marker on visible leader text.",
+        2,
+        THREAD_ROUTING_REMINDER_SOURCE_ID,
+        THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+      ),
+      makeMessage({
+        id: "a-marker-tool",
+        role: "assistant",
+        content: "",
+        timestamp: 3,
+        contentBlocks: [{ type: "tool_use", id: "marker-tool", name: "Bash", input: { command: "true" } }],
+      }),
+      makeRoutedLeaderAssistant("a-resent-answer", "Here's the follow-up draft.", 4, "answer"),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-resent-answer"]);
+    expect(collapsedEntryIds(turn)).toContain("a-resent-answer");
+  });
+
+  it("keeps a reminder's resend of an answer the turn already shows as activity", () => {
+    // The duplicate case the reminder rule exists for: the first answer reached this thread, and
+    // the reminder only made the leader repeat it.
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "draft the follow-up", timestamp: 1 }),
+      makeRoutedLeaderAssistant("a-first-answer", "Here's the follow-up draft.", 2, "answer"),
+      makeInjectedUserMessage(
+        "u-reminder",
+        "[Thread outcome reminder] Mark the touched thread.",
+        3,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      makeRoutedLeaderAssistant("a-resent-answer", "Here's the follow-up draft again.", 4, "answer"),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-first-answer"]);
+    expect(entryIds(turn.agentEntries)).toContain("a-resent-answer");
+  });
 });
 
 describe("explicit routed and Codex phase representative selection", () => {
