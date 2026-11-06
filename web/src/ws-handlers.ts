@@ -1541,6 +1541,9 @@ function handleParsedMessage(
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setActiveTurnRoute(sessionId, data.sessionStatus === "running" ? data.activeTurnRoute : null);
       store.setCodexReasoningPreviews(sessionId, data.codexReasoningPreviews ?? []);
+      // A connected snapshot is newer than a still-debounced disconnect, which
+      // would otherwise fire afterwards and mark the session disconnected.
+      if (data.backendConnected) clearPendingCliDisconnect(sessionId);
       store.setCliConnected(sessionId, data.backendConnected);
       applyAutoPauseRecoverySnapshot(sessionId, data);
       // state_snapshot is sent after subscribe replay completes. If no

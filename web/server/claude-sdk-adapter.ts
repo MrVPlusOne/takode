@@ -212,6 +212,7 @@ export class ClaudeSdkAdapter
   private browserMessageCb: ((msg: BrowserIncomingMessage) => void) | null = null;
   private sessionMetaCb: ((meta: ClaudeSdkSessionMeta) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
+  private connectCb: (() => void) | null = null;
   private initErrorCb: ((error: string) => void) | null = null;
   private compactRequestedCb: (() => void) | null = null;
   private pendingPermissions = new Map<string, PendingPermission>();
@@ -273,6 +274,11 @@ export class ClaudeSdkAdapter
 
   onDisconnect(cb: () => void): void {
     this.disconnectCb = cb;
+  }
+
+  /** Called once startup has made the adapter connected (see `isConnected`). */
+  onConnect(cb: () => void): void {
+    this.connectCb = cb;
   }
 
   onInitError(cb: (error: string) => void): void {
@@ -484,6 +490,7 @@ export class ClaudeSdkAdapter
     // A reattached process answers `initialize` with an error, so it reports no catalog.
     if (!this.options.reattach) this.recordModelCatalog();
     console.log(`[claude-sdk-adapter] Session ${this.sessionId} initialized${resuming ? " (resumed)" : ""}`);
+    this.connectCb?.();
 
     // Flush pending outgoing messages
     for (const msg of this.pendingOutgoing.splice(0)) {

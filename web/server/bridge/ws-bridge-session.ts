@@ -96,7 +96,11 @@ export type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta> &
 export type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta> &
   CompactRequestedAwareAdapter &
   ClaudeTurnAwareAdapter &
-  Partial<BackgroundTaskAwareAdapter> & { readonly autoCompactWindow?: number };
+  Partial<BackgroundTaskAwareAdapter> & {
+    readonly autoCompactWindow?: number;
+    /** Called once the adapter's asynchronous startup has made it connected. */
+    onConnect?: (cb: () => void) => void;
+  };
 
 export interface Session {
   id: string;

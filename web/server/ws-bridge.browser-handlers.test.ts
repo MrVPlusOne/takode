@@ -907,6 +907,47 @@ describe("Browser handlers", () => {
     expect(disconnectedMsg).toEqual({ type: "backend_disconnected" });
   });
 
+  it("announces a Claude backend that connects after a browser subscribed during its startup", async () => {
+    // Reproduces a browser stuck on "Disconnected" while its session worked:
+    // after a server restart the browser opened, the relaunched Claude adapter
+    // attached (broadcasting backend_connected) but finished its asynchronous
+    // startup only after the browser's subscribe snapshot, which therefore said
+    // disconnected. Nothing announced the real connection, so the label stayed.
+    const backend = makeCliSocket("s1");
+    const adapterInternals = backend.adapter as any;
+    adapterInternals.connected = false;
+    backend.attach(bridge);
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    const snapshot = await waitForBrowserMessage(browser, (c: any) => c.type === "state_snapshot");
+    expect(snapshot.backendConnected).toBe(false);
+    browser.send.mockClear();
+
+    // Startup finishes, as at the end of ClaudeSdkAdapter.initialize().
+    adapterInternals.connected = true;
+    adapterInternals.connectCb?.();
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "backend_connected" }));
+  });
+
+  it("does not announce the startup of a Claude adapter that was replaced meanwhile", () => {
+    const first = makeCliSocket("s1");
+    (first.adapter as any).connected = false;
+    first.attach(bridge);
+    makeCliSocket("s1").attach(bridge);
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+    (first.adapter as any).connectCb?.();
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).not.toContainEqual(expect.objectContaining({ type: "backend_connected" }));
+  });
+
   it("handleBrowserClose: removes from set", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");

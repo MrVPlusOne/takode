@@ -175,6 +175,22 @@ describe("handleMessage: backend_disconnected/connected", () => {
     expect(useStore.getState().sessionStatus.get("s1")).toBe("idle");
   });
 
+  it("lets a connected state snapshot cancel a still-debounced disconnect", () => {
+    // A browser that opens while the backend restarts is told disconnected,
+    // then subscribes; the snapshot, which says connected, is the newer state.
+    // The debounced disconnect must not fire after it, or the session keeps a
+    // "Disconnected" label while it plainly works.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({ type: "backend_disconnected" });
+    fireMessage({ type: "state_snapshot", sessionStatus: "running", backendConnected: true });
+    vi.advanceTimersByTime(300);
+
+    expect(useStore.getState().cliConnected.get("s1")).toBe(true);
+    expect(useStore.getState().sessionStatus.get("s1")).toBe("running");
+  });
+
   it("clears stale retryable Codex init errors after recovery connects", () => {
     // Mirrors the q-949/#1132 race: a retryable init failure may have reached
     // the browser before bridge recovery proved the session was still alive.

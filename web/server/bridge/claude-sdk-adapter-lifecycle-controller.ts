@@ -299,6 +299,14 @@ export function attachClaudeSdkAdapterLifecycle(
     handleAdapterFailure("sdk_init_error", { error });
   });
 
+  // Browsers are told at attach so a starting session shows no disconnect, but
+  // the adapter connects only after its asynchronous startup. A browser that
+  // subscribed in between got a state snapshot saying disconnected, so announce
+  // the real connection too; otherwise that browser keeps the label for good.
+  adapter.onConnect?.(() => {
+    if (isActiveAdapter()) deps.broadcastToBrowsers(session, { type: "backend_connected" });
+  });
+
   deps.broadcastToBrowsers(session, { type: "backend_connected" });
   console.log(`[ws-bridge] Claude SDK adapter attached for session ${sessionTag(sessionId)}`);
 }

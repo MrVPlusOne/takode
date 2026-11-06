@@ -266,6 +266,19 @@ describe("ClaudeSdkAdapter launch env", () => {
     expect(fresh).not.toHaveProperty("resumeSessionAt");
   });
 
+  it("reports the connection only when its asynchronous startup connects", async () => {
+    // The bridge attaches the adapter before startup finishes, so a browser can
+    // get a snapshot saying disconnected in between; it relies on this callback
+    // to announce the real connection afterwards.
+    const adapter = new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd() });
+    const connectedWhenCalled: boolean[] = [];
+    adapter.onConnect(() => connectedWhenCalled.push(adapter.isConnected()));
+    expect(adapter.isConnected()).toBe(false);
+    expect(connectedWhenCalled).toEqual([]);
+
+    await vi.waitFor(() => expect(connectedWhenCalled).toEqual([true]));
+  });
+
   it("gives a Claude on GitHub Copilot the web search tool and nothing to others", async () => {
     // Copilot rejects Claude's own WebSearch; the adapter learns the provider from Claude's settings.
     const copilotSettings = { effective: { env: { ANTHROPIC_BASE_URL: "https://api.githubcopilot.com" } } };
