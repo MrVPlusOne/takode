@@ -182,6 +182,7 @@ Look for unnecessary complexity, including:
 - complexity pushed onto callers when it should live inside a module
 - excessive decomposition into many small helpers with weak boundaries
 - overly specific solutions where a cleaner general solution exists
+- stopgaps that leave known cases broken, such as an arbitrary cap, keeping only the most recent N, a timeout or a special case, unless the user chose them: report them as Critical with the fix that covers every case
 - leaked implementation details
 - weak names, duplication, dead code, or comments that explain noise instead of intent
 

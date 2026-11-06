@@ -128,6 +128,7 @@ function checkLeaderThreadOutcomes(
 
   const history = session.messageHistory ?? [];
   const clearedBlockedReady = clearLeaderReadyStatusesBlockedByNeedsInput({
+    id: session.id,
     notifications: session.notifications,
     state: session.state ?? {},
   });

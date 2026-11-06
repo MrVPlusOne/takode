@@ -194,6 +194,7 @@ function deliver(history: BrowserIncomingMessage[], status: LeaderThreadStatus |
       entries: sync.entries,
       window: { ...sync.window, window_hash: `window-${projectionRevision}` },
       ...(sync.threadResponseProjection ? { response_state: sync.threadResponseProjection } : {}),
+      thread_status: status ?? null,
     });
     useStore.getState().applySyncedProjectionSnapshot(
       createLeaderThreadTabsProjectionEnvelope({

@@ -41,6 +41,7 @@ import {
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
+import { threadStatusesState } from "../test-fixtures/thread-statuses.js";
 
 // Mock react-markdown to avoid ESM issues in tests
 vi.mock("react-markdown", () => ({
@@ -108,6 +109,7 @@ vi.mock("../store.js", () => {
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
       sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       syncedProjectionValues: mockStoreValues.syncedProjectionValues ?? new Map(),
+      threadStatuses: mockStoreValues.threadStatuses ?? new Map(),
       syncedProjectionKeys: mockStoreValues.syncedProjectionKeys ?? new Set(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
       compactToolActivity: mockStoreValues.compactToolActivity ?? false,
@@ -306,6 +308,8 @@ function setStoreLeaderProjection(
     ],
   ]);
   mockStoreValues.syncedProjectionKeys = new Set([entryId]);
+  // The feed takes a thread's status from what its window and live updates left in the store.
+  mockStoreValues.threadStatuses = threadStatusesState(sessionId, threadStatuses);
 }
 
 function setStoreStreamingStartedAt(sessionId: string, startedAt: number | undefined) {
@@ -476,6 +480,7 @@ function resetStore() {
   mockStoreValues.sessions = new Map();
   mockStoreValues.syncedProjectionValues = new Map();
   mockStoreValues.syncedProjectionKeys = new Set();
+  mockStoreValues.threadStatuses = new Map();
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.toolResults = new Map();
   mockStoreValues.toolStartTimestamps = new Map();

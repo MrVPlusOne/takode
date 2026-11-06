@@ -11,6 +11,7 @@ import {
   createLeaderThreadTabsProjectionValue,
 } from "../test-fixtures/leader-thread-tabs-projection.js";
 import { MessageFeed } from "./MessageFeed.js";
+import { applyThreadStatuses } from "../test-fixtures/thread-statuses.js";
 
 // Which thread a message's header links to. A message belongs to one thread:
 // the one it was written in. This reproduces a leader answer written in a quest
@@ -210,6 +211,10 @@ function installReadyStatuses() {
       }),
     }),
   );
+  applyThreadStatuses(useStore.getState().setThreadStatus, SESSION_ID, {
+    main: ready("main"),
+    [QUEST_ID]: ready(QUEST_ID),
+  });
 }
 
 function answerRow(container: HTMLElement): HTMLElement {

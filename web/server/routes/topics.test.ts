@@ -6,6 +6,7 @@ import type { RouteContext } from "./context.js";
 import { TopicStore } from "../topic-store.js";
 import { TopicService } from "../topic-service.js";
 import { createTopicRoutes } from "./topics.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 
 /**
  * The topics API on a disposable store with mocked quests: a leader files a quest under a topic,
@@ -54,14 +55,15 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function setup() {
+async function setup(leaderThreadStatuses?: Record<string, LeaderThreadStatus>) {
   const store = new TopicStore(root);
   stores.push(store);
   await store.load();
   store.setScribeSession("leader", "scribe");
   const injected: string[] = [];
   const service = new TopicService(store, {
-    getSession: () => undefined,
+    getSession: (id) =>
+      leaderThreadStatuses && id === "leader" ? { id, messageHistory: [], state: { leaderThreadStatuses } } : undefined,
     getLeaderInfo: () => undefined,
     listLeaders: () => [],
     sessionNum: () => null,
@@ -469,6 +471,26 @@ describe("topic routes", () => {
     expect(filed.topic).toMatchObject({ name: "T7 run" });
     const own = await (await app.request("/topics?leader=leader")).json();
     expect(own.topics[0]).toMatchObject({ name: "T7 run", threads: [{ name: "Quick question" }] });
+  });
+
+  it("lists each thread with its current status, however old", async () => {
+    // A thread's row in the status row shows its Ready summary; the list carries every thread's
+    // status from the leader's saved statuses, not only recent ones.
+    const statuses: Record<string, LeaderThreadStatus> = {};
+    const { store, send, app } = await setup(statuses);
+    store.enableLeader("leader");
+    const { thread } = await (await send("/topics/threads", "POST", { leader: "leader", name: "Old question" })).json();
+    statuses[thread.key] = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: thread.key,
+      summary: "answered last month",
+      messageId: "a-old",
+      timestamp: 1,
+      updatedAt: 1,
+    };
+    const [listed] = (await (await app.request("/topics/threads?leader=leader")).json()).threads;
+    expect(listed.status).toMatchObject({ kind: "ready", summary: "answered last month", threadKey: thread.key });
   });
 
   it("starts a thread about a Library artifact, which its thread list and the leader's tag name", async () => {

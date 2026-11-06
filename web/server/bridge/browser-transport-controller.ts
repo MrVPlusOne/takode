@@ -99,6 +99,7 @@ import {
   isAutomaticCodexAutoPauseInput,
   queueCodexAutoPausedInput,
 } from "../codex-result-error-auto-pause.js";
+import { currentThreadStatusFor } from "../../shared/thread-status-marker.js";
 import { browserSessionInitState } from "../session-types.js";
 import type {
   ActiveCodexReasoningPreview,
@@ -1282,7 +1283,9 @@ export function sendHistoryWindowSync(
 }
 
 export function sendThreadWindowSync(
-  session: Pick<BrowserTransportSessionLike, "id" | "messageHistory">,
+  session: Pick<BrowserTransportSessionLike, "id" | "messageHistory"> & {
+    state?: Pick<SessionState, "leaderThreadStatuses">;
+  },
   ws: BrowserTransportSocketLike,
   options: {
     threadKey: string;
@@ -1333,6 +1336,7 @@ export function sendThreadWindowSync(
   // A jump shows the target and what surrounds it while the rest is built, sent and rendered,
   // unless the browser may hold the target already (the full window is then usually a cache hit).
   const { targetMessageId: target, cachedWindowHash: held } = options;
+  const status = currentThreadStatusFor(session.state?.leaderThreadStatuses, threadKey);
   if (
     target &&
     normalizedItemCount > NEAREST_FIRST_ITEM_COUNT &&
@@ -1341,9 +1345,9 @@ export function sendThreadWindowSync(
     const near = build(NEAREST_FIRST_ITEM_COUNT);
     const hasTarget = near.entries.some((entry) => rawMessageId(entry.message, entry.history_index) === target);
     if (hasTarget && near.window.total_items > NEAREST_FIRST_ITEM_COUNT)
-      deliverThreadWindow(session, ws, near, null, sendToBrowser);
+      deliverThreadWindow(session, ws, near, null, sendToBrowser, status);
   }
-  deliverThreadWindow(session, ws, build(normalizedItemCount), held, sendToBrowser);
+  deliverThreadWindow(session, ws, build(normalizedItemCount), held, sendToBrowser, status);
 }
 
 /** A jump's first window: the target's conversation and one on each side. */

@@ -41,6 +41,7 @@ import { HOST_LINK_PATH } from "../shared/host-protocol.js";
 import { CliLauncher } from "./cli-launcher.js";
 import { parentClaudeSessionWarning } from "./cli-launcher-env.js";
 import { WsBridge } from "./ws-bridge.js";
+import { installLeaderThreadStatusBroadcast } from "./bridge/leader-thread-status-broadcast.js";
 import { SessionStore } from "./session-store.js";
 import { WorktreeTracker } from "./worktree-tracker.js";
 import { containerManager } from "./container-manager.js";
@@ -297,6 +298,7 @@ const modelProvenanceMigrationAcknowledgementStore = new ModelProvenanceMigratio
 );
 await modelProvenanceMigrationAcknowledgementStore.load();
 const wsBridge = new WsBridge();
+installLeaderThreadStatusBroadcast(wsBridge);
 const launcher = new CliLauncher(port, { serverId, serverSlug });
 const worktreeTracker = new WorktreeTracker();
 const CONTAINER_STATE_PATH = join(homedir(), ".companion", "containers.json");

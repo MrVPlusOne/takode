@@ -23,6 +23,8 @@ import {
   quest,
 } from "../test-fixtures/leader-thread-response-messages.js";
 import { MessageFeed } from "./MessageFeed.js";
+import { applyThreadStatuses } from "../test-fixtures/thread-statuses.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 
 const apiMocks = vi.hoisted(() => ({
   getQuestValidated: vi.fn().mockResolvedValue({ status: "not-modified", etag: '"response-detail"' }),
@@ -915,6 +917,27 @@ function producerLegacyPhaseOnlyThreadWindow(
 }
 
 function installAssociatedReadyStatuses() {
+  const threadStatuses: Record<string, LeaderThreadStatus> = {
+    main: {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "main",
+      summary: "Main answer complete",
+      messageId: ASSOCIATED_MAIN_ANSWER_ID,
+      timestamp: 1_700_000_026_000,
+      updatedAt: 1_700_000_026_000,
+    },
+    [QUEST_ID]: {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: QUEST_ID,
+      questId: QUEST_ID,
+      summary: "Associated quest view complete",
+      messageId: "associated-quest-quiz",
+      timestamp: 1_700_000_027_000,
+      updatedAt: 1_700_000_027_000,
+    },
+  };
   useStore.getState().applySyncedProjectionSnapshot(
     createLeaderThreadTabsProjectionEnvelope({
       key: SESSION_ID,
@@ -922,33 +945,26 @@ function installAssociatedReadyStatuses() {
         tabs: [],
         mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         activePhaseSummary: [],
-        threadStatuses: {
-          main: {
-            kind: "ready",
-            label: "Thread Ready",
-            threadKey: "main",
-            summary: "Main answer complete",
-            messageId: ASSOCIATED_MAIN_ANSWER_ID,
-            timestamp: 1_700_000_026_000,
-            updatedAt: 1_700_000_026_000,
-          },
-          [QUEST_ID]: {
-            kind: "ready",
-            label: "Thread Ready",
-            threadKey: QUEST_ID,
-            questId: QUEST_ID,
-            summary: "Associated quest view complete",
-            messageId: "associated-quest-quiz",
-            timestamp: 1_700_000_027_000,
-            updatedAt: 1_700_000_027_000,
-          },
-        },
+        threadStatuses,
       }),
     }),
   );
+  applyThreadStatuses(useStore.getState().setThreadStatus, SESSION_ID, threadStatuses);
 }
 
 function installReadyStatus(timestamp = 1_700_000_010_000, messageId = "response-single-r1") {
+  const threadStatuses: Record<string, LeaderThreadStatus> = {
+    [QUEST_ID]: {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: QUEST_ID,
+      questId: QUEST_ID,
+      summary: "responses complete",
+      messageId,
+      timestamp,
+      updatedAt: timestamp,
+    },
+  };
   useStore.getState().applySyncedProjectionSnapshot(
     createLeaderThreadTabsProjectionEnvelope({
       key: SESSION_ID,
@@ -956,21 +972,11 @@ function installReadyStatus(timestamp = 1_700_000_010_000, messageId = "response
         tabs: [],
         mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         activePhaseSummary: [],
-        threadStatuses: {
-          [QUEST_ID]: {
-            kind: "ready",
-            label: "Thread Ready",
-            threadKey: QUEST_ID,
-            questId: QUEST_ID,
-            summary: "responses complete",
-            messageId,
-            timestamp,
-            updatedAt: timestamp,
-          },
-        },
+        threadStatuses,
       }),
     }),
   );
+  applyThreadStatuses(useStore.getState().setThreadStatus, SESSION_ID, threadStatuses);
 }
 
 /** The user's own message, not the quote of it above an answer that answers it. */

@@ -12,6 +12,8 @@ import {
   createLeaderThreadTabsProjectionValue,
 } from "../test-fixtures/leader-thread-tabs-projection.js";
 import { MessageFeed } from "./MessageFeed.js";
+import { applyThreadStatuses } from "../test-fixtures/thread-statuses.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 
 // A collapsed leader turn that has no answer (the request was handed off to a
 // quest, or the leader only dispatched work) shows its last message instead of
@@ -141,6 +143,17 @@ function mainWindow(entries: ThreadWindowSync["entries"], responseState?: Thread
 }
 
 function installMainReady(messageId: string, timestamp: number) {
+  const threadStatuses: Record<string, LeaderThreadStatus> = {
+    main: {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "main",
+      summary: "Main handed off",
+      messageId,
+      timestamp,
+      updatedAt: timestamp,
+    },
+  };
   useStore.getState().applySyncedProjectionSnapshot(
     createLeaderThreadTabsProjectionEnvelope({
       key: SESSION_ID,
@@ -148,20 +161,11 @@ function installMainReady(messageId: string, timestamp: number) {
         tabs: [],
         mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
         activePhaseSummary: [],
-        threadStatuses: {
-          main: {
-            kind: "ready",
-            label: "Thread Ready",
-            threadKey: "main",
-            summary: "Main handed off",
-            messageId,
-            timestamp,
-            updatedAt: timestamp,
-          },
-        },
+        threadStatuses,
       }),
     }),
   );
+  applyThreadStatuses(useStore.getState().setThreadStatus, SESSION_ID, threadStatuses);
 }
 
 function turnOf(container: HTMLElement, userMessageId: string): HTMLElement {

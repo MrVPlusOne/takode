@@ -4,22 +4,12 @@ import { threadAddress } from "../../shared/topic-thread-key.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import { WaitingWorkerPreview, type WaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 
-export function getVisibleCurrentThreadStatuses(
-  currentStatuses: Readonly<Record<string, LeaderThreadStatus>> | undefined,
+/** The thread's status as its feed shows it: none in All Threads, which mixes every thread. */
+export function visibleCurrentThreadStatuses(
+  status: LeaderThreadStatus | null,
   currentThreadKey: string | undefined,
 ): LeaderThreadStatus[] {
-  if (!currentStatuses) return [];
-  const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
-  if (isAllThreadsKey(normalizedCurrentThread)) return [];
-  const visible = Object.entries(currentStatuses).flatMap(([entryKey, status]) => {
-    const key = normalizeThreadKey(status.threadKey || entryKey);
-    return key === normalizedCurrentThread ? [status] : [];
-  });
-  return visible.sort(
-    (a, b) =>
-      (a.updatedAt || a.timestamp) - (b.updatedAt || b.timestamp) ||
-      normalizeThreadKey(a.threadKey).localeCompare(normalizeThreadKey(b.threadKey)),
-  );
+  return status && !isAllThreadsKey(normalizeThreadKey(currentThreadKey || "main")) ? [status] : [];
 }
 
 export function measureThreadStatusLayoutContribution(root: HTMLElement): number {

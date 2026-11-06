@@ -25,6 +25,7 @@ import {
   type ThreadRoutingMarkdownFenceState,
 } from "../../shared/thread-routing.js";
 import {
+  canonicalThreadStatusKey,
   extractThreadStatusMarkersFromText,
   threadStatusKey,
   type LeaderThreadStatus,
@@ -149,8 +150,43 @@ export interface LeaderThreadStatusSessionLike {
 
 type LeaderReadyBlockerSessionLike = Pick<
   LeaderThreadStatusSessionLike,
-  "notifications" | "pendingCodexInputs" | "state"
+  "id" | "notifications" | "pendingCodexInputs" | "state"
 >;
+
+/** One thread's status changed: its new status, or null when it was cleared. */
+export interface LeaderThreadStatusChange {
+  threadKey: string;
+  status: LeaderThreadStatus | null;
+}
+
+let statusChangeListener: ((sessionId: string, changes: LeaderThreadStatusChange[]) => void) | null = null;
+
+/**
+ * Hears every change of a leader's thread statuses, so the server can send it to the leader's
+ * browsers at once (a feed shows its thread's status; the thread's window brings the status
+ * it has when the feed opens).
+ */
+export function setLeaderThreadStatusChangeListener(
+  listener: ((sessionId: string, changes: LeaderThreadStatusChange[]) => void) | null,
+): void {
+  statusChangeListener = listener;
+}
+
+/** The only writer of a session's thread statuses, so every change reaches the listener. */
+function writeLeaderThreadStatuses(
+  session: Pick<LeaderThreadStatusSessionLike, "id" | "state">,
+  next: Record<string, LeaderThreadStatus>,
+): void {
+  const previous = session.state.leaderThreadStatuses ?? {};
+  session.state.leaderThreadStatuses = next;
+  if (!statusChangeListener || !session.id) return;
+  const changes: LeaderThreadStatusChange[] = [];
+  for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+    if (previous[key] === next[key]) continue;
+    changes.push({ threadKey: canonicalThreadStatusKey(key), status: next[key] ?? null });
+  }
+  if (changes.length > 0) statusChangeListener(session.id, changes);
+}
 
 export interface LeaderThreadStatusUpdateResult {
   records: LeaderThreadStatus[];
@@ -495,7 +531,7 @@ export function clearLeaderThreadStatusForActivity(
 
   const statuses = { ...(session.state.leaderThreadStatuses ?? {}) };
   delete statuses[key];
-  session.state.leaderThreadStatuses = statuses;
+  writeLeaderThreadStatuses(session, statuses);
   return true;
 }
 
@@ -544,7 +580,7 @@ export function clearLeaderReadyStatusesBlockedByNeedsInput(session: LeaderReady
     delete next[key];
   }
   if (!next) return false;
-  session.state.leaderThreadStatuses = next;
+  writeLeaderThreadStatuses(session, next);
   return true;
 }
 
@@ -624,7 +660,7 @@ export function updateLeaderThreadStatusesForAssistantOutput(
   }
 
   if (changed) {
-    session.state.leaderThreadStatuses = statuses;
+    writeLeaderThreadStatuses(session, statuses);
   }
   return {
     records,

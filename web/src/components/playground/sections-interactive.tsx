@@ -1328,6 +1328,16 @@ export function PlaygroundInteractiveSections() {
                     },
                     activePhaseSummary: [{ label: "Work", count: 1, tone: "phase" }],
                   });
+                  state.setThreadStatus(boardSessionId, "q-88", {
+                    kind: "waiting",
+                    label: "Thread Waiting",
+                    threadKey: "q-88",
+                    questId: "q-88",
+                    summary: "awaiting a read-only worker follow-up",
+                    messageId: "playground-board-bar-q88-waiting",
+                    timestamp: now - 10_000,
+                    updatedAt: now - 10_000,
+                  });
                   // Notify Me state for the tab long-press/right-click menu: q-42 is tracked, q-55 has a waiting result.
                   state.applySyncedProjectionSnapshot({
                     type: "synced_projection_snapshot",

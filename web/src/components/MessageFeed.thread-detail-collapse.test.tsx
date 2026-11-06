@@ -36,6 +36,7 @@ import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { threadStatusMessageIdHash } from "../../shared/thread-status-marker.js";
 import type { ChatMessage, SessionAttentionRecord } from "../types.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
+import { threadStatusesState } from "../test-fixtures/thread-statuses.js";
 import {
   THREAD_ROUTING_REMINDER_SOURCE_ID,
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
@@ -119,6 +120,7 @@ vi.mock("../store.js", () => {
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
       sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       syncedProjectionValues: mockStoreValues.syncedProjectionValues ?? new Map(),
+      threadStatuses: mockStoreValues.threadStatuses ?? new Map(),
       syncedProjectionKeys: mockStoreValues.syncedProjectionKeys ?? new Set(),
       sessionBoards: mockStoreValues.sessionBoards ?? new Map(),
       sessionCompletedBoards: mockStoreValues.sessionCompletedBoards ?? new Map(),
@@ -341,6 +343,8 @@ function setStoreLeaderProjection(
     ],
   ]);
   mockStoreValues.syncedProjectionKeys = new Set([entryId]);
+  // The feed takes a thread's status from what its window and live updates left in the store.
+  mockStoreValues.threadStatuses = threadStatusesState(sessionId, threadStatuses);
 }
 
 function setStoreTurnOverrides(sessionId: string, overrides: [string, boolean][]) {
@@ -390,6 +394,7 @@ function resetStore() {
   mockStoreValues.sessions = new Map();
   mockStoreValues.syncedProjectionValues = new Map();
   mockStoreValues.syncedProjectionKeys = new Set();
+  mockStoreValues.threadStatuses = new Map();
   mockStoreValues.sessionNotifications = new Map();
   mockStoreValues.sessionAttentionRecords = new Map();
   mockStoreValues.sessionBoards = new Map();

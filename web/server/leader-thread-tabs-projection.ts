@@ -4,7 +4,6 @@ import {
   LEADER_THREAD_TABS_PROJECTION_MAX_ACTIVE_PHASE_SEGMENTS,
   LEADER_THREAD_TABS_PROJECTION_MAX_INTERACTIONS,
   LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
-  LEADER_THREAD_TABS_PROJECTION_MAX_PLAIN_THREAD_STATUSES,
   LEADER_THREAD_TABS_PROJECTION_MAX_STATUSES,
   LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH,
@@ -38,7 +37,6 @@ import {
   type LeaderThreadTabMutationPolicy,
 } from "../shared/leader-thread-tab-priority.js";
 import { threadStatusKey, threadStatusMessageIdHash, type LeaderThreadStatus } from "../shared/thread-status-marker.js";
-import { isTopicViewKey, normalizeTopicKey } from "../shared/topic-thread-key.js";
 import {
   buildProjectionAttentionRecords,
   collectLeaderThreadSummaries,
@@ -138,8 +136,7 @@ function normalizeProjectionThreadKey(value: unknown): string | null {
 
 function normalizeStatusThreadKey(value: unknown): string | null {
   const key = normalizeThreadKey(value, true);
-  if (!key) return null;
-  return key === "main" || /^q-\d+$/i.test(key) ? key : normalizeTopicKey(key);
+  return key && (key === "main" || /^q-\d+$/i.test(key)) ? key : null;
 }
 
 function normalizeAttentionThreadKey(value: unknown): string | null {
@@ -638,12 +635,6 @@ function relevantThreadStatuses(
     const status = byKey.get(key);
     if (status) result[key] = compactStatus(status, key);
   }
-  // The leader's other threads have no tab, but their feeds show their status too.
-  const plainThreadStatuses = [...byKey]
-    .filter(([key]) => isTopicViewKey(key))
-    .sort(([, left], [, right]) => (right.updatedAt || right.timestamp) - (left.updatedAt || left.timestamp))
-    .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_PLAIN_THREAD_STATUSES);
-  for (const [key, status] of plainThreadStatuses) result[key] = compactStatus(status, key);
   return result;
 }
 

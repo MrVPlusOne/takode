@@ -1,9 +1,9 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useStore } from "../store.js";
 import { flushSync } from "react-dom";
-import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver.js";
+import { selectThreadStatus } from "../utils/thread-status-store.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
-import { getVisibleCurrentThreadStatuses } from "./MessageFeedThreadStatus.js";
+import { visibleCurrentThreadStatuses } from "./MessageFeedThreadStatus.js";
 import type { MessageFeedEndSlackProps } from "./MessageFeedEndSlack.js";
 import { useComposerScrollSpace } from "./ComposerFeedLayout.js";
 import { useWaitingWorkerPreviewTarget } from "./WaitingWorkerPreview.js";
@@ -32,10 +32,10 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
   const normalizedThreadKey = normalizeThreadKey(currentThreadKey);
   const statusScope = `${sessionId}:${normalizedThreadKey}`;
   const composerScrollSpace = useComposerScrollSpace(statusScope);
-  const currentThreadStatuses = useStore((state) => selectLeaderThreadStatuses(state, sessionId));
+  const currentThreadStatus = useStore((state) => selectThreadStatus(state, sessionId, normalizedThreadKey));
   const visibleThreadStatuses = useMemo(
-    () => getVisibleCurrentThreadStatuses(currentThreadStatuses, normalizedThreadKey),
-    [currentThreadStatuses, normalizedThreadKey],
+    () => visibleCurrentThreadStatuses(currentThreadStatus, normalizedThreadKey),
+    [currentThreadStatus, normalizedThreadKey],
   );
   // The waiting worker's preview lives in the same feed footer as the thread status.
   const workerPreviewTarget = useWaitingWorkerPreviewTarget(sessionId, normalizedThreadKey, visibleThreadStatuses);

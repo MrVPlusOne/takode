@@ -8,6 +8,7 @@ import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-p
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { BoardRowSessionStatus } from "../types.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
+import { threadStatusesState } from "../test-fixtures/thread-statuses.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { resolveWaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
@@ -98,6 +99,7 @@ function setLeaderState({
     useStore.setState({
       syncedProjectionValues: new Map([[entryId, createLeaderThreadTabsProjectionValue({ threadStatuses: statuses })]]),
       syncedProjectionKeys: new Set([entryId]),
+      threadStatuses: threadStatusesState(LEADER, statuses),
       sessionBoards: new Map([[LEADER, rows]]),
       sessionBoardRowStatuses: new Map([[LEADER, participants]]),
       sessionStatus: new Map([[LEADER, leaderStatus]]),

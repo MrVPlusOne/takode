@@ -5,6 +5,7 @@ import type {
   ThreadWindowEntry,
   ThreadWindowState,
 } from "../types.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { normalizeThreadKey } from "./thread-projection.js";
 
 const MAX_HISTORY_ENTRIES_PER_SESSION = 12;
@@ -35,6 +36,8 @@ interface ThreadWindowCacheEntry {
   entries: ThreadWindowEntry[];
   /** The window's leader answer state; covered by its hash, so a cache hit leaves it out. */
   responseState: LeaderThreadResponseProjection | null;
+  /** The thread's status, also covered by the hash. */
+  threadStatus: LeaderThreadStatus | null;
   updatedAt: number;
 }
 
@@ -103,6 +106,7 @@ export function cacheThreadWindow(
   window: ThreadWindowState,
   entries: ThreadWindowEntry[],
   responseState: LeaderThreadResponseProjection | null = null,
+  threadStatus: LeaderThreadStatus | null = null,
 ) {
   purgeLegacyPersistedWindowCaches();
   if (!window.window_hash || entries.length === 0) return;
@@ -120,6 +124,7 @@ export function cacheThreadWindow(
     windowHash: window.window_hash,
     entries,
     responseState,
+    threadStatus,
     updatedAt: Date.now(),
   };
   writeBoundedCache(
@@ -164,11 +169,11 @@ export function resolveCachedThreadWindowEntries(
   return resolveCachedThreadWindow(sessionId, window)?.entries ?? null;
 }
 
-/** The cached window a cache hit names: its entries and leader answer state. */
+/** The cached window a cache hit names: its entries, leader answer state and thread status. */
 export function resolveCachedThreadWindow(
   sessionId: string,
   window: ThreadWindowState,
-): Pick<ThreadWindowCacheEntry, "entries" | "responseState"> | null {
+): Pick<ThreadWindowCacheEntry, "entries" | "responseState" | "threadStatus"> | null {
   purgeLegacyPersistedWindowCaches();
   if (!window.window_hash) return null;
   const lookup = {

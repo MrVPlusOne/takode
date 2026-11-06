@@ -63,6 +63,7 @@ Use the context pointers from your spawn message to collect:
 Assume the worker may have:
 - Run a test once, seen it pass, and declared victory without investigating
 - Made the minimal change to make a symptom disappear without fixing root cause
+- Shipped a stopgap that leaves known cases broken (an arbitrary cap, only the most recent N, a timeout) without saying so or asking the user
 - Claimed "can't reproduce" after a superficial attempt
 - Copied existing code instead of understanding and improving it
 - Addressed the letter of the task but missed the spirit

@@ -34,6 +34,7 @@ import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
+import { threadStatusesState } from "../test-fixtures/thread-statuses.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 
 vi.mock("react-markdown", () => ({
@@ -116,6 +117,7 @@ vi.mock("../store.js", () => {
       threadWindowRefreshRevisions: new Map(),
       threadWindowAppliedRevisions: new Map(),
       syncedProjectionValues: mockStoreValues.syncedProjectionValues ?? new Map(),
+      threadStatuses: mockStoreValues.threadStatuses ?? new Map(),
       syncedProjectionKeys: mockStoreValues.syncedProjectionKeys ?? new Set(),
     };
     return selector(state);
@@ -188,6 +190,7 @@ beforeEach(() => {
   mockStoreValues.cliDisconnectReason = new Map();
   mockStoreValues.syncedProjectionValues = new Map();
   mockStoreValues.syncedProjectionKeys = new Set();
+  mockStoreValues.threadStatuses = new Map();
 });
 
 function buildProducerViewportWindows() {
@@ -388,6 +391,8 @@ function setProducerThreadStatus(sessionId: string, status: LeaderThreadStatus |
     ],
   ]);
   mockStoreValues.syncedProjectionKeys = new Set([entryId]);
+  // The feed takes a thread's status from what its window and live updates left in the store.
+  mockStoreValues.threadStatuses = threadStatusesState(sessionId, status ? { [statusKey]: status } : {});
 }
 
 function makeThreadStatus(

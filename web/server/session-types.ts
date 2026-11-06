@@ -1277,8 +1277,12 @@ export type BrowserIncomingMessageBase =
       window: ThreadWindowState;
       /** Left out on a cache hit: the window hash covers it, so the browser's cached window has it. */
       response_state?: import("./leader-thread-response-types.js").LeaderThreadResponseProjection;
+      /** The thread's current status (null: none). Left out on a cache hit, which the hash covers too. */
+      thread_status?: LeaderThreadStatus | null;
       cache_hit?: boolean;
     }
+  /** A leader thread's status changed: its new status, or null when it was cleared. */
+  | { type: "leader_thread_status"; thread_key: string; status: LeaderThreadStatus | null }
   | {
       type: "leader_projection_snapshot";
       /**

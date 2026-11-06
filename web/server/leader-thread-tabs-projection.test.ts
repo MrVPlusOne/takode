@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
   LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
-  LEADER_THREAD_TABS_PROJECTION_MAX_PLAIN_THREAD_STATUSES,
   LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
   isLeaderThreadTabsProjectionValue,
@@ -157,43 +156,6 @@ describe("leader thread tabs projection derivation", () => {
     expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
     // Projection backfill is read-only; raw durable state is changed only by a producer mutation.
     expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-3", "q-4"]);
-  });
-
-  it("sends the newest statuses of the leader's plain threads, which have no tab", () => {
-    // A thread that is not a quest is keyed by its topic handle and never has a tab. Its
-    // Thread Waiting/Ready status still has to reach browsers, or its feed shows no status chip.
-    const plainStatuses = Object.fromEntries(
-      Array.from({ length: LEADER_THREAD_TABS_PROJECTION_MAX_PLAIN_THREAD_STATUSES + 5 }, (_, index) => {
-        const key = `topic:${(index + 1).toString(16).padStart(8, "0")}`;
-        const item = status(key, "waiting");
-        item.questId = undefined;
-        item.updatedAt = 100 + index;
-        return [key, item];
-      }),
-    );
-    const session = makeSession({
-      state: {
-        isOrchestrator: true,
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-3"],
-          closedThreadTombstones: [],
-          updatedAt: 25,
-        },
-        leaderThreadStatuses: { "q-3": status("q-3", "ready"), ...plainStatuses },
-      } as unknown as Session["state"],
-    });
-
-    const value = buildLeaderThreadTabsProjectionValue(session);
-
-    const plainKeys = Object.keys(value.threadStatuses).filter((key) => key.startsWith("topic:"));
-    expect(plainKeys).toHaveLength(LEADER_THREAD_TABS_PROJECTION_MAX_PLAIN_THREAD_STATUSES);
-    // The newest one is kept and the five oldest are left out.
-    expect(value.threadStatuses["topic:00000019"]).toMatchObject({ kind: "waiting", threadKey: "topic:00000019" });
-    expect(value.threadStatuses["topic:00000001"]).toBeUndefined();
-    expect(value.threadStatuses["q-3"]).toMatchObject({ kind: "ready" });
-    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-3"]);
-    expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
   });
 
   it("retains a full-ID hash when normal projection compaction truncates a Codex status anchor", () => {

@@ -4,6 +4,7 @@ import type { PRStatusResponse, CreateSessionOpts, CreationProgressEvent, QuestS
 import type { BoardRowData } from "./components/BoardTable.js";
 import type { SearchMatch, SessionSearchCategory, SessionSearchState } from "./store-session-search.js";
 import type { ReplyContext } from "../shared/reply-context.js";
+import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { NotificationSoundSetId } from "./utils/notification-sound-sets.js";
 import type {
   BoardRowSessionStatus,
@@ -75,6 +76,11 @@ export interface AppState {
   threadWindows: Map<string, Map<string, ThreadWindowState>>;
   threadWindowMessages: Map<string, Map<string, ChatMessage[]>>;
   threadWindowResponseStates: Map<string, Map<string, LeaderThreadResponseProjection | null>>;
+  /**
+   * Leader threads' current statuses (Thread Waiting/Ready), by session and thread key: each
+   * thread's window brings it and live updates change it; null when the thread has none.
+   */
+  threadStatuses: Map<string, Map<string, LeaderThreadStatus | null>>;
   threadWindowRefreshRevisions: Map<string, number>;
   threadWindowAppliedRevisions: Map<string, Map<string, number>>;
   pendingThreadWindowRequests: Map<string, string>;
@@ -349,6 +355,7 @@ export interface AppState {
     responseState?: LeaderThreadResponseProjection | null,
   ) => void;
   setPendingThreadWindowRequest: (sessionId: string, threadKey: string | null) => void;
+  setThreadStatus: (sessionId: string, threadKey: string, status: LeaderThreadStatus | null) => void;
   /** Every thread window this session's feeds hold may be out of date: each open feed asks for its window again. */
   markThreadWindowsStale: (sessionId: string) => void;
   setPendingCodexInputs: (sessionId: string, inputs: PendingCodexInput[]) => void;

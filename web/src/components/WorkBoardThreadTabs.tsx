@@ -11,7 +11,11 @@ import { isTopicViewKey } from "../../shared/topic-thread-key.js";
 import { useStore } from "../store.js";
 import { resolveLeaderThreadTabsProjection } from "../utils/leader-thread-tabs-resolver.js";
 import type { QuestmasterTask } from "../types.js";
-import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import {
+  canonicalThreadStatusKey,
+  threadStatusKey,
+  type LeaderThreadStatus,
+} from "../../shared/thread-status-marker.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
@@ -130,6 +134,8 @@ export interface PrimaryThreadChip {
   remindAt?: number;
   /** A thread the user started: when, which counts as dealing with it (Home's order). */
   userStartedAt?: number;
+  /** A thread that is not a quest's: its current status (quest tabs take theirs from the projection). */
+  threadStatus?: LeaderThreadStatus;
 }
 
 function displayThreadTabTitleColor(
@@ -189,6 +195,8 @@ export function useLeaderThreadChips({
     });
   const currentKey = normalizeThreadKey(currentThreadKey || MAIN_THREAD_KEY);
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
+  // Statuses that changed since the thread list loaded, which take its place.
+  const liveStatuses = useStore((state) => state.threadStatuses?.get(sessionId));
   // The leader's other threads. Asked again when an answer in a thread arrives or is read: the
   // leader names a thread with its first answer, and the Scribe may file or join it.
   const threadAnswers = (notifications ?? [])
@@ -218,7 +226,10 @@ export function useLeaderThreadChips({
       return { ...tab, needsInput: true, stateLabel: question.label, onOpen: question.open };
     });
     for (const thread of plainThreads) {
-      if (!thread.empty) members.push(plainThreadChip(thread, notifications, writingKey === thread.key));
+      if (thread.empty) continue;
+      const key = canonicalThreadStatusKey(thread.key);
+      const status = liveStatuses?.has(key) ? (liveStatuses.get(key) ?? undefined) : thread.status;
+      members.push(plainThreadChip({ ...thread, status }, notifications, writingKey === thread.key));
     }
     // A question or answer still in Main (from before Home) is read in the leader log.
     if (mainState && (mainState.needsInput || mainState.blueNudge)) {
@@ -246,7 +257,7 @@ export function useLeaderThreadChips({
       });
     }
     return members;
-  }, [displayedTabs, plainThreads, notifications, mainState, questions, runningKey, writingKey]);
+  }, [displayedTabs, plainThreads, notifications, liveStatuses, mainState, questions, runningKey, writingKey]);
   return threads;
 }
 

@@ -164,6 +164,7 @@ export function plainThreadChip(
     canClose: false,
     updatedAt: thread.activityAt,
     ...(thread.startedBy ? {} : { userStartedAt: thread.createdAt }),
+    ...(thread.status ? { threadStatus: thread.status } : {}),
   };
 }
 
@@ -426,7 +427,7 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
   const openMenu = isHome(tab) ? undefined : context.onOpenMenu?.(tab);
   const longPress = useLongPress(openMenu);
   const monitor = context.monitors?.[threadKey];
-  const status = context.threadStatuses?.[threadStatusKey(threadKey)];
+  const status = context.threadStatuses?.[threadStatusKey(threadKey)] ?? tab.threadStatus;
   const summary = status?.kind === "ready" ? status.summary : undefined;
   const activeAt = lastActivityAt(tab);
   // A thread that is not a quest's is named by its title and state; its key means nothing.

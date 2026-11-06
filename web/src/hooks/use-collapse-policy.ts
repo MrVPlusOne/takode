@@ -9,7 +9,7 @@ import { useStore } from "../store.js";
 import { getAssistantVisibleMarkdown } from "../utils/assistant-message-renderability.js";
 import { normalizeThreadKey, threadViewShows } from "../utils/thread-projection.js";
 import { extractQuestQuizMarkerIds, stripQuestQuizMarkers } from "../components/AssistantQuestQuizContent.js";
-import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver.js";
+import { selectThreadStatus } from "../utils/thread-status-store.js";
 import type { Turn } from "./use-feed-model.js";
 import type { TurnFinalFold } from "../components/turn-final-fold.js";
 
@@ -154,21 +154,14 @@ export function useCollapsePolicy({
   toggleTurn: (turnId: string) => void;
 } {
   const overrides = useStore((s) => s.turnActivityOverrides.get(sessionId));
-  const currentThreadStatuses = useStore((s) => selectLeaderThreadStatuses(s, sessionId));
+  const threadStatus = useStore((s) =>
+    autoCollapseReadyThreadKey ? selectThreadStatus(s, sessionId, autoCollapseReadyThreadKey) : null,
+  );
   const toggleTurnActivity = useStore((s) => s.toggleTurnActivity);
   const readyStatus = useMemo<LeaderThreadStatus | null>(() => {
-    if (!autoCollapseReadyThreadKey || !currentThreadStatuses) return null;
-    const normalizedThreadKey = normalizeThreadKey(autoCollapseReadyThreadKey);
-    return (
-      Object.values(currentThreadStatuses).find(
-        (status) =>
-          status.kind === "ready" &&
-          threadStatusKey(status.threadKey) === normalizedThreadKey &&
-          (status.messageId || status.messageIdHash) &&
-          (autoCollapseReadyAfter == null || status.timestamp >= autoCollapseReadyAfter),
-      ) ?? null
-    );
-  }, [autoCollapseReadyAfter, autoCollapseReadyThreadKey, currentThreadStatuses]);
+    if (threadStatus?.kind !== "ready" || !(threadStatus.messageId || threadStatus.messageIdHash)) return null;
+    return autoCollapseReadyAfter == null || threadStatus.timestamp >= autoCollapseReadyAfter ? threadStatus : null;
+  }, [autoCollapseReadyAfter, threadStatus]);
 
   const turnStates = useMemo(() => {
     return turns.map((turn, index): TurnCollapseState => {

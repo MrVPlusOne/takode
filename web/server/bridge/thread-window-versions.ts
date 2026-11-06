@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage, ThreadWindowEntry } from "../session-types.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { computeHistoryPayloadSyncHash } from "../../shared/history-sync-hash.js";
 import {
   normalizeSelectedFeedThreadKey,
@@ -62,13 +63,15 @@ export function deliverThreadWindow<Socket extends { data?: unknown }>(
   sync: ReturnType<typeof buildThreadWindowSync>,
   held: string | undefined | null,
   send: (ws: Socket, message: BrowserIncomingMessage) => boolean,
+  threadStatus: LeaderThreadStatus | null = null,
 ): void {
   const partial = held === null;
-  // The answer state is covered too, so a cache hit can leave it out.
+  // The answer state and thread status are covered too, so a cache hit can leave them out.
   const windowHash = computeHistoryPayloadSyncHash({
     threadKey: sync.threadKey,
     entries: sync.entries,
     responseState: sync.threadResponseProjection ?? null,
+    ...(threadStatus ? { threadStatus } : {}),
   });
   const cacheHit = held === windowHash;
   const delivered = partial
@@ -81,7 +84,7 @@ export function deliverThreadWindow<Socket extends { data?: unknown }>(
     ...(!cacheHit && delivered.delta ? { entries_delta: delivered.delta } : {}),
     window: { ...sync.window, window_hash: windowHash, ...(partial ? { partial: true } : {}) },
     ...(sync.threadResponseProjection && !cacheHit ? { response_state: sync.threadResponseProjection } : {}),
-    ...(cacheHit ? { cache_hit: true } : {}),
+    ...(cacheHit ? { cache_hit: true } : { thread_status: threadStatus }),
   } as BrowserIncomingMessage);
   if (sent && !partial) noteThreadWindowHeld(ws, sync.threadKey, windowHash);
 }

@@ -1892,6 +1892,9 @@ function handleParsedMessage(
       }
       const chatMessages = normalizeThreadWindowEntries(sessionId, sourceEntries);
       store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages, responseState);
+      // The thread's status, which a cache hit leaves out like the answer state.
+      const threadStatus = data.cache_hit === true ? cached?.threadStatus : data.thread_status;
+      if (threadStatus !== undefined) store.setThreadStatus(sessionId, data.thread_key, threadStatus);
       reconcileLocalPreviewCopiesWithAuthoritativeMessages(
         sessionId,
         sourceEntries.map((entry) => entry.message),
@@ -1908,8 +1911,13 @@ function handleParsedMessage(
         store.setPendingThreadWindowRequest(sessionId, null);
       }
       if (data.cache_hit !== true) {
-        cacheThreadWindow(sessionId, data.window, sourceEntries, responseState);
+        cacheThreadWindow(sessionId, data.window, sourceEntries, responseState, data.thread_status ?? null);
       }
+      break;
+    }
+
+    case "leader_thread_status": {
+      store.setThreadStatus(sessionId, data.thread_key, data.status);
       break;
     }
 

@@ -5,6 +5,8 @@
  * Shared by the server, the browser and the `takode topic` and `takode scribe` commands.
  */
 
+import type { LeaderThreadStatus } from "./thread-status-marker.js";
+
 /** Who named a topic: names the user chose are never changed automatically. */
 export type TopicNameSource = "user" | "agent";
 
@@ -103,6 +105,8 @@ export interface ThreadSummary {
    * messages read after that thread's and it is that conversation now, left out of the thread lists.
    */
   joinedInto?: string;
+  /** Its current Thread Waiting/Ready status, sent with a leader's thread list. */
+  status?: LeaderThreadStatus;
 }
 
 export interface TopicEvent {

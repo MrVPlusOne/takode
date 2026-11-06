@@ -31,6 +31,7 @@ export function releaseSessionConversationState(s: AppState, sessionId: string):
     threadWindows: without(s.threadWindows),
     threadWindowMessages: without(s.threadWindowMessages),
     threadWindowResponseStates: without(s.threadWindowResponseStates),
+    threadStatuses: without(s.threadStatuses),
     threadWindowRefreshRevisions: without(s.threadWindowRefreshRevisions),
     threadWindowAppliedRevisions: without(s.threadWindowAppliedRevisions),
     pendingThreadWindowRequests: without(s.pendingThreadWindowRequests),
@@ -61,6 +62,8 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   threadWindowMessages.delete(sessionId);
   const threadWindowResponseStates = new Map(s.threadWindowResponseStates);
   threadWindowResponseStates.delete(sessionId);
+  const threadStatuses = new Map(s.threadStatuses);
+  threadStatuses.delete(sessionId);
   const threadWindowRefreshRevisions = new Map(s.threadWindowRefreshRevisions);
   threadWindowRefreshRevisions.delete(sessionId);
   const threadWindowAppliedRevisions = new Map(s.threadWindowAppliedRevisions);
@@ -191,6 +194,7 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     threadWindows,
     threadWindowMessages,
     threadWindowResponseStates,
+    threadStatuses,
     threadWindowRefreshRevisions,
     threadWindowAppliedRevisions,
     pendingThreadWindowRequests,

@@ -2,37 +2,29 @@
 
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  LEADER_THREAD_TABS_PROJECTION,
-  LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
-  type LeaderThreadTabsProjectionValue,
-} from "../../shared/leader-thread-tabs-projection.js";
-import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
-import { threadStatusMessageIdHash } from "../../shared/thread-status-marker.js";
-import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
+import { LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH } from "../../shared/leader-thread-tabs-projection.js";
+import { threadStatusMessageIdHash, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { threadStatusesState } from "../test-fixtures/thread-statuses.js";
 import type { ChatMessage } from "../types.js";
 import { buildFeedModel } from "./use-feed-model.js";
 import { canAutoCollapseReadyThread, readyTurnOverrideKey, useCollapsePolicy } from "./use-collapse-policy.js";
 
 const storeMocks = vi.hoisted(() => ({
   overridesBySession: new Map<string, Map<string, boolean>>(),
-  syncedProjectionValues: new Map<string, unknown>(),
-  syncedProjectionKeys: new Set<string>(),
+  threadStatuses: new Map<string, Map<string, LeaderThreadStatus | null>>(),
   toggleTurnActivity: vi.fn(),
 }));
 
 vi.mock("../store.js", () => ({
   useStore: (
     selector: (state: {
-      syncedProjectionValues: typeof storeMocks.syncedProjectionValues;
-      syncedProjectionKeys: typeof storeMocks.syncedProjectionKeys;
+      threadStatuses: typeof storeMocks.threadStatuses;
       turnActivityOverrides: Map<string, Map<string, boolean>>;
       toggleTurnActivity: typeof storeMocks.toggleTurnActivity;
     }) => unknown,
   ) =>
     selector({
-      syncedProjectionValues: storeMocks.syncedProjectionValues,
-      syncedProjectionKeys: storeMocks.syncedProjectionKeys,
+      threadStatuses: storeMocks.threadStatuses,
       turnActivityOverrides: storeMocks.overridesBySession,
       toggleTurnActivity: storeMocks.toggleTurnActivity,
     }),
@@ -56,19 +48,10 @@ function makeInjectedUserMessage(id: string, content: string, sessionId: string,
   });
 }
 
-function installLeaderProjection(threadStatuses: LeaderThreadTabsProjectionValue["threadStatuses"]) {
-  const sessionId = "leader-session";
-  const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, sessionId);
-  storeMocks.syncedProjectionValues.set(
-    entryId,
-    createLeaderThreadTabsProjectionValue({
-      tabs: [],
-      mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, changedAt: 0 },
-      threadStatuses,
-      activePhaseSummary: [],
-    }),
-  );
-  storeMocks.syncedProjectionKeys.add(entryId);
+/** The statuses the leader's thread windows and live updates left in the store. */
+function installThreadStatuses(threadStatuses: Record<string, LeaderThreadStatus>) {
+  const [[sessionId, byThread]] = threadStatusesState("leader-session", threadStatuses);
+  storeMocks.threadStatuses.set(sessionId, byThread);
 }
 
 function getLeaderCollapseStates(
@@ -120,8 +103,7 @@ describe("Ready collapse generation guard", () => {
 describe("useCollapsePolicy", () => {
   beforeEach(() => {
     storeMocks.overridesBySession.clear();
-    storeMocks.syncedProjectionValues.clear();
-    storeMocks.syncedProjectionKeys.clear();
+    storeMocks.threadStatuses.clear();
     storeMocks.toggleTurnActivity.mockClear();
   });
 
@@ -186,7 +168,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    installLeaderProjection({ "q-1636": readyStatus });
+    installThreadStatuses({ "q-1636": readyStatus });
 
     const states = getLeaderCollapseStates(
       [
@@ -220,7 +202,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    installLeaderProjection({ "q-1636": readyStatus });
+    installThreadStatuses({ "q-1636": readyStatus });
     const messages = [
       makeMessage({ id: "u1", role: "user", content: "close q-1636", timestamp: 1 }),
       makeMessage({
@@ -256,7 +238,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    installLeaderProjection({ "q-1636": readyStatus });
+    installThreadStatuses({ "q-1636": readyStatus });
     storeMocks.overridesBySession.set("leader-session", new Map([["u1", true]]));
     const model = buildFeedModel(
       [
@@ -308,7 +290,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 5,
       updatedAt: 5,
     } as const;
-    installLeaderProjection({ "q-1636": readyStatus });
+    installThreadStatuses({ "q-1636": readyStatus });
     const messages = [
       makeMessage({ id: "u1", role: "user", content: "close q-1636", timestamp: 1 }),
       makeMessage({ id: "a-progress", role: "assistant", content: "Worker started.", timestamp: 2 }),
@@ -345,7 +327,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    installLeaderProjection({ main: projectedStatus });
+    installThreadStatuses({ main: projectedStatus });
 
     const states = getLeaderCollapseStates(
       [
@@ -374,7 +356,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    installLeaderProjection({ main: readyStatus });
+    installThreadStatuses({ main: readyStatus });
 
     const states = getLeaderCollapseStates(
       [
@@ -409,7 +391,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    installLeaderProjection({ main: readyStatus });
+    installThreadStatuses({ main: readyStatus });
 
     const states = getLeaderCollapseStates(
       [
@@ -446,7 +428,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    installLeaderProjection({ main: projectedStatus });
+    installThreadStatuses({ main: projectedStatus });
 
     const states = getLeaderCollapseStates(
       [
@@ -478,7 +460,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    installLeaderProjection({ "q-1636": projectedStatus });
+    installThreadStatuses({ "q-1636": projectedStatus });
 
     const states = getLeaderCollapseStates(
       [

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
 import { syncedProjectionEntryId } from "../../../shared/synced-projection.js";
+import type { LeaderThreadStatus } from "../../../shared/thread-status-marker.js";
 import { useStore } from "../../store.js";
 import { resolveLeaderThreadTabsProjection } from "../../utils/leader-thread-tabs-resolver.js";
 import { persistLeaderSelectedThreadKey, persistLeaderViewportPosition } from "../../utils/thread-viewport.js";
@@ -81,31 +82,29 @@ export function LeaderSessionReturnPlaygroundState() {
     const generation = currentVersion?.generation ?? "playground-leader-return-tabs";
     const revision = (currentVersion?.revision ?? 1) + 1;
     const timestamp = Date.now();
+    const status: LeaderThreadStatus | null = visible
+      ? {
+          kind: "waiting",
+          label: "Thread Waiting",
+          threadKey: "main",
+          summary: wrapped
+            ? "waiting for a deliberately long validation summary that wraps on a narrow mobile viewport"
+            : "waiting for viewport validation",
+          messageId: "playground-leader-return-thread-status",
+          timestamp,
+          updatedAt: timestamp,
+        }
+      : null;
     store.applySyncedProjectionSnapshot({
       type: "synced_projection_snapshot",
       projection: LEADER_THREAD_TABS_PROJECTION,
       key: PLAYGROUND_LEADER_RETURN_SESSION_ID,
       generation,
       revision,
-      value: {
-        ...projection.value,
-        threadStatuses: visible
-          ? {
-              main: {
-                kind: "waiting",
-                label: "Thread Waiting",
-                threadKey: "main",
-                summary: wrapped
-                  ? "waiting for a deliberately long validation summary that wraps on a narrow mobile viewport"
-                  : "waiting for viewport validation",
-                messageId: "playground-leader-return-thread-status",
-                timestamp,
-                updatedAt: timestamp,
-              },
-            }
-          : {},
-      },
+      value: { ...projection.value, threadStatuses: status ? { main: status } : {} },
     });
+    // The feed shows the status the live update leaves in the store.
+    store.setThreadStatus(PLAYGROUND_LEADER_RETURN_SESSION_ID, "main", status);
     setThreadStatusVisible(visible);
     setThreadStatusWrapped(wrapped);
   };

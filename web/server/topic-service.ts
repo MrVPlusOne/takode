@@ -16,6 +16,7 @@ import {
   type ThreadSummary,
 } from "../shared/library-topics.js";
 import type { TopicStore } from "./topic-store.js";
+import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { RideAlongNotes } from "./herd-event-dispatcher.js";
 import {
   initializationMessage,
@@ -44,7 +45,11 @@ import {
 export interface TopicSessionLike {
   id: string;
   messageHistory: BrowserIncomingMessage[];
-  state: { treeGroupId?: string | null; isGenerating?: boolean };
+  state: {
+    treeGroupId?: string | null;
+    isGenerating?: boolean;
+    leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
+  };
 }
 
 export interface TopicLeaderInfo {
@@ -247,6 +252,11 @@ export class TopicService {
    * When the user and each of a leader's threads last dealt with each other (`threadInteractionTimes`),
    * read once and then only for new messages; a shorter history (a revert) is read again.
    */
+  /** The leader's current thread statuses (Thread Waiting/Ready), by thread key. */
+  threadStatuses(leaderId: string): Readonly<Record<string, LeaderThreadStatus>> | undefined {
+    return this.deps.getSession(leaderId)?.state.leaderThreadStatuses;
+  }
+
   interactionTimes(leaderId: string): ReadonlyMap<string, number> {
     const history = this.deps.getSession(leaderId)?.messageHistory ?? [];
     const cached = this.interactions.get(leaderId);

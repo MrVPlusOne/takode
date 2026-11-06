@@ -124,6 +124,7 @@ import { forgetReceivedLists } from "./utils/synced-lists.js";
 import { DEFAULT_SEND_KEY_SCHEME } from "../shared/send-key-scheme.js";
 import { DEFAULT_DIAGNOSTICS_SETTINGS } from "../shared/diagnostics-settings.js";
 import { DEFAULT_REMIND_LATER_UNIT } from "../shared/remind-later-unit.js";
+import { canonicalThreadStatusKey } from "../shared/thread-status-marker.js";
 import {
   DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS,
   normalizeLeaderProfileCollapsedPools,
@@ -174,6 +175,7 @@ export const useStore = create<AppState>((set, get) => ({
   threadWindows: new Map(),
   threadWindowMessages: new Map(),
   threadWindowResponseStates: new Map(),
+  threadStatuses: new Map(),
   threadWindowRefreshRevisions: new Map(),
   threadWindowAppliedRevisions: new Map(),
   pendingThreadWindowRequests: new Map(),
@@ -769,6 +771,15 @@ export const useStore = create<AppState>((set, get) => ({
     });
     reconcileLocalImagePreviewUrls(get(), sessionId);
   },
+  setThreadStatus: (sessionId, threadKey, status) =>
+    set((s) => {
+      const key = canonicalThreadStatusKey(threadKey);
+      const current = s.threadStatuses.get(sessionId);
+      if (current?.has(key) && current.get(key) === status) return s;
+      const threadStatuses = new Map(s.threadStatuses);
+      threadStatuses.set(sessionId, new Map(current ?? []).set(key, status));
+      return { threadStatuses };
+    }),
   setPendingThreadWindowRequest: (sessionId, threadKey) =>
     set((s) => {
       const pendingThreadWindowRequests = new Map(s.pendingThreadWindowRequests);
@@ -1744,6 +1755,7 @@ export const useStore = create<AppState>((set, get) => ({
       threadWindows: new Map(),
       threadWindowMessages: new Map(),
       threadWindowResponseStates: new Map(),
+      threadStatuses: new Map(),
       threadWindowRefreshRevisions: new Map(),
       threadWindowAppliedRevisions: new Map(),
       pendingThreadWindowRequests: new Map(),

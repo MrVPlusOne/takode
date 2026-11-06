@@ -20,7 +20,6 @@ import { MessageFeed } from "./MessageFeed.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 import { listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
-import { rememberThreadNumbers, resetThreadNumbersForTest } from "../../shared/topic-thread-key.js";
 
 const mockSendToSession = vi.hoisted(() => vi.fn(() => true));
 
@@ -116,7 +115,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   useStore.getState().reset();
-  resetThreadNumbersForTest();
 });
 
 describe("leader thread tabs projected component behavior", () => {
@@ -652,94 +650,7 @@ describe("leader thread tabs projected component behavior", () => {
     expect(commitPhases.slice(committedBeforeNoOps)).toEqual([]);
   });
 
-  it("shows projected current status only in its owning feed and hides it from All Threads", () => {
-    const mainStatus = {
-      kind: "ready" as const,
-      label: "Thread Ready" as const,
-      threadKey: "main",
-      summary: "main result ready",
-      messageId: "a-main-ready",
-      timestamp: 3,
-      updatedAt: 3,
-    };
-    installLeaderProjection(createLeaderThreadTabsProjectionValue({ threadStatuses: { main: mainStatus } }));
-    useStore.getState().setMessages("leader", [
-      { id: "u-main", role: "user", content: "finish the main task", timestamp: 1 },
-      {
-        id: "a-main-ready",
-        role: "assistant",
-        content: "The main task is complete.",
-        timestamp: 3,
-        metadata: { threadStatusMarkers: [mainStatus] },
-      },
-    ]);
-
-    const main = render(<MessageFeed sessionId="leader" threadKey="main" />);
-    expect(screen.getByLabelText("Thread Ready for Main: main result ready")).toBeTruthy();
-    main.unmount();
-
-    render(<MessageFeed sessionId="leader" threadKey="all" />);
-    expect(screen.queryByLabelText("Thread Ready for Main: main result ready")).toBeNull();
-    expect(screen.queryByTestId("turn-thread-status-footer")).toBeNull();
-  });
-
-  it("shows a plain thread's projected status in that thread's feed", () => {
-    // A thread that is not a quest (t-147, keyed by its topic handle) has no tab; its
-    // Thread Waiting status must still reach its own feed, labeled by its t-N address.
-    rememberThreadNumbers([[147, "9c206818-47dd-43c5-9ac3-ed7d439d86ad"]]);
-    const waiting = {
-      kind: "waiting" as const,
-      label: "Thread Waiting" as const,
-      threadKey: "topic:9c206818",
-      summary: "numbers coming; cap question open",
-      messageId: "a-thread-waiting",
-      timestamp: 3,
-      updatedAt: 3,
-    };
-    installLeaderProjection(createLeaderThreadTabsProjectionValue({ threadStatuses: { "topic:9c206818": waiting } }));
-    const threadRefs = [{ threadKey: "topic:9c206818", source: "explicit" as const }];
-    const messages: ChatMessage[] = [
-      {
-        id: "u-thread",
-        role: "user",
-        content: "how do context limits matter?",
-        timestamp: 1,
-        historyIndex: 0,
-        metadata: { threadKey: "topic:9c206818", threadRefs },
-      },
-      {
-        id: "a-thread-waiting",
-        role: "assistant",
-        content: "I asked the worker for the real numbers.",
-        timestamp: 3,
-        historyIndex: 1,
-        metadata: { threadKey: "topic:9c206818", threadRefs, threadStatusMarkers: [waiting] },
-      },
-    ];
-    useStore.getState().setThreadWindow(
-      "leader",
-      "topic:9c206818",
-      {
-        thread_key: "topic:9c206818",
-        from_item: 0,
-        item_count: 2,
-        total_items: 2,
-        has_older_items: false,
-        has_newer_items: false,
-        source_history_length: 2,
-        section_item_count: 10,
-        visible_item_count: 2,
-      },
-      messages,
-    );
-
-    render(<MessageFeed sessionId="leader" threadKey="t-147" />);
-
-    expect(screen.getByText("I asked the worker for the real numbers.")).toBeTruthy();
-    expect(screen.getByLabelText("Thread Waiting for thread:t-147: numbers coming; cap question open")).toBeTruthy();
-  });
-
-  it("uses projected Ready status for collapse policy and honors an explicit status clear", () => {
+  it("uses the thread's Ready status for collapse policy and honors a live status clear", () => {
     const readyStatus = {
       kind: "ready" as const,
       label: "Thread Ready" as const,
@@ -750,8 +661,8 @@ describe("leader thread tabs projected component behavior", () => {
       timestamp: 3,
       updatedAt: 3,
     };
-    const value = createLeaderThreadTabsProjectionValue({ threadStatuses: { "q-2": readyStatus } });
-    installLeaderProjection(value);
+    installLeaderProjection(createLeaderThreadTabsProjectionValue({ threadStatuses: { "q-2": readyStatus } }));
+    useStore.getState().setThreadStatus("leader", "q-2", readyStatus);
     const messages: ChatMessage[] = [
       { id: "u1", role: "user", content: "finish q-2", timestamp: 1 },
       {
@@ -773,16 +684,8 @@ describe("leader thread tabs projected component behavior", () => {
       expect.objectContaining({ turnId: "u1", defaultExpanded: false, isActivityExpanded: false }),
     ]);
 
-    act(() => {
-      useStore.getState().applySyncedProjectionUpdate(
-        createLeaderThreadTabsProjectionEnvelope({
-          type: "synced_projection_update",
-          key: "leader",
-          revision: 2,
-          value: createLeaderThreadTabsProjectionValue({ threadStatuses: {} }),
-        }),
-      );
-    });
+    // The thread's status cleared (new leader activity there), as a live update leaves it.
+    act(() => useStore.getState().setThreadStatus("leader", "q-2", null));
     expect(result.current.turnStates).toEqual([
       expect.objectContaining({ turnId: "u1", defaultExpanded: true, isActivityExpanded: true }),
     ]);

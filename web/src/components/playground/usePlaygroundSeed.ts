@@ -1156,6 +1156,16 @@ export function usePlaygroundSeed() {
         ...(useStore.getState().sessionCompletedBoards.get(PLAYGROUND_THREAD_PANEL_SESSION_ID) ?? []),
       ].map((row) => [row.questId, row]),
     );
+    const playgroundThreadPanelStatuses = {
+      "q-9001": playgroundActiveWorkWaitingStatus,
+      "q-9002": playgroundWaitingStatus,
+      "q-9003": playgroundReadyStatus,
+      "q-9004": playgroundCompletedWaitingStatus,
+    };
+    // Feeds show a thread's status from its window and live updates, which the store keeps.
+    for (const [threadKey, status] of Object.entries(playgroundThreadPanelStatuses)) {
+      store.setThreadStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, threadKey, status);
+    }
     store.applySyncedProjectionSnapshot({
       type: "synced_projection_snapshot",
       projection: LEADER_THREAD_TABS_PROJECTION,
@@ -1204,12 +1214,7 @@ export function usePlaygroundSeed() {
           ...buildPlaygroundHandoffTabs(Date.now() - 20_000),
         ],
         mainAttention: projectedAttention(),
-        threadStatuses: {
-          "q-9001": playgroundActiveWorkWaitingStatus,
-          "q-9002": playgroundWaitingStatus,
-          "q-9003": playgroundReadyStatus,
-          "q-9004": playgroundCompletedWaitingStatus,
-        },
+        threadStatuses: playgroundThreadPanelStatuses,
         activePhaseSummary: buildLeaderActivePhaseSummary(
           useStore.getState().sessionBoards.get(PLAYGROUND_THREAD_PANEL_SESSION_ID) ?? [],
         ),

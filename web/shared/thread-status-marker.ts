@@ -99,3 +99,30 @@ export function extractThreadStatusMarkersFromText(text: string): {
 export function threadStatusKey(threadKey: string | undefined): string {
   return threadKey?.trim().toLowerCase() || "main";
 }
+
+/**
+ * A thread's current status, as browsers get it with the thread's window and in its live updates
+ * (`leader_thread_status`): looked up by the thread's key in any form (`t-17` or `topic:<handle>`),
+ * and carrying its message ID's hash, which tells the browser the ID is complete.
+ */
+export function currentThreadStatusFor(
+  statuses: Readonly<Record<string, LeaderThreadStatus>> | undefined,
+  threadKey: string,
+): LeaderThreadStatus | null {
+  const key = canonicalThreadStatusKey(threadKey);
+  for (const [entryKey, status] of Object.entries(statuses ?? {})) {
+    if (canonicalThreadStatusKey(status.threadKey || entryKey) === key) return browserThreadStatus(status);
+  }
+  return null;
+}
+
+/** A status as browsers get it: with its message ID's hash. */
+export function browserThreadStatus(status: LeaderThreadStatus): LeaderThreadStatus {
+  return status.messageIdHash ? status : { ...status, messageIdHash: threadStatusMessageIdHash(status.messageId) };
+}
+
+/** The key a thread's status is known by: `main`, `q-N` or `topic:<handle>`. */
+export function canonicalThreadStatusKey(threadKey: string | undefined): string {
+  const key = threadStatusKey(threadKey);
+  return normalizeThreadTarget(key)?.threadKey ?? key;
+}

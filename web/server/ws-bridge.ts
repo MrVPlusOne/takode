@@ -1971,7 +1971,7 @@ export class WsBridge {
     return isHistoryBackedEventController(msg);
   }
 
-  private broadcastToBrowsers(
+  broadcastToBrowsers(
     session: Session,
     msg: BrowserIncomingMessage,
     options?: { skipBuffer?: boolean; skipGlobalActivity?: boolean },

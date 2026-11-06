@@ -12,6 +12,7 @@ import type { TopicService } from "../topic-service.js";
 import { SCRIBE_BRIEF } from "../scribe-brief.js";
 import { isRootAgentHistoryMessage } from "../root-agent-feed-message.js";
 import type { RouteContext } from "./context.js";
+import { currentThreadStatusFor, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 
 let activeService: TopicService | null = null;
 
@@ -299,8 +300,10 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
       if (!leaderId) throw new TopicStoreError("Name the leader.", 404);
       // For the sessions panel's Threads view, which orders idle threads as Recent orders leaders.
       const times = svc.interactionTimes(leaderId);
+      const statuses = svc.threadStatuses(leaderId);
       const threads = svc.store.threadsOf(leaderId).map((thread) => ({
         ...thread,
+        ...withThreadStatus(statuses, thread.key),
         interactionAt: Math.max(
           thread.createdAt,
           times.get(thread.key) ?? 0,
@@ -744,6 +747,15 @@ export function createTopicRoutes(ctx: RouteContext, service: () => TopicService
  * Topics' recent activity also counts their quests' own changes, since events are recorded only
  * since topics were turned on; most recent first.
  */
+/** A thread's current status for its row in a leader's thread list, when it has one. */
+function withThreadStatus(
+  statuses: Readonly<Record<string, LeaderThreadStatus>> | undefined,
+  threadKey: string,
+): { status?: LeaderThreadStatus } {
+  const status = currentThreadStatusFor(statuses, threadKey);
+  return status ? { status } : {};
+}
+
 function withQuestActivity(topics: TopicSummary[], quests: QuestmasterTask[]): TopicSummary[] {
   const byId = new Map(quests.map((quest) => [quest.questId, quest]));
   return topics
