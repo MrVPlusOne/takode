@@ -4,6 +4,7 @@ import { withWaitingComments } from "./composer-message-send.js";
 import { sendToSession } from "../ws.js";
 import type { ChatMessage, PendingCodexInput, PendingUserUpload } from "../types.js";
 import { MessageBubble, rendersAsUserBubble } from "./MessageBubble.js";
+import { isPeerLeaderMessage, useIsLeaderSession } from "./PeerLeaderMessage.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
 
@@ -42,6 +43,7 @@ export function PendingMessages(props: PendingInputProps) {
 
 function PendingMessageList(props: PendingInputProps) {
   const items = usePendingInputItems(props.sessionId, props.uploads, props.codexInputs);
+  const feedIsLeader = useIsLeaderSession(props.sessionId);
   return (
     <div className="space-y-5" data-feed-block-id={getFooterFeedBlockId("pending-inputs")}>
       {items.map((item) => (
@@ -54,7 +56,14 @@ function PendingMessageList(props: PendingInputProps) {
               questLinkSurface={props.questLinkSurface}
             />
           </div>
-          <PendingStatusPill item={item} side={rendersAsUserBubble(item.message) ? "right" : "left"} />
+          <PendingStatusPill
+            item={item}
+            side={
+              rendersAsUserBubble(item.message) && !isPeerLeaderMessage(item.message, props.sessionId, feedIsLeader)
+                ? "right"
+                : "left"
+            }
+          />
         </div>
       ))}
     </div>

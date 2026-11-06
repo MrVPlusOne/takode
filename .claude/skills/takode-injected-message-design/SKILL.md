@@ -43,5 +43,5 @@ How to apply:
 - **Classify by a shared source ID.** Give each message type a stable `agentSource.sessionId` defined once in `web/shared/` and used by both the server and the frontend. Choose the renderer by source ID, not by matching prose; parse the text only to build the summary, and fall back to the first line when parsing fails.
 - **Show it.** Add a Playground card for each new state and check it at phone width in dark and light themes.
 
-Bubbles stay bubbles for messages that act as a person's request: leader or session instructions, needs-input answers, user-scheduled cron prompts and Settings handoffs. Herd events and timer firings keep their own compact renderers because they batch and count repeated rows.
+Bubbles stay bubbles for messages that act as a person's request: leader or session instructions, needs-input answers, user-scheduled cron prompts and Settings handoffs. One exception: in a leader's feed, another leader's message is a light left-side line (sender and first line) that opens to its full text (`PeerLeaderMessage`), because leaders message each other often and as bubbles they buried the user's own messages. A leader's instructions in a worker's feed stay bubbles. Herd events and timer firings keep their own compact renderers because they batch and count repeated rows.
 

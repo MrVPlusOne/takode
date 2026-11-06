@@ -1,7 +1,8 @@
 import { PlaygroundComposerPaste } from "./PlaygroundComposerPaste.js";
 import { PlaygroundSessionSettingsCards } from "./PlaygroundSessionSettingsSection.js";
 import { useEffect, useState } from "react";
-import { NotificationMarker, UserReplyChip } from "../MessageBubble.js";
+import { NotificationMarker } from "../MessageBubble.js";
+import { UserReplyChip } from "../UserReplyChip.js";
 import { PlaygroundVisualDecisionNotification } from "./PlaygroundVisualDecisionNotification.js";
 import { PlaygroundCrossThreadDecision } from "./PlaygroundCrossThreadDecision.js";
 import { PlaygroundNeedsInputHistory } from "./PlaygroundNeedsInputHistory.js";

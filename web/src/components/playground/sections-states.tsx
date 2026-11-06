@@ -27,6 +27,7 @@ import { PlaygroundUserMessageNavigatorSection } from "./PlaygroundUserMessageNa
 import { PlaygroundHerdEventStates } from "./HerdEventPlaygroundStates.js";
 import { PlaygroundCompactToolActivityStates } from "./CompactToolActivityPlaygroundStates.js";
 import { PlaygroundTimerMessageStates } from "./TimerMessagePlaygroundStates.js";
+import { PlaygroundPeerLeaderMessageStates } from "./PeerLeaderMessagePlaygroundStates.js";
 import { PlaygroundCodexSubagentStates } from "./CodexSubagentPlaygroundStates.js";
 import { PlaygroundDiffViewerSection } from "./DiffViewerPlaygroundSection.js";
 import { PlaygroundPawTrailDemo } from "./PlaygroundPawTrailDemo.js";
@@ -1233,6 +1234,7 @@ export function PlaygroundStateSections() {
       </Section>
       <PlaygroundHerdEventStates />
       <PlaygroundTimerMessageStates />
+      <PlaygroundPeerLeaderMessageStates />
 
       <PlaygroundDiffViewerSection />
       {/* ─── New Session Modal Layout ─────────────────────── */}
