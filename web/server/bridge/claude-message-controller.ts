@@ -150,10 +150,6 @@ interface HandleAssistantMessageDeps {
   persistSession: (session: AssistantMessageSessionLike) => void;
   invalidateLeaderThreadTabsForSession?: (sessionId: string) => void;
   promoteLeaderThreadTabForTransition?: (sessionId: string, marker: ThreadTransitionMarker) => boolean;
-  onToolUseObserved?: (
-    session: AssistantMessageSessionLike,
-    toolUse: Extract<ContentBlock, { type: "tool_use" }>,
-  ) => void;
 }
 
 function publishThreadTransitionMarker(
@@ -498,7 +494,6 @@ export function handleAssistantMessage(
   }
 
   const acc = session.assistantAccumulator.get(msgId);
-  const newlyObservedToolUses: Array<Extract<ContentBlock, { type: "tool_use" }>> = [];
   if (!acc) {
     const hasReplay = !!msgId && deps.hasAssistantReplay(session, msgId);
     if (hasReplay) return;
@@ -513,7 +508,6 @@ export function handleAssistantMessage(
     const currentHistoryMessageId = emitRoutedAssistantSegments(session, msg, msg.message.content, deps, {
       isLeaderSession,
       contentBlockIds,
-      newlyObservedToolUses,
     });
     session.assistantAccumulator.set(msgId, {
       contentBlockIds,
@@ -528,7 +522,6 @@ export function handleAssistantMessage(
     acc.currentHistoryMessageId = emitRoutedAssistantSegments(session, msg, acc.rawContent, deps, {
       isLeaderSession,
       contentBlockIds: acc.contentBlockIds,
-      newlyObservedToolUses,
       replaceUnroutedRow: true,
     });
   } else {
@@ -590,7 +583,6 @@ export function handleAssistantMessage(
             session.toolStartTimes.set(block.id, Date.now());
           }
           session.toolProgressOutput.delete(block.id);
-          newlyObservedToolUses.push(block);
         }
       }
       historyEntry.message.content = [...historyEntry.message.content, ...newBlocks];
@@ -646,9 +638,6 @@ export function handleAssistantMessage(
     msg.message.model,
     deps.broadcastToBrowsers,
   );
-  for (const toolUse of newlyObservedToolUses) {
-    deps.onToolUseObserved?.(session, toolUse);
-  }
   deps.persistSession(session);
 }
 
@@ -666,12 +655,11 @@ function emitRoutedAssistantSegments(
   options: {
     isLeaderSession: boolean;
     contentBlockIds: Set<string>;
-    newlyObservedToolUses: Array<Extract<ContentBlock, { type: "tool_use" }>>;
     replaceUnroutedRow?: boolean;
   },
 ): string {
   const msgId = msg.message.id;
-  const { isLeaderSession, contentBlockIds, newlyObservedToolUses } = options;
+  const { isLeaderSession, contentBlockIds } = options;
   const slackThreadId = session.state.slackThreadChild?.threadId;
   const timestamp = Date.now();
   const replaceIndex = options.replaceUnroutedRow ? findAssistantHistoryIndex(session, msgId) : -1;
@@ -702,7 +690,6 @@ function emitRoutedAssistantSegments(
         }
         session.toolProgressOutput.delete(block.id);
         toolStartTimesMap[block.id] = session.toolStartTimes.get(block.id)!;
-        newlyObservedToolUses.push(block);
       }
     }
 
@@ -1259,7 +1246,6 @@ export function createClaudeMessageHandlers(
       | "broadcastToBrowsers"
       | "persistSession"
       | "setGenerating"
-      | "onToolUseObserved"
       | "promoteLeaderThreadTabForTransition"
     > &
     ResultMessageDeps &
@@ -1287,7 +1273,6 @@ export function createClaudeMessageHandlers(
     invalidateLeaderThreadTabsForSession: deps.invalidateLeaderThreadTabsForSession,
     promoteLeaderThreadTabForTransition: deps.promoteLeaderThreadTabForTransition,
     setGenerating: deps.setGenerating,
-    onToolUseObserved: deps.onToolUseObserved,
     broadcastStatusRunning: (session) =>
       deps.broadcastToBrowsers(session, { type: "status_change", status: "running" }),
   };

@@ -721,181 +721,45 @@ describe("CLI message routing", () => {
     ).toBeDefined();
   });
 
-  it("interrupts bypass-mode Claude long sleep tool_use observed after bypassed permissions and injects reminder", async () => {
+  it("never interrupts the turn for an observed long sleep, so running sub-agents survive", async () => {
+    // Interrupting a turn cancels every sub-agent it is running. Claude's own
+    // long sleeps are denied before they run by the PreToolUse hook
+    // (claudeLongSleepHook), and sub-agents may sleep, so seeing a long sleep
+    // in the stream, from the session or from a sub-agent, must change nothing.
     const session = bridge.getSession("s1")!;
-    // Claude launched in bypass mode runs Bash without a permission request.
-    bridge.getSession("s1")!.state.permissionMode = "bypassPermissions";
+    session.state.permissionMode = "bypassPermissions";
     browser.send.mockClear();
     cli.clearSent();
 
-    cli.message(
-      JSON.stringify({
-        type: "assistant",
-        parent_tool_use_id: null,
-        message: {
-          id: "assistant-long-sleep",
-          type: "message",
-          role: "assistant",
-          model: "claude-sonnet-4-5-20250929",
-          content: [{ type: "tool_use", id: "cmd-sleep", name: "Bash", input: { command: "sleep 600" } }],
-          stop_reason: "tool_use",
-          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        },
-      }),
-    );
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(cli.query.interrupt).toHaveBeenCalled();
-
-    const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(
-      browserCalls.find((c: any) => c.type === "permission_denied" && c.tool_use_id === "cmd-sleep"),
-    ).toBeDefined();
-    expect(
-      browserCalls.find(
-        (c: any) =>
-          c.type === "user_message" &&
-          typeof c.content === "string" &&
-          c.content.includes("Use `takode timer` instead"),
-      ),
-    ).toBeDefined();
-    expect(
-      session.messageHistory.some(
-        (entry: any) => entry.type === "permission_denied" && entry.tool_use_id === "cmd-sleep",
-      ),
-    ).toBe(true);
-  });
-
-  it("interrupts bypass-mode Claude backgrounded long sleep tool_use observed after bypassed permissions", async () => {
-    const session = bridge.getSession("s1")!;
-    // Claude launched in bypass mode runs Bash without a permission request.
-    bridge.getSession("s1")!.state.permissionMode = "bypassPermissions";
-    browser.send.mockClear();
-    cli.clearSent();
-
-    cli.message(
-      JSON.stringify({
-        type: "assistant",
-        parent_tool_use_id: null,
-        message: {
-          id: "assistant-background-sleep",
-          type: "message",
-          role: "assistant",
-          model: "claude-sonnet-4-5-20250929",
-          content: [{ type: "tool_use", id: "cmd-bg-sleep", name: "Bash", input: { command: "sleep 61 & echo hi" } }],
-          stop_reason: "tool_use",
-          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        },
-      }),
-    );
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(cli.query.interrupt).toHaveBeenCalled();
-
-    const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(
-      browserCalls.find((c: any) => c.type === "permission_denied" && c.tool_use_id === "cmd-bg-sleep"),
-    ).toBeDefined();
-    expect(
-      browserCalls.find(
-        (c: any) =>
-          c.type === "user_message" &&
-          typeof c.content === "string" &&
-          c.content.includes("Use `takode timer` instead"),
-      ),
-    ).toBeDefined();
-  });
-
-  it("interrupts bypass-mode Claude wrapper-option long sleep tool_use observed after bypassed permissions", async () => {
-    // Claude launched in bypass mode runs Bash without a permission request.
-    bridge.getSession("s1")!.state.permissionMode = "bypassPermissions";
-    browser.send.mockClear();
-    cli.clearSent();
-
-    cli.message(
-      JSON.stringify({
-        type: "assistant",
-        parent_tool_use_id: null,
-        message: {
-          id: "assistant-wrapper-sleep",
-          type: "message",
-          role: "assistant",
-          model: "claude-sonnet-4-5-20250929",
-          content: [
-            { type: "tool_use", id: "cmd-wrapper-sleep", name: "Bash", input: { command: "sudo -u root sleep 61" } },
-          ],
-          stop_reason: "tool_use",
-          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        },
-      }),
-    );
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(cli.query.interrupt).toHaveBeenCalled();
-
-    const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(
-      browserCalls.find((c: any) => c.type === "permission_denied" && c.tool_use_id === "cmd-wrapper-sleep"),
-    ).toBeDefined();
-  });
-
-  it("does not interrupt bypass-mode Claude short sleep tool_use with file-descriptor redirection", async () => {
-    // Claude launched in bypass mode runs Bash without a permission request.
-    bridge.getSession("s1")!.state.permissionMode = "bypassPermissions";
-    browser.send.mockClear();
-    cli.clearSent();
-
-    cli.message(
-      JSON.stringify({
-        type: "assistant",
-        parent_tool_use_id: null,
-        message: {
-          id: "assistant-short-sleep-redirect",
-          type: "message",
-          role: "assistant",
-          model: "claude-sonnet-4-5-20250929",
-          content: [
-            { type: "tool_use", id: "cmd-short-sleep-redirect", name: "Bash", input: { command: "sleep 60 2>&1" } },
-          ],
-          stop_reason: "tool_use",
-          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        },
-      }),
-    );
+    for (const [id, parentToolUseId, command] of [
+      ["cmd-subagent-sleep", "agent-tool-1", "sleep 120"],
+      ["cmd-own-sleep", null, "sleep 600"],
+    ] as const) {
+      cli.message(
+        JSON.stringify({
+          type: "assistant",
+          parent_tool_use_id: parentToolUseId,
+          message: {
+            id: `assistant-${id}`,
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-5-20250929",
+            content: [{ type: "tool_use", id, name: "Bash", input: { command } }],
+            stop_reason: "tool_use",
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        }),
+      );
+    }
     await new Promise((r) => setTimeout(r, 0));
 
     expect(cli.query.interrupt).not.toHaveBeenCalled();
-
-    const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(
-      browserCalls.find((c: any) => c.type === "permission_denied" && c.tool_use_id === "cmd-short-sleep-redirect"),
-    ).toBeUndefined();
-  });
-
-  it("leaves long sleeps outside bypass mode to the permission pipeline", async () => {
-    // In other modes Claude asks before running Bash, and the pipeline hard-denies
-    // the call there; the observer must not also interrupt the turn.
-    bridge.getSession("s1")!.state.permissionMode = "default";
-    cli.clearSent();
-
-    cli.message(
-      JSON.stringify({
-        type: "assistant",
-        parent_tool_use_id: null,
-        message: {
-          id: "assistant-default-mode-sleep",
-          type: "message",
-          role: "assistant",
-          model: "claude-sonnet-4-5-20250929",
-          content: [{ type: "tool_use", id: "cmd-default-sleep", name: "Bash", input: { command: "sleep 600" } }],
-          stop_reason: "tool_use",
-          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        },
-      }),
-    );
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(cli.query.interrupt).not.toHaveBeenCalled();
+    expect(session.messageHistory.some((entry: any) => entry.type === "permission_denied")).toBe(false);
   });
 
   it("records one long-sleep denial when bypass observation and a permission request both fire", async () => {

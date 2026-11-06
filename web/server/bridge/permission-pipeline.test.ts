@@ -319,6 +319,32 @@ describe("permission pipeline takode event emission (q-205)", () => {
     expect(deps.emitTakodePermissionRequest).not.toHaveBeenCalled();
   });
 
+  it("lets a sub-agent's long sleep through the normal pipeline", () => {
+    // Denying or interrupting a sub-agent's sleep gains nothing: only the
+    // session itself must stay responsive. The request falls through to
+    // ordinary approval (here auto-approval in bypass mode).
+    const session = makeSession({
+      state: { permissionMode: "bypassPermissions", cwd: "/tmp/test" },
+    });
+    const deps = makeDeps();
+
+    const result = handlePermissionRequest(
+      session,
+      {
+        request_id: "req-subagent-sleep",
+        tool_name: "Bash",
+        input: { command: "sleep 120" },
+        tool_use_id: "tu-subagent-sleep",
+        agent_id: "agent-1",
+      },
+      "claude-sdk",
+      deps,
+      { activityReason: "permission_request" },
+    );
+
+    expect((result as { kind: string }).kind).toBe("mode_auto_approved");
+  });
+
   it("hard-denies backgrounded long sleep Bash commands", () => {
     const session = makeSession({
       state: { permissionMode: "bypassPermissions", cwd: "/tmp/test" },

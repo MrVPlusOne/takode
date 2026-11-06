@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectLongSleepBashCommand } from "./bash-sleep-policy.js";
+import { claudeLongSleepHook, detectLongSleepBashCommand, LONG_SLEEP_DENY_MESSAGE } from "./bash-sleep-policy.js";
 
 describe("bash sleep policy", () => {
   it("allows sleep commands up to 60 seconds", () => {
@@ -68,5 +68,55 @@ describe("bash sleep policy", () => {
       expect.objectContaining({ durationSeconds: 61, subcommand: "sleep --verbose 61" }),
     );
     expect(detectLongSleepBashCommand("sleep --help")).toBeNull();
+  });
+
+  describe("Claude PreToolUse hook", () => {
+    // The hook is how Claude sessions get the guard in every permission mode:
+    // it denies the one command instead of interrupting the turn, which would
+    // cancel every running sub-agent.
+    const runHook = (input: Record<string, unknown>) =>
+      claudeLongSleepHook.hooks[0](
+        {
+          hook_event_name: "PreToolUse",
+          session_id: "s",
+          transcript_path: "/tmp/t",
+          cwd: "/tmp",
+          tool_name: "Bash",
+          tool_use_id: "tu-1",
+          ...input,
+        } as never,
+        "tu-1",
+        { signal: new AbortController().signal },
+      );
+
+    it("applies to Bash only", () => {
+      expect(claudeLongSleepHook.matcher).toBe("Bash");
+    });
+
+    it("denies the session's own long sleep with the timer guidance", async () => {
+      expect(await runHook({ tool_input: { command: "sleep 120" } })).toEqual({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: LONG_SLEEP_DENY_MESSAGE,
+        },
+      });
+    });
+
+    it("lets a sub-agent sleep as long as it likes", async () => {
+      expect(
+        await runHook({
+          agent_id: "agent-1",
+          agent_type: "general-purpose",
+          tool_input: { command: "sleep 120" },
+        }),
+      ).toEqual({});
+    });
+
+    it("leaves short sleeps and other commands alone", async () => {
+      expect(await runHook({ tool_input: { command: "sleep 60" } })).toEqual({});
+      expect(await runHook({ tool_input: { command: "ls" } })).toEqual({});
+      expect(await runHook({ tool_input: {} })).toEqual({});
+    });
   });
 });

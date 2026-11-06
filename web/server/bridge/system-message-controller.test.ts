@@ -82,7 +82,6 @@ function makeSdkDeps() {
   return {
     ...makeDeps(),
     hasAssistantReplay: vi.fn(() => false),
-    onToolUseObserved: vi.fn(),
     hasResultReplay: vi.fn(() => false),
     reconcileReplayState: vi.fn(() => ({ clearedResidualState: false })),
     getCurrentTurnTriggerSource: vi.fn(() => "user" as const),

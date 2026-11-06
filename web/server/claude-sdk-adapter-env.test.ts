@@ -32,6 +32,7 @@ async function launchOptions(options: Partial<ConstructorParameters<typeof Claud
 }
 
 import { ClaudeSdkAdapter } from "./claude-sdk-adapter.js";
+import { claudeLongSleepHook } from "./bridge/bash-sleep-policy.js";
 
 describe("ClaudeSdkAdapter launch env", () => {
   const originalGitEditor = process.env.GIT_EDITOR;
@@ -232,6 +233,12 @@ describe("ClaudeSdkAdapter launch env", () => {
         else process.env[key] = value;
       }
     }
+  });
+
+  it("guards the session's long sleeps with a hook, which works in every permission mode", async () => {
+    // A hook rather than an interrupt: interrupting the turn would cancel every running sub-agent.
+    const { options } = await launchOptions({ permissionMode: "bypassPermissions" });
+    expect(options.hooks.PreToolUse).toContain(claudeLongSleepHook);
   });
 
   it("passes allowed tools into the SDK query options", async () => {

@@ -74,7 +74,6 @@ import { retireCodexAutoPauseRecoveryTesting } from "./bridge/codex-auto-pause-r
 import type { PerfTracer } from "./perf-tracer.js";
 import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
 import { injectCompactionRecovery as injectCompactionRecoveryController } from "./bridge/compaction-recovery.js";
-import { detectLongSleepBashCommand, LONG_SLEEP_REMINDER_TEXT } from "./bridge/bash-sleep-policy.js";
 import { getApprovalSummary, getDenialSummary } from "./bridge/permission-summaries.js";
 import { listCodexReasoningPreviews } from "./bridge/codex-reasoning-preview-state.js";
 import { clearCodexProviderRetryState } from "./bridge/codex-provider-retry-state.js";
@@ -838,8 +837,6 @@ export function getClaudeMessageHandlers(host: any) {
       sessionId: string,
       marker: import("./session-types.js").ThreadTransitionMarker,
     ) => host.promoteLeaderThreadTabForTransition?.(sessionId, marker),
-    onToolUseObserved: (targetSession: unknown, toolUse: Extract<ContentBlock, { type: "tool_use" }>) =>
-      host.handleObservedLongSleepBashToolUse(targetSession as Session, toolUse),
     hasResultReplay: (targetSession: unknown, resultUuid: string) =>
       host.hasResultReplay(targetSession as Session, resultUuid),
     reconcileReplayState: (targetSession: unknown) =>

@@ -337,6 +337,60 @@ describe("CodexAdapter", () => {
     expect(resultCountAfterChildTurn).toBe(resultCountBeforeChildTurn);
   });
 
+  it("marks command approvals from a sub-agent thread with the sub-agent's spawn call as agent_id", async () => {
+    // Session-only policies, such as the long-sleep guard, exempt requests
+    // carrying agent_id, so a sub-agent's request must carry it and the
+    // session's own request must not.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    await initializeAdapter(stdout);
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          threadId: "thr_123",
+          item: {
+            type: "collabAgentToolCall",
+            id: "agent_call_sleep",
+            tool: "spawnAgent",
+            prompt: "Wait for the build",
+            senderThreadId: "thr_123",
+            receiverThreadIds: ["thr_child_sleep"],
+            agentsStates: [{ nickname: "Hopper", role: "worker" }],
+            status: "completed",
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    for (const [id, threadId, itemId] of [
+      [200, "thr_child_sleep", "cmd_child_sleep"],
+      [201, "thr_123", "cmd_root_sleep"],
+    ] as const) {
+      stdout.push(
+        JSON.stringify({
+          method: "item/commandExecution/requestApproval",
+          id,
+          params: { threadId, itemId, command: ["sleep", "120"], parsedCmd: "sleep 120" },
+        }) + "\n",
+      );
+      await tick();
+    }
+
+    const requests = messages
+      .filter((msg) => msg.type === "permission_request")
+      .map((msg) => (msg as { request: { tool_use_id: string; agent_id?: string } }).request);
+    expect(requests.find((request) => request.tool_use_id === "cmd_child_sleep")?.agent_id).toBe("agent_call_sleep");
+    const rootRequest = requests.find((request) => request.tool_use_id === "cmd_root_sleep");
+    expect(rootRequest).toBeDefined();
+    expect(rootRequest!.agent_id).toBeUndefined();
+  });
+
   it("renders Takode delegate_task MCP calls as Agent-shaped subagent cards", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });

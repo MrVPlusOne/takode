@@ -136,6 +136,8 @@ function getHardDeniedPermission<S extends PermissionPipelineSession>(
     }
   }
   if (perm.tool_name !== "Bash") return null;
+  // Sub-agents may sleep: only the session itself must stay responsive.
+  if (perm.agent_id) return null;
   const command = String(perm.input.command ?? "");
   if (!detectLongSleepBashCommand(command)) return null;
   return {

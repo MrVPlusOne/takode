@@ -1,3 +1,4 @@
+import type { HookCallbackMatcher } from "@anthropic-ai/claude-agent-sdk";
 import { parse } from "shell-quote";
 import { ALL_SPLIT_OPS, splitShellCommand } from "./shell-command-utils.js";
 
@@ -248,3 +249,28 @@ export function detectLongSleepBashCommand(command: string): LongSleepMatch | nu
   }
   return null;
 }
+
+/**
+ * Claude PreToolUse hook that denies a long sleep the session itself runs.
+ * A hook applies in every permission mode, so bypass-mode sessions are covered
+ * without interrupting the turn, which would cancel every running sub-agent.
+ * Sub-agents (hook input with `agent_id`) may sleep: only the session needs to
+ * stay responsive to its user and leader.
+ */
+export const claudeLongSleepHook: HookCallbackMatcher = {
+  matcher: "Bash",
+  hooks: [
+    async (input) => {
+      if (input.hook_event_name !== "PreToolUse" || input.agent_id) return {};
+      const command = (input.tool_input as { command?: unknown } | undefined)?.command;
+      if (typeof command !== "string" || !detectLongSleepBashCommand(command)) return {};
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse" as const,
+          permissionDecision: "deny" as const,
+          permissionDecisionReason: LONG_SLEEP_DENY_MESSAGE,
+        },
+      };
+    },
+  ],
+};

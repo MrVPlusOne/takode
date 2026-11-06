@@ -22,6 +22,7 @@ import { inheritedLaunchEnv, withNonInteractiveGitEditorEnv } from "./cli-launch
 import { getEnrichedPath } from "./path-resolver.js";
 import { recordClaudeModelCatalog } from "./claude-model-catalog.js";
 import { CopilotWebTools } from "./claude-copilot-web-tools.js";
+import { claudeLongSleepHook } from "./bridge/bash-sleep-policy.js";
 import {
   formatVsCodeSelectionPrompt,
   type BrowserIncomingMessage,
@@ -404,7 +405,10 @@ export class ClaudeSdkAdapter
       permissionMode: this.mapPermissionMode(this.options.permissionMode) as SdkQueryOptions["permissionMode"],
       env: mergedEnv,
       canUseTool: this.handleCanUseTool.bind(this) as unknown as SdkQueryOptions["canUseTool"],
-      hooks: copilotWebTools.hooks,
+      hooks: {
+        ...copilotWebTools.hooks,
+        PreToolUse: [...(copilotWebTools.hooks.PreToolUse ?? []), claudeLongSleepHook],
+      },
       settingSources: ["user", "project", "local"],
       // query() starts from an empty system prompt unless told otherwise; keep
       // Claude Code's own prompt, with Takode's instructions appended.

@@ -157,6 +157,16 @@ export class CodexApprovalManager {
     }
   }
 
+  /**
+   * Marks a request raised inside a native sub-agent thread with that sub-agent's
+   * spawn call as `agent_id`, as Claude marks its sub-agents' requests, so
+   * session-only policies (the long-sleep guard) can leave sub-agents alone.
+   */
+  private subagentOrigin(params: Record<string, unknown>, itemId: string | undefined): { agent_id?: string } {
+    const spawnToolUseId = this.deps.resolveParentToolUseId(params, itemId);
+    return spawnToolUseId ? { agent_id: spawnToolUseId } : {};
+  }
+
   private handleCommandApproval(jsonRpcId: number, params: Record<string, unknown>): void {
     const requestId = `codex-approval-${randomUUID()}`;
     this.pendingApprovals.set(requestId, jsonRpcId);
@@ -177,6 +187,7 @@ export class CodexApprovalManager {
       },
       description: (params.reason as string) || `Execute: ${commandStr}`,
       tool_use_id: (params.itemId as string) || requestId,
+      ...this.subagentOrigin(params, params.itemId as string | undefined),
       timestamp: Date.now(),
     };
 
@@ -434,6 +445,7 @@ export class CodexApprovalManager {
       },
       description: reason || `Execute: ${commandStr}`,
       tool_use_id: (params.callId as string) || requestId,
+      ...this.subagentOrigin(params, params.callId as string | undefined),
       timestamp: Date.now(),
     };
 

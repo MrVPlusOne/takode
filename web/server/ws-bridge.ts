@@ -6,7 +6,6 @@ import type { ViewportHandoffSessionState } from "../shared/viewport-handoff.js"
 import type { KnownSnapshotParts } from "../shared/snapshot-part-hash.js";
 import { viewportHandoffStateMessage } from "./bridge/browser-subscribe-snapshots.js";
 import type { ServerWebSocket } from "bun";
-import { randomUUID } from "node:crypto";
 import { computeCodexRetainedPayloadBytes, computeReplayHistoryBytes } from "./session-payload-metrics.js";
 import { notifyCodexWorkerV2RolloutActivity } from "./codex-worker-v2-rollout-hooks.js";
 import { WsBridgeSyncedProjectionController } from "./ws-bridge-synced-projections.js";
@@ -63,8 +62,7 @@ import { sessionTag } from "./session-tag.js";
 import type { PerfTracer } from "./perf-tracer.js";
 import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
 import { injectCompactionRecovery as injectCompactionRecoveryController } from "./bridge/compaction-recovery.js";
-import { detectLongSleepBashCommand, LONG_SLEEP_REMINDER_TEXT } from "./bridge/bash-sleep-policy.js";
-import { getApprovalSummary, getDenialSummary } from "./bridge/permission-summaries.js";
+import { getApprovalSummary } from "./bridge/permission-summaries.js";
 import {
   cleanupBranchState as cleanupBranchStateIndex,
   invalidateSessionsSharingBranch as invalidateSessionsSharingBranchIndex,
@@ -187,7 +185,6 @@ import { codexReasoningSnapshotFields } from "./bridge/codex-reasoning-preview-s
 import { createClaudeMessageHandlers as createClaudeMessageHandlersController } from "./bridge/claude-message-controller.js";
 import {
   handleCodexPermissionRequest as handleCodexPermissionRequestController,
-  handleInterrupt as handleInterruptController,
   handleSetModel as handleSetModelController,
   handleCodexSetModel as handleCodexSetModelController,
   handleCodexSetReasoningEffort as handleCodexSetReasoningEffortController,
@@ -1329,49 +1326,6 @@ export class WsBridge {
   /** Downgrade "action" attention to null when all pending permissions are resolved. */
   private clearActionAttentionIfNoPermissions(session: Session): void {
     clearActionAttentionIfNoPermissionsController(session, this.getSessionNotificationDeps());
-  }
-
-  private injectLongSleepReminder(session: Session): void {
-    this.injectUserMessage(session.id, LONG_SLEEP_REMINDER_TEXT, {
-      sessionId: "system:long-sleep-guard",
-      sessionLabel: "System",
-    });
-  }
-
-  private handleObservedLongSleepBashToolUse(
-    session: Session,
-    toolUse: Extract<ContentBlock, { type: "tool_use" }>,
-  ): void {
-    // In bypass mode Claude runs Bash without asking, so the permission
-    // pipeline's long-sleep denial never sees the call; catch it on observation.
-    if (session.backendType !== "claude-sdk" || toolUse.name !== "Bash") return;
-    if (session.state.permissionMode !== "bypassPermissions") return;
-    const command = typeof toolUse.input?.command === "string" ? toolUse.input.command : "";
-    if (!detectLongSleepBashCommand(command)) return;
-
-    const denialId = `sleep-guard-${toolUse.id || randomUUID()}`;
-    const alreadyDenied = session.messageHistory.some(
-      (entry) =>
-        entry.type === "permission_denied" &&
-        ((entry as { id?: string }).id === denialId || (!!toolUse.id && entry.tool_use_id === toolUse.id)),
-    );
-    if (alreadyDenied) return;
-
-    this.onSessionActivityStateChanged(session.id, "long_sleep_tool_use_denied");
-    const deniedMsg: BrowserIncomingMessage = {
-      type: "permission_denied",
-      id: denialId,
-      tool_name: "Bash",
-      tool_use_id: toolUse.id || "",
-      summary: getDenialSummary("Bash", { command }),
-      timestamp: Date.now(),
-    };
-    session.messageHistory.push(deniedMsg);
-    this.broadcastToBrowsers(session, deniedMsg);
-    this.emitTakodeEvent(session.id, "permission_resolved", { tool_name: "Bash", outcome: "denied" });
-    handleInterruptController(session, "system", this.getBrowserRoutingDeps());
-    this.injectLongSleepReminder(session);
-    this.persistSession(session);
   }
 
   private syncBackendTypeFromLauncher(session: Session, reason: string): void {
