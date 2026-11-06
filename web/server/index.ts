@@ -118,6 +118,7 @@ import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { createMessageDeliveryProbe, MessageDeliveryTracker } from "./message-delivery-tracker.js";
 import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchestrator-recovery.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
+import { OutdatedInstructionsRestarts } from "./outdated-instructions-restart.js";
 import {
   resumeAfterLeftoverProcess,
   resumeRestartContinuations,
@@ -355,12 +356,13 @@ async function stopNodeSessions(onHost: (hostId: string) => boolean): Promise<vo
     const host = processHostOf(s);
     return host !== undefined && onHost(host) && !s.archived && s.state !== "exited";
   });
-  await Promise.all(
-    live.map((s) => {
-      s.killedByIdleManager = true;
-      return wsBridge.killSession(s.sessionId);
-    }),
-  );
+  await Promise.all(live.map((s) => idleStopSession(s.sessionId)));
+}
+/** Stop a session like the idle manager does: it starts again, with resume, on its next message. */
+function idleStopSession(sessionId: string): Promise<unknown> {
+  const info = launcher.getSession(sessionId);
+  if (info) info.killedByIdleManager = true;
+  return wsBridge.killSession(sessionId);
 }
 hostLinks.machineSettingsFor = (hostId) => hostRegistry.machineSettings(hostId);
 /** Landing runners carry their own one-off credentials instead of a session's. */
@@ -422,7 +424,7 @@ const landingQueue = new LandingQueueManager(
 );
 const hostUpdateSessions = new HostUpdateSessions({
   sessions: () => launcher.listSessions(),
-  awaitingReattach: (sessionId) => launcher.isAwaitingHostReattach(sessionId),
+  awaitingReattach: (sessionId) => launcher.hostTakeovers.isAwaiting(sessionId),
   bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
   coordinatorStartedAt,
   landingRunOn: (hostId) => landingQueue.isRunActiveOn(hostId),
@@ -935,10 +937,9 @@ launcher.onBeforeRelaunchCallback((sessionId, backendType) => {
   }
 });
 
-// A process that outlived the restart ended without being taken over (it ran outdated instructions,
-// or its node restarted, say for an update); the turn it was in, or input sent while it waited for
-// its host, would otherwise be stuck.
-launcher.onLeftoverProcessEndedCallback((sessionId) => {
+// A process that outlived the restart ended without being taken over (its node restarted, say for
+// an update); the turn it was in, or input sent while it waited for its host, would otherwise be stuck.
+launcher.hostTakeovers.onLeftoverProcessEnded = (sessionId) => {
   const bridgeSession = wsBridge.getSession(sessionId);
   if (!bridgeSession) return;
   const resumed = resumeAfterLeftoverProcess(bridgeSession, {
@@ -950,7 +951,18 @@ launcher.onLeftoverProcessEndedCallback((sessionId) => {
   } else if (resumed === "relaunched") {
     console.log(`[server] Input waits for session ${sessionId} after its leftover process ended; relaunching`);
   }
+};
+
+// A process that outlived the restart with outdated instructions was taken over; its session is
+// restarted at its first idle moment, so it gets the new instructions without a turn being cut off.
+const outdatedInstructionsRestarts = new OutdatedInstructionsRestarts({
+  runsOutdatedInstructions: (sessionId) => launcher.hostTakeovers.runsOutdatedInstructions(sessionId),
+  bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
+  coordinatorStartedAt,
+  watch: (sessionId, onChange) => wsBridge.subscribeTakodeEvents(new Set([sessionId]), onChange),
+  stop: (sessionId) => idleStopSession(sessionId),
 });
+launcher.hostTakeovers.onOutdatedTakeover = (sessionId) => outdatedInstructionsRestarts.tookOver(sessionId);
 
 // Start watching PRs when git info is resolved for a session
 wsBridge.onGitInfoReady = (sessionId, cwd, branch) => {
@@ -1010,7 +1022,7 @@ wsBridge.onCLIRelaunchNeeded = (sessionId) => {
   // server's WebSocket) -- relaunching is safe and necessary (q-385).
   if (info.state === "starting" && wsBridge.isBackendAttached(sessionId)) return;
   // The session's process survived the restart on its host and is taken over when the host connects.
-  if (launcher.isAwaitingHostReattach(sessionId)) return;
+  if (launcher.hostTakeovers.isAwaiting(sessionId)) return;
   console.log(`[server] Auto-relaunch requested for session ${sessionId}`);
   relaunchQueue.request(sessionId, { trailing: false });
 };

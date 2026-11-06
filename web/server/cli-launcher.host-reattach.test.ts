@@ -6,6 +6,7 @@ const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; opt
 vi.mock("./claude-sdk-adapter.js", () => ({
   ClaudeSdkAdapter: class {
     started = Promise.resolve(true);
+    disconnect = async () => {};
     constructor(sessionId: string, options: any) {
       sdkAdapterLaunches.push({ sessionId, options });
     }
@@ -103,7 +104,7 @@ describe("taking over host processes after a coordinator restart", () => {
 
     const launcher = await restartCoordinator(original.procId);
     expect(launcher.getSession("s-1")?.state).toBe("starting");
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(true);
+    expect(launcher.hostTakeovers.isAwaiting("s-1")).toBe(true);
     expect(launcher.getStartingSessions()).toEqual([]);
 
     link!.drop();
@@ -111,7 +112,7 @@ describe("taking over host processes after a coordinator restart", () => {
     const { options } = sdkAdapterLaunches[0]!;
     expect(options.reattach).toBe(true);
     expect(options.cliSessionId).toBe("claude-conversation");
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(false);
+    expect(launcher.hostTakeovers.isAwaiting("s-1")).toBe(false);
 
     const proc = options.spawnProcess({ command: "claude", args: [], env: {}, signal: new AbortController().signal });
     expect(proc.procId).toBe(original.procId);
@@ -170,11 +171,11 @@ describe("taking over host processes after a coordinator restart", () => {
   it("starts a new process when the host no longer runs the old one", async () => {
     const launcher = await restartCoordinator("proc-the-host-lost");
     const ended: string[] = [];
-    launcher.onLeftoverProcessEndedCallback((sessionId) => ended.push(sessionId));
+    launcher.hostTakeovers.onLeftoverProcessEnded = (sessionId) => ended.push(sessionId);
     link!.drop();
     await waitFor(() => launcher.getSession("s-1")?.state === "exited");
     expect(ended).toEqual(["s-1"]);
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(false);
+    expect(launcher.hostTakeovers.isAwaiting("s-1")).toBe(false);
     expect(sdkAdapterLaunches).toHaveLength(0);
 
     await launcher.relaunch("s-1");
@@ -313,7 +314,7 @@ describe("sessions on this machine's own node", () => {
       { hostProcId: original.procId, hostClaudeRequests: [openRequest] },
       () => false,
     );
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(true);
+    expect(launcher.hostTakeovers.isAwaiting("s-1")).toBe(true);
     link!.drop();
     await waitFor(() => sdkAdapterLaunches.length === 1);
     const { options } = sdkAdapterLaunches[0]!;
@@ -350,7 +351,7 @@ describe("sessions on this machine's own node", () => {
       { hostProcId: original.procId, injectedSystemPrompt: instructions },
       () => false,
     );
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(true);
+    expect(launcher.hostTakeovers.isAwaiting("s-1")).toBe(true);
     return launcher;
   }
 
@@ -368,50 +369,71 @@ describe("sessions on this machine's own node", () => {
 
   // A process keeps the instructions it started with (Claude no longer records
   // them, but a running process cannot change them). When the server now
-  // builds other ones, the process is ended once the node connects instead of
-  // taken over, and the session is stopped like an idle one, so its next start
-  // gets the new instructions; Session Info never shows instructions the
-  // process does not run.
-  it("ends a process with outdated instructions and starts afresh on the next launch", async () => {
-    const current = await currentInstructions();
+  // builds other ones, the process is still taken over, so a turn under way is
+  // not cut off; Session Info keeps showing the instructions it runs, and the
+  // server is told so it can restart the session once it is idle.
+  it("takes over a process with outdated instructions and reports it for a restart when idle", async () => {
     const launcher = await restartWithProcessRunning("instructions from before the restart");
+    const tookOver: string[] = [];
+    launcher.hostTakeovers.onOutdatedTakeover = (sessionId) => tookOver.push(sessionId);
 
     link!.drop();
-    await waitFor(() => manager.status(LOCAL_HOST_ID).online);
-    await waitFor(() => launcher.getSession("s-1")?.state === "exited");
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(false);
-    expect(sdkAdapterLaunches).toHaveLength(0);
-    await waitFor(() => manager.status(LOCAL_HOST_ID).processes === 0);
+    await waitFor(() => sdkAdapterLaunches.length === 1);
+    expect(sdkAdapterLaunches[0]!.options.reattach).toBe(true);
+    expect(tookOver).toEqual(["s-1"]);
+    expect(launcher.hostTakeovers.runsOutdatedInstructions("s-1")).toBe(true);
     expect(launcher.getSession("s-1")?.injectedSystemPrompt).toBe("instructions from before the restart");
-
-    await launcher.relaunch("s-1");
-    expect(sdkAdapterLaunches).toHaveLength(1);
-    expect(sdkAdapterLaunches[0]!.options.reattach).toBeFalsy();
-    expect(launcher.getSession("s-1")?.injectedSystemPrompt).toBe(current);
   });
 
-  // Input sent while the session waited for its node (a Scribe's request, a herd event) is queued
-  // without a launch; the server is told when the outdated process ends so it can start the session.
-  it("tells the server when it ends an outdated process, so waiting input gets a fresh start", async () => {
-    const launcher = await restartWithProcessRunning("instructions from before the restart");
-    const ended: string[] = [];
-    launcher.onLeftoverProcessEndedCallback((sessionId) => ended.push(sessionId));
-
-    link!.drop();
-    await waitFor(() => launcher.getSession("s-1")?.state === "exited");
-    expect(ended).toEqual(["s-1"]);
-  });
-
-  // A message can wake the session before its node is back; that launch
-  // starts a new process too rather than taking over the outdated one.
-  it("starts afresh when a launch is requested before the node is back", async () => {
+  // The idle restart stops the session; its next launch is a fresh process with the new instructions.
+  it("gives the next fresh launch the current instructions", async () => {
     const current = await currentInstructions();
     const launcher = await restartWithProcessRunning("instructions from before the restart");
+    link!.drop();
+    await waitFor(() => sdkAdapterLaunches.length === 1);
+    sdkAdapterLaunches.length = 0;
 
+    await launcher.kill("s-1");
+    expect(launcher.hostTakeovers.runsOutdatedInstructions("s-1")).toBe(false);
     await launcher.relaunch("s-1");
-    expect(sdkAdapterLaunches).toHaveLength(1);
     expect(sdkAdapterLaunches[0]!.options.reattach).toBeFalsy();
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(false);
     expect(launcher.getSession("s-1")?.injectedSystemPrompt).toBe(current);
+  });
+
+  // When the process to take over has ended by the time the SDK spawns (its node
+  // restarted), the session starts afresh, so it runs the current instructions.
+  it("records the current instructions when the takeover falls back to a fresh process", async () => {
+    const current = await currentInstructions();
+    const original = manager.spawn(LOCAL_HOST_ID, { command: process.execPath, args: ["-e", ECHO_PROGRAM], env: {} });
+    await waitFor(() => original.started && original.pid !== undefined);
+    manager = new HostLinkManager();
+    const launcher = await coordinatorWith(
+      { hostProcId: original.procId, injectedSystemPrompt: "instructions from before the restart" },
+      () => false,
+    );
+    link!.drop();
+    await waitFor(() => sdkAdapterLaunches.length === 1);
+    expect(launcher.hostTakeovers.runsOutdatedInstructions("s-1")).toBe(true);
+
+    process.kill(original.pid!, "SIGKILL");
+    await waitFor(() => {
+      try {
+        process.kill(original.pid!, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const proc = sdkAdapterLaunches[0]!.options.spawnProcess({
+      command: process.execPath,
+      args: ["-e", ECHO_PROGRAM],
+      env: {},
+      signal: new AbortController().signal,
+    });
+    expect(proc.procId).not.toBe(original.procId);
+    expect(launcher.hostTakeovers.runsOutdatedInstructions("s-1")).toBe(false);
+    expect(launcher.getSession("s-1")?.injectedSystemPrompt).toBe(current);
+    proc.kill("SIGTERM");
   });
 });

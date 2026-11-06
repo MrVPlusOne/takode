@@ -333,10 +333,10 @@ starts a `takode node` on its own machine and runs the processes of sessions
 without a host under it. After a restart, the new server takes them over when
 that node reconnects: a turn in progress keeps running, its output arrives, and
 a pending permission prompt is asked again. A session whose instructions from
-Takode have changed since its process started is not taken over: its process is
-ended, and the session starts afresh with the new instructions on its next
-message. A turn the ending cut off is continued at once, as Restart Server
-continues the turns it interrupts. When the restart brings new code, Restart
+Takode have changed since its process started is taken over too, so its turn is
+not cut off; once it is idle (no turn, permission prompt or waiting input) the
+server stops it, and it starts afresh with the new instructions on its next
+message. When the restart brings new code, Restart
 Server first interrupts the node's busy sessions and queues them to continue,
 as it does sessions without a node, and the new server updates the node before
 anything is taken over (see [Updating Takode](#updating-takode)): the update

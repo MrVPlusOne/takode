@@ -35,7 +35,7 @@ import { withUserCodexDeveloperInstructions } from "./codex-user-config-carryove
 import { deliverMcpOAuthCallbackOnMachine } from "./mcp-oauth-callback.js";
 import { userContentService } from "./user-content-service.js";
 import { remoteSubprocess } from "./remote-host/remote-subprocess.js";
-import { claudeNodeSpawner, liveTakeover } from "./cli-launcher-host-takeover.js";
+import { claudeNodeSpawner, HostTakeovers, liveTakeover } from "./cli-launcher-host-takeover.js";
 
 /** Codex launch preparation on a host can seed a Codex home and caches. */
 const REMOTE_CODEX_PREPARE_TIMEOUT_MS = 120_000;
@@ -123,7 +123,6 @@ export class CliLauncher {
     | ((sessionId: string, adapter: import("./claude-sdk-adapter.js").ClaudeSdkAdapter) => void)
     | null = null;
   private onBeforeRelaunch: ((sessionId: string, backendType: BackendType) => void) | null = null;
-  private onLeftoverProcessEnded: ((sessionId: string) => void) | null = null;
   private onModelProvenanceMigration: ((sessionId: string, migration: ModelProvenanceMigration) => void) | null = null;
   private exitHandlers: ((sessionId: string, exitCode: number | null) => void)[] = [];
   /** Why each session's latest launch failed, so a failed relaunch can say. */
@@ -151,11 +150,14 @@ export class CliLauncher {
 
   /** Registered remote hosts and their links (see `setRemoteHosts`); sessions with a `hostId` run there. */
   remoteHosts: RemoteHosts | null = null;
-  /**
-   * Host processes the previous coordinator left running, by session, waiting
-   * for their host to connect so the session can take them over.
-   */
-  private hostReattach = new Map<string, RemoteProcess>();
+  /** Host processes the previous coordinator left running, and taken-over ones with outdated instructions. */
+  readonly hostTakeovers = new HostTakeovers({
+    links: () => this.remoteHosts?.links,
+    session: (sessionId) => this.sessions.get(sessionId),
+    persist: () => this.persistState(),
+    relaunch: (sessionId) => void this.relaunch(sessionId),
+    runsCurrentInstructions: (info) => this.runsCurrentInstructions(info),
+  });
 
   // ─── Integer session ID tracking ───────────────────────────────────────────
   private nextSessionNum = 0;
@@ -181,41 +183,17 @@ export class CliLauncher {
   setRemoteHosts(remoteHosts: RemoteHosts): void {
     this.remoteHosts = remoteHosts;
     remoteHosts.links.onStatusChange((status) => {
-      // A node updated before use ends these processes itself; their sessions start once, on its new build.
-      if (!status.online || remoteHosts.links.updatesFirst(status.hostId)) return;
-      for (const [sessionId, proc] of this.hostReattach) {
-        const info = this.sessions.get(sessionId);
-        if (!info || processHostOf(info) !== status.hostId) continue;
-        if (this.runsCurrentInstructions(info)) {
-          void this.relaunch(sessionId);
-          continue;
-        }
-        this.hostReattach.delete(sessionId);
-        this.endLeftoverHostProcess(sessionId, proc, "runs outdated instructions");
-        this.leftoverProcessEnded(sessionId);
-      }
+      if (status.online) this.hostTakeovers.hostOnline(status.hostId);
     });
-  }
-
-  /**
-   * A process the previous server left running ended without being taken over. The session is
-   * stopped like an idle one, so it starts afresh on its next message (or now, when work waits for it).
-   */
-  private leftoverProcessEnded(sessionId: string): void {
-    const info = this.sessions.get(sessionId);
-    if (!info) return;
-    info.state = "exited";
-    info.exitCode = -1;
-    this.persistState();
-    this.onLeftoverProcessEnded?.(sessionId);
   }
 
   /**
    * Whether the session's still-running process was started with the
    * instructions this server builds for it. A running process keeps the
-   * instructions it started with, so one with other instructions is ended
-   * rather than taken over, and the session gets the new ones when it next
-   * starts. A session saved without a record is taken over.
+   * instructions it started with; one with other instructions is still taken
+   * over, so no turn is cut off, and the server restarts the session at its
+   * first idle moment (see `HostTakeovers`). A session saved
+   * without a record counts as current.
    */
   private runsCurrentInstructions(info: SdkSessionInfo): boolean {
     if (info.injectedSystemPrompt === undefined) return true;
@@ -225,18 +203,10 @@ export class CliLauncher {
     );
   }
 
-  /** Why the session's leftover process is ended instead of taken over, or null when it is taken over. */
-  private whyNotTakenOver(info: SdkSessionInfo): string | null {
-    const host = processHostOf(info);
-    if (host && this.remoteHosts?.links.updatesFirst(host)) return "runs on a node about to restart for an update";
-    return this.runsCurrentInstructions(info) ? null : "runs outdated instructions";
-  }
-
-  private endLeftoverHostProcess(sessionId: string, proc: RemoteProcess, reason: string): void {
-    console.log(
-      `[cli-launcher] Session ${sessionTag(sessionId)} ${reason}; ending its process instead of taking it over`,
-    );
-    proc.kill("SIGTERM");
+  /** A process started now runs `instructions`, which Session Info shows and the next restart compares. */
+  private recordLaunchInstructions(info: SdkSessionInfo, instructions: string): void {
+    if (instructions) info.injectedSystemPrompt = instructions;
+    this.hostTakeovers.startedAfresh(info.sessionId);
   }
 
   /** Takode's injected instructions for a launch of the session. */
@@ -283,11 +253,6 @@ export class CliLauncher {
   /** The display name of a leader, for its Scribe's brief; set by the server, which knows names. */
   scribeLeaderName?: (leaderId: string) => string | undefined;
 
-  /** Whether the session waits for its host to connect so it can take over its still-running process. */
-  isAwaitingHostReattach(sessionId: string): boolean {
-    return this.hostReattach.has(sessionId);
-  }
-
   /**
    * The host whose node starts this launch's process: the process being taken
    * over, the session's remote host, or this machine's node when it runs local
@@ -313,19 +278,6 @@ export class CliLauncher {
     delete info.hostClaudeRequests;
     this.persistState();
     return proc;
-  }
-
-  /** Wait for the session's host to connect, then take over the process the previous coordinator left there. */
-  private awaitHostProcess(sessionId: string, hostId: string, procId: string): void {
-    const proc = this.remoteHosts!.links.adopt(hostId, procId);
-    this.hostReattach.set(sessionId, proc);
-    proc.once("exit", () => {
-      if (this.hostReattach.get(sessionId) !== proc) return;
-      // The host lost it, e.g. its node restarted or was updated before anything used it.
-      this.hostReattach.delete(sessionId);
-      console.log(`[cli-launcher] Host process of session ${sessionTag(sessionId)} is gone`);
-      this.leftoverProcessEnded(sessionId);
-    });
   }
 
   /** Get the server port number. */
@@ -367,16 +319,6 @@ export class CliLauncher {
    *  auto-relaunch requests from the adapter disconnect handler. */
   onBeforeRelaunchCallback(cb: (sessionId: string, backendType: BackendType) => void): void {
     this.onBeforeRelaunch = cb;
-  }
-
-  /**
-   * Called when a session's process that outlived the previous server ended without being taken
-   * over: ended for running outdated instructions, or lost with its node (which may have restarted
-   * for an update). A turn it was in was cut off, and input sent while it waited for its host (a
-   * message, a herd event) is still queued, so the server continues or relaunches it.
-   */
-  onLeftoverProcessEndedCallback(cb: (sessionId: string) => void): void {
-    this.onLeftoverProcessEnded = cb;
   }
 
   onModelProvenanceMigrationCallback(cb: (sessionId: string, migration: ModelProvenanceMigration) => void): void {
@@ -586,7 +528,7 @@ export class CliLauncher {
       if (processHost && info.hostProcId && info.state !== "exited" && !info.archived && this.remoteHosts) {
         info.state = "starting";
         this.sessions.set(info.sessionId, info);
-        this.awaitHostProcess(info.sessionId, processHost, info.hostProcId);
+        this.hostTakeovers.await(info.sessionId, processHost, info.hostProcId);
         recovered++;
         continue;
       }
@@ -914,14 +856,8 @@ export class CliLauncher {
   private async relaunchAccepted(sessionId: string): Promise<{ ok: boolean; error?: string }> {
     const info = this.sessions.get(sessionId);
     if (!info) return { ok: false, error: "Session not found" };
-    // Taken now, before any await, so a second relaunch cannot take it as well.
-    let reattachHostProcess = this.hostReattach.get(sessionId);
-    this.hostReattach.delete(sessionId);
-    const notTakenOver = reattachHostProcess && this.whyNotTakenOver(info);
-    if (reattachHostProcess && notTakenOver) {
-      this.endLeftoverHostProcess(sessionId, reattachHostProcess, notTakenOver);
-      reattachHostProcess = undefined;
-    }
+    let reattachHostProcess = this.hostTakeovers.take(info);
+    const takingOver = !!reattachHostProcess;
     const binSettings = this.settingsGetter?.() ?? {};
     const bt = info.backendType ?? "claude-sdk";
     if (bt === "codex") {
@@ -1147,6 +1083,7 @@ export class CliLauncher {
     if ((info.state as string) === "exited") {
       return { ok: false, error: `Failed to start: ${this.launchFailures.get(sessionId) ?? "the process exited"}` };
     }
+    if (takingOver) this.hostTakeovers.tookOver(sessionId);
     return { ok: true };
   }
 
@@ -1175,7 +1112,7 @@ export class CliLauncher {
   getStartingSessions(): SdkSessionInfo[] {
     // Sessions waiting for their host take over their process whenever it connects, however long that takes.
     return Array.from(this.sessions.values()).filter(
-      (s) => s.state === "starting" && !this.hostReattach.has(s.sessionId),
+      (s) => s.state === "starting" && !this.hostTakeovers.isAwaiting(s.sessionId),
     );
   }
 
@@ -1189,7 +1126,8 @@ export class CliLauncher {
     // The user's instructions and skills, delivered to this machine before the process reads them.
     await userContentService.syncMachine(info.hostId, `launch of session ${sessionTag(sessionId)}`);
     const sdkInstructions = this.buildInstructions(info, "claude-sdk", options.extraInstructions);
-    if (sdkInstructions) info.injectedSystemPrompt = sdkInstructions;
+    // A taken-over process keeps its instructions; one started afresh on the node gets these.
+    if (!options.reattachHostProcess) this.recordLaunchInstructions(info, sdkInstructions);
     info.sdkDebugLogPath ||= getClaudeSdkDebugLogPath(this.port, sessionId);
     serverWorkAdmission.assertOpen();
     // Starting until the Claude process has actually spawned, so consumers such
@@ -1211,7 +1149,10 @@ export class CliLauncher {
       ...(nodeHost
         ? {
             spawnProcess: claudeNodeSpawner(info, options.reattachHostProcess, {
-              start: (spawnOptions) => this.startHostProcess(nodeHost, info, spawnOptions),
+              start: (spawnOptions) => {
+                this.recordLaunchInstructions(info, sdkInstructions);
+                return this.startHostProcess(nodeHost, info, spawnOptions);
+              },
               persist: () => this.persistState(),
             }),
             reattach: !!options.reattachHostProcess,
@@ -1345,7 +1286,7 @@ export class CliLauncher {
       if (info.hostId) {
         // The host is away or could not prepare Codex; the next message relaunches the session,
         // and a process to take over waits for the host to connect again.
-        if (options.reattachHostProcess) this.hostReattach.set(sessionId, options.reattachHostProcess);
+        if (options.reattachHostProcess) this.hostTakeovers.putBack(sessionId, options.reattachHostProcess);
         const message = err instanceof Error ? err.message : String(err);
         console.error(
           `[cli-launcher] Could not prepare Codex on host for session ${sessionTag(sessionId)}: ${message}`,
@@ -1367,9 +1308,11 @@ export class CliLauncher {
     );
 
     let proc: ReturnType<typeof Bun.spawn>;
+    let tookOver = false;
     try {
       serverWorkAdmission.assertOpen();
       const reattach = liveTakeover(sessionId, options.reattachHostProcess);
+      tookOver = !!reattach;
       proc = nodeHost
         ? remoteSubprocess(
             reattach ??
@@ -1408,8 +1351,9 @@ export class CliLauncher {
     // Create the CodexAdapter which handles JSON-RPC and message translation
     // Pass the raw permission mode — the adapter maps it to Codex's approval policy
     const codexInstructions = this.buildInstructions(info, "codex", options.extraInstructions);
-    // Takode's own instructions only: they decide whether a running process is outdated.
-    if (codexInstructions) info.injectedSystemPrompt = codexInstructions;
+    // Takode's own instructions only: they decide whether a running process is outdated. A
+    // taken-over process keeps the ones it started with.
+    if (!tookOver) this.recordLaunchInstructions(info, codexInstructions);
     const adapter = new CodexAdapter(proc, sessionId, {
       model: options.model,
       cwd: info.cwd,
@@ -1601,9 +1545,7 @@ export class CliLauncher {
 
       this.processes.delete(sessionId);
     }
-    const waitingHostProcess = this.hostReattach.get(sessionId);
-    this.hostReattach.delete(sessionId);
-    waitingHostProcess?.kill("SIGTERM");
+    this.hostTakeovers.endWaiting(sessionId);
     // A Claude process belongs to the SDK adapter, which ends it on disconnect.
     // Nothing else stops it: it would outlive an archive, and on a remote host
     // keep running with no session.

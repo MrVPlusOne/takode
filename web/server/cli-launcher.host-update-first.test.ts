@@ -136,7 +136,7 @@ describe("updating this machine's node before restoring its sessions", () => {
     await launcher.restoreFromDisk();
     const sessions = new HostUpdateSessions({
       sessions: () => launcher.listSessions(),
-      awaitingReattach: (sessionId) => launcher.isAwaitingHostReattach(sessionId),
+      awaitingReattach: (sessionId) => launcher.hostTakeovers.isAwaiting(sessionId),
       bridgeSession: () => undefined,
       coordinatorStartedAt: Date.now(),
       landingRunOn: () => false,
@@ -149,7 +149,7 @@ describe("updating this machine's node before restoring its sessions", () => {
     manager.updateBlocker = (hostId, mode, timing) => sessions.blocker(hostId, mode, timing);
     manager.prepareHostUpdate = (hostId, mode) => sessions.prepare(hostId, mode);
     const ended: string[] = [];
-    launcher.onLeftoverProcessEndedCallback((sessionId) => ended.push(sessionId));
+    launcher.hostTakeovers.onLeftoverProcessEnded = (sessionId) => ended.push(sessionId);
     return { launcher, node, original, ended };
   }
 
@@ -162,7 +162,7 @@ describe("updating this machine's node before restoring its sessions", () => {
 
   it("updates the node before taking over its processes, so each session loads its history once", async () => {
     const { launcher, node, original, ended } = await restartServerOntoNewBuild();
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(true);
+    expect(launcher.hostTakeovers.isAwaiting("s-1")).toBe(true);
 
     link!.drop();
     await waitFor(() => updates.length === 1);
@@ -171,14 +171,14 @@ describe("updating this machine's node before restoring its sessions", () => {
     expect(manager.updatesFirst(LOCAL_HOST_ID)).toBe(true);
     expect(sdkAdapterLaunches).toHaveLength(0);
     expect(stoppedHosts).toEqual([]);
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(true);
+    expect(launcher.hostTakeovers.isAwaiting("s-1")).toBe(true);
 
     // The update ends the old process; the session is stopped like an idle one.
     await restartNode(node);
     await waitFor(() => launcher.getSession("s-1")?.state === "exited");
     expect(isRunning(original.pid!)).toBe(false);
     expect(ended).toEqual(["s-1"]);
-    expect(launcher.isAwaitingHostReattach("s-1")).toBe(false);
+    expect(launcher.hostTakeovers.isAwaiting("s-1")).toBe(false);
     expect(sdkAdapterLaunches).toHaveLength(0);
 
     // Its next start is its only one, on the new build.

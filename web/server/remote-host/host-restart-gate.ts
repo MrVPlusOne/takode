@@ -36,11 +36,19 @@ export function hostCanRestart(
     if (processHostOf(session) !== hostId || session.archived || session.state === "exited") return true;
     if (deps.awaitingReattach(session.sessionId)) return false;
     const bridge = deps.bridgeSession(session.sessionId);
-    if (!bridge) return true;
-    if (bridge.isGenerating || bridge.pendingPermissions.size > 0) return false;
-    const opened = openTurnStartedAt(bridge.messageHistory);
-    return opened === null || opened >= deps.coordinatorStartedAt;
+    return !bridge || turnIsIdle(bridge, deps.coordinatorStartedAt);
   });
+}
+
+/**
+ * Whether the session is between turns: not generating, no permission request
+ * open, and no turn its history shows opened before `coordinatorStartedAt` and
+ * never finished (a process this coordinator took over may have no turn state for it yet).
+ */
+export function turnIsIdle(bridge: BridgeTurnView, coordinatorStartedAt: number): boolean {
+  if (bridge.isGenerating || bridge.pendingPermissions.size > 0) return false;
+  const opened = openTurnStartedAt(bridge.messageHistory);
+  return opened === null || opened >= coordinatorStartedAt;
 }
 
 /** When the last user message without a later result was sent, or null when the last turn finished. */

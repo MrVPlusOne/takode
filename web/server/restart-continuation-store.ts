@@ -136,8 +136,8 @@ export interface LeftoverProcessSession {
 
 /**
  * Get a session going again whose process outlived a restart but ended before
- * it was taken over: ended for running outdated instructions, or lost when its
- * node restarted (say, updated before anything used it). Restart Server leaves
+ * it was taken over: lost when its node restarted (say, updated before anything
+ * used it). Restart Server leaves
  * such processes running mid-turn unless their node is updated after it, and
  * the restored session does not know a turn was under way, so a Claude turn the ending cut off is continued as if
  * Restart Server had interrupted it; delivering the continuation relaunches the

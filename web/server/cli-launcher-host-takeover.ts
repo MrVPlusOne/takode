@@ -7,8 +7,9 @@
  * the session waiting on it forever, every message going nowhere, so such a takeover
  * starts the process afresh instead, which resumes the conversation.
  */
-import type { RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
+import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
 import { replayOpenClaudeRequests, trackOpenClaudeRequests } from "./remote-host/claude-open-requests.js";
+import { processHostOf } from "./remote-host/host-registry.js";
 import type { SdkSessionInfo } from "./session-info.js";
 import { sessionTag } from "./session-tag.js";
 
@@ -49,4 +50,134 @@ export function claudeNodeSpawner(
     });
     return taken;
   };
+}
+
+export interface HostTakeoversDeps {
+  links: () => HostLinkManager | undefined;
+  session: (sessionId: string) => SdkSessionInfo | undefined;
+  persist: () => void;
+  /** Launch the session, which takes over its waiting process. */
+  relaunch: (sessionId: string) => void;
+  /** Whether the session's recorded instructions are the ones this server builds for it. */
+  runsCurrentInstructions: (info: SdkSessionInfo) => boolean;
+}
+
+/**
+ * The processes the previous coordinator left running on nodes, waiting for
+ * their host to connect so their sessions can take them over, and the
+ * taken-over ones that run outdated instructions.
+ *
+ * A process is taken over even when its instructions are outdated, so no turn
+ * is cut off; `onOutdatedTakeover` lets the server restart the session once it
+ * is idle. A process on a node about to restart for an update is ended instead,
+ * and one that ends before its takeover (its node restarted) stops its session
+ * like an idle one; `onLeftoverProcessEnded` lets the server continue a turn it
+ * cut off or deliver input that waited for it.
+ */
+export class HostTakeovers {
+  private readonly waiting = new Map<string, RemoteProcess>();
+  private readonly outdated = new Set<string>();
+  /**
+   * A process that outlived the previous server ended without being taken over. A turn it was in was
+   * cut off, and input sent while it waited for its host is still queued, so the server continues or
+   * relaunches the session.
+   */
+  onLeftoverProcessEnded: ((sessionId: string) => void) | null = null;
+  /** A process with outdated instructions was taken over, so the server can restart the session once it is idle. */
+  onOutdatedTakeover: ((sessionId: string) => void) | null = null;
+
+  constructor(private readonly deps: HostTakeoversDeps) {}
+
+  /** Wait for the session's host to connect, then take over the process the previous coordinator left there. */
+  await(sessionId: string, hostId: string, procId: string): void {
+    const proc = this.deps.links()!.adopt(hostId, procId);
+    this.waiting.set(sessionId, proc);
+    proc.once("exit", () => {
+      if (this.waiting.get(sessionId) !== proc) return;
+      // The host lost it, e.g. its node restarted or was updated before anything used it.
+      this.waiting.delete(sessionId);
+      console.log(`[cli-launcher] Host process of session ${sessionTag(sessionId)} is gone`);
+      this.leftoverProcessEnded(sessionId);
+    });
+  }
+
+  /** The host connected: launch the sessions waiting for it, unless its node is updated first. */
+  hostOnline(hostId: string): void {
+    // A node updated before use ends these processes itself; their sessions start once, on its new build.
+    if (this.deps.links()?.updatesFirst(hostId)) return;
+    for (const sessionId of this.waiting.keys()) {
+      const info = this.deps.session(sessionId);
+      if (info && processHostOf(info) === hostId) this.deps.relaunch(sessionId);
+    }
+  }
+
+  /** Whether the session waits for its host to connect so it can take over its still-running process. */
+  isAwaiting(sessionId: string): boolean {
+    return this.waiting.has(sessionId);
+  }
+
+  /**
+   * Take the session's waiting process for a launch. Taken before any await, so
+   * a second launch cannot take it as well. Undefined when there is none, or
+   * when it runs on a node about to restart for an update, which ends it.
+   */
+  take(info: SdkSessionInfo): RemoteProcess | undefined {
+    const proc = this.waiting.get(info.sessionId);
+    this.waiting.delete(info.sessionId);
+    if (!proc) return undefined;
+    const host = processHostOf(info);
+    if (host && this.deps.links()?.updatesFirst(host)) {
+      console.log(
+        `[cli-launcher] Session ${sessionTag(info.sessionId)} runs on a node about to restart for an update; ending its process instead of taking it over`,
+      );
+      proc.kill("SIGTERM");
+      return undefined;
+    }
+    // Cleared again if the process is started afresh after all (see `startedAfresh`).
+    if (!this.deps.runsCurrentInstructions(info)) this.outdated.add(info.sessionId);
+    return proc;
+  }
+
+  /** A launch could not use the taken process; it waits for its host again. */
+  putBack(sessionId: string, proc: RemoteProcess): void {
+    this.waiting.set(sessionId, proc);
+  }
+
+  /** The session is being stopped: end the process still waiting for its host. */
+  endWaiting(sessionId: string): void {
+    this.waiting.get(sessionId)?.kill("SIGTERM");
+    this.waiting.delete(sessionId);
+  }
+
+  /** Whether the session's process is one taken over after a restart that runs outdated instructions. */
+  runsOutdatedInstructions(sessionId: string): boolean {
+    return this.outdated.has(sessionId) && this.deps.session(sessionId)?.state !== "exited";
+  }
+
+  /** The session got a fresh process, which runs the current instructions. */
+  startedAfresh(sessionId: string): void {
+    this.outdated.delete(sessionId);
+  }
+
+  /** A launch that took over a process finished; report it when the process runs outdated instructions. */
+  tookOver(sessionId: string): void {
+    if (!this.runsOutdatedInstructions(sessionId)) return;
+    console.log(
+      `[cli-launcher] Session ${sessionTag(sessionId)} runs outdated instructions; took over its process and will restart it once it is idle`,
+    );
+    this.onOutdatedTakeover?.(sessionId);
+  }
+
+  /**
+   * A process the previous server left running ended without being taken over. The session is
+   * stopped like an idle one, so it starts afresh on its next message (or now, when work waits for it).
+   */
+  private leftoverProcessEnded(sessionId: string): void {
+    const info = this.deps.session(sessionId);
+    if (!info) return;
+    info.state = "exited";
+    info.exitCode = -1;
+    this.deps.persist();
+    this.onLeftoverProcessEnded?.(sessionId);
+  }
 }
