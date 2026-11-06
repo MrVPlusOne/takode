@@ -196,10 +196,11 @@ export async function raiseOomScore(pid: number): Promise<void> {
 /**
  * Memory use against the closest cgroup memory limit (a container or a
  * cluster job), else against the machine's memory. File cache, which the
- * kernel frees under pressure, does not count as used.
+ * kernel frees under pressure, does not count as used. `fsRoot` stands in for
+ * `/` in tests.
  */
-export async function readMemoryUse(): Promise<MemoryUse | null> {
-  return (await cgroupMemoryUse().catch(() => null)) ?? (await machineMemoryUse().catch(() => null));
+export async function readMemoryUse(fsRoot = ""): Promise<MemoryUse | null> {
+  return (await cgroupMemoryUse(fsRoot).catch(() => null)) ?? (await machineMemoryUse(fsRoot).catch(() => null));
 }
 
 /** Format a byte count for people, such as `47.3 GB`. */
@@ -249,31 +250,62 @@ function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }
 
-async function cgroupMemoryUse(): Promise<MemoryUse | null> {
-  const line = (await readFile("/proc/self/cgroup", "utf-8")).split("\n").find((entry) => entry.startsWith("0::"));
-  if (!line) return null;
-  // The closest limit up the tree: a container's at its root, a cluster job's a level or two up.
-  const parts = line.slice(3).trim().split("/").filter(Boolean);
-  for (let depth = parts.length; depth >= 0; depth--) {
-    const dir = ["/sys/fs/cgroup", ...parts.slice(0, depth)].join("/");
-    const max = (await readFile(`${dir}/memory.max`, "utf-8").catch(() => "max")).trim();
-    if (max === "max") continue;
-    const [current, stat] = await Promise.all([
-      readFile(`${dir}/memory.current`, "utf-8"),
-      readFile(`${dir}/memory.stat`, "utf-8"),
-    ]);
+/**
+ * Where each cgroup version keeps a group's memory limit, use and file cache.
+ * A machine may mount both (hybrid): its `0::` group then has no memory
+ * controller, and the limit, such as a Slurm job's, is in the v1 `memory`
+ * hierarchy.
+ */
+const CGROUP_MEMORY = [
+  {
+    line: /^0::(.*)$/m,
+    root: "/sys/fs/cgroup",
+    limit: "memory.max",
+    usage: "memory.current",
     // `file` includes tmpfs and shared memory (`shmem`), which cannot be dropped.
-    const reclaimable = statValue(stat, "file") - statValue(stat, "shmem");
-    return {
-      usedBytes: Number(current.trim()) - reclaimable,
-      limitBytes: Number(max),
-    };
+    cache: "file",
+    shmem: "shmem",
+  },
+  {
+    line: /^\d+:(?:[^:\n]*,)?memory(?:,[^:\n]*)?:(.*)$/m,
+    root: "/sys/fs/cgroup/memory",
+    limit: "memory.limit_in_bytes",
+    usage: "memory.usage_in_bytes",
+    // The `total_` counts include the group's children; `cache` includes shared memory.
+    cache: "total_cache",
+    shmem: "total_shmem",
+  },
+] as const;
+/** v1 reports no limit as a number near 2^63. */
+const NO_CGROUP_LIMIT = 2 ** 60;
+
+async function cgroupMemoryUse(fsRoot: string): Promise<MemoryUse | null> {
+  const groups = await readFile(`${fsRoot}/proc/self/cgroup`, "utf-8");
+  for (const version of CGROUP_MEMORY) {
+    const path = groups.match(version.line)?.[1];
+    if (path === undefined) continue;
+    // The closest limit up the tree: a container's at its root, a cluster job's a level or two up.
+    const parts = path.trim().split("/").filter(Boolean);
+    for (let depth = parts.length; depth >= 0; depth--) {
+      const dir = [fsRoot + version.root, ...parts.slice(0, depth)].join("/");
+      const limit = Number((await readFile(`${dir}/${version.limit}`, "utf-8").catch(() => "max")).trim());
+      if (!Number.isFinite(limit) || limit >= NO_CGROUP_LIMIT) continue;
+      const [usage, stat] = await Promise.all([
+        readFile(`${dir}/${version.usage}`, "utf-8"),
+        readFile(`${dir}/memory.stat`, "utf-8"),
+      ]);
+      const reclaimable = statValue(stat, version.cache) - statValue(stat, version.shmem);
+      return {
+        usedBytes: Number(usage.trim()) - reclaimable,
+        limitBytes: limit,
+      };
+    }
   }
   return null;
 }
 
-async function machineMemoryUse(): Promise<MemoryUse> {
-  const meminfo = await readFile("/proc/meminfo", "utf-8");
+async function machineMemoryUse(fsRoot: string): Promise<MemoryUse> {
+  const meminfo = await readFile(`${fsRoot}/proc/meminfo`, "utf-8");
   const kib = (key: string) => Number(meminfo.match(new RegExp(`^${key}:\\s+(\\d+) kB`, "m"))?.[1] ?? 0) * 1024;
   return {
     usedBytes: kib("MemTotal") - kib("MemAvailable"),

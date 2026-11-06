@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import {
   MemoryGuard,
   readMemoryUse,
@@ -174,6 +177,81 @@ describe("MemoryGuard", () => {
 });
 
 describe("readMemoryUse", () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "memory-use-"));
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  /** Write files under the fake filesystem root. */
+  async function files(entries: Record<string, string>): Promise<void> {
+    for (const [path, content] of Object.entries(entries)) {
+      await mkdir(dirname(join(root, path)), { recursive: true });
+      await writeFile(join(root, path), content);
+    }
+  }
+
+  const MEMINFO = "MemTotal:       1054867456 kB\nMemFree:        728760320 kB\nMemAvailable:   995098624 kB\n";
+
+  // The Condor incident: a node in a Slurm job on a hybrid cgroup machine. The
+  // job's 800 GiB limit sits on the v1 memory controller; the `0::` group has
+  // no memory files. Reading only v2 fell back to the machine's 1 TB, so the
+  // guard never acted before the job's own OOM killer did.
+  it("reads a Slurm job's limit from the v1 memory controller on a hybrid machine", async () => {
+    const job = "/sys/fs/cgroup/memory/slurm/uid_4132/job_7485516";
+    await files({
+      "/proc/self/cgroup": [
+        "12:cpuset:/slurm/uid_4132/job_7485516/step_batch",
+        "2:memory:/slurm/uid_4132/job_7485516/step_batch/task_0",
+        "0::/kubepods/burstable/pod24751dba/308004683cd6",
+        "",
+      ].join("\n"),
+      "/proc/meminfo": MEMINFO,
+      // The task's own group has no limit; its parents carry the job's.
+      [`${job}/step_batch/task_0/memory.limit_in_bytes`]: "9223372036854771712\n",
+      [`${job}/step_batch/memory.limit_in_bytes`]: "858993459200\n",
+      [`${job}/step_batch/memory.usage_in_bytes`]: `${700 * GB}\n`,
+      [`${job}/step_batch/memory.stat`]: `cache 0\nshmem 0\ntotal_cache ${30 * GB}\ntotal_shmem ${2 * GB}\n`,
+    });
+    expect(await readMemoryUse(root)).toEqual({
+      usedBytes: 672 * GB,
+      limitBytes: 800 * GB,
+    });
+  });
+
+  // A container on cgroup v2, like the DevBox: the limit is `memory.max` at its root.
+  it("reads a container's cgroup v2 limit", async () => {
+    await files({
+      "/proc/self/cgroup": "0::/\n",
+      "/proc/meminfo": MEMINFO,
+      "/sys/fs/cgroup/memory.max": `${56 * GB}\n`,
+      "/sys/fs/cgroup/memory.current": `${40 * GB}\n`,
+      "/sys/fs/cgroup/memory.stat": `anon ${30 * GB}\nfile ${12 * GB}\nshmem ${1 * GB}\n`,
+    });
+    expect(await readMemoryUse(root)).toEqual({
+      usedBytes: 29 * GB,
+      limitBytes: 56 * GB,
+    });
+  });
+
+  // No cgroup sets a limit: the machine's own memory is the limit.
+  it("falls back to the machine's memory without a cgroup limit", async () => {
+    await files({
+      "/proc/self/cgroup": "0::/user.slice\n",
+      "/proc/meminfo": MEMINFO,
+      "/sys/fs/cgroup/user.slice/memory.max": "max\n",
+      "/sys/fs/cgroup/memory.max": "max\n",
+    });
+    expect(await readMemoryUse(root)).toEqual({
+      usedBytes: (1054867456 - 995098624) * 1024,
+      limitBytes: 1054867456 * 1024,
+    });
+  });
+
   // On Linux it reads the real cgroup or /proc numbers; the shape is what the guard relies on.
   it.skipIf(process.platform !== "linux")("reads this machine's memory use and limit", async () => {
     const use = await readMemoryUse();
