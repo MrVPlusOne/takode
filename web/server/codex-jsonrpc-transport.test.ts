@@ -250,18 +250,47 @@ describe("JsonRpcTransport line buffering", () => {
     const lines = [1, 2, 3].map((n) => JSON.stringify({ method: "event", params: { n } }) + "\n");
     let timerFired = false;
     const timerFiredBefore: boolean[] = [];
+    const seen: unknown[] = [];
     const transport = new JsonRpcTransport(new MockWritableStream() as never, bufferedStdout(lines), "session-1");
     setTimeout(() => {
       timerFired = true;
     }, 0);
-    transport.onNotification(() => {
+    transport.onNotification((_method, params) => {
+      seen.push(params.n);
       timerFiredBefore.push(timerFired);
       const until = performance.now() + 25;
       while (performance.now() < until) {}
     });
     await runToClose(transport);
 
-    expect(timerFiredBefore).toHaveLength(3);
+    // Yielding mid-drain must not reorder or drop messages.
+    expect(seen).toEqual([1, 2, 3]);
     expect(timerFiredBefore.at(-1)).toBe(true);
+  });
+
+  it("resolves a request whose multi-megabyte response arrives in pipe-sized chunks, before later messages", async () => {
+    // The thread/resume response of a long session is megabytes on one line and
+    // arrives in 16 KiB pipe chunks. Its last chunk also carries the start of
+    // the next message, which must be handled after the response settles.
+    const transcript = "lorem ipsum ".repeat(350_000);
+    const response = JSON.stringify({ id: 1, result: { thread: { transcript } } });
+    const notification = JSON.stringify({ method: "thread/status", params: { status: "idle" } });
+    const transport = new JsonRpcTransport(
+      new MockWritableStream() as never,
+      bufferedStdout(splitEvery(`${response}\n${notification}\n`, 16 * 1024)),
+      "session-1",
+    );
+    const request = transport.request("thread/resume", {});
+    const pendingWhenNotified: number[][] = [];
+    transport.onNotification(() => pendingWhenNotified.push(transport.getPendingIds()));
+    await runToClose(transport);
+
+    expect(request.id).toBe(1);
+    expect(await request.promise).toEqual({ thread: { transcript } });
+    expect(pendingWhenNotified).toEqual([[]]);
+    expect(transport.getCloseDiagnostics()?.recentIncoming.map((entry) => entry.kind)).toEqual([
+      "response",
+      "notification",
+    ]);
   });
 });
