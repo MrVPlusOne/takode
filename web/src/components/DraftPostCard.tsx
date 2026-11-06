@@ -15,7 +15,7 @@ import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
 import type { ContextMenuItem } from "./ContextMenu.js";
 import { messageCopyForSlack } from "../utils/slack-copy.js";
 import { CopyImageButton } from "./CopyImageButton.js";
-import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
+import { ArtifactPanel, ArtifactPanelButton } from "./ArtifactPanel.js";
 
 /**
  * A post drafted for the user to send: one card for the message and its replies (a Slack thread),
@@ -61,7 +61,7 @@ export function DraftPostCard({
   menuItems?: ContextMenuItem[];
   renderMarkdown: (text: string) => ReactNode;
   attachments: AttachmentRendering;
-  /** Offers the full-screen view (not inside it). */
+  /** Offers to open the post in a panel (not inside it). */
   expandable?: boolean;
   /** Parts of the saved version the user copied before (0-based), whose Copy buttons are dimmed. */
   copied?: readonly number[];
@@ -72,7 +72,7 @@ export function DraftPostCard({
 }) {
   const single = parts.length === 1 && removed.length === 0;
   const partsRef = useRef<HTMLDivElement>(null);
-  const [fullScreen, setFullScreen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const isCopied = (part: PostPartView) => part.versionPart !== undefined && copied.includes(part.versionPart);
   const known = parts.flatMap((part) => (part.versionPart === undefined ? [] : [part.versionPart]));
   const allCopied = parts.length > 0 && parts.every(isCopied);
@@ -110,7 +110,7 @@ export function DraftPostCard({
           {destination && <DestinationLink destination={destination} />}
           <span className="ml-auto" />
           {readAloud}
-          {expandable && <FullScreenButton onClick={() => setFullScreen(true)} />}
+          {expandable && <ArtifactPanelButton onClick={() => setPanelOpen(true)} />}
           <CardMoreMenu items={moreItems} task={task} />
           {single ? (
             <CopyButton target={partsRef} primary copiedBefore={allCopied} onCopied={recordAll} />
@@ -141,24 +141,27 @@ export function DraftPostCard({
           <RemovedPart key={index} label={entry.label} open={entry.open} />
         ))}
       </div>
-      {fullScreen && (
-        <FullScreenPanel title={title ?? "Draft"} onClose={() => setFullScreen(false)}>
-          <div className="mx-auto max-w-3xl">
-            <DraftPostCard
-              title={title}
-              destination={destination}
-              parts={parts}
-              removed={removed}
-              menuItems={menuItems}
-              renderMarkdown={renderMarkdown}
-              attachments={attachments}
-              expandable={false}
-              copied={copied}
-              onCopied={onCopied}
-              readAloud={readAloud}
-            />
-          </div>
-        </FullScreenPanel>
+      {panelOpen && (
+        <ArtifactPanel
+          title={title ?? "Draft"}
+          size="reading"
+          fullScreenColumn="max-w-3xl"
+          onClose={() => setPanelOpen(false)}
+        >
+          <DraftPostCard
+            title={title}
+            destination={destination}
+            parts={parts}
+            removed={removed}
+            menuItems={menuItems}
+            renderMarkdown={renderMarkdown}
+            attachments={attachments}
+            expandable={false}
+            copied={copied}
+            onCopied={onCopied}
+            readAloud={readAloud}
+          />
+        </ArtifactPanel>
       )}
     </>
   );

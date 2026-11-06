@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { createPortal } from "react-dom";
 import type { Slide } from "../../../shared/slides.js";
 import type { NarratedDeck } from "../../read-aloud-player.js";
-import { SelectableMessage } from "../FullScreenPanel.js";
+import { SelectableMessage } from "../ArtifactPanel.js";
 import { useConversationShown } from "../KeptConversationViews.js";
 import { usePreviewSheetHistoryEntry } from "../quest-preview-sheet-history.js";
 import {

@@ -13,7 +13,7 @@
  *   slows Takode down. From then on this device shows it as a still picture (drawn by the
  *   server) with a Run button.
  */
-import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
+import { ArtifactPanel, ArtifactPanelButton } from "./ArtifactPanel.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildVisualDocument,
@@ -232,7 +232,7 @@ export function VisualBlock({ source }: { source: string }) {
         {block.title ? <span className="min-w-0 truncate font-medium">{block.title}</span> : null}
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
           {runnable ? <VisualButton onClick={run} label="Run" title="Run this visual's scripts" /> : null}
-          {!problem && !tooLarge ? <FullScreenButton onClick={() => setEnlarged(true)} /> : null}
+          {!problem && !tooLarge ? <ArtifactPanelButton onClick={() => setEnlarged(true)} /> : null}
           <CardMoreMenu items={menuItems} task={exportTask} />
         </span>
       </div>
@@ -611,11 +611,11 @@ function VisualEnlarged({
   const doc = useMemo(() => html.replace(/("id":")v\d+(")/, `$1${frameId}$2`), [html, frameId]);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   return (
-    <FullScreenPanel title={title} onClose={onClose}>
-      <div className="relative mx-auto max-w-[1600px]" style={{ height }}>
+    <ArtifactPanel title={title} size="media" fullScreenColumn="max-w-[1600px]" onClose={onClose}>
+      <div className="relative" style={{ height }}>
         <VisualFrame doc={doc} frameId={frameId} title={title} guardHash={guardHash} onSize={setHeight} fill />
       </div>
-    </FullScreenPanel>
+    </ArtifactPanel>
   );
 }
 

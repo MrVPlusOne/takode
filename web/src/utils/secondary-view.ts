@@ -59,6 +59,11 @@ export function setSecondaryViewTarget(target: HTMLElement | null): void {
   if (useSecondaryDock.getState().target !== target) useSecondaryDock.setState({ target });
 }
 
+/** Whether viewers opened from the conversation show in the right-hand area, rather than full screen. */
+export function useSecondaryViewAvailable(): boolean {
+  return useSecondaryDock((state) => state.target !== null);
+}
+
 /** Whether any viewer is open in the right-hand area. */
 export function useSecondaryViewOccupied(): boolean {
   return useSecondaryDock((state) => state.occupants.size > 0);

@@ -2,7 +2,7 @@ import { stripInlineMarkdown } from "../../shared/markdown-plain-text.js";
 import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { ArtifactMarkersContext, libraryMenuItems } from "./artifact-card-menu.js";
 import { CardMoreMenu, useCardExport } from "./CardMoreMenu.js";
-import { FullScreenButton, FullScreenPanel } from "./FullScreenPanel.js";
+import { ArtifactPanel, ArtifactPanelButton } from "./ArtifactPanel.js";
 import type { ChatMessage } from "../types.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { AnnotationSourceMarkers } from "./AnnotationAttachments.js";
@@ -72,7 +72,7 @@ function MarkdownReportBody({
   feedSessionId?: string;
   readOnly: boolean;
 }) {
-  const [fullScreen, setFullScreen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const source = message.metadata!.markdownReport!;
   const reportMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "report");
   // The Library's name for the report (the agent's or the user's), else its first heading or file name.
@@ -85,7 +85,7 @@ function MarkdownReportBody({
       [message.content, title],
     ),
   );
-  // The card opens full screen; opening it in the Library or the side column, copying and exporting are in More.
+  // The card opens in a panel; opening it in the Library or the side column, copying and exporting are in More.
   const menuItems = [
     ...(!readOnly && reportMarker ? libraryMenuItems(reportMarker) : []),
     { label: "Copy Markdown", onClick: () => void writeClipboardText(message.content).catch(console.error) },
@@ -113,28 +113,30 @@ function MarkdownReportBody({
                 <div className="break-all">{source.sha256}</div>
               </details>
             </div>
-            <FullScreenButton onClick={() => setFullScreen(true)} />
+            <ArtifactPanelButton onClick={() => setPanelOpen(true)} />
             {actions}
           </div>
           <ReportContent message={message} readOnly={readOnly} className="mr-5" contentRef={cardContentRef} />
         </article>
       </ReportCard>
-      {fullScreen && (
-        <FullScreenPanel
+      {panelOpen && (
+        <ArtifactPanel
           title={title}
+          size="reading"
+          // Covering the window, a long report (one with a jump list) reads in a wider column.
+          fullScreenColumn="max-w-4xl has-[[data-section-jump-list]]:max-w-6xl"
           actions={actions}
           selection={readOnly ? undefined : { sessionId: feedSessionId ?? source.sessionId, messageId: message.id }}
-          onClose={() => setFullScreen(false)}
+          onClose={() => setPanelOpen(false)}
         >
-          {/* A long report (one with a jump list) reads in a wider column. */}
           <article
-            className="mx-auto min-w-0 max-w-4xl has-[[data-section-jump-list]]:max-w-6xl"
+            className="min-w-0"
             data-markdown-report-source={JSON.stringify(source)}
-            data-testid="markdown-report-full-screen"
+            data-testid="markdown-report-panel"
           >
             <ReportContent message={message} readOnly={readOnly} sectionJumpList />
           </article>
-        </FullScreenPanel>
+        </ArtifactPanel>
       )}
     </>
   );

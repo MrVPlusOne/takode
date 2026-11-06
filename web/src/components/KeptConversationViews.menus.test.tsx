@@ -8,7 +8,7 @@ vi.mock("../api.js", () => ({ api: {} }));
 
 import { KeptConversationViews } from "./KeptConversationViews.js";
 import { ContextMenu } from "./ContextMenu.js";
-import { FullScreenPanel } from "./FullScreenPanel.js";
+import { ArtifactPanel } from "./ArtifactPanel.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { useTextSelection } from "../hooks/useTextSelection.js";
 
@@ -115,19 +115,19 @@ describe("pop-ups of kept conversations", () => {
     expect(openMenus()).toHaveLength(0);
   });
 
-  it("hides a full-screen panel while its conversation is hidden", () => {
+  it("hides an artifact panel while its conversation is hidden", () => {
     const panel = (
-      <FullScreenPanel title="Report" onClose={() => {}}>
+      <ArtifactPanel title="Report" size="reading" onClose={() => {}}>
         <p>Report body</p>
-      </FullScreenPanel>
+      </ArtifactPanel>
     );
     const view = render(<KeptChats visible="a" view={panel} />);
-    expect(screen.getByTestId("full-screen-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("artifact-panel")).toBeInTheDocument();
 
     view.rerender(<KeptChats visible="b" view={panel} />);
-    expect(screen.queryByTestId("full-screen-panel")).toBeNull();
+    expect(screen.queryByTestId("artifact-panel")).toBeNull();
 
     view.rerender(<KeptChats visible="a" view={panel} />);
-    expect(screen.getByTestId("full-screen-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("artifact-panel")).toBeInTheDocument();
   });
 });
