@@ -59,8 +59,13 @@ function createRouteApp(): Hono {
       }),
     ),
   };
+  // worker-1 is a live worker in leader-1's herd, so board rows may name it.
+  const workerSession = { sessionId: "worker-1", sessionNum: 11, herdedBy: "leader-1" };
   registerTakodeBoardRoutes(api, {
-    launcher: {} as any,
+    launcher: {
+      resolveSessionId: vi.fn((ref: string) => (ref === "worker-1" ? ref : null)),
+      getSession: vi.fn((sessionId: string) => (sessionId === "worker-1" ? workerSession : undefined)),
+    } as any,
     wsBridge: wsBridge as any,
     authenticateTakodeCaller: vi.fn(() => ({
       callerId: authCallerId,

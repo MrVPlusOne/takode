@@ -65,6 +65,7 @@ import {
 import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
 import { registerStaleBoardRowRoutes } from "./takode-board-stale-rows.js";
 import { otherLeaderQuestGuard } from "../bridge/board-other-leader-quests.js";
+import { resolveBoardWorker, unusableWaitForSessionError } from "./board-session-refs.js";
 import {
   boardRowLanding,
   createLandingQuestHandoff,
@@ -1090,6 +1091,13 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
     if (clearWaitForInput) waitForInput = [];
 
+    const waitForError = waitFor ? unusableWaitForSessionError(launcher, waitFor) : null;
+    if (waitForError) return c.json({ error: waitForError }, 400);
+    const workerRef = typeof body.worker === "string" ? body.worker.trim() : undefined;
+    const assignedWorker = workerRef ? resolveBoardWorker(launcher, id, workerRef) : undefined;
+    if (assignedWorker && "error" in assignedWorker)
+      return c.json({ error: assignedWorker.error }, assignedWorker.status);
+
     const bridgeSession = wsBridge.getSession(id);
     const existingRow = bridgeSession?.board.get(questId) ?? null;
     // Another leader's quest is not boarded by mistake: a new row for it needs an explicit takeover.
@@ -1630,9 +1638,9 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const statusForUpsert = mergedStatus;
-    const workerForUpsert = targetMode === "proposed" ? "" : typeof body.worker === "string" ? body.worker : undefined;
-    const workerNumForUpsert =
-      targetMode === "proposed" ? undefined : typeof body.workerNum === "number" ? body.workerNum : undefined;
+    // A resolved worker's session ID and number replace whatever reference the caller sent.
+    const workerForUpsert = targetMode === "proposed" ? "" : (assignedWorker?.worker ?? workerRef);
+    const workerNumForUpsert = targetMode === "proposed" ? undefined : assignedWorker?.workerNum;
 
     if (isWorkEvidenceMutationLocked(id, questId)) {
       return c.json({ error: "Cannot mutate this board row while a Work evidence mutation is in progress." }, 409);
