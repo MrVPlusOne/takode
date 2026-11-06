@@ -6,6 +6,7 @@
 
 // Must stay the first import: it restores the caller's working directory.
 import "./caller-cwd.js";
+import { handleInputTrace } from "./takode-input-trace.js";
 import { handleUserContent } from "./takode-user-content-commands.js";
 import { handlePort } from "./takode-port.js";
 import { handleBoard } from "./takode-board.js";
@@ -116,6 +117,7 @@ try {
     ["read", { allowSessionlessRead: true }],
     ["grep", { allowSessionlessRead: true }],
     ["logs", {}],
+    ["input-trace", {}],
     ["export", { allowSessionlessRead: true }],
     ["send", { requireOrchestrator: true }],
     ["reconnect", { requireOrchestrator: true }],
@@ -182,6 +184,9 @@ try {
   }
 
   switch (command) {
+    case "input-trace":
+      await handleInputTrace(base, args);
+      break;
     case "list":
       await handleList(base, args);
       break;

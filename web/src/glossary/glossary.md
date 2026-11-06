@@ -55,6 +55,8 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 
 ## Common workflows
 
+- **Input trace**: an optional recording under Settings > Diagnostics that automatically saves recent input activity to the Takode server to investigate glitches. It records event names and lengths, never what you type or paste; Report input glitch keeps an extra snapshot.
+
 - **Ask for something new**: type it on a leader's Home. A thread starts, gets a name, and becomes a quest's thread if the leader files one.
 - **See what needs you**: open the bell for every leader, or a leader's Needs you group for that leader.
 - **Catch up on a leader**: read the news lines on its Home, or switch Home to By topic.

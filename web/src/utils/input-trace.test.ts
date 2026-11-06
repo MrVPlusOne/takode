@@ -23,6 +23,7 @@ afterEach(() => {
   vi.useRealTimers();
   document.body.innerHTML = "";
   reportInputTrace.mockClear();
+  vi.unstubAllGlobals();
 });
 
 /** Waits for the trace to settle each event's outcome, which it does a tick after dispatch. */
@@ -40,6 +41,25 @@ function composerTextarea(value = "draft"): HTMLTextAreaElement {
 }
 
 describe("input trace", () => {
+  it("automatically saves a settled paste without a manual report, with lengths but no text", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("crypto", {}); // HTTP hosts still record when the secure-only UUID API is absent.
+    stop = startInputTrace();
+    const textarea = composerTextarea("draft");
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: { types: ["text/plain"], getData: () => "private link", files: [] },
+    });
+    textarea.dispatchEvent(paste);
+    await settled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const saved = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(saved.traceId).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+    expect(saved.events[0]).toMatchObject({ seq: 1, type: "paste", outcome: "default", clipboard: { textLength: 12 } });
+    expect(JSON.stringify(saved)).not.toContain("private link");
+    expect(reportInputTrace).not.toHaveBeenCalled();
+  });
   it("records nothing and reports nothing while it is off", () => {
     traceInputEvent({ type: "draft-sync", before: 1, after: 2 });
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));

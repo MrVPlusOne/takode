@@ -12,6 +12,9 @@ import { INPUT_TRACE_LOG_COMPONENT, INPUT_TRACE_MAX_EVENTS } from "../../shared/
 import { createLogger, queryServerLogs, subscribeToServerLogs } from "../server-logger.js";
 import { COMPANION_CLIENT_IP_HEADER, isLoopbackAddress } from "./auth.js";
 import type { RouteContext } from "./context.js";
+import { InputTraceStore } from "../input-trace-store.js";
+import { inputTraceBatchSchema } from "../input-trace-schema.js";
+import { getSettings } from "../settings-manager.js";
 
 type ValidatedLogQuery = LogQuery & { _compiledPattern?: RegExp };
 
@@ -85,8 +88,55 @@ async function writeBufferedEntries(
 
 const inputTraceLog = createLogger(INPUT_TRACE_LOG_COMPONENT);
 
-export function createLogsRoutes(ctx: RouteContext) {
+export function createLogsRoutes(ctx: RouteContext, traces = new InputTraceStore()) {
   const api = new Hono();
+
+  api.post("/diagnostics/input-trace/batches", async (c) => {
+    if (!getSettings().diagnostics?.inputTrace) return c.json({ error: "Input trace is off" }, 409);
+    const parsed = inputTraceBatchSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "Invalid input trace batch" }, 400);
+    await traces.append(parsed.data);
+    return c.json({ ok: true });
+  });
+
+  api.get("/diagnostics/input-trace", async (c) => {
+    const accessError = requireLogsAccess(c, ctx);
+    if (accessError) return accessError;
+    const saved = await traces.list();
+    const prefix = c.req.query("trace");
+    if (!prefix) {
+      return c.json({
+        traces: saved.map(({ traceId, recordingSince, updatedAt, userAgent, platform, events }) => ({
+          trace: traceId.slice(0, 8),
+          recordingSince,
+          updatedAt,
+          userAgent,
+          platform,
+          eventCount: events.length,
+          firstEventAt: events[0]?.t,
+          lastEventAt: events[events.length - 1]?.t,
+        })),
+      });
+    }
+    const matches = saved.filter((trace) => trace.traceId.startsWith(prefix));
+    if (matches.length !== 1) return c.json({ error: "Trace not found or prefix is ambiguous" }, 404);
+    const { traceId, events, ...meta } = matches[0];
+    const since = parseLogTime(c.req.query("since"));
+    const until = parseLogTime(c.req.query("until"));
+    if ((c.req.query("since") && since === undefined) || (c.req.query("until") && until === undefined)) {
+      return c.json({ error: "Invalid trace time range" }, 400);
+    }
+    const selected = events.filter(
+      (event) => (since === undefined || event.t >= since) && (until === undefined || event.t <= until),
+    );
+    const limit = parseLimit(c.req.query("limit")) ?? 100;
+    return c.json({
+      trace: traceId.slice(0, 8),
+      ...meta,
+      matchingEvents: selected.length,
+      events: selected.slice(-limit),
+    });
+  });
 
   // "Report input glitch" (Settings > Diagnostics): the browser's input trace goes into the
   // server log, where `takode logs --component input-trace --json` finds it.

@@ -6,8 +6,8 @@
 export interface DiagnosticsSettings {
   /**
    * Keep a rolling record of the last hour of input activity in the browser (key presses,
-   * pastes, focus changes; lengths only, never text) that "Report input glitch" sends to the
-   * server log.
+   * pastes, focus changes; lengths only, never text), saved incrementally to the server.
+   * "Report input glitch" also saves a manual snapshot in the server log.
    */
   inputTrace: boolean;
 }

@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { useRef } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { typeToComposeKey, useComposerTypeToCompose } from "./use-composer-type-to-compose.js";
+import { insertComposerPaste } from "./composer-paste.js";
 
 /**
  * Type-to-compose: with nothing else focused, a typed character or a paste focuses the composer
@@ -302,6 +303,22 @@ describe("useComposerTypeToCompose", () => {
 
     expect(received).toBe(image);
     expect(composer().value).toBe("draft");
+  });
+
+  it("does not insert again after the focused composer's text handler consumes a relayed paste", () => {
+    render(
+      <Harness
+        onPaste={(event) => {
+          event.preventDefault();
+          insertComposerPaste(composer(), event.clipboardData.getData("text/plain"));
+        }}
+      />,
+    );
+    const input = vi.fn();
+    composer().addEventListener("input", input);
+    paste(document.body, clipboard(" link"));
+    expect(composer().value).toBe("draft link");
+    expect(input).toHaveBeenCalledTimes(1);
   });
 
   it("leaves a paste into another input, or over selected feed text, to the page", () => {

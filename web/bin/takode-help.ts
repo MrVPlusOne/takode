@@ -1,3 +1,4 @@
+import { INPUT_TRACE_HELP } from "./takode-input-trace.js";
 import {
   LEASE_ACQUIRE_HELP,
   LEASE_CONFIGURE_HELP,
@@ -579,6 +580,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "logs":
       console.log(LOGS_HELP);
       return true;
+    case "input-trace":
+      console.log(INPUT_TRACE_HELP);
+      return true;
     case "latency":
       console.log(LATENCY_HELP);
       return true;
@@ -801,6 +805,7 @@ Commands:
   read     Read a full message (available to all sessions)
   grep     Search within a session's messages (JS regex, case-insensitive)
   logs     Query and tail structured server logs
+  input-trace  Read automatically saved input diagnostics
   latency  Audit CLI command and server action latency (startup, work, transport)
   export   Export full session history to a text file
   send     Send a message to a herded session

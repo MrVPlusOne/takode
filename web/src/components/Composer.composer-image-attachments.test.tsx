@@ -625,6 +625,24 @@ describe("Composer image attachments", () => {
     expect(mockVoiceState.cancelRecording).toHaveBeenCalledTimes(1);
   });
 
+  it.each([false, true])("inserts delivered paste text into the controlled draft (secondary=%s)", (secondary) => {
+    const draftKey = secondary ? "s1#side:new" : "s1";
+    const { container } = render(<Composer sessionId="s1" secondary={secondary} draftKey={draftKey} />);
+    const textarea = container.querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "before after" } });
+    textarea.setSelectionRange(7, 12);
+    const event = createEvent.paste(textarea, {
+      clipboardData: { items: [], getData: () => "link" },
+    });
+    // The failed native trace delivered a paste but no edit. This test supplies only that paste;
+    // the real Composer must now update the correct draft without a browser default action.
+    fireEvent(textarea, event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(textarea.value).toBe("before link");
+    expect((mockStoreState.composerDrafts as Map<string, { text: string }>).get(draftKey)?.text).toBe("before link");
+    expect(textarea.selectionStart).toBe(11);
+  });
+
   it("attaches pasted images and prevents the browser paste default", async () => {
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")!;

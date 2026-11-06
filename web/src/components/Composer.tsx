@@ -1,5 +1,6 @@
 import { ComposerMinimizer } from "./ComposerMinimizer.js";
 import { useComposerTypeToCompose } from "./use-composer-type-to-compose.js";
+import { insertComposerPaste } from "./composer-paste.js";
 import { useChatFocused, useChatFocusId } from "../utils/chat-focus.js";
 import { clearSentComposerDraft, sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
@@ -1442,9 +1443,16 @@ export function Composer({
     );
   }
 
-  async function handlePaste(e: React.ClipboardEvent) {
+  async function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    if (e.defaultPrevented) return;
     const files = getPastedImageFiles(e);
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      const pastedText = e.clipboardData.getData("text/plain");
+      if (!pastedText) return;
+      e.preventDefault();
+      insertComposerPaste(e.currentTarget, pastedText);
+      return;
+    }
     e.preventDefault();
     const pasteTs = Date.now();
     await appendImages(

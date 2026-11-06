@@ -1,3 +1,4 @@
+import { PlaygroundComposerPaste } from "./PlaygroundComposerPaste.js";
 import { PlaygroundSessionSettingsCards } from "./PlaygroundSessionSettingsSection.js";
 import { useEffect, useState } from "react";
 import { NotificationMarker, UserReplyChip } from "../MessageBubble.js";
@@ -136,6 +137,9 @@ export function PlaygroundInteractiveSections() {
       >
         <div className="max-w-3xl">
           <PlaygroundStreamingComposerStates />
+          <Card label="Paste into an existing draft">
+            <PlaygroundComposerPaste />
+          </Card>
           <div className="mt-4" />
           <PlaygroundSessionSettingsCards />
           <div className="mt-4" />

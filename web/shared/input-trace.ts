@@ -1,6 +1,7 @@
 /**
  * The input trace: a browser's record of recent input activity, kept only while the user turns
- * it on in Settings > Diagnostics, and sent to the server log by "Report input glitch".
+ * it on in Settings > Diagnostics, saved automatically to the server. "Report input glitch"
+ * additionally keeps a snapshot in the server log.
  * It never holds typed or pasted text: keys are recorded by name only when they are not plain
  * characters, and text appears only as lengths.
  */
@@ -9,6 +10,8 @@
 export const INPUT_TRACE_WINDOW_MS = 60 * 60 * 1000;
 /** The most events the trace keeps; older events go first. */
 export const INPUT_TRACE_MAX_EVENTS = 10_000;
+/** Small incremental uploads also fit a pagehide keepalive request. */
+export const INPUT_TRACE_BATCH_SIZE = 100;
 /** The server log component a report is written under (`takode logs --component input-trace`). */
 export const INPUT_TRACE_LOG_COMPONENT = "input-trace";
 
@@ -21,6 +24,8 @@ export interface InputTraceEvent {
    * page-visible), or a Takode change (composer-expanded, composer-collapsed, draft-sync).
    */
   type: string;
+  /** DOM events: distinguishes browser input from a replayed event. */
+  trusted?: boolean;
   /**
    * Keys: "Meta+v" or "Enter". A character typed without Cmd or Ctrl is recorded as "char" (or
    * "Alt+char"), so the trace never holds what was typed.
@@ -45,7 +50,7 @@ export interface InputTraceEvent {
    * cancelled it) or "stopped" (a handler stopped it before it finished, outcome unknown).
    */
   outcome?: "default" | "prevented" | "stopped";
-  /** draft-sync: the draft text length before and after another browser's draft replaced it. */
+  /** Draft replacement or composer paste: text lengths before and after. */
   before?: number;
   after?: number;
   /** Which composer or draft a Takode change concerns. */
@@ -60,4 +65,22 @@ export interface InputTraceReport {
   userAgent: string;
   platform: string;
   events: InputTraceEvent[];
+}
+
+/** A page's numbered events: retries and overlapping pagehide uploads are idempotent. */
+export interface SavedInputTraceEvent extends InputTraceEvent {
+  seq: number;
+}
+
+/** Only newly recorded events are uploaded; each page/recording has its own identity. */
+export interface InputTraceBatch {
+  traceId: string;
+  recordingSince: number;
+  userAgent: string;
+  platform: string;
+  events: SavedInputTraceEvent[];
+}
+
+export interface SavedInputTrace extends InputTraceBatch {
+  updatedAt: number;
 }

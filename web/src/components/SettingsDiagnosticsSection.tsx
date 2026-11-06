@@ -1,5 +1,10 @@
 import { useStore } from "../store.js";
-import { reportInputGlitch, useInputTraceRecording, useLastInputGlitchReport } from "../utils/input-trace.js";
+import {
+  reportInputGlitch,
+  useInputTraceRecording,
+  useInputTraceSaveStatus,
+  useLastInputGlitchReport,
+} from "../utils/input-trace.js";
 import { SettingsToggle } from "./settings-controls.js";
 
 /**
@@ -12,6 +17,7 @@ export function SettingsDiagnosticsSection({ isRowHidden }: { isRowHidden: (item
   const setDiagnostics = useStore((s) => s.setDiagnostics);
   const recording = useInputTraceRecording();
   const lastReport = useLastInputGlitchReport();
+  const lastSave = useInputTraceSaveStatus();
   const hidden = isRowHidden("input-trace");
   return (
     <div className="space-y-2" hidden={hidden}>
@@ -19,10 +25,10 @@ export function SettingsDiagnosticsSection({ isRowHidden }: { isRowHidden: (item
         label="Input trace"
         description={
           <>
-            Keeps the last hour of key presses, pastes and focus changes in this browser's memory, so a glitch such as a
-            paste that didn't land can be reported right after it happens. It never records what you type or paste:
-            letters show up only as "a character" and text only as its length. Nothing leaves the browser until you
-            report a glitch, and turning this off forgets the record.
+            Automatically sends key presses, pastes and focus changes to this Takode server while on. Each page's latest
+            hour is saved, up to 10,000 events, so an agent can investigate even after a reload. It never records what
+            you type or paste: letters show up only as "a character" and text only as its length. Turning this off stops
+            recording; automatically saved events expire from the available window after an hour.
           </>
         }
         checked={diagnostics.inputTrace}
@@ -30,6 +36,13 @@ export function SettingsDiagnosticsSection({ isRowHidden }: { isRowHidden: (item
       />
       {diagnostics.inputTrace && (
         <div className="flex flex-wrap items-center gap-3 px-3 py-2 text-xs text-cc-muted">
+          <span role="status">
+            {lastSave?.error
+              ? `Automatic save failed; retrying: ${lastSave.error}`
+              : lastSave
+                ? `Automatically saved at ${new Date(lastSave.at).toLocaleTimeString()}.`
+                : "Recording; new activity saves automatically."}
+          </span>
           <button
             type="button"
             disabled={!recording}
@@ -43,7 +56,7 @@ export function SettingsDiagnosticsSection({ isRowHidden }: { isRowHidden: (item
               ? `Could not send the report: ${lastReport.error}`
               : lastReport
                 ? `Sent ${lastReport.eventCount} events at ${new Date(lastReport.at).toLocaleTimeString()}.`
-                : "Also a keyboard shortcut you can set under Keyboard. A report goes to the server log; ask an agent to read it (takode logs --component input-trace)."}
+                : "Optional: save a snapshot in the server log, also available as a shortcut under Keyboard. Agents can read automatic recordings with takode input-trace."}
           </span>
         </div>
       )}

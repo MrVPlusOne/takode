@@ -1,4 +1,5 @@
 import { useEffect, type RefObject } from "react";
+import { insertComposerPaste } from "./composer-paste.js";
 import { isShortcutEventTargetEditable, platformIsMac } from "../shortcuts.js";
 
 /** What a keystroke made outside any input does to the composer. */
@@ -130,9 +131,7 @@ function pasteIntoComposer(textarea: HTMLTextAreaElement, data: DataTransfer): v
   const replay = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
   if (!textarea.dispatchEvent(replay)) return;
   const text = data.getData("text/plain");
-  if (!text || textarea.ownerDocument.execCommand("insertText", false, text)) return;
-  textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, "end");
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  insertComposerPaste(textarea, text);
 }
 
 function canTypeToCompose(target: EventTarget | null, key: TypeToComposeKey, textarea: HTMLTextAreaElement): boolean {

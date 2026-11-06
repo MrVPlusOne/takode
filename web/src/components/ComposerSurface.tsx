@@ -60,7 +60,7 @@ export function ComposerInputSurface({
   handleInput: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleSelectionChange: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-  handlePaste: (e: React.ClipboardEvent) => void;
+  handlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   placeholder: string;
   isRecording: boolean;
   recordingCursorBefore: string;
