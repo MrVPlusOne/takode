@@ -4,7 +4,7 @@ import {
   groupDraftPosts,
   parseDraftBlock,
   scanFences,
-  slackNativeLinksToMarkdown,
+  draftMarkdown,
   type DraftDestination,
 } from "../shared/draft-posts.js";
 import { withoutFrontMatter } from "../shared/slides.js";
@@ -40,7 +40,7 @@ export function readAloudDraftText(post: ReadableDraftPost): string {
   if (post.destination) lines.push(`Goes to: ${destinationLabel(post.destination)}`);
   for (const part of post.parts) {
     if (post.parts.length > 1) lines.push("", `${part.label}:`);
-    lines.push(slackNativeLinksToMarkdown(part.text).trim());
+    lines.push(draftMarkdown(part.text).trim());
     for (const attachment of part.attachments) lines.push(`(Attached file: ${attachment.path.split("/").pop()})`);
   }
   lines.push("</draft>");

@@ -3,13 +3,13 @@ import {
   comparePostParts,
   destinationLabel,
   draftAttachmentPaths,
+  draftMarkdown,
   formatDraftPost,
   groupDraftPostsInMarkdown,
   parseDraftBlock,
   parseDestination,
   parseGroupedDraftPost,
   revisePostParts,
-  slackNativeLinksToMarkdown,
   slackNativeMentionTokens,
 } from "./draft-posts.js";
 
@@ -139,7 +139,7 @@ describe("Slack's own syntax in drafts", () => {
       "<https://b.dev|b>",
       "```",
     ].join("\n");
-    expect(slackNativeLinksToMarkdown(text)).toBe(
+    expect(draftMarkdown(text)).toBe(
       [
         "See [jiayi/fv](<https://github.com/o/r/tree/jiayi/fv>) and [mail \\[us\\]](<mailto:a@b.co>) or <https://x.dev>.",
         "Write it as `<https://a.dev|a>` in code.",
@@ -148,7 +148,7 @@ describe("Slack's own syntax in drafts", () => {
         "```",
       ].join("\n"),
     );
-    expect(slackNativeLinksToMarkdown("No links | here")).toBe("No links | here");
+    expect(draftMarkdown("No links | here")).toBe("No links | here");
   });
 
   it("finds Slack mention tokens outside code, once each", () => {
@@ -162,5 +162,32 @@ describe("Slack's own syntax in drafts", () => {
       "<!subteam^S12AB|@evals>",
     ]);
     expect(slackNativeMentionTokens("Email <a@b.co> or @Ana Lee")).toEqual([]);
+  });
+});
+
+describe("bullet characters in drafts", () => {
+  // Agents copy Slack's API text, which shows lists as "•" lines. Pasted, those stay plain-text lines that
+  // wrap under the bullet, so a draft's bullet lines become a Markdown list, which the card's Copy turns into
+  // an HTML list Slack keeps as its own.
+  it("turns a run of bullet lines into a list, ending it before the next line", () => {
+    const text = ["Some findings:", "• A 32 MB response: 20.3s to 0.06s", "• Fixes `42` lines", "Thanks!"].join("\n");
+    expect(draftMarkdown(text)).toBe(
+      ["Some findings:", "- A 32 MB response: 20.3s to 0.06s", "- Fixes `42` lines", "", "Thanks!"].join("\n"),
+    );
+  });
+
+  it("nests by Slack's level bullets or by indentation, one level at a time", () => {
+    // Slack's API writes levels as •, ◦ and ▪; agents often indent instead. A jump of two levels nests one.
+    const text = ["• Top", "    ◦ Second", "        ▪ Third", "• Next", "  • Indented", "• Last", "▪ Jump"].join("\n");
+    expect(draftMarkdown(text)).toBe(
+      ["- Top", "  - Second", "    - Third", "- Next", "  - Indented", "- Last", "  - Jump"].join("\n"),
+    );
+  });
+
+  it("leaves bullets inside code and in the middle of a line alone", () => {
+    const text = ["Status • fine", "```", "• in a block", "```", "• Real item"].join("\n");
+    expect(draftMarkdown(text)).toBe(["Status • fine", "```", "• in a block", "```", "- Real item"].join("\n"));
+    // An unclosed fence is code to the end, as it renders.
+    expect(draftMarkdown("```\n• still code")).toBe("```\n• still code");
   });
 });

@@ -10,6 +10,7 @@ vi.mock("../utils/copy-utils.js", async (importOriginal) => ({
 }));
 
 import { MarkdownContent } from "./MarkdownContent.js";
+import { copyRichText } from "../utils/copy-utils.js";
 import { ArtifactMarkersContext } from "./artifact-card-menu.js";
 import { formatArtifactPlaceholder, type ArtifactMessageMarker } from "../../shared/artifact-library.js";
 import { useStore } from "../store.js";
@@ -262,5 +263,21 @@ describe("artifacts in the feed", () => {
     );
     rerender(view([0, 1]));
     expect(screen.getByTestId("draft-post-copy-all")).toHaveAttribute("data-copied-before");
+  });
+
+  it("shows and copies a draft's bullet-character lines as a real list", async () => {
+    // Agents often write Slack's "•" bullets. Copied as text, Slack pastes them as plain lines that wrap
+    // under the bullet; the card shows them as a list and Copy writes the HTML list Slack keeps.
+    const draft = ["Some findings:", "• First point", "    ◦ Its detail", "• Second point", "Thanks!"].join("\n");
+    render(<MarkdownContent text={"```draft\ntitle: Findings\n---\n" + draft + "\n```"} />);
+
+    expect(screen.getByTestId("draft-post-card").querySelectorAll("li")).toHaveLength(3);
+    fireEvent.click(screen.getByTestId("markdown-draft-copy"));
+    await waitFor(() => expect(copyRichText).toHaveBeenCalled());
+    const [html, plain] = vi.mocked(copyRichText).mock.lastCall!;
+    expect(html).toBe(
+      "<p>Some findings:</p><ul><li>First point<ul><li>Its detail</li></ul></li><li>Second point</li></ul><p>Thanks!</p>",
+    );
+    expect(plain).not.toContain("•");
   });
 });

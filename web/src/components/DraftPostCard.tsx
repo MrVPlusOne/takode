@@ -3,7 +3,7 @@ import type { ArtifactMessageMarker, ArtifactVersionContent, PostAttachment } fr
 import {
   destinationLabel,
   draftPartLabel,
-  slackNativeLinksToMarkdown,
+  draftMarkdown,
   slackNativeMentionTokens,
   type DraftBlock,
   type DraftDestination,
@@ -81,7 +81,7 @@ export function DraftPostCard({
     useCallback(
       () =>
         exportContent("markdown", {
-          markdown: parts.map((part) => slackNativeLinksToMarkdown(part.text)).join("\n\n---\n\n"),
+          markdown: parts.map((part) => draftMarkdown(part.text)).join("\n\n---\n\n"),
           content: null,
           title: title ?? "Draft",
         }),
@@ -204,7 +204,7 @@ function DraftPostPart({
         </div>
       )}
       <div ref={bodyRef} className={single ? "px-3 py-2.5" : "px-3 pb-2.5 pt-1"}>
-        {renderMarkdown(slackNativeLinksToMarkdown(part.text))}
+        {renderMarkdown(draftMarkdown(part.text))}
       </div>
       {mentions.length > 0 && <SlackMentionWarning tokens={mentions} />}
       {part.attachments.length > 0 && (

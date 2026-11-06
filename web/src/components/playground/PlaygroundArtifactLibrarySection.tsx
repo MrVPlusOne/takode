@@ -121,8 +121,9 @@ const PART_REVISION_MESSAGE: ChatMessage = {
 };
 
 /**
- * A draft written in Slack's own syntax: the `<url|name>` link shows and copies as a real link, and the
- * mention tokens, which can't become mentions by pasting, get a warning outside what is copied.
+ * A draft written in Slack's own syntax: the `<url|name>` link shows and copies as a real link, `•` and `◦`
+ * lines as a real list, and the mention tokens, which can't become mentions by pasting, get a warning
+ * outside what is copied.
  */
 const SLACK_SYNTAX_MESSAGE: ChatMessage = {
   id: "playground-artifact-slack-syntax",
@@ -133,6 +134,9 @@ const SLACK_SYNTAX_MESSAGE: ChatMessage = {
     "title: Harder FV tasks branch",
     "---",
     "Thanks <@U09FAJKF4H0>! The harder tasks are on <https://github.com/org/repo/tree/jiayi/fv-harder-tasks|jiayi/fv-harder-tasks>, results in <#C01ABCDEF|eval-runs>.",
+    "• Problems: 341 known results from graduate courses and research monographs",
+    "    ◦ From a one-line lemma up to Brouwer's fixed-point theorem",
+    "• Difficulty: between ProofNet and ArxivLean",
     "```",
   ].join("\n"),
 };
@@ -213,7 +217,7 @@ export function PlaygroundArtifactLibrarySection() {
           <MessageBubble message={PART_REVISION_MESSAGE} sessionId="playground-session" />
         </div>
       </Card>
-      <Card label="Draft in Slack's own syntax: link converted, mentions flagged">
+      <Card label="Draft in Slack's own syntax: link and bullets converted, mentions flagged">
         <div className="max-w-[640px]" data-testid="playground-artifact-slack-syntax">
           <MessageBubble message={SLACK_SYNTAX_MESSAGE} sessionId="playground-session" />
         </div>

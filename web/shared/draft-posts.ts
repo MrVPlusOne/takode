@@ -228,19 +228,13 @@ export function formatDraftPost(post: {
 }
 
 /**
- * A draft's text with Slack's own link syntax (`<url|name>`, as Slack's API writes links) rewritten as
- * Markdown links, outside code. The draft card's Copy copies the rendered draft, and Markdown would otherwise
- * read `<url|name>` as one autolink whose address ends in `|name`, which pastes as a broken link.
- * A bare `<url>` is already a Markdown link and stays.
+ * A draft's text as the Markdown its card renders, copies and reads out. Agents sometimes write a draft in
+ * Slack's own forms, as Slack's API shows messages: `<url|name>` links and `•`, `◦` and `▪` bullet lines.
+ * Pasted, those become broken links and plain-text lines that wrap under their bullet, so outside code they
+ * become Markdown links and lists, which the card's Copy turns into the HTML links and lists Slack keeps.
  */
-export function slackNativeLinksToMarkdown(text: string): string {
-  if (!text.includes("|")) return text;
-  return mapProse(text, (prose) =>
-    prose.replace(
-      /<((?:https?|mailto):[^\s<>|]+)\|([^<>\n]+)>/gi,
-      (_, url: string, name: string) => `[${name.replace(/[[\]\\]/g, "\\$&")}](<${url}>)`,
-    ),
-  );
+export function draftMarkdown(text: string): string {
+  return bulletCharacterLists(slackNativeLinksToMarkdown(text));
 }
 
 /**
@@ -260,12 +254,71 @@ export function slackNativeMentionTokens(text: string): string[] {
 const SLACK_MENTION_TOKEN =
   /<(?:[@#][A-Z][A-Z0-9]{2,}|!(?:here|channel|everyone|subteam\^[A-Z0-9]+|date\^[^|>\s]+))(?:\|[^<>\n]*)?>/g;
 
+/**
+ * Slack's own link syntax (`<url|name>`) rewritten as Markdown links, outside code. Markdown would otherwise
+ * read `<url|name>` as one autolink whose address ends in `|name`. A bare `<url>` is already a Markdown link
+ * and stays.
+ */
+function slackNativeLinksToMarkdown(text: string): string {
+  if (!text.includes("|")) return text;
+  return mapProse(text, (prose) =>
+    prose.replace(
+      /<((?:https?|mailto):[^\s<>|]+)\|([^<>\n]+)>/gi,
+      (_, url: string, name: string) => `[${name.replace(/[[\]\\]/g, "\\$&")}](<${url}>)`,
+    ),
+  );
+}
+
+const BULLET_LINE = /^([ \t]*)([•◦▪])[ \t]*(\S.*)$/;
+/** Slack writes a list's first three levels with these bullets. */
+const BULLET_LEVELS = "•◦▪";
+
+/**
+ * Lines that start with a bullet character, outside code blocks, as Markdown list items. Each run of them
+ * becomes one list, followed by a blank line so the next line isn't read as part of its last item.
+ */
+function bulletCharacterLists(text: string): string {
+  if (!/[•◦▪]/.test(text)) return text;
+  return mapOutsideFences(text, (region) => {
+    const lines = region.split("\n");
+    const out: string[] = [];
+    let index = 0;
+    while (index < lines.length) {
+      const run: RegExpExecArray[] = [];
+      let match: RegExpExecArray | null;
+      while (index < lines.length && (match = BULLET_LINE.exec(lines[index]))) {
+        run.push(match);
+        index += 1;
+      }
+      if (run.length === 0) {
+        out.push(lines[index++]);
+        continue;
+      }
+      out.push(...markdownListItems(run));
+      if (index < lines.length && lines[index].trim()) out.push("");
+    }
+    return out.join("\n");
+  });
+}
+
+/**
+ * A run of bullet lines as Markdown list items. An item's level is its bullet's (•, ◦, ▪) or its
+ * indentation's rank in the run, whichever is deeper, and at most one deeper than the item before it.
+ */
+function markdownListItems(run: RegExpExecArray[]): string[] {
+  const width = (indent: string) => indent.replace(/\t/g, "    ").length;
+  const widths = [...new Set(run.map(([, indent]) => width(indent)))].sort((a, b) => a - b);
+  let previous = -1;
+  return run.map(([, indent, bullet, content]) => {
+    const level = Math.min(previous + 1, Math.max(BULLET_LEVELS.indexOf(bullet), widths.indexOf(width(indent))));
+    previous = level;
+    return `${"  ".repeat(level)}- ${content}`;
+  });
+}
+
 /** Applies `edit` to the text outside fenced code blocks and inline code spans. */
 function mapProse(text: string, edit: (prose: string) => string): string {
-  const { fences } = scanFences(text);
-  let result = "";
-  let from = 0;
-  const proseOf = (segment: string) => {
+  return mapOutsideFences(text, (segment) => {
     let out = "";
     let at = 0;
     // A code span closes with a run of as many backticks as opened it.
@@ -274,12 +327,20 @@ function mapProse(text: string, edit: (prose: string) => string): string {
       at = span.index + span[0].length;
     }
     return out + edit(segment.slice(at));
-  };
+  });
+}
+
+/** Applies `edit` to the text outside fenced code blocks; an unclosed fence is code to the end, as rendered. */
+function mapOutsideFences(text: string, edit: (outside: string) => string): string {
+  const { fences, unclosedFrom } = scanFences(text);
+  let result = "";
+  let from = 0;
   for (const fence of fences) {
-    result += proseOf(text.slice(from, fence.start)) + text.slice(fence.start, fence.end);
+    result += edit(text.slice(from, fence.start)) + text.slice(fence.start, fence.end);
     from = fence.end;
   }
-  return result + proseOf(text.slice(from));
+  if (unclosedFrom === null) return result + edit(text.slice(from));
+  return result + edit(text.slice(from, unclosedFrom)) + text.slice(unclosedFrom);
 }
 
 /** A post's part as the user knows it: the message, then numbered replies. */
