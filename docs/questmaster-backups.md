@@ -33,12 +33,12 @@ Start with:
 
 The manifest lists:
 
-- retained full text snapshots in text.snapshots;
+- retained snapshots of the whole store in text.snapshots;
 - compact mutation journals in text.journals;
 - deduplicated quest image blobs in images.blobs;
 - the generated README.md path with restore safety notes.
 
-Text snapshots are the primary recovery source. Journals preserve recent per-quest textual mutations between snapshots. Image blobs are secondary, content-addressed by SHA-256, and optimized for space over exhaustive image history.
+Text snapshots are the primary recovery source. A snapshot is taken on the first quest change and then every 25 changes. Since November 2026 a snapshot (`format: "quest_index"` in the manifest) is a small index naming the version of every quest, and each quest version is kept once in `text/quest-blobs/<sha256>.json`, the exact bytes of its quest file. A snapshot therefore writes only the quests that changed since earlier ones, and retained snapshots share the rest; when a snapshot rotates out, blobs no retained snapshot names are deleted. Older snapshots hold the whole store in one file and stay readable until they rotate out. Journals preserve recent per-quest textual mutations between snapshots. Image blobs are secondary, content-addressed by SHA-256, and optimized for space over exhaustive image history.
 
 Each journal line is one store write (`kind: "quest_text_mutation"`). Version 2 lines (from November 2026) record only what changed in each quest: `set` holds fields with their new values, `appended` holds items added to the end of array fields (such as a new note in `feedback`), and `removed` names deleted fields; a created quest appears whole as `quest`, a deleted one as `quest: null`. To rebuild a quest, take it from the newest snapshot older than the lines you need and apply the following lines for that quest in order. Version 1 lines (earlier days) hold whole `before` and `after` copies of each changed quest instead.
 
@@ -49,8 +49,11 @@ Do not overwrite live Questmaster data directly from a backup. First copy the ca
 For Questmaster text recovery:
 
 1. Find the newest relevant entry in manifest.json under text.snapshots.
-2. Read the snapshot JSON and confirm quest count, timestamps, and the expected latest quest records.
-3. Take a fresh manual copy of the current live store before applying any restore.
-4. Only then replace the live Questmaster store as part of an explicit restore procedure.
+2. Write it to a temporary quest folder, which checks every quest blob against its hash and works for both snapshot kinds:
+
+       bun -e 'await (await import("./web/server/quest-backup-store.ts")).restoreQuestSnapshotToFolder("<snapshot path>", "/tmp/quests-restored")'
+
+3. Confirm quest count, timestamps, and the expected latest quest records in that folder.
+4. Stop the Takode server, move the current `~/.companion/questmaster-live/quests` aside (keep it), and move the restored folder into its place.
 
 Quest image blobs may require manual relinking from quest image metadata. Text recovery should be prioritized over image recovery.

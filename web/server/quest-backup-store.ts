@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import type { QuestImage, QuestmasterTask } from "./quest-types.js";
-import { questStoreFileChunks, replaceFileWithChunks } from "./quest-store-file.js";
+import { questFileBytes, writeNewQuestDir } from "./quest-store-dir.js";
 
 type QuestStoreSnapshot = {
   format: string;
@@ -17,6 +17,11 @@ type QuestStoreSnapshot = {
 export interface QuestTextBackupEntry {
   id: string;
   kind: "text_snapshot";
+  /**
+   * `quest_index`: the snapshot names each quest's version in `text/quest-blobs/`.
+   * Absent: an older snapshot holding the whole store in one file.
+   */
+  format?: "quest_index";
   reason: string;
   createdAt: number;
   questCount: number;
@@ -114,6 +119,11 @@ function journalDir(root = backupRoot()): string {
   return join(textDir(root), "journal");
 }
 
+/** Quest versions by SHA-256 of their bytes, shared by every quest-index snapshot. */
+function questBlobDir(root = backupRoot()): string {
+  return join(textDir(root), "quest-blobs");
+}
+
 function imageBlobDir(root = backupRoot()): string {
   return join(root, "images", "blobs");
 }
@@ -190,14 +200,16 @@ async function writeRestoreReadme(root: string): Promise<void> {
     "This directory contains local-only backups for Questmaster quest and Quest Journey data.",
     "",
     "- manifest.json is the discovery entry point. It lists retained text snapshots, mutation journals, and deduplicated image blobs.",
-    "- text/snapshots/ stores periodic full textual snapshots of the mutable Questmaster live store.",
+    "- text/snapshots/ stores periodic snapshots of the whole quest store. Newer ones (format quest_index in the manifest) are small indexes naming each quest's version in text/quest-blobs/; older ones hold the whole store in one file.",
+    "- text/quest-blobs/ stores each quest version once, named by the SHA-256 of its bytes, shared by every snapshot that names it.",
     "- text/journal/ stores compact JSONL records for Questmaster text mutations between full snapshots.",
     "- images/blobs/ stores content-addressed quest image blobs. Image coverage is space-saving and secondary to text recovery.",
     "",
     "Restore safety:",
     "1. Inspect manifest.json and choose the newest relevant text snapshot.",
-    "2. Copy the candidate snapshot to a temporary location and inspect quest counts/timestamps before replacing any live store.",
-    "3. Before applying a restore, take a fresh manual copy of the current Questmaster live store.",
+    "2. Write it to a temporary quest folder and inspect quest counts/timestamps before replacing any live store:",
+    '   bun -e \'await (await import("<takode>/web/server/quest-backup-store.ts")).restoreQuestSnapshotToFolder("<snapshot>", "/tmp/quests-restored")\'',
+    "3. Before applying a restore, stop the Takode server and move the current ~/.companion/questmaster-live/quests folder aside; then move the restored folder into its place.",
     "4. Image blobs are deduplicated by SHA-256 and may need manual relinking from quest image metadata.",
     "",
   ].join("\n");
@@ -276,6 +288,7 @@ async function pruneSnapshots(manifest: QuestBackupManifest, root: string, maxSn
   for (const entry of snapshots) {
     if (!retainedIds.has(entry.id)) await unlink(join(root, entry.relativePath)).catch(() => {});
   }
+  await removeUnreferencedQuestBlobs(root, retained);
   return {
     ...manifest,
     text: {
@@ -285,6 +298,27 @@ async function pruneSnapshots(manifest: QuestBackupManifest, root: string, maxSn
       retention: { ...manifest.text.retention, maxSnapshots },
     },
   };
+}
+
+/** Delete quest blobs no retained snapshot names. Any unreadable index stops the cleanup, keeping every blob. */
+async function removeUnreferencedQuestBlobs(root: string, retained: QuestTextBackupEntry[]): Promise<void> {
+  const referenced = new Set<string>();
+  for (const entry of retained) {
+    if (entry.format !== "quest_index") continue;
+    try {
+      const index = JSON.parse(await readFile(join(root, entry.relativePath), "utf-8")) as QuestIndexSnapshot;
+      for (const digest of Object.values(index.quests)) referenced.add(digest);
+    } catch (error) {
+      console.warn(`[quest-backup] Keeping all quest blobs: snapshot ${entry.relativePath} is unreadable:`, error);
+      return;
+    }
+  }
+  const names = await readdir(questBlobDir(root)).catch(() => [] as string[]);
+  for (const name of names) {
+    if (name.endsWith(".json") && !referenced.has(name.slice(0, -".json".length))) {
+      await unlink(join(questBlobDir(root), name)).catch(() => {});
+    }
+  }
 }
 
 async function pruneJournals(manifest: QuestBackupManifest, root: string, maxJournalDays: number) {
@@ -304,36 +338,74 @@ async function pruneJournals(manifest: QuestBackupManifest, root: string, maxJou
   };
 }
 
+interface QuestIndexSnapshot {
+  kind: "questmaster-quest-index";
+  version: 2;
+  createdAt: number;
+  nextQuestNumber: number;
+  legacyBackupDir?: string;
+  /** SHA-256 of each quest's file bytes, by quest ID; the bytes are in `text/quest-blobs/<sha256>.json`. */
+  quests: Record<string, string>;
+}
+
+const questDigests = new WeakMap<object, string>();
+const HASH_BATCH = 32;
+
+/**
+ * Record a snapshot of the whole store. Each quest's exact file bytes are kept
+ * once in `text/quest-blobs/<sha256>.json`, and the snapshot itself is a small
+ * index naming the version of every quest, so a snapshot writes only the quests
+ * that changed since earlier ones and retained snapshots share the rest.
+ */
 export async function recordQuestStoreSnapshotBackup(
   store: QuestStoreSnapshot,
   options: { reason: string; maxSnapshots?: number; root?: string } = { reason: "manual" },
 ): Promise<QuestTextBackupEntry> {
   const root = options.root ?? backupRoot();
   await mkdir(snapshotDir(root), { recursive: true });
+  await mkdir(questBlobDir(root), { recursive: true });
+  const stored = new Set(await readdir(questBlobDir(root)));
+  const quests: Record<string, string> = {};
+  const sorted = [...store.quests].sort((a, b) => a.questId.localeCompare(b.questId));
+  for (let start = 0; start < sorted.length; start += HASH_BATCH) {
+    for (const quest of sorted.slice(start, start + HASH_BATCH)) {
+      const digest = questDigest(quest);
+      quests[quest.questId] = digest;
+      if (!stored.has(`${digest}.json`)) {
+        await writeFileAtomic(join(questBlobDir(root), `${digest}.json`), questFileBytes(quest));
+        stored.add(`${digest}.json`);
+      }
+    }
+    // Hashing a large store takes a while the first time; let other work run between batches.
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  const content = {
+    nextQuestNumber: store.nextQuestNumber,
+    ...(store.legacyBackupDir ? { legacyBackupDir: store.legacyBackupDir } : {}),
+    quests,
+  };
+  const digest = sha256(JSON.stringify(content));
   let manifest = await readManifest(root);
-  // The store's bytes come from the same per-quest cache as the live store file, so a
-  // snapshot of a large store does not serialize it again on the event loop.
-  const storeChunks = questStoreFileChunks(store);
-  const hash = createHash("sha256");
-  for (const chunk of storeChunks) hash.update(chunk);
-  const digest = hash.digest("hex");
   const existing = manifest.text.snapshots.find((entry) => entry.sha256 === digest);
   if (existing) return existing;
 
-  const id = "snapshot-" + timestampForPath() + "-" + digest.slice(0, 12);
+  const createdAt = Date.now();
+  const index: QuestIndexSnapshot = { kind: "questmaster-quest-index", version: 2, createdAt, ...content };
+  const id = "snapshot-" + timestampForPath(createdAt) + "-" + digest.slice(0, 12);
   const path = join(snapshotDir(root), id + ".json");
-  const header = { kind: "questmaster-text-snapshot", version: 1, createdAt: Date.now() };
-  const chunks = [Buffer.from(JSON.stringify(header).slice(0, -1) + ',"store":'), ...storeChunks, Buffer.from("}\n")];
-  await replaceFileWithChunks(path, chunks);
+  const bytes = Buffer.from(`${JSON.stringify(index, null, 2)}\n`);
+  await writeFileAtomic(path, bytes);
   const entry: QuestTextBackupEntry = {
     id,
     kind: "text_snapshot",
+    format: "quest_index",
     reason: options.reason,
-    createdAt: Date.now(),
+    createdAt,
     questCount: store.quests.length,
     nextQuestNumber: store.nextQuestNumber,
     sha256: digest,
-    bytes: chunks.reduce((total, chunk) => total + chunk.length, 0),
+    bytes: bytes.length,
     relativePath: relativeToRoot(root, path),
   };
   manifest = {
@@ -348,6 +420,49 @@ export async function recordQuestStoreSnapshotBackup(
   manifest = await pruneSnapshots(manifest, root, options.maxSnapshots ?? manifest.text.retention.maxSnapshots);
   await saveManifest(manifest, root);
   return entry;
+}
+
+/**
+ * Write the store a snapshot holds into `outDir` as a quest folder, the layout
+ * of `~/.companion/questmaster-live/quests`, for inspecting or restoring it.
+ * Reads both quest-index snapshots and older whole-store snapshots. `outDir`
+ * must not exist.
+ */
+export async function restoreQuestSnapshotToFolder(snapshotPath: string, outDir: string): Promise<number> {
+  const parsed = JSON.parse(await readFile(snapshotPath, "utf-8")) as
+    | QuestIndexSnapshot
+    | { kind: "questmaster-text-snapshot"; store: QuestStoreSnapshot };
+  if (parsed.kind === "questmaster-text-snapshot") {
+    await writeNewQuestDir(outDir, parsed.store);
+    return parsed.store.quests.length;
+  }
+  const blobDir = join(dirname(dirname(snapshotPath)), "quest-blobs");
+  const quests: object[] = [];
+  for (const [questId, digest] of Object.entries(parsed.quests)) {
+    const bytes = await readFile(join(blobDir, `${digest}.json`));
+    if (sha256(bytes) !== digest) throw new Error(`Quest blob for ${questId} does not match its hash ${digest}`);
+    quests.push(JSON.parse(bytes.toString("utf-8")) as object);
+  }
+  await writeNewQuestDir(outDir, {
+    nextQuestNumber: parsed.nextQuestNumber,
+    quests,
+    ...(parsed.legacyBackupDir ? { legacyBackupDir: parsed.legacyBackupDir } : {}),
+  });
+  return quests.length;
+}
+
+function questDigest(quest: object): string {
+  const cached = questDigests.get(quest);
+  if (cached) return cached;
+  const digest = sha256(questFileBytes(quest));
+  if (Object.isFrozen(quest)) questDigests.set(quest, digest);
+  return digest;
+}
+
+async function writeFileAtomic(path: string, bytes: Buffer): Promise<void> {
+  const tempPath = join(dirname(path), "." + basename(path) + "." + process.pid + "." + randomUUID() + ".tmp");
+  await writeFile(tempPath, bytes);
+  await rename(tempPath, path);
 }
 
 async function appendMutationJournal(

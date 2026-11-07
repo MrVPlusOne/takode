@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { readQuestFixture, writeQuestStoreFixture } from "./test-fixtures/quest-store-fixture.js";
@@ -83,9 +83,7 @@ describe("Questmaster local backups", () => {
     await questStore.appendQuestFeedback("q-1", { author: "agent", text: bigNote, ts: 1 });
     const manifest = await questBackups.listQuestmasterBackups();
     const snapshotPath = join(backupRoot(), manifest.text.snapshots[0]!.relativePath);
-    const snapshot = JSON.parse(await readFile(snapshotPath, "utf-8")) as {
-      store: { quests: Record<string, unknown>[] };
-    };
+    await questBackups.restoreQuestSnapshotToFolder(snapshotPath, join(tempDir, "restored"));
 
     await questStore.appendQuestFeedback("q-1", { author: "agent", text: "second note", ts: 2 });
     await questStore.patchQuest("q-1", { title: "Retitled", tldr: "" });
@@ -98,7 +96,7 @@ describe("Questmaster local backups", () => {
     expect(JSON.stringify(lastTwo).length).toBeLessThan(bigNote.length / 10);
     expect(lastTwo[0]!.quests[0]).toMatchObject({ appended: { feedback: [{ text: "second note" }] } });
 
-    const quest = { ...snapshot.store.quests.find((entry) => entry.questId === "q-1")! };
+    const quest = JSON.parse(await readFile(join(tempDir, "restored", "q-1.json"), "utf-8")) as Record<string, unknown>;
     for (const record of lastTwo) {
       const change = record.quests[0] as {
         set?: Record<string, unknown>;
@@ -113,49 +111,76 @@ describe("Questmaster local backups", () => {
     expect(quest).toEqual(readQuestFixture(join(tempDir, ".companion"), "q-1"));
   });
 
-  it("retains only the configured number of full text snapshots", async () => {
-    const baseStore = {
-      format: "mutable_current_record" as const,
+  it("keeps each quest version once and restores any retained snapshot exactly", async () => {
+    // A snapshot of a large store must cost the quests that changed, not the store:
+    // unchanged quests are shared between snapshots, and rotation deletes only
+    // versions no retained snapshot names.
+    const quest = (id: number, title: string) => ({
+      id: `q-${id}`,
+      questId: `q-${id}`,
       version: 1,
-      nextQuestNumber: 2,
+      title,
+      status: "idea" as const,
+      createdAt: id,
+    });
+    const store = (title: string) => ({
+      format: "quest_per_file",
+      version: 2,
+      nextQuestNumber: 4,
       updatedAt: 1,
-      quests: [
-        {
-          id: "q-1",
-          questId: "q-1",
-          version: 1,
-          title: "A",
-          status: "idea" as const,
-          createdAt: 1,
-        },
-      ],
-    };
+      quests: [quest(1, "Unchanged"), quest(2, title), quest(3, "Also unchanged")],
+    });
 
-    await questBackups.recordQuestStoreSnapshotBackup(baseStore, { reason: "test-1", maxSnapshots: 2 });
-    await questBackups.recordQuestStoreSnapshotBackup(
-      { ...baseStore, updatedAt: 2, quests: [{ ...baseStore.quests[0], title: "B" }] },
-      { reason: "test-2", maxSnapshots: 2 },
-    );
-    await questBackups.recordQuestStoreSnapshotBackup(
-      { ...baseStore, updatedAt: 3, quests: [{ ...baseStore.quests[0], title: "C" }] },
-      { reason: "test-3", maxSnapshots: 2 },
-    );
+    await questBackups.recordQuestStoreSnapshotBackup(store("A"), { reason: "test-1", maxSnapshots: 2 });
+    const blobsAfterFirst = await readdir(join(backupRoot(), "text", "quest-blobs"));
+    expect(blobsAfterFirst).toHaveLength(3);
+    await questBackups.recordQuestStoreSnapshotBackup(store("B"), { reason: "test-2", maxSnapshots: 2 });
+    // Only q-2 changed, so only its new version was written.
+    expect(await readdir(join(backupRoot(), "text", "quest-blobs"))).toHaveLength(4);
+    // An identical store is not snapshotted twice.
+    const again = await questBackups.recordQuestStoreSnapshotBackup(store("B"), { reason: "dup", maxSnapshots: 2 });
+    expect(again.reason).toBe("test-2");
+    await questBackups.recordQuestStoreSnapshotBackup(store("C"), { reason: "test-3", maxSnapshots: 2 });
 
     const manifest = await questBackups.listQuestmasterBackups();
-    expect(manifest.text.snapshots).toHaveLength(2);
     expect(manifest.text.snapshots.map((entry) => entry.reason)).toEqual(["test-3", "test-2"]);
-    const files = await readdir(join(backupRoot(), "text", "snapshots"));
-    expect(files).toHaveLength(2);
+    expect(await readdir(join(backupRoot(), "text", "snapshots"))).toHaveLength(2);
+    // q-2 "A" is no longer named by a retained snapshot and is gone; the rest stay.
+    expect(await readdir(join(backupRoot(), "text", "quest-blobs"))).toHaveLength(4);
 
-    // A snapshot is a JSON document holding the store exactly as recorded, so a
-    // restore can read it back; its recorded size is the file's size.
-    const latest = manifest.text.snapshots[0]!;
-    const raw = await readFile(join(backupRoot(), latest.relativePath), "utf-8");
-    const parsed = JSON.parse(raw) as { kind: string; version: number; store: typeof baseStore };
-    expect(parsed.kind).toBe("questmaster-text-snapshot");
-    expect(parsed.version).toBe(1);
-    expect(parsed.store).toEqual({ ...baseStore, updatedAt: 3, quests: [{ ...baseStore.quests[0], title: "C" }] });
-    expect(latest.bytes).toBe(Buffer.byteLength(raw));
+    for (const [entry, title] of [
+      [manifest.text.snapshots[0]!, "C"],
+      [manifest.text.snapshots[1]!, "B"],
+    ] as const) {
+      const out = join(tempDir, `restored-${title}`);
+      expect(entry).toMatchObject({ format: "quest_index", questCount: 3, nextQuestNumber: 4 });
+      expect(await questBackups.restoreQuestSnapshotToFolder(join(backupRoot(), entry.relativePath), out)).toBe(3);
+      for (const expected of store(title).quests) {
+        expect(await readFile(join(out, `${expected.questId}.json`), "utf-8")).toBe(
+          `${JSON.stringify(expected, null, 2)}\n`,
+        );
+      }
+      expect(JSON.parse(await readFile(join(out, "_meta.json"), "utf-8")).nextQuestNumber).toBe(4);
+    }
+  });
+
+  it("restores an older whole-store snapshot into a quest folder", async () => {
+    // Snapshots taken before quest-index snapshots stay usable until they rotate out.
+    const path = join(backupRoot(), "text", "snapshots", "snapshot-old.json");
+    const quests = [{ id: "q-5", questId: "q-5", version: 1, title: "Old", status: "idea", createdAt: 5 }];
+    await mkdir(join(backupRoot(), "text", "snapshots"), { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        kind: "questmaster-text-snapshot",
+        version: 1,
+        createdAt: 1,
+        store: { format: "mutable_current_record", version: 1, nextQuestNumber: 6, updatedAt: 1, quests },
+      }),
+    );
+    const out = join(tempDir, "restored-old");
+    expect(await questBackups.restoreQuestSnapshotToFolder(path, out)).toBe(1);
+    expect(JSON.parse(await readFile(join(out, "q-5.json"), "utf-8"))).toEqual(quests[0]);
   });
 
   it("deduplicates quest image backups by content hash", async () => {
