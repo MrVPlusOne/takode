@@ -184,11 +184,27 @@ function asSideTarget<Item extends SideItem | SideItemInput>(input: Item): Item 
 }
 
 /**
- * The remembered fold of the column's group: everything put in the column, above the topic page it
- * follows. Folded, the group shows only its header row and the topic page takes the column (Jiayi,
- * Nov 6: the topic page was below every chat).
+ * The groups of what was put in the column, above the topic page it follows, each folding on its
+ * own (Jiayi, Nov 6: the topic page sat below every chat, and a quest's page in among the chats read
+ * as one more chat): its chats, quest pages, and other pages (artifacts, Homes, pinned topic pages).
  */
-export const SIDE_GROUP_FOLD = "side-group";
+export type SideGroup = "chats" | "quests" | "pages";
+
+/** The column's groups, top to bottom. */
+export const SIDE_GROUPS: readonly SideGroup[] = ["chats", "quests", "pages"];
+
+/** The group an item shows in. */
+export function sideItemGroup(item: Pick<SideItem, "kind">): SideGroup {
+  return isChatItem(item) ? "chats" : item.kind === "quest" ? "quests" : "pages";
+}
+
+/**
+ * The remembered fold of a group. The chats keep the fold of the one group the column had before
+ * (Nov 6), which held everything and was folded mostly to get past its chats.
+ */
+export function sideGroupFold(group: SideGroup): string {
+  return group === "chats" ? "side-group" : `side-group:${group}`;
+}
 
 /** The remembered fold of an item of the column, or of the topic page it follows (HOME_ITEM). */
 export function sideFoldId(itemId: string): string {
@@ -269,10 +285,11 @@ function foldBeyondOpenLimit(): void {
   for (const extra of open.slice(MAX_OPEN_CONVERSATIONS)) setRememberedFolded(sideFoldId(extra.id), true);
 }
 
-/** Unfolds an item and scrolls the column to it. */
-function focusSideItem(id: string): void {
+/** Unfolds an item (and its group) and scrolls the column to it. */
+export function focusSideItem(id: string): void {
   // Something put in the column shows in its group, which opens if it was folded.
-  if (id !== HOME_ITEM) setRememberedFolded(SIDE_GROUP_FOLD, false);
+  const item = useSideColumnStore.getState().items.find((candidate) => candidate.id === id);
+  if (item) setRememberedFolded(sideGroupFold(sideItemGroup(item)), false);
   unfoldSideItem(id);
   update((column) => ({ ...column, focus: id, focusAt: Date.now() }));
 }

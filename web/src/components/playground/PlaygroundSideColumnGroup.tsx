@@ -1,55 +1,90 @@
 import { useState } from "react";
 import { NewThreadIcon } from "../library/library-icons.js";
-import { SideGroupToggleButton } from "../side-column/SideGroupToggle.js";
+import { ChatsGroupToggle, FoldedChatButton, FoldedChatsBar, PageGroupBar } from "../side-column/SideGroupBars.js";
+import type { ThreadGroupId } from "../ThreadTabGroups.js";
 import { Card, Section } from "./shared.js";
 
+const CHATS: { id: string; name: string; group: ThreadGroupId }[] = [
+  { id: "a", name: "q-3101 Light climbability for FV data families", group: "needs-input" },
+  { id: "b", name: "q-3099 Topic page intro links", group: "new-results" },
+  { id: "c", name: "Release notes", group: "in-progress" },
+  { id: "d", name: "q-3080 Node update before session restore", group: "idle" },
+];
+
 /**
- * The side column's top row with its group open or folded. Folded, the row says what waits in the
- * group's chats and how many it holds; the topic page then takes the column.
+ * The side column's groups. The chats fold from the column's top row, whose buttons never move;
+ * folded, a bar names each chat with its status dot. Quest pages and other pages are groups of
+ * their own, each folding from a quiet bar that lists them while folded.
  */
 export function PlaygroundSideColumnGroup() {
   return (
     <Section
-      title="Side column group"
-      description="Everything put in the side column is one group above the topic page. Its fold button sits in the column's top row; folded, it shows the amber bell for a question, the unread count and what the group holds. Click a row's button to fold or open it."
+      title="Side column groups"
+      description="The side column groups what was put in it by kind: Chats (folding from the top row, beside New thread and the one-at-a-time toggle), Quests and Pages, then the topic page. Folded, the chats show as one bar: the amber bell for a question, the unread count, then each chat with its status dot, the ones asking or with news first. Click a button or bar to fold or open it."
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Card label="Open">
-          <GroupRow initiallyFolded={false} questions={1} unread={3} chats={4} pages={0} />
+        <Card label="Chats, top row and folded bar">
+          <ChatsGroup />
         </Card>
-        <Card label="Folded, a question and unread answers">
-          <GroupRow initiallyFolded questions={1} unread={12} chats={7} pages={0} />
+        <Card label="Chats folded, narrow column">
+          <div className="max-w-[320px]">
+            <ChatsGroup />
+          </div>
         </Card>
-        <Card label="Folded, nothing waiting, with pages">
-          <GroupRow initiallyFolded questions={0} unread={0} chats={2} pages={1} />
+        <Card label="Quests, folded">
+          <GroupBar label="Quests" names={["q-3100 Tabbed side column", "q-3099 Topic page intro links"]} />
         </Card>
-        <Card label="Folded, one chat">
-          <GroupRow initiallyFolded questions={0} unread={1} chats={1} pages={0} />
+        <Card label="Pages, folded">
+          <GroupBar label="Pages" names={["Home · DevBox takode", "Weekly report", "Leader navigation"]} />
         </Card>
       </div>
     </Section>
   );
 }
 
-function GroupRow({
-  initiallyFolded,
-  ...counts
-}: {
-  initiallyFolded: boolean;
-  questions: number;
-  unread: number;
-  chats: number;
-  pages: number;
-}) {
-  const [folded, setFolded] = useState(initiallyFolded);
+function ChatsGroup() {
+  const [folded, setFolded] = useState(true);
   return (
-    <div className="flex h-8 max-w-[440px] items-center gap-1 rounded-md border border-cc-border/80 bg-cc-bg px-2">
-      <span className="inline-flex h-7 items-center gap-1.5 px-1.5 text-[13px] text-cc-primary">
-        <NewThreadIcon className="h-4 w-4" />
-        New thread
-      </span>
-      <span className="flex-1" />
-      <SideGroupToggleButton folded={folded} onToggle={() => setFolded(!folded)} {...counts} />
+    <div className="max-w-[520px] overflow-hidden rounded-md border border-cc-border/80 bg-cc-bg">
+      <div className="flex h-8 items-center gap-1 border-b border-cc-border/80 px-2">
+        <span className="inline-flex h-7 shrink-0 items-center gap-1.5 px-1.5 text-[13px] text-cc-primary">
+          <NewThreadIcon className="h-4 w-4" />
+          New thread
+        </span>
+        <span className="flex-1" />
+        <ChatsGroupToggle folded={folded} onToggle={() => setFolded(!folded)} chats={CHATS.length} />
+        <span className="h-7 w-7 shrink-0 rounded-md bg-cc-primary/15" aria-hidden="true" />
+      </div>
+      {folded ? (
+        <FoldedChatsBar questions={1} unread={2} onOpen={() => setFolded(false)}>
+          {CHATS.map((chat, index) => (
+            <FoldedChatButton
+              key={chat.id}
+              name={chat.name}
+              group={chat.group}
+              first={index === 0}
+              onOpen={() => setFolded(false)}
+            />
+          ))}
+        </FoldedChatsBar>
+      ) : (
+        <p className="px-3 py-2 text-[12px] text-cc-muted">The chats' own rows show here.</p>
+      )}
+    </div>
+  );
+}
+
+function GroupBar({ label, names }: { label: string; names: string[] }) {
+  const [folded, setFolded] = useState(true);
+  return (
+    <div className="max-w-[520px] overflow-hidden rounded-md border border-cc-border/80 bg-cc-bg">
+      <PageGroupBar
+        label={label}
+        count={names.length}
+        folded={folded}
+        onToggle={() => setFolded(!folded)}
+        names={names.join(" · ")}
+      />
     </div>
   );
 }

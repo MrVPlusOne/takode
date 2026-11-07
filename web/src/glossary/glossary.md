@@ -48,7 +48,7 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 ## Places on screen
 
 - **Sessions panel**: the sidebar. Spaces lists sessions by space, Recent by when you used them, and Threads lists every leader's threads by when you last dealt with them.
-- **Side column**: on wide screens, a temporary workspace beside the conversation. Dock a thread you are waiting on, keep working, and its answer or question appears right there.
+- **Side column**: on wide screens, a temporary workspace beside the conversation. Dock a thread you are waiting on, keep working, and its answer or question appears right there. What you put there is grouped as Chats, Quests and Pages, each folding on its own, above the topic page.
 - **Library**: reports, figures, drafts and topic pages that leaders and workers made.
 - **Universal Search**: finds sessions, quests and messages, including everything you wrote.
 - **Coordinator and hosts**: the Takode server you open keeps all sessions, quests and memory; other machines run `takode node` to host sessions near their files.

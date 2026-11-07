@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * The side column: what the user put there (side chats, other conversations, topic pages), newest
- * first, then the topic page it follows. Each section folds on its own and the column scrolls when
+ * The side column: what the user put there (side chats, other conversations, quest and topic pages),
+ * grouped by kind and newest first in each group, then the topic page it follows. Each section folds on its own and the column scrolls when
  * the open ones don't fit, like Logseq's sidebar. It tells the server which conversations it shows
  * and starts side chats from what's on screen.
  */
@@ -68,6 +68,11 @@ vi.mock("./SideHome.js", () => ({
 }));
 vi.mock("./thread-names.js", () => ({
   ThreadOriginName: ({ threadKey }: { threadKey: string }) => <>{`name of ${threadKey}`}</>,
+  useThreadPlace: (_leaderId: string, threadKey: string) => ({
+    key: threadKey,
+    name: `name of ${threadKey}`,
+    kind: /^q-\d+$/.test(threadKey) ? "quest" : "thread",
+  }),
 }));
 const threads = vi.hoisted(() => ({ list: [] as unknown[] }));
 vi.mock("../../utils/leader-topics.js", async (importOriginal) => ({
@@ -79,7 +84,7 @@ import {
   openInSide,
   openTopicsInSide,
   replaceSideItem,
-  SIDE_GROUP_FOLD,
+  sideGroupFold,
   useSideColumnStore,
 } from "../../utils/side-column.js";
 import { rememberThreads } from "../../utils/leader-topics.js";
@@ -115,7 +120,8 @@ afterEach(() => {
 
 topicList.mockImplementation(noTopicList);
 
-const rows = () => screen.queryAllByTestId("side-item-row");
+/** Every title row and page bar of the column, top to bottom. */
+const rows = () => screen.queryAllByTestId(/^side-(item|page)-row$/);
 /** The id of the item at a row of the column (Topics last, with no item). */
 const rowsId = (index: number) => useSideColumnStore.getState().items[index]!.id;
 /** The server's answer to a request for a conversation's newest window, as it lands in the store. */
@@ -224,23 +230,25 @@ describe("SideColumn", () => {
     expect(isRememberedFolded("side:home")).toBe(true);
   });
 
-  it("stacks items newest first with the topic page last, each folding on its own", () => {
+  it("stacks chats, then pages, with the topic page last, each folding on its own", () => {
     // Jiayi (Oct 31): like Logseq, any number can be open; the column scrolls when they don't fit.
+    // Since Nov 6 what was put there is grouped by kind, so the pinned topic page (put there last)
+    // sits under the chats, in the Pages group.
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
       openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
       openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
     });
     // The topic page it follows is last.
-    expect(rows().map((row) => row.textContent)).toEqual(["Topic", "q-2 name of q-2", "Topics"]);
+    expect(rows().map((row) => row.textContent)).toEqual(["q-2 name of q-2", "Topic", "Topics"]);
     expect(rows().map((row) => row.dataset.open)).toEqual(["true", "true", "true"]);
-    expect(within(openBodies()[0]!).getByTestId("mock-topic-page").textContent).toBe("t9");
-    expect(within(openBodies()[1]!).getByTestId("mock-conversation").textContent).toBe("q-2");
+    expect(within(openBodies()[0]!).getByTestId("mock-conversation").textContent).toBe("q-2");
+    expect(within(openBodies()[1]!).getByTestId("mock-topic-page").textContent).toBe("t9");
     expect(screen.getByTestId("side-scroll").className).toContain("overflow-y-auto");
 
     // Folding one leaves the others open; opening it again from elsewhere unfolds it.
-    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: true }));
-    expect(rows().map((row) => row.dataset.open)).toEqual(["true", "false", "true"]);
+    fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
+    expect(rows().map((row) => row.dataset.open)).toEqual(["false", "true", "true"]);
     act(() => {
       openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     });
@@ -279,7 +287,8 @@ describe("SideColumn", () => {
     act(() => {
       openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
     });
-    const page = screen.getAllByTestId("side-section")[0]!;
+    // Pages sit under the chats.
+    const page = screen.getAllByTestId("side-section")[1]!;
     within(page).getByTestId("side-section-body").getBoundingClientRect = () => ({ height: 100 }) as DOMRect;
     fireEvent.keyDown(within(page).getByRole("separator"), { key: "ArrowDown" });
     expect(useSideColumnStore.getState().chatHeight).toBe(324);
@@ -391,8 +400,11 @@ describe("SideColumn", () => {
     act(() => {
       openInSide({ kind: "artifact", artifactId: "0f1e2d3c", version: 2, title: "Memory peak report" });
     });
-    expect(rows()[0]!.textContent).toBe("Memory peak report");
+    // Its bar names only the kind of page while open (the viewer shows its title), and the title folded.
+    expect(rows()[0]!.textContent).toBe("Artifact");
     expect(within(openBodies()[0]!).getByTestId("mock-artifact").textContent).toBe("0f1e2d3c v2");
+    fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
+    expect(rows()[0]!.textContent).toBe("Memory peak report");
     fireEvent.click(screen.getByRole("button", { name: "Open in the Library" }));
     expect(useLibraryNav.getState()).toEqual(expect.objectContaining({ artifactId: "0f1e2d3c", version: 2 }));
     expect(useSideColumnStore.getState().items).toEqual([]);
@@ -410,10 +422,11 @@ describe("SideColumn", () => {
       openInSide({ kind: "session", sessionId: "worker-9" });
       openInSide({ kind: "quest", questId: "q-7" });
     });
-    expect(within(openBodies()[0]!).getByTestId("mock-quest").textContent).toBe("q-7");
-    expect(rows()[1]!.textContent).toContain("#9 Probe");
-    expect(within(openBodies()[1]!).getByTestId("mock-session").textContent).toBe("worker-9");
-    fireEvent.click(within(rows()[1]!).getByRole("button", { name: "Open in the main view" }));
+    // The session is a chat, above the Quests group with the quest's details.
+    expect(rows()[0]!.textContent).toContain("#9 Probe");
+    expect(within(openBodies()[0]!).getByTestId("mock-session").textContent).toBe("worker-9");
+    expect(within(openBodies()[1]!).getByTestId("mock-quest").textContent).toBe("q-7");
+    fireEvent.click(within(rows()[0]!).getByRole("button", { name: "Open in the main view" }));
     expect(window.location.hash).toContain("session/worker-9");
     useStore.setState({ sdkSessions: [] } as never);
   });
@@ -725,18 +738,22 @@ describe("SideColumn", () => {
         openInSide({ kind: "quest", questId: "q-6" });
         openInSide({ kind: "conversation", threadKey: "q-5", leaderId: "l1" });
       });
-      for (const row of rows().slice(0, 2)) {
-        const dot = within(row).getByTestId("side-item-dot");
-        expect(dot.dataset.group).toBe("idle");
-        expect(dot.className).toContain("bg-cc-muted/60");
-        expect(dot.className).not.toContain("status-done");
-      }
+      const dot = within(rows()[0]!).getByTestId("side-item-dot");
+      expect(dot.dataset.group).toBe("idle");
+      expect(dot.className).toContain("bg-cc-muted/60");
+      expect(dot.className).not.toContain("status-done");
       // The quest number is a quest link (hover preview, click opens it) and doesn't fold the row.
       const link = within(rows()[0]!).getByRole("link", { name: "q-5" });
       expect(link.getAttribute("href")).toContain("q-5");
       fireEvent.click(link);
       expect(rows()[0]!.dataset.open).toBe("true");
-      expect(within(rows()[1]!).getByRole("link", { name: "q-6" })).toBeTruthy();
+      // A quest's details are a page (Nov 6): its bar has no status dot (the page shows its status),
+      // names the quest by number while open, and by number and title folded.
+      expect(rows()[1]!.dataset.testid).toBe("side-page-row");
+      expect(within(rows()[1]!).queryByTestId("side-item-dot")).toBeNull();
+      expect(rows()[1]!.textContent).toBe("q-6");
+      fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: true }));
+      expect(rows()[1]!.textContent).toBe("q-6 In Memory");
     } finally {
       useStore.setState({ quests: [] } as never);
     }
@@ -837,9 +854,9 @@ describe("SideColumn", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
     const open = () => rows().map((row) => row.dataset.open);
-    // q-2, the page, q-3, Topics: the page and Topics stay open.
-    expect(open()).toEqual(["true", "true", "false", "true"]);
-    fireEvent.click(within(rows()[2]!).getByRole("button", { expanded: false }));
+    // The chats q-2 and q-3, then the page and Topics, which stay open.
+    expect(open()).toEqual(["true", "false", "true", "true"]);
+    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: false }));
     expect(open()).toEqual(["false", "true", "true", "true"]);
     // Resizing the open chat sets the height every chat shares; edges and the scroll strip stay.
     const chatSection = () =>
@@ -854,11 +871,11 @@ describe("SideColumn", () => {
     expect(within(q2).getByTestId("side-section-body").style.height).toBe("324px");
     // The open chat folds with a click on its title bar: none need be open (Jiayi, Nov 3).
     fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
-    expect(open()).toEqual(["false", "true", "false", "true"]);
+    expect(open()).toEqual(["false", "false", "true", "true"]);
     // Off, chats open side by side again.
     fireEvent.click(toggle);
     fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: false }));
-    fireEvent.click(within(rows()[2]!).getByRole("button", { expanded: false }));
+    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: false }));
     expect(open()).toEqual(["true", "true", "true", "true"]);
   });
 
@@ -930,41 +947,77 @@ describe("SideColumn", () => {
     expect(useTopicPanel.getState().sheet).toBe(false);
   });
 
-  describe("the group of what was put in the column", () => {
+  describe("the groups of what was put in the column", () => {
     // Jiayi (Nov 6): the topic page sat below every side chat, so reaching it meant scrolling past
-    // all of them. Everything put in the column is one group, folded from the column's top row; the
-    // topic page is the column's own content below it.
-    const note = (id: string, threadKey: string, category: "needs-input" | "review") => ({
+    // all of them; then a quest's page in among the chats read as one more chat. What is put in the
+    // column is grouped by kind, each group folding on its own: the chats (from the column's top
+    // row), quest pages, other pages; the topic page follows as the column's own content.
+    const note = (id: string, threadKey: string, category: "needs-input" | "review", timestamp = 1) => ({
       id,
       category,
       summary: "",
-      timestamp: 1,
+      timestamp,
       threadKey,
       questId: threadKey,
       done: false,
     });
+    const groupOrder = () => screen.queryAllByTestId("side-group").map((group) => group.dataset.group);
     afterEach(() => useStore.setState({ sessionNotifications: new Map() } as never));
 
-    it("folds the group to its header, leaving the topic page, and remembers the fold", () => {
+    it("puts chats, quest pages and other pages in groups of their own, above the topic page", () => {
       render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
       act(() => {
+        openInSide({ kind: "artifact", artifactId: "a-1", title: "Report" });
+        openInSide({ kind: "quest", questId: "q-9" });
+        openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+        openInSide({ kind: "home", leaderId: "l2" });
+        openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+      });
+      expect(groupOrder()).toEqual(["chats", "quests", "pages"]);
+      const inGroup = (group: string) =>
+        within(screen.getAllByTestId("side-group").find((element) => element.dataset.group === group)!);
+      expect(
+        inGroup("chats")
+          .getAllByTestId("mock-conversation")
+          .map((chat) => chat.textContent),
+      ).toEqual(["q-1", "q-2"]);
+      expect(inGroup("quests").getByTestId("mock-quest")).toBeTruthy();
+      expect(inGroup("pages").getByTestId("mock-home")).toBeTruthy();
+      expect(inGroup("pages").getByTestId("mock-artifact")).toBeTruthy();
+      // The page groups fold from bars of their own; the chats from the top row.
+      expect(screen.getAllByTestId("side-group-bar").map((bar) => bar.dataset.groupLabel)).toEqual(["Quests", "Pages"]);
+      // Pages have quiet bars, chats title rows; the topic page stays last.
+      expect(screen.getAllByTestId("side-page-row")).toHaveLength(3);
+      expect(rows().at(-1)!.textContent).toBe("Topics");
+    });
+
+    it("folds the chats from the top row without moving its buttons, leaving the topic page", () => {
+      render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+      act(() => {
+        openInSide({ kind: "quest", questId: "q-9" });
         openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
         openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
       });
       expect(screen.getAllByTestId("mock-conversation")).toHaveLength(2);
-      fireEvent.click(screen.getByTestId("side-group-toggle"));
-      // The chats leave the column (their feeds unmount, as a folded chat's do); the topic page stays.
-      expect(screen.queryByTestId("side-group")).toBeNull();
+      const toggle = screen.getByTestId("side-chats-toggle");
+      const topRow = () => [...toggle.parentElement!.children].map((child) => child.getAttribute("data-testid"));
+      const before = { text: toggle.textContent, row: topRow() };
+      fireEvent.click(toggle);
+      // The chats leave the column (their feeds unmount, as a folded chat's do); the rest stays.
       expect(screen.queryAllByTestId("mock-conversation")).toHaveLength(0);
-      expect(rows().map((row) => row.textContent)).toEqual(["Topics"]);
+      expect(screen.getByTestId("mock-quest")).toBeTruthy();
       expect(screen.getByTestId("mock-topic-page").textContent).toBe("followed");
-      expect(isRememberedFolded(SIDE_GROUP_FOLD)).toBe(true);
-      // Each chat keeps its own fold for when the group opens again.
-      fireEvent.click(screen.getByTestId("side-group-toggle"));
+      expect(isRememberedFolded(sideGroupFold("chats"))).toBe(true);
+      // The toggle reads the same folded and open, and the row keeps its buttons in place (Jiayi:
+      // the old one grew a summary and pushed the one-at-a-time toggle aside).
+      expect(toggle.textContent).toBe(before.text);
+      expect(topRow()).toEqual(before.row);
+      // Each chat keeps its own fold for when the chats open again.
+      fireEvent.click(toggle);
       expect(screen.getAllByTestId("mock-conversation")).toHaveLength(2);
     });
 
-    it("says, folded, what waits in its chats and how many it holds", () => {
+    it("names each folded chat with its status, the ones asking and with news first, after the cues", () => {
       useStore.setState({
         sessionNotifications: new Map([
           ["l1", [note("n-1", "q-1", "needs-input"), note("n-2", "q-2", "review"), note("n-3", "q-2", "review")]],
@@ -972,50 +1025,123 @@ describe("SideColumn", () => {
       } as never);
       act(() => {
         openInSide({ kind: "quest", questId: "q-9" });
-        openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
         openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+        openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+        openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
       });
       render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
       // Open, the rows show these cues themselves.
-      expect(screen.queryByTestId("side-group-count")).toBeNull();
-      fireEvent.click(screen.getByTestId("side-group-toggle"));
-      expect(screen.getByTestId("side-group-questions")).toBeTruthy();
-      expect(screen.getByTestId("side-group-unread").textContent).toBe("2 new");
-      expect(screen.getByTestId("side-group-count").textContent).toBe("2 chats · 1 page");
+      expect(screen.queryByTestId("side-chats-folded")).toBeNull();
+      fireEvent.click(screen.getByTestId("side-chats-toggle"));
+      expect(screen.getByTestId("side-chats-questions")).toBeTruthy();
+      expect(screen.getByTestId("side-chats-unread").textContent).toBe("2 new");
+      expect(screen.getAllByTestId("side-chats-folded-chat").map((chat) => chat.textContent)).toEqual([
+        "q-1 name of q-1",
+        "q-2 name of q-2",
+        "q-3 name of q-3",
+      ]);
     });
 
-    it("opens a new thread at the top of a folded group, ready to type", () => {
-      setRememberedFolded(SIDE_GROUP_FOLD, true);
+    it("opens a chat named in the folded bar, keeping one chat open at a time", () => {
+      act(() => {
+        openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+        openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+      });
+      render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+      fireEvent.click(screen.getByTestId("side-one-at-a-time"));
+      fireEvent.click(screen.getByTestId("side-chats-toggle"));
+      const q1 = screen.getAllByTestId("side-chats-folded-chat").find((chat) => chat.textContent?.includes("q-1"))!;
+      fireEvent.click(q1);
+      expect(isRememberedFolded(sideGroupFold("chats"))).toBe(false);
+      expect(screen.getAllByTestId("mock-conversation").map((chat) => chat.textContent)).toEqual(["q-1"]);
+      // A click elsewhere on the bar opens the chats as they were.
+      fireEvent.click(screen.getByTestId("side-chats-toggle"));
+      fireEvent.click(screen.getByTestId("side-chats-folded"));
+      expect(screen.getAllByTestId("mock-conversation").map((chat) => chat.textContent)).toEqual(["q-1"]);
+    });
+
+    it("keeps one chat open at a time when chats are added to folded chats", () => {
+      // Jiayi (Nov 6): with the mode on, folding the chats and then Shift-clicking things into the
+      // column left a chat and a quest's page open, which read as two chats. Opening a chat still
+      // folds the others, and a quest's page goes to its own group.
+      render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
       act(() => {
         openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
       });
-      setRememberedFolded(SIDE_GROUP_FOLD, true);
+      fireEvent.click(screen.getByTestId("side-one-at-a-time"));
+      fireEvent.click(screen.getByTestId("side-chats-toggle"));
+      act(() => {
+        openInSide({ kind: "quest", questId: "q-2" });
+      });
+      // The quest's page opens its own group, not the chats.
+      expect(isRememberedFolded(sideGroupFold("chats"))).toBe(true);
+      expect(screen.getByTestId("mock-quest")).toBeTruthy();
+      act(() => {
+        openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+        openInSide({ kind: "session", sessionId: "worker-1" });
+      });
+      expect(isRememberedFolded(sideGroupFold("chats"))).toBe(false);
+      const openChats = rows().filter((row) => row.dataset.testid === "side-item-row" && row.dataset.open === "true");
+      // The session opened last; the Topics row is the other open title row.
+      expect(openChats.map((row) => row.textContent)).toEqual([expect.stringContaining("#"), "Topics"]);
+      expect(screen.queryAllByTestId("mock-conversation")).toHaveLength(0);
+      expect(screen.getByTestId("mock-session").textContent).toBe("worker-1");
+    });
+
+    it("lists a folded page group's pages by name", () => {
+      useStore.setState({
+        quests: [{ questId: "q-9", title: "Relay fix", status: "in_progress", version: 1 }],
+      } as never);
+      try {
+        render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+        act(() => {
+          openInSide({ kind: "quest", questId: "q-8" });
+          openInSide({ kind: "quest", questId: "q-9" });
+        });
+        const bar = screen.getByTestId("side-group-bar");
+        expect(screen.queryByTestId("side-group-names")).toBeNull();
+        fireEvent.click(bar);
+        expect(screen.queryByTestId("mock-quest")).toBeNull();
+        expect(isRememberedFolded(sideGroupFold("quests"))).toBe(true);
+        expect(screen.getByTestId("side-group-names").textContent).toBe("q-9 Relay fix · q-8 ");
+      } finally {
+        useStore.setState({ quests: [] } as never);
+      }
+    });
+
+    it("opens a new thread at the top of folded chats, ready to type", () => {
+      act(() => {
+        openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
+      });
+      setRememberedFolded(sideGroupFold("chats"), true);
       const focusComposer = vi.spyOn(useStore.getState(), "focusComposer");
       try {
         render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
-        expect(screen.queryByTestId("side-group")).toBeNull();
+        expect(screen.queryAllByTestId("side-item-row").map((row) => row.textContent)).toEqual(["Topics"]);
         fireEvent.click(screen.getByTestId("side-new-chat"));
-        expect(isRememberedFolded(SIDE_GROUP_FOLD)).toBe(false);
+        expect(isRememberedFolded(sideGroupFold("chats"))).toBe(false);
         expect(rows()[0]!.textContent).toContain("New thread");
-        expect(within(screen.getByTestId("side-group")).getByTestId("mock-new-chat")).toBeTruthy();
+        expect(screen.getByTestId("mock-new-chat")).toBeTruthy();
         expect(focusComposer).toHaveBeenCalledWith("l1#side:new", { whenShown: true });
       } finally {
         focusComposer.mockRestore();
       }
     });
 
-    it("opens the group for anything put in the column, but not for the topic page", () => {
-      setRememberedFolded(SIDE_GROUP_FOLD, true);
+    it("opens the group of what is put in the column, and no other, nor any for the topic page", () => {
+      for (const group of ["chats", "quests", "pages"] as const) setRememberedFolded(sideGroupFold(group), true);
       render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
       act(() => {
         openInSide({ kind: "artifact", artifactId: "a-1" });
       });
-      expect(isRememberedFolded(SIDE_GROUP_FOLD)).toBe(false);
+      expect(isRememberedFolded(sideGroupFold("pages"))).toBe(false);
+      expect(isRememberedFolded(sideGroupFold("chats"))).toBe(true);
+      expect(isRememberedFolded(sideGroupFold("quests"))).toBe(true);
       expect(screen.getByTestId("mock-artifact")).toBeTruthy();
-      // Home's Topics link shows the topic page, which is not in the group.
-      act(() => setRememberedFolded(SIDE_GROUP_FOLD, true));
+      // Home's Topics link shows the topic page, which is in no group.
       act(() => openTopicsInSide());
-      expect(isRememberedFolded(SIDE_GROUP_FOLD)).toBe(true);
+      expect(isRememberedFolded(sideGroupFold("chats"))).toBe(true);
+      expect(isRememberedFolded(sideGroupFold("quests"))).toBe(true);
     });
   });
 });

@@ -1,11 +1,12 @@
 import { useShallow } from "zustand/react/shallow";
 import { Activity, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { holdSessionConnection } from "../../ws.js";
-import { useRememberedFold, useRememberedFolds } from "../../utils/remembered-folds.js";
+import { useRememberedFolds } from "../../utils/remembered-folds.js";
 import { SectionEdge, useSectionHeights } from "../StackedPanes.js";
 import { useStore } from "../../store.js";
 import {
   closeSideItem,
+  focusSideItem,
   HOME_ITEM,
   notePaneClick,
   openInSide,
@@ -17,9 +18,12 @@ import {
   noteSideItemUsed,
   replaceSideItem,
   unfoldSideItem,
-  SIDE_GROUP_FOLD,
+  SIDE_GROUPS,
   SIDE_HEIGHTS_STACK,
   sideFoldId,
+  sideGroupFold,
+  sideItemGroup,
+  type SideGroup,
   sideItemLeader,
   useSideColumn,
   type SideItem,
@@ -38,14 +42,14 @@ import { noteThreadMerged } from "../../utils/thread-viewport.js";
 import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { CollapseIcon, NewThreadIcon, TopicIcon } from "../library/library-icons.js";
 import { TopicSidePanel } from "../library/TopicSidePanel.js";
-import { ThreadOriginName } from "./thread-names.js";
+import { ThreadOriginName, useThreadPlace } from "./thread-names.js";
 import { useQuestRecord } from "../QuestSummaryCard.js";
 import { getQuestLeaderSessionId } from "../../utils/quest-helpers.js";
 import { QuestInlineLink } from "../QuestInlineLink.js";
 import { THREAD_GROUP_DOT, type ThreadGroupId } from "../ThreadTabGroups.js";
 import { SideConversation } from "./SideConversation.js";
 import { NewSideChat, newSideChatDraftKey } from "./NewSideChat.js";
-import { SideGroupToggleButton } from "./SideGroupToggle.js";
+import { ChatsGroupToggle, FoldedChatButton, FoldedChatsBar, PageGroupBar } from "./SideGroupBars.js";
 import { SideChatLeaderMenu, useLeaderCard } from "./SideChatLeaders.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { SideQuest } from "./SideQuest.js";
@@ -80,16 +84,18 @@ const KEPT_MOUNTED = 3;
 const ROW_HEIGHT = 36;
 
 /**
- * The side column (Logseq's right sidebar), from the top: a group of whatever the user put beside
- * the conversation (threads, other conversations, topic pages, artifacts), newest first, each with
- * its own leader; then the main view's leader's topics, for browsing (the topic page of the thread
- * on screen, else the list). The group folds from the column's top row, which then says what waits
- * in it, and the topic page takes the column (Jiayi, Nov 6: it was below every chat). One column
- * for the whole app: what is in it stays when the main view switches leader or session (Jiayi, Nov 1). Each section folds on its own from its header row,
- * any number can be open, and the column scrolls when they don't fit. An open section's bottom edge
- * drags to set its height (Jiayi's choice, Oct 31: like Logseq, the panel scrolls rather than
- * squeezing each section). Folds and heights are remembered in this browser. On a phone it is the
- * same column in a sheet.
+ * The side column (Logseq's right sidebar), from the top: what the user put beside the
+ * conversation, grouped by kind and newest first in each group, each item with its own leader:
+ * chats (threads, other conversations), quest pages, other pages (artifacts, Homes, pinned topic
+ * pages); then the main view's leader's topics, for browsing (the topic page of the thread on screen,
+ * else the list). Each group folds on its own, the chats from the column's top row, and folded
+ * groups leave the column to the topic page (Jiayi, Nov 6: it was below every chat, and a quest's
+ * page among the chats read as one more chat). One column for the whole app: what is in it stays
+ * when the main view switches leader or session (Jiayi, Nov 1). Each section folds on its own from
+ * its header row, any number can be open, and the column scrolls when they don't fit. An open
+ * section's bottom edge drags to set its height (Jiayi's choice, Oct 31: like Logseq, the panel
+ * scrolls rather than squeezing each section). Folds and heights are remembered in this browser. On a
+ * phone it is the same column in a sheet.
  */
 export function SideColumn({
   leaderId,
@@ -102,17 +108,33 @@ export function SideColumn({
   threadKey: string;
   variant: "docked" | "sheet";
 }) {
-  const { items, focus, focusAt, chatHeight, oneAtATime = false } = useSideColumn();
+  const { items, focus, focusAt, chatHeight, used = [], oneAtATime = false } = useSideColumn();
   const folds = useRememberedFolds();
-  const [groupFolded, toggleGroup] = useRememberedFold(SIDE_GROUP_FOLD);
+  const groups = SIDE_GROUPS.map((group) => ({
+    group,
+    items: items.filter((item) => sideItemGroup(item) === group),
+    folded: folds.isFolded(sideGroupFold(group)),
+  }));
+  const groupFolded = (group: SideGroup) => groups.find((entry) => entry.group === group)!.folded;
+  const groupOfId = new Map(items.map((item) => [item.id, sideItemGroup(item)]));
   // A folded group shows none of its items: they are as good as folded, and their feeds unmount.
-  const isOpen = (id: string) => (id === HOME_ITEM || !groupFolded) && !folds.isFolded(sideFoldId(id));
+  const isOpen = (id: string) => {
+    const group = groupOfId.get(id);
+    return (!group || !groupFolded(group)) && !folds.isFolded(sideFoldId(id));
+  };
   // Unfolding goes through the column's open limit: a fourth open conversation folds the oldest.
   const toggle = (id: string) => (isOpen(id) ? folds.toggle(sideFoldId(id)) : unfoldSideItem(id));
   const heights = useSectionHeights(SIDE_HEIGHTS_STACK);
   const allIds = [...items.map((item) => item.id), ...(leaderId ? [HOME_ITEM] : [])];
   // The sections on screen, which share the column's height.
-  const sectionIds = groupFolded ? allIds.filter((id) => id === HOME_ITEM) : allIds;
+  const sectionIds = allIds.filter((id) => {
+    const group = groupOfId.get(id);
+    return !group || !groupFolded(group);
+  });
+  // The groups' bars in the scrolling area beside the sections: the page groups', and the folded chats'.
+  const groupBars = groups.filter(
+    (entry) => entry.items.length > 0 && (entry.group !== "chats" || entry.folded),
+  ).length;
   const idsKey = allIds.join(",");
   useEffect(() => heights.keepOnly(idsKey.split(",")), [idsKey]);
   // A new thread starts as tall as the side conversation last resized (Jiayi, Nov 1): one height
@@ -137,7 +159,7 @@ export function SideColumn({
     observer?.observe(element);
     return () => observer?.disconnect();
   }, []);
-  const fill = Math.max(160, viewport - ROW_HEIGHT * sectionIds.length);
+  const fill = Math.max(160, viewport - ROW_HEIGHT * (sectionIds.length + groupBars));
   const sharedChatFill = Math.max(160, viewport - ROW_HEIGHT);
   // Something just opened in the column scrolls into view (not on mount: the column stays as left).
   const sectionElements = useRef(new Map<string, HTMLElement>());
@@ -288,7 +310,13 @@ export function SideColumn({
   const itemSection = (entry: SideItem | null) => {
     const id = entry?.id ?? HOME_ITEM;
     const conversation = !!entry && isChatItem(entry);
-    const row = <SideItemRow mainLeaderId={leaderId} item={entry} open={isOpen(id)} onOpen={() => toggle(id)} />;
+    // A page (a quest's details, an artifact, a Home, a pinned topic page) gets a page's quiet bar.
+    const row =
+      entry && !conversation ? (
+        <PageItemRow item={entry} open={isOpen(id)} onOpen={() => toggle(id)} />
+      ) : (
+        <SideItemRow mainLeaderId={leaderId} item={entry} open={isOpen(id)} onOpen={() => toggle(id)} />
+      );
     const body = (
       // A link clicked here opens in this pane; the open-in-side click opens it in the main view.
       <div
@@ -307,15 +335,16 @@ export function SideColumn({
     return section(id, row, body, conversation, fill, chatId);
   };
 
+  const chats = groups[0]!;
   return (
-    <div className="@container/side flex h-full min-h-0 flex-col" data-testid="side-column">
-      {/* As tall as the strip under the top bar, so their lines meet. */}
+    <div className="flex h-full min-h-0 flex-col" data-testid="side-column">
+      {/* The chats' own row, as tall as the strip under the top bar, so their lines meet. */}
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-cc-border/80 px-2">
         {leaderId && (
           <button
             type="button"
             onClick={() => {
-              // Opens in the group (unfolding it), at its top, ready to type.
+              // Opens in the chats (unfolding them), at their top, ready to type.
               openInSide(newSideChat(leaderId));
               useStore.getState().focusComposer(newSideChatDraftKey(leaderId), { whenShown: true });
             }}
@@ -325,14 +354,19 @@ export function SideColumn({
             data-testid="side-new-chat"
           >
             <NewThreadIcon className="h-4 w-4" />
-            {/* A narrow column keeps the icon, so the group's summary beside it fits. */}
-            <span className="hidden @[24rem]/side:inline">New thread</span>
+            <span>New thread</span>
           </button>
         )}
         <SideChatLeaderMenu mainLeaderId={leaderId} />
         <span className="flex-1" />
+        {chats.items.length > 0 && (
+          <ChatsGroupToggle
+            folded={chats.folded}
+            onToggle={() => folds.toggle(sideGroupFold("chats"))}
+            chats={chats.items.length}
+          />
+        )}
         <OneAtATimeToggle on={oneAtATime} />
-        {items.length > 0 && <GroupToggle items={items} folded={groupFolded} onToggle={toggleGroup} />}
         <button
           type="button"
           onClick={close}
@@ -344,59 +378,167 @@ export function SideColumn({
         </button>
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
-        {!groupFolded && items.length > 0 && <div data-testid="side-group">{items.map(itemSection)}</div>}
+        {groups.map(({ group, items: groupItems, folded }) =>
+          groupItems.length === 0 ? null : (
+            <div key={group} data-testid="side-group" data-group={group}>
+              {group === "chats" && folded && (
+                <FoldedChats
+                  chats={groupItems}
+                  used={used}
+                  onOpen={(id) => (id ? focusSideItem(id) : folds.toggle(sideGroupFold("chats")))}
+                />
+              )}
+              {group !== "chats" && (
+                <PageGroupBar
+                  label={group === "quests" ? "Quests" : "Pages"}
+                  count={groupItems.length}
+                  folded={folded}
+                  onToggle={() => folds.toggle(sideGroupFold(group))}
+                  names={<GroupNames items={groupItems} />}
+                />
+              )}
+              {!folded && groupItems.map(itemSection)}
+            </div>
+          ),
+        )}
         {leaderId && itemSection(null)}
       </div>
     </div>
   );
 }
 
-/** The group's fold button, with what waits in its chats (`SideGroupToggleButton`). */
-function GroupToggle({ items, folded, onToggle }: { items: SideItem[]; folded: boolean; onToggle: () => void }) {
-  const attention = useChatsAttention(items);
+/**
+ * The folded chats' bar (`FoldedChatsBar`): each chat with its status dot, the ones asking first,
+ * then those with news, then by when they were used.
+ */
+function FoldedChats({
+  chats,
+  used,
+  onOpen,
+}: {
+  chats: SideItem[];
+  used: readonly string[];
+  onOpen: (id: string | null) => void;
+}) {
+  const attention = useChatsAttention(chats);
   const questionCue = useAttentionCue(attention.questions, attention.questionsAt);
   const unreadCue = useAttentionCue(attention.unread, attention.unreadAt);
-  const chats = items.filter(isChatItem).length;
+  const urgency: Record<ThreadGroupId, number> = { "needs-input": 0, "new-results": 1, "in-progress": 2, idle: 3 };
+  const rank = (id: string) => (used.includes(id) ? used.indexOf(id) : used.length);
+  const ordered = chats
+    .map((item, index) => ({ item, index, group: attention.groups.get(item.id) ?? ("idle" as ThreadGroupId) }))
+    .sort((a, b) => urgency[a.group] - urgency[b.group] || rank(a.item.id) - rank(b.item.id) || a.index - b.index);
   return (
-    <SideGroupToggleButton
-      folded={folded}
-      onToggle={onToggle}
+    <FoldedChatsBar
       questions={attention.questions}
       unread={attention.unread}
-      chats={chats}
-      pages={items.length - chats}
+      onOpen={() => onOpen(null)}
       questionCue={questionCue}
       unreadCue={unreadCue}
-    />
+    >
+      {ordered.map(({ item, group }, index) => (
+        <FoldedChatEntry key={item.id} item={item} group={group} first={index === 0} onOpen={() => onOpen(item.id)} />
+      ))}
+    </FoldedChatsBar>
   );
 }
 
-/** What waits in the group's chats: open questions and unread answers, and when each came last. */
+/** A chat in the folded chats' bar, by its name: its quest's number and title, its thread's name, or its session. */
+function FoldedChatEntry({
+  item,
+  group,
+  first,
+  onOpen,
+}: {
+  item: SideItem;
+  group: ThreadGroupId;
+  first: boolean;
+  onOpen: () => void;
+}) {
+  const conversation = item.kind === "conversation" ? item : null;
+  const place = useThreadPlace(conversation?.leaderId ?? "", conversation?.threadKey ?? "");
+  const session = useStore((state) =>
+    item.kind === "session" ? state.sdkSessions.find((candidate) => candidate.sessionId === item.sessionId) : undefined,
+  );
+  const leader = useLeaderCard(item.kind === "new-chat" ? item.leaderId : "");
+  const name =
+    item.kind === "new-chat"
+      ? `New thread with ${leader?.name ?? "another leader"}`
+      : item.kind === "session"
+        ? `#${session?.sessionNum ?? "?"} ${session?.name ?? ""}`.trim()
+        : place.kind === "quest"
+          ? `${place.key} ${place.name === place.key ? "" : place.name}`.trim()
+          : place.name;
+  return <FoldedChatButton name={name} group={group} first={first} onOpen={onOpen} />;
+}
+
+/** What a folded page group holds, by name: quests by number and title, other pages by title. */
+function GroupNames({ items }: { items: SideItem[] }) {
+  return (
+    <>
+      {items.map((item, index) => (
+        <span key={item.id}>
+          {index > 0 && " · "}
+          <PageName item={item} full />
+        </span>
+      ))}
+    </>
+  );
+}
+
+/**
+ * What waits in the chats: open questions and unread answers, when each came last, each chat's
+ * status group (by the rows' rule), and the chat asking most recently, else with the newest answer.
+ */
 function useChatsAttention(items: SideItem[]) {
   const keysKey = items
-    .flatMap((item) => (item.kind === "conversation" ? [`${item.leaderId}\t${item.threadKey}`] : []))
+    .flatMap((item) => (item.kind === "conversation" ? [`${item.id}\t${item.leaderId}\t${item.threadKey}`] : []))
     .join("\n");
-  return useStore(
+  const summary = useStore(
     useShallow((state) => {
-      const result = { questions: 0, questionsAt: 0, unread: 0, unreadAt: 0 };
+      const result = { questions: 0, questionsAt: 0, unread: 0, unreadAt: 0, groups: "", leadId: "" };
+      let asking = { id: "", at: -1 };
+      let news = { id: "", at: -1 };
+      const groups: string[] = [];
       for (const key of keysKey ? keysKey.split("\n") : []) {
-        const [leaderId = "", threadKey = ""] = key.split("\t");
+        const [id = "", leaderId = "", threadKey = ""] = key.split("\t");
+        let questions = 0;
+        let unread = 0;
         for (const notification of state.sessionNotifications.get(leaderId) ?? []) {
           if (notification.done) continue;
           if (resolveNotificationOwnerThreadKey(notification) !== normalizeThreadKey(threadKey)) continue;
           const at = notification.timestamp ?? 0;
           if (notification.category === "needs-input") {
-            result.questions++;
+            questions++;
             result.questionsAt = Math.max(result.questionsAt, at);
+            if (at > asking.at) asking = { id, at };
           } else if (notification.category === "review") {
-            result.unread++;
+            unread++;
             result.unreadAt = Math.max(result.unreadAt, at);
+            if (at > news.at) news = { id, at };
           }
         }
+        result.questions += questions;
+        result.unread += unread;
+        const group: ThreadGroupId =
+          questions > 0
+            ? "needs-input"
+            : unread > 0
+              ? "new-results"
+              : isLeaderThreadRunning(state, leaderId, threadKey)
+                ? "in-progress"
+                : "idle";
+        groups.push(`${id}\t${group}`);
       }
+      result.groups = groups.join("\n");
+      result.leadId = asking.id || news.id;
       return result;
     }),
   );
+  const groups = new Map(
+    (summary.groups ? summary.groups.split("\n") : []).map((line) => line.split("\t") as [string, ThreadGroupId]),
+  );
+  return { ...summary, groups };
 }
 
 /**
@@ -472,7 +614,7 @@ function SideChatFocus({ chatId, onScreen, children }: { chatId: string; onScree
   );
 }
 
-/** One item's header in the stack: its kind, its name, and its actions. */
+/** A chat's title row in the stack (or the Topics section's): its status, its name, and its actions. */
 function SideItemRow({
   mainLeaderId,
   item,
@@ -484,12 +626,11 @@ function SideItemRow({
   open: boolean;
   onOpen: () => void;
 }) {
-  // A conversation reads as its leader's: its names, unread answers and portrait. A quest's details
-  // read as its leader's; the Topics section as the main view's leader's.
-  const questLeader = useQuestLeader(item?.kind === "quest" ? item.questId : null);
-  const owner = (item ? (sideItemLeader(item) ?? questLeader) : null) ?? mainLeaderId ?? "";
-  // The thread whose status the row shows: its conversation, or the quest whose details it shows.
-  const statusKey = item?.kind === "conversation" ? item.threadKey : item?.kind === "quest" ? item.questId : null;
+  // A conversation reads as its leader's: its names, unread answers and portrait; the Topics section
+  // as the main view's leader's.
+  const owner = (item ? sideItemLeader(item) : null) ?? mainLeaderId ?? "";
+  // The thread whose status the row shows: its conversation's.
+  const statusKey = item?.kind === "conversation" ? item.threadKey : null;
   const unreadIn = useOpenIn(owner, statusKey, "review");
   const questionsIn = useOpenIn(owner, statusKey, "needs-input");
   const unread = unreadIn.count;
@@ -515,17 +656,7 @@ function SideItemRow({
   // answers, then work going on, else Idle. Its dot has that group's color and no other.
   const group: ThreadGroupId =
     questions > 0 ? "needs-input" : unread > 0 ? "new-results" : running ? "in-progress" : "idle";
-  // Right-click (or long-press on touch): the row's own buttons, named.
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const longPress = useLongPress(item ? (x, y) => setMenu({ x, y }) : undefined);
-  const menuItems = (): ContextMenuItem[] => {
-    if (!item) return [];
-    const moveOut = sideItemMoveOut(item);
-    return [
-      ...(moveOut ? [{ label: moveOut.label, onClick: () => moveOut.go(false) }] : []),
-      { label: "Remove from the side column", onClick: () => closeSideItem(item.id) },
-    ];
-  };
+  const { longPress, menu } = useRowMenu(item);
   return (
     <>
       <div
@@ -552,10 +683,7 @@ function SideItemRow({
         >
           <SideItemIcon leaderId={owner} item={item} group={group} />
           {/* Whose conversation it is (Jiayi, Nov 1): the leader's portrait, as Threads view rows show. */}
-          {(item?.kind === "conversation" ||
-            item?.kind === "new-chat" ||
-            item?.kind === "quest" ||
-            item?.kind === "home") && <LeaderIcon leaderId={owner} />}
+          {(item?.kind === "conversation" || item?.kind === "new-chat") && <LeaderIcon leaderId={owner} />}
           <span className={`min-w-0 truncate ${open ? "text-cc-fg" : "text-cc-fg/80"}`}>
             <SideItemTitle leaderId={owner} item={item} />
           </span>
@@ -586,10 +714,115 @@ function SideItemRow({
         </div>
         <ItemActions item={item} />
       </div>
-      {/* Outside the row, so presses in the menu do not reach its gestures. */}
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />}
+      {menu}
     </>
   );
+}
+
+/**
+ * A page's bar in the stack (a quest's details, an artifact, a Home, a pinned topic page): quieter
+ * and slimmer than a chat's title row, with no status or portrait, since the page under it carries
+ * its own title and status (Jiayi, Nov 6: pages were framed like chats). Open, it names only the
+ * kind of page (a quest by its number); folded, it adds the page's name. Like a chat's row, it folds
+ * the page and has its move-out action and the ×.
+ */
+function PageItemRow({ item, open, onOpen }: { item: SideItem; open: boolean; onOpen: () => void }) {
+  const { longPress, menu } = useRowMenu(item);
+  return (
+    <>
+      <div
+        className={`flex h-8 shrink-0 items-center gap-2 border-b border-cc-border/50 pl-3 pr-1.5 text-[12px] text-cc-muted ${LONG_PRESS_TARGET_CLASS} ${
+          open ? "" : "hover:bg-cc-hover/30"
+        }`}
+        data-testid="side-page-row"
+        data-open={open}
+        {...longPress.handlers}
+        style={longPress.pressStyle}
+      >
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onOpen}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+            event.preventDefault();
+            onOpen();
+          }}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left hover:text-cc-fg"
+          aria-expanded={open}
+          title={open ? "Fold this page" : "Show this page"}
+        >
+          <PageIcon item={item} />
+          <span className="min-w-0 truncate">
+            <PageName item={item} full={!open} />
+          </span>
+        </div>
+        <ItemActions item={item} />
+      </div>
+      {menu}
+    </>
+  );
+}
+
+/** A page's name: its kind (a quest by its number), and with `full` its title too. */
+function PageName({ item, full }: { item: SideItem; full: boolean }) {
+  switch (item.kind) {
+    case "quest":
+      return (
+        <>
+          <span className="font-mono-code">{item.questId}</span>
+          {full && (
+            <span className="text-cc-fg/80">
+              {" "}
+              <QuestTitle questId={item.questId} />
+            </span>
+          )}
+        </>
+      );
+    case "artifact":
+      return full ? <span className="text-cc-fg/80">{item.title ?? "Artifact"}</span> : <>Artifact</>;
+    case "topic":
+      return full ? <PinnedTopicName leaderId={item.leaderId} topicId={item.topicId} /> : <>Topic</>;
+    case "home":
+      return <HomeTitle leaderId={item.leaderId} />;
+    default:
+      // Chats have title rows of their own.
+      return null;
+  }
+}
+
+function QuestTitle({ questId }: { questId: string }) {
+  return <>{useQuestRecord(questId)?.title ?? ""}</>;
+}
+
+function PinnedTopicName({ leaderId, topicId }: { leaderId: string; topicId: string }) {
+  const topic = useKnownTopicBrief(leaderId, topicId);
+  return <span className="text-cc-fg/80">{topic?.name ?? "Topic"}</span>;
+}
+
+function PageIcon({ item }: { item: SideItem }) {
+  const className = "h-3.5 w-3.5 shrink-0";
+  if (item.kind === "artifact") return <LibraryIcon className={className} />;
+  if (item.kind === "topic") return <TopicIcon className={className} />;
+  if (item.kind === "home") return <HomeIcon className={className} />;
+  return <QuestPageIcon className={className} />;
+}
+
+/** A row's right-click (or long-press on touch) menu: its own buttons, named. */
+function useRowMenu(item: SideItem | null) {
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const longPress = useLongPress(item ? (x, y) => setAt({ x, y }) : undefined);
+  const items = (): ContextMenuItem[] => {
+    if (!item) return [];
+    const moveOut = sideItemMoveOut(item);
+    return [
+      ...(moveOut ? [{ label: moveOut.label, onClick: () => moveOut.go(false) }] : []),
+      { label: "Remove from the side column", onClick: () => closeSideItem(item.id) },
+    ];
+  };
+  // Outside the row, so presses in the menu do not reach its gestures.
+  const menu = at ? <ContextMenu x={at.x} y={at.y} items={items()} onClose={() => setAt(null)} /> : null;
+  return { longPress, menu };
 }
 
 /** The portrait of the leader a side item's conversation is with, named on hover. */
@@ -720,25 +953,19 @@ function SideItemBody({
   }
 }
 
+/** A chat's title, or the Topics section's name (the page under it names its topic). */
 function SideItemTitle({ leaderId, item }: { leaderId: string; item: SideItem | null }) {
-  const pinned = useKnownTopicBrief(leaderId, item?.kind === "topic" ? item.topicId : undefined);
-  // The section's name: the page under it names its topic.
   if (!item) return <>Topics</>;
   switch (item.kind) {
-    case "topic":
-      return <>{pinned?.name ?? "Topic"}</>;
     case "conversation":
       return <SideConversationTitle leaderId={leaderId} threadKey={item.threadKey} />;
     case "new-chat":
       return <NewChatWithTitle leaderId={item.leaderId} />;
-    case "artifact":
-      return <>{item.title ?? "Artifact"}</>;
-    case "quest":
-      return <SideQuestTitle leaderId={leaderId} questId={item.questId} />;
     case "session":
       return <SideSessionTitle sessionId={item.sessionId} />;
-    case "home":
-      return <HomeTitle leaderId={item.leaderId} />;
+    default:
+      // Pages have bars of their own (`PageItemRow`).
+      return null;
   }
 }
 
@@ -783,17 +1010,6 @@ function SideQuestThreadTitle({ leaderId, questId }: { leaderId: string; questId
     <>
       <SideQuestNumber questId={questId} /> {sideQuestOf && <SideQuestMark sideQuestOf={sideQuestOf} />}
       <ThreadOriginName leaderId={leaderId} threadKey={questId} />
-    </>
-  );
-}
-
-function SideQuestTitle({ leaderId, questId }: { leaderId: string; questId: string }) {
-  const quest = useQuestRecord(questId);
-  const sideQuestOf = useSideQuestOf(leaderId, questId);
-  return (
-    <>
-      <SideQuestNumber questId={questId} /> {sideQuestOf && <SideQuestMark sideQuestOf={sideQuestOf} />}
-      {quest?.title ?? ""}
     </>
   );
 }
@@ -846,14 +1062,13 @@ function SideItemIcon({
   const key = item?.kind === "conversation" ? item.threadKey.toLowerCase() : "";
   const thread = useKnownThreadOfKey(leaderId, isTopicViewKey(key) ? key : "");
   const className = "h-3.5 w-3.5 shrink-0";
-  if (!item || item.kind === "topic") return <TopicIcon className={`${className} text-cc-primary`} />;
-  if (item.kind === "artifact") return <LibraryIcon className={`${className} text-cc-primary`} />;
+  // The Topics section (pages have `PageIcon`).
+  if (!item || !isChatItem(item)) return <TopicIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "session") return <SessionIcon className={`${className} text-cc-muted`} />;
-  if (item.kind === "home") return <HomeIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "new-chat" || (thread && group === "idle"))
     return <NewThreadIcon className={`${className} text-cc-primary`} />;
   if (isTopicViewKey(key) && !thread) return <TopicIcon className={`${className} text-cc-primary`} />;
-  // A quest (its conversation or its details), or a thread with something to show: its status
+  // A quest's conversation, or a thread with something to show: its status
   // group's dot, the same rule and colors as the status row's. A quest's lifecycle (done, Memory)
   // is not a status here; a finished quest with nothing waiting is Idle.
   return (
@@ -865,12 +1080,6 @@ function SideItemIcon({
       />
     </span>
   );
-}
-
-/** The leader a quest belongs to, once its record is here. */
-function useQuestLeader(questId: string | null): string | null {
-  const quest = useQuestRecord(questId);
-  return quest ? getQuestLeaderSessionId(quest) : null;
 }
 
 /** Open notifications of a kind (unread answers, questions) in one of the leader's threads. */
@@ -904,6 +1113,22 @@ function HomeIcon({ className }: { className: string }) {
         strokeLinejoin="round"
       />
       <path d="M4 6.25v6.75h8V6.25" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** A quest's details page: a page with a check, for the work it describes. */
+function QuestPageIcon({ className }: { className: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path d="M4 2.5h5.5L12 5v8.5H4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path
+        d="M6 9l1.5 1.5L10 8"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
