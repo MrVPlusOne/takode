@@ -47,10 +47,13 @@ interface JournalCache {
   messages: RowRange[];
   tools: RowRange[];
 }
+export type RowSpan = [start: number, end: number];
 /** Leading rows the caller has not changed since its last save; they are live objects, not captured copies. */
 export interface UnchangedHistoryPrefix {
   messages: number;
   tools: number;
+  /** Ranges `[start, end)` inside the prefix that are read and compared anyway, to catch edits nobody reported. */
+  recheck?: { messages: RowSpan[]; tools: RowSpan[] };
 }
 interface JournalIndex {
   strings: Map<number, StringRange>;
@@ -493,34 +496,33 @@ export class SessionHistoryJournal {
     const generation = previous?.head.generation ?? randomUUID();
     const path = historyPath(this.dir, sessionId, generation);
     const values = [rows.messages, rows.tools];
-    const unchanged = [rows.unchanged.messages, rows.unchanged.tools];
-    const frozenEnds = [rows.frozenCount, rows.frozenToolCount];
-    const committedFrozen = [previous?.head.frozenCount ?? 0, previous?.head.frozenToolCount ?? 0];
-    // The committed frozen prefix changes only through repairs, which pass no unchanged rows, so an
-    // ordinary save reuses it without reading it: re-digesting a large leader's whole history on
-    // every save blocked the event loop for over a second.
-    const reuse =
-      previous !== undefined &&
-      [0, 1].every(
-        (k) =>
-          unchanged[k] >= committedFrozen[k] &&
-          frozenEnds[k] >= committedFrozen[k] &&
-          values[k].length >= committedFrozen[k],
-      );
-    const trusted = reuse ? committedFrozen : [0, 0];
+    const old = [previous?.messages ?? [], previous?.tools ?? []];
+    // Rows the caller reports unchanged since its last save are reused without being read: re-digesting a
+    // large session's whole history on every save blocked the event loop for over a second. Repairs pass
+    // no unchanged rows.
+    const trusted = [0, 1].map((k) =>
+      Math.min(k === 0 ? rows.unchanged.messages : rows.unchanged.tools, old[k].length, values[k].length),
+    );
+    const recheck = [rows.unchanged.recheck?.messages ?? [], rows.unchanged.recheck?.tools ?? []];
+    const isRead = (kind: number, i: number) =>
+      i >= trusted[kind] || recheck[kind].some(([start, end]) => i >= start && i < end);
     // A row's JSON text is both what is written and, hashed, its identity. Text taken here is also
     // the save's snapshot of rows the caller still holds live.
     const candidates: { text: string; digest: string }[][] = [[], []];
     let sliceStart = performance.now();
     for (let kind = 0; kind < 2; kind++) {
-      for (let i = trusted[kind]; i < values[kind].length; i++) {
-        if (performance.now() - sliceStart > HISTORY_SCAN_SLICE_MS) {
-          await new Promise((resolve) => setImmediate(resolve));
-          rows.onTurn?.();
-          sliceStart = performance.now();
+      const spans: RowSpan[] = [...recheck[kind], [trusted[kind], values[kind].length]];
+      for (const [start, end] of spans) {
+        for (let i = Math.max(0, start); i < Math.min(end, values[kind].length); i++) {
+          if (candidates[kind][i]) continue;
+          if (performance.now() - sliceStart > HISTORY_SCAN_SLICE_MS) {
+            await new Promise((resolve) => setImmediate(resolve));
+            rows.onTurn?.();
+            sliceStart = performance.now();
+          }
+          const text = JSON.stringify(values[kind][i]) ?? "null";
+          candidates[kind][i] = { text, digest: textDigest(text) };
         }
-        const text = JSON.stringify(values[kind][i]) ?? "null";
-        candidates[kind][i] = { text, digest: textDigest(text) };
       }
     }
     const file = await open(path, previous ? "r+" : "wx", 0o600);
@@ -534,15 +536,15 @@ export class SessionHistoryJournal {
       } else await writer.frame(["history", 2, sessionId, generation]);
       const resultRows: RowRange[][] = [[], []];
       for (let kind = 0; kind < 2; kind++) {
-        const old = kind === 0 ? previous?.messages : previous?.tools;
         for (let i = 0; i < values[kind].length; i++) {
-          if (i < trusted[kind]) {
-            resultRows[kind].push(old![i]);
+          const saved = old[kind][i];
+          if (!isRead(kind, i)) {
+            resultRows[kind].push(saved);
             continue;
           }
           const row = candidates[kind][i];
-          if (old?.[i]?.digest === row.digest) {
-            resultRows[kind].push(old[i]);
+          if (saved?.digest === row.digest) {
+            resultRows[kind].push(saved);
             continue;
           }
           const start = writer.position;

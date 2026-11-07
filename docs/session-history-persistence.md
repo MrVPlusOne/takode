@@ -100,6 +100,19 @@ tested; only its cost on a real large session was never measured. Therefore:
   that adding one row to a 10,000-row history
   hashes and writes only a handful of rows. Keep these passing; they count work
   instead of timing it.
+- A turn can stay unfinished for days: Codex steers new input into the running
+  turn, so a busy session may not see a `result` for tens of thousands of rows.
+  In the large-session format an ordinary save therefore also reuses unfinished-turn
+  rows that are still the very objects the previous save was given. A replaced row
+  is a new object and is read. An in-place edit is reported through
+  `saveHistoryEdits` (the same rule as for finished turns) or, if nobody reports
+  it, caught by a 512-row recheck window that moves on every save; the whole
+  unfinished turn is read once more when it finishes and in `flushAll` at
+  shutdown. Turns of up to 512 rows are read whole on every save, as before. The
+  save-cost tests cover a 10,000-row unfinished turn and these edit paths.
+- A save right after a tool result checks the history's trailing previews for
+  replayed duplicates. The replay key of each preview row is remembered by row
+  object, so the check does not hash every earlier preview again.
 - A save step that holds the event loop for more than 200 ms (the level of the
   server's own "Event loop blocked" warnings) logs
   `Slow save blocked the event loop for <ms>ms: session=<id>, messages=<n>, toolResults=<n>`.

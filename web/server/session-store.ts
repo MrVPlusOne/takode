@@ -11,6 +11,7 @@ import {
   SessionHistoryError,
   readSessionHistory,
   type HistoryReference,
+  type RowSpan,
   type UnchangedHistoryPrefix,
 } from "./session-history-journal.js";
 import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
@@ -110,6 +111,9 @@ export interface SearchExcerpt {
 // Edits made after a turn froze, such as thread handoffs and attachments that
 // add refs to older messages, must use saveHistoryEdits(), which rewrites the
 // frozen log; an ordinary save would never write them, in either history format.
+// In the large-session format an ordinary save also reuses rows of the unfinished
+// turn that are still the objects the previous save was given (a Codex turn can
+// stay open for days); see reusedOpenRows() for how their edits are still saved.
 //
 // Tool results are frozen at the same boundary. They only arrive via
 // buildToolResultPreviews() inside handleResultMessage() — the same moment
@@ -311,6 +315,92 @@ function watchSaveTurns(session: PersistedSession): () => void {
   return turn;
 }
 
+/**
+ * Rows of a chunked-format session as its last successful save was given them, so the next save can reuse
+ * rows of an unfinished turn that are still the same objects instead of reading the whole turn again.
+ */
+interface SavedRows {
+  messages: readonly unknown[];
+  toolIds: readonly string[];
+  tools: readonly unknown[];
+  /** Rows the last save read as new or changed. The next save reads them again: a row still being built changes. */
+  fresh: { messages: number; tools: number };
+  /** Where the next rolling recheck of reused unfinished-turn rows starts. */
+  sweep: { messages: number; tools: number };
+  /** Unfinished-turn rows were reused without being read since they last were, so shutdown reads them once. */
+  unread: boolean;
+  /** The last saved payload, for that shutdown read. */
+  payload: PersistedSession;
+}
+
+/**
+ * Reused rows of an unfinished turn that each save reads anyway, in a window that moves on every save. A row
+ * edited in place without being reported (see saveHistoryEdits) is thereby saved within a few saves; the whole
+ * turn is read again when it finishes and at shutdown.
+ */
+const RECHECK_ROWS = 512;
+
+/** The reusable prefix extended over an unfinished turn, with the reused rows this save reads anyway. */
+interface ReusedRows extends UnchangedHistoryPrefix {
+  recheck: { messages: RowSpan[]; tools: RowSpan[] };
+  sweep: SavedRows["sweep"];
+  /** Every reused unfinished-turn row is read by this save. */
+  allRead: boolean;
+}
+
+/**
+ * Extends the frozen prefix over unfinished-turn rows that are still the objects the last save was given, and
+ * picks which of those this save reads anyway. A replaced row is a new object, so it is read; an edit made in
+ * place is caught by the rechecks or reported through saveHistoryEdits.
+ */
+function reusedOpenRows(
+  session: PersistedSession,
+  frozen: UnchangedHistoryPrefix,
+  saved: SavedRows,
+  edited: readonly number[] = [],
+): ReusedRows {
+  const tools = session.toolResults ?? [];
+  let messages = frozen.messages;
+  const messageEnd = Math.min(session.messageHistory.length, saved.messages.length);
+  while (messages < messageEnd && session.messageHistory[messages] === saved.messages[messages]) messages++;
+  for (const index of edited) if (index >= frozen.messages) messages = Math.min(messages, index);
+  let toolCount = frozen.tools;
+  const toolEnd = Math.min(tools.length, saved.tools.length);
+  while (
+    toolCount < toolEnd &&
+    tools[toolCount][0] === saved.toolIds[toolCount] &&
+    tools[toolCount][1] === saved.tools[toolCount]
+  )
+    toolCount++;
+  const message = recheckSpans(frozen.messages, messages, saved.fresh.messages, saved.sweep.messages);
+  const tool = recheckSpans(frozen.tools, toolCount, saved.fresh.tools, saved.sweep.tools);
+  return {
+    messages,
+    tools: toolCount,
+    recheck: { messages: message.spans, tools: tool.spans },
+    sweep: { messages: message.next, tools: tool.next },
+    allRead: message.allRead && tool.allRead,
+  };
+}
+
+/** Rows `[start, end)` are reused: read again the ones the last save found new, and a moving window of the rest. */
+function recheckSpans(start: number, end: number, fresh: number, sweep: number) {
+  if (end - start <= RECHECK_ROWS) return { spans: [[start, end]] as RowSpan[], next: start, allRead: true };
+  const from = sweep >= start && sweep < end ? sweep : start;
+  const to = Math.min(end, from + RECHECK_ROWS);
+  return {
+    spans: [
+      [Math.max(start, fresh), end],
+      [from, to],
+    ] as RowSpan[],
+    next: to >= end ? start : to,
+    allRead: false,
+  };
+}
+
+/** Replay keys of preview rows, by row object. Copies made for a save are new objects and get their own entry. */
+const previewReplayKeys = new WeakMap<object, string>();
+
 /** Captures a session for saving, sharing (not copying) the given leading history and tool-result rows. */
 function captureSession(session: PersistedSession, shared: UnchangedHistoryPrefix): PersistedSession {
   const { messageHistory, toolResults } = session;
@@ -377,6 +467,7 @@ export class SessionStore {
   private frozenCounts = new Map<string, number>();
   /** Same for tool results — how many entries are in the frozen JSONL. */
   private frozenToolResultCounts = new Map<string, number>();
+  private savedRows = new Map<string, SavedRows>();
   /** Estimated size of each small session's saved rows, so format checks need not re-read them. */
   private savedHistorySizes = new Map<string, { messages: number; tools: number; bytes: number }>();
 
@@ -589,6 +680,19 @@ export class SessionStore {
     if (message.type !== "tool_result_preview" || !Array.isArray(message.previews) || message.previews.length === 0) {
       return null;
     }
+    // Saves after a tool result check the tail against every earlier preview; hashing them all again on each
+    // such save blocked the event loop for hundreds of ms on large sessions. Previews are never edited in place.
+    let key = previewReplayKeys.get(message);
+    if (key === undefined) {
+      key = SessionStore.computeToolResultPreviewReplayKey(message);
+      previewReplayKeys.set(message, key);
+    }
+    return key;
+  }
+
+  private static computeToolResultPreviewReplayKey(
+    message: Extract<BrowserIncomingMessage, { type: "tool_result_preview" }>,
+  ): string {
     return valueDigest(
       captureJson(
         message.previews.map((preview) => ({
@@ -891,7 +995,8 @@ export class SessionStore {
     return this.enqueueWrite(session.id, () => {
       // Decide when the write runs: earlier queued writes may freeze an edited entry.
       const frozen = this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0;
-      return this.writeSnapshot(session, editedIndices.some((index) => index < frozen) ? frozen : undefined);
+      if (editedIndices.some((index) => index < frozen)) return this.writeSnapshot(session, frozen);
+      return this.writeSnapshot(session, undefined, { edited: editedIndices });
     }).done;
   }
 
@@ -926,7 +1031,11 @@ export class SessionStore {
     return this.enqueueWrite(session.id, () => this.writeSnapshot(snapshot), coalescible && !reverted);
   }
 
-  private async writeSnapshot(session: PersistedSession, repairCount?: number): Promise<void> {
+  private async writeSnapshot(
+    session: PersistedSession,
+    repairCount?: number,
+    options: { edited?: readonly number[]; readAll?: boolean } = {},
+  ): Promise<void> {
     const previous = this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0;
     const previousTools = this.frozenToolResultCounts.get(session.id) ?? session._frozenToolResultCount ?? 0;
     // Saved frozen rows change only through repairs (saveHistoryEdits), so an ordinary save shares
@@ -938,6 +1047,21 @@ export class SessionStore {
             tools: Math.min(previousTools, session.toolResults?.length ?? 0),
           }
         : { messages: 0, tools: 0 };
+    const payload = session;
+    const saved = this.savedRows.get(session.id);
+    this.savedRows.delete(session.id);
+    // A turn can stay open for days (Codex steers new input into the running turn), so the unfinished
+    // turn's rows are reused too while they are still the objects the last save was given.
+    const open =
+      saved && unchanged.messages === previous && unchanged.tools === previousTools
+        ? reusedOpenRows(session, unchanged, saved, options.edited)
+        : undefined;
+    if (open) unchanged = { messages: open.messages, tools: open.tools };
+    const live = {
+      messages: session.messageHistory.slice(),
+      toolIds: (session.toolResults ?? []).map(([id]) => id),
+      tools: (session.toolResults ?? []).map(([, value]) => value),
+    };
     const turn = watchSaveTurns(session);
     // Admission captures nested payload and pending ownership before any await.
     try {
@@ -974,6 +1098,13 @@ export class SessionStore {
     let frozenTools = Math.min(previousTools, toolResults.length);
     if (repairCount === undefined && (rewrite || cutoff > previous)) {
       frozenTools = frozenCount > 0 ? toolResults.length : 0;
+    }
+    // A finished turn's rows are trusted for good once frozen, so they are all read once more as it freezes.
+    const readAll = !open || open.allRead || options.readAll || frozenCount > previous;
+    if (open && unchanged.messages + unchanged.tools > 0) {
+      unchanged.recheck = readAll
+        ? { messages: [[previous, unchanged.messages]], tools: [[previousTools, unchanged.tools]] }
+        : open.recheck;
     }
     let failureKey = `hot:${session.id}`;
     try {
@@ -1035,6 +1166,15 @@ export class SessionStore {
         this.historyReferences.set(session.id, head);
         this.frozenCounts.set(session.id, frozenCount);
         this.frozenToolResultCounts.set(session.id, frozenTools);
+        if (cleaned.removedCount === 0 && !session.archived) {
+          this.savedRows.set(session.id, {
+            ...live,
+            fresh: { messages: unchanged.messages, tools: unchanged.tools },
+            sweep: open?.sweep ?? { messages: 0, tools: 0 },
+            unread: !readAll,
+            payload,
+          });
+        }
         this.persistenceFailures.delete(`hot:${session.id}`);
         this.persistenceFailures.delete(`frozen:${session.id}`);
         this.failedSaves.delete(session.id);
@@ -1143,6 +1283,8 @@ export class SessionStore {
   }
 
   private async loadOwned(sessionId: string, restoreMetrics?: SessionRestoreMetrics): Promise<PersistedSession | null> {
+    // Loaded rows are new objects; none of them is the row a previous save was given.
+    this.savedRows.delete(sessionId);
     let hot: PersistedSession;
     let raw: string;
     try {
@@ -1480,6 +1622,13 @@ export class SessionStore {
       this.pendingSaves.clear();
       for (const session of pending) this.saveSync(session);
       await Promise.allSettled([...this.inflightWrites]);
+      // Saves reuse unfinished-turn rows without reading every one, so an edit nobody reported could still be
+      // unsaved; read them all once before the process ends.
+      for (const [sessionId, saved] of this.savedRows) {
+        if (!saved.unread || this.failedSaves.has(sessionId)) continue;
+        this.enqueueWrite(sessionId, () => this.writeSnapshot(saved.payload, undefined, { readAll: true }));
+      }
+      await Promise.allSettled([...this.inflightWrites]);
     } while (this.pendingSaves.size > 0 || this.inflightWrites.size > 0);
     if (this.persistenceFailures.size > 0) {
       throw new AggregateError(
@@ -1516,6 +1665,7 @@ export class SessionStore {
       this.frozenCounts.delete(sessionId);
       this.frozenToolResultCounts.delete(sessionId);
       this.savedHistorySizes.delete(sessionId);
+      this.savedRows.delete(sessionId);
       this.requestedHistoryLengths.delete(sessionId);
       this.failedSaves.delete(sessionId);
       this.persistenceFailures.delete(`hot:${sessionId}`);
