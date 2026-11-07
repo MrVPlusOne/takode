@@ -11,7 +11,7 @@ import { Composer } from "./Composer.js";
 import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { threadNameFromMessage } from "./side-column/thread-names.js";
-import { sideComposerDraftKey } from "../draft-sync-bridge.js";
+import { homeComposerDraftKey } from "../draft-sync-bridge.js";
 import { useLeaderThreadMembers, type PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
 
 /**
@@ -108,12 +108,7 @@ export function NewThreadComposer({ leaderId }: { leaderId: string }) {
     [leaderId],
   );
   return (
-    <Composer
-      sessionId={leaderId}
-      threadKey="main"
-      draftKey={sideComposerDraftKey(leaderId, "home")}
-      newThread={newThread}
-    />
+    <Composer sessionId={leaderId} threadKey="main" draftKey={homeComposerDraftKey(leaderId)} newThread={newThread} />
   );
 }
 

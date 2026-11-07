@@ -32,6 +32,11 @@ export function sideComposerDraftKey(sessionId: string, place: string): string {
   return `${sessionId}${SIDE_PLACE_SEPARATOR}${place.toLowerCase()}`;
 }
 
+/** The draft of a leader's Home message box, which starts a new thread. */
+export function homeComposerDraftKey(leaderId: string): string {
+  return sideComposerDraftKey(leaderId, "home");
+}
+
 /** The session and synced draft a `composerDrafts` key belongs to. */
 export function composerDraftOwner(key: string): { sessionId: string; target: LocalDraftTarget } {
   const at = key.indexOf(SIDE_PLACE_SEPARATOR);

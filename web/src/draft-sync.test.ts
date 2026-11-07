@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionDraftsState } from "../shared/session-drafts.js";
+import { readSessionDraftWriteRequest, type SessionDraftsState } from "../shared/session-drafts.js";
 import { applySessionDraftWrite } from "../server/bridge/session-drafts-controller.js";
 import type { SessionNotification } from "../server/session-types.js";
 
@@ -27,7 +27,10 @@ vi.mock("./api/session-drafts.js", async (importOriginal) => {
     writeSessionDraft: vi.fn(async (sessionId: string, request: any, options: any = {}) => {
       server.writes.push({ sessionId, request, options });
       if (server.offline) throw new Error("offline");
-      const result = applySessionDraftWrite(server.session, request, {
+      // Validated as the route validates it (a 400 there).
+      const parsed = readSessionDraftWriteRequest(JSON.parse(JSON.stringify(request)));
+      if ("error" in parsed) throw new actual.DraftWriteRejectedError(parsed.error);
+      const result = applySessionDraftWrite(server.session, parsed, {
         broadcastToBrowsers: (_session, message) => server.broadcasts.push(message as any),
         persistSession: () => {},
       });
@@ -38,7 +41,7 @@ vi.mock("./api/session-drafts.js", async (importOriginal) => {
 });
 
 import { useStore } from "./store.js";
-import { sideComposerDraftKey } from "./draft-sync-bridge.js";
+import { homeComposerDraftKey, sideComposerDraftKey } from "./draft-sync-bridge.js";
 import {
   markGuidedReviewSent,
   setGuidedReviewAnswer,
@@ -385,6 +388,40 @@ describe("side column draft sync", () => {
     );
     applySessionDraftsSnapshot("s1", server.session.drafts);
     expect(useStore.getState().composerDrafts.has(side("q-7"))).toBe(false);
+  });
+
+  it("keeps the drafts of message boxes that start a new thread across reconnects and reloads", async () => {
+    // Regression: the server refused the Home box's place and the unstarted artifact chat's place,
+    // so the next subscribe (an iPhone app switch reconnects) took their drafts for sent elsewhere
+    // and erased them, images included.
+    const home = homeComposerDraftKey("s1");
+    const artifactChat = side("artifact:0f1e2d3c-4b5a-4968-8776-655443322110");
+    const image = {
+      id: "local-img",
+      name: "copied.png",
+      mediaType: "image/png",
+      base64: "AAAA",
+      status: "ready" as const,
+      prepared: { imageRef: { imageId: "1791000000000-5-c0ffee", media_type: "image/png" }, path: "/p.png" },
+    };
+    useStore.getState().setComposerDraft(home, { text: "first thing I copied", images: [image] });
+    useStore.getState().setComposerDraft(artifactChat, { text: "a question on this report", images: [] });
+    await settle();
+    expect(Object.keys(server.session.drafts?.sideComposers ?? {}).sort()).toEqual([
+      "artifact:0f1e2d3c-4b5a-4968-8776-655443322110",
+      "home",
+    ]);
+
+    // Back from another app: the connection resubscribes and the server sends its drafts.
+    applySessionDraftsSnapshot("s1", server.session.drafts);
+    expect(useStore.getState().composerDrafts.get(home)?.text).toBe("first thing I copied");
+    expect(useStore.getState().composerDrafts.get(home)?.images).toHaveLength(1);
+    expect(useStore.getState().composerDrafts.get(artifactChat)?.text).toBe("a question on this report");
+
+    reload();
+    expect(useStore.getState().composerDrafts.get(home)?.text).toBe("first thing I copied");
+    expect(useStore.getState().composerDrafts.get(home)?.images).toHaveLength(1);
+    expect(useStore.getState().composerDrafts.get(artifactChat)?.text).toBe("a question on this report");
   });
 });
 

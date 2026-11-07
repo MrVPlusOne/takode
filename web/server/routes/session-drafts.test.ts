@@ -125,7 +125,8 @@ describe("session draft routes", () => {
   });
 
   it("keeps the side column's message box drafts by place, newest 30, and refuses unknown places", async () => {
-    // A side draft belongs to Main, a quest or topic thread, or the side chat not started yet ("new").
+    // A side draft belongs to Main, a quest or topic thread, or a box that starts a thread: the side
+    // chat not started yet ("new"), the leader's Home ("home") or an artifact's chat ("artifact:<id>").
     const { session, put } = setup();
     let now = 0;
     vi.spyOn(Date, "now").mockImplementation(() => ++now);
@@ -141,7 +142,12 @@ describe("session draft routes", () => {
     expect(kept).not.toContain("q-1");
     expect(session.drafts?.sideComposers?.["q-31"]?.draft).toEqual({ text: "beside q-31" });
     expect(session.drafts?.composer).toBeUndefined();
-    for (const place of ["../q-1", "Q-2", "all", ""]) {
+    for (const place of ["home", "artifact:0f1e2d3c-4b5a-4968-8776-655443322110"]) {
+      expect(
+        (await put({ clientId: "tab-a", write: { kind: "side-composer", place, draft: { text: "x" } } })).status,
+      ).toBe(200);
+    }
+    for (const place of ["../q-1", "Q-2", "all", "artifact:", "artifact:../x", ""]) {
       expect(
         (await put({ clientId: "tab-a", write: { kind: "side-composer", place, draft: { text: "x" } } })).status,
       ).toBe(400);

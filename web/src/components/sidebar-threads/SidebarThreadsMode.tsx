@@ -6,7 +6,7 @@ import type { LeaderThreadTabsProjectionTab } from "../../../shared/leader-threa
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { useNextAttention } from "../../hooks/useNextAttention.js";
 import { useStore } from "../../store.js";
-import { sideComposerDraftKey } from "../../draft-sync-bridge.js";
+import { homeComposerDraftKey } from "../../draft-sync-bridge.js";
 import { useLeadersThreads } from "../../utils/leader-topics.js";
 import { useCancelledQuestIds } from "../../utils/cancelled-quests.js";
 import { timeAgo } from "../../utils/quest-helpers.js";
@@ -782,7 +782,7 @@ export function ThreadsModeNewButton({
                 navigateToSessionThread(node.leader.id, MAIN_THREAD_KEY, false, node.leader.id, {
                   preserveMainThreadRoute: true,
                 });
-                useStore.getState().focusComposer(sideComposerDraftKey(node.leader.id, "home"), { whenShown: true });
+                useStore.getState().focusComposer(homeComposerDraftKey(node.leader.id), { whenShown: true });
                 onOpened();
               }}
             >

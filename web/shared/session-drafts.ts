@@ -97,8 +97,9 @@ export interface SessionDraftsState {
   revision: number;
   composer?: SyncedComposerDraftEntry;
   /**
-   * The message boxes of a leader's side column, by place: the thread a side conversation shows,
-   * or `new` for the side chat not started yet. At most MAX_SIDE_COMPOSER_DRAFTS, newest kept.
+   * The message boxes of a leader's side column and Home, by place: the thread a side conversation
+   * shows, or a box that starts a thread (see SIDE_DRAFT_PLACE_PATTERN). At most
+   * MAX_SIDE_COMPOSER_DRAFTS, newest kept.
    */
   sideComposers?: Record<string, SyncedComposerDraftEntry>;
   needsInput?: Record<string, SyncedNeedsInputDraftEntry>;
@@ -132,8 +133,13 @@ const MAX_GUIDED_REVIEW_ANSWERS = 60;
 const MAX_GUIDED_REVIEW_LINE_COMMENTS = 200;
 const REVIEW_ID_PATTERN = /^[A-Za-z0-9-]{1,100}$/;
 export const MAX_SIDE_COMPOSER_DRAFTS = 30;
-/** A side message box's place: Main, a quest or topic thread, or `new` for the side chat not started yet. */
-const SIDE_DRAFT_PLACE_PATTERN = /^(new|main|q-\d{1,9}|topic:[a-z0-9-]{1,64})$/;
+/**
+ * A side message box's place: Main, a quest or topic thread, or a box whose thread is not started
+ * yet: `new` (the side chat), `home` (the leader's Home) or `artifact:<id>` (a Library artifact's
+ * chat). Browsers drop a local draft whose place the server does not hold on the next subscribe, so
+ * a box whose place is refused here loses its draft on every reconnect.
+ */
+const SIDE_DRAFT_PLACE_PATTERN = /^(new|home|main|q-\d{1,9}|topic:[a-z0-9-]{1,64}|artifact:[a-z0-9-]{1,64})$/;
 
 /** Identifies a draft within a session, for per-draft bookkeeping. */
 export function sessionDraftKey(
