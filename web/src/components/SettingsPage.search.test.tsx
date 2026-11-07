@@ -302,6 +302,7 @@ describe("SettingsPage groups and search", () => {
       "Performance & Power",
       "Hosts",
       "Server & Login",
+      "Backups",
       "Diagnostics",
     ]);
     for (const subsection of [
@@ -317,6 +318,7 @@ describe("SettingsPage groups and search", () => {
       "Login",
       "Server Slug",
       "Restart",
+      "Backup Destinations",
     ]) {
       expect(settingsSection(subsection)).toBeInTheDocument();
     }

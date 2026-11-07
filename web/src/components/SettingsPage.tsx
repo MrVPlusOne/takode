@@ -35,6 +35,7 @@ import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
 import { NotificationSoundSetSetting } from "./SettingsNotificationSound.js";
 import { SettingsHostsSection } from "./SettingsHostsSection.js";
 import { SettingsUserContentSection } from "./SettingsUserContentSection.js";
+import { SettingsBackupSection } from "./SettingsBackupSection.js";
 import { SettingsLoginSection } from "./SettingsLoginSection.js";
 import { SettingsServerTimeZoneSection } from "./SettingsServerTimeZoneSection.js";
 import {
@@ -1122,6 +1123,11 @@ export function SettingsPage({
                 onRefreshCheckoutStatus={() => void loadCheckoutStatus(true)}
                 isRowHidden={(itemId) => settingsSearch.rowHidden("server", itemId)}
               />
+            </CollapsibleSection>
+
+            {/* ── Backups ──────────────────────────────────────────── */}
+            <CollapsibleSection {...settingsSearch.sectionProps("backups")}>
+              <SettingsBackupSection hidden={settingsSearch.rowHidden("backups", "backup-repo")} />
             </CollapsibleSection>
 
             {/* ── Diagnostics ──────────────────────────────────────── */}

@@ -19,6 +19,7 @@ export type SettingsSectionId =
   | "performance"
   | "hosts"
   | "server"
+  | "backups"
   | "diagnostics";
 
 export type SettingsSectionMeta = {
@@ -324,6 +325,18 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       {
         id: "restart",
         text: "Restart Server process reconnect sessions interrupt restart blockers pending permission checkout branch behind update code fast-forward pull latest install dependencies frozen lockfile update the checkout before restarting",
+      },
+    ],
+  },
+  {
+    id: "backups",
+    title: "Backups",
+    description: "Hourly copies of quests, memory, settings and to-dos in a private Git repository or on your machine.",
+    aliases: ["backup", "restore", "recovery", "data loss", "git repository", "github"],
+    items: [
+      {
+        id: "backup-repo",
+        text: "Backup Destinations private Git GitHub repo URL machine laptop folder copy quests memory settings to-dos Library instructions skills restore test back up now",
       },
     ],
   },

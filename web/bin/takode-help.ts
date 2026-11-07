@@ -76,6 +76,30 @@ need the user's approval (each replaced or moved entry is backed up).
 
 <name> is a machine name from takode host list, or "this" for the server's machine.`;
 
+const BACKUP_HELP = `Usage: takode backup <status|set-repo|set-machine|off|run|test|restore> ...
+
+Backups of this server's data (quests, memory, settings, to-dos, the Library,
+the user's instructions and skills) about once an hour, to a private Git
+repository and/or a Git repository on one of the user's machines (kept up to
+date while that machine is online), with a restore test once a week. See
+docs/backups.md in the Takode repository; an agent there can set one up.
+
+  takode backup status [--json]
+      Destinations, the last backup, machine copy and restore test, failures.
+  takode backup set-repo <git-url>
+      Back up to this repository (the user's choice); a backup starts.
+  takode backup set-machine <machine> <folder>
+      Keep a copy in a Git repository at <folder> on a registered machine
+      (the user's choice); created there if the folder is new or empty.
+  takode backup off [--repo | --machine]
+      Stop backing up (to one destination); existing copies are kept.
+  takode backup run | test
+      Start a backup, or a restore test, now.
+  takode backup restore --repo <git-url or path> --to <empty folder> [--slug <server slug>]
+      Rebuild a .companion folder and its memory repos from a backup copy,
+      without a server. Touches nothing live; docs/backups.md says how to
+      put it in place.`;
+
 const OPENAI_TEST_KEY_HELP = `Usage: takode openai-test-key [--json]
 
 Print the OpenAI key for tests and experiments that the user set in Settings >
@@ -646,6 +670,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "openai-test-key":
       console.log(OPENAI_TEST_KEY_HELP);
       return true;
+    case "backup":
+      console.log(BACKUP_HELP);
+      return true;
     case "land":
       console.log(args[0] === "gate" ? LAND_GATE_HELP : LAND_HELP);
       return true;
@@ -827,6 +854,7 @@ Commands:
   exec             Run a command on another machine (takode exec --host <machine> -- <command>)
   user-content     The user's instructions and skills on every machine (status, import, take-over)
   openai-test-key  OpenAI key for agent tests and experiments (never use the live key)
+  backup           Back up this server's data (status, set-repo, set-machine, run, restore)
   bundle           Carry commits to the machine of your port target (takode bundle send|fetch)
   land             Land changes on a shared remote branch through the landing queue (takode land test|submit|finish|gate)
   pending  Show pending questions/plans from a herded session

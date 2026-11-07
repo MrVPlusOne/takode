@@ -18,6 +18,7 @@ import type {
 } from "../shared/leader-profile-portraits.js";
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
 import type { DiagnosticsSettings } from "../shared/diagnostics-settings.js";
+import type { BackupHostTarget, BackupStatus } from "../shared/backup-status.js";
 import type { InputTraceReport } from "../shared/input-trace.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import type { SessionActivityPreview } from "../server/session-activity-preview.js";
@@ -1361,6 +1362,11 @@ export const api = {
 
   // Settings
   getSettings: () => get<AppSettings>("/settings"),
+  getBackupStatus: () => get<BackupStatus>("/backup"),
+  setBackupTargets: (targets: { repoUrl?: string; host?: BackupHostTarget | null }) =>
+    put<BackupStatus>("/backup", targets),
+  startBackup: () => post<BackupStatus>("/backup/run"),
+  startBackupRestoreTest: () => post<BackupStatus>("/backup/test"),
   getChangelog: () => get<ChangelogResponse>("/changelog"),
   getCodexDefaultModel: () => get<{ model: string }>("/settings/codex-default-model"),
   getLogs: (query?: LogQuery) => {

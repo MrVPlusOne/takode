@@ -115,6 +115,10 @@ export function setMockState(overrides: Partial<MockStoreState> = {}) {
 export const mockApi = {
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
+  getBackupStatus: vi.fn(),
+  setBackupTargets: vi.fn(),
+  startBackup: vi.fn(),
+  startBackupRestoreTest: vi.fn(),
   getBackendModels: vi.fn(),
   restartServer: vi.fn(),
   getServerCheckout: vi.fn(),
@@ -212,6 +216,14 @@ export function resetSettingsPageMocks() {
   localStorage.removeItem("cc-settings-collapsed");
   localStorage.removeItem("cc-settings-scroll");
   mockApi.getSettings.mockResolvedValue(settingsResponse());
+  mockApi.getBackupStatus.mockResolvedValue({
+    repoUrl: "",
+    host: null,
+    hostName: null,
+    running: null,
+    consecutiveFailures: 0,
+    failureAlerted: false,
+  });
   mockApi.getBackendModels.mockResolvedValue([]);
   mockApi.restartServer.mockResolvedValue({
     ok: true,

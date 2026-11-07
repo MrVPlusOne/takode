@@ -61,7 +61,11 @@ import {
   getSettingsFilePath,
   getServerName,
   initWithPort,
+  updateSettings,
 } from "./settings-manager.js";
+import { BackupService } from "./backup/backup-service.js";
+import { hostLinkRunner } from "./backup/backup-host-sync.js";
+import { createBackupRoutes } from "./routes/backup.js";
 import { PushoverNotifier } from "./pushover.js";
 import { isQuietHour, NeedsInputReminders } from "./needs-input-reminders.js";
 import { todoStore } from "./todo-store.js";
@@ -655,6 +659,20 @@ const needsInputReminders = new NeedsInputReminders({
   send: (alert) => void pushoverNotifier.sendReminder(alert),
 });
 needsInputReminders.start();
+
+// ── Backups of the coordinator's data to the destinations chosen in Settings ──
+const backupTargets = () => ({ repoUrl: getSettings().backupRepoUrl ?? "", host: getSettings().backupHost ?? null });
+const backupService = new BackupService({
+  port,
+  getTargets: backupTargets,
+  getServerSlug: () => getSettings().serverSlug,
+  hostName: (hostId) => hostRegistry.nameOf(hostId) ?? hostId,
+  hosts: hostLinkRunner(hostLinks),
+  sendAlert: (alert) => void pushoverNotifier.sendReminder(alert),
+});
+// Only the production server backs up on its own: a development or validation server may run on a
+// copy of the live settings, and must not push that copy over the real backups unasked.
+if (frontendRequired) backupService.start();
 
 /** Open, unmuted questions waiting for the user: the app-icon badge and the amber attention chip count. */
 function waitingUserQuestions() {
@@ -1443,6 +1461,14 @@ app.route("/api", createHostRoutes(hostRegistry, hostLinks, thisMachine, hostPor
 app.route("/api", createUserActivityRoutes(needsInputReminders));
 app.route(
   "/api",
+  createBackupRoutes(backupService, {
+    getTargets: backupTargets,
+    setTargets: ({ repoUrl, host }) => updateSettings({ backupRepoUrl: repoUrl, backupHost: host }),
+    isHost: (hostId) => hostId !== LOCAL_HOST_ID && hostRegistry.nameOf(hostId) !== null,
+  }),
+);
+app.route(
+  "/api",
   createUserContentRoutes(userContentService, (sessionId, text) =>
     wsBridge.injectUserMessage(sessionId, text, { sessionId: "user-content-setup", sessionLabel: "Takode Settings" }),
   ),
@@ -1521,14 +1547,20 @@ function handleRequest(listener: "main" | "hosts") {
     if (listener === "hosts") {
       const refused = hostPortGate(req, {
         isHostLink: wsRoute?.kind === "host",
-        hasSessionToken: (request) => hasValidSessionToken(request, launcher) || isLandingRunnerRequest(request),
+        hasSessionToken: (request) =>
+          hasValidSessionToken(request, launcher) ||
+          isLandingRunnerRequest(request) ||
+          backupService.isFetchRequest(request),
       });
       if (refused) return refused;
     }
 
     const loginRequired = loginGate(req, {
       login: browserLogin,
-      hasSessionToken: (request) => hasValidSessionToken(request, launcher) || isLandingRunnerRequest(request),
+      hasSessionToken: (request) =>
+        hasValidSessionToken(request, launcher) ||
+        isLandingRunnerRequest(request) ||
+        backupService.isFetchRequest(request),
       selfAuthenticatedPaths: [HOST_LINK_PATH],
     });
     if (loginRequired) return loginRequired;
@@ -1837,6 +1869,7 @@ const shutdown = new ServerShutdown({
     pushoverNotifier.destroy();
     needsInputReminders.destroy();
     todoOverdueAlerts.destroy();
+    backupService.destroy();
     resourceLeaseManager.destroy();
     landingQueue.destroy();
     clearInterval(landingHandoffRetry);

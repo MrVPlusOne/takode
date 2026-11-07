@@ -14,6 +14,7 @@ import {
 } from "./coordinator-lock.js";
 import { machineNameError, readMachineName } from "./machine-identity.js";
 import { MEMORY_MACHINE_STAMPS_MARKER, QUEST_MACHINE_STAMPS_MARKER, SESSION_NUMBERS_FILE } from "./constants.js";
+import { COORDINATOR_SHARED_STATE, coordinatorServerState } from "./coordinator-state.js";
 
 /**
  * Hand a coordinator (one Takode server identity) from this machine to
@@ -371,32 +372,12 @@ async function planHandoff(input: {
     await copyRoot(`settings-secrets-${port}.json`);
     await copyRoot(`web-push/${serverId}.json`);
   }
-  const sharedState = [
-    "questmaster",
-    "questmaster-live",
-    "quest-evidence",
-    "todos",
-    "cron",
-    "streams",
-    "envs",
-    "bundles",
-    "user-instructions",
-    "user-skills",
-  ];
-  for (const path of sharedState) {
+  for (const path of COORDINATOR_SHARED_STATE) {
     await copyRoot(path);
   }
   await copyRoot(`memory/${settings.serverSlug as string}`);
   await copyRoot(`library/${serverId}`);
-  for (const path of [
-    `browser-login/${serverId}.json`,
-    `landing-gates/${serverId}.json`,
-    `landing-queue/${serverId}.json`,
-    `work-tracks/${serverId}.json`,
-    `tree-groups/${serverId}.json`,
-    `new-session-defaults/${serverId}.json`,
-    "session-names.json",
-  ]) {
+  for (const path of coordinatorServerState(serverId)) {
     await copyRoot(path);
   }
   await copyMerged("image-variants");

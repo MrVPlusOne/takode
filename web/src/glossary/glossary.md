@@ -55,6 +55,7 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 
 ## Common workflows
 
+- **Backups**: under Settings > Backups, Takode copies quests, memory, settings (without secrets), to-dos, the Library and your instructions and skills to a private Git repository, a folder on one of your machines, or both, about once an hour, and tests a restore once a week.
 - **Input trace**: an optional recording under Settings > Diagnostics that automatically saves recent input activity to the Takode server to investigate glitches. It records event names and lengths, never what you type or paste; Report input glitch keeps an extra snapshot.
 
 - **Ask for something new**: type it on a leader's Home. A thread starts, gets a name, and becomes a quest's thread if the leader files one.

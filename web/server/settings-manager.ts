@@ -58,6 +58,7 @@ import {
   TRANSCRIPTION_STT_MODELS,
   type BuiltInTranscriptionSttModel,
 } from "../shared/transcription-models.js";
+import type { BackupHostTarget } from "../shared/backup-status.js";
 export interface CompanionSettings {
   /** Display name for this server instance */
   serverName: string;
@@ -75,6 +76,16 @@ export interface CompanionSettings {
   restartUpdatesCheckout?: boolean;
   /** Development diagnostics the user turned on in Settings; all off by default. */
   diagnostics?: DiagnosticsSettings;
+  /**
+   * Git URL of the repository Takode backs its data up to (see docs/backups.md); empty turns
+   * backups off. Optional for backward-compatible tests/mocks.
+   */
+  backupRepoUrl?: string;
+  /**
+   * A repository on a registered machine that a copy of the backup is kept in while that machine is online;
+   * absent when none. Optional for backward-compatible tests/mocks.
+   */
+  backupHost?: BackupHostTarget | null;
   /** Pushover user key for push notifications */
   pushoverUserKey: string;
   /** Pushover API/app token */
@@ -148,6 +159,12 @@ export interface CompanionSettings {
   /** Context limit of leaders' Scribes, in tokens: their conversations compact before passing it. Optional for tests/mocks. */
   scribeContextLimitTokens?: number;
   updatedAt: number;
+}
+
+function normalizeBackupHost(value: unknown): BackupHostTarget | null {
+  if (!value || typeof value !== "object") return null;
+  const { hostId, path } = value as Partial<BackupHostTarget>;
+  return typeof hostId === "string" && hostId && typeof path === "string" && path ? { hostId, path } : null;
 }
 
 /** Which backend a leader's Scribe runs on. */
@@ -263,6 +280,8 @@ let settings: CompanionSettings = {
   serverTimeZone: "",
   restartUpdatesCheckout: true,
   diagnostics: { ...DEFAULT_DIAGNOSTICS_SETTINGS },
+  backupRepoUrl: "",
+  backupHost: null,
   pushoverUserKey: "",
   pushoverApiToken: "",
   pushoverDelaySeconds: 30,
@@ -538,6 +557,8 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     serverTimeZone: typeof raw?.serverTimeZone === "string" ? (canonicalTimeZone(raw.serverTimeZone) ?? "") : "",
     restartUpdatesCheckout: typeof raw?.restartUpdatesCheckout === "boolean" ? raw.restartUpdatesCheckout : true,
     diagnostics: parseDiagnosticsSettings(raw?.diagnostics),
+    backupRepoUrl: typeof raw?.backupRepoUrl === "string" ? raw.backupRepoUrl : "",
+    backupHost: normalizeBackupHost(raw?.backupHost),
     pushoverUserKey: typeof raw?.pushoverUserKey === "string" ? raw.pushoverUserKey : "",
     pushoverApiToken: typeof raw?.pushoverApiToken === "string" ? raw.pushoverApiToken : "",
     pushoverDelaySeconds:
@@ -741,6 +762,8 @@ export function updateSettings(
       | "serverTimeZone"
       | "restartUpdatesCheckout"
       | "diagnostics"
+      | "backupRepoUrl"
+      | "backupHost"
     >
   >,
 ): CompanionSettings {

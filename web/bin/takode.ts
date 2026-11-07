@@ -8,6 +8,7 @@
 import "./caller-cwd.js";
 import { handleInputTrace } from "./takode-input-trace.js";
 import { handleUserContent } from "./takode-user-content-commands.js";
+import { handleBackup } from "./takode-backup-commands.js";
 import { handlePort } from "./takode-port.js";
 import { handleBoard } from "./takode-board.js";
 import { trackCliLatency } from "./cli-latency.js";
@@ -355,6 +356,9 @@ try {
       break;
     case "user-content":
       await handleUserContent(base, args);
+      break;
+    case "backup":
+      await handleBackup(base, args);
       break;
     case "land":
       await handleLand(base, args);

@@ -76,7 +76,7 @@ export interface ExecOutput {
  * about completion packages, banners) is dropped: the command's own output
  * is all that comes back. Other shells (fish, csh) run the command plainly.
  */
-const LOGIN_SHELL_SCRIPT = [
+export const LOGIN_SHELL_SCRIPT = [
   'dir=${2:-$HOME}; case $dir in "~") dir=$HOME ;; "~/"*) dir=$HOME/${dir#"~/"} ;; esac',
   'cd -- "$dir" || exit 1',
   "user=$(id -un 2>/dev/null)",
