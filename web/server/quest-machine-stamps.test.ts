@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { QuestDone } from "./quest-types.js";
+import { readQuestStoreFixture } from "./test-fixtures/quest-store-fixture.js";
 
 let tempDir: string;
 let questStore: typeof import("./quest-store.js");
@@ -59,10 +60,7 @@ describe("stampQuestMachines", () => {
         { author: "agent", text: "Already stamped", ts: 8, authorSessionId: "remote-session", machine: "gpu-box" },
       ],
     });
-    // Production servers run on the live store; move the per-file quests into it.
-    await questStore.bootstrapQuestStore();
-    const storePath = join(tempDir, ".companion", "questmaster-live", "store.json");
-    const before = JSON.parse(await readFile(storePath, "utf-8"));
+    const before = readQuestStoreFixture(join(tempDir, ".companion"));
 
     const result = await migration.stampQuestMachines({
       coordinatorMachine: "laptop",
@@ -75,7 +73,8 @@ describe("stampQuestMachines", () => {
     expect(machines).toEqual(["laptop", "devbox", "laptop", undefined, "laptop", undefined, "gpu-box"]);
 
     // The backup is the store as it was, and the marker says where it is.
-    expect(JSON.parse(await readFile(result!.backupFile, "utf-8")).quests).toEqual(before.quests);
+    const backedUp = JSON.parse(await readFile(result!.backupFile, "utf-8")).quests as { questId: string }[];
+    expect(new Map(backedUp.map((quest) => [quest.questId, quest]))).toEqual(before);
     const marker = JSON.parse(
       await readFile(join(tempDir, ".companion", "questmaster-live", "machine-stamps.json"), "utf-8"),
     );

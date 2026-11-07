@@ -13,15 +13,14 @@ import type { QuestImage, QuestmasterTask } from "./quest-types.js";
 
 type QuestImageStoreDeps<TStore> = {
   getLiveQuestById: (store: TStore, questId: string) => QuestmasterTask | null;
-  getQuest: (questId: string) => Promise<QuestmasterTask | null>;
   liveQuestmasterDir: string;
   mutateLiveQuestStore: <T>(
-    fn: (store: TStore) => Promise<{ store: TStore; result: T }> | { store: TStore; result: T },
+    fn: (
+      store: TStore,
+    ) => Promise<{ store: TStore; result: T; write?: boolean }> | { store: TStore; result: T; write?: boolean },
   ) => Promise<T>;
   normalizeLiveQuest: (quest: QuestmasterTask) => QuestmasterTask;
-  readLiveQuestStore: () => Promise<TStore | null>;
   upsertLiveQuest: (store: TStore, quest: QuestmasterTask) => TStore;
-  writeQuest: (quest: QuestmasterTask) => Promise<void>;
 };
 
 const QUEST_EXT_TO_MIME = Object.fromEntries(
@@ -59,30 +58,18 @@ export async function addQuestImagesToStore<TStore>(
   images: QuestImage[],
   deps: QuestImageStoreDeps<TStore>,
 ): Promise<QuestmasterTask | null> {
-  const liveStore = await deps.readLiveQuestStore();
-  if (liveStore) {
-    return deps.mutateLiveQuestStore(async (store) => {
-      const current = deps.getLiveQuestById(store, questId);
-      if (!current) return { store, result: null };
+  return deps.mutateLiveQuestStore(async (store) => {
+    const current = deps.getLiveQuestById(store, questId);
+    if (!current) return { store, result: null, write: false };
 
-      const existing = current.images ?? [];
-      const updated = {
-        ...current,
-        images: [...existing, ...images],
-        updatedAt: Date.now(),
-      } as QuestmasterTask;
-      return { store: deps.upsertLiveQuest(store, updated), result: deps.normalizeLiveQuest(updated) };
-    });
-  }
-
-  const current = await deps.getQuest(questId);
-  if (!current) return null;
-
-  const existing = current.images ?? [];
-  (current as { images: QuestImage[] }).images = [...existing, ...images];
-  (current as { updatedAt?: number }).updatedAt = Date.now();
-  await deps.writeQuest(current);
-  return current;
+    const existing = current.images ?? [];
+    const updated = {
+      ...current,
+      images: [...existing, ...images],
+      updatedAt: Date.now(),
+    } as QuestmasterTask;
+    return { store: deps.upsertLiveQuest(store, updated), result: deps.normalizeLiveQuest(updated) };
+  });
 }
 
 export async function removeQuestImageFromStore<TStore>(
@@ -90,52 +77,38 @@ export async function removeQuestImageFromStore<TStore>(
   imageId: string,
   deps: QuestImageStoreDeps<TStore>,
 ): Promise<QuestmasterTask | null> {
-  const liveStore = await deps.readLiveQuestStore();
-  if (liveStore) {
-    const result = await deps.mutateLiveQuestStore(async (store) => {
-      const current = deps.getLiveQuestById(store, questId);
-      if (!current)
-        return { store, result: { quest: null as QuestmasterTask | null, imagePath: undefined as string | undefined } };
-      if (!current.images?.length) return { store, result: { quest: current, imagePath: undefined } };
-
-      const image = current.images.find((img) => img.id === imageId);
-      const updated = {
-        ...current,
-        images: current.images.filter((img) => img.id !== imageId),
-        updatedAt: Date.now(),
-      } as QuestmasterTask;
+  const result = await deps.mutateLiveQuestStore(async (store) => {
+    const current = deps.getLiveQuestById(store, questId);
+    if (!current) {
       return {
-        store: deps.upsertLiveQuest(store, updated),
-        result: { quest: deps.normalizeLiveQuest(updated), imagePath: image?.path },
+        store,
+        result: { quest: null as QuestmasterTask | null, imagePath: undefined as string | undefined },
+        write: false,
       };
-    });
-
-    if (result.imagePath && isManagedLiveQuestPath(result.imagePath, deps.liveQuestmasterDir)) {
-      await backupQuestImageFile({
-        filename: imageId,
-        mimeType: "application/octet-stream",
-        path: result.imagePath,
-      }).catch(() => {});
-      await unlink(result.imagePath).catch(() => {});
     }
-    return result.quest;
+    if (!current.images?.length) return { store, result: { quest: current, imagePath: undefined }, write: false };
+
+    const image = current.images.find((img) => img.id === imageId);
+    const updated = {
+      ...current,
+      images: current.images.filter((img) => img.id !== imageId),
+      updatedAt: Date.now(),
+    } as QuestmasterTask;
+    return {
+      store: deps.upsertLiveQuest(store, updated),
+      result: { quest: deps.normalizeLiveQuest(updated), imagePath: image?.path },
+    };
+  });
+
+  if (result.imagePath && isManagedLiveQuestPath(result.imagePath, deps.liveQuestmasterDir)) {
+    await backupQuestImageFile({
+      filename: imageId,
+      mimeType: "application/octet-stream",
+      path: result.imagePath,
+    }).catch(() => {});
+    await unlink(result.imagePath).catch(() => {});
   }
-
-  const current = await deps.getQuest(questId);
-  if (!current) return null;
-  if (!current.images?.length) return current;
-
-  const image = current.images.find((img) => img.id === imageId);
-  (current as { images: QuestImage[] }).images = current.images.filter((img) => img.id !== imageId);
-  (current as { updatedAt?: number }).updatedAt = Date.now();
-  await deps.writeQuest(current);
-
-  if (image?.path && isManagedLiveQuestPath(image.path, deps.liveQuestmasterDir)) {
-    await backupQuestImageFile(image).catch(() => {});
-    await unlink(image.path).catch(() => {});
-  }
-
-  return current;
+  return result.quest;
 }
 
 export async function readQuestImageFileFromDirs(

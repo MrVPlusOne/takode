@@ -12,6 +12,7 @@ import { collectSessionIds, fetchSessionMetadataMap } from "../bin/quest-session
 import type { QuestmasterTask } from "./quest-types.js";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
 import { startCliWriteServer } from "./test-fixtures/cli-write-server-harness.js";
+import { questStoreDir, seedQuestFixture } from "./test-fixtures/quest-store-fixture.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -157,7 +158,12 @@ describe("quest CLI auth fallback", () => {
 
     writeFileSync(
       authPath,
-      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      JSON.stringify({
+        sessionId: "session-file",
+        authToken: "file-token",
+        port,
+        serverId: "test-server-id",
+      }),
       "utf-8",
     );
 
@@ -176,7 +182,10 @@ describe("quest CLI auth fallback", () => {
       );
 
       expect(result.status).toBe(0);
-      expect(JSON.parse(result.stdout)).toMatchObject({ questId: "q-1", sessionId: "session-file" });
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        questId: "q-1",
+        sessionId: "session-file",
+      });
       expect(seenHeaders.some((h) => h["x-companion-session-id"] === "session-file")).toBe(true);
       expect(seenHeaders.some((h) => h["x-companion-auth-token"] === "file-token")).toBe(true);
       expect(seenBodies[0]).toMatchObject({ sessionId: "session-file" });
@@ -218,7 +227,12 @@ describe("quest CLI auth fallback", () => {
 
     writeFileSync(
       authPath,
-      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      JSON.stringify({
+        sessionId: "session-file",
+        authToken: "file-token",
+        port,
+        serverId: "test-server-id",
+      }),
       "utf-8",
     );
 
@@ -308,7 +322,12 @@ describe("quest CLI create image attachments", () => {
       expect(uploadCount).toBe(3);
       const quest = JSON.parse(result.stdout) as {
         title: string;
-        images?: { id: string; filename: string; mimeType: string; path: string }[];
+        images?: {
+          id: string;
+          filename: string;
+          mimeType: string;
+          path: string;
+        }[];
       };
       expect(quest.title).toBe("Quest with images");
       expect(quest.images).toHaveLength(3);
@@ -385,10 +404,10 @@ describe("quest CLI parallel create", () => {
       expect(new Set(quests.map((quest) => quest.questId)).size).toBe(5);
       expect(numericIds).toEqual([1, 2, 3, 4, 5]);
 
-      const questFiles = readdirSync(join(tmp, ".companion", "questmaster"))
-        .filter((name) => /^q-\d+-v1\.json$/.test(name))
-        .sort((a, b) => Number(a.match(/^q-(\d+)-/)?.[1]) - Number(b.match(/^q-(\d+)-/)?.[1]));
-      expect(questFiles).toEqual(["q-1-v1.json", "q-2-v1.json", "q-3-v1.json", "q-4-v1.json", "q-5-v1.json"]);
+      const questFiles = readdirSync(questStoreDir(join(tmp, ".companion")))
+        .filter((name) => /^q-\d+\.json$/.test(name))
+        .sort((a, b) => Number(a.match(/^q-(\d+)/)?.[1]) - Number(b.match(/^q-(\d+)/)?.[1]));
+      expect(questFiles).toEqual(["q-1.json", "q-2.json", "q-3.json", "q-4.json", "q-5.json"]);
     } finally {
       await server.stop();
       rmSync(tmp, { recursive: true, force: true });
@@ -399,49 +418,37 @@ describe("quest CLI parallel create", () => {
 describe("quest CLI grep", () => {
   it("prints quest ids, match fields, and contextual snippets in text mode", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-grep-text-"));
-    const questDir = join(tmp, ".companion", "questmaster");
-    mkdirSync(questDir, { recursive: true });
 
-    writeFileSync(
-      join(questDir, "q-1-v1.json"),
-      JSON.stringify(
+    seedQuestFixture(join(tmp, ".companion"), {
+      id: "q-1-v1",
+      questId: "q-1",
+      version: 1,
+      title: "Add beta search",
+      createdAt: 1,
+      status: "refined",
+      description: "Description without the keyword.",
+    });
+    seedQuestFixture(join(tmp, ".companion"), {
+      id: "q-2-v2",
+      questId: "q-2",
+      version: 2,
+      prevId: "q-2-v1",
+      title: "Feedback quest",
+      createdAt: 2,
+      status: "done",
+      description:
+        "Beta appears in the description too, and the surrounding text is intentionally long so the rendered snippet has to be compact and easy to scan in grouped output.",
+      sessionId: "session-2",
+      claimedAt: 2,
+      verificationItems: [{ text: "Visual review", checked: false }],
+      feedback: [
         {
-          id: "q-1-v1",
-          questId: "q-1",
-          version: 1,
-          title: "Add beta search",
-          createdAt: 1,
-          status: "refined",
-          description: "Description without the keyword.",
+          author: "human",
+          text: "Please keep beta context in the snippet output.",
+          ts: 2,
         },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
-    writeFileSync(
-      join(questDir, "q-2-v2.json"),
-      JSON.stringify(
-        {
-          id: "q-2-v2",
-          questId: "q-2",
-          version: 2,
-          prevId: "q-2-v1",
-          title: "Feedback quest",
-          createdAt: 2,
-          status: "done",
-          description:
-            "Beta appears in the description too, and the surrounding text is intentionally long so the rendered snippet has to be compact and easy to scan in grouped output.",
-          sessionId: "session-2",
-          claimedAt: 2,
-          verificationItems: [{ text: "Visual review", checked: false }],
-          feedback: [{ author: "human", text: "Please keep beta context in the snippet output.", ts: 2 }],
-        },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
+      ],
+    });
 
     try {
       const result = await runQuest(
@@ -472,30 +479,26 @@ describe("quest CLI grep", () => {
 
   it("returns structured JSON without expanding the feedback-match contract", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-grep-json-"));
-    const questDir = join(tmp, ".companion", "questmaster");
-    mkdirSync(questDir, { recursive: true });
 
-    writeFileSync(
-      join(questDir, "q-3-v1.json"),
-      JSON.stringify(
+    seedQuestFixture(join(tmp, ".companion"), {
+      id: "q-3-v1",
+      questId: "q-3",
+      version: 1,
+      title: "Context quest",
+      createdAt: 3,
+      status: "done",
+      description: "alpha in description",
+      sessionId: "session-3",
+      claimedAt: 3,
+      verificationItems: [{ text: "Check it", checked: false }],
+      feedback: [
         {
-          id: "q-3-v1",
-          questId: "q-3",
-          version: 1,
-          title: "Context quest",
-          createdAt: 3,
-          status: "done",
-          description: "alpha in description",
-          sessionId: "session-3",
-          claimedAt: 3,
-          verificationItems: [{ text: "Check it", checked: false }],
-          feedback: [{ author: "agent", text: "Summary: alpha retained in follow-up note", ts: 3 }],
+          author: "agent",
+          text: "Summary: alpha retained in follow-up note",
+          ts: 3,
         },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
+      ],
+    });
 
     try {
       const result = await runQuest(
@@ -514,7 +517,12 @@ describe("quest CLI grep", () => {
       const parsed = JSON.parse(result.stdout) as {
         query: string;
         totalMatches: number;
-        matches: Array<{ questId: string; matchedField: string; feedbackAuthor?: string; feedbackTs?: number }>;
+        matches: Array<{
+          questId: string;
+          matchedField: string;
+          feedbackAuthor?: string;
+          feedbackTs?: number;
+        }>;
       };
       expect(parsed.query).toBe("alpha");
       expect(parsed.totalMatches).toBe(2);
@@ -530,26 +538,16 @@ describe("quest CLI grep", () => {
 
   it("fails fast on invalid regex patterns with a clear error", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-grep-invalid-"));
-    const questDir = join(tmp, ".companion", "questmaster");
-    mkdirSync(questDir, { recursive: true });
 
-    writeFileSync(
-      join(questDir, "q-4-v1.json"),
-      JSON.stringify(
-        {
-          id: "q-4-v1",
-          questId: "q-4",
-          version: 1,
-          title: "Regex failure quest",
-          createdAt: 4,
-          status: "refined",
-          description: "This data should not be searched when the pattern is invalid.",
-        },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
+    seedQuestFixture(join(tmp, ".companion"), {
+      id: "q-4-v1",
+      questId: "q-4",
+      version: 1,
+      title: "Regex failure quest",
+      createdAt: 4,
+      status: "refined",
+      description: "This data should not be searched when the pattern is invalid.",
+    });
 
     try {
       const result = await runQuest(
@@ -607,7 +605,12 @@ describe("quest CLI verification inbox commands", () => {
 
     writeFileSync(
       authPath,
-      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      JSON.stringify({
+        sessionId: "session-file",
+        authToken: "file-token",
+        port,
+        serverId: "test-server-id",
+      }),
       "utf-8",
     );
 
@@ -671,7 +674,12 @@ describe("quest CLI verification inbox commands", () => {
 
     writeFileSync(
       authPath,
-      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      JSON.stringify({
+        sessionId: "session-file",
+        authToken: "file-token",
+        port,
+        serverId: "test-server-id",
+      }),
       "utf-8",
     );
 
@@ -738,7 +746,12 @@ describe("quest CLI completion reminder", () => {
 
     writeFileSync(
       authPath,
-      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      JSON.stringify({
+        sessionId: "session-file",
+        authToken: "file-token",
+        port,
+        serverId: "test-server-id",
+      }),
       "utf-8",
     );
 
@@ -808,7 +821,12 @@ describe("quest CLI completion reminder", () => {
 
     writeFileSync(
       authPath,
-      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      JSON.stringify({
+        sessionId: "session-file",
+        authToken: "file-token",
+        port,
+        serverId: "test-server-id",
+      }),
       "utf-8",
     );
 
@@ -871,7 +889,12 @@ describe("quest CLI completion reminder", () => {
 
     writeFileSync(
       authPath,
-      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      JSON.stringify({
+        sessionId: "session-file",
+        authToken: "file-token",
+        port,
+        serverId: "test-server-id",
+      }),
       "utf-8",
     );
 
@@ -947,7 +970,12 @@ describe("quest CLI completion reminder", () => {
 
     writeFileSync(
       authPath,
-      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      JSON.stringify({
+        sessionId: "session-file",
+        authToken: "file-token",
+        port,
+        serverId: "test-server-id",
+      }),
       "utf-8",
     );
 
@@ -1011,7 +1039,12 @@ describe("quest CLI completion reminder", () => {
 
     writeFileSync(
       authPath,
-      JSON.stringify({ sessionId: "leader-1", authToken: "leader-token", port, serverId: "test-server-id" }),
+      JSON.stringify({
+        sessionId: "leader-1",
+        authToken: "leader-token",
+        port,
+        serverId: "test-server-id",
+      }),
       "utf-8",
     );
 
@@ -1041,30 +1074,20 @@ describe("quest CLI completion reminder", () => {
   // through the server like every write and must still print the same reminder.
   it("prints the same summary-comment reminder on unauthenticated server completion", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-complete-reminder-fallback-"));
-    const questDir = join(tmp, ".companion", "questmaster");
-    mkdirSync(questDir, { recursive: true });
 
     // Seed a minimal in_progress quest directly on disk; the write server reads the same HOME.
-    writeFileSync(
-      join(questDir, "q-1-v2.json"),
-      JSON.stringify(
-        {
-          id: "q-1-v2",
-          questId: "q-1",
-          version: 2,
-          prevId: "q-1-v1",
-          title: "Quest",
-          createdAt: Date.now(),
-          status: "in_progress",
-          description: "Test quest for completion reminder",
-          sessionId: "session-test",
-          claimedAt: Date.now(),
-        },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
+    seedQuestFixture(join(tmp, ".companion"), {
+      id: "q-1-v2",
+      questId: "q-1",
+      version: 2,
+      prevId: "q-1-v1",
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "in_progress",
+      description: "Test quest for completion reminder",
+      sessionId: "session-test",
+      claimedAt: Date.now(),
+    });
 
     const server = await startCliWriteServer(tmp);
 
@@ -1172,7 +1195,11 @@ describe("quest CLI show session numbers", () => {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify([
-            { sessionId: "active-12345678", sessionNum: 42, name: "Active Worker" },
+            {
+              sessionId: "active-12345678",
+              sessionNum: 42,
+              name: "Active Worker",
+            },
             { sessionId: "prev-11111111", sessionNum: 7, archived: true },
           ]),
         );

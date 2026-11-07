@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { readQuestFixture, writeQuestStoreFixture } from "./test-fixtures/quest-store-fixture.js";
 
 let tempDir: string;
 let questStore: typeof import("./quest-store.js");
@@ -25,45 +26,15 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-function liveStoreDir(): string {
-  return join(tempDir, ".companion", "questmaster-live");
-}
-
-function liveStorePath(): string {
-  return join(liveStoreDir(), "store.json");
-}
-
 function backupRoot(): string {
   return join(tempDir, ".companion", "questmaster-backups");
 }
 
 function writeLiveStoreFixture(title = "Original"): void {
-  mkdirSync(liveStoreDir(), { recursive: true });
-  writeFileSync(
-    liveStorePath(),
-    JSON.stringify(
-      {
-        format: "mutable_current_record",
-        version: 1,
-        nextQuestNumber: 2,
-        updatedAt: 1,
-        quests: [
-          {
-            id: "q-1",
-            questId: "q-1",
-            version: 1,
-            title,
-            status: "idea",
-            createdAt: 1,
-            statusChangedAt: 1,
-          },
-        ],
-      },
-      null,
-      2,
-    ),
-    "utf-8",
-  );
+  writeQuestStoreFixture(join(tempDir, ".companion"), {
+    nextQuestNumber: 2,
+    quests: [{ id: "q-1", questId: "q-1", version: 1, title, status: "idea", createdAt: 1, statusChangedAt: 1 }],
+  });
 }
 
 beforeEach(async () => {
@@ -139,10 +110,7 @@ describe("Questmaster local backups", () => {
         quest[key] = [...((quest[key] as unknown[]) ?? []), ...items];
       for (const key of change.removed ?? []) delete quest[key];
     }
-    const live = JSON.parse(readFileSync(join(tempDir, ".companion", "questmaster-live", "store.json"), "utf-8")) as {
-      quests: Record<string, unknown>[];
-    };
-    expect(quest).toEqual(live.quests.find((entry) => entry.questId === "q-1"));
+    expect(quest).toEqual(readQuestFixture(join(tempDir, ".companion"), "q-1"));
   });
 
   it("retains only the configured number of full text snapshots", async () => {

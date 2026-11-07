@@ -40,7 +40,6 @@ export interface SessionCopyRecord {
 }
 
 type LauncherEntry = Record<string, unknown> & { sessionId: string; sessionNum?: number };
-type QuestStore = Record<string, unknown> & { quests: Array<Record<string, unknown> & { questId: string }> };
 type SessionNames = { names: Record<string, string>; leaderCounter: number; userNamed: string[] };
 
 /** Live launcher fields that would let the copy resume or signal the live backend. */
@@ -61,6 +60,8 @@ const LIVE_ONLY_LAUNCHER_FIELDS = [
  */
 export async function addSessionCopy(paths: SessionCopyPaths, sessionRef: string): Promise<SessionCopyRecord> {
   assertSeparateFromLive(paths);
+  await assertQuestFolder(paths.liveCompanionDir);
+  await assertQuestFolder(paths.slotCompanionDir);
   const { dir: liveSessionsDir, entry: liveEntry } = await findLiveSession(paths.liveSessionsRoot, sessionRef);
   const { sessionId } = liveEntry;
 
@@ -150,13 +151,10 @@ export async function removeSessionCopies(paths: SessionCopyPaths, sessionRef: s
   const questIds = new Set(
     targets.flatMap((record) => record.addedQuestIds).filter((questId) => !keptQuestIds.has(questId)),
   );
-  const storePath = questStorePath(paths.slotCompanionDir);
-  const store = await readJson<QuestStore | null>(storePath, null);
-  if (store && questIds.size > 0) {
-    await writeJsonAtomic(storePath, {
-      ...store,
-      quests: store.quests.filter((quest) => !questIds.has(quest.questId)),
-    });
+  const slotQuests = questsDir(paths.slotCompanionDir);
+  if (questIds.size > 0 && (await exists(slotQuests))) {
+    for (const questId of questIds) await rm(join(slotQuests, `${questId}.json`), { force: true });
+    await touchQuestMeta(slotQuests, []);
   }
 
   const namesPath = join(paths.slotCompanionDir, "session-names.json");
@@ -236,25 +234,47 @@ function pausedCopy(session: Record<string, unknown>): Record<string, unknown> {
 async function mergeReferencedQuests(paths: SessionCopyPaths, session: Record<string, unknown>): Promise<string[]> {
   const state = (session.state ?? {}) as { leaderOpenThreadTabs?: { orderedOpenThreadKeys?: string[] } };
   const rows = [...asRows(session.board), ...asRows(session.completedBoard)];
-  const referenced = new Set([
-    ...(state.leaderOpenThreadTabs?.orderedOpenThreadKeys ?? []),
-    ...rows.map((row) => row.questId),
-  ]);
+  const referenced = new Set(
+    [...(state.leaderOpenThreadTabs?.orderedOpenThreadKeys ?? []), ...rows.map((row) => row.questId)].filter((key) =>
+      /^q-\d+$/.test(key),
+    ),
+  );
   if (referenced.size === 0) return [];
-  const live = await readJson<QuestStore | null>(questStorePath(paths.liveCompanionDir), null);
-  if (!live) return [];
-  const storePath = questStorePath(paths.slotCompanionDir);
-  const slot = await readJson<QuestStore | null>(storePath, null);
-  const present = new Set(slot?.quests.map((quest) => quest.questId));
-  const added = live.quests.filter((quest) => referenced.has(quest.questId) && !present.has(quest.questId));
-  if (added.length === 0) return [];
-  const base: QuestStore = slot ?? { ...live, quests: [] };
-  const quests = [...base.quests, ...added];
-  const highest = Math.max(0, ...quests.map((quest) => Number(quest.questId.replace("q-", "")) || 0));
-  const nextQuestNumber = Math.max(Number(base.nextQuestNumber) || 1, highest + 1);
-  await mkdir(join(paths.slotCompanionDir, "questmaster-live"), { recursive: true });
-  await writeJsonAtomic(storePath, { ...base, quests, nextQuestNumber, updatedAt: Date.now() });
-  return added.map((quest) => quest.questId);
+  const liveQuests = questsDir(paths.liveCompanionDir);
+  const slotQuests = questsDir(paths.slotCompanionDir);
+  if (!(await exists(liveQuests))) return [];
+  await mkdir(slotQuests, { recursive: true });
+  const added: string[] = [];
+  for (const questId of [...referenced].sort()) {
+    const source = join(liveQuests, `${questId}.json`);
+    const target = join(slotQuests, `${questId}.json`);
+    if (!(await exists(source)) || (await exists(target))) continue;
+    await cp(source, target);
+    added.push(questId);
+  }
+  if (added.length > 0) await touchQuestMeta(slotQuests, added);
+  return added;
+}
+
+/**
+ * Rewrite the slot's quest meta file so a running slot server sees the
+ * change, keeping its next quest number past every quest added.
+ */
+async function touchQuestMeta(dir: string, addedQuestIds: string[]): Promise<void> {
+  const metaPath = join(dir, "_meta.json");
+  const meta = await readJson<Record<string, unknown>>(metaPath, { format: "quest_per_file", version: 2 });
+  const highest = Math.max(0, ...addedQuestIds.map((questId) => Number(questId.replace("q-", "")) || 0));
+  const nextQuestNumber = Math.max(Number(meta.nextQuestNumber) || 1, highest + 1);
+  await writeJsonAtomic(metaPath, { ...meta, nextQuestNumber });
+}
+
+/** Copies need the quest folder; a HOME whose server has not moved its single-file store yet is refused. */
+async function assertQuestFolder(companionDir: string): Promise<void> {
+  if (await exists(questsDir(companionDir))) return;
+  if (!(await exists(join(companionDir, "questmaster-live", "store.json")))) return;
+  throw new Error(
+    `${companionDir} still keeps its quests in one store.json; start its Takode server once on this build to move them to one file per quest, then copy again.`,
+  );
 }
 
 async function mergeSessionName(paths: SessionCopyPaths, sessionId: string): Promise<boolean> {
@@ -274,8 +294,8 @@ function asRows(value: unknown): Array<{ questId: string }> {
   return Array.isArray(value) ? value.filter((row) => typeof row?.questId === "string") : [];
 }
 
-function questStorePath(companionDir: string): string {
-  return join(companionDir, "questmaster-live", "store.json");
+function questsDir(companionDir: string): string {
+  return join(companionDir, "questmaster-live", "quests");
 }
 
 async function removeFiles(dir: string, names: string[]): Promise<void> {

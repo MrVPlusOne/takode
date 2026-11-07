@@ -1,11 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { questStoreDir, writeQuestStoreFixture } from "./test-fixtures/quest-store-fixture.js";
 
 let tempDir: string;
 let questStore: typeof import("./quest-store.js");
-let cachedJsonFile: typeof import("./cached-json-file.js");
+let questStoreDirModule: typeof import("./quest-store-dir.js");
 
 const mockHomedir = vi.hoisted(() => {
   let dir = "";
@@ -27,8 +28,7 @@ beforeEach(async () => {
   mockHomedir.set(tempDir);
   vi.resetModules();
   questStore = await import("./quest-store.js");
-  cachedJsonFile = await import("./cached-json-file.js");
-  mkdirSync(join(tempDir, ".companion", "questmaster-live"), { recursive: true });
+  questStoreDirModule = await import("./quest-store-dir.js");
   writeLiveStore([
     { questId: "q-1", title: "First", description: "Follow-up of q-2.", feedback: [] },
     { questId: "q-2", title: "Second", feedback: [{ author: "agent", text: "Summary: done", ts: 5 }] },
@@ -39,16 +39,12 @@ afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-function liveStorePath(): string {
-  return join(tempDir, ".companion", "questmaster-live", "store.json");
+function companionDir(): string {
+  return join(tempDir, ".companion");
 }
 
 function writeLiveStore(quests: Record<string, unknown>[]): void {
-  const store = {
-    format: "mutable_current_record",
-    version: 1,
-    nextQuestNumber: quests.length + 1,
-    updatedAt: 1,
+  writeQuestStoreFixture(companionDir(), {
     quests: quests.map((quest, index) => ({
       id: quest.questId,
       version: 1,
@@ -56,13 +52,12 @@ function writeLiveStore(quests: Record<string, unknown>[]): void {
       status: "idea",
       ...quest,
     })),
-  };
-  writeFileSync(liveStorePath(), JSON.stringify(store, null, 2), "utf-8");
+  });
 }
 
 /** What a process with no cache would read: the store parsed fresh from disk. */
 async function freshRead(): Promise<unknown[]> {
-  cachedJsonFile._clearCachedJsonFilesForTests();
+  questStoreDirModule._clearQuestDirCacheForTests();
   return questStore.listQuests();
 }
 
@@ -83,8 +78,8 @@ describe("live quest store cache", () => {
 
   it("caches exactly what a fresh read of the written file returns", async () => {
     // The post-write cache reuses unchanged quests and round-trips only edited
-    // ones through JSON; it must match a full re-parse, including dropped
-    // undefined fields and derived relationships.
+    // ones through JSON; it must match a full re-read of the quest files,
+    // including dropped undefined fields, order and derived relationships.
     await questStore.patchQuest("q-2", { title: "Second, renamed", description: "Now mentions q-1." });
     await questStore.createQuest({ title: "Third", description: "New quest." });
     const cached = await questStore.listQuests();
@@ -94,19 +89,26 @@ describe("live quest store cache", () => {
     );
   });
 
-  it("reloads when another process replaces the store file", async () => {
-    // The server's Codex quest worker writes the store directly, so a changed
-    // file must win over the in-memory copy.
+  it("reloads when another process rewrites the store", async () => {
+    // The server's Codex quest worker writes quest files directly, so changed
+    // files must win over the in-memory copy.
     expect((await questStore.getQuest("q-1"))?.title).toBe("First");
     writeLiveStore([{ questId: "q-1", title: "Replaced elsewhere", feedback: [] }]);
     expect((await questStore.getQuest("q-1"))?.title).toBe("Replaced elsewhere");
     expect(await questStore.getQuest("q-2")).toBeNull();
   });
 
-  it("keeps the written file unchanged in format", async () => {
+  it("writes only the changed quest, as its own pretty-printed file", async () => {
+    // A quest change must cost that quest's file, not the store: the other
+    // quest's file is left exactly as it was (same inode and mtime).
+    const dir = questStoreDir(companionDir());
+    const untouched = statSync(join(dir, "q-2.json"), { bigint: true });
     await questStore.patchQuest("q-1", { title: "First, renamed" });
-    const written = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
-    expect(Object.keys(written)).toEqual(["format", "version", "quests", "nextQuestNumber", "updatedAt"]);
-    expect(readFileSync(liveStorePath(), "utf-8")).toBe(JSON.stringify(written, null, 2));
+    const text = readFileSync(join(dir, "q-1.json"), "utf-8");
+    const written = JSON.parse(text);
+    expect(written.title).toBe("First, renamed");
+    expect(text).toBe(`${JSON.stringify(written, null, 2)}\n`);
+    const after = statSync(join(dir, "q-2.json"), { bigint: true });
+    expect([after.ino, after.mtimeNs]).toEqual([untouched.ino, untouched.mtimeNs]);
   });
 });

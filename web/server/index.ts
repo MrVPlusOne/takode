@@ -289,6 +289,7 @@ if (coordinatorMove) {
 }
 await bootstrapQuestStore({
   log: (message) => serverLog.info(message),
+  logError: (message) => serverLog.error(message),
 });
 // Leader tabs mark side quests from the message each quest was filed from.
 questSources.record(await listQuests());

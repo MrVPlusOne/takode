@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { writeQuestStoreFixture } from "./test-fixtures/quest-store-fixture.js";
 
 let tempDir: string;
 let questStore: typeof import("./quest-store.js");
@@ -40,19 +41,7 @@ async function createClaimedQuest(): Promise<void> {
 }
 
 function enableLiveStore(): void {
-  const liveDir = join(tempDir, ".companion", "questmaster-live");
-  mkdirSync(liveDir, { recursive: true });
-  writeFileSync(
-    join(liveDir, "store.json"),
-    JSON.stringify({
-      format: "mutable_current_record",
-      version: 1,
-      nextQuestNumber: 1,
-      quests: [],
-      updatedAt: 1,
-    }),
-    "utf-8",
-  );
+  writeQuestStoreFixture(join(tempDir, ".companion"), { quests: [] });
 }
 
 describe("quest ownership audit", () => {

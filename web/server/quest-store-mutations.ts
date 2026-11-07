@@ -20,7 +20,6 @@ import {
   commitShaField,
   currentCommitShaFields,
   getLeaderSessionId,
-  nextVersionId,
   normalizeCommitShas,
   normalizeVerificationItems,
 } from "./quest-store-helpers.js";
@@ -54,24 +53,19 @@ export type QuestClaimOptions = {
 };
 
 /** Build a new Quest record without performing persistence. */
-export function buildCreatedQuest(
-  questId: string,
-  input: QuestCreateInput,
-  liveStore: boolean,
-  now = Date.now(),
-): QuestmasterTask {
+export function buildCreatedQuest(questId: string, input: QuestCreateInput, now = Date.now()): QuestmasterTask {
   const status = input.status || "idea";
   const tldr = normalizeTldr(input.tldr);
   const quizItems = normalizeQuestQuizItems(input.quizItems);
   const base = {
-    id: liveStore ? questId : `${questId}-v1`,
+    id: questId,
     questId,
     version: 1,
     title: input.title.trim(),
     ...(input.createdBy ? { createdBy: input.createdBy, lastModifiedBy: input.createdBy } : {}),
     ...(tldr ? { tldr } : {}),
     createdAt: now,
-    ...(liveStore ? { statusChangedAt: now } : {}),
+    statusChangedAt: now,
     ...(input.tags?.length ? { tags: input.tags } : {}),
     ...(input.parentId ? { parentId: input.parentId } : {}),
     ...(normalizeQuestSessionSpaceSlug(input.sessionSpaceSlug)
@@ -87,32 +81,20 @@ export function buildCreatedQuest(
 
   switch (status) {
     case "idea":
-      return liveStore
-        ? normalizeLiveQuest({
-            ...base,
-            status: "idea",
-            ...(input.description ? { description: input.description } : {}),
-          } as QuestIdea)
-        : ({
-            ...base,
-            status: "idea",
-            ...(input.description ? { description: input.description } : {}),
-          } as QuestIdea);
+      return normalizeLiveQuest({
+        ...base,
+        status: "idea",
+        ...(input.description ? { description: input.description } : {}),
+      } as QuestIdea);
     case "refined":
       if (!input.description?.trim()) {
         throw new Error("Description is required for refined status");
       }
-      return liveStore
-        ? normalizeLiveQuest({
-            ...base,
-            status: "refined",
-            description: input.description,
-          } as QuestRefined)
-        : ({
-            ...base,
-            status: "refined",
-            description: input.description,
-          } as QuestRefined);
+      return normalizeLiveQuest({
+        ...base,
+        status: "refined",
+        description: input.description,
+      } as QuestRefined);
     default:
       throw new Error(`Cannot create a quest directly in "${status}" status`);
   }
@@ -122,10 +104,9 @@ export function buildCreatedQuest(
 export function buildTransitionedQuest(
   current: QuestmasterTask,
   input: QuestTransitionInput,
-  options: { liveStore: boolean; now?: number },
+  options: { now?: number } = {},
 ): QuestmasterTask {
   const targetStatus = input.status;
-  const liveStore = options.liveStore;
 
   if (
     targetStatus === current.status &&
@@ -181,11 +162,12 @@ export function buildTransitionedQuest(
       ? mergeQuestRelationships(current.relationships, input.relationships, current.questId)
       : normalizeQuestRelationships(current.relationships, current.questId);
   const base = {
-    id: liveStore ? current.questId : nextVersionId(current.questId, current.version),
+    id: current.questId,
     questId: current.questId,
     version: newVersion,
-    ...(liveStore ? { statusChangedAt: now, createdAt: current.createdAt } : { prevId: current.id, createdAt: now }),
-    ...(liveStore && typeof current.updatedAt === "number" ? { updatedAt: current.updatedAt } : {}),
+    statusChangedAt: now,
+    createdAt: current.createdAt,
+    ...(typeof current.updatedAt === "number" ? { updatedAt: current.updatedAt } : {}),
     ...(current.createdBy ? { createdBy: current.createdBy } : {}),
     ...((input.lastModifiedBy ?? current.lastModifiedBy)
       ? { lastModifiedBy: input.lastModifiedBy ?? current.lastModifiedBy }
@@ -331,7 +313,7 @@ export function buildTransitionedQuest(
       throw new Error(`Unknown status: ${targetStatus}`);
   }
 
-  return liveStore ? normalizeLiveQuest(quest) : quest;
+  return normalizeLiveQuest(quest);
 }
 
 function closeActiveJourneyRuns(runs: QuestJourneyRun[] | undefined, now: number): QuestJourneyRun[] | undefined {
@@ -343,7 +325,6 @@ function closeActiveJourneyRuns(runs: QuestJourneyRun[] | undefined, now: number
 export function buildCancelledQuest(
   current: QuestmasterTask,
   notes: string | undefined,
-  liveStore: boolean,
   provenance?: QuestInvocationProvenance,
 ): QuestDone {
   const now = Date.now();
@@ -362,19 +343,12 @@ export function buildCancelledQuest(
   const cancelJourneyRuns = current.journeyRuns;
   const cancelQuizItems = normalizeQuestQuizItems(current.quizItems);
   const quest: QuestDone = {
-    id: liveStore ? current.questId : nextVersionId(current.questId, current.version),
+    id: current.questId,
     questId: current.questId,
     version: current.version + 1,
-    ...(liveStore
-      ? {
-          createdAt: current.createdAt,
-          statusChangedAt: now,
-          ...(typeof current.updatedAt === "number" ? { updatedAt: current.updatedAt } : {}),
-        }
-      : {
-          prevId: current.id,
-          createdAt: now,
-        }),
+    createdAt: current.createdAt,
+    statusChangedAt: now,
+    ...(typeof current.updatedAt === "number" ? { updatedAt: current.updatedAt } : {}),
     title: current.title,
     ...(current.createdBy ? { createdBy: current.createdBy } : {}),
     ...((provenance ?? current.lastModifiedBy) ? { lastModifiedBy: provenance ?? current.lastModifiedBy } : {}),
@@ -406,7 +380,7 @@ export function buildCancelledQuest(
     ...(notes ? { notes } : {}),
     ...(cancelFeedback?.length ? { feedback: cancelFeedback } : {}),
   } as QuestDone;
-  return liveStore ? (normalizeLiveQuest(quest) as QuestDone) : quest;
+  return normalizeLiveQuest(quest) as QuestDone;
 }
 
 /** Validate and prepare a provider-aware claim transition without writing it. */

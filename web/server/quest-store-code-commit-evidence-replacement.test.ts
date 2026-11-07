@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { readQuestFixture, writeQuestStoreFixture } from "./test-fixtures/quest-store-fixture.js";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -60,41 +61,25 @@ async function createActiveQuestWithEvidence(commitShas: string[] = [OLD_SHA]): 
   await questStore.transitionQuest("q-1", { status: "in_progress", sessionId: "worker-1" });
 }
 
-function liveStorePath(): string {
-  return join(tempDir, ".companion", "questmaster-live", "store.json");
-}
-
 function writeLiveStoreFixture(quest: Record<string, unknown>): void {
-  mkdirSync(join(tempDir, ".companion", "questmaster-live"), { recursive: true });
-  writeFileSync(
-    liveStorePath(),
-    JSON.stringify(
+  writeQuestStoreFixture(join(tempDir, ".companion"), {
+    nextQuestNumber: 2,
+    quests: [
       {
-        format: "mutable_current_record",
-        version: 1,
-        nextQuestNumber: 2,
-        updatedAt: 0,
-        quests: [
-          {
-            id: "q-1",
-            questId: "q-1",
-            version: 3,
-            title: "Active Work",
-            status: "in_progress",
-            description: "Ready",
-            sessionId: "worker-1",
-            claimedAt: 200,
-            createdAt: 100,
-            statusChangedAt: 200,
-            ...quest,
-          },
-        ],
+        id: "q-1",
+        questId: "q-1",
+        version: 3,
+        title: "Active Work",
+        status: "in_progress",
+        description: "Ready",
+        sessionId: "worker-1",
+        claimedAt: 200,
+        createdAt: 100,
+        statusChangedAt: 200,
+        ...quest,
       },
-      null,
-      2,
-    ),
-    "utf-8",
-  );
+    ],
+  });
 }
 
 describe("replaceQuestCodeCommitEvidenceForOwner", () => {
@@ -240,9 +225,9 @@ describe("replaceQuestCodeCommitEvidenceForOwner", () => {
       replacementInput(),
     );
 
-    const persisted = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
-    expect(persisted.quests[0].commitShas).toEqual([NEW_SHA]);
-    expect(persisted.quests[0].codeCommitEvidenceReplacementEvents).toHaveLength(1);
+    const persisted = readQuestFixture(join(tempDir, ".companion"), "q-1");
+    expect(persisted?.commitShas).toEqual([NEW_SHA]);
+    expect(persisted?.codeCommitEvidenceReplacementEvents).toHaveLength(1);
 
     const journalDir = join(tempDir, ".companion", "questmaster-backups", "text", "journal");
     const journalFiles = readdirSync(journalDir);

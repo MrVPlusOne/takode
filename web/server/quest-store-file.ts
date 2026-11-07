@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import { open, rename, unlink } from "node:fs/promises";
 
 /**
- * The live quest store is one JSON file of tens of MB, written as
- * `JSON.stringify(store, null, 2)` after every quest change. Serializing and
- * writing it whole held the server's event loop for about half a second per
- * quest write. Quests a write leaves unchanged are the same frozen objects the
- * previous read returned, so each quest's serialized bytes are cached on the
- * object and the file is assembled from them: a write only serializes the
- * quests it changed, and the bytes are identical to a whole-store stringify.
+ * The whole quest store in the single-file format the store used until
+ * November 2026, `JSON.stringify(store, null, 2)`: what whole-store backups and
+ * the rollback export write. The store itself keeps one file per quest
+ * (quest-store-dir.ts). Quests are frozen objects that stay the same between
+ * reads, so each quest's serialized bytes are cached on the object and the
+ * file is assembled from them: only quests that changed are serialized again,
+ * and the bytes are identical to a whole-store stringify.
  */
 const questBytes = new WeakMap<object, Buffer>();
 

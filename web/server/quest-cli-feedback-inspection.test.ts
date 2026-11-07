@@ -8,13 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startCliWriteServer } from "./test-fixtures/cli-write-server-harness.js";
+import { seedQuestFixture } from "./test-fixtures/quest-store-fixture.js";
 
 type JsonObject = Record<string, unknown>;
 
 function seedQuest(home: string, quest: JsonObject): void {
-  const questDir = join(home, ".companion", "questmaster");
-  mkdirSync(questDir, { recursive: true });
-  writeFileSync(join(questDir, `${quest.id}.json`), JSON.stringify(quest, null, 2), "utf-8");
+  seedQuestFixture(join(home, ".companion"), quest);
 }
 
 function readJson(req: IncomingMessage): Promise<JsonObject> {
@@ -80,8 +79,16 @@ describe("quest CLI feedback inspection", () => {
       sessionId: "session-test",
       claimedAt: Date.now() - 30_000,
       feedback: [
-        { author: "human", text: "Please fix the handoff.", ts: Date.now() - 20_000 },
-        { author: "agent", text: "Summary: initial implementation.", ts: Date.now() - 10_000 },
+        {
+          author: "human",
+          text: "Please fix the handoff.",
+          ts: Date.now() - 20_000,
+        },
+        {
+          author: "agent",
+          text: "Summary: initial implementation.",
+          ts: Date.now() - 10_000,
+        },
       ],
     });
 
@@ -112,7 +119,12 @@ describe("quest CLI feedback inspection", () => {
       claimedAt: Date.now() - 30_000,
       feedback: [
         { author: "human", text: "First human note", ts: 10, addressed: true },
-        { author: "agent", text: "Summary: handled first note", ts: 20, machine: "devbox" },
+        {
+          author: "agent",
+          text: "Summary: handled first note",
+          ts: 20,
+          machine: "devbox",
+        },
         { author: "human", text: "Second human note", ts: 30 },
       ],
     });
@@ -128,8 +140,16 @@ describe("quest CLI feedback inspection", () => {
 
       expect(list.status).toBe(0);
       expect(JSON.parse(list.stdout)).toMatchObject([{ index: 2, author: "human", text: "Second human note" }]);
-      expect(JSON.parse(latest.stdout)).toMatchObject({ index: 2, author: "human", text: "Second human note" });
-      expect(JSON.parse(show.stdout)).toMatchObject({ index: 1, author: "agent", text: "Summary: handled first note" });
+      expect(JSON.parse(latest.stdout)).toMatchObject({
+        index: 2,
+        author: "human",
+        text: "Second human note",
+      });
+      expect(JSON.parse(show.stdout)).toMatchObject({
+        index: 1,
+        author: "agent",
+        text: "Summary: handled first note",
+      });
 
       const textShow = await runQuest(["feedback", "show", "q-2", "1"], baseEnv(tmp), tmp);
       expect(textShow.stdout).toContain("#1 [agent, summary,");
@@ -174,7 +194,10 @@ describe("quest CLI feedback inspection", () => {
       expect(showQuest.stderr).not.toContain("unaddressed human feedback on q-8: #0");
       expect(deleted.status).toBe(1);
       expect(deleted.stderr).toContain("Feedback index 0 was deleted");
-      expect(JSON.parse(live.stdout)).toMatchObject({ index: 1, text: "Live agent note" });
+      expect(JSON.parse(live.stdout)).toMatchObject({
+        index: 1,
+        text: "Live agent note",
+      });
       expect(JSON.parse(status.stdout)).toMatchObject({
         humanFeedbackCount: 1,
         unaddressedHumanFeedbackIndices: [2],
@@ -236,7 +259,14 @@ describe("quest CLI feedback inspection", () => {
       description: "Add feedback.",
       sessionId: "session-test",
       claimedAt: Date.now() - 30_000,
-      feedback: [{ author: "agent", text: "Summary: old", ts: 10, authorSessionId: "session-test" }],
+      feedback: [
+        {
+          author: "agent",
+          text: "Summary: old",
+          ts: 10,
+          authorSessionId: "session-test",
+        },
+      ],
     };
     seedQuest(tmp, quest);
     const seenBodies: JsonObject[] = [];
@@ -250,7 +280,12 @@ describe("quest CLI feedback inspection", () => {
       if (req.method === "POST" && req.url === "/api/quests/q-4/feedback") {
         seenBodies.push(await readJson(req));
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ...quest, feedback: [{ author: "agent", text: "Summary: refreshed", ts: 30 }] }));
+        res.end(
+          JSON.stringify({
+            ...quest,
+            feedback: [{ author: "agent", text: "Summary: refreshed", ts: 30 }],
+          }),
+        );
         return;
       }
       res.writeHead(404, { "content-type": "application/json" });
@@ -292,7 +327,12 @@ describe("quest CLI feedback inspection", () => {
       sessionId: "session-test",
       claimedAt: Date.now() - 30_000,
       feedback: [
-        { author: "agent", text: "Summary: old work", ts: 10, authorSessionId: "session-test" },
+        {
+          author: "agent",
+          text: "Summary: old work",
+          ts: 10,
+          authorSessionId: "session-test",
+        },
         { author: "human", text: "Please update tests", ts: 20 },
       ],
     });
@@ -334,7 +374,14 @@ describe("quest CLI feedback inspection", () => {
       sessionId: "session-test",
       claimedAt: Date.now() - 30_000,
       commitShas: ["abc1234"],
-      feedback: [{ author: "agent", text: "Summary: follow-up ready", ts: 20, authorSessionId: "session-test" }],
+      feedback: [
+        {
+          author: "agent",
+          text: "Summary: follow-up ready",
+          ts: 20,
+          authorSessionId: "session-test",
+        },
+      ],
     });
 
     // Unauthenticated completion goes through the server like every quest write.
@@ -371,7 +418,13 @@ describe("quest CLI feedback inspection", () => {
       description: "Implementation details belong in Summary feedback.",
       sessionId: "session-test",
       claimedAt: Date.now() - 30_000,
-      feedback: [{ author: "agent", text: "Summary: implementation details recorded", ts: 20 }],
+      feedback: [
+        {
+          author: "agent",
+          text: "Summary: implementation details recorded",
+          ts: 20,
+        },
+      ],
     });
 
     // Unauthenticated completion goes through the server like every quest write.
@@ -430,7 +483,15 @@ describe("quest CLI feedback inspection", () => {
         res.end(JSON.stringify({ ...quest, title: "Server title" }));
       } else if (req.method === "POST" && req.url === "/api/sessions/_labels") {
         labelIds = (await readJson(req)).sessionIds;
-        res.end(JSON.stringify([{ sessionId: "session-test", sessionNum: 9, name: "Labelled Worker" }]));
+        res.end(
+          JSON.stringify([
+            {
+              sessionId: "session-test",
+              sessionNum: 9,
+              name: "Labelled Worker",
+            },
+          ]),
+        );
       } else {
         res.writeHead(404);
         res.end(JSON.stringify({ error: "not found" }));

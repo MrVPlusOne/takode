@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readQuestFixture, writeQuestStoreFixture } from "./test-fixtures/quest-store-fixture.js";
 
 let tempDir: string;
 let questStore: typeof import("./quest-store.js");
@@ -32,13 +33,8 @@ afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-function liveStorePath(): string {
-  return join(tempDir, ".companion", "questmaster-live", "store.json");
-}
-
-function writeLiveStoreFixture(store: unknown): void {
-  mkdirSync(join(tempDir, ".companion", "questmaster-live"), { recursive: true });
-  writeFileSync(liveStorePath(), JSON.stringify(store, null, 2), "utf-8");
+function companionDir(): string {
+  return join(tempDir, ".companion");
 }
 
 describe("appendQuestCodeCommitEvidenceForOwner", () => {
@@ -85,11 +81,8 @@ describe("appendQuestCodeCommitEvidenceForOwner", () => {
   });
 
   it("atomically appends Work commit evidence in the live store", async () => {
-    writeLiveStoreFixture({
-      format: "mutable_current_record",
-      version: 1,
+    writeQuestStoreFixture(companionDir(), {
       nextQuestNumber: 2,
-      updatedAt: 0,
       quests: [
         {
           id: "q-1",
@@ -114,22 +107,10 @@ describe("appendQuestCodeCommitEvidenceForOwner", () => {
     );
 
     expect(updated?.commitShas).toEqual(["abc1234", "deadbeef"]);
-    const persisted = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
-    expect(persisted.quests[0].commitShas).toEqual(["abc1234", "deadbeef"]);
+    expect(readQuestFixture(companionDir(), "q-1")?.commitShas).toEqual(["abc1234", "deadbeef"]);
   });
-  it.each([
-    "legacy",
-    "live",
-  ])("retains immutable target approval across %s storage reload and completion", async (mode) => {
+  it("retains immutable target approval across storage reload and completion", async () => {
     // The special leader route owns authorization; ordinary patches cannot write this durable field.
-    if (mode === "live")
-      writeLiveStoreFixture({
-        format: "mutable_current_record",
-        version: 1,
-        nextQuestNumber: 1,
-        quests: [],
-        updatedAt: 1,
-      });
     await questStore.createQuest({ title: "Persist approved target", description: "Ready", status: "refined" });
     await questStore.claimQuest("q-1", "worker");
     const approval = {

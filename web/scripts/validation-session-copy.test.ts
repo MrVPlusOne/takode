@@ -74,13 +74,11 @@ async function fixture(): Promise<SessionCopyPaths> {
   await writeJson(join(liveDir(paths), `${OTHER}.json`), { id: OTHER, state: {} });
   await mkdir(join(live, "images", LEADER), { recursive: true });
   await writeFile(join(live, "images", LEADER, "shot.jpeg"), "jpeg");
-  await mkdir(join(live, "questmaster-live"), { recursive: true });
-  await writeJson(join(live, "questmaster-live", "store.json"), {
-    format: "quest-store",
-    version: 1,
-    nextQuestNumber: 20,
-    quests: ["q-1", "q-10", "q-11", "q-12", "q-13"].map((questId) => ({ questId, title: `live ${questId}` })),
-  });
+  await writeQuestFolder(
+    live,
+    20,
+    ["q-1", "q-10", "q-11", "q-12", "q-13"].map((questId) => ({ questId, title: `live ${questId}` })),
+  );
   await writeJson(join(live, "session-names.json"), {
     names: { [LEADER]: "DevBox takode" },
     leaderCounter: 3,
@@ -90,14 +88,28 @@ async function fixture(): Promise<SessionCopyPaths> {
   // Slot: another worker's session and quest q-10, which must survive every change.
   await writeJson(join(paths.slotSessionsDir, "launcher.json"), [{ sessionId: SLOT_ONLY, sessionNum: 1 }]);
   await writeJson(join(paths.slotSessionsDir, `${SLOT_ONLY}.json`), { id: SLOT_ONLY });
-  await mkdir(join(paths.slotCompanionDir, "questmaster-live"), { recursive: true });
-  await writeJson(join(paths.slotCompanionDir, "questmaster-live", "store.json"), {
-    format: "quest-store",
-    version: 1,
-    nextQuestNumber: 3,
-    quests: [{ questId: "q-10", title: "slot's own q-10" }],
-  });
+  await writeQuestFolder(paths.slotCompanionDir, 3, [{ questId: "q-10", title: "slot's own q-10" }]);
   return paths;
+}
+
+function questsDir(companionDir: string): string {
+  return join(companionDir, "questmaster-live", "quests");
+}
+
+async function writeQuestFolder(companionDir: string, nextQuestNumber: number, quests: { questId: string }[]) {
+  await mkdir(questsDir(companionDir), { recursive: true });
+  for (const quest of quests) await writeJson(join(questsDir(companionDir), `${quest.questId}.json`), quest);
+  await writeJson(join(questsDir(companionDir), "_meta.json"), {
+    format: "quest_per_file",
+    version: 2,
+    nextQuestNumber,
+  });
+}
+
+/** The slot's quests by file, in quest-number order. */
+async function slotQuests(paths: SessionCopyPaths): Promise<unknown[]> {
+  const names = (await readdir(questsDir(paths.slotCompanionDir))).filter((name) => /^q-\d+\.json$/.test(name)).sort();
+  return Promise.all(names.map((name) => readJson(join(questsDir(paths.slotCompanionDir), name))));
 }
 
 describe("validation session copies", () => {
@@ -126,13 +138,12 @@ describe("validation session copies", () => {
     expect(session.state.pause).toMatchObject({ reason: "validation copy", queuedMessages: [] });
 
     // Only quests the slot lacked are added; the slot's own q-10 stays its own.
-    const store = await readJson(join(paths.slotCompanionDir, "questmaster-live", "store.json"));
-    expect(store.quests).toEqual([
+    expect(await slotQuests(paths)).toEqual([
       { questId: "q-10", title: "slot's own q-10" },
       { questId: "q-11", title: "live q-11" },
       { questId: "q-12", title: "live q-12" },
     ]);
-    expect(store.nextQuestNumber).toBe(13);
+    expect((await readJson(join(questsDir(paths.slotCompanionDir), "_meta.json"))).nextQuestNumber).toBe(13);
     expect(record.addedQuestIds).toEqual(["q-11", "q-12"]);
     expect(await readFile(join(paths.slotCompanionDir, "images", LEADER, "shot.jpeg"), "utf-8")).toBe("jpeg");
 
@@ -157,8 +168,7 @@ describe("validation session copies", () => {
     expect((await readdir(paths.slotSessionsDir)).sort()).toEqual(
       ["launcher.json", `${SLOT_ONLY}.json`, `${OTHER}.json`].sort(),
     );
-    const store = await readJson(join(paths.slotCompanionDir, "questmaster-live", "store.json"));
-    expect(store.quests.map((quest: { questId: string }) => quest.questId)).toEqual(["q-10"]);
+    expect(await slotQuests(paths)).toEqual([{ questId: "q-10", title: "slot's own q-10" }]);
     const names = await readJson(join(paths.slotCompanionDir, "session-names.json"));
     expect(names.names).toEqual({});
     await expect(readdir(join(paths.slotCompanionDir, "images", LEADER))).rejects.toThrow();
@@ -185,6 +195,14 @@ describe("validation session copies", () => {
     await expect(addSessionCopy(racing, "#2851")).rejects.toThrow(/run add-session again/);
     expect(await readdir(racing.slotSessionsDir)).not.toContain(`${LEADER}.history.jsonl`);
     expect(await listSessionCopies(racing)).toEqual([]);
+  });
+
+  it("refuses a slot whose server has not moved its quests to one file per quest yet", async () => {
+    // Adding quest files beside a single-file store would hide the slot's own quests.
+    const paths = await fixture();
+    await rm(questsDir(paths.slotCompanionDir), { recursive: true });
+    await writeJson(join(paths.slotCompanionDir, "questmaster-live", "store.json"), { quests: [] });
+    await expect(addSessionCopy(paths, "#2851")).rejects.toThrow("start its Takode server once on this build");
   });
 
   it("refuses to write into live state", async () => {

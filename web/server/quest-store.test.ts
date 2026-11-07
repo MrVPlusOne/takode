@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
+import { questStoreDir, writeQuestStoreFixture } from "./test-fixtures/quest-store-fixture.js";
 
 let tempDir: string;
 let questStore: typeof import("./quest-store.js");
@@ -32,15 +32,16 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-function questDir(): string {
-  return join(tempDir, ".companion", "questmaster");
+function companionDir(): string {
+  return join(tempDir, ".companion");
 }
 
-function latestSnapshotPath(): string {
-  return join(questDir(), "_latest_snapshot.json");
+function questsDir(): string {
+  return questStoreDir(companionDir());
 }
 
 function questFileReads(reads: string[]): string[] {
@@ -77,14 +78,14 @@ describe("createQuest", () => {
     const q2 = await questStore.createQuest({ title: "Second quest" });
 
     expect(q1.questId).toBe("q-1");
-    expect(q1.id).toBe("q-1-v1");
+    expect(q1.id).toBe("q-1");
     expect(q1.version).toBe(1);
     expect(q1.status).toBe("idea");
     expect(q1.title).toBe("First quest");
     expect(q1.prevId).toBeUndefined();
 
     expect(q2.questId).toBe("q-2");
-    expect(q2.id).toBe("q-2-v1");
+    expect(q2.id).toBe("q-2");
   });
 
   it("creates a refined quest when status and description are provided", async () => {
@@ -103,7 +104,7 @@ describe("createQuest", () => {
   it("persists to disk as pretty-printed JSON", async () => {
     await questStore.createQuest({ title: "Disk test" });
 
-    const raw = readFileSync(join(questDir(), "q-1-v1.json"), "utf-8");
+    const raw = readFileSync(join(questsDir(), "q-1.json"), "utf-8");
     const parsed = JSON.parse(raw);
     expect(parsed.title).toBe("Disk test");
     expect(parsed.questId).toBe("q-1");
@@ -167,13 +168,13 @@ describe("createQuest", () => {
     expect(new Set(created.map((quest) => quest.questId)).size).toBe(6);
     expect(numericIds).toEqual([1, 2, 3, 4, 5, 6]);
 
-    const files = readdirSync(questDir())
-      .filter((name) => /^q-\d+-v1\.json$/.test(name))
-      .sort((a, b) => Number(a.match(/^q-(\d+)-/)?.[1]) - Number(b.match(/^q-(\d+)-/)?.[1]));
-    expect(files).toEqual(["q-1-v1.json", "q-2-v1.json", "q-3-v1.json", "q-4-v1.json", "q-5-v1.json", "q-6-v1.json"]);
+    const files = readdirSync(questsDir())
+      .filter((name) => /^q-\d+\.json$/.test(name))
+      .sort((a, b) => Number(a.match(/^q-(\d+)/)?.[1]) - Number(b.match(/^q-(\d+)/)?.[1]));
+    expect(files).toEqual(["q-1.json", "q-2.json", "q-3.json", "q-4.json", "q-5.json", "q-6.json"]);
 
-    const counter = JSON.parse(readFileSync(join(questDir(), "_quest_counter.json"), "utf-8"));
-    expect(counter.next).toBe(7);
+    const meta = JSON.parse(readFileSync(join(questsDir(), "_meta.json"), "utf-8"));
+    expect(meta.nextQuestNumber).toBe(7);
   });
 });
 
@@ -221,7 +222,7 @@ describe("listQuests", () => {
     expect(quests[1].title).toBe("Older");
   });
 
-  it("reads the derived latest snapshot instead of individual quest version files on repeated list calls", async () => {
+  it("serves repeated list calls from memory without re-reading quest files", async () => {
     const reads: string[] = [];
     const instrumentedStore = await importQuestStoreWithReadSpy(reads);
 
@@ -234,12 +235,11 @@ describe("listQuests", () => {
 
     reads.length = 0;
     const quests = await instrumentedStore.listQuests();
-    expect(quests.map((quest) => quest.id)).toEqual(["q-2-v1", "q-1-v2"]);
+    expect(quests.map((quest) => quest.id)).toEqual(["q-2", "q-1"]);
     expect(questFileReads(reads)).toEqual([]);
-    expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
   });
 
-  it("rebuilds the latest snapshot from only the latest quest version files when the snapshot is missing", async () => {
+  it("reads each quest file once in a fresh process", async () => {
     const initialReads: string[] = [];
     const instrumentedStore = await importQuestStoreWithReadSpy(initialReads);
 
@@ -249,29 +249,12 @@ describe("listQuests", () => {
       description: "Details",
     });
     await instrumentedStore.createQuest({ title: "Secondary" });
-    await writeFile(latestSnapshotPath(), "", "utf-8");
 
     const rebuildReads: string[] = [];
     const rebuiltStore = await importQuestStoreWithReadSpy(rebuildReads);
     const quests = await rebuiltStore.listQuests();
-    expect(quests.map((quest) => quest.id)).toEqual(["q-2-v1", "q-1-v2"]);
-    expect(questFileReads(rebuildReads).sort()).toEqual(["q-1-v2.json", "q-2-v1.json"]);
-  });
-
-  it("falls back to the latest readable version during snapshot rebuild when the newest file is unreadable", async () => {
-    const reads: string[] = [];
-    const instrumentedStore = await importQuestStoreWithReadSpy(reads);
-
-    await instrumentedStore.createQuest({ title: "Stable" });
-    await writeFile(join(questDir(), "q-1-v2.json"), "{not json", "utf-8");
-    await writeFile(latestSnapshotPath(), "", "utf-8");
-
-    reads.length = 0;
-    const quests = await instrumentedStore.listQuests();
-    expect(quests).toHaveLength(1);
-    expect(quests[0]?.id).toBe("q-1-v1");
-    expect(quests[0]?.title).toBe("Stable");
-    expect(questFileReads(reads).sort()).toEqual(["q-1-v1.json", "q-1-v2.json"]);
+    expect(quests.map((quest) => quest.id)).toEqual(["q-2", "q-1"]);
+    expect(questFileReads(rebuildReads).sort()).toEqual(["q-1.json", "q-2.json"]);
   });
 });
 
@@ -294,17 +277,7 @@ describe("getQuest", () => {
   it("returns null for non-existent questId", async () => {
     expect(await questStore.getQuest("q-999")).toBeNull();
   });
-
-  it("falls back to the latest readable version when a newer matching file is corrupt", async () => {
-    await questStore.createQuest({ title: "Stable" });
-    await writeFile(join(questDir(), "q-1-v2.json"), "{not json", "utf-8");
-
-    const q = await questStore.getQuest("q-1");
-    expect(q?.id).toBe("q-1-v1");
-    expect(q?.title).toBe("Stable");
-  });
-
-  it("uses the latest snapshot for relationship-enriched single-quest lookups", async () => {
+  it("serves relationship-enriched single-quest lookups from memory", async () => {
     const reads: string[] = [];
     const instrumentedStore = await importQuestStoreWithReadSpy(reads);
 
@@ -317,10 +290,10 @@ describe("getQuest", () => {
 
     reads.length = 0;
     const q = await instrumentedStore.getQuest("q-1");
-    expect(q?.id).toBe("q-1-v2");
+    expect(q?.id).toBe("q-1");
+    expect(q?.version).toBe(2);
 
     expect(questFileReads(reads)).toEqual([]);
-    expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
   });
 
   it("normalizes legacy done ownership (sessionId -> previousOwnerSessionIds)", async () => {
@@ -336,7 +309,7 @@ describe("getQuest", () => {
       verificationItems: [{ text: "verify", checked: true }],
       completedAt: Date.now(),
     };
-    await writeFile(join(questDir(), "q-1-v1.json"), JSON.stringify(legacy), "utf-8");
+    writeQuestStoreFixture(companionDir(), { quests: [legacy] });
 
     const q = await questStore.getQuest("q-1");
     expect(q?.status).toBe("done");
@@ -361,7 +334,7 @@ describe("getQuest", () => {
       verificationItems: [{ text: "verify legacy", checked: false }],
       verificationInboxUnread: true,
     };
-    await writeFile(join(questDir(), "q-1-v3.json"), JSON.stringify(legacy), "utf-8");
+    writeQuestStoreFixture(companionDir(), { quests: [legacy] });
 
     const q = await questStore.getQuest("q-1");
     expect(q?.status).toBe("done");
@@ -376,79 +349,19 @@ describe("getQuest", () => {
 });
 
 describe("getQuestVersion", () => {
-  it("returns a specific version", async () => {
-    await questStore.createQuest({ title: "Test" });
-    await questStore.transitionQuest("q-1", {
-      status: "refined",
-      description: "Details",
-    });
-
-    const v1 = await questStore.getQuestVersion("q-1-v1");
-    expect(v1?.version).toBe(1);
-    expect(v1?.status).toBe("idea");
-
-    const v2 = await questStore.getQuestVersion("q-1-v2");
-    expect(v2?.version).toBe(2);
-    expect(v2?.status).toBe("refined");
-  });
-
   it("returns null for non-existent version", async () => {
     expect(await questStore.getQuestVersion("q-1-v99")).toBeNull();
   });
 });
 
 describe("getQuestHistory", () => {
-  it("returns all versions ordered oldest → newest", async () => {
-    await questStore.createQuest({ title: "Evolving" });
-    await questStore.transitionQuest("q-1", {
-      status: "refined",
-      description: "Step 1",
-    });
-    await questStore.claimQuest("q-1", "session-abc");
-
-    const history = await questStore.getQuestHistory("q-1");
-    expect(history).toHaveLength(3);
-    expect(history[0].version).toBe(1);
-    expect(history[1].version).toBe(2);
-    expect(history[2].version).toBe(3);
-
-    // Verify linked list
-    expect(history[0].prevId).toBeUndefined();
-    expect(history[1].prevId).toBe("q-1-v1");
-    expect(history[2].prevId).toBe("q-1-v2");
-  });
-
   it("returns empty array for non-existent questId", async () => {
     expect(await questStore.getQuestHistory("q-999")).toEqual([]);
-  });
-
-  it("reads only matching version files when loading one quest history", async () => {
-    const reads: string[] = [];
-    const instrumentedStore = await importQuestStoreWithReadSpy(reads);
-
-    await instrumentedStore.createQuest({ title: "Primary" });
-    await instrumentedStore.transitionQuest("q-1", {
-      status: "refined",
-      description: "Step 1",
-    });
-    await instrumentedStore.claimQuest("q-1", "session-abc");
-    await instrumentedStore.createQuest({ title: "Unrelated" });
-
-    reads.length = 0;
-    const history = await instrumentedStore.getQuestHistory("q-1");
-    expect(history.map((quest) => quest.id)).toEqual(["q-1-v1", "q-1-v2", "q-1-v3"]);
-
-    const questReads = reads
-      .filter((path) => path.endsWith(".json"))
-      .map((path) => basename(path))
-      .filter((name) => name.startsWith("q-"))
-      .sort();
-    expect(questReads).toEqual(["q-1-v1.json", "q-1-v2.json", "q-1-v3.json"]);
   });
 });
 
 describe("getActiveQuestForSession", () => {
-  it("uses the derived latest snapshot instead of scanning individual quest files", async () => {
+  it("finds the active quest from memory without reading quest files", async () => {
     const reads: string[] = [];
     const instrumentedStore = await importQuestStoreWithReadSpy(reads);
 
@@ -464,7 +377,6 @@ describe("getActiveQuestForSession", () => {
     const active = await instrumentedStore.getActiveQuestForSession("session-abc");
     expect(active?.questId).toBe("q-1");
     expect(questFileReads(reads)).toEqual([]);
-    expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
   });
 });
 
@@ -484,7 +396,7 @@ describe("forward transitions", () => {
     });
     expect(refined?.status).toBe("refined");
     expect(refined?.version).toBe(2);
-    expect(refined?.prevId).toBe("q-1-v1");
+    expect(refined?.id).toBe("q-1");
     if (refined?.status === "refined") {
       expect(refined.description).toBe("Full description");
     }
@@ -552,7 +464,7 @@ describe("forward transitions", () => {
 // Backward transitions (the linked-list feature)
 // ===========================================================================
 describe("backward transitions", () => {
-  it("done → in_progress creates a new version preserving history", async () => {
+  it("done → in_progress reopens the quest as a new version", async () => {
     // Build up to done
     await questStore.createQuest({ title: "Rework test" });
     await questStore.transitionQuest("q-1", {
@@ -570,22 +482,11 @@ describe("backward transitions", () => {
 
     expect(rework?.status).toBe("in_progress");
     expect(rework?.version).toBe(5); // v1=idea, v2=refined, v3=in_progress, v4=done, v5=rework
-    expect(rework?.prevId).toBe("q-1-v4");
+    expect(rework?.id).toBe("q-1");
     if (rework?.status === "in_progress") {
       expect(rework.sessionId).toBe("sess-2");
       expect(rework.description).toBe("Original plan"); // carried forward
     }
-
-    // Full history is preserved
-    const history = await questStore.getQuestHistory("q-1");
-    expect(history).toHaveLength(5);
-    expect(history.map((h) => h.status)).toEqual([
-      "idea",
-      "refined",
-      "in_progress",
-      "done",
-      "in_progress", // rework
-    ]);
   });
 
   it("preserves previous verification commit SHAs when a quest re-enters in_progress", async () => {
@@ -728,7 +629,7 @@ describe("claimQuest", () => {
     expect(await questStore.claimQuest("q-999", "sess-1")).toBeNull();
   });
 
-  it("checks existing active ownership via the latest snapshot without scanning unrelated quest files", async () => {
+  it("checks existing active ownership from memory without reading quest files", async () => {
     const reads: string[] = [];
     const instrumentedStore = await importQuestStoreWithReadSpy(reads);
 
@@ -749,7 +650,6 @@ describe("claimQuest", () => {
       'Session already has an active quest: q-1 "Already active".',
     );
     expect(questFileReads(reads)).toEqual([]);
-    expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
   });
 
   it("lets a worker claim its next quest while its previous one only waits in Landing", async () => {
@@ -772,64 +672,6 @@ describe("claimQuest", () => {
     await expect(questStore.claimQuest("q-3", "sess-1", { waitsInLanding: (id) => id === "q-1" })).rejects.toThrow(
       "Session already has an active quest: q-2",
     );
-  });
-
-  it("reconciles a parseable stale snapshot before enforcing active quest ownership", async () => {
-    await questStore.createQuest({ title: "Already active" });
-    await questStore.transitionQuest("q-1", {
-      status: "refined",
-      description: "Primary details",
-    });
-    await questStore.claimQuest("q-1", "sess-1");
-    await questStore.createQuest({ title: "Second quest" });
-    await questStore.transitionQuest("q-2", {
-      status: "refined",
-      description: "Secondary details",
-    });
-
-    await writeFile(
-      latestSnapshotPath(),
-      JSON.stringify(
-        {
-          version: 3,
-          quests: [],
-          activeQuestBySessionId: {},
-          latestFileStateByQuestId: {},
-          latestVersionByQuestId: {},
-          updatedAt: Date.now(),
-        },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
-
-    const active = await questStore.getActiveQuestForSession("sess-1");
-    expect(active?.questId).toBe("q-1");
-
-    const listed = await questStore.listQuests();
-    expect(listed.map((quest) => quest.id).sort()).toEqual(["q-1-v3", "q-2-v2"]);
-
-    await expect(questStore.claimQuest("q-2", "sess-1")).rejects.toThrow(
-      'Session already has an active quest: q-1 "Already active".',
-    );
-  });
-
-  it("reconciles a parseable stale snapshot after a same-version patchQuest rewrite", async () => {
-    await questStore.createQuest({ title: "Before title" });
-    const staleSnapshot = await readFile(latestSnapshotPath(), "utf-8");
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    await questStore.patchQuest("q-1", { title: "After rewritten title" });
-
-    await writeFile(latestSnapshotPath(), staleSnapshot, "utf-8");
-
-    const listed = await questStore.listQuests();
-    expect(listed).toHaveLength(1);
-    expect(listed[0]?.title).toBe("After rewritten title");
-
-    const quest = await questStore.getQuest("q-1");
-    expect(quest?.title).toBe("After rewritten title");
   });
 });
 
@@ -941,7 +783,7 @@ describe("cancelQuest", () => {
     expect(cancelled).not.toBeNull();
     expect(cancelled!.status).toBe("done");
     expect(cancelled!.version).toBe(2);
-    expect(cancelled!.prevId).toBe("q-1-v1");
+    expect(cancelled!.id).toBe("q-1");
     if (cancelled!.status === "done") {
       expect(cancelled!.cancelled).toBe(true);
       expect(cancelled!.completedAt).toBeGreaterThan(0);
@@ -1034,9 +876,8 @@ describe("patchQuest", () => {
     expect(patched?.title).toBe("Fixed");
     expect(patched?.version).toBe(1); // no new version
 
-    // Only one file on disk
-    const files = readdirSync(questDir()).filter((f) => f.startsWith("q-1") && f.endsWith(".json"));
-    expect(files).toHaveLength(1);
+    // Still one file on disk
+    expect(readdirSync(questsDir()).filter((f) => f.startsWith("q-1"))).toEqual(["q-1.json"]);
   });
 
   it("returns null for non-existent quest", async () => {
@@ -1090,23 +931,18 @@ describe("checkVerificationItem", () => {
 // deleteQuest
 // ===========================================================================
 describe("deleteQuest", () => {
-  it("deletes all versions of a quest", async () => {
+  it("deletes the quest's file and keeps its number taken", async () => {
     await questStore.createQuest({ title: "Delete me" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
       description: "Details",
     });
-
-    // Should have 2 version files
-    const filesBefore = readdirSync(questDir()).filter((f) => f.startsWith("q-1"));
-    expect(filesBefore).toHaveLength(2);
+    expect(readdirSync(questsDir())).toContain("q-1.json");
 
     const result = await questStore.deleteQuest("q-1");
     expect(result).toBe(true);
-
-    // All version files gone
-    const filesAfter = readdirSync(questDir()).filter((f) => f.startsWith("q-1"));
-    expect(filesAfter).toHaveLength(0);
+    expect(readdirSync(questsDir())).not.toContain("q-1.json");
+    expect((await questStore.createQuest({ title: "After delete" })).questId).toBe("q-2");
 
     // Quest no longer findable
     expect(await questStore.getQuest("q-1")).toBeNull();
@@ -1523,61 +1359,35 @@ describe("verification inbox", () => {
 });
 
 // ===========================================================================
-// Counter reconciliation (prevents ID reuse)
+// Quest numbering (prevents ID reuse)
 // ===========================================================================
-describe("counter reconciliation", () => {
-  it("skips IDs that already have quest files on disk", async () => {
-    // Simulate pre-existing quest files (e.g. from a previous session)
-    // with a counter that has fallen behind
-    const dir = questDir();
-    mkdirSync(dir, { recursive: true });
-
-    // Write fake quest files for q-1 through q-5
-    for (let i = 1; i <= 5; i++) {
-      writeFileSync(
-        join(dir, `q-${i}-v1.json`),
-        JSON.stringify({
-          id: `q-${i}-v1`,
-          questId: `q-${i}`,
-          version: 1,
-          title: `Old quest ${i}`,
-          status: "idea",
-          createdAt: Date.now(),
-        }),
-      );
-    }
-
-    // Set counter behind (next=2, but q-1 through q-5 exist)
-    writeFileSync(join(dir, "_quest_counter.json"), JSON.stringify({ next: 2 }));
-
-    // Creating a new quest should skip existing IDs and get q-6
-    const q = await questStore.createQuest({ title: "New quest" });
-    expect(q.questId).toBe("q-6");
-
-    // Counter should now be at 7
-    const counter = JSON.parse(readFileSync(join(dir, "_quest_counter.json"), "utf-8"));
-    expect(counter.next).toBe(7);
-  });
-
-  it("handles missing counter file by scanning existing files", async () => {
-    // Pre-existing quests but no counter file at all
-    const dir = questDir();
-    mkdirSync(dir, { recursive: true });
-
-    writeFileSync(
-      join(dir, "q-10-v1.json"),
-      JSON.stringify({
-        id: "q-10-v1",
-        questId: "q-10",
+describe("quest numbering", () => {
+  it("skips numbers of quest files on disk when the stored next number fell behind", async () => {
+    // Quest files q-1 through q-5 with a next number that says 2.
+    writeQuestStoreFixture(companionDir(), {
+      nextQuestNumber: 2,
+      quests: Array.from({ length: 5 }, (_, index) => ({
+        id: `q-${index + 1}`,
+        questId: `q-${index + 1}`,
         version: 1,
-        title: "Quest 10",
+        title: `Old quest ${index + 1}`,
         status: "idea",
         createdAt: Date.now(),
-      }),
-    );
+      })),
+    });
 
-    // No _quest_counter.json exists — readCounter returns 1, but scan
-    // should bump it past q-10
+    const q = await questStore.createQuest({ title: "New quest" });
+    expect(q.questId).toBe("q-6");
+    expect(JSON.parse(readFileSync(join(questsDir(), "_meta.json"), "utf-8")).nextQuestNumber).toBe(7);
+  });
+
+  it("numbers past existing quest files when the meta file is missing", async () => {
+    writeQuestStoreFixture(companionDir(), {
+      quests: [{ id: "q-10", questId: "q-10", version: 1, title: "Quest 10", status: "idea", createdAt: Date.now() }],
+    });
+    rmSync(join(questsDir(), "_meta.json"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
     const q = await questStore.createQuest({ title: "After gap" });
     expect(q.questId).toBe("q-11");
   });

@@ -87,10 +87,6 @@ export function formatQuestIdList(questIds: string[], limit = 10): string {
   return `${questIds.slice(0, limit).join(", ")} (+${questIds.length - limit} more)`;
 }
 
-export function nextVersionId(questId: string, currentVersion: number): string {
-  return `${questId}-v${currentVersion + 1}`;
-}
-
 export function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

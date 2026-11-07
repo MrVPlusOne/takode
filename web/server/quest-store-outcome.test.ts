@@ -41,7 +41,7 @@ describe("legacy Quest Outcome status compatibility", () => {
         debrief: "Corrected leader-thread result.",
         debriefTldr: "Corrected summary.",
       },
-      { liveStore: true, now: 20 },
+      { now: 20 },
     );
 
     expect(done.outcome).toBe(legacyOutcome);
@@ -61,7 +61,7 @@ describe("legacy Quest Outcome status compatibility", () => {
         debrief: "Different authoritative debrief.",
         debriefTldr: "Different authoritative TLDR.",
       },
-      { liveStore: true, now: 20 },
+      { now: 20 },
     );
 
     expect(done).toMatchObject({
@@ -107,11 +107,7 @@ describe("legacy Quest Outcome status compatibility", () => {
       debriefTldr: "Trusted TLDR.",
       outcome: legacyOutcome,
     };
-    const reopened = buildTransitionedQuest(
-      done,
-      { status: "in_progress", sessionId: "worker" },
-      { liveStore: true, now: 30 },
-    );
+    const reopened = buildTransitionedQuest(done, { status: "in_progress", sessionId: "worker" }, { now: 30 });
 
     expect(reopened.outcome).toBe(legacyOutcome);
     expect(reopened.outcome).not.toHaveProperty("reopenedAt");
@@ -119,7 +115,7 @@ describe("legacy Quest Outcome status compatibility", () => {
   });
 
   it("preserves even falsey or unfamiliar legacy payloads through cancellation", () => {
-    const cancelled = buildCancelledQuest(active(null), "Cancelled", true);
+    const cancelled = buildCancelledQuest(active(null), "Cancelled");
 
     expect(Object.prototype.hasOwnProperty.call(cancelled, "outcome")).toBe(true);
     expect(cancelled.outcome).toBeNull();

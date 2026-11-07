@@ -6,6 +6,25 @@ Takode keeps local-only Questmaster backups under:
 
 The backup root is intentionally scoped to Questmaster quest and Quest Journey data. It does not back up sessions, settings, environment profiles, secrets, recordings, logs, memory, worktrees, or other Companion/Takode state.
 
+## Where quests live
+
+The quest store keeps one file per quest:
+
+    ~/.companion/questmaster-live/quests/q-N.json
+    ~/.companion/questmaster-live/quests/_meta.json
+
+Each `q-N.json` is the quest as pretty-printed JSON. `_meta.json` holds the next quest number (deleted quests keep theirs) and, for stores that began before July 2026, where the older per-version quest files were kept. Only the Takode server writes these files; it replaces a quest's file through a temporary file and a rename, so a quest change costs that quest's size. Images stay in `questmaster-live/images/`.
+
+Until November 2026 the whole store was one file, `questmaster-live/store.json`. The first start of a newer server moves it:
+
+1. it copies `store.json` byte for byte to `questmaster-backups/migrations/store-before-per-quest-files-<time>.json` and checks the copy;
+2. it writes every quest, exactly as stored, into a staging folder `questmaster-live/quests.migrating-<time>/`, reads them back and requires each to be identical;
+3. it renames the staging folder to `quests/` and renames `store.json` to `store.json.before-per-quest-files` (kept, not deleted).
+
+If any step before the switch fails, `store.json` stays as it was and readable, quest changes are refused with the reason, and the next start tries again.
+
+To go back to a build from before November 2026, stop the server and run `bun web/scripts/quest-store-roll-back.ts`: it writes `store.json` from the quest files and moves `quests/` aside. Starting a current build later moves `store.json` into one file per quest again.
+
 ## Discovery
 
 Start with:
