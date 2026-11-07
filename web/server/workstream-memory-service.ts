@@ -18,6 +18,7 @@ import {
   scanMemoryCatalog,
   type MemoryCatalogScanRuntime,
 } from "./workstream-memory-store.js";
+import { keptMemoryCatalog } from "./memory-catalog-cache.js";
 import { renderMemoryCatalogView, type MemoryCatalogViewRequest } from "./memory-catalog-view.js";
 import { localDate, readHelpfulMarks, writeHelpfulMarks } from "./memory-repo-layout.js";
 import { moveMemoryNotes, type MemoryMove } from "./memory-move.js";
@@ -38,6 +39,11 @@ export class WorkstreamMemoryService {
 
   catalog(options?: MemoryRepoOptions, runtime?: MemoryCatalogScanRuntime) {
     return scanMemoryCatalog(options, runtime);
+  }
+
+  /** The catalog kept from the last scan unless a memory write made it stale (see `keptMemoryCatalog`). */
+  keptCatalog(options?: MemoryRepoOptions, runtime?: MemoryCatalogScanRuntime) {
+    return keptMemoryCatalog(options, runtime);
   }
 
   /** Render a catalog view with handle dedupe and an optional machine line (see `renderMemoryCatalogView`). */

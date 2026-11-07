@@ -42,7 +42,7 @@ export async function buildMemoryCatalogInjectionBundle(
     options.catalog ??
     (async (input?: MemoryRepoOptions) => {
       const { workstreamMemoryService } = await import("./workstream-memory-service.js");
-      return workstreamMemoryService.catalog(input, { timeoutMs });
+      return workstreamMemoryService.keptCatalog(input, { timeoutMs });
     });
   const markSeen =
     options.markCatalogSeen ??

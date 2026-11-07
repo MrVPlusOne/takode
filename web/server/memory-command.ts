@@ -10,6 +10,7 @@ import {
 import { memoryHealthSummary } from "./memory-repo-health.js";
 import { machineContextForSession, sessionMachineName } from "./remote-host/machines.js";
 import { parseMovePlan } from "./memory-move.js";
+import { forgetKeptMemoryCatalogs } from "./memory-catalog-cache.js";
 import { grepMemoryNotes, readMemoryNotes, removeMemoryNote, writeMemoryNote } from "./memory-note-files.js";
 import {
   MEMORY_COMMIT_OPERATIONS,
@@ -42,6 +43,8 @@ export interface MemoryCommandContext {
   readTextFile: (path: string) => Promise<string>;
 }
 
+/** Commands that change notes or the dates the catalog shows; injected catalogs are rescanned after them. */
+const CATALOG_CHANGING_COMMANDS = new Set(["write", "rm", "mv", "commit", "helpful"]);
 const VALUE_OPTIONS = new Set(["--root", "--server-id", "--server-slug", "--session-space"]);
 /** Flags that never take a value, so the next token stays positional. */
 const BOOLEAN_FLAGS = new Set(["--json", "--all", "--no-steal-stale", "--help", "--ignore-case"]);
@@ -94,11 +97,15 @@ export async function runMemoryCommand(
   const stderr: string[] = [];
   const io: CommandIo = { print: (text) => stdout.push(text), printError: (text) => stderr.push(text) };
   let exitCode = 0;
+  const parsed = parseMemoryArgs(args);
   try {
-    exitCode = await executeMemoryCommand(parseMemoryArgs(args), context, io);
+    exitCode = await executeMemoryCommand(parsed, context, io);
   } catch (error) {
     stderr.push(`Error: ${error instanceof Error ? error.message : String(error)}`);
     exitCode = 1;
+  } finally {
+    // Even a failed command may have changed notes before it stopped.
+    if (parsed.command && CATALOG_CHANGING_COMMANDS.has(parsed.command)) forgetKeptMemoryCatalogs();
   }
   return { exitCode, stdout: joinLines(stdout), stderr: joinLines(stderr) };
 }
