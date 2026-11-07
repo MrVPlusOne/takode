@@ -4,13 +4,14 @@
  * board and the feed's waiting chip all read this one list, so each wait kind
  * gets the same icon and wording everywhere.
  *
- * Only Claude sessions report background jobs; Codex does not tell Takode about
- * its background commands, so a Codex session's list never holds a job.
+ * Claude sessions report their background jobs, and any session's running
+ * `takode exec` commands count as jobs too; Codex does not tell Takode about
+ * its other background commands.
  */
 export type SessionWait =
   /** The user's answer on a quest held in User Checkpoint. */
   | { kind: "answer"; questId: string }
-  /** A background job the agent is notified about when it ends. */
+  /** A background job of the agent's, or a `takode exec` command it is running. */
   | { kind: "job"; description: string; startedAt: number }
   /** An active landing-queue run of the session's change. */
   | { kind: "landing" }

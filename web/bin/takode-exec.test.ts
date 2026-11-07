@@ -7,13 +7,29 @@ import { parseExecRun, parseMemorySize } from "./takode-exec.js";
  */
 describe("parseExecRun", () => {
   it("separates takode's options from the remote command", () => {
-    expect(parseExecRun(["--host", "condor", "--cwd", "~/repo", "--background", "--", "sbatch", "--help"])).toEqual({
+    expect(parseExecRun(["--host", "condor", "--cwd", "~/repo", "--", "sbatch", "--help"])).toEqual({
       host: "condor",
       cwd: "~/repo",
-      background: true,
       json: false,
       command: "sbatch --help",
     });
+  });
+
+  // Scripts written for the removed flag fail loudly with the replacement,
+  // instead of a generic unknown-option error.
+  it("refuses the removed --background flag and says what to do instead", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => parseExecRun(["--host", "condor", "--background", "--", "make"])).toThrow("exit");
+      expect(error.mock.calls[0]![0]).toContain("--background was removed");
+      expect(error.mock.calls[0]![0]).toContain("run_in_background");
+    } finally {
+      exit.mockRestore();
+      error.mockRestore();
+    }
   });
 
   it("takes the command without -- when it follows the options", () => {

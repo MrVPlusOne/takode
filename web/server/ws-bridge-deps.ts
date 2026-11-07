@@ -1365,9 +1365,20 @@ export function getQuestBoardCompletionDeps(host: any) {
   };
 }
 
-/** Background jobs a session is told about when they end: its Claude backend's and its `takode exec` commands. */
-export function sessionBackgroundTasks(session: Session | undefined, sessionId: string): BackgroundTaskSnapshot | null {
-  return mergeBackgroundTasks(session?.claudeSdkAdapter?.getBackgroundTasks?.(), execBackgroundTasks(sessionId));
+/**
+ * A session's work in progress while it is idle: its Claude backend's background jobs and its running
+ * `takode exec` commands. `notifyingOnly` keeps the jobs whose end starts the session's next turn: an
+ * exec command runs under its caller's own background shell or terminal and sends no message.
+ */
+export function sessionBackgroundTasks(
+  session: Session | undefined,
+  sessionId: string,
+  options: { notifyingOnly?: boolean } = {},
+): BackgroundTaskSnapshot | null {
+  return mergeBackgroundTasks(
+    session?.claudeSdkAdapter?.getBackgroundTasks?.(),
+    execBackgroundTasks(sessionId, options),
+  );
 }
 
 export function getBoardWatchdogDeps(host: any) {
@@ -1380,7 +1391,8 @@ export function getBoardWatchdogDeps(host: any) {
     timerCount: (sessionId: string) => host.timerManager?.listTimers(sessionId).length ?? 0,
     getLeaseWaits: (sessionId: string) => host.resourceLeaseManager?.getLeaseWaits(sessionId) ?? [],
     isLandingActive: (sessionId: string) => host.landingQueue?.isLandingActive(sessionId) ?? false,
-    getBackgroundTasks: (sessionId: string) => sessionBackgroundTasks(host.sessions.get(sessionId), sessionId),
+    getBackgroundTasks: (sessionId: string, options?: { notifyingOnly?: boolean }) =>
+      sessionBackgroundTasks(host.sessions.get(sessionId), sessionId, options),
     backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
     getBoard: (sessionId: string) => getBoardForSessionController(host.sessions, sessionId),
     getBoardRowsForQuest: (questId: string) => {
@@ -1949,7 +1961,7 @@ export function getGenerationLifecycleDeps(host: any) {
           (host.timerManager?.listTimers(sessionId).length ?? 0) > 0 ||
           listSessionWaits(sessionId, {
             getLeaseWaits: (id) => host.resourceLeaseManager?.getLeaseWaits(id) ?? [],
-            getBackgroundTasks: (id) => sessionBackgroundTasks(host.sessions.get(id), id),
+            getBackgroundTasks: (id) => sessionBackgroundTasks(host.sessions.get(id), id, { notifyingOnly: true }),
             isLandingActive: (id) => host.landingQueue?.isLandingActive(id) ?? false,
             listBoardSessions: () => host.sessions.values(),
           }).length > 0,

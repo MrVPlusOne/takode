@@ -288,7 +288,7 @@ export function memoryKillNotice(kill: MemoryKill, machine: string, owner = "thi
     `${MEMORY_GUARD_MESSAGE_TAG} Killed ${kill.processes} ${kill.processes === 1 ? "process" : "processes"} of ${owner} on \`${machine}\`, holding ${formatBytes(kill.bytes)}: ${kill.programs.map((program) => `\`${program}\``).join(", ")}.`,
     "",
     `The machine was nearly out of memory (${formatBytes(kill.usedBytes)} of ${formatBytes(kill.limitBytes)} in use), and these were the largest user among its sessions. Running out of memory there can stall or kill the Takode server and every other session, so Takode stopped them. ` +
-      "If you need that work, rerun it with less parallelism (fewer jobs, workers or threads), or run it on a machine with more room using `takode exec --host <machine> --background`.",
+      "If you need that work, rerun it with less parallelism (fewer jobs, workers or threads), or run it on a machine with more room using `takode exec --host <machine>`.",
   ].join("\n");
 }
 

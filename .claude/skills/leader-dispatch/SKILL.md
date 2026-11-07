@@ -186,7 +186,7 @@ For approved Work that needs a shared lease, dispatch the worker into Work and l
 
 ### Helper Sessions
 
-A quest keeps one owner. A command that must run on another machine (a cluster node's scheduler, file system or container service, the user's laptop) needs no helper: the owner runs it there with `takode exec --host <machine>`, in the background for long jobs, and is told when it finishes. Don't route other quests' steps through one session on that machine either.
+A quest keeps one owner. A command that must run on another machine (a cluster node's scheduler, file system or container service, the user's laptop) needs no helper: the owner runs it there with `takode exec --host <machine>`, which waits for the command like a local one; for a long job the owner runs that call with its own background mechanism (Claude `run_in_background`, a Codex background terminal). Don't route other quests' steps through one session on that machine either.
 
 When a step inside the quest's approved scope needs what `takode exec` cannot give, spawn a helper session for that step instead of a second quest: an agent working on that machine (long interactive debugging, judgment over many files there), a sign-in in the user's browser, or computer use from a Codex session:
 

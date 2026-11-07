@@ -3,8 +3,15 @@ import { Readable } from "node:stream";
 import { HostExecError } from "../remote-host/host-exec.js";
 import type { RouteContext } from "./context.js";
 
-/** Longest a caller may wait in one request for its command to end. */
-const MAX_WAIT_SECONDS = 30;
+/**
+ * Longest a caller may wait in one request for its command to end. The
+ * server's HTTP idle timeout must stay longer (see `HTTP_IDLE_TIMEOUT_SECONDS`).
+ */
+export const MAX_WAIT_SECONDS = 30;
+
+const BACKGROUND_REMOVED =
+  "takode exec --background was removed: takode exec now runs until the command ends. " +
+  "Run a long command with your own background mechanism (Claude: Bash run_in_background; Codex: a background terminal).";
 
 /**
  * Routes for `takode exec`: sessions run commands on registered hosts and the
@@ -30,6 +37,8 @@ export function createHostExecRoutes(ctx: RouteContext) {
     if (typeof body.host !== "string" || !body.host.trim()) return c.json({ error: "host is required" }, 400);
     if (typeof body.command !== "string") return c.json({ error: "command is required" }, 400);
     if (body.cwd !== undefined && typeof body.cwd !== "string") return c.json({ error: "cwd must be a string" }, 400);
+    // A takode CLI from before its removal would leave the command without a caller, which stops it.
+    if (body.background === true) return c.json({ error: BACKGROUND_REMOVED }, 400);
     const memoryLimitBytes = body.memoryLimitBytes;
     if (
       memoryLimitBytes !== undefined &&
@@ -45,7 +54,6 @@ export function createHostExecRoutes(ctx: RouteContext) {
         host: body.host,
         command: body.command,
         cwd: typeof body.cwd === "string" ? body.cwd : null,
-        background: body.background === true,
         ...(memoryLimitBytes !== undefined ? { memoryLimitBytes } : {}),
       });
       return c.json({ job }, 201);
@@ -83,10 +91,7 @@ export function createHostExecRoutes(ctx: RouteContext) {
     if (tailLines !== undefined && !(Number.isSafeInteger(tailLines) && tailLines > 0)) {
       return c.json({ error: "tail must be a positive number of lines" }, 400);
     }
-    const output = await g.exec.readOutput(c.req.param("id"), {
-      readerSessionId: g.auth.callerId,
-      ...(tailLines === undefined ? {} : { tailLines }),
-    });
+    const output = await g.exec.readOutput(c.req.param("id"), tailLines === undefined ? {} : { tailLines });
     return output ? c.json(output) : notFound(c);
   });
 
@@ -100,7 +105,6 @@ export function createHostExecRoutes(ctx: RouteContext) {
       return c.json({ error: "lines and bytes take a range such as 200-400 (1-based, inclusive)" }, 400);
     }
     const log = await g.exec.readLog(c.req.param("id"), {
-      readerSessionId: g.auth.callerId,
       ...(lines ? { lines } : {}),
       ...(bytes ? { bytes } : {}),
     });
@@ -108,16 +112,6 @@ export function createHostExecRoutes(ctx: RouteContext) {
     return new Response(Readable.toWeb(log) as unknown as ReadableStream, {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
-  });
-
-  /** The foreground caller stops waiting; the session is told when the command ends. */
-  api.post("/takode/exec/jobs/:id/detach", async (c) => {
-    const g = guard(c);
-    if ("response" in g) return g.response;
-    const job = g.exec.get(c.req.param("id"));
-    if (!job) return notFound(c);
-    if (job.sessionId !== g.auth.callerId) return c.json({ error: "Only the session that ran it can detach it" }, 403);
-    return c.json({ job: await g.exec.detach(job.id) });
   });
 
   api.post("/takode/exec/jobs/:id/kill", async (c) => {

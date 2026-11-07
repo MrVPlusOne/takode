@@ -92,6 +92,7 @@ import { FULL_SUITE_POOL_PREFIX, LANDING_QUEUE_MESSAGE_SOURCE } from "../shared/
 import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./remote-host/host-registry.js";
 import { configureHostExec, HostExec } from "./remote-host/host-exec.js";
 import { HOST_EXEC_MESSAGE_SOURCE } from "../shared/host-exec.js";
+import { HTTP_IDLE_TIMEOUT_SECONDS } from "./http-idle-timeout.js";
 import { MEMORY_GUARD_MESSAGE_SOURCE } from "../shared/memory-guard.js";
 import { memoryKillNotice } from "./remote-host/memory-guard.js";
 import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
@@ -1635,6 +1636,7 @@ const server = Bun.serve<SocketData>({
   hostname: listenHost,
   port,
   maxRequestBodySize,
+  idleTimeout: HTTP_IDLE_TIMEOUT_SECONDS,
   fetch: handleRequest("main"),
   websocket: websocketHandlers,
 });
@@ -1646,6 +1648,7 @@ try {
     hostname: listenHost,
     port: hostPort,
     maxRequestBodySize,
+    idleTimeout: HTTP_IDLE_TIMEOUT_SECONDS,
     fetch: handleRequest("hosts"),
     websocket: websocketHandlers,
   });

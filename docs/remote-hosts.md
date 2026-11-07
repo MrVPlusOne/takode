@@ -217,7 +217,7 @@ they run on themselves, with `takode exec` (see `takode exec --help`):
 
 ```bash
 takode exec --host condor1-cpu-takode --cwd '~/repo' -- 'git status --short'
-takode exec --host condor1-cpu-takode --background -- 'cd ~/images && make build'
+takode exec --host condor1-cpu-takode --memory-limit 64G -- 'cd ~/images && make build'
 takode exec status x-12; takode exec logs x-12; takode exec kill x-12
 ```
 
@@ -226,12 +226,25 @@ A command runs over the machine's host link as the user that runs
 (from their passwd entry, so a node started by a scheduler without `$SHELL`
 still gets bash or zsh). The profile's PATH and settings apply, but whatever
 the profile itself prints (for example a cluster's completion warnings) is left
-out of the output. A foreground run returns its output and exit code; long
+out of the output. The call returns the command's output and exit code; long
 output shows both ends and names the lines left out. `takode exec logs <id>`
 prints all of it (redirect it to a file when long) or a part with
-`--lines 200-400`, `--bytes 1-50000` or `--tail 50`. A `--background` run, or a foreground one whose
-caller is interrupted or goes away, keeps running, and its session gets a
-message when it ends. The coordinator records every call (session, quest,
+`--lines 200-400`, `--bytes 1-50000` or `--tail 50`.
+
+`takode exec` behaves like a local command: it waits until the command ends,
+however long that takes, and the command stops with its caller. Interrupting
+the call or the agent's tool timeout stops it, and a caller killed outright
+(a crashed agent) stops it within five minutes, when the coordinator notices
+nobody asks about it any more; its outcome then reads "stopped: its caller
+went away". Agents run a long command the way they run any long command: Claude
+with Bash `run_in_background` (a background command is stopped after its
+`timeout`, 30 minutes unless the call asks for more; Takode lets a call ask
+for up to a day by setting `BASH_MAX_TIMEOUT_MS`), Codex in a background
+terminal. The `--background` flag that once returned at once and sent a
+message when the command ended was removed; commands an older coordinator
+started with it still run to the end and send that message.
+
+The coordinator records every call (session, quest,
 machine, command, outcome and times) and keeps its output under
 `~/.companion/exec/` on the coordinator's machine. A restarted coordinator
 takes running commands over, and a host does not update itself while one runs

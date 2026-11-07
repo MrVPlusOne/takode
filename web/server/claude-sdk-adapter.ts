@@ -55,6 +55,16 @@ type McpTarget = { serverName: string };
  * continue. Any explicitly configured value wins.
  */
 const CLAUDE_MAX_RETRIES_DEFAULT = "15";
+/**
+ * The longest `timeout` an agent may give a Bash call, foreground or
+ * `run_in_background`. Claude Code caps it at 10 minutes, and a background
+ * command at 2 hours, unless this is set (checked in 2.1.289), so a
+ * `takode exec` build or evaluation running for hours could not be waited
+ * for at all. Defaults stay as they are: 2 minutes in the foreground and 30
+ * in the background unless the call asks for more. Any explicitly configured
+ * value wins.
+ */
+const BASH_MAX_TIMEOUT_MS_DEFAULT = String(24 * 60 * 60_000);
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -383,6 +393,7 @@ export class ClaudeSdkAdapter
     // find binaries that aren't on the default system PATH.
     const mergedEnv: Record<string, string | undefined> = withNonInteractiveGitEditorEnv({
       CLAUDE_CODE_MAX_RETRIES: CLAUDE_MAX_RETRIES_DEFAULT,
+      BASH_MAX_TIMEOUT_MS: BASH_MAX_TIMEOUT_MS_DEFAULT,
       ...inheritedLaunchEnv(process.env),
       ...(this.options.env || {}),
       // The environment variable rather than the `settings` option, which would replace a

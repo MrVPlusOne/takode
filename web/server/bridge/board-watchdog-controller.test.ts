@@ -195,6 +195,8 @@ interface FakeRuntime {
   /** The backend process is gone, as after the idle manager disconnects the session. */
   disconnected?: boolean;
   backgroundJobs?: BackgroundTaskInfo[];
+  /** The subset of `backgroundJobs` whose end sends the session a message (all of them when absent). */
+  notifyingJobs?: BackgroundTaskInfo[];
   backgroundChangedAt?: number;
 }
 
@@ -227,9 +229,12 @@ function setupIdleWorkerStall(runtimes: Record<string, FakeRuntime>, waits: Reco
     listSessions: vi.fn(() => []),
     resolveSessionId: vi.fn(() => undefined),
     timerCount: vi.fn((sessionId: string) => runtimes[sessionId]?.timers ?? 0),
-    getBackgroundTasks: vi.fn((sessionId: string) => {
+    getBackgroundTasks: vi.fn((sessionId: string, options?: { notifyingOnly?: boolean }) => {
       const runtime = runtimes[sessionId];
-      return runtime ? { tasks: runtime.backgroundJobs ?? [], changedAt: runtime.backgroundChangedAt ?? 0 } : null;
+      if (!runtime) return null;
+      const all = runtime.backgroundJobs ?? [];
+      const tasks = options?.notifyingOnly ? (runtime.notifyingJobs ?? all) : all;
+      return { tasks, changedAt: runtime.backgroundChangedAt ?? 0 };
     }),
     getLeaseWaits: vi.fn((sessionId: string) =>
       Object.entries(waits[sessionId] ?? {}).map(([resourceKey, holderSessionIds]) => ({
@@ -393,10 +398,11 @@ describe("Work Board stall check for background jobs", () => {
     });
   });
 
-  // `takode exec` jobs run on a node and outlive the worker's backend process, so
-  // they still count after the idle manager disconnects the worker: the job's
-  // finish message relaunches it. (Claude's own background tasks end with its
-  // process, so a disconnected Claude session reports none.)
+  // A `takode exec` command started with the retired --background flag runs on
+  // a node and outlives the worker's backend process, so it still counts after
+  // the idle manager disconnects the worker: its finish message relaunches it.
+  // (Claude's own background tasks end with its process, so a disconnected
+  // Claude session reports none.)
   const execJob = (startedAt: number): BackgroundTaskInfo => ({
     taskId: "x-802",
     description: "Run eval on condor",
@@ -427,6 +433,26 @@ describe("Work Board stall check for background jobs", () => {
       reason: "worker disconnected with background job running over 30m (Run eval on condor)",
       signature: `q-90|WORKING|background:x-802|since:${30 * MINUTE}`,
     });
+  });
+
+  // An ordinary exec command lost its caller with the worker's process and is
+  // being stopped; it sends no message, so it is no reason to wait.
+  it("flags a disconnected worker whose exec command lost its caller", () => {
+    const { emitted, sweepPastThreshold } = setupIdleWorkerStall(
+      {
+        worker: {
+          sessionNum: 10,
+          disconnected: true,
+          backgroundJobs: [execJob(0)],
+          notifyingJobs: [],
+          backgroundChangedAt: 0,
+        },
+      },
+      {},
+    );
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({ workerStatus: "disconnected", reason: "worker disconnected" });
   });
 
   it("keeps the disconnected-worker alert when the worker has no running job", () => {

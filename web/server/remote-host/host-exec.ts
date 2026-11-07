@@ -30,15 +30,20 @@ export interface HostExecDeps {
   machineNames: () => Promise<string[]>;
   /** Whether the user turned commands off for a machine in Settings. */
   execDisabled: (hostId: string) => boolean;
-  /** Tell a session that its background command finished. */
+  /**
+   * Tell a session that a command it started with the retired `--background`
+   * flag finished. Only commands a previous coordinator left running use it.
+   */
   notify: (sessionId: string, text: string) => void;
   /** A session's running commands changed, which its waits and the board's stall check read. */
   onSessionChange?: (sessionId: string) => void;
   /** Where job records and output logs are kept. */
   dir: string;
   now?: () => number;
-  /** Override of RESULT_PICKUP_MS for tests. */
-  resultPickupMs?: number;
+  /** Override of CALLER_GONE_MS for tests. */
+  callerGoneMs?: number;
+  /** Override of CALLER_CHECK_MS for tests. */
+  callerCheckMs?: number;
 }
 
 export interface ExecStartInput {
@@ -48,7 +53,6 @@ export interface ExecStartInput {
   host: string;
   command: string;
   cwd?: string | null;
-  background: boolean;
   /** Kill it all once its processes use more memory than this together. */
   memoryLimitBytes?: number | null;
 }
@@ -86,8 +90,16 @@ const LOGIN_SHELL_SCRIPT = [
   '  *) exec "$sh" -lc "$1" ;;',
   "esac",
 ].join("\n");
-/** How long after a foreground command ends its caller has to collect the result before the session is sent it instead. */
-const RESULT_PICKUP_MS = 15_000;
+/**
+ * How long a command keeps running without its caller asking about it. The
+ * CLI asks at least every 30 s and keeps retrying as long as this while the
+ * coordinator is unreachable, so past it the caller is gone (killed without a
+ * chance to stop the command) and the command is stopped, as a local command
+ * ends with its shell.
+ */
+const CALLER_GONE_MS = 5 * 60_000;
+/** How often running commands are checked for a caller that is gone. */
+const CALLER_CHECK_MS = 15_000;
 /** Finished records kept; older ones are dropped with their logs. */
 const MAX_FINISHED_RECORDS = 500;
 const MAX_COMMAND_LENGTH = 100_000;
@@ -104,6 +116,12 @@ const LOG_FLUSH_MS = 200;
 interface StoredJob extends ExecJob {
   /** The host-link process id, for taking the process over after a coordinator restart. */
   procId: string;
+  /**
+   * Started with the retired `--background` flag by an earlier coordinator:
+   * it has no caller waiting, so it runs to the end and its session is sent
+   * the outcome, as it was promised. Remove once no such command can remain.
+   */
+  legacyBackground?: boolean;
 }
 
 interface StoredFile {
@@ -116,6 +134,8 @@ interface RunningJob {
   log: JobLog;
   /** When it last wrote output, or started: a sign it is not hung. */
   lastOutputAt: number;
+  /** When its caller last asked about it, or it started or was taken over. */
+  callerSeenAt: number;
   /** Callers waiting for the job to end. */
   waiters: Set<() => void>;
 }
@@ -125,16 +145,14 @@ interface RunningJob {
  * (registered hosts and the coordinator's own machine). Every call is recorded
  * with its session, quest, machine, command, outcome and times, and its output
  * is kept in a log on the coordinator. A command is a host-link process, so it
- * outlives its caller and replays output across link drops; a restarted
- * coordinator takes running ones over. The session that started a background
- * command, or a foreground one whose caller never collected the result, is
- * told when it ends.
+ * replays output across link drops and a restarted coordinator takes running
+ * ones over. Its caller waits for it to end, like for a local command; a
+ * command whose caller went away is stopped.
  */
 export class HostExec {
   private readonly jobs = new Map<string, StoredJob>();
   private readonly running = new Map<string, RunningJob>();
-  /** Finished foreground commands whose caller has read the result. */
-  private readonly collected = new Set<string>();
+  private callerCheck: ReturnType<typeof setInterval> | null = null;
   private nextId = 1;
   private pendingSave: Promise<void> = Promise.resolve();
   private readonly now: () => number;
@@ -148,8 +166,12 @@ export class HostExec {
   async restore(): Promise<void> {
     const file = await readStoredFile(this.recordsPath);
     this.nextId = file.nextId;
-    for (const job of file.jobs) this.jobs.set(job.id, job);
-    for (const job of file.jobs) {
+    for (const stored of file.jobs) {
+      const { background, ...job } = stored as StoredJob & { background?: boolean };
+      if (background && job.status === "running") job.legacyBackground = true;
+      this.jobs.set(job.id, job);
+    }
+    for (const job of this.jobs.values()) {
       if (job.status !== "running") continue;
       const logged = await stat(this.logPath(job.id)).then(
         (info) => info.size,
@@ -206,7 +228,6 @@ export class HostExec {
       sessionId: input.sessionId,
       sessionNum: input.sessionNum,
       questId: input.questId,
-      background: input.background,
       status: "running",
       startedAt: this.now(),
       endedAt: null,
@@ -258,13 +279,18 @@ export class HostExec {
   }
 
   /**
-   * The session's running commands, as background jobs it is told about when
-   * they end, for its waits and the board's stall check. A command counts as
+   * The session's running commands, for its waits and the board's stall check:
+   * work in progress even while the session is idle, as when its agent runs
+   * the call in its own background shell or terminal. A command counts as
    * live for as long after its latest output as a job after its start;
    * `changedAt` is when one of its commands last started or ended.
+   * `notifyingOnly` keeps only commands whose end sends the session a message,
+   * which are the only ones that start its next turn.
    */
-  backgroundTasks(sessionId: string): BackgroundTaskSnapshot | null {
-    const own = [...this.jobs.values()].filter((job) => job.sessionId === sessionId);
+  backgroundTasks(sessionId: string, options: { notifyingOnly?: boolean } = {}): BackgroundTaskSnapshot | null {
+    const own = [...this.jobs.values()].filter(
+      (job) => job.sessionId === sessionId && (!options.notifyingOnly || job.legacyBackground),
+    );
     if (own.length === 0) return null;
     const tasks = own.flatMap((job) => {
       const running = this.running.get(job.id);
@@ -291,6 +317,7 @@ export class HostExec {
   async wait(id: string, ms: number): Promise<ExecJob | null> {
     const running = this.running.get(id);
     if (running) {
+      running.callerSeenAt = this.now();
       await new Promise<void>((resolve) => {
         const timer = setTimeout(done, ms);
         function done() {
@@ -300,6 +327,7 @@ export class HostExec {
         }
         running.waiters.add(done);
       });
+      running.callerSeenAt = this.now();
     }
     return this.get(id);
   }
@@ -311,17 +339,6 @@ export class HostExec {
    */
   releaseWaits(): void {
     for (const running of this.running.values()) for (const done of [...running.waiters]) done();
-  }
-
-  /** The caller of a foreground command stops waiting; the session is told when it ends. */
-  async detach(id: string): Promise<ExecJob | null> {
-    const job = this.jobs.get(id);
-    if (!job) return null;
-    if (job.status === "running" && !job.background) {
-      job.background = true;
-      await this.save();
-    }
-    return publicJob(job);
   }
 
   /**
@@ -339,16 +356,11 @@ export class HostExec {
   /**
    * The job's output as a foreground run shows it: all of it when short,
    * else both ends with a note on reading the rest ({@link readLog});
-   * `tailLines` for its last lines. The owning session reading a finished
-   * command's output has its result.
+   * `tailLines` for its last lines.
    */
-  async readOutput(
-    id: string,
-    options: { tailLines?: number; readerSessionId?: string } = {},
-  ): Promise<ExecOutput | null> {
+  async readOutput(id: string, options: { tailLines?: number } = {}): Promise<ExecOutput | null> {
     const job = this.jobs.get(id);
     if (!job) return null;
-    if (job.status !== "running" && options.readerSessionId === job.sessionId) this.collected.add(id);
     await this.running.get(id)?.log.flush();
     const path = this.logPath(id);
     const bytes = await logSize(path);
@@ -366,16 +378,14 @@ export class HostExec {
 
   /**
    * The job's output as a stream: all of it, or only a 1-based inclusive range
-   * of its lines or bytes. Reading a finished command counts as its owner
-   * collecting the result, as for {@link readOutput}.
+   * of its lines or bytes.
    */
   async readLog(
     id: string,
-    options: { lines?: [number, number]; bytes?: [number, number]; readerSessionId?: string } = {},
+    options: { lines?: [number, number]; bytes?: [number, number] } = {},
   ): Promise<Readable | null> {
     const job = this.jobs.get(id);
     if (!job) return null;
-    if (job.status !== "running" && options.readerSessionId === job.sessionId) this.collected.add(id);
     await this.running.get(id)?.log.flush();
     const path = this.logPath(id);
     if ((await logSize(path)) === 0) return Readable.from([]);
@@ -398,8 +408,10 @@ export class HostExec {
 
   private attach(job: StoredJob, proc: RemoteProcess, logged: number): void {
     const log = new JobLog(this.logPath(job.id), logged, Math.max(job.outputBytes, logged));
-    const running: RunningJob = { proc, log, lastOutputAt: this.now(), waiters: new Set() };
+    const running: RunningJob = { proc, log, lastOutputAt: this.now(), callerSeenAt: this.now(), waiters: new Set() };
     this.running.set(job.id, running);
+    this.callerCheck ??= setInterval(() => this.stopAbandoned(), this.deps.callerCheckMs ?? CALLER_CHECK_MS);
+    this.callerCheck.unref?.();
     const output = (chunk: Buffer) => {
       running.lastOutputAt = this.now();
       log.write(chunk);
@@ -422,6 +434,10 @@ export class HostExec {
     await running.log.close();
     const now = this.now();
     this.running.delete(job.id);
+    if (this.running.size === 0 && this.callerCheck) {
+      clearInterval(this.callerCheck);
+      this.callerCheck = null;
+    }
     job.status = job.error ? "failed" : "exited";
     job.exitCode = code;
     job.signal = job.error ? null : signal;
@@ -431,18 +447,20 @@ export class HostExec {
     for (const done of [...running.waiters]) done();
     this.deps.onSessionChange?.(job.sessionId);
     console.log(`[host-exec] ${job.id} on ${job.host}: ${describeExecOutcome(job)}`);
-    if (job.background) {
-      this.deps.notify(job.sessionId, await this.finishedMessage(job));
-      return;
+    if (job.legacyBackground) this.deps.notify(job.sessionId, await this.finishedMessage(job));
+  }
+
+  /** Stop commands nobody has asked about for CALLER_GONE_MS: their caller died without stopping them. */
+  private stopAbandoned(): void {
+    const cutoff = this.now() - (this.deps.callerGoneMs ?? CALLER_GONE_MS);
+    for (const [id, running] of this.running) {
+      const job = this.jobs.get(id);
+      if (!job || job.legacyBackground || job.callerGone) continue;
+      if (running.waiters.size > 0 || running.callerSeenAt > cutoff) continue;
+      job.callerGone = true;
+      console.log(`[host-exec] Stopping ${id} on ${job.host}: its caller stopped asking about it`);
+      running.proc.kill("SIGTERM");
     }
-    // A foreground caller that was killed or went away never collects the result; send it instead.
-    const pickup = setTimeout(() => {
-      if (this.collected.delete(job.id)) return;
-      job.background = true;
-      void this.save();
-      void this.finishedMessage(job).then((text) => this.deps.notify(job.sessionId, text));
-    }, this.deps.resultPickupMs ?? RESULT_PICKUP_MS);
-    pickup.unref?.();
   }
 
   private async finishedMessage(job: StoredJob): Promise<string> {
@@ -559,7 +577,7 @@ class JobLog {
   }
 }
 
-function publicJob({ procId: _procId, ...job }: StoredJob): ExecJob {
+function publicJob({ procId: _procId, legacyBackground: _legacy, ...job }: StoredJob): ExecJob {
   return { ...job };
 }
 
@@ -673,6 +691,9 @@ export function configureHostExec(exec: HostExec | null): void {
 }
 
 /** A session's running `takode exec` commands as background jobs (see {@link HostExec.backgroundTasks}). */
-export function execBackgroundTasks(sessionId: string): BackgroundTaskSnapshot | null {
-  return configured?.backgroundTasks(sessionId) ?? null;
+export function execBackgroundTasks(
+  sessionId: string,
+  options: { notifyingOnly?: boolean } = {},
+): BackgroundTaskSnapshot | null {
+  return configured?.backgroundTasks(sessionId, options) ?? null;
 }

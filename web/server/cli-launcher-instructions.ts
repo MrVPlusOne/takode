@@ -229,16 +229,18 @@ ${
   );
 
   // Claude Code re-invokes the agent when a background command exits; Codex
-  // has no such notice, so its agents wait on a timer and check the output.
+  // keeps the command in a background terminal but sends no notice, so its
+  // agents wait on a timer and check the output.
   const waitForCommand =
     opts?.backend === "codex"
-      ? "You get no notice when a background command finishes. To wait for a long-running command, start it so it keeps running after your turn ends and writes its output and exit status to a log file, for example `nohup sh -c '<command>; echo \"exit $?\"' > /tmp/<name>.log 2>&1 < /dev/null &`. Then create a `takode timer` for when you expect it to finish and end your turn. When the timer fires, read the log; if the command is still running, set another timer. Do not keep polling the command with repeated tool calls in one turn."
-      : "To wait for a long-running command, run it with `run_in_background: true`, end your turn, and continue when its completion notice arrives. Do not sleep or poll while it runs.";
+      ? "To wait for a long-running command (`takode exec` included), leave it running in a background terminal: a command still running when your shell call returns keeps running there. Then create a `takode timer` for when you expect it to finish and end your turn. When the timer fires, read the terminal's output; if the command is still running, set another timer. You get no notice when it finishes. Do not keep polling the command with repeated tool calls in one turn."
+      : "To wait for a long-running command (`takode exec` included), run it with `run_in_background: true`, end your turn, and continue when its completion notice arrives. A background command is stopped after its `timeout`, 30 minutes unless you give a longer one (up to a day), so give one above its expected run time. Do not sleep or poll while it runs.";
   parts.push(
     "## Waiting\n\n" +
       "**Don't block your turn waiting.** While your turn runs, the user and your leader cannot interject and you cannot react to herd events. Never chain or loop `sleep` calls or polling checks: five `sleep 59` calls block you as long as one five-minute sleep. A single sleep under a minute is fine only when what you wait for is moments away, such as a server finishing startup.\n\n" +
       waitForCommand +
-      "\n\nFor any wait based on time rather than a command finishing, create a `takode timer` and end your turn.",
+      "\n\nFor any wait based on time rather than a command finishing, create a `takode timer` and end your turn.\n\n" +
+      "Timers and completion notices wake this session's main agent. A sub-agent cannot receive them, so never ask one to use `takode timer`: a sub-agent waits with its own tool calls, running a long command in the foreground with a timeout long enough for it.",
   );
 
   parts.push(
@@ -274,8 +276,8 @@ ${
     "## Commands on Other Machines\n\n" +
       "When a step must run on another machine (a cluster node's file system, scheduler or container service, or the user's laptop), run it there yourself with `takode exec` rather than asking for a helper session. `takode host list` names the machines; the Takode server's own machine works by its name too.\n\n" +
       "    takode exec --host <machine> --cwd '~/repo' -- 'git status --short'\n" +
-      "    takode exec --host <machine> --background -- 'cd ~/images && make build'\n\n" +
-      "A command runs as that machine's user in their own login shell (bash or zsh, with their profile), with no input, and returns its output and exit code; long output shows both ends, and `takode exec logs <id>` gives all of it or a range (`--lines 200-400`). Quote it, including `~` and `$VARS`, so your own shell does not expand them. Run anything longer than a few minutes with `--background` and end your turn: you get a message when it finishes, and `takode exec status|logs|kill <id>` follow it. For work whose memory could run away (large evaluations, builds, data jobs), add `--memory-limit <size>` (such as `--memory-limit 64G`): past it the command and everything it started are killed and its outcome says so, before it can fill the machine. " +
+      "    takode exec --host <machine> --memory-limit 64G -- 'cd ~/images && make build'\n\n" +
+      "A command runs as that machine's user in their own login shell (bash or zsh, with their profile), with no input, and returns its output and exit code; long output shows both ends, and `takode exec logs <id>` gives all of it or a range (`--lines 200-400`). Quote it, including `~` and `$VARS`, so your own shell does not expand them. `takode exec` behaves like a local command: it waits until the command ends, however long that takes, and stopping it (an interrupt or your tool's timeout) stops the command. Run a long one the way you run any long command (see Waiting); `takode exec list|status|logs|kill` follow commands from another call. For work whose memory could run away (large evaluations, builds, data jobs), add `--memory-limit <size>` (such as `--memory-limit 64G`): past it the command and everything it started are killed and its outcome says so, before it can fill the machine. " +
       "Commands on another machine are still yours: ask first wherever you would ask before running them here, such as cluster job launches or changes to shared data. For heavy work on a shared machine (builds, large copies), hold a slot of a lease pool named for it, such as `builds@<machine>`, so sessions do not overload it; leaders size it with `takode lease configure`.",
   );
 

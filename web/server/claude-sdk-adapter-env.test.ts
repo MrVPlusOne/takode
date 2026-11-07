@@ -206,6 +206,24 @@ describe("ClaudeSdkAdapter launch env", () => {
     }
   });
 
+  it("lets Bash calls ask for timeouts up to a day unless a value is configured", async () => {
+    // Claude Code caps a Bash call's timeout at 10 minutes (2 hours in the
+    // background) by default, so a long `takode exec` could not be waited for;
+    // an explicit session or server setting must still win.
+    const launchEnv = async (env?: Record<string, string>) => (await launchOptions(env ? { env } : {})).options.env;
+    const original = process.env.BASH_MAX_TIMEOUT_MS;
+    try {
+      delete process.env.BASH_MAX_TIMEOUT_MS;
+      expect((await launchEnv()).BASH_MAX_TIMEOUT_MS).toBe("86400000");
+      expect((await launchEnv({ BASH_MAX_TIMEOUT_MS: "900000" })).BASH_MAX_TIMEOUT_MS).toBe("900000");
+      process.env.BASH_MAX_TIMEOUT_MS = "1200000";
+      expect((await launchEnv()).BASH_MAX_TIMEOUT_MS).toBe("1200000");
+    } finally {
+      if (original === undefined) delete process.env.BASH_MAX_TIMEOUT_MS;
+      else process.env.BASH_MAX_TIMEOUT_MS = original;
+    }
+  });
+
   it("does not hand a parent Claude Code session's variables or login to Claude", async () => {
     // A server started inside Claude Desktop inherits its host-auth markers;
     // passed on, they make Claude wait for a login the host never supplies

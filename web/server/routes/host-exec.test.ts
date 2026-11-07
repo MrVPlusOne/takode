@@ -14,7 +14,6 @@ const job = (overrides: Partial<ExecJob> = {}): ExecJob => ({
   sessionId: "owner",
   sessionNum: 4,
   questId: "q-9",
-  background: false,
   status: "running",
   startedAt: 1,
   endedAt: null,
@@ -27,7 +26,7 @@ const job = (overrides: Partial<ExecJob> = {}): ExecJob => ({
 
 /**
  * The HTTP side of `takode exec`: who the caller is decides the record's
- * session and quest, and who may stop or detach a command. The commands
+ * session and quest, and who may stop a command. The commands
  * themselves are covered by HostExec's tests.
  */
 describe("takode exec routes", () => {
@@ -36,7 +35,6 @@ describe("takode exec routes", () => {
     start: ReturnType<typeof vi.fn>;
     get: ReturnType<typeof vi.fn>;
     kill: ReturnType<typeof vi.fn>;
-    detach: ReturnType<typeof vi.fn>;
     readLog: ReturnType<typeof vi.fn>;
   };
   let app: Hono;
@@ -47,7 +45,6 @@ describe("takode exec routes", () => {
       start: vi.fn(async () => job()),
       get: vi.fn(() => job()),
       kill: vi.fn(() => job()),
-      detach: vi.fn(async () => job({ background: true })),
       readLog: vi.fn(async () => Readable.from(["line 1\n", "line 2\n"])),
     };
     const ctx = {
@@ -79,7 +76,7 @@ describe("takode exec routes", () => {
   });
 
   it("starts a command for the calling session with its claimed quest", async () => {
-    const res = await post("/takode/exec", { host: "condor", command: "make", cwd: "~/repo", background: true });
+    const res = await post("/takode/exec", { host: "condor", command: "make", cwd: "~/repo" });
     expect(res.status).toBe(201);
     expect(exec.start).toHaveBeenCalledWith({
       sessionId: "owner",
@@ -88,8 +85,16 @@ describe("takode exec routes", () => {
       host: "condor",
       command: "make",
       cwd: "~/repo",
-      background: true,
     });
+  });
+
+  // A takode CLI from before --background was removed would return at once and
+  // leave the command without a caller, which stops it; it is refused instead.
+  it("refuses a background start from an old CLI", async () => {
+    const res = await post("/takode/exec", { host: "condor", command: "make", background: true });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain("--background was removed");
+    expect(exec.start).not.toHaveBeenCalled();
   });
 
   it("answers a refused start with its status and reason", async () => {
@@ -101,10 +106,9 @@ describe("takode exec routes", () => {
   });
 
   // Stopping someone else's command is for its session or a leader only.
-  it("lets only the owner or a leader stop a command, and only the owner detach it", async () => {
+  it("lets only the owner or a leader stop a command", async () => {
     caller = { id: "other", isOrchestrator: false };
     expect((await post("/takode/exec/jobs/x-1/kill")).status).toBe(403);
-    expect((await post("/takode/exec/jobs/x-1/detach")).status).toBe(403);
     expect(exec.kill).not.toHaveBeenCalled();
 
     caller = { id: "leader", isOrchestrator: true };
@@ -112,8 +116,7 @@ describe("takode exec routes", () => {
     expect(exec.kill).toHaveBeenCalledWith("x-1");
 
     caller = { id: "owner", isOrchestrator: false };
-    expect((await post("/takode/exec/jobs/x-1/detach")).status).toBe(200);
-    expect(exec.detach).toHaveBeenCalledWith("x-1");
+    expect((await post("/takode/exec/jobs/x-1/kill")).status).toBe(200);
 
     exec.get.mockReturnValueOnce(null);
     expect((await post("/takode/exec/jobs/x-9/kill")).status).toBe(404);
@@ -123,9 +126,9 @@ describe("takode exec routes", () => {
   it("streams a command's log, whole or as a range", async () => {
     const res = await app.request("/api/takode/exec/jobs/x-1/log?lines=200-400");
     expect(await res.text()).toBe("line 1\nline 2\n");
-    expect(exec.readLog).toHaveBeenCalledWith("x-1", { readerSessionId: "owner", lines: [200, 400] });
+    expect(exec.readLog).toHaveBeenCalledWith("x-1", { lines: [200, 400] });
     await app.request("/api/takode/exec/jobs/x-1/log?bytes=7");
-    expect(exec.readLog).toHaveBeenLastCalledWith("x-1", { readerSessionId: "owner", bytes: [7, 7] });
+    expect(exec.readLog).toHaveBeenLastCalledWith("x-1", { bytes: [7, 7] });
     expect((await app.request("/api/takode/exec/jobs/x-1/log?lines=9-3")).status).toBe(400);
     expect((await app.request("/api/takode/exec/jobs/x-1/log?bytes=abc")).status).toBe(400);
   });

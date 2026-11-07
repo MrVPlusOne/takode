@@ -27,8 +27,11 @@ export interface BoardParticipantDeps {
   getLeaseWaits?: (sessionId: string) => readonly ResourceLeaseWait[];
   /** Whether the session runs, or has a change inside, an active landing-queue run. */
   isLandingActive?: (sessionId: string) => boolean;
-  /** Background jobs the session is notified about when they end: Claude background tasks and `takode exec` jobs. */
-  getBackgroundTasks?: (sessionId: string) => BackgroundTaskSnapshot | null;
+  /**
+   * The session's work in progress while it is idle: Claude background tasks and running `takode exec`
+   * commands; `notifyingOnly` keeps those whose end sends the session a message.
+   */
+  getBackgroundTasks?: (sessionId: string, options?: { notifyingOnly?: boolean }) => BackgroundTaskSnapshot | null;
   backendConnected: (session: SessionLike) => boolean;
 }
 
@@ -57,11 +60,12 @@ export function getBoardParticipantRuntime(
   if (connected && (session.isGenerating || (session.pendingPermissions?.size ?? 0) > 0)) {
     return { status: "running", lastActivityAt, hasActiveTimer, backgroundJobs: [] };
   }
-  // A disconnected session keeps the jobs that outlive its backend process
-  // (`takode exec` runs on a node); their finish message relaunches it.
+  // A disconnected session keeps only the jobs whose finish message relaunches
+  // it (`takode exec` commands from the retired --background flag); its other
+  // exec commands lost their caller with its process and are being stopped.
   // A background job ending counts as activity: the agent's resume turn may
   // start a moment after its job leaves the set, so the stall clock restarts.
-  const background = deps.getBackgroundTasks?.(sessionId);
+  const background = deps.getBackgroundTasks?.(sessionId, connected ? {} : { notifyingOnly: true });
   return {
     status: connected ? "idle" : "disconnected",
     lastActivityAt: Math.max(lastActivityAt, background?.changedAt ?? 0),

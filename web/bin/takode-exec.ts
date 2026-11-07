@@ -12,7 +12,7 @@ import { formatLeaseWaitDuration as formatDuration } from "../shared/resource-le
 import { apiPost, err, takodeAuthHeaders } from "./takode-core.js";
 
 export const EXEC_USAGE = [
-  "Usage: takode exec --host <machine> [--cwd <dir>] [--memory-limit <size>] [--background] [--json] -- <command...>",
+  "Usage: takode exec --host <machine> [--cwd <dir>] [--memory-limit <size>] [--json] -- <command...>",
   "       takode exec status <id> [--json]",
   "       takode exec logs <id> [--lines <from>-<to> | --bytes <from>-<to> | --tail <lines>]",
   "       takode exec kill <id>",
@@ -30,10 +30,12 @@ code come back as if it ran here; whatever the login profile itself prints is
 left out. Long output shows both ends and names the lines left out, which
 takode exec logs shows.
 
-  --background  Return a job id at once. The command keeps running if this
-                session stops or disconnects, and you get a message when it
-                finishes. A foreground run that is interrupted or times out
-                becomes a background run the same way.
+It waits until the command ends, however long that takes, like a local
+command, and stopping it (Ctrl-C, a tool timeout) stops the command. Run a
+long command the way you run any long command: in your own background shell
+or terminal (Claude: Bash with run_in_background; Codex: a background
+terminal), or give your shell tool a timeout long enough for it.
+
   --memory-limit <size>
                 Kill the command and everything it started once they use
                 more memory than this together, such as 64G or 512M. Its
@@ -56,8 +58,16 @@ running them here, such as cluster job launches or changes to shared data.`;
 
 /** How long one request waits for the command to end before asking again. */
 const WAIT_SECONDS = 25;
-/** How long to keep retrying while the coordinator is unreachable, e.g. restarting. */
-const RECONNECT_MS = 120_000;
+/**
+ * How long to keep retrying while the coordinator is unreachable, e.g. restarting.
+ * The server stops a command nobody asked about for as long (`CALLER_GONE_MS`).
+ */
+const RECONNECT_MS = 5 * 60_000;
+
+const BACKGROUND_REMOVED =
+  "--background was removed: takode exec now runs until the command ends. Run a long command with your own " +
+  "background mechanism (Claude: Bash run_in_background; Codex: a background terminal), or give your shell " +
+  "tool a timeout long enough for it.";
 
 type OutputResponse = { output: string; bytes: number; truncated: boolean };
 
@@ -82,11 +92,10 @@ export function parseExecRun(args: string[]): {
   host?: string;
   cwd?: string;
   memoryLimitBytes?: number;
-  background: boolean;
   json: boolean;
   command: string;
 } {
-  const parsed = { background: false, json: false, command: "" } as ReturnType<typeof parseExecRun>;
+  const parsed = { json: false, command: "" } as ReturnType<typeof parseExecRun>;
   let index = 0;
   for (; index < args.length; index++) {
     const arg = args[index]!;
@@ -102,7 +111,7 @@ export function parseExecRun(args: string[]): {
       const value = args[++index];
       if (value === undefined) err(`--memory-limit needs a size, such as 64G\n${EXEC_USAGE}`);
       parsed.memoryLimitBytes = parseMemorySize(value);
-    } else if (arg === "--background") parsed.background = true;
+    } else if (arg === "--background") err(BACKGROUND_REMOVED);
     else if (arg === "--json") parsed.json = true;
     else if (arg.startsWith("--")) err(`Unknown option ${arg}\n${EXEC_USAGE}`);
     else break;
@@ -131,28 +140,17 @@ async function runCommand(base: string, args: string[]): Promise<void> {
     command: options.command,
     ...(options.cwd ? { cwd: options.cwd } : {}),
     ...(options.memoryLimitBytes ? { memoryLimitBytes: options.memoryLimitBytes } : {}),
-    background: options.background,
   })) as { job: ExecJob };
 
-  if (options.background) {
-    if (options.json) return printJson({ job: started });
-    console.log(
-      `Started ${started.id} on ${started.host}. You will get a message when it finishes; ` +
-        `follow it with takode exec status|logs|kill ${started.id}.`,
-    );
-    return;
-  }
-
-  // Stopped or timed out, the command keeps running and the session hears when it ends.
-  const detach = async () => {
-    await apiPost(base, `/takode/exec/jobs/${started.id}/detach`).catch(() => {});
+  // Interrupted or timed out, the command stops with its caller, like a local one.
+  const stop = async (signal: NodeJS.Signals) => {
+    await apiPost(base, `/takode/exec/jobs/${started.id}/kill`).catch(() => {});
     console.error(
-      `[takode exec] ${started.id} keeps running on ${started.host}; you will get a message when it finishes. ` +
-        `Follow it with takode exec status|logs|kill ${started.id}.`,
+      `[takode exec] stopped ${started.id} on ${started.host}; its output so far: takode exec logs ${started.id}`,
     );
-    process.exit(130);
+    process.exit(128 + (constants.signals[signal] ?? 2));
   };
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(signal, () => void detach());
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(signal, () => void stop(signal));
 
   let job = started;
   while (job.status === "running") {
@@ -240,7 +238,7 @@ function formatJobLine(job: ExecJob): string {
   const when = new Date(job.startedAt).toISOString().slice(0, 16).replace("T", " ");
   const took = formatDuration(durationOf(job));
   const state = job.status === "running" ? `running for ${took}` : `${describeExecOutcome(job)} after ${took}`;
-  return `${job.id}  ${job.host}  ${state}  (${owner}${quest}, started ${when} UTC${job.background ? ", background" : ""})`;
+  return `${job.id}  ${job.host}  ${state}  (${owner}${quest}, started ${when} UTC)`;
 }
 
 function durationOf(job: ExecJob): number {

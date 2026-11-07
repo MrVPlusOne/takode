@@ -7,7 +7,11 @@
 
 import { formatBytes } from "./memory-guard.js";
 
-/** Source of the message that tells a session its background command finished. */
+/**
+ * Source of the message that told a session a command started with the
+ * retired `--background` flag finished. Sessions keep these in their history,
+ * and a coordinator that took such a command over still sends one.
+ */
 export const HOST_EXEC_MESSAGE_SOURCE = { sessionId: "host-exec", sessionLabel: "Remote Command" } as const;
 
 /** First words of that message, which the feed's chip recognizes. */
@@ -26,13 +30,11 @@ export interface ExecJob {
   command: string;
   /** Working directory on the machine; null for its home directory. */
   cwd: string | null;
-  /** Session that ran it, which owns it and is told when a background run finishes. */
+  /** Session that ran it, which owns it. */
   sessionId: string;
   sessionNum: number | null;
   /** Quest the session had claimed when it ran the command. */
   questId: string | null;
-  /** Started with `--background`, or its foreground caller stopped waiting or never collected the result. */
-  background: boolean;
   status: ExecJobStatus;
   startedAt: number;
   endedAt: number | null;
@@ -47,6 +49,8 @@ export interface ExecJob {
   memoryLimitBytes?: number | null;
   /** Why the node's memory guard killed it, when it did. */
   memoryKill?: ExecMemoryKill | null;
+  /** Stopped because its caller went away without stopping it. */
+  callerGone?: boolean;
 }
 
 /** A command the memory guard of its machine's node killed. */
@@ -61,7 +65,7 @@ export interface ExecMemoryKill {
 
 /** One-line outcome such as "exit 0", "killed by SIGTERM" or "failed: <reason>". */
 export function describeExecOutcome(
-  job: Pick<ExecJob, "status" | "exitCode" | "signal" | "error" | "memoryLimitBytes" | "memoryKill">,
+  job: Pick<ExecJob, "status" | "exitCode" | "signal" | "error" | "memoryLimitBytes" | "memoryKill" | "callerGone">,
 ): string {
   if (job.status === "running") return "running";
   const kill = job.memoryKill;
@@ -69,6 +73,7 @@ export function describeExecOutcome(
     return `killed for using ${formatBytes(kill.bytes)}, over its ${formatBytes(job.memoryLimitBytes)} memory limit (${kill.programs.join(", ")})`;
   }
   if (kill) return `killed by the memory guard: the machine was nearly out of memory`;
+  if (job.callerGone) return "stopped: its caller went away";
   if (job.signal) return `killed by ${job.signal}`;
   if (job.status === "failed" || job.exitCode === null) return `failed: ${job.error ?? "the process was lost"}`;
   return `exit ${job.exitCode}`;

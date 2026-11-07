@@ -7,7 +7,7 @@ import { HostAgent, type HostAgentOptions } from "./host-agent.js";
 import { HostExec, HostExecError, type HostExecDeps } from "./host-exec.js";
 import { HostLinkManager } from "./host-link-manager.js";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
-import { HOST_EXEC_MESSAGE_TAG } from "../../shared/host-exec.js";
+import { describeExecOutcome, HOST_EXEC_MESSAGE_TAG } from "../../shared/host-exec.js";
 
 const HOST_ID = "host-1";
 
@@ -89,18 +89,13 @@ describe("HostExec", () => {
     });
   }
 
-  const run = (
-    exec: HostExec,
-    command: string,
-    extra: { background?: boolean; cwd?: string; memoryLimitBytes?: number } = {},
-  ) =>
+  const run = (exec: HostExec, command: string, extra: { cwd?: string; memoryLimitBytes?: number } = {}) =>
     exec.start({
       sessionId: "session-a",
       sessionNum: 7,
       questId: "q-1",
       host: "condor",
       command,
-      background: extra.background ?? false,
       ...(extra.cwd ? { cwd: extra.cwd } : {}),
       ...(extra.memoryLimitBytes ? { memoryLimitBytes: extra.memoryLimitBytes } : {}),
     });
@@ -111,8 +106,8 @@ describe("HostExec", () => {
   }
 
   // The basic contract: output (stdout and stderr together) and the exit code
-  // come back, the call is recorded with its session and quest, and a
-  // foreground caller that kept asking is not sent a message.
+  // come back, the call is recorded with its session and quest, and its
+  // caller gets the result itself: the session is sent no message.
   it("runs a foreground command and records its outcome and output", async () => {
     connectHost();
     await waitFor(() => manager.status(HOST_ID).online);
@@ -120,9 +115,9 @@ describe("HostExec", () => {
     const started = await run(exec, "echo out; echo err >&2; exit 3");
     expect(started).toMatchObject({ id: "x-1", host: "condor", status: "running", sessionNum: 7, questId: "q-1" });
     const job = await finished(exec, started.id);
-    expect(job).toMatchObject({ status: "exited", exitCode: 3, signal: null, background: false });
+    expect(job).toMatchObject({ status: "exited", exitCode: 3, signal: null });
     expect(job.endedAt).not.toBeNull();
-    const output = await exec.readOutput(job.id, { readerSessionId: "session-a" });
+    const output = await exec.readOutput(job.id);
     expect(output?.output.split("\n").sort()).toEqual(["", "err", "out"]);
     expect(notices).toEqual([]);
     // Start and end both refresh the session's waits.
@@ -140,15 +135,15 @@ describe("HostExec", () => {
     await waitFor(() => manager.status(HOST_ID).online);
     const exec = createExec();
     const inHome = await finished(exec, (await run(exec, "pwd")).id);
-    expect((await exec.readOutput(inHome.id, { readerSessionId: "session-a" }))?.output.trim()).toBe(home);
+    expect((await exec.readOutput(inHome.id))?.output.trim()).toBe(home);
     const tilde = await finished(exec, (await run(exec, "pwd", { cwd: "~" })).id);
     expect(tilde.cwd).toBe("~");
-    expect((await exec.readOutput(tilde.id, { readerSessionId: "session-a" }))?.output.trim()).toBe(home);
+    expect((await exec.readOutput(tilde.id))?.output.trim()).toBe(home);
     const given = await finished(exec, (await run(exec, "pwd", { cwd: dir })).id);
-    expect((await exec.readOutput(given.id, { readerSessionId: "session-a" }))?.output.trim()).toBe(dir);
+    expect((await exec.readOutput(given.id))?.output.trim()).toBe(dir);
     const missing = await finished(exec, (await run(exec, "pwd", { cwd: join(dir, "missing") })).id);
     expect(missing).toMatchObject({ status: "exited", exitCode: 1 });
-    expect((await exec.readOutput(missing.id, { readerSessionId: "session-a" }))?.output).toContain("missing");
+    expect((await exec.readOutput(missing.id))?.output).toContain("missing");
   });
 
   // Commands run as a login shell of the user's own shell from their passwd
@@ -159,7 +154,7 @@ describe("HostExec", () => {
     await waitFor(() => manager.status(HOST_ID).online);
     const exec = createExec();
     const job = await finished(exec, (await run(exec, 'echo "$SHELL $PROFILE_VAR"; echo err >&2')).id);
-    const output = (await exec.readOutput(job.id, { readerSessionId: "session-a" }))?.output;
+    const output = (await exec.readOutput(job.id))?.output;
     expect(output?.split("\n").sort()).toEqual(["", `${userInfo().shell} from-profile`, "err"]);
   });
 
@@ -171,7 +166,7 @@ describe("HostExec", () => {
     const exec = createExec();
     const job = await finished(exec, (await run(exec, "seq 1 20000")).id);
     const all = Array.from({ length: 20000 }, (_, index) => `${index + 1}\n`).join("");
-    const shown = (await exec.readOutput(job.id, { readerSessionId: "session-a" }))!;
+    const shown = (await exec.readOutput(job.id))!;
     expect(shown.truncated).toBe(true);
     const marker = shown.output.match(
       /\[\.\.\. lines (\d+)-(\d+) not shown; just those: `takode exec logs x-1 --lines \1-\2`/,
@@ -196,44 +191,46 @@ describe("HostExec", () => {
     expect(await read({ bytes: [1, 6] })).toBe("1\n2\n3\n");
   });
 
-  // A background command tells its session when it ends, with the outcome and
-  // the last lines of output, and counts as a background job meanwhile.
-  it("tells the session when a background command finishes", async () => {
+  // A running command is the session's work in progress, which its waits and
+  // the board's stall check show, but its end sends no message: its caller
+  // (often the agent's own background shell) gets the result, so the command
+  // is not something that starts the session's next turn.
+  it("counts a running command as work in progress that sends no message", async () => {
     connectHost();
     await waitFor(() => manager.status(HOST_ID).online);
     const exec = createExec();
-    const started = await run(exec, "for i in 1 2 3; do echo line$i; done; sleep 0.3", { background: true });
+    const started = await run(exec, "sleep 0.3");
     expect(exec.backgroundTasks("session-a")?.tasks).toEqual([
       expect.objectContaining({ taskId: started.id, description: expect.stringContaining("takode exec on condor") }),
     ]);
-    await waitFor(() => notices.length === 1);
-    const [notice] = notices;
-    expect(notice!.sessionId).toBe("session-a");
-    expect(notice!.text.startsWith(`${HOST_EXEC_MESSAGE_TAG} x-1 on condor: exit 0 after`)).toBe(true);
-    expect(notice!.text).toContain("line1\nline2\nline3");
-    expect(notice!.text).toContain("takode exec logs x-1");
+    expect(exec.backgroundTasks("session-a", { notifyingOnly: true })).toBeNull();
+    await finished(exec, started.id);
     expect(exec.backgroundTasks("session-a")?.tasks).toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(notices).toEqual([]);
   });
 
-  // A foreground caller that was killed never collects the result, so the
-  // session is sent it like for a background command; one that read the
-  // output is not sent it again.
-  it("sends the result of a foreground command its caller did not collect", async () => {
+  // A command dies with its caller, like a local one. A caller killed outright
+  // (SIGKILL, a crashed agent) cannot stop it, so a command nobody asks about
+  // for the caller-gone window is stopped and its outcome says why; one whose
+  // caller keeps waiting runs on.
+  it("stops a command whose caller stopped asking about it", async () => {
     connectHost();
     await waitFor(() => manager.status(HOST_ID).online);
-    const exec = createExec({ resultPickupMs: 50 });
-    const collectedJob = await finished(exec, (await run(exec, "echo seen")).id);
-    await exec.readOutput(collectedJob.id, { readerSessionId: "session-a" });
-    const abandoned = await finished(exec, (await run(exec, "echo unseen")).id);
-    // Someone else reading it does not count as the caller collecting it.
-    await exec.readOutput(abandoned.id, { readerSessionId: "leader" });
-    await waitFor(() => notices.length === 1);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(notices.map((notice) => notice.text.split("\n")[0])).toEqual([
-      expect.stringContaining(`${HOST_EXEC_MESSAGE_TAG} ${abandoned.id} on condor: exit 0`),
-    ]);
-    expect(exec.get(abandoned.id)?.background).toBe(true);
-    expect(exec.get(collectedJob.id)?.background).toBe(false);
+    const exec = createExec({ callerGoneMs: 300, callerCheckMs: 50 });
+    const abandoned = await run(exec, "sleep 30");
+    const waitedFor = await run(exec, "sleep 1.5; echo done");
+    let waited = exec.get(waitedFor.id)!;
+    // The caller's long polls, each shorter than the window, keep it alive.
+    while (waited.status === "running") waited = (await exec.wait(waitedFor.id, 200))!;
+    expect(waited).toMatchObject({ status: "exited", exitCode: 0 });
+    expect(waited.callerGone).toBeUndefined();
+    // Polled without waiting: a wait would count as its caller asking.
+    await waitFor(() => exec.get(abandoned.id)?.status !== "running");
+    const stopped = exec.get(abandoned.id)!;
+    expect(stopped.callerGone).toBe(true);
+    expect(describeExecOutcome(stopped)).toBe("stopped: its caller went away");
+    expect(notices).toEqual([]);
   });
 
   // Killing a command stops everything it started, not just its shell.
@@ -272,7 +269,6 @@ describe("HostExec", () => {
       exec,
       `sleep 30 & echo $! > ${pidFile("plain")}; perl ${leave} group ${pidFile("group")} | cat & ` +
         `perl ${leave} session ${pidFile("session")} & wait`,
-      { background: true },
     );
     let childPids: number[] = [];
     await waitFor(async () => {
@@ -308,15 +304,12 @@ describe("HostExec", () => {
     const exec = createExec();
     manager.onMemoryKill = (_host, procId, kill) => void exec.memoryKilled(procId, kill);
     const worker = `${JSON.stringify(process.execPath)} -e 'const b = Buffer.alloc(80e6, 1); setInterval(() => b[0]++, 1000)'`;
-    const started = await run(exec, `${worker} & ${worker} & wait`, { background: true, memoryLimitBytes: 100 * MB });
+    const started = await run(exec, `${worker} & ${worker} & wait`, { memoryLimitBytes: 100 * MB });
     expect(started.memoryLimitBytes).toBe(100 * MB);
     const job = await finished(exec, started.id);
     expect(job).toMatchObject({ signal: "SIGKILL", memoryKill: { reason: "command_limit" } });
     expect(job.memoryKill!.bytes).toBeGreaterThan(100 * MB);
-    await waitFor(() => notices.length === 1);
-    expect(notices[0]!.text.split("\n")[0]).toMatch(
-      /^\[Command finished\] x-1 on condor: killed for using \d+ MB, over its 100 MB memory limit \(.+\) after /,
-    );
+    expect(describeExecOutcome(job)).toMatch(/^killed for using \d+ MB, over its 100 MB memory limit \(.+\)$/);
   });
 
   // A node too old to enforce a limit (or without its memory guard) would run the command uncapped; it is refused.
@@ -341,7 +334,6 @@ describe("HostExec", () => {
         questId: null,
         host: "nope",
         command: "true",
-        background: false,
       }),
     ).rejects.toEqual(new HostExecError(404, "No machine named nope; machines: devbox, condor"));
     expect(offline.list()).toEqual([]);
@@ -353,10 +345,8 @@ describe("HostExec", () => {
     connectHost();
     await waitFor(() => manager.status(HOST_ID).online);
     const first = createExec();
-    const started = await run(first, "echo before; sleep 0.5; echo after", { background: true });
-    await waitFor(
-      async () => (await first.readOutput(started.id, { readerSessionId: "session-a" }))?.output === "before\n",
-    );
+    const started = await run(first, "echo before; sleep 0.5; echo after");
+    await waitFor(async () => (await first.readOutput(started.id))?.output === "before\n");
 
     manager = new HostLinkManager();
     const second = createExec();
@@ -364,12 +354,38 @@ describe("HostExec", () => {
     links.at(-1)!.drop();
     const job = await finished(second, started.id);
     expect(job).toMatchObject({ status: "exited", exitCode: 0 });
-    expect((await second.readOutput(job.id, { readerSessionId: "session-a" }))?.output).toBe("before\nafter\n");
-    await waitFor(() => notices.length === 1);
-    expect(notices.map((notice) => notice.text.split("\n")[0])).toEqual([
-      expect.stringContaining(`${HOST_EXEC_MESSAGE_TAG} x-1 on condor: exit 0`),
-    ]);
+    expect((await second.readOutput(job.id))?.output).toBe("before\nafter\n");
+    expect(notices).toEqual([]);
     // New ids continue after the restored ones.
     expect((await run(second, "true")).id).toBe("x-2");
+  });
+
+  // A command started with the retired --background flag has no caller: the
+  // coordinator that takes it over lets it run to the end, however long, and
+  // tells its session the outcome, as that flag promised.
+  it("finishes a command started with the retired --background flag and tells its session", async () => {
+    connectHost();
+    await waitFor(() => manager.status(HOST_ID).online);
+    const first = createExec();
+    const started = await run(first, "echo legacy; sleep 0.6");
+    // What an earlier coordinator saved for a background command.
+    const path = join(dir, "jobs.json");
+    const stored = JSON.parse(await readFile(path, "utf-8"));
+    stored.jobs[0].background = true;
+    await writeFile(path, JSON.stringify(stored));
+
+    manager = new HostLinkManager();
+    const second = createExec({ callerGoneMs: 100, callerCheckMs: 20 });
+    await second.restore();
+    links.at(-1)!.drop();
+    expect(second.backgroundTasks("session-a", { notifyingOnly: true })?.tasks).toHaveLength(1);
+    // Nobody asks about it, yet it is not stopped as abandoned.
+    await waitFor(() => second.get(started.id)?.status !== "running");
+    const job = second.get(started.id)!;
+    expect(job).toMatchObject({ status: "exited", exitCode: 0 });
+    expect(job).not.toHaveProperty("background");
+    await waitFor(() => notices.length === 1);
+    expect(notices[0]!.text).toContain(`${HOST_EXEC_MESSAGE_TAG} x-1 on condor: exit 0`);
+    expect(notices[0]!.text).toContain("legacy");
   });
 });
