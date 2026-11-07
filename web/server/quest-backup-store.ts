@@ -63,15 +63,26 @@ export interface QuestBackupManifest {
   };
 }
 
+/**
+ * One quest change. Version 1 records held whole before/after copies of each changed quest, so a note added
+ * to a quest of 10 MB wrote 20 MB; version 2 records only what changed. Replaying a day's records in order
+ * onto the quest in the preceding snapshot rebuilds it.
+ */
 interface MutationJournalRecord {
-  version: 1;
+  version: 2;
   kind: "quest_text_mutation";
   id: string;
   createdAt: number;
   before: StoreSummary;
   after: StoreSummary;
-  quests: Array<{ questId: string; before: QuestmasterTask | null; after: QuestmasterTask | null }>;
+  quests: QuestMutation[];
 }
+
+type QuestMutation =
+  /** A created quest (whole), or a deleted one (null). */
+  | { questId: string; quest: QuestmasterTask | null }
+  /** Fields given new values, items added at the end of array fields, and fields removed. */
+  | { questId: string; set?: Record<string, unknown>; appended?: Record<string, unknown[]>; removed?: string[] };
 
 interface StoreSummary {
   nextQuestNumber: number;
@@ -215,7 +226,36 @@ function questChanged(before: QuestmasterTask | undefined, after: QuestmasterTas
   );
 }
 
-function changedQuests(before: QuestStoreSnapshot, after: QuestStoreSnapshot): MutationJournalRecord["quests"] {
+function questMutation(questId: string, before: QuestmasterTask | null, after: QuestmasterTask | null): QuestMutation {
+  if (!before || !after) return { questId, quest: after };
+  const previous = before as unknown as Record<string, unknown>;
+  const next = after as unknown as Record<string, unknown>;
+  const set: Record<string, unknown> = {};
+  const appended: Record<string, unknown[]> = {};
+  for (const [key, value] of Object.entries(next)) {
+    const old = previous[key];
+    if (value === old) continue;
+    // Quest edits copy arrays but keep their existing items, so a growing list (notes, rounds) is recorded
+    // as its new items.
+    if (
+      Array.isArray(value) &&
+      Array.isArray(old) &&
+      value.length > old.length &&
+      old.every((item, i) => item === value[i])
+    )
+      appended[key] = value.slice(old.length);
+    else set[key] = value;
+  }
+  const removed = Object.keys(previous).filter((key) => !(key in next));
+  return {
+    questId,
+    ...(Object.keys(set).length ? { set } : {}),
+    ...(Object.keys(appended).length ? { appended } : {}),
+    ...(removed.length ? { removed } : {}),
+  };
+}
+
+function changedQuests(before: QuestStoreSnapshot, after: QuestStoreSnapshot): QuestMutation[] {
   const beforeById = new Map(before.quests.map((quest) => [quest.questId, quest]));
   const afterById = new Map(after.quests.map((quest) => [quest.questId, quest]));
   const questIds = new Set([...beforeById.keys(), ...afterById.keys()]);
@@ -225,7 +265,7 @@ function changedQuests(before: QuestStoreSnapshot, after: QuestStoreSnapshot): M
       const beforeQuest = beforeById.get(questId);
       const afterQuest = afterById.get(questId);
       if (!questChanged(beforeQuest, afterQuest)) return [];
-      return [{ questId, before: beforeQuest ?? null, after: afterQuest ?? null }];
+      return [questMutation(questId, beforeQuest ?? null, afterQuest ?? null)];
     });
 }
 
@@ -347,7 +387,7 @@ export async function recordQuestStoreMutationBackup(
   const createdAt = Date.now();
   await appendMutationJournal(
     {
-      version: 1,
+      version: 2,
       kind: "quest_text_mutation",
       id: "mutation-" + timestampForPath(createdAt) + "-" + randomUUID(),
       createdAt,

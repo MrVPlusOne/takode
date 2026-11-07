@@ -231,7 +231,7 @@ describe("replaceQuestCodeCommitEvidenceForOwner", () => {
     expect(cancelled?.commitShas).toEqual([NEW_SHA]);
   });
 
-  it("uses the live-store mutation journal and persists the before, after, and audit records atomically", async () => {
+  it("uses the live-store mutation journal and persists the change and audit records atomically", async () => {
     writeLiveStoreFixture({ commitShas: [OLD_SHA] });
 
     await questStore.replaceQuestCodeCommitEvidenceForOwner(
@@ -252,9 +252,10 @@ describe("replaceQuestCodeCommitEvidenceForOwner", () => {
       .split("\n")
       .map((line) => JSON.parse(line));
     expect(records).toHaveLength(1);
-    expect(records[0].quests[0].before.commitShas).toEqual([OLD_SHA]);
-    expect(records[0].quests[0].after.commitShas).toEqual([NEW_SHA]);
-    expect(records[0].quests[0].after.codeCommitEvidenceReplacementEvents).toHaveLength(1);
+    // The journal records the change; the earlier SHAs stay in the audit event and the preceding snapshot.
+    expect(records[0].quests[0].set.commitShas).toEqual([NEW_SHA]);
+    expect(records[0].quests[0].set.codeCommitEvidenceReplacementEvents).toHaveLength(1);
+    expect(JSON.stringify(records[0].quests[0].set.codeCommitEvidenceReplacementEvents)).toContain(OLD_SHA);
   });
 
   it("normalizes valid persisted correction events and drops malformed audit rows", async () => {

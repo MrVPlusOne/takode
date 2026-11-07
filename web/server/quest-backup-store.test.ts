@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -95,16 +95,54 @@ describe("Questmaster local backups", () => {
     const journalRaw = await readFile(journalPath, "utf-8");
     const journalEntry = JSON.parse(journalRaw.trim()) as {
       kind: string;
-      quests: Array<{ questId: string; before: { title: string }; after: { title: string } }>;
+      version: number;
+      quests: Array<{ questId: string; set?: Record<string, unknown> }>;
     };
-    expect(journalEntry.kind).toBe("quest_text_mutation");
+    expect(journalEntry).toMatchObject({ kind: "quest_text_mutation", version: 2 });
     expect(journalEntry.quests).toEqual([
-      expect.objectContaining({
-        questId: "q-1",
-        before: expect.objectContaining({ title: "Original" }),
-        after: expect.objectContaining({ title: "Updated" }),
-      }),
+      expect.objectContaining({ questId: "q-1", set: expect.objectContaining({ title: "Updated" }) }),
     ]);
+  });
+
+  it("journals only what changed, and replaying the records onto the snapshot rebuilds the quest", async () => {
+    // Whole before/after copies made a note on a 10 MB quest write 20 MB of journal. A note is now recorded as
+    // the appended entry, and the journal still restores the quest exactly.
+    writeLiveStoreFixture();
+    const bigNote = "evidence ".repeat(50_000);
+    await questStore.appendQuestFeedback("q-1", { author: "agent", text: bigNote, ts: 1 });
+    const manifest = await questBackups.listQuestmasterBackups();
+    const snapshotPath = join(backupRoot(), manifest.text.snapshots[0]!.relativePath);
+    const snapshot = JSON.parse(await readFile(snapshotPath, "utf-8")) as {
+      store: { quests: Record<string, unknown>[] };
+    };
+
+    await questStore.appendQuestFeedback("q-1", { author: "agent", text: "second note", ts: 2 });
+    await questStore.patchQuest("q-1", { title: "Retitled", tldr: "" });
+    const journalPath = join(backupRoot(), manifest.text.journals[0]!.relativePath);
+    const records = (await readFile(journalPath, "utf-8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { quests: Record<string, unknown>[] });
+    const lastTwo = records.slice(-2);
+    expect(JSON.stringify(lastTwo).length).toBeLessThan(bigNote.length / 10);
+    expect(lastTwo[0]!.quests[0]).toMatchObject({ appended: { feedback: [{ text: "second note" }] } });
+
+    const quest = { ...snapshot.store.quests.find((entry) => entry.questId === "q-1")! };
+    for (const record of lastTwo) {
+      const change = record.quests[0] as {
+        set?: Record<string, unknown>;
+        appended?: Record<string, unknown[]>;
+        removed?: string[];
+      };
+      Object.assign(quest, change.set);
+      for (const [key, items] of Object.entries(change.appended ?? {}))
+        quest[key] = [...((quest[key] as unknown[]) ?? []), ...items];
+      for (const key of change.removed ?? []) delete quest[key];
+    }
+    const live = JSON.parse(readFileSync(join(tempDir, ".companion", "questmaster-live", "store.json"), "utf-8")) as {
+      quests: Record<string, unknown>[];
+    };
+    expect(quest).toEqual(live.quests.find((entry) => entry.questId === "q-1"));
   });
 
   it("retains only the configured number of full text snapshots", async () => {

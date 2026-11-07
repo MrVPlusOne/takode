@@ -61,7 +61,7 @@ export function stripDerivedQuestRelationships<T extends QuestmasterTask | null 
 
 export function withQuestRelationshipSummaries<T extends QuestmasterTask>(quests: T[]): T[] {
   const knownQuestIds = new Set(quests.map((quest) => quest.questId.toLowerCase()));
-  const relatedByQuestId = new Map<string, QuestRelatedQuest[]>();
+  const relatedByQuestId: RelatedByQuestId = new Map();
   const explicitlyRelatedPairs = new Set<string>();
 
   for (const quest of quests) {
@@ -99,7 +99,7 @@ export function withQuestRelationshipSummaries<T extends QuestmasterTask>(quests
   }
 
   return quests.map((quest) => {
-    const relatedQuests = relatedByQuestId.get(quest.questId.toLowerCase());
+    const relatedQuests = relatedByQuestId.get(quest.questId.toLowerCase())?.entries;
     if (!relatedQuests?.length) return stripDerivedQuestRelationships(quest);
     return { ...stripDerivedQuestRelationships(quest), relatedQuests: sortRelatedQuests(relatedQuests) };
   });
@@ -155,13 +155,17 @@ function extractQuestReferenceIds(text: string | undefined): string[] {
   return matches;
 }
 
-function addRelated(map: Map<string, QuestRelatedQuest[]>, questId: string, entry: QuestRelatedQuest): void {
+/** Each quest's related quests, with the (quest, kind) pairs already listed, so a quest with many links adds each in constant time. */
+type RelatedByQuestId = Map<string, { entries: QuestRelatedQuest[]; seen: Set<string> }>;
+
+function addRelated(map: RelatedByQuestId, questId: string, entry: QuestRelatedQuest): void {
   const key = questId.toLowerCase();
-  const existing = map.get(key) ?? [];
-  if (existing.some((candidate) => sameQuestId(candidate.questId, entry.questId) && candidate.kind === entry.kind)) {
-    return;
-  }
-  map.set(key, [...existing, entry]);
+  let related = map.get(key);
+  if (!related) map.set(key, (related = { entries: [], seen: new Set() }));
+  const seenKey = `${entry.kind}\0${entry.questId.toLowerCase()}`;
+  if (related.seen.has(seenKey)) return;
+  related.seen.add(seenKey);
+  related.entries.push(entry);
 }
 
 function sortRelatedQuests(entries: QuestRelatedQuest[]): QuestRelatedQuest[] {
@@ -171,10 +175,17 @@ function sortRelatedQuests(entries: QuestRelatedQuest[]): QuestRelatedQuest[] {
     referenced_by: 2,
     references: 3,
   };
-  return [...entries].sort((left, right) => {
-    const kindDiff = kindRank[left.kind] - kindRank[right.kind];
-    return kindDiff || compareQuestIds(left.questId, right.questId);
-  });
+  // Quest numbers are parsed once per entry rather than in every comparison: a quest with thousands of links
+  // otherwise spent most of each store write parsing them.
+  return entries
+    .map((entry) => ({ entry, rank: kindRank[entry.kind], number: questIdNumber(entry.questId) }))
+    .sort(
+      (left, right) =>
+        left.rank - right.rank ||
+        left.number - right.number ||
+        left.entry.questId.localeCompare(right.entry.questId, undefined, { numeric: true }),
+    )
+    .map(({ entry }) => entry);
 }
 
 function pairKey(leftQuestId: string, rightQuestId: string): string {

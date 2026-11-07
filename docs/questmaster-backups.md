@@ -21,6 +21,8 @@ The manifest lists:
 
 Text snapshots are the primary recovery source. Journals preserve recent per-quest textual mutations between snapshots. Image blobs are secondary, content-addressed by SHA-256, and optimized for space over exhaustive image history.
 
+Each journal line is one store write (`kind: "quest_text_mutation"`). Version 2 lines (from November 2026) record only what changed in each quest: `set` holds fields with their new values, `appended` holds items added to the end of array fields (such as a new note in `feedback`), and `removed` names deleted fields; a created quest appears whole as `quest`, a deleted one as `quest: null`. To rebuild a quest, take it from the newest snapshot older than the lines you need and apply the following lines for that quest in order. Version 1 lines (earlier days) hold whole `before` and `after` copies of each changed quest instead.
+
 ## Restore safety
 
 Do not overwrite live Questmaster data directly from a backup. First copy the candidate backup to a temporary location and inspect it.
