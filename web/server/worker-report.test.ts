@@ -141,16 +141,38 @@ describe("authored worker reports", () => {
   });
 
   it.each([
-    "route",
-    "main-route",
+    ["an unrouted message (command-finished notice, timer)", { threadKey: "main" }],
+    ["a leader note filed under another quest's thread", { threadKey: "q-2", questId: "q-2" }],
+  ])("records a report from a turn started by %s", async (_label, route) => {
+    // Worker turns default to Main when their starting message names no quest. A worker on a
+    // track got "route does not match" from a turn started by a `takode exec` finish notice.
+    session.activeTurnRoute = route;
+    expect(await publish(ctx, "worker-1", "report")).toMatchObject({ recorded: true, queued: true, questId: "q-1" });
+  });
+
+  it("rejects a report when the worker has more than one Work row", async () => {
+    // The store lets a worker own one active quest, so two Work rows mean a stale board; don't guess.
+    const second: BoardRow = { ...row, questId: "q-2", createdAt: 300 };
+    ctx.wsBridge.getSession = ((id: string) =>
+      id === "worker-1"
+        ? session
+        : {
+            board: new Map([
+              [row.questId, row],
+              [second.questId, second],
+            ]),
+          }) as unknown as typeof ctx.wsBridge.getSession;
+    await expect(publish(ctx, "worker-1", "which one?")).rejects.toThrow("unambiguous");
+    expect((await store.getQuest("q-1"))?.feedback ?? []).toHaveLength(0);
+  });
+
+  it.each([
     "assignment",
     "phase",
     "generation",
     "leader",
     "role",
   ])("rejects invalid %s authority before writing", async (boundary) => {
-    if (boundary === "route") session.activeTurnRoute.questId = "q-2";
-    if (boundary === "main-route") session.activeTurnRoute = { threadKey: "main" };
     if (boundary === "assignment") row.worker = "other-worker";
     if (boundary === "phase") row.status = "USER_CHECKPOINTING";
     if (boundary === "generation") session.isGenerating = false;

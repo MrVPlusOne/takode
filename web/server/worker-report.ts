@@ -27,13 +27,11 @@ export async function publishWorkerReport(
     const rows = [...(leader?.board.values() ?? [])].filter(
       (row) => row.worker === workerId && row.status === "WORKING",
     );
-    const routeQuest = session.activeTurnRoute?.questId;
-    const candidates = routeQuest ? rows.filter((row) => row.questId === routeQuest) : rows;
-    if (candidates.length !== 1) throw new Error("Report requires one unambiguous current Work assignment");
-    const row = candidates[0]!;
-    if (session.activeTurnRoute?.threadKey && session.activeTurnRoute.threadKey !== row.questId) {
-      throw new Error("Report route does not match the current Work assignment");
-    }
+    // The turn's route is not consulted: a worker's turn often starts from a message with no quest
+    // route (a command-finished notice, a timer, the user typing), which defaults to Main, or from a
+    // leader note filed under another quest's thread, and a worker owns one active quest anyway.
+    if (rows.length !== 1) throw new Error("Report requires one unambiguous current Work assignment");
+    const row = rows[0]!;
     if (getQuestJourneyCurrentPhaseId(row.journey, row.status) !== "work") {
       throw new Error("Reports require the current Work occurrence");
     }
