@@ -26,6 +26,7 @@ import { promisify } from "node:util";
 import {
   checkBackupSnapshot,
   readBackupManifest,
+  readRestoredQuestCounts,
   restoreBackupSnapshot,
   writeBackupSnapshot,
 } from "./backup-snapshot.js";
@@ -143,13 +144,11 @@ export async function testBackupRestore(input: { repoUrl: string; serverSlug: st
     if (problems.length === 0) {
       const restored = join(scratch, "restored");
       await restoreBackupSnapshot(snapshot, restored);
-      const store = await readFile(join(restored, "questmaster-live", "store.json"), "utf-8")
-        .then((text) => JSON.parse(text) as { quests?: unknown[]; nextQuestNumber?: unknown })
-        .catch(() => null);
-      if (manifest.quests.count > 0 && store?.quests?.length !== manifest.quests.count) {
+      const store = await readRestoredQuestCounts(restored);
+      if (manifest.quests.count > 0 && store?.count !== manifest.quests.count) {
         problems.push(`the restored quest store does not hold the ${manifest.quests.count} quests backed up`);
       }
-      if (store && (store.nextQuestNumber ?? null) !== manifest.quests.nextQuestNumber) {
+      if (store && store.nextQuestNumber !== manifest.quests.nextQuestNumber) {
         problems.push("the restored quest store's next quest number differs from the backup's");
       }
     }

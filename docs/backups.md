@@ -40,12 +40,12 @@ The same list of coordinator data drives moving the coordinator ([moving-the-coo
   - Each sync makes a fresh token that opens only that path, only until the sync ends. Nothing else about the machine's access changes.
   - The machine's folder becomes a bare repository on the first sync if it is new or empty; a folder holding anything else is refused.
 - **What it holds:** each destination holds everything, on branches named by the server's slug (`prod` below):
-  - `takode/prod/data`: the snapshot. Paths mirror `~/.companion`, except that quests are split into `questmaster-live/quests/<id>.json`. `manifest.json` lists every file with its SHA-256 hash, the quest count and the memory commit each memory branch had.
+  - `takode/prod/data`: the snapshot. Paths mirror `~/.companion`; quests are one file each in `questmaster-live/quests/`, as the quest store keeps them (a store a server has not moved there yet is split the same way). Migration leftovers such as `store.json.before-per-quest-files` stay out. `manifest.json` lists every file with its SHA-256 hash, the quest count and the memory commit each memory branch had.
   - `takode/prod/memory/<space>`: each memory repo's own history, so the memory commits that quests cite stay valid. Pushing them with the data makes separate memory pushes unnecessary. Branches were chosen over submodules: a submodule records only a commit, and the memory repo would still need a remote of its own.
 - **History is never rewritten:** Takode never force-pushes or force-fetches.
   - If a memory repo on the coordinator is rewound or rewritten, the backup refuses the change, keeps the history it had and reports the run as failed.
   - With the repository rule below, a mistake on the coordinator cannot rewrite what is already backed up. The machine copy needs no rule: it fetches without forcing, so it refuses rewritten history even if the coordinator's clone was changed.
-- **Restore test:** once a week the server clones the latest snapshot into a scratch folder, checks every file against the manifest, restores it and reads the quest store back, and checks the memory branches.
+- **Restore test:** once a week the server clones the latest snapshot into a scratch folder, checks every file against the manifest, restores it and reads the quest store back with the store's own loader, and checks the memory branches.
   - It tests the repository when one is set, and otherwise the coordinator's clone.
   - Each machine sync checks that the copy then holds exactly the clone's commits.
 - **Alerts:** your phone is alerted once three runs (or three machine syncs) in a row have failed, and whenever a restore test fails. A machine that is offline is waiting, not failing.
@@ -82,7 +82,7 @@ To stop backing up to one destination, clear it in Settings, or run `takode back
 takode backup restore --repo <url or folder> --to ~/takode-restore/.companion
 ```
 
-It checks every file against the manifest first, joins the quest store back together, and clones each memory branch into `memory/<slug>/<space>` on `main`. If the repository backs up more than one server, name one with `--slug <slug>`.
+It checks every file against the manifest first, copies the files (a snapshot written before quests were one file each has its quests joined back into `store.json`, which the server moves at its next start), and clones each memory branch into `memory/<slug>/<space>` on `main`. If the repository backs up more than one server, name one with `--slug <slug>`.
 
 To use the restored data:
 

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,7 @@ import { BackupService } from "./backup-service.js";
 import {
   checkBackupSnapshot,
   readBackupManifest,
+  readRestoredQuestCounts,
   restoreBackupSnapshot,
   writeBackupSnapshot,
 } from "./backup-snapshot.js";
@@ -118,7 +120,7 @@ describe("backup snapshot", () => {
     expect(files).toEqual(
       expect.arrayContaining([
         "questmaster-live/quests/q-1.json",
-        "questmaster-live/store-meta.json",
+        "questmaster-live/quests/_meta.json",
         "questmaster-live/images/abc.webp",
         "todos/todo-list.json",
         `library/${SERVER_ID}/files/f.png`,
@@ -150,13 +152,19 @@ describe("backup snapshot", () => {
     expect(await checkBackupSnapshot(snapshot)).toEqual([]);
   });
 
-  it("restores a .companion folder with the quest store joined back exactly", async () => {
+  it("restores a .companion folder with one file per quest, exactly", async () => {
+    // A store the server has not moved yet is split into the quest folder a current server reads.
     const snapshot = join(root, "snapshot");
     await writeBackupSnapshot({ companion, port: PORT, target: snapshot });
     const restored = join(root, "restored");
     await restoreBackupSnapshot(snapshot, restored);
 
-    expect(JSON.parse(await readFile(join(restored, "questmaster-live/store.json"), "utf-8"))).toEqual(STORE);
+    for (const quest of QUESTS) {
+      expect(await readFile(join(restored, `questmaster-live/quests/${quest.questId}.json`), "utf-8")).toBe(
+        `${JSON.stringify(quest, null, 2)}\n`,
+      );
+    }
+    expect(await readRestoredQuestCounts(restored)).toEqual({ count: 3, nextQuestNumber: 4 });
     expect(await readFile(join(restored, "user-instructions/all.md"), "utf-8")).toBe("# Rules\n");
     expect(await readFile(join(restored, "todos/todo-list.json"), "utf-8")).toBe(
       await readFile(join(companion, "todos/todo-list.json"), "utf-8"),
@@ -176,6 +184,55 @@ describe("backup snapshot", () => {
     const third = await writeBackupSnapshot({ companion, port: PORT, target: snapshot, now: new Date(3000) });
     expect(third.files["questmaster-live/images/abc.webp"]).toBeUndefined();
     expect(await readdir(join(snapshot, "questmaster-live"))).not.toContain("images");
+  });
+
+  it("copies the quest folder as it is and leaves migration leftovers out", async () => {
+    await rm(join(companion, "questmaster-live/store.json"));
+    await put("questmaster-live/quests/q-1.json", `${JSON.stringify(QUESTS[1], null, 2)}\n`);
+    await put("questmaster-live/quests/q-3.json", `${JSON.stringify(QUESTS[0], null, 2)}\n`);
+    await put("questmaster-live/quests/_meta.json", { format: "quest_per_file", version: 2, nextQuestNumber: 5 });
+    await put("questmaster-live/quests/.q-1.json.99.abc.tmp", "half-written");
+    await put("questmaster-live/store.json.before-per-quest-files", STORE);
+    await put("questmaster-live/quests.migrating-2026/q-1.json", "{}");
+    await put("questmaster-live/_store.lock/owner", "x");
+    const snapshot = join(root, "snapshot");
+
+    const manifest = await writeBackupSnapshot({ companion, port: PORT, target: snapshot });
+
+    expect(manifest.quests).toEqual({ count: 2, nextQuestNumber: 5 });
+    expect(
+      Object.keys(manifest.files)
+        .filter((path) => path.startsWith("questmaster-live/"))
+        .sort(),
+    ).toEqual([
+      "questmaster-live/images/abc.webp",
+      "questmaster-live/quests/_meta.json",
+      "questmaster-live/quests/q-1.json",
+      "questmaster-live/quests/q-3.json",
+    ]);
+    const restored = join(root, "restored");
+    await restoreBackupSnapshot(snapshot, restored);
+    expect(await readFile(join(restored, "questmaster-live/quests/q-3.json"), "utf-8")).toBe(
+      await readFile(join(companion, "questmaster-live/quests/q-3.json"), "utf-8"),
+    );
+  });
+
+  it("restores a snapshot written before one file per quest by joining its quests back", async () => {
+    // Such snapshots split the store with store-meta.json; restore rebuilds store.json, which the server moves.
+    const snapshot = join(root, "snapshot");
+    await writeBackupSnapshot({ companion, port: PORT, target: snapshot });
+    const manifest = JSON.parse(await readFile(join(snapshot, "manifest.json"), "utf-8"));
+    const meta = `${JSON.stringify({ format: STORE.format, version: 1, nextQuestNumber: 4, updatedAt: 5, questOrder: ["q-3", "q-1", "q-2"] })}`;
+    await writeFile(join(snapshot, "questmaster-live/store-meta.json"), meta);
+    await rm(join(snapshot, "questmaster-live/quests/_meta.json"));
+    delete manifest.files["questmaster-live/quests/_meta.json"];
+    manifest.files["questmaster-live/store-meta.json"] = createHash("sha256").update(meta).digest("hex");
+    await writeFile(join(snapshot, "manifest.json"), JSON.stringify(manifest));
+
+    const restored = join(root, "restored");
+    await restoreBackupSnapshot(snapshot, restored);
+    expect(JSON.parse(await readFile(join(restored, "questmaster-live/store.json"), "utf-8"))).toEqual(STORE);
+    expect(await readRestoredQuestCounts(restored)).toEqual({ count: 3, nextQuestNumber: 4 });
   });
 
   it("reports a damaged snapshot instead of restoring it", async () => {
@@ -216,8 +273,13 @@ describe("backup job", () => {
     const target = join(root, "restored");
     const restored = await restoreFromBackup({ repoUrl: bare, target });
     expect(restored).toMatchObject({ serverSlug: "prod", quests: 4, memory: ["Takode"] });
-    const store = JSON.parse(await readFile(join(target, "questmaster-live/store.json"), "utf-8"));
-    expect(store.quests.map((quest: { questId: string }) => quest.questId)).toEqual(["q-4", "q-3", "q-1", "q-2"]);
+    expect((await readdir(join(target, "questmaster-live/quests"))).sort()).toEqual([
+      "_meta.json",
+      "q-1.json",
+      "q-2.json",
+      "q-3.json",
+      "q-4.json",
+    ]);
     const memory = join(target, "memory", "prod", "Takode");
     expect(git(memory, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
     expect(git(memory, "log", "--format=%s")).toBe("second.md\nfirst.md");

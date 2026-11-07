@@ -3,11 +3,13 @@
  * into a folder (the working tree of the backup repository's data branch),
  * and the way back from such a folder to a `.companion` folder.
  *
- * Paths mirror `.companion`, so restoring is mostly copying, with two
- * exceptions. The quest store is split into one file per quest
- * (`questmaster-live/quests/<id>.json` plus `store-meta.json`), because one
- * 100 MB file would be rewritten in full every hour and is over GitHub's file
- * size limit; restore joins it back. Secrets stay out: the settings file is
+ * Paths mirror `.companion`, so restoring is copying. The quest store keeps
+ * one file per quest (`questmaster-live/quests/`), which is copied as it is;
+ * a server that has not moved its single-file store there yet has that file
+ * split the same way, because one 100 MB file would be rewritten in full every
+ * hour and is over GitHub's file size limit. Snapshots written before the
+ * quest store kept one file per quest hold `questmaster-live/store-meta.json`
+ * instead, and restore joins those back into `store.json`. Secrets stay out: the settings file is
  * kept with its credential fields blank, and env profiles, browser login and
  * the secrets file are not copied (see `docs/backups.md` for what to re-enter).
  * Of sessions only the list (without live process IDs) and their names are
@@ -23,12 +25,17 @@ import { copyFile, lstat, mkdir, readdir, readFile, realpath, rm, stat, utimes, 
 import { dirname, join } from "node:path";
 import { SESSION_NUMBERS_FILE } from "../constants.js";
 import { COORDINATOR_SHARED_STATE, coordinatorServerState } from "../coordinator-state.js";
+import { forgetQuestDir, nextQuestNumberFor, readQuestDir } from "../quest-store-dir.js";
 
 export const BACKUP_MANIFEST_FILE = "manifest.json";
 const README_FILE = "README.md";
 const QUEST_STORE_FILE = "questmaster-live/store.json";
 const QUESTS_DIR = "questmaster-live/quests";
+/** Meta file of the quest folder: the next quest number and the pre-July legacy folder. */
+const QUEST_DIR_META_FILE = `${QUESTS_DIR}/_meta.json`;
+/** Meta file of snapshots written before the quest store kept one file per quest. */
 const QUEST_META_FILE = "questmaster-live/store-meta.json";
+const QUEST_FILE_RE = /^questmaster-live\/quests\/q-\d+\.json$/;
 
 export interface BackupManifest {
   kind: "takode-backup";
@@ -84,7 +91,7 @@ export async function writeBackupSnapshot(input: WriteBackupSnapshotInput): Prom
   ].filter((path) => !isSecretState(path));
   for (const path of copied) {
     for (const file of await listFiles(companion, path)) {
-      if (file !== QUEST_STORE_FILE) entries.push({ path: file, source: join(companion, file) });
+      if (!isQuestStoreLeftover(file)) entries.push({ path: file, source: join(companion, file) });
     }
   }
 
@@ -138,7 +145,7 @@ export async function checkBackupSnapshot(snapshot: string): Promise<string[]> {
     if (!content) problems.push(`${path} is missing`);
     else if (sha256(content) !== hash) problems.push(`${path} does not match its recorded hash`);
   }
-  const questFiles = Object.keys(manifest.files).filter((path) => path.startsWith(`${QUESTS_DIR}/`)).length;
+  const questFiles = Object.keys(manifest.files).filter((path) => QUEST_FILE_RE.test(path)).length;
   if (questFiles !== manifest.quests.count) {
     problems.push(`the manifest counts ${manifest.quests.count} quests but the snapshot holds ${questFiles}`);
   }
@@ -147,8 +154,9 @@ export async function checkBackupSnapshot(snapshot: string): Promise<string[]> {
 
 /**
  * Turn a snapshot back into a `.companion` folder at `target`, which must be
- * missing or empty: the snapshot is checked first, the quest store is joined
- * back into `questmaster-live/store.json`, and everything else is copied.
+ * missing or empty: the snapshot is checked first, then its files are copied
+ * (an older snapshot's quests are joined back into `questmaster-live/store.json`,
+ * which the server moves into one file per quest when it starts).
  * Memory repos are restored separately from their branches.
  */
 export async function restoreBackupSnapshot(
@@ -161,14 +169,15 @@ export async function restoreBackupSnapshot(
   if (existing.length > 0) throw new Error(`${target} is not empty; restore into a new folder.`);
 
   const manifest = await readBackupManifest(snapshot);
+  const joinQuests = Boolean(manifest.files[QUEST_META_FILE]);
   let files = 0;
   for (const path of Object.keys(manifest.files)) {
-    if (path === QUEST_META_FILE || path.startsWith(`${QUESTS_DIR}/`)) continue;
+    if (joinQuests && (path === QUEST_META_FILE || path.startsWith(`${QUESTS_DIR}/`))) continue;
     await mkdir(dirname(join(target, path)), { recursive: true });
     await copyFile(join(snapshot, path), join(target, path));
     files++;
   }
-  if (manifest.files[QUEST_META_FILE]) {
+  if (joinQuests) {
     const { questOrder, ...meta } = JSON.parse(await readFile(join(snapshot, QUEST_META_FILE), "utf-8")) as {
       questOrder: string[];
     };
@@ -192,22 +201,77 @@ interface SnapshotEntry {
   source?: string;
 }
 
-/** Plan the quest store as one file per quest; returns the counts for the manifest. */
+/**
+ * Count the quest folder, which is copied with the rest of `questmaster-live`;
+ * or, when the server has not moved a single-file store into it yet, plan that
+ * file as the same folder. Returns the counts for the manifest.
+ */
 async function planQuests(companion: string, entries: SnapshotEntry[]): Promise<BackupManifest["quests"]> {
+  const folder = await readdir(join(companion, QUESTS_DIR)).catch(() => null);
+  if (folder) {
+    const meta = await readFile(join(companion, QUEST_DIR_META_FILE), "utf-8")
+      .then((text) => JSON.parse(text) as { nextQuestNumber?: unknown })
+      .catch(() => null);
+    const questIds = folder
+      .filter((name) => QUEST_FILE_RE.test(`${QUESTS_DIR}/${name}`))
+      .map((name) => name.slice(0, -5));
+    const next = meta?.nextQuestNumber;
+    return { count: questIds.length, nextQuestNumber: nextQuestNumber(typeof next === "number" ? next : 1, questIds) };
+  }
   const text = await readFile(join(companion, QUEST_STORE_FILE), "utf-8").catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return null;
     throw error;
   });
   if (text === null) return { count: 0, nextQuestNumber: null };
-  const { quests, ...meta } = JSON.parse(text) as { quests: Array<{ questId: string }>; nextQuestNumber?: unknown };
-  const questOrder: string[] = [];
-  for (const quest of quests) {
-    questOrder.push(quest.questId);
-    entries.push({ path: questFile(quest.questId), content: JSON.stringify(quest, null, 2) });
+  const store = JSON.parse(text) as {
+    quests: Array<{ questId: string }>;
+    nextQuestNumber?: unknown;
+    legacyBackupDir?: unknown;
+  };
+  for (const quest of store.quests) {
+    entries.push({ path: questFile(quest.questId), content: `${JSON.stringify(quest, null, 2)}\n` });
   }
-  entries.push({ path: QUEST_META_FILE, content: JSON.stringify({ ...meta, questOrder }, null, 2) });
-  const next = meta.nextQuestNumber;
-  return { count: quests.length, nextQuestNumber: typeof next === "number" ? next : null };
+  const next = nextQuestNumber(
+    typeof store.nextQuestNumber === "number" ? store.nextQuestNumber : 1,
+    store.quests.map((quest) => quest.questId),
+  );
+  const meta = {
+    format: "quest_per_file",
+    version: 2,
+    nextQuestNumber: next,
+    ...(typeof store.legacyBackupDir === "string" ? { legacyBackupDir: store.legacyBackupDir } : {}),
+  };
+  entries.push({ path: QUEST_DIR_META_FILE, content: `${JSON.stringify(meta, null, 2)}\n` });
+  return { count: store.quests.length, nextQuestNumber: next };
+}
+
+/** The next quest number as the quest store reads it: never at or below an existing quest's number. */
+function nextQuestNumber(stored: number, questIds: string[]): number {
+  return Math.max(stored, nextQuestNumberFor(questIds.map((questId) => ({ questId }))));
+}
+
+/**
+ * Quest store files that are not current data: the single-file store (split
+ * by planQuests), the copy a migration renamed aside, and folders a
+ * migration or rollback left beside the quest folder.
+ */
+function isQuestStoreLeftover(path: string): boolean {
+  return path === QUEST_STORE_FILE || path.startsWith(`${QUEST_STORE_FILE}.`) || path.startsWith(`${QUESTS_DIR}.`);
+}
+
+/** Quest count and next quest number of a restored `.companion` folder, in either quest store layout. */
+export async function readRestoredQuestCounts(
+  companion: string,
+): Promise<{ count: number; nextQuestNumber: number | null } | null> {
+  const folder = await readQuestDir(join(companion, QUESTS_DIR));
+  forgetQuestDir(join(companion, QUESTS_DIR));
+  if (folder) return { count: folder.quests.length, nextQuestNumber: folder.nextQuestNumber };
+  const store = await readFile(join(companion, QUEST_STORE_FILE), "utf-8")
+    .then((text) => JSON.parse(text) as { quests?: unknown[]; nextQuestNumber?: unknown })
+    .catch(() => null);
+  if (!store) return null;
+  const next = store.nextQuestNumber;
+  return { count: store.quests?.length ?? 0, nextQuestNumber: typeof next === "number" ? next : null };
 }
 
 /**
@@ -318,8 +382,8 @@ function withoutSecrets(settings: Record<string, unknown>): Record<string, unkno
 const README = `# Takode backup
 
 This branch holds a Takode coordinator's durable data, written by the Takode
-server about once an hour. Paths mirror \`~/.companion\`, except that the quest
-store is split into one file per quest under \`questmaster-live/quests/\`.
+server about once an hour. Paths mirror \`~/.companion\`; the quest store keeps
+one file per quest under \`questmaster-live/quests/\`.
 \`manifest.json\` lists every file with its SHA-256 and the memory commit each
 memory branch had.
 
