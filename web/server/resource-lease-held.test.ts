@@ -59,7 +59,8 @@ describe("held resource lease slots", () => {
     await hold("run:d");
     await hold("run:e");
     expect(manager.getLeaseWaits("worker")).toEqual([
-      { resourceKey: "checks@condor", holderSessionIds: ["worker"], position: 1 },
+      // Its earliest command in line sets how long it has waited.
+      { resourceKey: "checks@condor", holderSessionIds: ["worker"], position: 1, queuedAt: Date.now() },
     ]);
   });
 
@@ -170,6 +171,27 @@ describe("held resource lease slots", () => {
     await manager.releaseHold("run:a", "worker");
     await vi.runOnlyPendingTimersAsync();
     expect(promoted).toMatchObject([{ holderId: "exec:x-1", resourceKey: "checks@condor", slot: 1 }]);
+  });
+
+  // A command waiting in line prints this description now and then, so a long
+  // wait shows who holds the pool and that no slot has moved: what a nested-slot
+  // deadlock (every slot held by the waiting session's own outer commands) looks like.
+  it("describes a waiting command's place, the pool's holders and the time since a slot changed hands", async () => {
+    await manager.configure("checks@condor", 3);
+    const hour = 60 * 60_000;
+    await hold("run:a", ["checks@condor"], "worker", hour);
+    await hold("run:b", ["checks@condor"], "worker", hour);
+    await hold("run:other", ["checks@condor"], "other-worker", hour);
+    vi.setSystemTime(Date.now() + 12 * 60_000);
+    await hold("run:c");
+    const label = (sessionId: string) => (sessionId === "worker" ? "#7 (yours)" : "#8");
+
+    expect(manager.describeHoldWait("run:c", Date.now(), label)).toBe(
+      "checks@condor: place 1 in line, 3/3 slots held by #7 (yours) x2, #8, none changed hands for 12m 0s",
+    );
+    // A command that holds its slot, or never asked for one, is not waiting.
+    expect(manager.describeHoldWait("run:a", Date.now(), label)).toBeNull();
+    expect(manager.describeHoldWait("run:unknown", Date.now(), label)).toBeNull();
   });
 
   // Held slots and places in line survive a coordinator restart.

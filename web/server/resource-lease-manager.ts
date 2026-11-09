@@ -408,8 +408,45 @@ export class ResourceLeaseManager {
         resourceKey,
         holderSessionIds: [...new Set(this.getLeases(resourceKey).map((lease) => lease.ownerSessionId))],
         position: index + 1,
+        queuedAt: Math.min(
+          ...waiters.filter((waiter) => waiter.waiterSessionId === sessionId).map((waiter) => waiter.queuedAt),
+        ),
       };
     });
+  }
+
+  /**
+   * One line on where a command waiting for a held slot stands, for the
+   * periodic note its caller prints while it waits: per pool, its place in
+   * line, who holds the slots (`sessionLabel` names a session) and how long
+   * since a slot last changed hands. A long time there with every slot held by
+   * the waiting session itself is how a nested-slot deadlock looks. Null when
+   * the command is not in line. Reads loaded state synchronously.
+   */
+  describeHoldWait(holderIdInput: string, now: number, sessionLabel: (sessionId: string) => string): string | null {
+    const holderId = normalizeHolderId(holderIdInput);
+    const pools = Object.entries(this.data.waiters).flatMap(([resourceKey, waiters]) => {
+      const index = waiters.findIndex((waiter) => waiter.holderId === holderId);
+      return index === -1 ? [] : [{ resourceKey, position: index + 1 }];
+    });
+    if (pools.length === 0) return null;
+    return pools
+      .map(({ resourceKey, position }) => {
+        const leases = this.getLeases(resourceKey);
+        const counts = new Map<string, number>();
+        for (const lease of leases) counts.set(lease.ownerSessionId, (counts.get(lease.ownerSessionId) ?? 0) + 1);
+        const holders = [...counts].map(
+          ([sessionId, count]) => `${sessionLabel(sessionId)}${count > 1 ? ` x${count}` : ""}`,
+        );
+        const held = `${leases.length}/${this.getCapacity(resourceKey)} slots held`;
+        const lastChange = Math.max(0, ...leases.map((lease) => lease.acquiredAt));
+        return (
+          `${resourceKey}: place ${position} in line, ${held}` +
+          (holders.length > 0 ? ` by ${holders.join(", ")}` : "") +
+          (lastChange > 0 ? `, none changed hands for ${formatLeaseWaitDuration(now - lastChange)}` : "")
+        );
+      })
+      .join("; ");
   }
 
   async sweepExpiredNow(now = Date.now()): Promise<void> {

@@ -515,6 +515,38 @@ describe("Work Board stall check for background jobs", () => {
       signature: `q-90|WORKING|lease:port:takode:jiayi|holder|since:${30 * MINUTE}`,
     });
   });
+
+  // The nested-slot deadlock as the board sees it: the worker's outer command
+  // (`takode lease run lean -- ./build.sh` in its background shell) holds every
+  // slot of lean, and the build's own `takode exec --pool lean` waits in line
+  // behind it. Once the outer job has run implausibly long the alert names how
+  // long the worker has waited and points at nesting.
+  it("names a long slot wait and nested pool slots when the worker's own commands hold the pool", () => {
+    const outer: BackgroundTaskInfo = {
+      taskId: "outer",
+      description: "takode lease run lean -- ./build.sh",
+      startedAt: 0,
+    };
+    const { leader, deps, emitted } = setupIdleWorkerStall(
+      { worker: { sessionNum: 10, backgroundJobs: [outer], backgroundChangedAt: 0 } },
+      {},
+    );
+    deps.getLeaseWaits = vi.fn((sessionId: string) =>
+      sessionId === "worker"
+        ? [{ resourceKey: "lean@condor", holderSessionIds: ["worker"], position: 1, queuedAt: MINUTE }]
+        : [],
+    );
+    sweepBoardStallWarnings([leader], 40 * MINUTE, deps);
+    sweepBoardStallWarnings([leader], 43 * MINUTE, deps);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      reason:
+        "worker queued for lean@condor for 42m 0s; lease holder #10 idle with background job running over 30m " +
+        "(takode lease run lean -- ./build.sh); the worker holds slots of it itself, so a command holding a slot " +
+        "may be waiting for another (nested pool slots)",
+      action: expect.stringContaining("stop a command that waits for a slot of a pool it already holds"),
+    });
+  });
 });
 
 describe("Work Board stall check for rows waiting on a helper", () => {

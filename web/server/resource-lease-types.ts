@@ -61,6 +61,8 @@ export interface ResourceLeaseWait {
   holderSessionIds: string[];
   /** 1-based place in the pool's queue. */
   position: number;
+  /** When the session's earliest entry in this queue joined it. */
+  queuedAt?: number;
 }
 
 export interface ResourceLeaseAcquireInput {

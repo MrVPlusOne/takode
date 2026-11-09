@@ -99,20 +99,32 @@ describe("HostExec with lease pools", () => {
     const slow = `while [ ! -e ${marker} ]; do sleep 0.05; done; echo done`;
     const first = await run(exec, slow, "checks", "condor");
     const second = await run(exec, slow, "checks", "condor");
-    const third = await run(exec, "echo third", "checks", "condor");
+    // A command holding a slot is told which one, as with takode lease run.
+    const third = await run(
+      exec,
+      'echo "third: slot $TAKODE_LEASE_SLOT of $TAKODE_LEASE_RESOURCE"',
+      "checks",
+      "condor",
+    );
     expect(first).toMatchObject({ status: "running", pool: "checks", slot: { resourceKey: "checks@condor", slot: 1 } });
     expect(second).toMatchObject({ status: "running", slot: { slot: 2 } });
     expect(third).toMatchObject({ status: "queued", host: "condor", slot: null });
     expect(exec.backgroundTasks("worker")?.tasks.map((task) => task.description)).toContain(
-      "takode exec waiting for a slot of checks: echo third",
+      'takode exec waiting for a slot of checks: echo "third: slot $TAKODE_LEASE_SLOT of $TAKODE_LEASE_RESOURCE"',
     );
+    // Its caller's periodic wait notes say where it stands; only a waiting command has one.
+    expect(exec.slotWait(third.id, (id) => `#${id}`)).toMatch(
+      /^checks@condor: place 1 in line, 2\/2 slots held by #worker x2, none changed hands for /,
+    );
+    expect(exec.slotWait(first.id, (id) => `#${id}`)).toBeNull();
 
     await writeFile(marker, "");
     expect(await finished(exec, first.id)).toMatchObject({ status: "exited", exitCode: 0 });
     const done = await finished(exec, third.id);
     expect(done).toMatchObject({ status: "exited", exitCode: 0, slot: { resourceKey: "checks@condor" } });
     expect(done.runningAt).toBeGreaterThanOrEqual(done.startedAt);
-    expect((await exec.readOutput(third.id))?.output).toBe("third\n");
+    // Whichever of the first two ended first freed the slot it took.
+    expect((await exec.readOutput(third.id))?.output).toBe(`third: slot ${done.slot?.slot} of checks@condor\n`);
     await finished(exec, second.id);
     await waitFor(async () => (await leases.getStatus("checks@condor")).leases.length === 0);
     expect(injected).toEqual([]);

@@ -9,6 +9,7 @@ import { constants } from "node:os";
 import { describeExecOutcome, type ExecJob } from "../shared/host-exec.js";
 import { formatBytes } from "../shared/memory-guard.js";
 import { formatLeaseWaitDuration as formatDuration } from "../shared/resource-lease-message.js";
+import { nestedPoolWarning, STILL_WAITING_EVERY_MS, stillWaitingLine } from "./pool-wait-notes.js";
 import { apiPost, err, takodeAuthHeaders } from "./takode-core.js";
 
 export const EXEC_USAGE = [
@@ -48,7 +49,13 @@ terminal), or give your shell tool a timeout long enough for it.
                 pool (takode lease configure <name>@<machine> --capacity <n>),
                 starting on the first with a free slot; so the command must
                 work on each of them. Time in line counts against your
-                tool's timeout. Unconfigured pools have one slot.
+                tool's timeout; a long wait prints a line every 5 minutes
+                saying who holds the pool. Unconfigured pools have one
+                slot. The command sees TAKODE_LEASE_RESOURCE and
+                TAKODE_LEASE_SLOT. Nested slots can deadlock: a command
+                holding a slot whose own commands wait for the same pool
+                waits forever once outer commands hold every slot. It is
+                allowed, with a warning; take the slot once.
   --memory-limit <size>
                 Kill the command and everything it started once they use
                 more memory than this together, such as 64G or 512M. Its
@@ -149,6 +156,8 @@ async function runCommand(base: string, args: string[]): Promise<void> {
   const options = parseExecRun(args);
   if (!options.host && !options.pool) err(`--host or --pool is required\n${EXEC_USAGE}`);
   if (!options.command.trim()) err(`Give the command after --\n${EXEC_USAGE}`);
+  const nested = options.pool ? nestedPoolWarning(options.pool) : null;
+  if (nested) console.error(`[takode exec] ${nested}`);
   const { job: started } = (await apiPost(base, "/takode/exec", {
     ...(options.host ? { host: options.host } : {}),
     ...(options.pool ? { pool: options.pool } : {}),
@@ -169,11 +178,21 @@ async function runCommand(base: string, args: string[]): Promise<void> {
 
   let job = started;
   if (job.status === "queued") console.error(`[${job.id} is waiting for a slot of ${job.pool} on ${job.host}]`);
+  const queuedAt = Date.now();
+  let notedAt = queuedAt;
   while (job.status === "running" || job.status === "queued") {
     const queued = job.status === "queued";
-    job = ((await getWithRetry(base, `/takode/exec/jobs/${job.id}?wait=${WAIT_SECONDS}`)) as { job: ExecJob }).job;
+    const answer = (await getWithRetry(base, `/takode/exec/jobs/${job.id}?wait=${WAIT_SECONDS}`)) as {
+      job: ExecJob;
+      slotWait?: string;
+    };
+    job = answer.job;
     if (queued && job.status === "running") {
       console.error(`[${job.id} got slot ${job.slot?.slot} of ${job.slot?.resourceKey}; running on ${job.host}]`);
+    }
+    if (job.status === "queued" && Date.now() - notedAt >= STILL_WAITING_EVERY_MS) {
+      notedAt = Date.now();
+      console.error(`[${job.id} ${stillWaitingLine(notedAt - queuedAt, answer.slotWait)}]`);
     }
   }
   const output = (await getWithRetry(base, `/takode/exec/jobs/${job.id}/output`)) as OutputResponse;
@@ -186,9 +205,13 @@ async function runCommand(base: string, args: string[]): Promise<void> {
 
 async function showStatus(base: string, args: string[]): Promise<void> {
   const id = jobId(args);
-  const { job } = (await getWithRetry(base, `/takode/exec/jobs/${encodeURIComponent(id)}`)) as { job: ExecJob };
-  if (args.includes("--json")) return printJson({ job });
+  const { job, slotWait } = (await getWithRetry(base, `/takode/exec/jobs/${encodeURIComponent(id)}`)) as {
+    job: ExecJob;
+    slotWait?: string;
+  };
+  if (args.includes("--json")) return printJson({ job, ...(slotWait ? { slotWait } : {}) });
   console.log(formatJobLine(job));
+  if (slotWait) console.log(`  ${slotWait}`);
   console.log(`  $ ${job.command}`);
   if (job.cwd) console.log(`  in ${job.cwd}`);
   if (job.memoryLimitBytes) console.log(`  memory limit ${formatBytes(job.memoryLimitBytes)}`);

@@ -43,7 +43,10 @@ export interface HostExecDeps {
    * Lease pools, for `--pool`: each command holds a slot of its pool while it
    * runs. Without them `--pool` is refused.
    */
-  leases?: Pick<ResourceLeaseManager, "hold" | "renewHold" | "releaseHold" | "registerSystemOwner" | "capacities">;
+  leases?: Pick<
+    ResourceLeaseManager,
+    "hold" | "renewHold" | "releaseHold" | "registerSystemOwner" | "capacities" | "describeHoldWait"
+  >;
   /** Where job records and output logs are kept. */
   dir: string;
   now?: () => number;
@@ -375,6 +378,16 @@ export class HostExec {
     return { tasks, changedAt: Math.max(...own.map((job) => job.endedAt ?? job.startedAt)) };
   }
 
+  /**
+   * Where a command waiting for a slot of its pool stands: its place in line,
+   * who holds the slots (`sessionLabel` names a session) and how long since one
+   * changed hands. Null unless it waits.
+   */
+  slotWait(id: string, sessionLabel: (sessionId: string) => string): string | null {
+    if (this.jobs.get(id)?.status !== "queued") return null;
+    return this.deps.leases?.describeHoldWait(`${EXEC_HOLDER_PREFIX}${id}`, this.now(), sessionLabel) ?? null;
+  }
+
   /** Whether a command runs on the machine; restarting its node would end it. */
   runningOn(hostId: string): boolean {
     return [...this.running.keys()].some((id) => this.jobs.get(id)?.hostId === hostId);
@@ -618,7 +631,12 @@ export class HostExec {
 
   /** Start the job's process on the machine. */
   private launch(job: StoredJob, machine: { id: string; name: string }): void {
-    const proc = this.spawnShell(machine, job.command, job.cwd, job.memoryLimitBytes ?? null);
+    // Like `takode lease run`, a command holding a slot is told which, so a
+    // pool request it makes itself (a nested slot, which can deadlock) is warned about.
+    const slotEnv: Record<string, string> = job.slot
+      ? { TAKODE_LEASE_RESOURCE: job.slot.resourceKey, TAKODE_LEASE_SLOT: String(job.slot.slot) }
+      : {};
+    const proc = this.spawnShell(machine, job.command, job.cwd, job.memoryLimitBytes ?? null, slotEnv);
     job.procId = proc.procId;
     job.hostId = machine.id;
     job.host = machine.name;
@@ -633,12 +651,16 @@ export class HostExec {
     command: string,
     cwd: string | null,
     memoryLimitBytes: number | null,
+    extraEnv: Record<string, string> = {},
   ): RemoteProcess {
     const proc = this.deps.links.spawn(machine.id, {
       command: "/bin/sh",
       args: ["-c", LOGIN_SHELL_SCRIPT, "takode-exec", command, cwd ?? ""],
-      // This machine's own node takes a complete environment; other hosts use their own.
-      env: machine.id === LOCAL_HOST_ID ? { ...inheritedLaunchEnv(process.env), PATH: getEnrichedPath() } : {},
+      // This machine's own node takes a complete environment; other hosts add these to their own.
+      env:
+        machine.id === LOCAL_HOST_ID
+          ? { ...inheritedLaunchEnv(process.env), PATH: getEnrichedPath(), ...extraEnv }
+          : extraEnv,
       group: true,
       ...(memoryLimitBytes ? { memoryLimitBytes } : {}),
     });

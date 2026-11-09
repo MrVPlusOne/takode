@@ -323,7 +323,15 @@ describe("resource lease routes", () => {
     const first = await (await call("checks/hold", "owner", { holderId: "run:a", purpose: "compile a" })).json();
     expect(first.state).toMatchObject({ status: "held", lease: { slot: 1, holderId: "run:a", ownerSessionNum: 1370 } });
     const second = await (await call("checks/hold", "owner", { holderId: "run:b", purpose: "compile b" })).json();
-    expect(second.state).toEqual({ status: "queued", resourceKeys: ["checks"], position: 1 });
+    // A command in line is told where it stands, its own session marked, for its periodic wait notes.
+    expect(second.state).toEqual({
+      status: "queued",
+      resourceKeys: ["checks"],
+      position: 1,
+      note: expect.stringMatching(
+        /^checks: place 1 in line, 1\/1 slots held by #1370 \(yours\), none changed hands for /,
+      ),
+    });
 
     const waited = call("holds/run:b/wait", "owner", { known: "queued", waitSeconds: 10 });
     expect((await call("holds/run:a/release", "waiter")).status).toBe(403);

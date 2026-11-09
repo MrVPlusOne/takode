@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import { Readable } from "node:stream";
 import { HostExecError } from "../remote-host/host-exec.js";
 import type { RouteContext } from "./context.js";
+import { sessionRefLabel } from "./resource-leases.js";
 
 /**
  * Longest a caller may wait in one request for its command to end. The
@@ -88,7 +89,10 @@ export function createHostExecRoutes(ctx: RouteContext) {
     if ("response" in g) return g.response;
     const wait = Math.min(Math.max(Number(c.req.query("wait") ?? 0) || 0, 0), MAX_WAIT_SECONDS);
     const job = await g.exec.wait(c.req.param("id"), wait * 1000);
-    return job ? c.json({ job }) : notFound(c);
+    if (!job) return notFound(c);
+    // A command in line for a slot says where it stands, for its caller's periodic wait notes.
+    const slotWait = g.exec.slotWait(job.id, sessionRefLabel(ctx, g.auth.callerId));
+    return c.json({ job, ...(slotWait ? { slotWait } : {}) });
   });
 
   api.get("/takode/exec/jobs/:id/output", async (c) => {

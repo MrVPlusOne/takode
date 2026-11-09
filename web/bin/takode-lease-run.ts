@@ -9,6 +9,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:os";
+import { nestedPoolWarning, STILL_WAITING_EVERY_MS, stillWaitingLine } from "./pool-wait-notes.js";
 import { err, takodeAuthHeaders } from "./takode-core.js";
 
 export const LEASE_RUN_HELP = `Usage: takode lease run <pool> [--purpose <text>] -- <command...>
@@ -25,7 +26,14 @@ several run as that program and its arguments, without a shell.
 The pool is on this machine unless named with @<machine>, like other leases.
 A leader sets its size with takode lease configure <pool> --capacity <n>;
 unconfigured pools have one slot. The command sees TAKODE_LEASE_RESOURCE and
-TAKODE_LEASE_SLOT. Time spent waiting counts against your tool's timeout.
+TAKODE_LEASE_SLOT. Time spent waiting counts against your tool's timeout; a
+long wait prints a line every 5 minutes saying who holds the pool.
+
+Nested slots can deadlock. A command holding a slot that starts another
+command waiting for the same pool (a script run with takode lease run that
+itself calls takode lease run or takode exec --pool on that pool) waits
+forever once outer commands hold every slot. It is allowed, with a warning;
+take a pool's slot once, in the outer or the inner command.
 
 Ctrl-C or a tool timeout stops the command and gives the slot back. If this
 process is killed outright while the command keeps running, the slot is freed
@@ -41,7 +49,7 @@ const MAX_PURPOSE = 280;
 
 type HoldState =
   | { status: "held"; lease: { resourceKey: string; slot: number } }
-  | { status: "queued"; resourceKeys: string[]; position: number }
+  | { status: "queued"; resourceKeys: string[]; position: number; note?: string }
   | { status: "gone" };
 
 export async function handleLeaseRun(base: string, args: string[]): Promise<void> {
@@ -62,6 +70,9 @@ export async function handleLeaseRun(base: string, args: string[]): Promise<void
     (purposeIndex === -1 ? undefined : options[purposeIndex + 1]?.trim()) ||
     `takode lease run: ${commandLine.length > MAX_PURPOSE ? `${commandLine.slice(0, MAX_PURPOSE)}...` : commandLine}`;
 
+  const nested = nestedPoolWarning(pool);
+  if (nested) console.error(`[takode lease run] ${nested}`);
+
   const holderId = `run:${randomUUID()}`;
   const hold = async (path: string, body: unknown, signal?: AbortSignal) =>
     ((await postWithRetry(base, path, body, signal)) as { state: HoldState }).state;
@@ -76,8 +87,14 @@ export async function handleLeaseRun(base: string, args: string[]): Promise<void
     void postWithRetry(base, `/resource-leases/holds/${holderId}/release`, {}).finally(() => process.exit(130));
   };
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(signal, leaveLine);
+  const queuedAt = Date.now();
+  let notedAt = queuedAt;
   while (state.status === "queued") {
     state = await hold(`/resource-leases/holds/${holderId}/wait`, { known: "queued", waitSeconds: WAIT_SECONDS });
+    if (state.status === "queued" && Date.now() - notedAt >= STILL_WAITING_EVERY_MS) {
+      notedAt = Date.now();
+      console.error(`[takode lease run] ${stillWaitingLine(notedAt - queuedAt, state.note)}`);
+    }
   }
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.removeListener(signal, leaveLine);
   if (state.status === "gone") err("Lost the place in line for the pool (a leader removed it, or it expired)");

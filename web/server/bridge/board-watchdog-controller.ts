@@ -47,7 +47,7 @@ import {
   assessLeaseWait,
   assessWorkRowWaits,
   backgroundWaitEndsAt,
-  formatBoardSessionRef,
+  describeStuckLeaseWait,
   formatOverdueBackgroundJobs,
   getBoardParticipantRuntime,
   type BoardParticipantDeps,
@@ -1874,11 +1874,6 @@ function buildBoardStallCandidate(
     if (leaseWait === "progressing") return null;
     if (leaseWait) {
       const holderIds = leaseWait.holders.map((holder) => holder.sessionId);
-      const holderLabels = leaseWait.holders.map(
-        (holder) =>
-          `${formatBoardSessionRef(holder.sessionId, deps)} ${holder.status}` +
-          (holder.backgroundJobs.length > 0 ? ` with ${formatOverdueBackgroundJobs(holder.backgroundJobs)}` : ""),
-      );
       return {
         signature: `${row.questId}|${stage}|lease:${leaseWait.resourceKey}|${[...holderIds].sort().join(",")}`,
         sourceSessionId: workerSessionId,
@@ -1891,8 +1886,7 @@ function buildBoardStallCandidate(
           workerRuntime.lastActivityAt,
           ...leaseWait.holders.flatMap((holder) => [holder.lastActivityAt, backgroundWaitEndsAt(holder)]),
         ),
-        reason: `worker queued for ${leaseWait.resourceKey}; lease ${holderLabels.length > 1 ? "holders" : "holder"} ${holderLabels.join(", ")}`,
-        action: "inspect the lease holder; get it to finish and release, or force-release the lease",
+        ...describeStuckLeaseWait(leaseWait, workerSessionId, deps, now),
       };
     }
     // The worker's background jobs have run implausibly long without it resuming.

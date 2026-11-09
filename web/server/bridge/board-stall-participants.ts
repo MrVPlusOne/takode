@@ -11,6 +11,7 @@ import type { BoardRow } from "../session-types.js";
 import { findUserCheckpointQuestsForWorker } from "./board-user-checkpoint.js";
 import type { SessionWait } from "../../shared/session-waits.js";
 import { getWaitForRefKind } from "../../shared/quest-journey.js";
+import { formatLeaseWaitDuration } from "../../shared/resource-lease-message.js";
 
 type SessionLike = any;
 
@@ -108,6 +109,8 @@ export function formatOverdueBackgroundJobs(jobs: readonly BackgroundTaskInfo[])
 
 interface StuckLeaseWait {
   resourceKey: string;
+  /** When the waiting session's earliest entry joined the line, if known. */
+  queuedAt?: number;
   holders: Array<{
     sessionId: string;
     status: BoardStallStatus;
@@ -147,6 +150,7 @@ export function assessLeaseWait(
     if (!progressing) {
       return {
         resourceKey: wait.resourceKey,
+        ...(wait.queuedAt !== undefined ? { queuedAt: wait.queuedAt } : {}),
         holders: holders.map(({ sessionId, status, lastActivityAt, backgroundJobs }) => ({
           sessionId,
           status,
@@ -157,6 +161,36 @@ export function assessLeaseWait(
     }
   }
   return "progressing";
+}
+
+/**
+ * The stall alert's reason and action for a worker whose lease wait is stuck:
+ * how long it has waited and who holds the pool. When the worker holds slots
+ * of the pool itself (commands holding slots, `lease run` or `exec --pool`),
+ * the likely cause is nested pool slots: one of its commands holding a slot
+ * waits for another slot of the same pool, which its outer commands keep full.
+ */
+export function describeStuckLeaseWait(
+  wait: StuckLeaseWait,
+  workerSessionId: string,
+  deps: BoardParticipantDeps,
+  now: number,
+): { reason: string; action: string } {
+  const holderLabels = wait.holders.map(
+    (holder) =>
+      `${formatBoardSessionRef(holder.sessionId, deps)} ${holder.status}` +
+      (holder.backgroundJobs.length > 0 ? ` with ${formatOverdueBackgroundJobs(holder.backgroundJobs)}` : ""),
+  );
+  const waited = wait.queuedAt !== undefined ? ` for ${formatLeaseWaitDuration(now - wait.queuedAt)}` : "";
+  const reason = `worker queued for ${wait.resourceKey}${waited}; lease ${holderLabels.length > 1 ? "holders" : "holder"} ${holderLabels.join(", ")}`;
+  if (!wait.holders.some((holder) => holder.sessionId === workerSessionId)) {
+    return { reason, action: "inspect the lease holder; get it to finish and release, or force-release the lease" };
+  }
+  return {
+    reason: `${reason}; the worker holds slots of it itself, so a command holding a slot may be waiting for another (nested pool slots)`,
+    action:
+      "inspect the worker; stop a command that waits for a slot of a pool it already holds, or force-release its slot",
+  };
 }
 
 /**

@@ -315,6 +315,28 @@ where its caller is, in the caller's folder and environment. Its slot is
 renewed while the command runs; if that `takode` process is killed outright
 while its command survives, the slot is freed about two minutes later.
 
+Both commands tell the command they run which slot it holds
+(`TAKODE_LEASE_RESOURCE`, `TAKODE_LEASE_SLOT`). While a command waits for a
+slot, it prints a line every five minutes with how long it has waited, its
+place in line, which sessions hold the slots and how long since one changed
+hands; `takode exec status <id>` shows the same for a waiting `exec` command.
+
+**Nested slots can deadlock.** A command holding a slot that starts another
+command waiting for the same pool, such as `takode lease run lean -- ./build.sh`
+where `build.sh` runs `takode exec --pool lean`, waits forever once outer
+commands hold every slot: each outer command waits for an inner one that can
+only start when an outer one ends. Two pools taken in opposite orders can do
+the same. This is allowed, since nesting is often harmless, but the inner
+request prints a warning naming both pools. Take a pool's slot once, in the
+outer or the inner command. A deadlocked command shows as a wait that goes on
+while no slot changes hands, with the slots held by its own session. It lasts
+until the caller's tool timeout or someone stops an outer command; a leader
+can also force-release an outer command's slot
+(`takode lease release <pool> --slot N --force`), which lets an inner command
+start while the outer one keeps running. When a worker on the work board sits
+idle in such a wait, the board's stall alert names the pool, how long the
+worker has waited and that its own commands hold the pool.
+
 ## Telling agents about a machine
 
 Each machine's **Note for agents** in **Settings → Hosts** is text Takode adds

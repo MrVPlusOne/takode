@@ -36,6 +36,8 @@ describe("takode exec routes", () => {
     get: ReturnType<typeof vi.fn>;
     kill: ReturnType<typeof vi.fn>;
     readLog: ReturnType<typeof vi.fn>;
+    wait: ReturnType<typeof vi.fn>;
+    slotWait: ReturnType<typeof vi.fn>;
   };
   let app: Hono;
 
@@ -46,6 +48,8 @@ describe("takode exec routes", () => {
       get: vi.fn(() => job()),
       kill: vi.fn(() => job()),
       readLog: vi.fn(async () => Readable.from(["line 1\n", "line 2\n"])),
+      wait: vi.fn(async () => job()),
+      slotWait: vi.fn(() => null),
     };
     const ctx = {
       authenticateTakodeCaller: () => ({ callerId: caller.id, caller: { isOrchestrator: caller.isOrchestrator } }),
@@ -133,6 +137,24 @@ describe("takode exec routes", () => {
 
     exec.get.mockReturnValueOnce(null);
     expect((await post("/takode/exec/jobs/x-9/kill")).status).toBe(404);
+  });
+
+  // A command waiting for a pool slot tells its caller where it stands, for the
+  // CLI's periodic "still waiting" notes; the caller's own session is marked.
+  it("adds where a waiting command stands to its record", async () => {
+    exec.wait.mockResolvedValue(job({ status: "queued", pool: "checks" }));
+    exec.slotWait.mockImplementation(
+      (_id: string, label: (sessionId: string) => string) =>
+        `checks@condor: place 1 in line, 1/1 slots held by ${label("owner")}`,
+    );
+    const body = await (await app.request("/api/takode/exec/jobs/x-1?wait=1")).json();
+    expect(body).toMatchObject({
+      job: { status: "queued" },
+      slotWait: "checks@condor: place 1 in line, 1/1 slots held by #4 (yours)",
+    });
+    exec.wait.mockResolvedValue(job());
+    exec.slotWait.mockReturnValue(null);
+    expect(await (await app.request("/api/takode/exec/jobs/x-1")).json()).not.toHaveProperty("slotWait");
   });
 
   // `takode exec logs` streams the whole log as text, or a line or byte range.

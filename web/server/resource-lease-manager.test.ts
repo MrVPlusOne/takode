@@ -147,6 +147,7 @@ describe("ResourceLeaseManager", () => {
         resourceKey: "dev-server:companion",
         holderSessionIds: ["holder-1", "holder-2"],
         position: 1,
+        queuedAt: expect.any(Number),
       },
     ]);
     expect(manager.getLeaseWaits("holder-1")).toEqual([]);
@@ -208,7 +209,7 @@ describe("ResourceLeaseManager", () => {
       });
     }
     expect(manager.getLeaseWaits("second")).toEqual([
-      { resourceKey: "port:takode:jiayi", holderSessionIds: ["owner"], position: 2 },
+      { resourceKey: "port:takode:jiayi", holderSessionIds: ["owner"], position: 2, queuedAt: expect.any(Number) },
     ]);
     expect(manager.getLeaseWaits("third")[0]?.position).toBe(3);
 

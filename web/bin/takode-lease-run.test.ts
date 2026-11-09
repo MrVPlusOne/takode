@@ -88,6 +88,22 @@ describe("takode lease run", () => {
     expect(injected).toEqual([]);
   });
 
+  // Nesting is allowed but warned about: a command holding a slot that starts
+  // another command waiting for the same pool can deadlock once outer commands
+  // hold every slot. Here the outer command really runs the inner CLI, which
+  // finds the outer slot in its environment, warns, and still runs.
+  it("warns when a command holding a slot asks for another, and still runs it", async () => {
+    await manager.configure("checks", 2);
+    const takodePath = fileURLToPath(new URL("./takode.ts", import.meta.url));
+    const inner = `${process.execPath} ${takodePath} lease run checks --port ${server.port} -- echo inner`;
+    const result = await runCli(["checks", "--port", String(server.port), "--", inner]).done;
+    expect(result).toMatchObject({ code: 0, stdout: "inner\n" });
+    expect(result.stderr).toContain(
+      "Warning: this command already runs inside slot 1 of checks and now waits for a slot of checks",
+    );
+    expect(await manager.getStatus("checks")).toMatchObject({ leases: [], waiters: [] });
+  });
+
   // Several arguments run as a program and its arguments, without a shell.
   it("runs several arguments as a program without a shell", async () => {
     const result = await runCli(["checks", "--port", String(server.port), "--", "printf", "%s|", "a b", "$HOME"]).done;

@@ -127,7 +127,7 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
         metadata: normalizeMetadata(body.metadata),
         ttlMs: normalizeTtl(body),
       });
-      return c.json({ state: enrichHoldStateForResponse(ctx, state) });
+      return c.json({ state: enrichHoldStateForResponse(ctx, state, body.holderId, auth.callerId) });
     } catch (err) {
       return resourceLeaseErrorResponse(c, err);
     }
@@ -151,7 +151,7 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
       const waitSeconds = Math.min(Math.max(Number(body.waitSeconds) || 0, 0), MAX_HOLD_WAIT_SECONDS);
       await ctx.resourceLeaseManager.renewHold(holderId, auth.callerId);
       const state = await ctx.resourceLeaseManager.waitHold(holderId, known, waitSeconds * 1000);
-      return c.json({ state: enrichHoldStateForResponse(ctx, state) });
+      return c.json({ state: enrichHoldStateForResponse(ctx, state, holderId, auth.callerId) });
     } catch (err) {
       return resourceLeaseErrorResponse(c, err);
     }
@@ -279,8 +279,26 @@ function enrichAcquireResultForResponse(ctx: RouteContext, result: ResourceLease
   };
 }
 
-function enrichHoldStateForResponse(ctx: RouteContext, state: ResourceLeaseHoldState) {
-  return state.status === "held" ? { ...state, lease: enrichLeaseForResponse(ctx, state.lease) } : state;
+/** A held slot's state; one in line also carries `note`, where it stands, for its caller's periodic wait notes. */
+function enrichHoldStateForResponse(
+  ctx: RouteContext,
+  state: ResourceLeaseHoldState,
+  holderId: string,
+  callerId: string,
+) {
+  if (state.status === "held") return { ...state, lease: enrichLeaseForResponse(ctx, state.lease) };
+  if (state.status !== "queued") return state;
+  const note = ctx.resourceLeaseManager?.describeHoldWait(holderId, Date.now(), sessionRefLabel(ctx, callerId));
+  return note ? { ...state, note } : state;
+}
+
+/** Names a session as `#N`, marking the caller's own (`#N (yours)`), for slot-wait notes. */
+export function sessionRefLabel(ctx: RouteContext, callerId: string): (sessionId: string) => string {
+  return (sessionId) => {
+    const { sessionNum } = resolveSessionLabel(ctx, sessionId);
+    const ref = sessionNum !== undefined ? `#${sessionNum}` : sessionId.slice(0, 8);
+    return sessionId === callerId ? `${ref} (yours)` : ref;
+  };
 }
 
 function enrichReleaseResultForResponse(ctx: RouteContext, result: ResourceLeaseReleaseResult) {
