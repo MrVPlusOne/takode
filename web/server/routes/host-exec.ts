@@ -34,7 +34,14 @@ export function createHostExecRoutes(ctx: RouteContext) {
     const g = guard(c);
     if ("response" in g) return g.response;
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    if (typeof body.host !== "string" || !body.host.trim()) return c.json({ error: "host is required" }, 400);
+    if (body.pool !== undefined && typeof body.pool !== "string")
+      return c.json({ error: "pool must be a string" }, 400);
+    const pool = typeof body.pool === "string" && body.pool.trim() ? body.pool : null;
+    // With a pool, the machine may be left to the pool: any machine it has slots on.
+    if (body.host !== undefined && typeof body.host !== "string")
+      return c.json({ error: "host must be a string" }, 400);
+    if (!pool && !(typeof body.host === "string" && body.host.trim()))
+      return c.json({ error: "host is required" }, 400);
     if (typeof body.command !== "string") return c.json({ error: "command is required" }, 400);
     if (body.cwd !== undefined && typeof body.cwd !== "string") return c.json({ error: "cwd must be a string" }, 400);
     // A takode CLI from before its removal would leave the command without a caller, which stops it.
@@ -51,8 +58,9 @@ export function createHostExecRoutes(ctx: RouteContext) {
         sessionId: g.auth.callerId,
         sessionNum: ctx.launcher.getSessionNum(g.auth.callerId) ?? null,
         questId: ctx.wsBridge.getSession(g.auth.callerId)?.state.claimedQuestId ?? null,
-        host: body.host,
+        host: typeof body.host === "string" ? body.host : "",
         command: body.command,
+        pool,
         cwd: typeof body.cwd === "string" ? body.cwd : null,
         ...(memoryLimitBytes !== undefined ? { memoryLimitBytes } : {}),
       });

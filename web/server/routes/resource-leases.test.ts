@@ -307,4 +307,30 @@ describe("resource lease routes", () => {
     expect(status.resource.leases[0]).toMatchObject({ ownerSessionNum: 1370, ownerSessionName: "Owner Execute" });
     expect(status.resource).not.toHaveProperty("lease");
   });
+
+  // `takode lease run`: a slot per running command, named by the caller's
+  // run:<id>, with one long poll that renews it and waits for a change.
+  it("holds, waits for and releases a slot per running command", async () => {
+    const call = (path: string, caller: string, body: Record<string, unknown> = {}) =>
+      app.request(`/api/resource-leases/${path}`, {
+        method: "POST",
+        headers: authHeaders(caller),
+        body: JSON.stringify(body),
+      });
+    await manager.configure("checks", 1);
+    // Server-owned holder names are refused from clients.
+    expect((await call("checks/hold", "owner", { holderId: "exec:x-1", purpose: "p" })).status).toBe(400);
+    const first = await (await call("checks/hold", "owner", { holderId: "run:a", purpose: "compile a" })).json();
+    expect(first.state).toMatchObject({ status: "held", lease: { slot: 1, holderId: "run:a", ownerSessionNum: 1370 } });
+    const second = await (await call("checks/hold", "owner", { holderId: "run:b", purpose: "compile b" })).json();
+    expect(second.state).toEqual({ status: "queued", resourceKeys: ["checks"], position: 1 });
+
+    const waited = call("holds/run:b/wait", "owner", { known: "queued", waitSeconds: 10 });
+    expect((await call("holds/run:a/release", "waiter")).status).toBe(403);
+    expect((await call("holds/run:a/release", "owner")).status).toBe(200);
+    expect((await (await waited).json()).state).toMatchObject({ status: "held", lease: { holderId: "run:b" } });
+    // A session on a remote host holds its own machine's pool, as with acquire.
+    const remote = await (await call("checks/hold", "remote", { holderId: "run:c", purpose: "p" })).json();
+    expect(remote.state).toMatchObject({ status: "held", lease: { resourceKey: "checks@devbox" } });
+  });
 });

@@ -277,6 +277,36 @@ checks, and its removal when the session is archived, then run on that
 machine. While the machine is offline nothing is removed: the registration
 shows why, and a leader can `takode worktree retry` it later.
 
+### Sharing a machine's capacity
+
+Many sessions, or one worker's many sub-agents, can share a machine's
+capacity for builds, compiles or checks through a lease pool. With
+`--pool <name>`, each command holds one slot of the pool `<name>@<machine>`
+while it runs (on the Takode server's own machine, `<name>` works too, as for
+other leases).
+When the pool is full the command waits in line, quietly, and starts when a
+slot frees up; its slot is freed when it ends, is stopped, or its caller goes
+away. A leader sets the pool's size:
+
+```bash
+takode lease configure lean-checks@condor1-cpu-takode --capacity 48
+takode exec --host condor1-cpu-takode --pool lean-checks -- 'bash ~/pipeline/lean.sh Task.lean'
+takode exec --pool lean-checks -- 'bash ~/pipeline/lean.sh Task.lean'
+takode lease status lean-checks@condor1-cpu-takode
+```
+
+Without `--host`, the command can run on any machine where the pool has a
+configured size: it starts on the one with the most free slots, or waits in
+line on all of them and starts on the first whose slot frees up. Every such
+machine then needs the command's files and tools. A command that got its slot
+while its machine is reconnecting or updating its node waits up to five
+minutes for it. Time spent in line counts against the caller's tool timeout.
+
+`takode lease run <pool> -- <command>` does the same for a command that runs
+where its caller is, in the caller's folder and environment. Its slot is
+renewed while the command runs; if that `takode` process is killed outright
+while its command survives, the slot is freed about two minutes later.
+
 ## Telling agents about a machine
 
 Each machine's **Note for agents** in **Settings → Hosts** is text Takode adds

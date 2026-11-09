@@ -99,6 +99,7 @@ function normalizeLease(raw: unknown, counted: boolean): ResourceLease[] {
       resourceKey: lease.resourceKey,
       slot: counted && Number.isSafeInteger(lease.slot) && lease.slot! > 0 ? lease.slot! : 1,
       ownerSessionId: lease.ownerSessionId,
+      ...(typeof lease.holderId === "string" && lease.holderId ? { holderId: lease.holderId } : {}),
       ...(typeof lease.questId === "string" && lease.questId ? { questId: lease.questId } : {}),
       purpose: lease.purpose,
       metadata: normalizeMetadata(lease.metadata),
@@ -133,11 +134,13 @@ function normalizeWaiter(resourceKey: string, raw: unknown): ResourceLeaseWaiter
       id: waiter.id,
       resourceKey,
       waiterSessionId: waiter.waiterSessionId,
+      ...(typeof waiter.holderId === "string" && waiter.holderId ? { holderId: waiter.holderId } : {}),
       ...(typeof waiter.questId === "string" && waiter.questId ? { questId: waiter.questId } : {}),
       purpose: waiter.purpose,
       metadata: normalizeMetadata(waiter.metadata),
       queuedAt: waiter.queuedAt,
       ttlMs: isFinitePositive(waiter.ttlMs) ? waiter.ttlMs : 30 * 60_000,
+      ...(isFinitePositive(waiter.expiresAt) ? { expiresAt: waiter.expiresAt } : {}),
     },
   ];
 }

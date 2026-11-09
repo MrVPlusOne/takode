@@ -1,9 +1,15 @@
-import { DEFAULT_RESOURCE_LEASE_TTL_MS, RESOURCE_LEASE_SWEEP_INTERVAL_MS } from "./resource-lease-types.js";
+import {
+  DEFAULT_HOLD_TTL_MS,
+  DEFAULT_RESOURCE_LEASE_TTL_MS,
+  RESOURCE_LEASE_SWEEP_INTERVAL_MS,
+} from "./resource-lease-types.js";
 import type {
   ResourceLease,
   ResourceLeaseAcquireInput,
   ResourceLeaseAcquireResult,
   ResourceLeaseFile,
+  ResourceLeaseHoldInput,
+  ResourceLeaseHoldState,
   ResourceLeaseReleaseResult,
   ResourceLeaseRenewInput,
   ResourceLeaseStatus,
@@ -47,6 +53,8 @@ export class ResourceLeaseManager {
   private operationQueue: Promise<unknown> = Promise.resolve();
   /** Owners that are server components, not sessions, keyed by owner ID prefix. */
   private systemOwners = new Map<string, (lease: ResourceLease) => void>();
+  /** Callers waiting for a held slot's state to change, by holder. */
+  private holdListeners = new Map<string, Set<() => void>>();
 
   constructor(
     private bridge: ResourceLeaseBridge,
@@ -54,9 +62,10 @@ export class ResourceLeaseManager {
   ) {}
 
   /**
-   * Let a server component own leases under owner IDs starting with `prefix`.
-   * When such an owner is promoted from a pool's queue, `onPromoted` is called
-   * (outside the manager's lock) instead of messaging a session.
+   * Let a server component own leases under owner IDs, or holder IDs of held
+   * slots, starting with `prefix`. When such an owner is promoted from a pool's
+   * queue, `onPromoted` is called (outside the manager's lock) instead of
+   * messaging a session.
    */
   registerSystemOwner(prefix: string, onPromoted: (lease: ResourceLease) => void): void {
     this.systemOwners.set(prefix, onPromoted);
@@ -155,6 +164,7 @@ export class ResourceLeaseManager {
       if (!force) await this.persistIfNeeded(this.expireDueLeases(Date.now()));
       const lease = this.selectLease(resourceKey, callerSessionId, force ? (slot ?? 1) : slot, "release", force);
       this.data.leases.splice(this.data.leases.indexOf(lease), 1);
+      if (lease.holderId) this.wakeHolder(lease.holderId);
       const promoted = this.promoteWaiters(resourceKey, Date.now())[0] ?? null;
       await this.persistIfNeeded(true);
       return { released: lease, promoted, waiters: this.getWaiters(resourceKey) };
@@ -171,7 +181,7 @@ export class ResourceLeaseManager {
       const resourceKey = normalizeResourceKey(resourceKeyInput);
       const callerSessionId = normalizeSessionId(callerSessionIdInput);
       const waiters = this.getWaiters(resourceKey);
-      const remaining = waiters.filter((waiter) => waiter.waiterSessionId !== callerSessionId);
+      const remaining = waiters.filter((waiter) => waiter.holderId || waiter.waiterSessionId !== callerSessionId);
       if (remaining.length === waiters.length) return false;
       this.setWaiters(resourceKey, remaining);
       await this.persistIfNeeded(true);
@@ -188,13 +198,168 @@ export class ResourceLeaseManager {
       .map((lease) => lease.ownerSessionId);
   }
 
-  /** Whether the session holds a slot of the pool, read synchronously from loaded state. */
+  /** Whether the session holds a slot of the pool for itself (not a held slot), read synchronously from loaded state. */
   holdsLease(resourceKeyInput: string, sessionId: string): boolean {
     const resourceKey = resourceKeyInput.trim().toLowerCase();
     const now = Date.now();
     return this.data.leases.some(
-      (lease) => lease.resourceKey === resourceKey && lease.ownerSessionId === sessionId && lease.expiresAt > now,
+      (lease) =>
+        lease.resourceKey === resourceKey &&
+        !lease.holderId &&
+        lease.ownerSessionId === sessionId &&
+        lease.expiresAt > now,
     );
+  }
+
+  /**
+   * Take a held slot for a running command: a slot of the first of
+   * `resourceKeys` with one free (the freest), or a place in line in all of them,
+   * where the first slot to free up is taken and the other places are given up
+   * in the same step. Unlike a session's own lease, a session may hold any
+   * number of these, one per command, and promotion sends it no message: the
+   * caller learns of it through {@link waitHold} or its system owner callback.
+   * The slot or place lasts `ttlMs` past each renewal. Repeating the call for a
+   * holder returns where it stands.
+   */
+  async hold(input: ResourceLeaseHoldInput): Promise<ResourceLeaseHoldState> {
+    return this.runExclusive(async () => {
+      await this.ensureLoaded();
+      const holderId = normalizeHolderId(input.holderId);
+      const resourceKeys = [...new Set(input.resourceKeys.map(normalizeResourceKey))];
+      if (resourceKeys.length === 0) throw new ResourceLeaseError("invalid", "at least one resource key is required");
+      const normalized = normalizeAcquireInput({
+        ...input,
+        resourceKey: resourceKeys[0]!,
+        ttlMs: input.ttlMs ?? DEFAULT_HOLD_TTL_MS,
+      });
+      const now = Date.now();
+      let changed = this.expireDueLeases(now);
+      const current = this.holdStateLoaded(holderId);
+      if (current.status !== "gone") {
+        this.checkHolderOwner(holderId, normalized.callerSessionId);
+        await this.persistIfNeeded(changed);
+        return current;
+      }
+      const free = resourceKeys
+        .map((resourceKey) => ({
+          resourceKey,
+          slot: this.lowestFreeSlot(resourceKey),
+          free: this.freeSlots(resourceKey),
+        }))
+        .filter((pool) => pool.slot !== undefined && this.getWaiters(pool.resourceKey).length === 0)
+        .sort((a, b) => b.free - a.free)[0];
+      if (free) {
+        this.data.leases.push({
+          ...this.createLease({ ...normalized, resourceKey: free.resourceKey }, free.slot!, now),
+          holderId,
+        });
+      } else {
+        for (const resourceKey of resourceKeys) {
+          const waiter: ResourceLeaseWaiter = {
+            id: `w${this.data.nextWaiterId++}`,
+            resourceKey,
+            waiterSessionId: normalized.callerSessionId,
+            holderId,
+            ...(normalized.questId ? { questId: normalized.questId } : {}),
+            purpose: normalized.purpose,
+            metadata: normalized.metadata,
+            queuedAt: now,
+            ttlMs: normalized.ttlMs,
+            expiresAt: now + normalized.ttlMs,
+          };
+          this.setWaiters(resourceKey, [...this.getWaiters(resourceKey), waiter]);
+        }
+      }
+      changed = true;
+      await this.persistIfNeeded(changed);
+      return this.holdStateLoaded(holderId);
+    });
+  }
+
+  /** Extend a held slot, or a place in line for one, by its TTL. `callerSessionId` must own it when given. */
+  async renewHold(holderIdInput: string, callerSessionId?: string): Promise<ResourceLeaseHoldState> {
+    return this.runExclusive(async () => {
+      await this.ensureLoaded();
+      const holderId = normalizeHolderId(holderIdInput);
+      const now = Date.now();
+      const expired = this.expireDueLeases(now);
+      if (callerSessionId !== undefined) this.checkHolderOwner(holderId, callerSessionId);
+      let renewed = false;
+      for (const lease of this.data.leases) {
+        if (lease.holderId !== holderId) continue;
+        lease.heartbeatAt = now;
+        lease.expiresAt = now + lease.ttlMs;
+        renewed = true;
+      }
+      for (const waiter of Object.values(this.data.waiters).flat()) {
+        if (waiter.holderId !== holderId) continue;
+        waiter.expiresAt = now + waiter.ttlMs;
+        renewed = true;
+      }
+      await this.persistIfNeeded(expired || renewed);
+      return this.holdStateLoaded(holderId);
+    });
+  }
+
+  /** Give up a held slot (filling it from its queue) and any places in line. Returns the slot given up, if any. */
+  async releaseHold(holderIdInput: string, callerSessionId?: string): Promise<ResourceLease | null> {
+    return this.runExclusive(async () => {
+      await this.ensureLoaded();
+      const holderId = normalizeHolderId(holderIdInput);
+      if (callerSessionId !== undefined) this.checkHolderOwner(holderId, callerSessionId);
+      const lease = this.data.leases.find((entry) => entry.holderId === holderId) ?? null;
+      const queued = this.removeHolderWaiters(holderId);
+      if (lease) {
+        this.data.leases.splice(this.data.leases.indexOf(lease), 1);
+        this.promoteWaiters(lease.resourceKey, Date.now());
+      }
+      this.wakeHolder(holderId);
+      await this.persistIfNeeded(lease !== null || queued);
+      return lease;
+    });
+  }
+
+  /**
+   * Where a held slot's command stands, once it differs from `known` or `ms`
+   * passed. Shutdown ({@link releaseWaits}) answers early with the current state.
+   */
+  async waitHold(
+    holderIdInput: string,
+    known: ResourceLeaseHoldState["status"],
+    ms: number,
+  ): Promise<ResourceLeaseHoldState> {
+    const holderId = normalizeHolderId(holderIdInput);
+    // Listen before reading, so a change between the read and the wait still wakes it.
+    let wake = () => {};
+    const woken = new Promise<void>((resolve) => (wake = resolve));
+    const listeners = this.holdListeners.get(holderId) ?? new Set();
+    listeners.add(wake);
+    this.holdListeners.set(holderId, listeners);
+    const timer = setTimeout(wake, ms);
+    try {
+      const now = await this.runExclusive(async () => {
+        await this.ensureLoaded();
+        return this.holdStateLoaded(holderId);
+      });
+      if (now.status !== known || now.status === "gone") return now;
+      await woken;
+      return await this.runExclusive(async () => this.holdStateLoaded(holderId));
+    } finally {
+      clearTimeout(timer);
+      listeners.delete(wake);
+      if (listeners.size === 0) this.holdListeners.delete(holderId);
+    }
+  }
+
+  /** Answer every {@link waitHold} now, as the server shuts down; callers simply ask again. */
+  releaseWaits(): void {
+    for (const listeners of this.holdListeners.values()) for (const wake of [...listeners]) wake();
+  }
+
+  /** Configured capacities by pool, for finding every machine a pool has slots on. */
+  async capacities(): Promise<Record<string, number>> {
+    await this.ensureLoaded();
+    return { ...this.data.capacities };
   }
 
   async getStatus(resourceKeyInput: string): Promise<ResourceLeaseStatus> {
@@ -223,10 +388,12 @@ export class ResourceLeaseManager {
 
   /** Pools the session is queued for, read synchronously for session status projections. */
   getWaitingResourceKeys(sessionId: string): string[] {
-    return Object.values(this.data.waiters)
+    const keys = Object.values(this.data.waiters)
       .flat()
       .filter((waiter) => waiter.waiterSessionId === sessionId)
       .map((waiter) => waiter.resourceKey);
+    // Several of the session's commands may wait in one pool.
+    return [...new Set(keys)];
   }
 
   /**
@@ -239,7 +406,7 @@ export class ResourceLeaseManager {
       const index = waiters.findIndex((waiter) => waiter.waiterSessionId === sessionId);
       return {
         resourceKey,
-        holderSessionIds: this.getLeases(resourceKey).map((lease) => lease.ownerSessionId),
+        holderSessionIds: [...new Set(this.getLeases(resourceKey).map((lease) => lease.ownerSessionId))],
         position: index + 1,
       };
     });
@@ -258,7 +425,9 @@ export class ResourceLeaseManager {
   ): ResourceLeaseAcquireResult {
     const now = Date.now();
     const capacity = this.getCapacity(input.resourceKey);
-    const existing = this.getLeases(input.resourceKey).find((lease) => lease.ownerSessionId === input.callerSessionId);
+    const existing = this.getLeases(input.resourceKey).find(
+      (lease) => !lease.holderId && lease.ownerSessionId === input.callerSessionId,
+    );
     if (existing) {
       return { status: "already_owned", capacity, lease: existing, waiters: this.getWaiters(input.resourceKey) };
     }
@@ -286,10 +455,23 @@ export class ResourceLeaseManager {
     this.data.leases = this.data.leases.filter((lease) => lease.expiresAt > now);
     for (const lease of expired) {
       console.log(
-        `${LOG_TAG} Expired lease for ${lease.resourceKey} slot ${lease.slot} owned by ${lease.ownerSessionId.slice(0, 8)}`,
+        `${LOG_TAG} Expired lease for ${lease.resourceKey} slot ${lease.slot} owned by ${lease.holderId ?? lease.ownerSessionId.slice(0, 8)}`,
       );
+      if (lease.holderId) this.wakeHolder(lease.holderId);
     }
     let changed = expired.length > 0;
+    // A waiting command whose caller stopped renewing has gone away: it leaves every line.
+    for (const resourceKey of Object.keys(this.data.waiters)) {
+      const waiters = this.getWaiters(resourceKey);
+      const stale = waiters.filter((waiter) => waiter.expiresAt !== undefined && waiter.expiresAt <= now);
+      if (stale.length === 0) continue;
+      this.setWaiters(
+        resourceKey,
+        waiters.filter((waiter) => !stale.includes(waiter)),
+      );
+      for (const waiter of stale) if (waiter.holderId) this.wakeHolder(waiter.holderId);
+      changed = true;
+    }
     for (const resourceKey of Object.keys(this.data.waiters)) {
       if (this.promoteWaiters(resourceKey, now).length > 0) changed = true;
     }
@@ -309,6 +491,11 @@ export class ResourceLeaseManager {
         slot,
         now,
       );
+      if (waiter.holderId) {
+        lease.holderId = waiter.holderId;
+        // A command waiting in several pools takes this slot and leaves the other lines in the same step.
+        this.removeHolderWaiters(waiter.holderId, resourceKey);
+      }
       this.data.leases.push(lease);
       promoted.push(lease);
       this.notifyPromotedWaiter(lease, waiter.queuedAt);
@@ -319,11 +506,17 @@ export class ResourceLeaseManager {
   }
 
   private notifyPromotedWaiter(lease: ResourceLease, queuedAt: number): void {
+    const owner = lease.holderId ?? lease.ownerSessionId;
     for (const [prefix, onPromoted] of this.systemOwners) {
-      if (!lease.ownerSessionId.startsWith(prefix)) continue;
+      if (!owner.startsWith(prefix)) continue;
       // The owner calls back into this manager, so it runs after the current operation.
       setTimeout(() => onPromoted(lease), 0);
-      console.log(`${LOG_TAG} Promoted ${lease.ownerSessionId} for ${lease.resourceKey}`);
+      console.log(`${LOG_TAG} Promoted ${owner} for ${lease.resourceKey}`);
+      return;
+    }
+    if (lease.holderId) {
+      // Its caller is waiting for exactly this; the session is not interrupted.
+      this.wakeHolder(lease.holderId);
       return;
     }
     const lines = [
@@ -368,7 +561,7 @@ export class ResourceLeaseManager {
     now: number,
   ): ResourceLeaseWaiter {
     const existing = this.getWaiters(input.resourceKey).find(
-      (waiter) => waiter.waiterSessionId === input.callerSessionId,
+      (waiter) => !waiter.holderId && waiter.waiterSessionId === input.callerSessionId,
     );
     if (existing) return existing;
 
@@ -386,11 +579,67 @@ export class ResourceLeaseManager {
     return waiter;
   }
 
+  private holdStateLoaded(holderId: string): ResourceLeaseHoldState {
+    const lease = this.data.leases.find((entry) => entry.holderId === holderId);
+    if (lease) return { status: "held", lease };
+    const places = Object.entries(this.data.waiters).flatMap(([resourceKey, waiters]) => {
+      const index = waiters.findIndex((waiter) => waiter.holderId === holderId);
+      return index === -1 ? [] : [{ resourceKey, position: index + 1 }];
+    });
+    if (places.length === 0) return { status: "gone" };
+    return {
+      status: "queued",
+      resourceKeys: places.map((place) => place.resourceKey),
+      position: Math.min(...places.map((place) => place.position)),
+    };
+  }
+
+  private checkHolderOwner(holderId: string, callerSessionId: string): void {
+    const owners = [
+      ...this.data.leases.filter((lease) => lease.holderId === holderId).map((lease) => lease.ownerSessionId),
+      ...Object.values(this.data.waiters)
+        .flat()
+        .filter((waiter) => waiter.holderId === holderId)
+        .map((waiter) => waiter.waiterSessionId),
+    ];
+    if (owners.some((owner) => owner !== callerSessionId)) {
+      throw new ResourceLeaseError("forbidden", `${holderId} belongs to another session`);
+    }
+  }
+
+  /** Remove a holder from every pool's line except `except`'s. Returns whether it was in any. */
+  private removeHolderWaiters(holderId: string, except?: string): boolean {
+    let removed = false;
+    for (const resourceKey of Object.keys(this.data.waiters)) {
+      if (resourceKey === except) continue;
+      const waiters = this.getWaiters(resourceKey);
+      const remaining = waiters.filter((waiter) => waiter.holderId !== holderId);
+      if (remaining.length === waiters.length) continue;
+      this.setWaiters(resourceKey, remaining);
+      removed = true;
+    }
+    return removed;
+  }
+
+  private wakeHolder(holderId: string): void {
+    for (const wake of [...(this.holdListeners.get(holderId) ?? [])]) wake();
+  }
+
+  private freeSlots(resourceKey: string): number {
+    return this.getCapacity(resourceKey) - this.getLeases(resourceKey).length;
+  }
+
   private buildStatus(resourceKey: string): ResourceLeaseStatus {
     const capacity = this.getCapacity(resourceKey);
     const leases = this.getLeases(resourceKey);
     const waiters = this.getWaiters(resourceKey);
-    return { resourceKey, capacity, leases, waiters, available: leases.length < capacity && waiters.length === 0 };
+    return {
+      resourceKey,
+      capacity,
+      leases,
+      waiters,
+      available: leases.length < capacity && waiters.length === 0,
+    };
   }
 
   private getCapacity(resourceKey: string): number {
@@ -427,8 +676,14 @@ export class ResourceLeaseManager {
     const leases = this.getLeases(resourceKey);
     const lease =
       slot === undefined
-        ? leases.find((entry) => entry.ownerSessionId === caller)
+        ? leases.find((entry) => !entry.holderId && entry.ownerSessionId === caller)
         : leases.find((entry) => entry.slot === slot);
+    if (lease?.holderId && !force) {
+      throw new ResourceLeaseError(
+        "conflict",
+        `Slot ${lease.slot} of ${resourceKey} is held by a running command (${lease.holderId}); it is freed when that command ends`,
+      );
+    }
     if (!lease && (slot !== undefined || leases.length === 0)) {
       throw new ResourceLeaseError(
         "not_found",
@@ -531,6 +786,14 @@ function normalizeResourceKey(resourceKey: string): string {
     );
   }
   return key;
+}
+
+function normalizeHolderId(holderId: string): string {
+  const normalized = holderId.trim();
+  if (!/^[a-z]+:[A-Za-z0-9._-]{1,100}$/.test(normalized)) {
+    throw new ResourceLeaseError("invalid", "holder id must look like run:<id> or exec:<id>");
+  }
+  return normalized;
 }
 
 function normalizeSessionId(sessionId: string): string {

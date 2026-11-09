@@ -2,14 +2,19 @@ import { Hono } from "hono";
 import { parseDuration } from "../timer-parse.js";
 import { ResourceLeaseError } from "../resource-lease-manager.js";
 import * as sessionNames from "../session-names.js";
+import { CLIENT_HOLDER_PREFIX } from "../resource-lease-types.js";
 import type {
   ResourceLease,
+  ResourceLeaseHoldState,
   ResourceLeaseAcquireResult,
   ResourceLeaseReleaseResult,
   ResourceLeaseStatus,
   ResourceLeaseWaiter,
 } from "../resource-lease-types.js";
 import type { RouteContext } from "./context.js";
+
+/** Longest one hold request waits for a change; the server's HTTP idle timeout must stay longer. */
+const MAX_HOLD_WAIT_SECONDS = 30;
 
 export function createResourceLeaseRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -94,6 +99,71 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
         waitIfUnavailable: true,
       });
       return c.json({ result: enrichAcquireResultForResponse(ctx, result) }, statusCodeForAcquireResult(result.status));
+    } catch (err) {
+      return resourceLeaseErrorResponse(c, err);
+    }
+  });
+
+  /**
+   * `takode lease run`: take a slot for one running command (a held slot), or a
+   * place in line for one. The caller names the holder (`run:<id>`), so a retry
+   * after a lost answer finds the same slot.
+   */
+  api.post("/resource-leases/:resourceKey/hold", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    if (!ctx.resourceLeaseManager) return c.json({ error: "Resource lease manager not available" }, 503);
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      if (typeof body.holderId !== "string" || !body.holderId.startsWith(CLIENT_HOLDER_PREFIX)) {
+        return c.json({ error: `holderId must start with ${CLIENT_HOLDER_PREFIX}` }, 400);
+      }
+      const state = await ctx.resourceLeaseManager.hold({
+        resourceKeys: [await leaseKey(ctx, auth.callerId, c.req.param("resourceKey"))],
+        holderId: body.holderId,
+        callerSessionId: auth.callerId,
+        questId: normalizeQuestId(body.questId) ?? wsBridge.getSession(auth.callerId)?.state.claimedQuestId,
+        purpose: normalizePurpose(body.purpose),
+        metadata: normalizeMetadata(body.metadata),
+        ttlMs: normalizeTtl(body),
+      });
+      return c.json({ state: enrichHoldStateForResponse(ctx, state) });
+    } catch (err) {
+      return resourceLeaseErrorResponse(c, err);
+    }
+  });
+
+  /**
+   * Renew a held slot (or its place in line), then answer once its state
+   * differs from `known` or `waitSeconds` pass: the caller's heartbeat and its
+   * wait for a slot in one long poll.
+   */
+  api.post("/resource-leases/holds/:holderId/wait", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    if (!ctx.resourceLeaseManager) return c.json({ error: "Resource lease manager not available" }, 503);
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const holderId = c.req.param("holderId");
+      const known = ["held", "queued", "gone"].includes(body.known)
+        ? (body.known as ResourceLeaseHoldState["status"])
+        : "gone";
+      const waitSeconds = Math.min(Math.max(Number(body.waitSeconds) || 0, 0), MAX_HOLD_WAIT_SECONDS);
+      await ctx.resourceLeaseManager.renewHold(holderId, auth.callerId);
+      const state = await ctx.resourceLeaseManager.waitHold(holderId, known, waitSeconds * 1000);
+      return c.json({ state: enrichHoldStateForResponse(ctx, state) });
+    } catch (err) {
+      return resourceLeaseErrorResponse(c, err);
+    }
+  });
+
+  api.post("/resource-leases/holds/:holderId/release", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    if (!ctx.resourceLeaseManager) return c.json({ error: "Resource lease manager not available" }, 503);
+    try {
+      const released = await ctx.resourceLeaseManager.releaseHold(c.req.param("holderId"), auth.callerId);
+      return c.json({ released: released ? enrichLeaseForResponse(ctx, released) : null });
     } catch (err) {
       return resourceLeaseErrorResponse(c, err);
     }
@@ -207,6 +277,10 @@ function enrichAcquireResultForResponse(ctx: RouteContext, result: ResourceLease
     ...(result.status === "queued" ? { waiter: enrichWaiterForResponse(ctx, result.waiter) } : {}),
     waiters: result.waiters.map((waiter) => enrichWaiterForResponse(ctx, waiter)),
   };
+}
+
+function enrichHoldStateForResponse(ctx: RouteContext, state: ResourceLeaseHoldState) {
+  return state.status === "held" ? { ...state, lease: enrichLeaseForResponse(ctx, state.lease) } : state;
 }
 
 function enrichReleaseResultForResponse(ctx: RouteContext, result: ResourceLeaseReleaseResult) {

@@ -17,16 +17,26 @@ export const HOST_EXEC_MESSAGE_SOURCE = { sessionId: "host-exec", sessionLabel: 
 /** First words of that message, which the feed's chip recognizes. */
 export const HOST_EXEC_MESSAGE_TAG = "[Command finished]";
 
-/** `running` until the process ends; `failed` when it could not start or its host lost it. */
-export type ExecJobStatus = "running" | "exited" | "failed";
+/**
+ * `queued` while it waits for a slot of its pool (`takode exec --pool`),
+ * `running` until the process ends; `failed` when it could not start, its host
+ * lost it, or it was stopped before it got a slot.
+ */
+export type ExecJobStatus = "queued" | "running" | "exited" | "failed";
 
 export interface ExecJob {
   /** Short id agents pass to `takode exec status|logs|kill`, e.g. `x-12`. */
   id: string;
-  /** Registered host id, or `local` for the coordinator's own machine. */
+  /** Registered host id, or `local` for the coordinator's own machine; empty while it waits for a slot on any of several. */
   hostId: string;
-  /** The machine's name when the command started. */
+  /** The machine's name when the command started; while it waits on several, their names. */
   host: string;
+  /** Pool whose slot it holds while it runs (`--pool`), without the machine; null or absent for none. */
+  pool?: string | null;
+  /** The slot it holds, once it has one. */
+  slot?: { resourceKey: string; slot: number } | null;
+  /** When it started running, for a command that waited for a slot first. */
+  runningAt?: number | null;
   command: string;
   /** Working directory on the machine; null for its home directory. */
   cwd: string | null;
@@ -68,6 +78,7 @@ export function describeExecOutcome(
   job: Pick<ExecJob, "status" | "exitCode" | "signal" | "error" | "memoryLimitBytes" | "memoryKill" | "callerGone">,
 ): string {
   if (job.status === "running") return "running";
+  if (job.status === "queued") return "waiting for a slot";
   const kill = job.memoryKill;
   if (kill?.reason === "command_limit" && job.memoryLimitBytes) {
     return `killed for using ${formatBytes(kill.bytes)}, over its ${formatBytes(job.memoryLimitBytes)} memory limit (${kill.programs.join(", ")})`;

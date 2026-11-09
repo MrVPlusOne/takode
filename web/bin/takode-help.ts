@@ -8,6 +8,7 @@ import {
   LEASE_STATUS_HELP,
   LEASE_WAIT_HELP,
 } from "./takode-lease.js";
+import { LEASE_RUN_HELP } from "./takode-lease-run.js";
 import { stripHelpFlags, TIMER_CREATE_GUIDANCE } from "./takode-core.js";
 import { RECORD_DELIVERY_HELP } from "./takode-record-delivery.js";
 import { DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
@@ -784,6 +785,8 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(LEASE_RENEW_HELP);
       } else if (sub === "release") {
         console.log(LEASE_RELEASE_HELP);
+      } else if (sub === "run") {
+        console.log(LEASE_RUN_HELP);
       } else {
         console.log(LEASE_HELP);
       }
@@ -868,7 +871,7 @@ Commands:
   board          Quest Journey work board (e.g. takode board show, takode board advance q-12)
   todo           Personal durable to-dos (read, add, or change with the user's approval)
   timer          Session-scoped timers (create, list, cancel)
-  lease          Resource pools (configure, acquire, status, renew, release, wait)
+  lease          Resource pools (configure, acquire, run, status, renew, release, wait)
   permission     Inspect or update session permission modes
   help           Show detailed help for a command or nested subcommand
 

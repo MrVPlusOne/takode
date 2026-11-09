@@ -9,6 +9,8 @@ import { LOCAL_HOST_ID, type HostProcessEvent } from "../../shared/host-protocol
 import { describeExecOutcome, HOST_EXEC_MESSAGE_TAG, type ExecJob } from "../../shared/host-exec.js";
 import { formatLeaseWaitDuration as formatDuration } from "../../shared/resource-lease-message.js";
 import type { BackgroundTaskSnapshot } from "../bridge/adapter-interface.js";
+import type { ResourceLeaseManager } from "../resource-lease-manager.js";
+import type { ResourceLease } from "../resource-lease-types.js";
 import type { HostLinkManager, RemoteProcess } from "./host-link-manager.js";
 
 /** A request `takode exec` cannot carry out, with the HTTP status to answer with. */
@@ -37,6 +39,11 @@ export interface HostExecDeps {
   notify: (sessionId: string, text: string) => void;
   /** A session's running commands changed, which its waits and the board's stall check read. */
   onSessionChange?: (sessionId: string) => void;
+  /**
+   * Lease pools, for `--pool`: each command holds a slot of its pool while it
+   * runs. Without them `--pool` is refused.
+   */
+  leases?: Pick<ResourceLeaseManager, "hold" | "renewHold" | "releaseHold" | "registerSystemOwner" | "capacities">;
   /** Where job records and output logs are kept. */
   dir: string;
   now?: () => number;
@@ -44,6 +51,8 @@ export interface HostExecDeps {
   callerGoneMs?: number;
   /** Override of CALLER_CHECK_MS for tests. */
   callerCheckMs?: number;
+  /** Override of SLOT_START_WAIT_MS for tests. */
+  slotStartWaitMs?: number;
 }
 
 export interface ExecStartInput {
@@ -55,6 +64,12 @@ export interface ExecStartInput {
   cwd?: string | null;
   /** Kill it all once its processes use more memory than this together. */
   memoryLimitBytes?: number | null;
+  /**
+   * Run it while holding a slot of this lease pool, waiting in line when the
+   * pool is full. `name@machine` pins a machine, as does `host`; with neither,
+   * any machine where `name@<machine>` has a configured capacity.
+   */
+  pool?: string | null;
 }
 
 export interface ExecOutput {
@@ -112,6 +127,17 @@ const TAIL_READ_BYTES = 256 * 1024;
 const NOTIFY_TAIL_LINES = 15;
 const NOTIFY_TAIL_CHARS = 2_000;
 const LOG_FLUSH_MS = 200;
+/** Holder IDs of the pool slots commands hold, `exec:<job id>`. */
+const EXEC_HOLDER_PREFIX = "exec:";
+/**
+ * How long a command's slot, or place in line, outlasts the coordinator's last
+ * renewal (every CALLER_CHECK_MS), so a restart keeps it.
+ */
+const EXEC_HOLD_TTL_MS = 10 * 60_000;
+const POOL_NAME = /^[a-z0-9][a-z0-9._:/-]*$/;
+/** How long a command that got its slot waits for its machine to come back (reconnecting or updating) before failing. */
+const SLOT_START_WAIT_MS = 5 * 60_000;
+const SLOT_START_RETRY_MS = 2_000;
 
 interface StoredJob extends ExecJob {
   /** The host-link process id, for taking the process over after a coordinator restart. */
@@ -122,11 +148,21 @@ interface StoredJob extends ExecJob {
    * the outcome, as it was promised. Remove once no such command can remain.
    */
   legacyBackground?: boolean;
+  /** The pools (one per machine it may run on) a command waiting for a slot is in line for. */
+  poolKeys?: string[];
 }
 
 interface StoredFile {
   nextId: number;
   jobs: StoredJob[];
+}
+
+/** A command waiting for a slot of its pool. */
+interface QueuedJob {
+  /** When its caller last asked about it, or it was queued or taken over. */
+  callerSeenAt: number;
+  /** Callers waiting for it to start or end. */
+  waiters: Set<() => void>;
 }
 
 interface RunningJob {
@@ -152,6 +188,7 @@ interface RunningJob {
 export class HostExec {
   private readonly jobs = new Map<string, StoredJob>();
   private readonly running = new Map<string, RunningJob>();
+  private readonly queued = new Map<string, QueuedJob>();
   private callerCheck: ReturnType<typeof setInterval> | null = null;
   private nextId = 1;
   private pendingSave: Promise<void> = Promise.resolve();
@@ -160,6 +197,9 @@ export class HostExec {
   constructor(private readonly deps: HostExecDeps) {
     this.now = deps.now ?? Date.now;
     mkdirSync(this.logDir, { recursive: true }); // sync-ok: cold path, once during construction
+    deps.leases?.registerSystemOwner(EXEC_HOLDER_PREFIX, (lease) => {
+      void this.onSlot(lease).catch((error) => console.error(`[host-exec] Could not start ${lease.holderId}:`, error));
+    });
   }
 
   /** Load the records and take over the commands a previous coordinator left running. Call before hosts connect. */
@@ -170,6 +210,8 @@ export class HostExec {
       const { background, ...job } = stored as StoredJob & { background?: boolean };
       if (background && job.status === "running") job.legacyBackground = true;
       this.jobs.set(job.id, job);
+      // In line before any lease call, so a slot promoted while restoring finds its command.
+      if (job.status === "queued") this.queued.set(job.id, { callerSeenAt: this.now(), waiters: new Set() });
     }
     for (const job of this.jobs.values()) {
       if (job.status !== "running") continue;
@@ -179,6 +221,7 @@ export class HostExec {
       );
       this.attach(job, this.deps.links.adopt(job.hostId, job.procId), logged);
     }
+    await this.restorePoolSlots();
   }
 
   /** A machine by name or id (`LOCAL_HOST_ID` for the coordinator's own), or null when none has it. */
@@ -190,60 +233,17 @@ export class HostExec {
     const command = input.command.trim();
     if (!command) throw new HostExecError(400, "Give the command to run after --");
     if (command.length > MAX_COMMAND_LENGTH) throw new HostExecError(400, "The command is too long");
-    const machine = await this.deps.resolveHost(input.host.trim());
-    if (!machine) {
-      const names = await this.deps.machineNames();
-      throw new HostExecError(404, `No machine named ${input.host}; machines: ${names.join(", ") || "none"}`);
-    }
-    if (this.deps.execDisabled(machine.id)) {
-      throw new HostExecError(403, `Running commands on ${machine.name} is turned off in Settings → Hosts`);
-    }
-    const blocker = this.deps.links.startBlocker(machine.id);
-    if (blocker) throw new HostExecError(409, `Host ${machine.name} ${blocker}`);
     const memoryLimitBytes = input.memoryLimitBytes ?? null;
-    if (memoryLimitBytes !== null && !this.deps.links.supports(machine.id, "memory_limit")) {
-      throw new HostExecError(
-        409,
-        `The Takode node on ${machine.name} cannot enforce --memory-limit yet; it updates itself once its sessions are idle`,
-      );
-    }
-    const cwd = input.cwd?.trim() || null;
-    const proc = this.deps.links.spawn(machine.id, {
-      command: "/bin/sh",
-      args: ["-c", LOGIN_SHELL_SCRIPT, "takode-exec", command, cwd ?? ""],
-      // This machine's own node takes a complete environment; other hosts use their own.
-      env: machine.id === LOCAL_HOST_ID ? { ...inheritedLaunchEnv(process.env), PATH: getEnrichedPath() } : {},
-      group: true,
-      ...(memoryLimitBytes !== null ? { memoryLimitBytes } : {}),
-    });
-    // Like `ssh -n`: a command waiting for input would otherwise hang.
-    proc.stdin.end();
-    const job: StoredJob = {
-      id: `x-${this.nextId++}`,
-      procId: proc.procId,
-      hostId: machine.id,
-      host: machine.name,
-      command,
-      cwd,
-      sessionId: input.sessionId,
-      sessionNum: input.sessionNum,
-      questId: input.questId,
-      status: "running",
-      startedAt: this.now(),
-      endedAt: null,
-      exitCode: null,
-      signal: null,
-      error: null,
-      outputBytes: 0,
-      memoryLimitBytes,
-      memoryKill: null,
-    };
-    this.jobs.set(job.id, job);
-    this.attach(job, proc, 0);
+    const pool = input.pool?.trim().toLowerCase() || null;
+    if (pool) return this.startPooled(input, command, pool, memoryLimitBytes);
+    const machine = await this.machine(input.host.trim());
+    const unusable = this.unusable(machine, memoryLimitBytes);
+    if (unusable) throw unusable;
+    const job = this.newJob(input, command, memoryLimitBytes, machine, null);
+    this.launch(job, machine);
     this.pruneFinished();
     await this.save();
     this.deps.onSessionChange?.(job.sessionId);
-    console.log(`[host-exec] ${job.id} started on ${job.host} for session ${job.sessionNum ?? job.sessionId}`);
     return publicJob(job);
   }
 
@@ -293,9 +293,19 @@ export class HostExec {
     );
     if (own.length === 0) return null;
     const tasks = own.flatMap((job) => {
+      const command = job.command.length > 80 ? `${job.command.slice(0, 80)}...` : job.command;
+      if (this.queued.has(job.id)) {
+        return [
+          {
+            taskId: job.id,
+            description: `takode exec waiting for a slot of ${job.pool}: ${command}`,
+            startedAt: job.startedAt,
+            activeAt: job.startedAt,
+          },
+        ];
+      }
       const running = this.running.get(job.id);
       if (!running) return [];
-      const command = job.command.length > 80 ? `${job.command.slice(0, 80)}...` : job.command;
       return [
         {
           taskId: job.id,
@@ -315,7 +325,7 @@ export class HostExec {
 
   /** Wait up to `ms` for the job to end, and return it. */
   async wait(id: string, ms: number): Promise<ExecJob | null> {
-    const running = this.running.get(id);
+    const running = this.running.get(id) ?? this.queued.get(id);
     if (running) {
       running.callerSeenAt = this.now();
       await new Promise<void>((resolve) => {
@@ -338,7 +348,9 @@ export class HostExec {
    * commands keep running and the next server takes them over, so callers simply ask again.
    */
   releaseWaits(): void {
-    for (const running of this.running.values()) for (const done of [...running.waiters]) done();
+    for (const running of [...this.running.values(), ...this.queued.values()]) {
+      for (const done of [...running.waiters]) done();
+    }
   }
 
   /**
@@ -349,8 +361,21 @@ export class HostExec {
   kill(id: string): ExecJob | null {
     const job = this.jobs.get(id);
     if (!job) return null;
+    if (job.status === "queued") this.stopQueued(job, `stopped while it waited for a slot of ${job.pool}`);
     this.running.get(id)?.proc.kill("SIGTERM");
     return publicJob(job);
+  }
+
+  /** Take a command that has no slot yet out of line and end it. */
+  private stopQueued(job: StoredJob, error: string): void {
+    const waiters = [...(this.queued.get(job.id)?.waiters ?? [])];
+    this.end(job, error);
+    void this.deps.leases
+      ?.releaseHold(`${EXEC_HOLDER_PREFIX}${job.id}`)
+      .catch((err) => console.error(`[host-exec] Could not take ${job.id} out of line:`, err));
+    void this.save();
+    for (const done of waiters) done();
+    this.deps.onSessionChange?.(job.sessionId);
   }
 
   /**
@@ -394,6 +419,274 @@ export class HostExec {
     return createReadStream(path);
   }
 
+  /**
+   * `--pool`: hold a slot of the pool while the command runs. It starts at
+   * once on the machine with the most free slots, or waits in line on every
+   * machine it may run on and starts on the first whose slot frees up.
+   */
+  private async startPooled(
+    input: ExecStartInput,
+    command: string,
+    pool: string,
+    memoryLimitBytes: number | null,
+  ): Promise<ExecJob> {
+    const leases = this.deps.leases;
+    if (!leases) throw new HostExecError(400, "Lease pools are not available on this server");
+    const [name, pinned] = pool.split("@", 2) as [string, string | undefined];
+    if (!POOL_NAME.test(name)) {
+      throw new HostExecError(400, "A pool name uses letters, numbers, dot, underscore, colon, slash or hyphen");
+    }
+    const host = pinned ?? input.host.trim();
+    let candidates: Array<{ id: string; name: string }>;
+    if (host) {
+      const machine = await this.machine(host);
+      const unusable = this.unusable(machine, memoryLimitBytes);
+      if (unusable) throw unusable;
+      candidates = [machine];
+    } else {
+      candidates = await this.poolMachines(name, memoryLimitBytes);
+    }
+    const job = this.newJob(input, command, memoryLimitBytes, null, name);
+    const capacities = await leases.capacities();
+    job.poolKeys = candidates.map((machine) => poolKey(name, machine, capacities));
+    job.host = candidates.map((machine) => machine.name).join(" or ");
+    this.queued.set(job.id, { callerSeenAt: this.now(), waiters: new Set() });
+    this.startCallerCheck();
+    this.pruneFinished();
+    const state = await leases
+      .hold({
+        resourceKeys: job.poolKeys,
+        holderId: `${EXEC_HOLDER_PREFIX}${job.id}`,
+        callerSessionId: job.sessionId,
+        ...(job.questId ? { questId: job.questId } : {}),
+        purpose: `takode exec ${job.id}: ${command.length > 200 ? `${command.slice(0, 200)}...` : command}`,
+        metadata: { exec: job.id },
+        ttlMs: EXEC_HOLD_TTL_MS,
+      })
+      .catch((error: Error) => {
+        this.end(job, error.message);
+        throw new HostExecError(400, error.message);
+      });
+    if (state.status === "held") await this.onSlot(state.lease);
+    else {
+      await this.save();
+      console.log(`[host-exec] ${job.id} waits for a slot of ${job.poolKeys.join(", ")}`);
+    }
+    this.deps.onSessionChange?.(job.sessionId);
+    return publicJob(job);
+  }
+
+  /** Machines where the pool has a configured capacity and commands can start now. */
+  private async poolMachines(
+    name: string,
+    memoryLimitBytes: number | null,
+  ): Promise<Array<{ id: string; name: string }>> {
+    const capacities = await this.deps.leases!.capacities();
+    const machines: Array<{ id: string; name: string }> = [];
+    const skipped: string[] = [];
+    for (const machineName of await this.deps.machineNames()) {
+      const machine = await this.deps.resolveHost(machineName);
+      if (!machine || !Object.hasOwn(capacities, poolKey(name, machine, capacities))) continue;
+      const unusable = this.unusable(machine, memoryLimitBytes);
+      if (unusable) skipped.push(unusable.message);
+      else machines.push(machine);
+    }
+    if (machines.length > 0) return machines;
+    if (skipped.length > 0)
+      throw new HostExecError(409, `No machine of pool ${name} can run it: ${skipped.join("; ")}`);
+    throw new HostExecError(
+      404,
+      `No machine has a ${name} pool; a leader sets one up with takode lease configure ${name}@<machine> --capacity <n>, or name the machine with --host`,
+    );
+  }
+
+  private async machine(nameOrId: string): Promise<{ id: string; name: string }> {
+    const machine = await this.deps.resolveHost(nameOrId);
+    if (machine) return machine;
+    const names = await this.deps.machineNames();
+    // Pool keys are lowercase, so a machine they name may differ in case.
+    const named = names.find((name) => name.toLowerCase() === nameOrId.toLowerCase());
+    const found = named ? await this.deps.resolveHost(named) : null;
+    if (found) return found;
+    throw new HostExecError(404, `No machine named ${nameOrId}; machines: ${names.join(", ") || "none"}`);
+  }
+
+  /** Why a command cannot start on the machine now, or null when it can. */
+  private unusable(machine: { id: string; name: string }, memoryLimitBytes: number | null): HostExecError | null {
+    if (this.deps.execDisabled(machine.id)) {
+      return new HostExecError(403, `Running commands on ${machine.name} is turned off in Settings → Hosts`);
+    }
+    const blocker = this.deps.links.startBlocker(machine.id);
+    if (blocker) return new HostExecError(409, `Host ${machine.name} ${blocker}`);
+    if (memoryLimitBytes !== null && !this.deps.links.supports(machine.id, "memory_limit")) {
+      return new HostExecError(
+        409,
+        `The Takode node on ${machine.name} cannot enforce --memory-limit yet; it updates itself once its sessions are idle`,
+      );
+    }
+    return null;
+  }
+
+  private newJob(
+    input: ExecStartInput,
+    command: string,
+    memoryLimitBytes: number | null,
+    machine: { id: string; name: string } | null,
+    pool: string | null,
+  ): StoredJob {
+    const job: StoredJob = {
+      id: `x-${this.nextId++}`,
+      procId: "",
+      hostId: machine?.id ?? "",
+      host: machine?.name ?? "",
+      command,
+      cwd: input.cwd?.trim() || null,
+      sessionId: input.sessionId,
+      sessionNum: input.sessionNum,
+      questId: input.questId,
+      status: machine ? "running" : "queued",
+      startedAt: this.now(),
+      endedAt: null,
+      exitCode: null,
+      signal: null,
+      error: null,
+      outputBytes: 0,
+      memoryLimitBytes,
+      memoryKill: null,
+      ...(pool ? { pool, slot: null, runningAt: null } : {}),
+    };
+    this.jobs.set(job.id, job);
+    return job;
+  }
+
+  /** Start the job's process on the machine. */
+  private launch(job: StoredJob, machine: { id: string; name: string }): void {
+    const proc = this.deps.links.spawn(machine.id, {
+      command: "/bin/sh",
+      args: ["-c", LOGIN_SHELL_SCRIPT, "takode-exec", job.command, job.cwd ?? ""],
+      // This machine's own node takes a complete environment; other hosts use their own.
+      env: machine.id === LOCAL_HOST_ID ? { ...inheritedLaunchEnv(process.env), PATH: getEnrichedPath() } : {},
+      group: true,
+      ...(job.memoryLimitBytes ? { memoryLimitBytes: job.memoryLimitBytes } : {}),
+    });
+    // Like `ssh -n`: a command waiting for input would otherwise hang.
+    proc.stdin.end();
+    job.procId = proc.procId;
+    job.hostId = machine.id;
+    job.host = machine.name;
+    job.status = "running";
+    this.attach(job, proc, 0);
+    console.log(`[host-exec] ${job.id} started on ${job.host} for session ${job.sessionNum ?? job.sessionId}`);
+  }
+
+  /** A queued command got its slot: start it on the slot's machine, or give the slot back. */
+  private async onSlot(lease: ResourceLease): Promise<void> {
+    const job = this.jobs.get(lease.holderId?.slice(EXEC_HOLDER_PREFIX.length) ?? "");
+    // A restart can report the same slot twice: once promoted, once found held.
+    if (job?.slot?.resourceKey === lease.resourceKey && job.slot.slot === lease.slot) return;
+    const queued = job && this.queued.get(job.id);
+    if (!job || !queued) {
+      await this.deps.leases?.releaseHold(lease.holderId!);
+      return;
+    }
+    // Claimed before any wait, so a second report of the slot is recognized above.
+    job.slot = { resourceKey: lease.resourceKey, slot: lease.slot };
+    job.poolKeys = undefined;
+    const machine = await this.machineForPoolKey(lease.resourceKey);
+    let unusable = machine ? this.unusable(machine, job.memoryLimitBytes ?? null) : null;
+    // A machine that is reconnecting (after a coordinator restart) or updating its node is waited for.
+    const deadline = this.now() + (this.deps.slotStartWaitMs ?? SLOT_START_WAIT_MS);
+    while (machine && unusable && this.deps.links.startBlocker(machine.id) && this.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, SLOT_START_RETRY_MS));
+      if (job.status !== "queued") return; // stopped meanwhile, which gave the slot back
+      unusable = this.unusable(machine, job.memoryLimitBytes ?? null);
+    }
+    this.queued.delete(job.id);
+    if (!machine || unusable) {
+      await this.deps.leases?.releaseHold(lease.holderId!);
+      this.end(job, unusable?.message ?? `No machine for ${lease.resourceKey} any more`);
+    } else {
+      job.runningAt = this.now();
+      this.launch(job, machine);
+      const running = this.running.get(job.id);
+      if (running) running.callerSeenAt = queued.callerSeenAt;
+    }
+    await this.save();
+    for (const done of [...queued.waiters]) done();
+    this.deps.onSessionChange?.(job.sessionId);
+  }
+
+  /** The machine a pool key's slots are on: `name@machine`, or the coordinator's own for a bare name. */
+  private async machineForPoolKey(resourceKey: string): Promise<{ id: string; name: string } | null> {
+    const at = resourceKey.indexOf("@");
+    if (at === -1) return this.deps.resolveHost(LOCAL_HOST_ID);
+    return this.machine(resourceKey.slice(at + 1)).catch(() => null);
+  }
+
+  /** End a job that never ran: stopped before it got a slot, or its machine could not take it. */
+  private end(job: StoredJob, error: string): void {
+    this.queued.delete(job.id);
+    job.status = "failed";
+    job.error = error;
+    job.endedAt = this.now();
+    console.log(`[host-exec] ${job.id}: ${describeExecOutcome(job)}`);
+  }
+
+  /**
+   * After a restart: renew the slots and places in line of pooled commands,
+   * put back in line a waiting command whose place expired while the
+   * coordinator was down, and start one whose slot came free meanwhile.
+   */
+  private async restorePoolSlots(): Promise<void> {
+    const leases = this.deps.leases;
+    if (!leases) return;
+    for (const job of this.jobs.values()) {
+      if (!job.pool || (job.status !== "queued" && job.status !== "running")) continue;
+      const holderId = `${EXEC_HOLDER_PREFIX}${job.id}`;
+      let state = await leases.renewHold(holderId);
+      if (job.status === "running") {
+        if (state.status !== "held")
+          console.warn(`[host-exec] ${job.id} runs without its ${job.pool} slot, which expired`);
+        continue;
+      }
+      this.startCallerCheck();
+      if (state.status === "gone" && job.poolKeys?.length) {
+        state = await leases.hold({
+          resourceKeys: job.poolKeys,
+          holderId,
+          callerSessionId: job.sessionId,
+          purpose: `takode exec ${job.id}: ${job.command.slice(0, 200)}`,
+          metadata: { exec: job.id },
+          ttlMs: EXEC_HOLD_TTL_MS,
+        });
+      }
+      if (state.status === "held")
+        void this.onSlot(state.lease).catch((error) => console.error(`[host-exec] Could not start ${job.id}:`, error));
+      else if (state.status === "gone") this.stopQueued(job, `its place in line for ${job.pool} was lost`);
+    }
+  }
+
+  /** Keep pooled commands' slots and places in line while they run or wait. */
+  private renewPoolSlots(): void {
+    const leases = this.deps.leases;
+    if (!leases) return;
+    for (const job of this.jobs.values()) {
+      if (!job.pool || (job.status !== "queued" && job.status !== "running")) continue;
+      void leases.renewHold(`${EXEC_HOLDER_PREFIX}${job.id}`).catch((error) => {
+        console.warn(`[host-exec] Could not renew the ${job.pool} slot of ${job.id}:`, error);
+      });
+    }
+  }
+
+  private startCallerCheck(): void {
+    if (this.callerCheck) return;
+    this.callerCheck = setInterval(() => {
+      this.stopAbandoned();
+      this.renewPoolSlots();
+    }, this.deps.callerCheckMs ?? CALLER_CHECK_MS);
+    this.callerCheck.unref?.();
+  }
+
   private get logDir(): string {
     return join(this.deps.dir, "logs");
   }
@@ -410,8 +703,7 @@ export class HostExec {
     const log = new JobLog(this.logPath(job.id), logged, Math.max(job.outputBytes, logged));
     const running: RunningJob = { proc, log, lastOutputAt: this.now(), callerSeenAt: this.now(), waiters: new Set() };
     this.running.set(job.id, running);
-    this.callerCheck ??= setInterval(() => this.stopAbandoned(), this.deps.callerCheckMs ?? CALLER_CHECK_MS);
-    this.callerCheck.unref?.();
+    this.startCallerCheck();
     const output = (chunk: Buffer) => {
       running.lastOutputAt = this.now();
       log.write(chunk);
@@ -434,7 +726,12 @@ export class HostExec {
     await running.log.close();
     const now = this.now();
     this.running.delete(job.id);
-    if (this.running.size === 0 && this.callerCheck) {
+    if (job.pool) {
+      await this.deps.leases
+        ?.releaseHold(`${EXEC_HOLDER_PREFIX}${job.id}`)
+        .catch((error) => console.error(`[host-exec] Could not free the ${job.pool} slot of ${job.id}:`, error));
+    }
+    if (this.running.size === 0 && this.queued.size === 0 && this.callerCheck) {
       clearInterval(this.callerCheck);
       this.callerCheck = null;
     }
@@ -461,6 +758,12 @@ export class HostExec {
       console.log(`[host-exec] Stopping ${id} on ${job.host}: its caller stopped asking about it`);
       running.proc.kill("SIGTERM");
     }
+    for (const [id, queued] of this.queued) {
+      const job = this.jobs.get(id);
+      if (!job || queued.waiters.size > 0 || queued.callerSeenAt > cutoff) continue;
+      job.callerGone = true;
+      this.stopQueued(job, "its caller went away while it waited for a slot");
+    }
   }
 
   private async finishedMessage(job: StoredJob): Promise<string> {
@@ -484,7 +787,7 @@ export class HostExec {
   /** Keep the newest finished records, dropping older ones with their logs. */
   private pruneFinished(): void {
     const finished = [...this.jobs.values()]
-      .filter((job) => job.status !== "running")
+      .filter((job) => job.status !== "running" && job.status !== "queued")
       .sort((a, b) => b.startedAt - a.startedAt);
     for (const job of finished.slice(MAX_FINISHED_RECORDS)) {
       this.jobs.delete(job.id);
@@ -577,7 +880,7 @@ class JobLog {
   }
 }
 
-function publicJob({ procId: _procId, legacyBackground: _legacy, ...job }: StoredJob): ExecJob {
+function publicJob({ procId: _procId, legacyBackground: _legacy, poolKeys: _poolKeys, ...job }: StoredJob): ExecJob {
   return { ...job };
 }
 
@@ -681,6 +984,17 @@ async function readStoredFile(path: string): Promise<StoredFile> {
 function codeFence(text: string): string {
   const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
   return "`".repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * The lease pool holding a command's slots on a machine: `name@machine`. On the
+ * coordinator's own machine, where a lease key without `@` already means that
+ * machine, it is the bare name unless a leader configured `name@machine`.
+ */
+function poolKey(name: string, machine: { id: string; name: string }, capacities: Record<string, number>): string {
+  const qualified = `${name}@${machine.name.toLowerCase()}`;
+  if (machine.id !== LOCAL_HOST_ID || Object.hasOwn(capacities, qualified)) return qualified;
+  return name;
 }
 
 let configured: HostExec | null = null;

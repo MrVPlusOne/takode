@@ -1,10 +1,20 @@
 export const DEFAULT_RESOURCE_LEASE_TTL_MS = 30 * 60_000;
+/** How long a held slot, or a place in line for one, lasts without a renewal unless its caller says otherwise. */
+export const DEFAULT_HOLD_TTL_MS = 2 * 60_000;
+/** Prefix of holders that clients (`takode lease run`) create; other holders belong to server components. */
+export const CLIENT_HOLDER_PREFIX = "run:";
 export const RESOURCE_LEASE_SWEEP_INTERVAL_MS = 5_000;
 
 export interface ResourceLease {
   resourceKey: string;
   slot: number;
   ownerSessionId: string;
+  /**
+   * The running command that holds this slot, when one does (a held slot):
+   * `run:<id>` for `takode lease run`, `exec:<job>` for `takode exec --pool`.
+   * A session holds one slot of a pool for itself, but any number of held ones.
+   */
+  holderId?: string;
   questId?: string;
   purpose: string;
   metadata: Record<string, string>;
@@ -18,11 +28,15 @@ export interface ResourceLeaseWaiter {
   id: string;
   resourceKey: string;
   waiterSessionId: string;
+  /** The command waiting, for a held slot (see {@link ResourceLease.holderId}). */
+  holderId?: string;
   questId?: string;
   purpose: string;
   metadata: Record<string, string>;
   queuedAt: number;
   ttlMs: number;
+  /** A waiting command leaves the queue at this time unless its holder renews it. */
+  expiresAt?: number;
 }
 
 export interface ResourceLeaseFile {
@@ -89,3 +103,21 @@ export interface ResourceLeaseRenewInput {
   callerSessionId: string;
   ttlMs?: number;
 }
+
+export interface ResourceLeaseHoldInput {
+  /** Pools the command can take a slot of; it gets the first slot free in any of them. */
+  resourceKeys: string[];
+  holderId: string;
+  callerSessionId: string;
+  questId?: string;
+  purpose: string;
+  metadata?: Record<string, string>;
+  /** How long the slot, or the place in line, lasts without a renewal (default {@link DEFAULT_HOLD_TTL_MS}). */
+  ttlMs?: number;
+}
+
+/** Where a held slot's command stands: holding a slot, in line for one, or neither any more. */
+export type ResourceLeaseHoldState =
+  | { status: "held"; lease: ResourceLease }
+  | { status: "queued"; resourceKeys: string[]; position: number }
+  | { status: "gone" };

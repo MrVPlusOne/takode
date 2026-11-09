@@ -32,7 +32,7 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 - **Worktree**: a separate git checkout and branch for one worker, so parallel changes don't collide.
 - **Landing queue**: on a shared branch, waiting changes are tested together and landed, so workers are free as soon as they submit.
 - **Memory notes**: Git-tracked Markdown notes that later sessions read before related work. There is no hidden model memory.
-- **Lease**: a session's turn on a shared resource such as a dev server or the browser, so agents don't collide. Leases are customizable: ask a leader or worker to add a new kind, such as one for heavy test runs on a machine, to bound how much runs at once.
+- **Lease**: a turn on a shared resource such as a dev server, the browser or a machine's capacity for builds and checks, held by a session or by one of its running commands, so agents don't collide. Leases are customizable: ask a leader or worker to add a new kind, such as one for heavy test runs on a machine, to bound how much runs at once.
 
 ## What needs you
 

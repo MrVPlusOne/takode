@@ -17,6 +17,7 @@ interface LeaseDetail {
   ownerSessionId: string;
   ownerSessionNum?: number;
   ownerSessionName?: string;
+  holderId?: string;
   questId?: string;
   purpose: string;
   metadata: Record<string, string>;
@@ -32,6 +33,7 @@ interface WaiterDetail {
   waiterSessionId: string;
   waiterSessionNum?: number;
   waiterSessionName?: string;
+  holderId?: string;
   questId?: string;
   purpose: string;
   metadata: Record<string, string>;
@@ -65,13 +67,15 @@ Run acquire as its own command; never chain work that needs the resource after a
 command that may queue.
 `;
 
-export const LEASE_HELP = `Usage: takode lease <configure|acquire|status|list|renew|heartbeat|release|wait> ...
+export const LEASE_HELP = `Usage: takode lease <configure|acquire|run|status|list|renew|heartbeat|release|wait> ...
 
-Coordinate named global resources such as dev-server:companion or agent-browser.
+Coordinate named global resources such as dev-server:companion or agent-browser,
+and share a compute budget such as lean-checks@<machine> between sessions.
 
 Subcommands:
   configure <resource> --capacity <count> [--json]  (leader only)
   acquire <resource> --purpose <text> [--ttl <duration>] [--quest q-N] [--metadata k=v] [--wait] [--json]
+  run <pool> [--purpose <text>] -- <command...>     (a slot per running command; waits quietly)
   wait <resource> --purpose <text> [--ttl <duration>] [--quest q-N] [--metadata k=v] [--json]
   status [resource] [--json]
   list [--json]
@@ -80,7 +84,8 @@ Subcommands:
   release <resource> [--slot <number>] [--force] [--json]
 
 Use scoped keys by convention when useful, for example dev-server:companion.
-Unconfigured resources have capacity one. One slot per session per pool.
+Unconfigured resources have capacity one. acquire holds one slot per session per
+pool; run (and takode exec --pool) hold one slot per running command instead.
 Slots are reusable numbers for workflow-owned port/directory mapping, not process limits.
 Default TTL is 30m. Heartbeat while working and release promptly when done.
 acquire and wait exit 0 only when you hold the lease; queued exits ${QUEUED_EXIT_CODE} (see acquire --help).
@@ -315,7 +320,8 @@ function printStatuses(statuses: LeaseStatusDetail[], deps: TakodeLeaseDeps, det
     );
     if (!details) continue;
     for (const lease of status.leases) {
-      console.log(`  slot ${lease.slot} owner: ${formatLeaseOwner(lease, deps)}`);
+      const holder = lease.holderId ? `, held by ${formatHolder(lease.holderId)}` : "";
+      console.log(`  slot ${lease.slot} owner: ${formatLeaseOwner(lease, deps)}${holder}`);
       console.log(`    acquired: ${formatTimeWithAge(lease.acquiredAt, deps)}`);
       console.log(`    heartbeat: ${formatTimeWithAge(lease.heartbeatAt, deps)}`);
       console.log(`    ttl: ${formatDuration(lease.ttlMs)}`);
@@ -328,7 +334,8 @@ function printStatuses(statuses: LeaseStatusDetail[], deps: TakodeLeaseDeps, det
     if (status.waiters.length > 0) {
       console.log(`  waiters: ${status.waiters.length}`);
       for (const waiter of status.waiters) {
-        console.log(`    ${waiter.id}: ${formatWaiter(waiter, deps)}`);
+        const holder = waiter.holderId ? `, for ${formatHolder(waiter.holderId)}` : "";
+        console.log(`    ${waiter.id}: ${formatWaiter(waiter, deps)}${holder}`);
         console.log(`      queued: ${formatTimeWithAge(waiter.queuedAt, deps)}`);
         console.log(`      requested ttl: ${formatDuration(waiter.ttlMs)}`);
         if (waiter.questId) console.log(`      quest: ${waiter.questId}`);
@@ -338,6 +345,11 @@ function printStatuses(statuses: LeaseStatusDetail[], deps: TakodeLeaseDeps, det
       }
     }
   }
+}
+
+/** A held slot's command: `takode exec x-12` or `takode lease run`. */
+function formatHolder(holderId: string): string {
+  return holderId.startsWith("exec:") ? `takode exec ${holderId.slice("exec:".length)}` : "takode lease run";
 }
 
 function formatLeaseOwner(lease: LeaseDetail, deps: TakodeLeaseDeps): string {

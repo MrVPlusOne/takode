@@ -15,6 +15,19 @@ describe("parseExecRun", () => {
     });
   });
 
+  // A pool may stand in for the machine: the pool's configured machines then decide.
+  it("takes --pool with or without --host", () => {
+    expect(parseExecRun(["--pool", "lean-checks", "--", "lake", "build"])).toEqual({
+      pool: "lean-checks",
+      json: false,
+      command: "lake build",
+    });
+    expect(parseExecRun(["--host", "condor", "--pool", "lean-checks", "--", "make"])).toMatchObject({
+      host: "condor",
+      pool: "lean-checks",
+    });
+  });
+
   // Scripts written for the removed flag fail loudly with the replacement,
   // instead of a generic unknown-option error.
   it("refuses the removed --background flag and says what to do instead", () => {

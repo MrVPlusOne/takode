@@ -396,6 +396,7 @@ const hostExec = new HostExec({
     wsBridge.injectUserMessage(sessionId, text, HOST_EXEC_MESSAGE_SOURCE);
   },
   onSessionChange: (sessionId) => wsBridge.invalidateSessionNavigation(sessionId),
+  leases: resourceLeaseManager,
   dir: join(homedir(), ".companion", "exec", serverId),
 });
 await hostExec.restore();
@@ -1875,6 +1876,7 @@ const shutdown = new ServerShutdown({
     landingQueue.destroy();
     clearInterval(landingHandoffRetry);
     hostExec.releaseWaits();
+    resourceLeaseManager.releaseWaits();
     serverWorkAdmission.track(codexWorkerV2RolloutService.destroy(), "Codex worker rollout shutdown");
   },
   cancelFrontendPreparation: () => productionFrontendRestartController?.cancelAndWait() ?? Promise.resolve(),

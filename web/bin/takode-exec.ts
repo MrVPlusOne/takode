@@ -12,7 +12,8 @@ import { formatLeaseWaitDuration as formatDuration } from "../shared/resource-le
 import { apiPost, err, takodeAuthHeaders } from "./takode-core.js";
 
 export const EXEC_USAGE = [
-  "Usage: takode exec --host <machine> [--cwd <dir>] [--memory-limit <size>] [--json] -- <command...>",
+  "Usage: takode exec --host <machine> [--pool <name>] [--cwd <dir>] [--memory-limit <size>] [--json] -- <command...>",
+  "       takode exec --pool <name> [--cwd <dir>] [--memory-limit <size>] [--json] -- <command...>",
   "       takode exec status <id> [--json]",
   "       takode exec logs <id> [--lines <from>-<to> | --bytes <from>-<to> | --tail <lines>]",
   "       takode exec kill <id>",
@@ -36,6 +37,18 @@ long command the way you run any long command: in your own background shell
 or terminal (Claude: Bash with run_in_background; Codex: a background
 terminal), or give your shell tool a timeout long enough for it.
 
+  --pool <name> Run it while holding a slot of the lease pool
+                <name>@<machine> (on the Takode server's own machine, plain
+                <name> too), so the commands of every session and
+                sub-agent that use the pool share its capacity, such as a
+                machine's budget of concurrent compiles. When the pool is
+                full the command waits in line, quietly, and starts when a
+                slot frees up; the slot is freed when it ends. Without
+                --host it runs on any machine where a leader configured the
+                pool (takode lease configure <name>@<machine> --capacity <n>),
+                starting on the first with a free slot; so the command must
+                work on each of them. Time in line counts against your
+                tool's timeout. Unconfigured pools have one slot.
   --memory-limit <size>
                 Kill the command and everything it started once they use
                 more memory than this together, such as 64G or 512M. Its
@@ -90,6 +103,7 @@ export async function handleExec(base: string, args: string[]): Promise<void> {
 /** Split `--host x --cwd y -- cmd...` into options and the command, which is passed on untouched. */
 export function parseExecRun(args: string[]): {
   host?: string;
+  pool?: string;
   cwd?: string;
   memoryLimitBytes?: number;
   json: boolean;
@@ -103,10 +117,10 @@ export function parseExecRun(args: string[]): {
       index++;
       break;
     }
-    if (arg === "--host" || arg === "--cwd") {
+    if (arg === "--host" || arg === "--cwd" || arg === "--pool") {
       const value = args[++index];
       if (value === undefined) err(`${arg} needs a value\n${EXEC_USAGE}`);
-      parsed[arg === "--host" ? "host" : "cwd"] = value;
+      parsed[arg.slice(2) as "host" | "cwd" | "pool"] = value;
     } else if (arg === "--memory-limit") {
       const value = args[++index];
       if (value === undefined) err(`--memory-limit needs a size, such as 64G\n${EXEC_USAGE}`);
@@ -133,10 +147,11 @@ export function parseMemorySize(value: string): number {
 
 async function runCommand(base: string, args: string[]): Promise<void> {
   const options = parseExecRun(args);
-  if (!options.host) err(`--host is required\n${EXEC_USAGE}`);
+  if (!options.host && !options.pool) err(`--host or --pool is required\n${EXEC_USAGE}`);
   if (!options.command.trim()) err(`Give the command after --\n${EXEC_USAGE}`);
   const { job: started } = (await apiPost(base, "/takode/exec", {
-    host: options.host,
+    ...(options.host ? { host: options.host } : {}),
+    ...(options.pool ? { pool: options.pool } : {}),
     command: options.command,
     ...(options.cwd ? { cwd: options.cwd } : {}),
     ...(options.memoryLimitBytes ? { memoryLimitBytes: options.memoryLimitBytes } : {}),
@@ -153,8 +168,13 @@ async function runCommand(base: string, args: string[]): Promise<void> {
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(signal, () => void stop(signal));
 
   let job = started;
-  while (job.status === "running") {
+  if (job.status === "queued") console.error(`[${job.id} is waiting for a slot of ${job.pool} on ${job.host}]`);
+  while (job.status === "running" || job.status === "queued") {
+    const queued = job.status === "queued";
     job = ((await getWithRetry(base, `/takode/exec/jobs/${job.id}?wait=${WAIT_SECONDS}`)) as { job: ExecJob }).job;
+    if (queued && job.status === "running") {
+      console.error(`[${job.id} got slot ${job.slot?.slot} of ${job.slot?.resourceKey}; running on ${job.host}]`);
+    }
   }
   const output = (await getWithRetry(base, `/takode/exec/jobs/${job.id}/output`)) as OutputResponse;
   process.exitCode = exitCodeOf(job);
@@ -237,7 +257,12 @@ function formatJobLine(job: ExecJob): string {
   const quest = job.questId ? ` ${job.questId}` : "";
   const when = new Date(job.startedAt).toISOString().slice(0, 16).replace("T", " ");
   const took = formatDuration(durationOf(job));
-  const state = job.status === "running" ? `running for ${took}` : `${describeExecOutcome(job)} after ${took}`;
+  const state =
+    job.status === "running"
+      ? `running for ${took}`
+      : job.status === "queued"
+        ? `waiting for a slot of ${job.pool} for ${took}`
+        : `${describeExecOutcome(job)} after ${took}`;
   return `${job.id}  ${job.host}  ${state}  (${owner}${quest}, started ${when} UTC)`;
 }
 

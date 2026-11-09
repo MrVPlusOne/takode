@@ -84,8 +84,21 @@ describe("takode exec routes", () => {
       questId: "q-9",
       host: "condor",
       command: "make",
+      pool: null,
       cwd: "~/repo",
     });
+  });
+
+  // With --pool the machine may be left out (the pool picks it); without a pool it is still required.
+  it("passes a pool on and needs a host only without one", async () => {
+    const res = await post("/takode/exec", { pool: "lean-checks", command: "make" });
+    expect(res.status).toBe(201);
+    expect(exec.start).toHaveBeenCalledWith(expect.objectContaining({ host: "", pool: "lean-checks" }));
+    const noHost = await post("/takode/exec", { command: "make" });
+    expect(noHost.status).toBe(400);
+    expect(((await noHost.json()) as { error: string }).error).toBe("host is required");
+    expect((await post("/takode/exec", { pool: 3, command: "make" })).status).toBe(400);
+    expect(exec.start).toHaveBeenCalledTimes(1);
   });
 
   // A takode CLI from before --background was removed would return at once and

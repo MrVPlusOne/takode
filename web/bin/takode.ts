@@ -34,6 +34,7 @@ import { handleVisual } from "./takode-visual.js";
 import { handleGoal } from "./takode-goal-commands.js";
 import { printCommandHelp, printUsage } from "./takode-help.js";
 import { handleLease } from "./takode-lease.js";
+import { handleLeaseRun } from "./takode-lease-run.js";
 import { handleLatency } from "./takode-latency.js";
 import { handleExport, handleGrep, handleLogs, handlePeek, handleRead, handleScan } from "./takode-message-commands.js";
 import { handleBranch, handleOpenAITestKey, handleRefreshBranch, handleTimer } from "./takode-misc-commands.js";
@@ -88,8 +89,8 @@ async function ensureTakodeAccess(base: string, options?: { requireOrchestrator?
 
 const command = process.argv[2];
 const allArgs = process.argv.slice(3);
-// `takode exec` passes everything after `--` to the other machine untouched.
-const passthroughAt = command === "exec" ? allArgs.indexOf("--") : -1;
+// `takode exec` and `takode lease run` pass everything after `--` to the command untouched.
+const passthroughAt = command === "exec" || (command === "lease" && allArgs[0] === "run") ? allArgs.indexOf("--") : -1;
 const rawArgs = passthroughAt === -1 ? allArgs : allArgs.slice(0, passthroughAt);
 const passthrough = passthroughAt === -1 ? [] : allArgs.slice(passthroughAt);
 const args = stripGlobalFlags(rawArgs);
@@ -324,6 +325,10 @@ try {
       await handleTodo(base, args);
       break;
     case "lease":
+      if (args[0] === "run") {
+        await handleLeaseRun(base, [...args.slice(1), ...passthrough]);
+        break;
+      }
       await handleLease(args, {
         apiGet: (path) => apiGet(base, path),
         apiPost: (path, body) => apiPost(base, path, body),
