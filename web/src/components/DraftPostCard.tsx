@@ -96,14 +96,16 @@ export function DraftPostCard({
         data-markdown-draft=""
         data-testid="draft-post-card"
       >
-        {/* Controls, not content: kept out of selections and copies. */}
+        {/* Controls, not content: kept out of selections and copies. The title alone can still be selected. */}
         <div
           className="flex select-none flex-wrap items-center gap-x-2 border-b border-cc-border bg-cc-hover/40 px-3 py-1.5"
           data-copy-exclude=""
         >
           <PencilIcon />
           {title ? (
-            <span className="min-w-0 truncate text-[12px] text-cc-muted">{title}</span>
+            <span className="min-w-0 select-text truncate text-[12px] text-cc-muted" data-testid="draft-post-title">
+              {title}
+            </span>
           ) : (
             <span className="text-[11px] font-medium uppercase tracking-wide text-cc-muted">Draft</span>
           )}

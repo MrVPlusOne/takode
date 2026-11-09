@@ -229,7 +229,7 @@ export function VisualBlock({ source }: { source: string }) {
   return (
     <div ref={rootRef} className="my-2 min-w-0" data-visual-block="" data-visual-plan={plan ?? undefined}>
       <div className="mb-1 flex min-h-6 select-none items-center gap-2 text-[12px] text-cc-muted" data-copy-exclude="">
-        {block.title ? <span className="min-w-0 truncate font-medium">{block.title}</span> : null}
+        {block.title ? <span className="min-w-0 select-text truncate font-medium">{block.title}</span> : null}
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
           {runnable ? <VisualButton onClick={run} label="Run" title="Run this visual's scripts" /> : null}
           {!problem && !tooLarge ? <ArtifactPanelButton onClick={() => setEnlarged(true)} /> : null}

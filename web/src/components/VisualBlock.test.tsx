@@ -63,6 +63,8 @@ describe("VisualBlock", () => {
     render(<VisualBlock source={KIT_VISUAL} />);
     await act(async () => {});
     expect(screen.getByText("Two stages")).toBeTruthy();
+    // The title row is select-none for its buttons; the title itself stays selectable for copying.
+    expect(screen.getByText("Two stages").classList.contains("select-text")).toBe(true);
     const frame = await screen.findByTestId("visual-block-frame");
     // allow-scripts without allow-same-origin: an opaque origin that can't reach the app.
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");

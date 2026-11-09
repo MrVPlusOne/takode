@@ -75,6 +75,18 @@ describe("draft card", () => {
     expect(html).not.toMatch(/>Copy<|>Draft</);
   });
 
+  it("lets the title be selected in its unselectable header, still left out of a whole-message copy", () => {
+    // The header is select-none so a drag across the card doesn't pick up its buttons, which used to
+    // make the title impossible to select and copy too. The title opts back in with select-text.
+    const titled = MESSAGE.replace("```draft\n", "```draft\ntitle: FV image precache request\n---\n");
+    const { container } = render(<MarkdownContent text={titled} />);
+    const title = screen.getByTestId("draft-post-title");
+    expect(title).toHaveTextContent("FV image precache request");
+    expect(title).toHaveClass("select-text");
+    expect(title.closest(".select-none")).not.toBeNull();
+    expect(messageCopyForSlack(container).plain).not.toContain("FV image precache request");
+  });
+
   it("turns Slack's own <url|name> links into real links, so the pasted link opens the page", async () => {
     // An agent wrote a link the way Slack's API does; Markdown read the whole `<url|name>` as one
     // address, so the pasted link went to `.../tree/jiayi/fv-harder-tasks|jiayi/fv-harder-tasks` and 404'd.
