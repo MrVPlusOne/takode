@@ -49,7 +49,7 @@ terminal), or give your shell tool a timeout long enough for it.
                 pool (takode lease configure <name>@<machine> --capacity <n>),
                 starting on the first with a free slot; so the command must
                 work on each of them. Time in line counts against your
-                tool's timeout; a long wait prints a line every 5 minutes
+                tool's timeout; a long wait prints a line every 10 minutes
                 saying who holds the pool. Unconfigured pools have one
                 slot. The command sees TAKODE_LEASE_RESOURCE and
                 TAKODE_LEASE_SLOT. Nested slots can deadlock: a command

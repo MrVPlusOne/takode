@@ -317,7 +317,7 @@ while its command survives, the slot is freed about two minutes later.
 
 Both commands tell the command they run which slot it holds
 (`TAKODE_LEASE_RESOURCE`, `TAKODE_LEASE_SLOT`). While a command waits for a
-slot, it prints a line every five minutes with how long it has waited, its
+slot, it prints a line every ten minutes with how long it has waited, its
 place in line, which sessions hold the slots and how long since one changed
 hands; `takode exec status <id>` shows the same for a waiting `exec` command.
 

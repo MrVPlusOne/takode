@@ -27,7 +27,7 @@ The pool is on this machine unless named with @<machine>, like other leases.
 A leader sets its size with takode lease configure <pool> --capacity <n>;
 unconfigured pools have one slot. The command sees TAKODE_LEASE_RESOURCE and
 TAKODE_LEASE_SLOT. Time spent waiting counts against your tool's timeout; a
-long wait prints a line every 5 minutes saying who holds the pool.
+long wait prints a line every 10 minutes saying who holds the pool.
 
 Nested slots can deadlock. A command holding a slot that starts another
 command waiting for the same pool (a script run with takode lease run that

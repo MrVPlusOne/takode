@@ -9,7 +9,7 @@
 import { formatLeaseWaitDuration } from "../shared/resource-lease-message.js";
 
 /** How often a command still waiting for a slot says so. */
-export const STILL_WAITING_EVERY_MS = 5 * 60_000;
+export const STILL_WAITING_EVERY_MS = 10 * 60_000;
 
 /**
  * A warning when this process runs inside a command holding a pool slot
