@@ -23,37 +23,82 @@ const entry: ThreadMonitoringEntry = {
   threadKey: "q-42",
   title: "Compare design options",
   trackedAt: 1,
-  pending: { id: "2", messageId: "result", timestamp: 2, summary: "The comparison is ready." },
+  pending: {
+    id: "2",
+    messageId: "result",
+    timestamp: 2,
+    summary: "The comparison is ready.",
+  },
 };
 
 describe("Notify Me controls", () => {
-  it("offers only the state-appropriate header action while preserving monitoring icons and tooltips", () => {
+  it("offers only the state-appropriate header action and shows whether Notify Me is on without hovering", () => {
+    // Jiayi (Nov 8): the on state looked like the off state; only the tooltip said "Notify Me is on".
+    // On, the button is a tinted pill with a filled target and says so in its label; off, it is a quiet
+    // hollow target.
     const onToggle = vi.fn();
     const onAcknowledge = vi.fn();
+    const targetCenter = (button: HTMLElement) => button.querySelectorAll("circle")[1];
     const { rerender } = render(
       <NotifyMeControlView enabled pending={false} onOpen={onToggle} onAcknowledge={onAcknowledge} />,
     );
-    expect(screen.getByRole("img", { name: "Monitored task" })).toBeTruthy();
+    const on = screen.getByRole("button", { name: "Notify Me is on" });
     // The header shortens its visible label while the feature name remains available on hover and to assistive tools.
-    expect(screen.getByRole("button", { name: "Notify Me" }).textContent?.trim()).toBe("Notify");
-    expect(screen.getByRole("button", { name: "Notify Me" }).title).toContain("Notify Me");
+    expect(on.textContent?.trim()).toBe("Notify");
+    expect(on.title).toBe("Notify Me is on");
+    expect(on).toHaveAttribute("data-notify-me-on", "true");
+    expect(on).toHaveClass("bg-cc-info-bg", "text-cc-info");
+    expect(targetCenter(on)).toHaveAttribute("fill", "currentColor");
+    // The icon inside the button takes the button's color and leaves the tooltip to it.
+    expect(on.querySelector("[title]")).toBeNull();
     expect(screen.queryByText("Acknowledge")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Notify Me" }));
+    fireEvent.click(on);
     expect(onToggle).toHaveBeenCalledOnce();
     rerender(<NotifyMeControlView enabled pending onOpen={onToggle} onAcknowledge={onAcknowledge} />);
     // Pending results expose one action, and clicking it must not open the menu.
     expect(screen.getAllByRole("button")).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Notify Me" })).toBeNull();
     const acknowledge = screen.getByRole("button", { name: "Acknowledge" });
     expect(acknowledge).not.toHaveAttribute("aria-pressed");
+    expect(acknowledge).toHaveAttribute("data-notify-me-on", "true");
     fireEvent.click(acknowledge);
     expect(onAcknowledge).toHaveBeenCalledOnce();
     expect(onToggle).toHaveBeenCalledOnce();
-    expect(screen.getByRole("img", { name: "Monitored task has a result waiting" })).toBeTruthy();
     rerender(<NotifyMeControlView enabled={false} pending={false} onOpen={() => {}} onAcknowledge={() => {}} />);
-    expect(screen.getByRole("button", { name: "Notify Me" }).textContent?.trim()).toBe("Notify");
-    expect(screen.getByRole("button", { name: "Notify Me" }).title).toContain("Notify Me");
-    expect(screen.getByRole("img", { name: "Notify Me" }).title).toContain("Notify Me");
+    const off = screen.getByRole("button", { name: "Notify Me" });
+    expect(off.textContent?.trim()).toBe("Notify");
+    expect(off.title).toBe("Notify Me: now or later");
+    expect(off).not.toHaveAttribute("data-notify-me-on");
+    expect(off).not.toHaveClass("bg-cc-info-bg");
+    expect(off).toHaveClass("text-cc-muted");
+    expect(targetCenter(off)).toHaveAttribute("fill", "none");
+  });
+
+  it("colors the bordered variant by state, whatever shape the caller gives it", () => {
+    // The quest views pass a bordered shape; the on and off colors still come from the control.
+    const shape = "inline-flex h-8 items-center rounded-md border px-2 text-xs";
+    const { rerender } = render(
+      <NotifyMeControlView
+        enabled={false}
+        pending={false}
+        className={shape}
+        onOpen={() => {}}
+        onAcknowledge={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Notify Me" })).toHaveClass(
+      "border",
+      "border-cc-border",
+      "text-cc-muted",
+    );
+    rerender(
+      <NotifyMeControlView enabled pending={false} className={shape} onOpen={() => {}} onAcknowledge={() => {}} />,
+    );
+    expect(screen.getByRole("button", { name: "Notify Me is on" })).toHaveClass(
+      "border",
+      "border-cc-info-border",
+      "bg-cc-info-bg",
+      "text-cc-info",
+    );
   });
 
   it("keeps a newer result pending across an older acknowledgement and restores tracking only from server state", async () => {
@@ -75,7 +120,9 @@ describe("Notify Me controls", () => {
             threadMonitoring: {
               revision,
               alertVersion: 1,
-              threads: { "q-42": { trackedAt: 1, afterHistoryIndex: 0, pending } },
+              threads: {
+                "q-42": { trackedAt: 1, afterHistoryIndex: 0, pending },
+              },
             },
           },
         }),
@@ -90,7 +137,10 @@ describe("Notify Me controls", () => {
     publish(1, entry.pending);
     render(<NotifyMeControl sessionId="leader" threadKey="q-42" />);
     fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ action: "acknowledge", resultId: "2" });
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      action: "acknowledge",
+      resultId: "2",
+    });
     expect(screen.getByRole("button", { name: "Acknowledge" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Notify Me" })).toBeNull();
 
@@ -100,18 +150,25 @@ describe("Notify Me controls", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Acknowledge" })).toBeEnabled());
     expect(screen.queryByRole("button", { name: "Notify Me" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
-    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ action: "acknowledge", resultId: "3" });
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({
+      action: "acknowledge",
+      resultId: "3",
+    });
     await waitFor(() => expect(screen.getByRole("button", { name: "Acknowledge" })).toBeEnabled());
 
     // Once acknowledged, the button opens the Notify Me menu, where tracking can be turned off.
     act(() => publish(3, null));
-    const notify = await screen.findByRole("button", { name: "Notify Me" });
+    const notify = await screen.findByRole("button", {
+      name: "Notify Me is on",
+    });
     expect(screen.queryByRole("button", { name: "Acknowledge" })).toBeNull();
     expect(notify.textContent?.trim()).toBe("Notify");
     fireEvent.click(notify);
     expect(notify).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(screen.getByRole("button", { name: "Stop notifying" }));
-    expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ action: "untrack" });
+    expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({
+      action: "untrack",
+    });
   });
 
   it("offers Main only the delayed choice, and nothing for the All view", () => {
@@ -146,11 +203,14 @@ describe("Notify Me controls", () => {
       },
     ]);
     render(<NotifyMeControl sessionId="leader" threadKey="q-42" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notify Me" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Notify Me/ }));
     fireEvent.click(screen.getByRole("button", { name: "6 hours" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(fetch.mock.calls[0][0]).toBe("/api/sessions/leader/thread-reminders");
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ threadKey: "q-42", durationMs: 6 * 60 * 60 * 1000 });
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      threadKey: "q-42",
+      durationMs: 6 * 60 * 60 * 1000,
+    });
     expect(fetch.mock.calls[1][0]).toContain("/notifications/n-1/done");
     await waitFor(() => expect(screen.queryByTestId("notify-me-menu")).not.toBeInTheDocument());
   });
@@ -174,8 +234,11 @@ describe("Notify Me controls", () => {
     const strip = view(true, inTwoDays);
     const time = screen.getByTestId("notify-me-reminder-time");
     expect(time).toHaveClass("whitespace-nowrap");
-    expect(screen.getByRole("button", { name: "Notify Me" })).toHaveClass("whitespace-nowrap");
-    const clock = new Date(inTwoDays).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    expect(screen.getByRole("button", { name: /^Notify Me: back / })).toHaveClass("whitespace-nowrap", "bg-cc-info-bg");
+    const clock = new Date(inTwoDays).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
     expect(time.textContent).toContain(clock);
     expect([...time.querySelectorAll("span")].find((part) => part.textContent?.includes(clock))).toHaveClass(
       "max-sm:hidden",

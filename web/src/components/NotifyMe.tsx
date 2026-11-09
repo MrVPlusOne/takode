@@ -10,15 +10,38 @@ import { useThreadReminder } from "../utils/thread-reminders.js";
 import { NotifyMeMenu } from "./NotifyMeMenu.js";
 import { ClockIcon, formatSnoozeUntil, snoozeUntilParts } from "./RemindLaterChoices.js";
 
+/**
+ * Notify Me's target icon. A filled center means Notify Me is on; a dot means a result is waiting.
+ * `decorative` is for the icon inside a labelled control: it takes the control's color and leaves
+ * the tooltip and label to the control.
+ */
 export function NotifyMeIcon({
   pending = false,
   monitored = true,
+  decorative = false,
   className = "h-3 w-3",
 }: {
   pending?: boolean;
   monitored?: boolean;
+  decorative?: boolean;
   className?: string;
 }) {
+  const svg = (
+    <svg
+      className={className}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="5.7" />
+      <circle cx="8" cy="8" r="2.6" fill={monitored ? "currentColor" : "none"} />
+      <path d="M8 8 12.8 3.2" />
+      {pending && <circle cx="12.5" cy="3.5" r="2.3" fill="currentColor" stroke="var(--color-cc-bg)" />}
+    </svg>
+  );
+  if (decorative) return svg;
   return (
     <span
       className={`inline-flex shrink-0 ${pending ? "text-cc-info" : "text-cc-muted"}`}
@@ -32,19 +55,7 @@ export function NotifyMeIcon({
       role="img"
       aria-label={!monitored ? "Notify Me" : pending ? "Monitored task has a result waiting" : "Monitored task"}
     >
-      <svg
-        className={className}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        aria-hidden="true"
-      >
-        <circle cx="8" cy="8" r="5.7" />
-        <circle cx="8" cy="8" r="2.6" />
-        <path d="M8 8 12.8 3.2" />
-        {pending && <circle cx="12.5" cy="3.5" r="2.3" fill="currentColor" stroke="var(--color-cc-bg)" />}
-      </svg>
+      {svg}
     </span>
   );
 }
@@ -52,7 +63,8 @@ export function NotifyMeIcon({
 /**
  * A thread's Notify button. With a result waiting it acknowledges in one tap; otherwise it
  * opens the Notify Me menu (now, or later). With a reminder set it shows when the thread
- * comes back.
+ * comes back. While Notify Me is on (or a reminder is set) it is a tinted pill with a filled
+ * target, so its state shows without hovering.
  */
 export function NotifyMeControlView({
   enabled,
@@ -69,7 +81,10 @@ export function NotifyMeControlView({
 }: {
   /** Only the icon, its meaning in the tooltip. */
   iconOnly?: boolean;
-  /** Replaces the chip look, such as for a bordered button among the quest views' session buttons. */
+  /**
+   * Replaces the chip's shape, such as for a bordered button among the quest views' session buttons.
+   * Colors stay with the control, because they show whether Notify Me is on.
+   */
   className?: string;
   enabled: boolean;
   pending: boolean;
@@ -83,32 +98,32 @@ export function NotifyMeControlView({
   onAcknowledge: () => void;
 }) {
   const highlighted = enabled || reminderAt !== undefined;
+  const label = pending
+    ? "Acknowledge this result"
+    : reminderAt !== undefined
+      ? `Notify Me: back ${formatSnoozeUntil(reminderAt)}`
+      : enabled
+        ? "Notify Me is on"
+        : "Notify Me: now or later";
   return (
     <span className="inline-flex max-w-full flex-wrap items-center gap-1" data-testid="notify-me-control">
       <button
         ref={buttonRef}
         type="button"
-        aria-label={pending ? "Acknowledge" : "Notify Me"}
+        aria-label={pending ? "Acknowledge" : highlighted ? label : "Notify Me"}
         aria-haspopup={pending ? undefined : "dialog"}
         aria-expanded={pending ? undefined : expanded}
         disabled={disabled}
         onClick={pending ? onAcknowledge : onOpen}
-        title={
-          pending
-            ? "Acknowledge this result"
-            : reminderAt !== undefined
-              ? `Notify Me: back ${formatSnoozeUntil(reminderAt)}`
-              : enabled
-                ? "Notify Me is on"
-                : "Notify Me: now or later"
-        }
-        className={`${className ?? "inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px]"} whitespace-nowrap transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${highlighted ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
+        title={label}
+        data-notify-me-on={highlighted || undefined}
+        className={`${className ?? "inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px]"} whitespace-nowrap transition-colors cursor-pointer focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${highlighted ? "border-cc-info-border bg-cc-info-bg text-cc-info hover:border-cc-info" : "border-cc-border text-cc-muted hover:bg-cc-hover hover:text-cc-fg"}`}
       >
         {reminderAt !== undefined && !pending ? (
           <ReminderTime at={reminderAt} compact={iconOnly} />
         ) : (
           <>
-            <NotifyMeIcon pending={pending} monitored={enabled} />
+            <NotifyMeIcon pending={pending} monitored={enabled} decorative />
             {!iconOnly && (pending ? "Acknowledge" : "Notify")}
           </>
         )}

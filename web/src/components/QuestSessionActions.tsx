@@ -83,13 +83,7 @@ export function QuestSessionActions({
         />
       )}
       {/* Notify Me watches the thread Open Thread opens, so it sits beside it. */}
-      {leaderSessionId && (
-        <NotifyMeControl
-          sessionId={leaderSessionId}
-          threadKey={questId}
-          className={`${buttonClass} border-cc-border bg-cc-hover/30`}
-        />
-      )}
+      {leaderSessionId && <NotifyMeControl sessionId={leaderSessionId} threadKey={questId} className={buttonClass} />}
     </div>
   );
 }
