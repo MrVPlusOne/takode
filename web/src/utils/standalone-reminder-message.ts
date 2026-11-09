@@ -8,7 +8,11 @@ import {
   stripResourceLeaseMessageFields,
 } from "../../shared/resource-lease-message.js";
 import { LANDING_QUEUE_MESSAGE_SOURCE, LANDING_QUEUE_MESSAGE_TAG } from "../../shared/landing-queue.js";
-import { SESSION_RECOVERY_SOURCE_ID, SKILL_CHANGE_NOTICE_SOURCE_ID } from "../../shared/injected-event-message.js";
+import {
+  SESSION_RECOVERY_SOURCE_ID,
+  SKILL_CHANGE_NOTICE_SOURCE_ID,
+  STOPPED_BACKGROUND_TASKS_SOURCE,
+} from "../../shared/injected-event-message.js";
 import { HOST_EXEC_MESSAGE_SOURCE, HOST_EXEC_MESSAGE_TAG } from "../../shared/host-exec.js";
 import { MEMORY_GUARD_MESSAGE_SOURCE, MEMORY_GUARD_MESSAGE_TAG } from "../../shared/memory-guard.js";
 import { stripInlineMarkdown } from "../../shared/markdown-plain-text.js";
@@ -21,7 +25,8 @@ export type SystemReminderKind =
   | "session-recovery"
   | "skills-changed"
   | "command-finished"
-  | "memory-guard";
+  | "memory-guard"
+  | "stopped-background-tasks";
 
 /** Color of a chip: good news, something that needs a look, or neutral system info. */
 export type SystemReminderTone = "success" | "attention" | "info";
@@ -61,7 +66,8 @@ export function isStandaloneReminderMessage(message: ReminderCandidate): boolean
     sourceId === SESSION_RECOVERY_SOURCE_ID ||
     sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID ||
     sourceId === HOST_EXEC_MESSAGE_SOURCE.sessionId ||
-    sourceId === MEMORY_GUARD_MESSAGE_SOURCE.sessionId
+    sourceId === MEMORY_GUARD_MESSAGE_SOURCE.sessionId ||
+    sourceId === STOPPED_BACKGROUND_TASKS_SOURCE.sessionId
   );
 }
 
@@ -97,6 +103,8 @@ export function buildSystemReminderViewModel(message: ReminderCandidate): System
   if (sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID) return buildSkillChangeReminder(message.content);
   if (sourceId === HOST_EXEC_MESSAGE_SOURCE.sessionId) return buildCommandFinishedReminder(message.content);
   if (sourceId === MEMORY_GUARD_MESSAGE_SOURCE.sessionId) return buildMemoryGuardReminder(message.content);
+  if (sourceId === STOPPED_BACKGROUND_TASKS_SOURCE.sessionId)
+    return buildStoppedBackgroundTasksReminder(message.content);
   return null;
 }
 
@@ -225,6 +233,29 @@ function buildMemoryGuardReminder(content: string): SystemReminderViewModel {
     tone: "attention",
     detailFacts: [],
     detailContent: body,
+  };
+}
+
+/**
+ * The notice lists each sub-agent to resume as "- `<id>`: <description>" and
+ * each stopped command as "- <description>"; the chip counts them.
+ */
+function buildStoppedBackgroundTasksReminder(content: string): SystemReminderViewModel {
+  const lines = content.split(/\r?\n/).filter((line) => line.startsWith("- "));
+  const agents = lines.filter((line) => line.startsWith("- `")).length;
+  const commands = lines.length - agents;
+  const counted = [
+    agents > 0 ? `${agents} sub-agent${agents === 1 ? "" : "s"}` : null,
+    commands > 0 ? `${commands} command${commands === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+  return {
+    kind: "stopped-background-tasks",
+    title: "Stopped",
+    summary: counted.length > 0 ? counted.join(", ") : "process ended",
+    badge: "resume",
+    tone: "attention",
+    detailFacts: [],
+    detailContent: content,
   };
 }
 

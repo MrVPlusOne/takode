@@ -36,6 +36,7 @@ import { deliverMcpOAuthCallbackOnMachine } from "./mcp-oauth-callback.js";
 import { userContentService } from "./user-content-service.js";
 import { remoteSubprocess } from "./remote-host/remote-subprocess.js";
 import { claudeNodeSpawner, HostTakeovers, liveTakeover } from "./cli-launcher-host-takeover.js";
+import { StoppedBackgroundTasks } from "./stopped-background-tasks.js";
 
 /** Codex launch preparation on a host can seed a Codex home and caches. */
 const REMOTE_CODEX_PREPARE_TIMEOUT_MS = 120_000;
@@ -158,6 +159,15 @@ export class CliLauncher {
     relaunch: (sessionId) => void this.relaunch(sessionId),
     runsCurrentInstructions: (info) => this.runsCurrentInstructions(info),
   });
+  /** Tells Claude sessions which background tasks (sub-agents, commands) stopped with their process. */
+  readonly stoppedBackgroundTasks = new StoppedBackgroundTasks({
+    session: (sessionId) => this.sessions.get(sessionId),
+    persist: () => this.persistState(),
+    deliver: (sessionId, notice) => this.onBackgroundTasksStopped?.(sessionId, notice),
+    stopping: () => serverWorkAdmission.isStopping(),
+  });
+  /** Send a session the notice of its stopped background tasks (set by server bootstrap). */
+  onBackgroundTasksStopped: ((sessionId: string, notice: string) => void) | null = null;
 
   // ─── Integer session ID tracking ───────────────────────────────────────────
   private nextSessionNum = 0;
@@ -1526,6 +1536,10 @@ export class CliLauncher {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
 
+    // Takode's own idle stops start a session again to resume its sub-agents; other kills leave it stopped.
+    if (session.backendType !== "codex" && !session.killedByIdleManager) {
+      this.stoppedBackgroundTasks.stoppingOnPurpose(sessionId);
+    }
     const proc = this.processes.get(sessionId);
     if (proc) {
       recordCodexProcessTermination(session, proc.pid, "SIGTERM", "launcher.kill");

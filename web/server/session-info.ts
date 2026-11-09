@@ -39,6 +39,12 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   hostCodexRequests?: import("./codex-jsonrpc-transport.js").JsonRpcRequest[];
   /** Raw permission requests the session's Claude process on a node still waits on, for the next coordinator. */
   hostClaudeRequests?: string[];
+  /**
+   * Background tasks (sub-agents, commands) the session's Claude process last
+   * reported running, kept so the session can be told which stopped when that
+   * process ends, even across a server restart (`stopped-background-tasks.ts`).
+   */
+  liveBackgroundTasks?: import("./stopped-background-tasks.js").LiveBackgroundTask[];
   state: "starting" | "connected" | "running" | "exited";
   exitCode?: number | null;
   model?: string;

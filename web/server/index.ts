@@ -108,6 +108,7 @@ import { hostPortFor, hostPortGate, mainPortHostRefusal } from "./remote-host/ho
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { createUpdateBundle, readCheckoutCommit } from "./remote-host/host-update.js";
 import { nodeCodeFingerprint } from "./remote-host/node-code.js";
+import { STOPPED_BACKGROUND_TASKS_SOURCE } from "../shared/injected-event-message.js";
 import { configureRemoteMachines, hostIsOnline } from "./remote-host/session-machine.js";
 import { configureMachines } from "./remote-host/machines.js";
 import { ThisMachine, thisMachineDetails } from "./machine-identity.js";
@@ -475,6 +476,7 @@ const hostUpdateSessions = new HostUpdateSessions({
   continueSession: (sessionId, operationId, message) => {
     sendRestartContinuation(wsBridge, sessionId, operationId, message);
   },
+  stoppedTaskNotices: launcher.stoppedBackgroundTasks,
 });
 hostLinks.updateBlocker = (hostId, mode, timing) => hostUpdateSessions.blocker(hostId, mode, timing);
 hostLinks.prepareHostUpdate = (hostId, mode) => hostUpdateSessions.prepare(hostId, mode);
@@ -974,6 +976,8 @@ launcher.onBeforeRelaunchCallback((sessionId, backendType) => {
 // A process that outlived the restart ended without being taken over (its node restarted, say for
 // an update); the turn it was in, or input sent while it waited for its host, would otherwise be stuck.
 launcher.hostTakeovers.onLeftoverProcessEnded = (sessionId) => {
+  // First: telling the session about its stopped sub-agents queues input, which relaunches it.
+  launcher.stoppedBackgroundTasks.processEnded(sessionId);
   const bridgeSession = wsBridge.getSession(sessionId);
   if (!bridgeSession) return;
   const resumed = resumeAfterLeftoverProcess(bridgeSession, {
@@ -985,6 +989,14 @@ launcher.hostTakeovers.onLeftoverProcessEnded = (sessionId) => {
   } else if (resumed === "relaunched") {
     console.log(`[server] Input waits for session ${sessionId} after its leftover process ended; relaunching`);
   }
+};
+
+// Sub-agents a session's process ran stopped with it; tell the session (even one the idle limit stopped) to resume them.
+wsBridge.stoppedBackgroundTasks = launcher.stoppedBackgroundTasks;
+launcher.onBackgroundTasksStopped = (sessionId, notice) => {
+  const info = launcher.getSession(sessionId);
+  if (info) info.killedByIdleManager = false;
+  wsBridge.injectUserMessage(sessionId, notice, STOPPED_BACKGROUND_TASKS_SOURCE);
 };
 
 // A process that outlived the restart with outdated instructions was taken over; its session is

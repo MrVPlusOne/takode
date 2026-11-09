@@ -11,6 +11,11 @@ export const MEMORY_CATALOG_SOURCE_ID = "system:memory-catalog";
 export const SKILL_CHANGE_NOTICE_SOURCE_ID = "system:skill-change-notice";
 /** Sender of the notice telling a session's agent what Takode rebuilt before its launch. */
 export const SESSION_RECOVERY_SOURCE_ID = "system:session-recovery";
+/** Sender of the notice telling a session which of its background tasks (sub-agents, commands) stopped with its process. */
+export const STOPPED_BACKGROUND_TASKS_SOURCE = {
+  sessionId: "system:stopped-background-tasks",
+  sessionLabel: "Stopped background tasks",
+} as const;
 export const CODEX_TURN_RECOVERY_SOURCE_ID_PREFIX = "system:codex-turn-recovery:";
 export const CODEX_TURN_RECOVERY_SOURCE_LABEL = "Resuming Interrupted Work";
 export const MEMORY_CATALOG_SOURCE_LABEL = "Memory Catalog";

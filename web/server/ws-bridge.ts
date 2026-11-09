@@ -443,6 +443,8 @@ export class WsBridge {
       ) => void)
     | null = null;
   onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
+  /** Tells Claude sessions which background tasks stopped with their process. */
+  stoppedBackgroundTasks: import("./stopped-background-tasks.js").StoppedBackgroundTasks | null = null;
   onPermissionModeChanged: ((sessionId: string, newMode: string) => void) | null = null;
   onSessionRelaunchRequested: ((sessionId: string) => void) | null = null;
   onUserMessage:

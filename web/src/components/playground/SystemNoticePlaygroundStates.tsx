@@ -2,6 +2,8 @@ import type { ChatMessage } from "../../types.js";
 import { MessageBubble } from "../MessageBubble.js";
 import { HOST_EXEC_MESSAGE_SOURCE } from "../../../shared/host-exec.js";
 import { MEMORY_GUARD_MESSAGE_SOURCE } from "../../../shared/memory-guard.js";
+import { STOPPED_BACKGROUND_TASKS_SOURCE } from "../../../shared/injected-event-message.js";
+import { stoppedBackgroundTasksNotice } from "../../../shared/stopped-background-tasks.js";
 
 const LANDING_QUEUE_SOURCE = { sessionId: "landing-queue", sessionLabel: "Landing Queue" };
 
@@ -128,4 +130,21 @@ export function PlaygroundMemoryGuardMessage() {
     agentSource: MEMORY_GUARD_MESSAGE_SOURCE,
   };
   return <MessageBubble message={message} sessionId="playground-memory-guard" showTimestamp={false} />;
+}
+
+/** A worker's process ended with sub-agents and a command running, as the server words the notice. */
+export function PlaygroundStoppedBackgroundTasksMessage() {
+  const message: ChatMessage = {
+    id: "playground-stopped-background-tasks",
+    role: "user",
+    content: stoppedBackgroundTasksNotice([
+      { id: "a783ea05743767263", description: "Formalize C batch c-18", kind: "agent" },
+      { id: "acf42518b6dc4af95", description: "VST probe group A", kind: "agent" },
+      { id: "a9c0e11b2f6d3a774", description: "Check one problem", kind: "agent", nested: true },
+      { id: "b2c51d9e", description: "Run the Lean checks for c-18", kind: "shell" },
+    ]),
+    timestamp: Date.now() - 5_000,
+    agentSource: STOPPED_BACKGROUND_TASKS_SOURCE,
+  };
+  return <MessageBubble message={message} sessionId="playground-stopped-background-tasks" showTimestamp={false} />;
 }

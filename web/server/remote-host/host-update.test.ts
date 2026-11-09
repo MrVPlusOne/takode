@@ -166,6 +166,8 @@ describe("host builds and auto-update over the link", () => {
     let finishStopping = () => {};
     manager.prepareHostUpdate = () => new Promise<boolean>((resolve) => (finishStopping = () => resolve(true)));
     const requested: string[] = [];
+    const restarted: string[] = [];
+    manager.onHostRestarted = (restartedHost) => void restarted.push(restartedHost);
     agent = await connectInUse({ build: HOST_BUILD, update: async (commit) => void requested.push(commit) });
 
     tick();
@@ -174,6 +176,8 @@ describe("host builds and auto-update over the link", () => {
     finishStopping();
     await waitFor(() => !manager.status(hostId).updating);
     expect(requested).toEqual([]);
+    // Its sessions were stopped for an update that is not coming now: what waited for the restart goes on.
+    expect(restarted).toEqual([hostId]);
 
     await waitFor(() => manager.status(hostId).online);
     manager.prepareHostUpdate = async () => true;

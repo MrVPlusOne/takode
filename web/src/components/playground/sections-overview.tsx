@@ -30,6 +30,7 @@ import { PlaygroundPendingMessageStates } from "./PlaygroundPendingMessageStates
 import {
   PlaygroundCommandFinishedMessage,
   PlaygroundMemoryGuardMessage,
+  PlaygroundStoppedBackgroundTasksMessage,
   PlaygroundLandingQueueMessage,
   PlaygroundSessionRecoveryMessage,
   PlaygroundSkillChangeMessage,
@@ -736,6 +737,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Memory guard killed a runaway job">
             <PlaygroundMemoryGuardMessage />
+          </Card>
+          <Card label="Background tasks stopped with the process">
+            <PlaygroundStoppedBackgroundTasksMessage />
           </Card>
           <Card label="Thread outcome reminder (collapsed chip)">
             <PlaygroundThreadOutcomeReminderMessage />

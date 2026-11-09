@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 import { useStore } from "../store.js";
+import { STOPPED_BACKGROUND_TASKS_SOURCE } from "../../shared/injected-event-message.js";
+import { stoppedBackgroundTasksNotice } from "../../shared/stopped-background-tasks.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
 const markNotificationDoneMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -265,6 +267,31 @@ describe("MessageBubble standalone system reminder messages", () => {
 
     fireEvent.click(chip);
     expect(screen.getByText(/nearly out of memory/)).toBeTruthy();
+  });
+
+  it("renders a stopped-background-tasks notice as a chip counting what to resume", () => {
+    // A worker's process ended with sub-agents and a command running. The chip
+    // says how many sub-agents to resume and commands stopped; the agent IDs
+    // it needs for SendMessage stay in the detail.
+    const msg = makeMessage({
+      content: stoppedBackgroundTasksNotice([
+        { id: "a783ea05743767263", description: "Formalize C batch c-18", kind: "agent" },
+        { id: "acf42518b6dc4af95", description: "VST probe group A", kind: "agent" },
+        { id: "b2c51d9e", description: "Run the Lean checks", kind: "shell" },
+      ]),
+      agentSource: STOPPED_BACKGROUND_TASKS_SOURCE,
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByTestId("standalone-system-reminder-chip");
+    expect(chip.getAttribute("data-chip-kind")).toBe("stopped-background-tasks");
+    expect(chip.getAttribute("data-chip-tone")).toBe("attention");
+    expect(chip.textContent).toContain("2 sub-agents, 1 command");
+    expect(chip.textContent).not.toContain("a783ea05743767263");
+
+    fireEvent.click(chip);
+    expect(screen.getByText(/Formalize C batch c-18/)).toBeTruthy();
   });
 
   it("renders landing-queue messages as collapsed chips with the outcome as a badge", () => {

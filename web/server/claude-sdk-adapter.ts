@@ -38,6 +38,7 @@ import type {
   BackendAdapter,
   BackgroundTaskAwareAdapter,
   BackgroundTaskInfo,
+  BackgroundTaskKind,
   BackgroundTaskSnapshot,
   CompactRequestedAwareAdapter,
   ClaudeTurnAwareAdapter,
@@ -239,7 +240,9 @@ export class ClaudeSdkAdapter
   /** Live background tasks of this Claude process, by task id (see `updateBackgroundTasks`). */
   private backgroundTasks = new Map<string, BackgroundTaskInfo>();
   private backgroundTasksChangedAt = 0;
-  private backgroundTasksChangedCb: (() => void) | null = null;
+  private backgroundTasksChangedCb: ((cause: "reported" | "process_ended") => void) | null = null;
+  /** Sub-agents started by another sub-agent, from their `task_started`, which `background_tasks_changed` does not say. */
+  private readonly nestedTaskIds = new Set<string>();
 
   constructor(sessionId: string, options: ClaudeSdkAdapterOptions) {
     this.sessionId = sessionId;
@@ -346,7 +349,7 @@ export class ClaudeSdkAdapter
     return { tasks: [...this.backgroundTasks.values()], changedAt: this.backgroundTasksChangedAt };
   }
 
-  onBackgroundTasksChanged(cb: () => void): void {
+  onBackgroundTasksChanged(cb: (cause: "reported" | "process_ended") => void): void {
     this.backgroundTasksChangedCb = cb;
   }
 
@@ -599,6 +602,8 @@ export class ClaudeSdkAdapter
             output_file: msg.output_file,
             summary: msg.summary,
           } as any);
+        } else if (msg.subtype === "task_started") {
+          if (typeof msg.spawn_depth === "number" && msg.spawn_depth > 1) this.nestedTaskIds.add(msg.task_id);
         } else if (msg.subtype === "background_tasks_changed") {
           this.updateBackgroundTasks(msg.tasks);
         } else if (msg.subtype === "compact_boundary") {
@@ -922,6 +927,8 @@ export class ClaudeSdkAdapter
           taskId: task.task_id,
           description: typeof task.description === "string" ? task.description : "",
           startedAt: now,
+          kind: backgroundTaskKind(task.task_type),
+          ...(this.nestedTaskIds.has(task.task_id) ? { nested: true } : {}),
         },
       );
     }
@@ -930,7 +937,7 @@ export class ClaudeSdkAdapter
     this.backgroundTasks = next;
     if (changed) {
       this.backgroundTasksChangedAt = now;
-      this.backgroundTasksChangedCb?.();
+      this.backgroundTasksChangedCb?.("reported");
     }
   }
 
@@ -938,8 +945,9 @@ export class ClaudeSdkAdapter
   private clearBackgroundTasks(): void {
     if (this.backgroundTasks.size === 0) return;
     this.backgroundTasks.clear();
+    this.nestedTaskIds.clear();
     this.backgroundTasksChangedAt = Date.now();
-    this.backgroundTasksChangedCb?.();
+    this.backgroundTasksChangedCb?.("process_ended");
   }
 
   private handleDisconnect(error = "Claude process ended"): void {
@@ -972,4 +980,11 @@ export class ClaudeSdkAdapter
         return "default";
     }
   }
+}
+
+/** What kind of background task Claude's `task_type` names. */
+function backgroundTaskKind(taskType: unknown): BackgroundTaskKind {
+  if (taskType === "local_agent") return "agent";
+  if (taskType === "local_bash") return "shell";
+  return "other";
 }

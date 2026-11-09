@@ -433,6 +433,30 @@ describe("kill", () => {
     expect(launcher.getSession("test-session-id")?.state).toBe("exited");
   });
 
+  // Killing a session leaves it stopped: its stopped sub-agents are named when
+  // it next starts. Takode's own idle stops (marked before the kill) start it
+  // again right away to resume them.
+  it("leaves a killed session stopped until it next starts, unless Takode stopped it for being idle", async () => {
+    await launcher.launch({ cwd: "/tmp" });
+    const delivered: string[] = [];
+    launcher.onBackgroundTasksStopped = (sessionId) => void delivered.push(sessionId);
+    const stops = launcher.stoppedBackgroundTasks;
+    const agent = { taskId: "a1", description: "Formalize batch", startedAt: 0, kind: "agent" as const };
+
+    stops.reported("test-session-id", [agent]);
+    await launcher.kill("test-session-id");
+    stops.processEnded("test-session-id");
+    expect(delivered).toEqual([]);
+    stops.processStarted("test-session-id");
+    expect(delivered).toEqual(["test-session-id"]);
+
+    stops.reported("test-session-id", [agent]);
+    launcher.getSession("test-session-id")!.killedByIdleManager = true;
+    await launcher.kill("test-session-id");
+    stops.processEnded("test-session-id");
+    expect(delivered).toEqual(["test-session-id", "test-session-id"]);
+  });
+
   it("returns false for unknown session", async () => {
     const result = await launcher.kill("nonexistent");
     expect(result).toBe(false);

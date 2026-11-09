@@ -222,4 +222,25 @@ describe("HostUpdateSessions", () => {
     updates.hostRestarted("h1");
     expect(events).toEqual(["stop h1", "continue quiet (rerun test)"]);
   });
+
+  // Stopping the host's sessions ends their sub-agents. Each session is told
+  // which stopped, which relaunches it, so the notice waits until the host is
+  // back on its new build rather than start the session on the old instance.
+  it("holds the stopped-task notices of the host's sessions until it has restarted", async () => {
+    const notices = {
+      hold: vi.fn((sessionId: string) => void events.push(`hold ${sessionId}`)),
+      release: vi.fn((sessionId: string) => void events.push(`release ${sessionId}`)),
+    };
+    bridges.get("busy")!.isGenerating = false;
+    bridges.get("asking")!.pendingPermissions = { size: 0 };
+    const updates = create({ stoppedTaskNotices: notices });
+    await updates.prepare("h1", "when_idle");
+    expect(events).toEqual(["hold leader", "hold busy", "hold asking", "hold quiet", "stop h1"]);
+    events = [];
+    updates.hostRestarted("h1");
+    expect(events).toEqual(["release leader", "release busy", "release asking", "release quiet"]);
+    events = [];
+    updates.hostRestarted("h1");
+    expect(events).toEqual([]);
+  });
 });

@@ -285,7 +285,10 @@ async function planSessionList(companion: string, path: string, entries: Snapsho
   if (text === null) return;
   const sessions = JSON.parse(text) as Array<Record<string, unknown>>;
   for (const session of sessions) {
-    for (const key of ["pid", "hostProcId", "hostClaudeRequests", "hostCodexRequests"]) delete session[key];
+    // A restored session's background tasks are long gone; it is not told to resume them.
+    for (const key of ["pid", "hostProcId", "hostClaudeRequests", "hostCodexRequests", "liveBackgroundTasks"]) {
+      delete session[key];
+    }
     session.state = "exited";
   }
   entries.push({ path, content: JSON.stringify(sessions, null, 2) });

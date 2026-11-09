@@ -96,7 +96,7 @@ describe("ClaudeSdkAdapter message stream", () => {
 
       send([gate, watcher]);
       expect(adapter.getBackgroundTasks()).toEqual({
-        tasks: [{ taskId: "gate", description: "Run full gate", startedAt: 1_000 }],
+        tasks: [{ taskId: "gate", description: "Run full gate", startedAt: 1_000, kind: "shell" }],
         changedAt: 1_000,
       });
 
@@ -114,6 +114,8 @@ describe("ClaudeSdkAdapter message stream", () => {
       expect(adapter.getBackgroundTasks().changedAt).toBe(5_000);
       // The bridge republishes the session row only on real membership changes.
       expect(changed).toHaveBeenCalledTimes(2);
+      expect(changed).toHaveBeenLastCalledWith("reported");
+      expect(adapter.getBackgroundTasks().tasks.find((task) => task.taskId === "agent")?.kind).toBe("agent");
 
       vi.setSystemTime(9_000);
       send([]);
@@ -125,8 +127,32 @@ describe("ClaudeSdkAdapter message stream", () => {
       (adapter as any).handleDisconnect();
       expect(adapter.getBackgroundTasks().tasks).toEqual([]);
       expect(changed).toHaveBeenCalledTimes(1);
+      // Tasks that ended with the process are told apart from ones Claude reported finished.
+      expect(changed).toHaveBeenCalledWith("process_ended");
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("marks sub-agents a sub-agent started, from their task_started depth", () => {
+    // background_tasks_changed lists every task without saying who started it.
+    // After a restart the session's own agent resumes its sub-agents, and each
+    // resumed sub-agent resumes the ones it started, so the nested ones are told apart.
+    const adapter = createIdleAdapter(vi.fn());
+    (adapter as any).connected = true;
+    const message = (msg: object) => (adapter as any).handleSdkMessage({ type: "system", ...msg });
+    message({ subtype: "task_started", task_id: "top", task_type: "local_agent", spawn_depth: 1, description: "a" });
+    message({ subtype: "task_started", task_id: "child", task_type: "local_agent", spawn_depth: 2, description: "b" });
+    message({
+      subtype: "background_tasks_changed",
+      tasks: [
+        { task_id: "top", task_type: "local_agent", description: "Formalize batch" },
+        { task_id: "child", task_type: "local_agent", description: "Check one problem" },
+      ],
+    });
+    expect(adapter.getBackgroundTasks().tasks.map(({ taskId, kind, nested }) => ({ taskId, kind, nested }))).toEqual([
+      { taskId: "top", kind: "agent", nested: undefined },
+      { taskId: "child", kind: "agent", nested: true },
+    ]);
   });
 });

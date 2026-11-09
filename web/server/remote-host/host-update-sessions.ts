@@ -60,6 +60,12 @@ export interface HostUpdateSessionsDeps {
   stopSessions: (hostId: string) => Promise<void>;
   /** Send an interrupted session the restart continuation, or `message` instead of the default one. */
   continueSession: (sessionId: string, operationId: string, message?: string) => void;
+  /**
+   * Hold, and later release, the notice telling a session which of its
+   * background tasks stopped (`StoppedBackgroundTasks`), so a session the
+   * update stops starts again only on the host's new instance.
+   */
+  stoppedTaskNotices?: { hold: (sessionId: string) => void; release: (sessionId: string) => void };
   interruptTimeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -76,6 +82,8 @@ export class HostUpdateSessions {
     string,
     { operationId: string; sessions: Map<string, string | undefined> }
   >();
+  /** Sessions per host whose stopped-task notices wait for its node to restart. */
+  private readonly heldNotices = new Map<string, Set<string>>();
 
   constructor(private readonly deps: HostUpdateSessionsDeps) {}
 
@@ -116,6 +124,7 @@ export class HostUpdateSessions {
    */
   async prepare(hostId: string, mode: HostUpdateMode): Promise<boolean> {
     if (mode === "when_idle") {
+      this.holdNotices(hostId);
       await this.deps.stopSessions(hostId);
       return true;
     }
@@ -160,18 +169,33 @@ export class HostUpdateSessions {
         sessions: new Map([...(pending?.sessions ?? []), ...continued]),
       });
     }
+    this.holdNotices(hostId);
     await this.deps.stopSessions(hostId);
     return true;
   }
 
   /** The host's node restarted or could not update: continue the turns its update interrupted. */
   hostRestarted(hostId: string): void {
+    const held = this.heldNotices.get(hostId);
+    this.heldNotices.delete(hostId);
+    for (const sessionId of held ?? []) this.deps.stoppedTaskNotices?.release(sessionId);
     const pending = this.continuations.get(hostId);
     if (!pending) return;
     this.continuations.delete(hostId);
     for (const [sessionId, message] of pending.sessions) {
       this.deps.continueSession(sessionId, pending.operationId, message);
     }
+  }
+
+  /** Hold the stopped-task notices of the host's live sessions until its node has restarted. */
+  private holdNotices(hostId: string): void {
+    if (!this.deps.stoppedTaskNotices) return;
+    const held = this.heldNotices.get(hostId) ?? new Set<string>();
+    for (const session of this.liveOn(hostId)) {
+      held.add(session.sessionId);
+      this.deps.stoppedTaskNotices.hold(session.sessionId);
+    }
+    this.heldNotices.set(hostId, held);
   }
 
   /** The live sessions among `live` that run a full test run. */

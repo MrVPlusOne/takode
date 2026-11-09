@@ -805,6 +805,8 @@ export class HostLinkManager {
         if (link.hostInstanceId !== instanceId || link.updateRequested !== commit) return;
         if (!ready || !link.online || !link.socket) {
           link.updateRequested = null;
+          // Its sessions were stopped for an update that is not coming now; what waits for the restart may go on.
+          if (ready) this.onHostRestarted?.(hostId);
           return;
         }
         // Checked again at the last moment: a landing run may have started there meanwhile.

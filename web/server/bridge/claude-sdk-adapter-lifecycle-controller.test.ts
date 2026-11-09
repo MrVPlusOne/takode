@@ -6,13 +6,13 @@ function makeAdapterMock() {
   let onSessionMetaCb: ((meta: any) => void) | undefined;
   let onDisconnectCb: (() => void) | undefined;
   let onInitErrorCb: ((error: string) => void) | undefined;
-  let onBackgroundTasksChangedCb: (() => void) | undefined;
+  let onBackgroundTasksChangedCb: ((cause?: "reported" | "process_ended") => void) | undefined;
 
   return {
-    onBackgroundTasksChanged: vi.fn((cb: () => void) => {
+    onBackgroundTasksChanged: vi.fn((cb: (cause?: "reported" | "process_ended") => void) => {
       onBackgroundTasksChangedCb = cb;
     }),
-    emitBackgroundTasksChanged: () => onBackgroundTasksChangedCb?.(),
+    emitBackgroundTasksChanged: (cause?: "reported" | "process_ended") => onBackgroundTasksChangedCb?.(cause),
     onBrowserMessage: vi.fn((cb: (msg: any) => void) => {
       onBrowserMessageCb = cb;
     }),
@@ -153,6 +153,56 @@ describe("claude-sdk-adapter-lifecycle-controller", () => {
     expect(deps.invalidateSessionNavigation).not.toHaveBeenCalled();
     adapter2.emitBackgroundTasksChanged();
     expect(deps.invalidateSessionNavigation).toHaveBeenCalledTimes(1);
+  });
+
+  // A Claude process takes its sub-agents with it. The tasks it reports are
+  // recorded, and the record learns when that process is gone: it ended, or a
+  // new one started without taking it over (a taken-over one keeps them).
+  it("passes reported background tasks on, and says when the process that ran them is gone", () => {
+    const session = makeSession();
+    const deps = {
+      ...makeDeps(session),
+      backgroundTasksReported: vi.fn(),
+      backendProcessStarted: vi.fn(),
+      backendProcessEnded: vi.fn(),
+    };
+    const tasks = [{ taskId: "a1", description: "Formalize batch", startedAt: 0, kind: "agent" }];
+
+    attachClaudeSdkAdapterLifecycle("s1", { ...makeAdapterMock(), reattached: true }, deps);
+    expect(deps.backendProcessStarted).not.toHaveBeenCalled();
+
+    const adapter = { ...makeAdapterMock(), getBackgroundTasks: () => ({ tasks, changedAt: 1 }) };
+    attachClaudeSdkAdapterLifecycle("s1", adapter, deps);
+    expect(deps.backendProcessStarted).toHaveBeenCalledWith("s1");
+
+    adapter.emitBackgroundTasksChanged("reported");
+    expect(deps.backgroundTasksReported).toHaveBeenCalledWith("s1", tasks);
+    // Ending with the process is not a report that the tasks finished.
+    adapter.emitBackgroundTasksChanged("process_ended");
+    expect(deps.backgroundTasksReported).toHaveBeenCalledTimes(1);
+    adapter.emitDisconnect();
+    expect(deps.backendProcessEnded).toHaveBeenCalledWith("s1");
+  });
+
+  // The idle limit stopped this session; telling it about its stopped
+  // sub-agents queues input and clears that mark, so it is relaunched.
+  it("tells the session about stopped background tasks before deciding whether to relaunch it", () => {
+    const session = makeSession({ browserSockets: new Set() });
+    const launcherInfo = { killedByIdleManager: true };
+    const deps = {
+      ...makeDeps(session, launcherInfo),
+      backendProcessEnded: vi.fn(() => {
+        launcherInfo.killedByIdleManager = false;
+        session.pendingMessages.push(JSON.stringify({ type: "user_message", content: "stopped tasks" }));
+      }),
+    };
+    const adapter = makeAdapterMock();
+    attachClaudeSdkAdapterLifecycle("s1", adapter, deps);
+    session.pendingMessages.length = 0;
+    deps.requestCliRelaunch.mockClear();
+
+    adapter.emitDisconnect();
+    expect(deps.requestCliRelaunch).toHaveBeenCalledWith("s1");
   });
 
   it("ignores stale adapter callbacks after a replacement adapter attaches", () => {

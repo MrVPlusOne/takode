@@ -14,7 +14,7 @@ import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.
 import { resolveQuietTurn as resolveQuietTurnController } from "./bridge/quiet-turn.js";
 import { isScribeSession } from "./scribe-registry.js";
 import { listSessionWaits, mergeBackgroundTasks } from "./bridge/board-stall-participants.js";
-import type { BackgroundTaskSnapshot } from "./bridge/adapter-interface.js";
+import type { BackgroundTaskInfo, BackgroundTaskSnapshot } from "./bridge/adapter-interface.js";
 import { execBackgroundTasks } from "./remote-host/host-exec.js";
 import { buildLeaderSkillPreloadBundles } from "./leader-skill-preload.js";
 import type { PushoverNotifier } from "./pushover.js";
@@ -1140,6 +1140,10 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
     requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
     deliverSessionRecoveryNotice: (targetSession: unknown, then: () => void) =>
       deliverSessionRecoveryNotice(targetSession as Session, sessionRecoveryDeliveryDeps(host, "claude"), then),
+    backgroundTasksReported: (sessionId: string, tasks: readonly BackgroundTaskInfo[]) =>
+      host.stoppedBackgroundTasks?.reported(sessionId, tasks),
+    backendProcessEnded: (sessionId: string) => host.stoppedBackgroundTasks?.processEnded(sessionId),
+    backendProcessStarted: (sessionId: string) => host.stoppedBackgroundTasks?.processStarted(sessionId),
     isCurrentSession: (sessionId: string, session: unknown) => host.sessions.get(sessionId) === session,
     maxAdapterRelaunchFailures: MAX_ADAPTER_RELAUNCH_FAILURES,
     adapterFailureResetWindowMs: ADAPTER_FAILURE_RESET_WINDOW_MS,

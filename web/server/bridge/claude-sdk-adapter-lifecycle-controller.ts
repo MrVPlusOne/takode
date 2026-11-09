@@ -3,6 +3,7 @@ import { serverWorkAdmission } from "../server-work-admission.js";
 import { sessionTag } from "../session-tag.js";
 import { handleClaudeNetworkWaitMessage } from "./claude-network-wait.js";
 import { browserSessionInitState } from "../session-types.js";
+import type { BackgroundTaskInfo } from "./adapter-interface.js";
 
 export interface ClaudeSdkAdapterLifecycleDeps {
   getOrCreateSession: (sessionId: string, backendType: "claude-sdk") => any;
@@ -30,6 +31,12 @@ export interface ClaudeSdkAdapterLifecycleDeps {
    * input, then run `then`; false when there is nothing to tell.
    */
   deliverSessionRecoveryNotice?: (session: any, then: () => void) => boolean;
+  /** The session's Claude process listed every background task it runs now. */
+  backgroundTasksReported?: (sessionId: string, tasks: readonly BackgroundTaskInfo[]) => void;
+  /** The session's Claude process ended, and the background tasks it ran with it (see `StoppedBackgroundTasks`). */
+  backendProcessEnded?: (sessionId: string) => void;
+  /** A new Claude process started for the session without taking the old one over. */
+  backendProcessStarted?: (sessionId: string) => void;
   maxAdapterRelaunchFailures: number;
   adapterFailureResetWindowMs: number;
 }
@@ -77,8 +84,10 @@ export function attachClaudeSdkAdapterLifecycle(
   }
   const isActiveAdapter = () => session.claudeSdkAdapter === adapter && deps.isCurrentSession(sessionId, session);
   // Sidebar and board rows show an idle session's background jobs as what it is waiting for.
-  adapter.onBackgroundTasksChanged?.(() => {
-    if (isActiveAdapter()) deps.invalidateSessionNavigation?.(sessionId);
+  adapter.onBackgroundTasksChanged?.((cause: "reported" | "process_ended") => {
+    if (!isActiveAdapter()) return;
+    deps.invalidateSessionNavigation?.(sessionId);
+    if (cause === "reported") deps.backgroundTasksReported?.(sessionId, adapter.getBackgroundTasks().tasks);
   });
 
   // The resume window ends once the backend has been quiet for the debounce
@@ -290,6 +299,8 @@ export function attachClaudeSdkAdapterLifecycle(
 
   adapter.onDisconnect(() => {
     if (!isActiveAdapter()) return;
+    // First: telling the session about stopped sub-agents queues input, which relaunches it.
+    deps.backendProcessEnded?.(sessionId);
     const idleKilled = deps.getLauncherSessionInfo(sessionId)?.killedByIdleManager;
     handleAdapterFailure("sdk_disconnect", { idleKilled });
   });
@@ -309,6 +320,8 @@ export function attachClaudeSdkAdapterLifecycle(
 
   deps.broadcastToBrowsers(session, { type: "backend_connected" });
   console.log(`[ws-bridge] Claude SDK adapter attached for session ${sessionTag(sessionId)}`);
+  // A new process has none of the old one's sub-agents; a process taken over after a restart keeps them.
+  if (!adapter.reattached) deps.backendProcessStarted?.(sessionId);
 }
 
 /**

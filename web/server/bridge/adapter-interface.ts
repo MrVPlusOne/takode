@@ -67,7 +67,13 @@ export interface BackgroundTaskInfo {
   startedAt: number;
   /** Its latest sign of life, such as output, when Takode sees one; its wait limit counts from the later of the two. */
   activeAt?: number;
+  /** A sub-agent (resumable after its process ends), a shell command, or another kind; absent when not reported. */
+  kind?: import("../../shared/stopped-background-tasks.js").BackgroundTaskKind;
+  /** A sub-agent started by another sub-agent rather than by the session's own agent. */
+  nested?: boolean;
 }
+
+export type { BackgroundTaskKind } from "../../shared/stopped-background-tasks.js";
 
 /** The backend process's live background tasks, and when that set last changed (0 if never). */
 export interface BackgroundTaskSnapshot {
@@ -77,8 +83,11 @@ export interface BackgroundTaskSnapshot {
 
 export interface BackgroundTaskAwareAdapter {
   getBackgroundTasks(): BackgroundTaskSnapshot;
-  /** Called whenever the set of live background tasks changes. */
-  onBackgroundTasksChanged(cb: () => void): void;
+  /**
+   * Called whenever the set of live background tasks changes: `reported` when
+   * the backend listed them, `process_ended` when they ended with its process.
+   */
+  onBackgroundTasksChanged(cb: (cause: "reported" | "process_ended") => void): void;
 }
 
 export interface PendingOutgoingAwareAdapter {
