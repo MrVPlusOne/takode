@@ -49,10 +49,15 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "appearance",
     title: "Appearance",
-    description: "Theme, size, how chat content is displayed, and leader profile pictures.",
+    description: "Theme, scenic background, size, how chat content is displayed, and leader profile pictures.",
     aliases: ["display", "dark", "light", "sidebar", "diff", "quiet mode", "focus mode", "tools"],
     items: [
       { id: "theme", text: "Theme color scheme dark light VS Code appearance" },
+      {
+        id: "scenic-background",
+        text: "Scenic Background painted landscape painting scenery wallpaper Summer Meadow Seaside Town Ink & Paper",
+        aliases: ["background", "wallpaper", "scenery"],
+      },
       { id: "zoom", text: "Zoom display scale text size" },
       {
         id: "chat-line-height",

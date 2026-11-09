@@ -23,6 +23,7 @@ export interface MockStoreState {
   showUsageBars: boolean;
   compactToolActivity: boolean;
   chatMessageLineHeight: number;
+  scenicBackground: "off" | "meadow" | "seaside" | "ink";
   sendKeyScheme: "enter" | "mod-enter";
   diagnostics: { inputTrace: boolean };
   shortcutSettings: {
@@ -47,6 +48,7 @@ export interface MockStoreState {
   toggleShowUsageBars: ReturnType<typeof vi.fn>;
   toggleCompactToolActivity: ReturnType<typeof vi.fn>;
   setChatMessageLineHeight: ReturnType<typeof vi.fn>;
+  setScenicBackground: ReturnType<typeof vi.fn>;
   setSendKeyScheme: ReturnType<typeof vi.fn>;
   setDiagnostics: ReturnType<typeof vi.fn>;
   setShortcutsEnabled: ReturnType<typeof vi.fn>;
@@ -70,6 +72,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     showUsageBars: false,
     compactToolActivity: true,
     chatMessageLineHeight: 1.45,
+    scenicBackground: "off",
     sendKeyScheme: "enter",
     diagnostics: { inputTrace: false },
     shortcutSettings: {
@@ -89,6 +92,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     toggleShowUsageBars: vi.fn(),
     toggleCompactToolActivity: vi.fn(),
     setChatMessageLineHeight: vi.fn(),
+    setScenicBackground: vi.fn(),
     setSendKeyScheme: vi.fn(),
     setDiagnostics: vi.fn(),
     setShortcutsEnabled: vi.fn(),

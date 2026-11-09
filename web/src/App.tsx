@@ -127,6 +127,8 @@ import { ensureVsCodeEditorPreference } from "./utils/vscode-bridge.js";
 import { startAlertWindowPresence } from "./utils/alert-window-presence.js";
 import { reportInputGlitch, useInputTraceRecorder } from "./utils/input-trace.js";
 import { AppTooltips } from "./components/AppTooltips.js";
+import { ScenicPanels } from "./scenic/ScenicBackdrop.js";
+import { applyScenicClass } from "./scenic/scenic-styles.js";
 import { GlossaryPage } from "./glossary/GlossaryPage.js";
 import {
   SHORTCUT_DOUBLE_TAP_WINDOW_MS,
@@ -389,6 +391,7 @@ function renderSecondaryPage(page: SecondaryPage) {
 export default function App() {
   useLayoutEffect(() => browserLoadDiagnostics.markAppCommitted(), []);
   useEffect(() => startAlertWindowPresence(), []);
+  const scenicBackground = useStore((s) => s.scenicBackground);
   const {
     darkMode,
     zoomLevel,
@@ -591,6 +594,8 @@ export default function App() {
     const el = document.documentElement;
     el.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  useEffect(() => applyScenicClass(scenicBackground), [scenicBackground]);
 
   useEffect(() => {
     const debugWindow = window as TakodeDebugWindow;
@@ -1134,6 +1139,7 @@ export default function App() {
     >
       <ActiveBuildMismatchNotice />
       <AppTooltips />
+      <ScenicPanels />
 
       {/* Mobile overlay backdrop */}
       {sidebarOpen && !isDesktopShell && (

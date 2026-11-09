@@ -17,6 +17,14 @@ describe("static asset cache headers", () => {
     ).toBe("public, max-age=31536000, immutable");
   });
 
+  it("marks versioned scenic background paintings as immutable and leaves unversioned ones revalidating", () => {
+    // Paintings are large and only change with a new version in their name, so phones keep them.
+    expect(getStaticAssetCacheControl("/app/dist/scenic/meadow-day.v1.webp")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    expect(getStaticAssetCacheControl("/app/dist/scenic/meadow-day.webp")).toBeNull();
+  });
+
   it("lets browsers keep content-hashed build output instead of downloading it on every app open", () => {
     // Vite puts a hash of each file's content in its name, so the same URL always means the same bytes.
     // Without this the phone re-downloaded the whole ~1 MB bundle each time the app opened.

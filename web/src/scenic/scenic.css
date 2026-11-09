@@ -1,0 +1,283 @@
+/*
+ * Scenic background styles. Each style is scoped to `html.scenic-<style>` (light) and
+ * `html.dark.scenic-<style>` (dark); with the setting Off none of these selectors match, so
+ * today's UI is untouched. Styles only re-tint the theme variables and soften a few stable
+ * surfaces with static CSS. The painting and everything that moves live in ScenicBackdrop and the
+ * fanfares, never on feed content, so scrolling costs the same as today.
+ */
+
+/* ─── Shared: soft paper surfaces ───────────────────────────────────────── */
+html.scenic [data-testid="main-chat"] {
+  isolation: isolate;
+}
+
+html.scenic :is([data-testid="quest-completion-summary"], [data-testid="composer-input-card"], [data-testid="topic-lead"]) {
+  border-color: var(--scenic-edge);
+  box-shadow: var(--scenic-shadow);
+}
+
+html.scenic [data-testid="user-message-bubble"] {
+  box-shadow: var(--scenic-shadow-soft);
+}
+
+html.scenic [data-testid="session-leader-portrait"],
+html.scenic [data-testid="topbar-leader-profile-portrait"] {
+  outline: 2px solid var(--scenic-ring);
+  outline-offset: 1px;
+  filter: drop-shadow(0 2px 4px var(--scenic-ring-shadow));
+}
+
+html.scenic header:has([data-testid="topbar-identity"]) {
+  background: color-mix(in srgb, var(--color-cc-card) 82%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+html.scenic [data-testid="thread-group-bar"] {
+  background: color-mix(in srgb, var(--color-cc-bg) 78%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+html.scenic [data-testid="quest-thread-banner"] {
+  background: color-mix(in srgb, var(--color-cc-bg) 80%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+html.scenic [data-testid="quest-completion-summary"] {
+  background: var(--scenic-quest-card);
+}
+
+html.scenic [data-testid="quest-completion-summary"] .text-cc-success {
+  color: var(--scenic-quest-label);
+  letter-spacing: 0.12em;
+}
+
+/* The sessions panel and the side column show the same painting, faded behind the page colour. */
+html.scenic [data-testid="app-sidebar-shell"] > aside,
+html.scenic [data-testid="topic-side-panel"] {
+  background-image: linear-gradient(var(--scenic-panel-veil), var(--scenic-panel-veil)), var(--scenic-plate);
+  background-size: cover;
+  background-position: center bottom;
+}
+
+/* ─── Summer Meadow ─────────────────────────────────────────────────────── */
+html.scenic-meadow {
+  --color-cc-bg: #f8f6ee;
+  --color-cc-fg: #2d3930;
+  --color-cc-card: #fffdf7;
+  --color-cc-sidebar: #eff2e6;
+  --color-cc-input-bg: #fffdf7;
+  --color-cc-user-bubble: #e2edf3;
+  --color-cc-code-bg: #eef0e6;
+  --color-cc-code-fg: #2d3930;
+  --color-cc-border: rgba(58, 82, 58, 0.14);
+  --color-cc-muted: #6c786d;
+  --color-cc-hover: rgba(79, 138, 91, 0.07);
+  --color-cc-active: rgba(79, 138, 91, 0.13);
+  --color-cc-primary: #4f8a5b;
+  --color-cc-primary-hover: #5b9867;
+  --color-cc-quest-link: #2c6d8c;
+  --color-cc-quest-link-hover: #1f566f;
+  --color-cc-thread-link: #3a7a5f;
+  --color-cc-success: #3f8a4f;
+  --scenic-edge: rgba(58, 82, 58, 0.12);
+  --scenic-shadow: 0 1px 2px rgba(60, 70, 40, 0.06), 0 10px 24px -14px rgba(60, 70, 40, 0.28);
+  --scenic-shadow-soft: 0 1px 2px rgba(60, 70, 40, 0.05), 0 6px 16px -12px rgba(60, 90, 110, 0.3);
+  --scenic-ring: #ffffff;
+  --scenic-ring-shadow: rgba(60, 70, 40, 0.25);
+  --scenic-quest-card: linear-gradient(160deg, #fbfdf3, #f2f7e6);
+  --scenic-quest-label: #3f7d4a;
+  --scenic-veil: rgba(250, 248, 240, 0.86);
+  --scenic-panel-veil: rgba(242, 244, 234, 0.88);
+}
+
+html.dark.scenic-meadow {
+  --color-cc-bg: #121a2a;
+  --color-cc-fg: #e6eaf1;
+  --color-cc-card: #172134;
+  --color-cc-sidebar: #0f1626;
+  --color-cc-input-bg: #172134;
+  --color-cc-user-bubble: #1f2c45;
+  --color-cc-code-bg: #0d1422;
+  --color-cc-code-fg: #d7deea;
+  --color-cc-border: rgba(180, 200, 255, 0.1);
+  --color-cc-muted: #93a0b5;
+  --color-cc-hover: rgba(160, 190, 255, 0.05);
+  --color-cc-active: rgba(160, 190, 255, 0.09);
+  --color-cc-primary: #4f8f62;
+  --color-cc-primary-hover: #5c9e6f;
+  --color-cc-quest-link: #9cc8ee;
+  --color-cc-quest-link-hover: #c2ddf5;
+  --color-cc-thread-link: #a6d6b4;
+  --color-cc-success: #8fd09b;
+  --scenic-edge: rgba(180, 200, 255, 0.1);
+  --scenic-shadow: 0 10px 28px -14px rgba(0, 0, 0, 0.6);
+  --scenic-shadow-soft: 0 8px 20px -12px rgba(0, 0, 0, 0.55);
+  --scenic-ring: rgba(244, 233, 184, 0.75);
+  --scenic-ring-shadow: rgba(244, 233, 184, 0.25);
+  --scenic-quest-card: linear-gradient(160deg, #1a2740, #172234);
+  --scenic-quest-label: #e9dc9a;
+  --scenic-veil: rgba(18, 26, 42, 0.8);
+  --scenic-panel-veil: rgba(15, 22, 38, 0.86);
+}
+
+/* ─── Seaside Town ──────────────────────────────────────────────────────── */
+html.scenic-seaside {
+  --color-cc-bg: #f5f9f9;
+  --color-cc-fg: #1f3540;
+  --color-cc-card: #ffffff;
+  --color-cc-sidebar: #eaf3f3;
+  --color-cc-input-bg: #ffffff;
+  --color-cc-user-bubble: #e0eff2;
+  --color-cc-code-bg: #eaf2f2;
+  --color-cc-code-fg: #1f3540;
+  --color-cc-border: rgba(40, 110, 130, 0.14);
+  --color-cc-muted: #688089;
+  --color-cc-hover: rgba(42, 135, 150, 0.06);
+  --color-cc-active: rgba(42, 135, 150, 0.11);
+  --color-cc-primary: #2a8492;
+  --color-cc-primary-hover: #31939f;
+  --color-cc-quest-link: #1d6d8d;
+  --color-cc-quest-link-hover: #155570;
+  --color-cc-thread-link: #2a8492;
+  --color-cc-success: #2f8b68;
+  --scenic-edge: rgba(40, 110, 130, 0.12);
+  --scenic-shadow: 0 1px 2px rgba(30, 70, 90, 0.05), 0 10px 24px -14px rgba(30, 80, 100, 0.28);
+  --scenic-shadow-soft: 0 1px 2px rgba(30, 70, 90, 0.04), 0 6px 16px -12px rgba(30, 80, 100, 0.3);
+  --scenic-ring: #ffffff;
+  --scenic-ring-shadow: rgba(30, 80, 100, 0.25);
+  --scenic-quest-card: linear-gradient(160deg, #fbfefe, #ecf6f6);
+  --scenic-quest-label: #2a8492;
+  --scenic-veil: rgba(247, 251, 252, 0.86);
+  --scenic-panel-veil: rgba(236, 245, 246, 0.88);
+}
+
+html.dark.scenic-seaside {
+  --color-cc-bg: #0e1b26;
+  --color-cc-fg: #e2edf1;
+  --color-cc-card: #132331;
+  --color-cc-sidebar: #0b1620;
+  --color-cc-input-bg: #132331;
+  --color-cc-user-bubble: #183042;
+  --color-cc-code-bg: #0a141c;
+  --color-cc-code-fg: #d3e4ea;
+  --color-cc-border: rgba(140, 220, 230, 0.1);
+  --color-cc-muted: #89a2ac;
+  --color-cc-hover: rgba(140, 220, 230, 0.05);
+  --color-cc-active: rgba(140, 220, 230, 0.09);
+  --color-cc-primary: #2b8290;
+  --color-cc-primary-hover: #33919e;
+  --color-cc-quest-link: #8fd3e0;
+  --color-cc-quest-link-hover: #b9e6ee;
+  --color-cc-thread-link: #7fd1c4;
+  --color-cc-success: #6fd0a3;
+  --scenic-edge: rgba(140, 220, 230, 0.1);
+  --scenic-shadow: 0 10px 28px -14px rgba(0, 0, 0, 0.6);
+  --scenic-shadow-soft: 0 8px 20px -12px rgba(0, 0, 0, 0.55);
+  --scenic-ring: rgba(170, 235, 240, 0.6);
+  --scenic-ring-shadow: rgba(170, 235, 240, 0.2);
+  --scenic-quest-card: linear-gradient(160deg, #15283a, #122231);
+  --scenic-quest-label: #8fe3d6;
+  --scenic-veil: rgba(14, 27, 38, 0.8);
+  --scenic-panel-veil: rgba(11, 22, 32, 0.86);
+}
+
+/* ─── Ink & Paper ───────────────────────────────────────────────────────── */
+html.scenic-ink {
+  --scenic-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Liberation Serif", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --color-cc-bg: #f6f3ea;
+  --color-cc-fg: #22211f;
+  --color-cc-card: #fbf9f3;
+  --color-cc-sidebar: #eeeadf;
+  --color-cc-input-bg: #fbf9f3;
+  --color-cc-user-bubble: #ebe7dc;
+  --color-cc-code-bg: #efebe1;
+  --color-cc-code-fg: #22211f;
+  --color-cc-border: rgba(40, 36, 30, 0.14);
+  --color-cc-muted: #75716a;
+  --color-cc-hover: rgba(40, 36, 30, 0.05);
+  --color-cc-active: rgba(40, 36, 30, 0.09);
+  --color-cc-primary: #b8432f;
+  --color-cc-primary-hover: #c6513c;
+  --color-cc-quest-link: #2f5873;
+  --color-cc-quest-link-hover: #22445a;
+  --color-cc-thread-link: #2f5873;
+  --color-cc-success: #4d7a48;
+  --scenic-edge: rgba(40, 36, 30, 0.12);
+  --scenic-shadow: 0 1px 2px rgba(40, 36, 30, 0.06), 0 10px 22px -14px rgba(40, 36, 30, 0.3);
+  --scenic-shadow-soft: 0 1px 2px rgba(40, 36, 30, 0.05), 0 6px 14px -12px rgba(40, 36, 30, 0.3);
+  --scenic-ring: #fbf9f3;
+  --scenic-ring-shadow: rgba(40, 36, 30, 0.3);
+  --scenic-quest-card: #fbf9f3;
+  --scenic-quest-label: #b8432f;
+  --scenic-veil: rgba(246, 242, 232, 0.78);
+  --scenic-panel-veil: rgba(240, 236, 225, 0.86);
+}
+
+html.dark.scenic-ink {
+  --color-cc-bg: #1a1a18;
+  --color-cc-fg: #ece7db;
+  --color-cc-card: #21201d;
+  --color-cc-sidebar: #151513;
+  --color-cc-input-bg: #21201d;
+  --color-cc-user-bubble: #2b2a26;
+  --color-cc-code-bg: #121210;
+  --color-cc-code-fg: #e2ddd1;
+  --color-cc-border: rgba(236, 231, 219, 0.09);
+  --color-cc-muted: #9a958a;
+  --color-cc-hover: rgba(236, 231, 219, 0.04);
+  --color-cc-active: rgba(236, 231, 219, 0.08);
+  --color-cc-primary: #b4482f;
+  --color-cc-primary-hover: #c45539;
+  --color-cc-quest-link: #a9c2d4;
+  --color-cc-quest-link-hover: #c9d9e4;
+  --color-cc-thread-link: #a9c2d4;
+  --color-cc-success: #9cc792;
+  --scenic-edge: rgba(236, 231, 219, 0.09);
+  --scenic-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.65);
+  --scenic-shadow-soft: 0 8px 18px -12px rgba(0, 0, 0, 0.6);
+  --scenic-ring: rgba(236, 231, 219, 0.6);
+  --scenic-ring-shadow: rgba(0, 0, 0, 0.4);
+  --scenic-quest-card: #21201d;
+  --scenic-quest-label: #e0705a;
+  --scenic-veil: rgba(26, 26, 24, 0.8);
+  --scenic-panel-veil: rgba(21, 21, 19, 0.86);
+}
+
+html.scenic-ink :is(
+    [data-testid="topic-page"] :is(h1, h2, h3),
+    [data-testid="message-feed-scroll-container"] :is(h1, h2, h3),
+    [data-testid="quest-thread-banner"]
+  ) {
+  font-family: var(--scenic-serif);
+}
+
+/* ─── Motion ────────────────────────────────────────────────────────────── */
+/* A very slow camera move over the painting: a few percent of zoom and pan over minutes. */
+@keyframes scenic-camera {
+  from {
+    transform: scale(1.02) translate3d(-0.8%, 0, 0);
+  }
+  to {
+    transform: scale(1.07) translate3d(0.8%, -0.6%, 0);
+  }
+}
+
+@keyframes scenic-float {
+  from {
+    transform: translate3d(-5%, 0, 0);
+  }
+  to {
+    transform: translate3d(5%, 0.5%, 0);
+  }
+}
+
+@keyframes scenic-rays {
+  from {
+    opacity: 0.55;
+    transform: rotate(-1.5deg);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(1.5deg);
+  }
+}

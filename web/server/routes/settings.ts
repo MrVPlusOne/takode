@@ -1,4 +1,5 @@
 import { isSidebarViewMode, normalizeSidebarViewMode } from "../../shared/sidebar-view-mode.js";
+import { isScenicBackground, normalizeScenicBackground } from "../../shared/scenic-background.js";
 import { parseDiagnosticsSettings } from "../../shared/diagnostics-settings.js";
 import { Hono, type Context } from "hono";
 import { exec as execCb } from "node:child_process";
@@ -1092,6 +1093,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sidebarViewMode: normalizeSidebarViewMode(settings.sidebarViewMode),
       questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
       chatMessageLineHeight: normalizeChatMessageLineHeight(settings.chatMessageLineHeight),
+      scenicBackground: normalizeScenicBackground(settings.scenicBackground),
       sendKeyScheme: normalizeSendKeyScheme(settings.sendKeyScheme),
       codexLeaderContextWindowOverrideTokens: settings.codexLeaderContextWindowOverrideTokens,
       ...(typeof settings.codexNonLeaderAutoCompactThresholdPercent === "number"
@@ -1323,6 +1325,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (body.sidebarViewMode !== undefined && !isSidebarViewMode(body.sidebarViewMode)) {
       return c.json({ error: 'sidebarViewMode must be "spaces", "recent" or "threads"' }, 400);
     }
+    if (body.scenicBackground !== undefined && !isScenicBackground(body.scenicBackground)) {
+      return c.json({ error: 'scenicBackground must be "off", "meadow", "seaside" or "ink"' }, 400);
+    }
     if (body.questmasterCompactSort !== undefined) {
       if (
         typeof body.questmasterCompactSort !== "object" ||
@@ -1495,6 +1500,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sidebarViewMode",
       "questmasterCompactSort",
       "chatMessageLineHeight",
+      "scenicBackground",
       "sendKeyScheme",
       "codexLeaderContextWindowOverrideTokens",
       "codexNonLeaderAutoCompactThresholdPercent",
@@ -1549,6 +1555,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       ...(typeof body.chatMessageLineHeight === "number"
         ? { chatMessageLineHeight: normalizeChatMessageLineHeight(body.chatMessageLineHeight) }
         : {}),
+      scenicBackground: isScenicBackground(body.scenicBackground) ? body.scenicBackground : undefined,
       sendKeyScheme: isSendKeyScheme(body.sendKeyScheme) ? body.sendKeyScheme : undefined,
       codexLeaderContextWindowOverrideTokens:
         typeof body.codexLeaderContextWindowOverrideTokens === "number"

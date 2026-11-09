@@ -103,6 +103,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Work Board Access and Readability",
     "Thread Tab Groups",
     "Celebrations",
+    "Scenic Backgrounds",
     "Diff Access from the Quest Banner",
     "Quest Status Panel",
     "Questmaster List",

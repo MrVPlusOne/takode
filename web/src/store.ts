@@ -292,6 +292,7 @@ export const useStore = create<AppState>((set, get) => ({
       ? "activity"
       : "created",
   sidebarViewMode: "spaces",
+  scenicBackground: "off",
   leaderProfileCollapsedPools: DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS,
   taskPanelOpen: false,
   searchPreviewSessionId: null,
@@ -537,6 +538,14 @@ export const useStore = create<AppState>((set, get) => ({
     api.updateSettings({ sidebarViewMode: mode }).catch((err) => {
       console.warn("[store] failed to save sidebar view:", err);
       if (get().sidebarViewMode === mode) set({ sidebarViewMode: previous });
+    });
+  },
+  setScenicBackground: (background) => {
+    const previous = get().scenicBackground;
+    set({ scenicBackground: background });
+    api.updateSettings({ scenicBackground: background }).catch((err) => {
+      console.warn("[store] failed to save scenic background:", err);
+      if (get().scenicBackground === background) set({ scenicBackground: previous });
     });
   },
   setRemindLaterUnit: (unit) => {

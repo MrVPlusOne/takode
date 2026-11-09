@@ -29,6 +29,7 @@ import {
 } from "../shortcuts.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
+import { SettingsScenicBackgroundSection } from "./SettingsScenicBackgroundSection.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
@@ -767,6 +768,7 @@ export function SettingsPage({
                   onChange={setColorTheme}
                 />
               </SettingsRow>
+              <SettingsScenicBackgroundSection hidden={settingsSearch.rowHidden("appearance", "scenic-background")} />
               <SettingsRow label="Zoom" htmlFor="settings-zoom" hidden={settingsSearch.rowHidden("appearance", "zoom")}>
                 <NumberStepper
                   id="settings-zoom"

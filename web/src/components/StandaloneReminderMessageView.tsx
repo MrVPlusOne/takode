@@ -12,6 +12,7 @@ import {
 import { buildThreadRoutingReminderViewModel } from "../utils/thread-routing-reminder.js";
 import { useStore } from "../store.js";
 import { celebrationAnchor, playCheckPop, usePlayOnArrival } from "./completion-celebration.js";
+import { playScenicMoment } from "../scenic/scenic-moments.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { InjectedMessageChip, InjectedMessageRow } from "./InjectedMessageChip.js";
 import { BookIcon, LandingIcon, LockIcon, RestartIcon, TerminalIcon, WarningIcon } from "./InjectedMessageIcons.js";
@@ -102,9 +103,10 @@ function SystemReminderChip({
   // A change that lands while the user watches gets a check popping on its "landed" badge.
   const badgeRef = useRef<HTMLSpanElement>(null);
   const landed = reminder.kind === "landing-queue" && reminder.badge === "landed";
-  usePlayOnArrival(landed ? `landed:${message.id}` : null, message.timestamp, () =>
-    playCheckPop(celebrationAnchor(badgeRef.current)),
-  );
+  usePlayOnArrival(landed ? `landed:${message.id}` : null, message.timestamp, () => {
+    playCheckPop(celebrationAnchor(badgeRef.current));
+    playScenicMoment({ kind: "landed" }, badgeRef.current);
+  });
   return (
     <InjectedMessageChip
       title={reminder.title}

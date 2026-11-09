@@ -85,6 +85,7 @@ describe("settings-manager", () => {
       sidebarViewMode: "spaces",
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
+      scenicBackground: "off",
       sendKeyScheme: "enter",
       remindLaterUnit: "hours",
       leaderProfilePools: { tako: false, shmi: false, animals: true },
@@ -545,6 +546,21 @@ describe("settings-manager", () => {
     expect(getSettings()).not.toHaveProperty("sidebarPinnedTopics");
   });
 
+  it("saves the scenic background and reads anything unknown as Off", async () => {
+    // The scenic background is an appearance choice kept on the server for every browser:
+    // a saved style survives a reload, and a value no build knows (a retired or mistyped style)
+    // loads as Off rather than as a broken style.
+    expect(getSettings().scenicBackground).toBe("off");
+    updateSettings({ scenicBackground: "seaside" });
+    await _flushForTest();
+    _resetForTest(settingsPath);
+    expect(getSettings().scenicBackground).toBe("seaside");
+
+    writeFileSync(settingsPath, JSON.stringify({ scenicBackground: "sakura" }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().scenicBackground).toBe("off");
+  });
+
   it("persists Questmaster compact sort across reloads", async () => {
     // Compact-table sort is server-owned so browser reloads and tabs converge.
     updateSettings({ questmasterCompactSort: { column: "feedback", direction: "desc" } });
@@ -782,6 +798,7 @@ describe("settings-manager", () => {
       sidebarViewMode: "spaces",
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
+      scenicBackground: "off",
       sendKeyScheme: "enter",
       remindLaterUnit: "hours",
       leaderProfilePools: { tako: false, shmi: false, animals: true },

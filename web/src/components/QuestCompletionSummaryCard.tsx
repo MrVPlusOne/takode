@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { fetchSupportingQuestAnswer, type SupportingQuestAnswer } from "../api/started-quests.js";
 import type { QuestmasterTask } from "../types.js";
 import { celebrationAnchor, playSparkle, usePlayOnArrival } from "./completion-celebration.js";
+import { playScenicMoment } from "../scenic/scenic-moments.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { ThreadMessageLink } from "./QuestForkLinks.js";
 import { QuestRecordFetchContext, QuestSummaryCard, useQuestRecord } from "./QuestSummaryCard.js";
@@ -34,9 +35,11 @@ export function QuestCompletionSummaryCard({
   const answer = useSupportingQuestAnswer(quest, sessionId);
   const labelRef = useRef<HTMLSpanElement>(null);
   const completedAt = quest?.status === "done" && !quest.cancelled ? quest.completedAt : undefined;
-  usePlayOnArrival(completedAt ? `quest-complete:${quest?.questId}:${completedAt}` : null, completedAt, () =>
-    playSparkle(celebrationAnchor(labelRef.current)),
-  );
+  usePlayOnArrival(completedAt ? `quest-complete:${quest?.questId}:${completedAt}` : null, completedAt, () => {
+    playSparkle(celebrationAnchor(labelRef.current));
+    if (quest)
+      playScenicMoment({ kind: "quest-complete", questId: quest.questId, title: quest.title }, labelRef.current);
+  });
   if (!quest || quest.status !== "done" || quest.cancelled) return null;
   const debrief = quest.debrief?.trim() ?? "";
   const tldr = quest.debriefTldr?.trim() ?? "";

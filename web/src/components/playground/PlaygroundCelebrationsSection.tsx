@@ -59,7 +59,7 @@ function TodoCompletionDemo() {
   );
 }
 
-function QuestCompleteDemo() {
+export function QuestCompleteDemo() {
   const finish = () => {
     const now = Date.now();
     const record = {
@@ -86,7 +86,7 @@ function QuestCompleteDemo() {
   );
 }
 
-function LandingDemo() {
+export function LandingDemo() {
   const [landed, setLanded] = useState<ChatMessage | null>(null);
   const land = () => {
     const now = Date.now();

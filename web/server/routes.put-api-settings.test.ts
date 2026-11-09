@@ -1306,6 +1306,38 @@ describe("PUT /api/settings", () => {
     expect(json).toEqual({ error: "chatMessageLineHeight must be a number between 1.3 and 1.7" });
   });
 
+  it("saves the scenic background and returns it", async () => {
+    // The Settings picker saves the style through the normal settings route, and the response
+    // carries the saved value so every browser reads the same background.
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      scenicBackground: "ink",
+      updatedAt: Date.now(),
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scenicBackground: "ink" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ scenicBackground: "ink" }));
+    const json = await res.json();
+    expect(json.scenicBackground).toBe("ink");
+  });
+
+  it("returns 400 for an unknown scenic background", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scenicBackground: "sakura" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'scenicBackground must be "off", "meadow", "seaside" or "ink"' });
+  });
+
   it("updates Questmaster compact sort setting", async () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       ...settingsManager.getSettings(),

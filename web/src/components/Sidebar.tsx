@@ -22,6 +22,7 @@ import { parseDiagnosticsSettings } from "../../shared/diagnostics-settings.js";
 import { normalizeRemindLaterUnit } from "../../shared/remind-later-unit.js";
 import { normalizeLeaderProfileCollapsedPools } from "../../shared/leader-profile-portraits.js";
 import { normalizeSidebarViewMode } from "../../shared/sidebar-view-mode.js";
+import { normalizeScenicBackground } from "../../shared/scenic-background.js";
 import { connectSession, syncedProjectionsLive } from "../ws.js";
 import { navigateToSession, navigateToSessionThread, secondaryPageFromHash } from "../utils/routing.js";
 import { openSecondaryPage, toggleSecondaryPage } from "../utils/secondary-view.js";
@@ -287,6 +288,7 @@ export function Sidebar({
           sendKeyScheme: normalizeSendKeyScheme(s.sendKeyScheme),
           diagnostics: parseDiagnosticsSettings(s.diagnostics),
           sidebarViewMode: normalizeSidebarViewMode(s.sidebarViewMode),
+          scenicBackground: normalizeScenicBackground(s.scenicBackground),
           leaderProfileCollapsedPools: normalizeLeaderProfileCollapsedPools(s.leaderProfileCollapsedPools),
           remindLaterUnit: normalizeRemindLaterUnit(s.remindLaterUnit),
         });

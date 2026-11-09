@@ -1,4 +1,5 @@
 import { normalizeSidebarViewMode, type SidebarViewMode } from "../shared/sidebar-view-mode.js";
+import { normalizeScenicBackground, type ScenicBackground } from "../shared/scenic-background.js";
 import { mkdirSync, readFileSync, existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname, basename, extname } from "node:path";
@@ -120,6 +121,8 @@ export interface CompanionSettings {
   questmasterCompactSort?: QuestmasterCompactSort;
   /** Chat/message markdown line-height multiplier. Optional for backward-compatible tests/mocks. */
   chatMessageLineHeight?: number;
+  /** Painted landscape behind the conversation, or Off. Optional for backward-compatible tests/mocks. */
+  scenicBackground?: ScenicBackground;
   /** Which keys send or save in multi-line text boxes. Optional for backward-compatible tests/mocks. */
   sendKeyScheme?: SendKeyScheme;
   /** Legacy Codex leader context override retained for settings compatibility; new launches derive this internally. */
@@ -309,6 +312,7 @@ let settings: CompanionSettings = {
   sidebarViewMode: "spaces",
   questmasterCompactSort: DEFAULT_QUESTMASTER_COMPACT_SORT,
   chatMessageLineHeight: DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
+  scenicBackground: "off",
   sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
   remindLaterUnit: DEFAULT_REMIND_LATER_UNIT,
   codexLeaderContextWindowOverrideTokens: 1_000_000,
@@ -580,6 +584,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     sidebarViewMode: normalizeSidebarViewMode(raw?.sidebarViewMode),
     questmasterCompactSort: normalizeQuestmasterCompactSort(raw?.questmasterCompactSort),
     chatMessageLineHeight: normalizeChatMessageLineHeight(raw?.chatMessageLineHeight),
+    scenicBackground: normalizeScenicBackground(raw?.scenicBackground),
     sendKeyScheme: normalizeSendKeyScheme(raw?.sendKeyScheme),
     codexLeaderContextWindowOverrideTokens:
       typeof raw?.codexLeaderContextWindowOverrideTokens === "number" && raw.codexLeaderContextWindowOverrideTokens >= 1
@@ -742,6 +747,7 @@ export function updateSettings(
       | "sidebarViewMode"
       | "questmasterCompactSort"
       | "chatMessageLineHeight"
+      | "scenicBackground"
       | "sendKeyScheme"
       | "codexLeaderContextWindowOverrideTokens"
       | "codexNonLeaderAutoCompactThresholdPercent"
@@ -786,6 +792,8 @@ export function updateSettings(
     defined.sessionDefaults = normalizeSessionDefaults(defined.sessionDefaults);
   }
   if (defined.diagnostics) defined.diagnostics = parseDiagnosticsSettings(defined.diagnostics);
+  if (defined.scenicBackground !== undefined)
+    defined.scenicBackground = normalizeScenicBackground(defined.scenicBackground);
   if (defined.workerSlotLimits) {
     defined.workerSlotLimits = normalizeWorkerSlotLimits(defined.workerSlotLimits);
   }

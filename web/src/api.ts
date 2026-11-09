@@ -692,6 +692,7 @@ export interface AppSettings {
   sidebarViewMode: "spaces" | "recent" | "threads";
   questmasterCompactSort: QuestmasterCompactSort;
   chatMessageLineHeight?: number;
+  scenicBackground?: import("../shared/scenic-background.js").ScenicBackground;
   sendKeyScheme?: SendKeyScheme;
   codexLeaderContextWindowOverrideTokens: number;
   codexNonLeaderAutoCompactThresholdPercent?: number;
@@ -1396,6 +1397,7 @@ export const api = {
     sidebarViewMode?: "spaces" | "recent" | "threads";
     questmasterCompactSort?: QuestmasterCompactSort;
     chatMessageLineHeight?: number;
+    scenicBackground?: import("../shared/scenic-background.js").ScenicBackground;
     sendKeyScheme?: SendKeyScheme;
     codexLeaderContextWindowOverrideTokens?: number;
     codexNonLeaderAutoCompactThresholdPercent?: number;
