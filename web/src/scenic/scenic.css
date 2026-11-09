@@ -6,11 +6,11 @@
  * fanfares, never on feed content, so scrolling costs the same as today.
  */
 
-/* ─── Shared: soft paper surfaces ───────────────────────────────────────── */
-html.scenic [data-testid="main-chat"] {
-  isolation: isolate;
-}
-
+/*
+ * Shared: soft paper surfaces. Nothing here may create a stacking context (isolation, z-index,
+ * transform, filter, backdrop-filter, opacity) on an element that holds menus or popovers: their
+ * z-index would then only count inside that element, and the content after it would cover them.
+ */
 html.scenic :is([data-testid="quest-completion-summary"], [data-testid="composer-input-card"], [data-testid="topic-lead"]) {
   border-color: var(--scenic-edge);
   box-shadow: var(--scenic-shadow);
@@ -24,22 +24,20 @@ html.scenic [data-testid="session-leader-portrait"],
 html.scenic [data-testid="topbar-leader-profile-portrait"] {
   outline: 2px solid var(--scenic-ring);
   outline-offset: 1px;
-  filter: drop-shadow(0 2px 4px var(--scenic-ring-shadow));
+  /* Joins the ring's box-shadow; a drop-shadow filter would make a stacking context. */
+  --tw-shadow: 0 2px 4px var(--scenic-ring-shadow);
 }
 
 html.scenic header:has([data-testid="topbar-identity"]) {
   background: color-mix(in srgb, var(--color-cc-card) 82%, transparent);
-  backdrop-filter: blur(8px);
 }
 
 html.scenic [data-testid="thread-group-bar"] {
   background: color-mix(in srgb, var(--color-cc-bg) 78%, transparent);
-  backdrop-filter: blur(8px);
 }
 
 html.scenic [data-testid="quest-thread-banner"] {
   background: color-mix(in srgb, var(--color-cc-bg) 80%, transparent);
-  backdrop-filter: blur(8px);
 }
 
 html.scenic [data-testid="quest-completion-summary"] {

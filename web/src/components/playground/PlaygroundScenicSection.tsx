@@ -34,7 +34,7 @@ export function PlaygroundScenicSection() {
           className="relative isolate mt-4 h-[420px] overflow-hidden rounded-xl border border-cc-border bg-cc-bg"
         >
           <ScenicBackdrop />
-          <div className="mx-auto max-w-xl space-y-3 px-6 py-10 text-sm leading-relaxed text-cc-fg">
+          <div className="relative mx-auto max-w-xl space-y-3 px-6 py-10 text-sm leading-relaxed text-cc-fg">
             <p className="font-medium">The sidebar change has landed.</p>
             <p>
               Thread rows now show the quest title as the name, then a short marked update. The setting carries over

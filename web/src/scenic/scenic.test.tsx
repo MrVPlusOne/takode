@@ -20,6 +20,7 @@ import { SettingsScenicBackgroundSection } from "../components/SettingsScenicBac
 import { ScenicBackdrop, ScenicPanels, scenicPainting } from "./ScenicBackdrop.js";
 import { playScenicMoment } from "./scenic-moments.js";
 import { SCENIC_REVEAL_EVENT, applyScenicClass } from "./scenic-styles.js";
+import scenicCss from "./scenic.css?raw";
 
 /** Pane size the ResizeObserver stub reports to the backdrop. */
 let paneSize = { width: 1000, height: 800 };
@@ -175,5 +176,28 @@ describe("SettingsScenicBackgroundSection", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Seaside Town" }));
     expect(mockUpdateSettings).toHaveBeenCalledWith({ scenicBackground: "seaside" });
     expect(screen.getByRole("radio", { name: "Seaside Town" })).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+describe("layering", () => {
+  // Menus, popovers and hover cards rely on their z-index counting across the page. A property
+  // that makes a stacking context on a styled container (the status-row bar's backdrop blur once
+  // did) confines their z-index to that container, and the conversation after it then covers the
+  // open menu. The keyframes only animate the backdrop's own layers, so they are left out.
+  it("adds no stacking context to the page's own elements", () => {
+    const css = scenicCss
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+    const stacking =
+      /(?:^|[;{\s])(isolation|z-index|transform|filter|backdrop-filter|opacity|will-change|perspective|contain|mix-blend-mode|clip-path|mask(?:-image)?)\s*:/g;
+    expect([...css.matchAll(stacking)].map((match) => match[1])).toEqual([]);
+  });
+
+  it("keeps the backdrop out of the stacking order so the conversation after it paints on top", () => {
+    useStore.setState({ scenicBackground: "ink" });
+    render(<ScenicBackdrop />);
+    const backdrop = screen.getByTestId("scenic-backdrop");
+    expect(backdrop.className).not.toMatch(/(?:^|\s)-?z-/);
+    expect(backdrop.style.zIndex).toBe("");
   });
 });

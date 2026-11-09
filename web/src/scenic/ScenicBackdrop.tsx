@@ -94,13 +94,16 @@ export function ScenicBackdrop() {
   const lights = art.lights[dark ? 1 : 0];
   // Panes taller than wide (phones, narrow windows) get the tall painting, composed for them.
   const tall = size.height > size.width * 1.15;
+  // No z-index: the backdrop paints first among the pane's positioned children, and the feed's
+  // `relative` layout after it paints on top. A z-index here would need an isolated (stacking
+  // context) pane, which traps the menus inside it under the content around it.
   return (
     <div
       ref={ref}
       aria-hidden="true"
       data-testid="scenic-backdrop"
       data-scenic-style={style}
-      className="pointer-events-none absolute inset-0 z-[-1] overflow-hidden"
+      className="pointer-events-none absolute inset-0 overflow-hidden"
     >
       <Layer depth={5}>
         <div
