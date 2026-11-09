@@ -240,6 +240,7 @@ ${
       "**Don't block your turn waiting.** While your turn runs, the user and your leader cannot interject and you cannot react to herd events. Never chain or loop `sleep` calls or polling checks: five `sleep 59` calls block you as long as one five-minute sleep. A single sleep under a minute is fine only when what you wait for is moments away, such as a server finishing startup.\n\n" +
       waitForCommand +
       "\n\nFor any wait based on time rather than a command finishing, create a `takode timer` and end your turn.\n\n" +
+      "When you wait for something outside your session to happen (a job or run finishing, a log reaching a stage, a file appearing, a load crossing a threshold), give a recurring timer a `--check` command that exits 0 once it has, instead of timers that wake you only to look: the server runs the check at each tick, on your machine or `--host`, without waking you, and wakes you when it passes. It also wakes you with the check's latest result every `--wake-every` checks that do not pass (default 10); then confirm the check really tests what you want. Keep checks cheap and read-only. Keep plain timers for clock times, judgment on partial results and checks only you can do (such as through your MCP tools).\n\n" +
       "Timers and completion notices wake this session's main agent. A sub-agent cannot receive them, so never ask one to use `takode timer`: a sub-agent waits with its own tool calls, running a long command in the foreground with a timeout long enough for it.",
   );
 
@@ -252,6 +253,7 @@ ${
       '    takode timer create "Check build health" --desc "Inspect the latest failing shard if the build is red." --in 30m\n' +
       '    takode timer create "Deploy reminder" --at 3pm\n' +
       '    takode timer create "Refresh context" --desc "Summarize new blockers since the last run." --every 10m\n' +
+      `    takode timer create "Wave 1 built" --every 5m --host <machine> --check 'grep -q "harbor: passed" ~/logs/build.log' --desc "Launch the next stage."\n` +
       "    takode timer list                           # list active timers\n" +
       "    takode timer cancel <timer-id>              # cancel a timer\n\n" +
       "Leader timers save a destination with `--thread main` or `--thread q-N`. Without `--thread`, creation inherits a valid active-turn route only while the leader is generating; otherwise specify the destination explicitly. Later thread changes do not reroute the timer. Existing unassociated timers retain their behavior. Timer firings carry no answer ID: report a firing's result with `[thread:q-N:A]` (or a thread's `t-N`, never Main) only when it found something new the user should read, and with `:C` otherwise.\n\n" +

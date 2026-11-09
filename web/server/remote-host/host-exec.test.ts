@@ -341,6 +341,40 @@ describe("HostExec", () => {
 
   // A restarted coordinator takes over a running command: it keeps running on
   // the host, its output continues in the same log and its end is recorded.
+  // Timer checks: a short command run for its exit code and output, with no
+  // job record (a check every few minutes would crowd out the audit trail),
+  // stopped at its time limit, and an error instead of a throw when it cannot run.
+  it("runs a timer check for its exit code and output without recording a job", async () => {
+    connectHost();
+    await waitFor(() => manager.status(HOST_ID).online);
+    const exec = createExec();
+    const result = await exec.check({ host: "condor", command: "echo 3/16 done; exit 1", timeoutMs: 10_000 });
+    expect(result).toEqual({ exitCode: 1, output: "3/16 done\n" });
+    const inFolder = await exec.check({ host: "condor", command: "pwd", cwd: dir, timeoutMs: 10_000 });
+    expect(inFolder.output.trim()).toBe(dir);
+    expect(exec.list()).toEqual([]);
+    expect(changed).toEqual([]);
+  });
+
+  it("stops a timer check at its time limit and reports machines it cannot run on", async () => {
+    connectHost();
+    await waitFor(() => manager.status(HOST_ID).online);
+    const exec = createExec();
+    const slow = await exec.check({ host: "condor", command: "echo started; sleep 30", timeoutMs: 300 });
+    expect(slow.exitCode).toBeNull();
+    expect(slow.error).toMatch(/its time limit/);
+    expect(slow.output).toBe("started\n");
+
+    const unknown = await exec.check({ host: "nowhere", command: "true", timeoutMs: 1_000 });
+    expect(unknown).toMatchObject({ exitCode: null, error: expect.stringContaining("No machine named nowhere") });
+    const off = await createExec({ execDisabled: () => true }).check({
+      host: "condor",
+      command: "true",
+      timeoutMs: 1_000,
+    });
+    expect(off.error).toContain("turned off");
+  });
+
   it("takes over a running command after a coordinator restart", async () => {
     connectHost();
     await waitFor(() => manager.status(HOST_ID).online);

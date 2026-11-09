@@ -132,11 +132,11 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
       const title = args[1];
       if (!title) {
         err(
-          "Usage: takode timer create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>",
+          "Usage: takode timer create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec> [--check <command> [--host <machine>] [--wake-every <N>]]",
         );
       }
 
-      const body: Record<string, string> = { title };
+      const body: Record<string, string | number> = { title };
       let descriptionFile: string | undefined;
       for (let i = 2; i < args.length; i++) {
         if (args[i] === "--in" && args[i + 1]) {
@@ -151,6 +151,16 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
           const value = args[++i];
           if (!value || value.startsWith("--")) err("--desc-file requires a path or '-' for stdin.");
           descriptionFile = value;
+        } else if (args[i] === "--check") {
+          const value = args[++i];
+          if (!value) err("--check requires a command, e.g. --check 'grep -q DONE build.log'");
+          body.check = value;
+        } else if (args[i] === "--host" && args[i + 1]) {
+          body.host = args[++i];
+        } else if (args[i] === "--wake-every") {
+          const value = Number(args[++i]);
+          if (!Number.isInteger(value) || value < 1) err("--wake-every requires a whole number of checks, e.g. 10");
+          body.wakeEvery = value;
         } else if (args[i] === "--thread") {
           const target = args[++i] ? normalizeThreadTarget(args[i]) : null;
           if (!target) err("--thread requires main, q-N or t-N");
@@ -160,10 +170,14 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
 
       if (!body.in && !body.at && !body.every) {
         err(
-          "Usage: takode timer create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>\n" +
+          "Usage: takode timer create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec> [--check <command> [--host <machine>] [--wake-every <N>]]\n" +
             "  e.g. --in 30m, --at 3pm, --every 10m\n" +
             `  ${TIMER_CREATE_GUIDANCE}`,
         );
+      }
+
+      if ((body.host !== undefined || body.wakeEvery !== undefined) && body.check === undefined) {
+        err("--host and --wake-every apply to a timer with a --check.");
       }
 
       if (descriptionFile !== undefined) {
@@ -175,9 +189,24 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
         timer: SessionTimerDetail;
       };
       const t = result.timer;
+      if (t.check?.lastResult?.exitCode === 0) {
+        console.log(`The check already passes on ${t.check.host}, so no timer was created. Its output:`);
+        console.log(t.check.lastResult.output.trim() || "(no output)");
+        break;
+      }
       console.log(
         `Created timer ${t.id} (${t.type}): "${formatInlineText(t.title)}" -- next fire at ${formatTimerNextFire(t.nextFireAt)}`,
       );
+      if (t.check) {
+        const first = t.check.lastResult;
+        console.log(
+          `Check on ${t.check.host}: wakes you when it exits 0, and with its latest result every ${t.check.wakeEvery} checks that do not.`,
+        );
+        if (first) {
+          console.log(`First check: exit ${first.exitCode}. Output:`);
+          console.log(first.output.trim() || "(no output)");
+        }
+      }
       if (t.threadKey) console.log(`Thread: ${t.threadKey}`);
       if (t.description) console.log(`Description: ${formatInlineText(t.description)}`);
       break;
@@ -206,7 +235,7 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
       err(
         "Usage: takode timer <subcommand>\n\n" +
           "Subcommands:\n" +
-          "  create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>   Create a timer\n" +
+          "  create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec> [--check <command> [--host <machine>] [--wake-every <N>]]   Create a timer\n" +
           "  list                                       List active timers\n" +
           "  cancel <timer-id>                          Cancel a timer\n\n" +
           `${TIMER_CREATE_GUIDANCE}\n\n` +
@@ -214,6 +243,7 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
           '  takode timer create "Check build health" --desc "Inspect the latest failing shard if red." --in 30m\n' +
           '  takode timer create "Deploy reminder" --at 3pm\n' +
           '  takode timer create "Refresh context" --desc "Summarize new blockers since the last run." --every 10m\n' +
+          `  takode timer create "Wave 1 at Harbor" --every 5m --host condor --check 'grep -q "harbor: passed" ~/logs/build.log'\n` +
           "  takode timer list\n" +
           "  takode timer cancel t1",
       );

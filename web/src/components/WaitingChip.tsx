@@ -7,6 +7,7 @@ import { api } from "../api.js";
 import type { SessionTimer } from "../types.js";
 import type { SessionWait } from "../../shared/session-waits.js";
 import { WaitKindIcon, waitKindLabel } from "./WaitKindIcon.js";
+import { TimerCheckDetails } from "./TimerCheckDetails.js";
 
 const EMPTY_TIMERS: SessionTimer[] = [];
 const EMPTY_WAITS: SessionWait[] = [];
@@ -160,6 +161,7 @@ function TimerRow({ timer, sessionId }: { timer: SessionTimer; sessionId: string
             )}
           </div>
         )}
+        {timer.check && <TimerCheckDetails check={timer.check} />}
         <div className="flex items-center gap-2 text-[11px] text-cc-muted">
           <span className="font-mono">{timer.id}</span>
           {typeLabel && <span>{typeLabel}</span>}

@@ -184,6 +184,38 @@ describe("WaitingChip", () => {
     expect(screen.getByText("Session Timers")).toBeInTheDocument();
   });
 
+  it("shows a timer's check with its machine, latest result and remaining quiet checks", () => {
+    // A timer with a check runs it on schedule without waking the session; the list shows
+    // its latest output so the user can see progress without waking anyone.
+    resetStore({
+      sessionTimers: new Map([
+        [
+          "s1",
+          [
+            makeTimer({
+              type: "recurring",
+              originalSpec: "5m",
+              check: {
+                command: "cat w1.status; grep -q passed w1.status",
+                host: "condor",
+                wakeEvery: 10,
+                checksSinceWake: 7,
+                lastResult: { at: Date.now() - 120_000, exitCode: 1, output: "old line\nbaking 227/337\n" },
+              },
+            }),
+          ],
+        ],
+      ]),
+    });
+    render(<WaitingChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button"));
+    const check = screen.getByTestId("timer-check");
+    expect(check).toHaveTextContent("Checks on condor: cat w1.status; grep -q passed w1.status");
+    expect(check).toHaveTextContent("Last check 2m ago: not yet (exit 1)");
+    expect(check).toHaveTextContent("or after 3 more checks");
+    expect(check).toHaveTextContent("baking 227/337");
+  });
+
   it("closes the timer list when the chip is tapped again", () => {
     // The list closes on presses outside it and a tap sends the press before
     // the click, so the chip must count as inside: its tap closes the list

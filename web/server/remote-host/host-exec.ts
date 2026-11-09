@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { inheritedLaunchEnv } from "../cli-launcher-env.js";
 import { getEnrichedPath } from "../path-resolver.js";
 import { LOCAL_HOST_ID, type HostProcessEvent } from "../../shared/host-protocol.js";
-import { describeExecOutcome, HOST_EXEC_MESSAGE_TAG, type ExecJob } from "../../shared/host-exec.js";
+import { describeExecOutcome, HOST_EXEC_MESSAGE_TAG, middleTruncate, type ExecJob } from "../../shared/host-exec.js";
 import { formatLeaseWaitDuration as formatDuration } from "../../shared/resource-lease-message.js";
 import type { BackgroundTaskSnapshot } from "../bridge/adapter-interface.js";
 import type { ResourceLeaseManager } from "../resource-lease-manager.js";
@@ -72,6 +72,15 @@ export interface ExecStartInput {
   pool?: string | null;
 }
 
+/** One run of a check command (see {@link HostExec.check}). */
+export interface CheckRun {
+  /** Null when it could not run or was stopped. */
+  exitCode: number | null;
+  output: string;
+  /** Why it could not run or finish. */
+  error?: string;
+}
+
 export interface ExecOutput {
   output: string;
   /** Bytes of the stored output; more than `output` holds when it was shortened. */
@@ -124,6 +133,10 @@ const LOG_TAIL_BYTES = 4 * 1024 * 1024;
 /** Output shown by default: this much from both ends of longer output. */
 export const EXEC_EXCERPT_BYTES = 20_000;
 const TAIL_READ_BYTES = 256 * 1024;
+/** Output of a check read at most; a check should print a line or two. */
+const CHECK_READ_BYTES = 256 * 1024;
+/** Output of a check kept: this many characters, half from each end. */
+const CHECK_OUTPUT_CHARS = 4_000;
 const NOTIFY_TAIL_LINES = 15;
 const NOTIFY_TAIL_CHARS = 2_000;
 const LOG_FLUSH_MS = 200;
@@ -245,6 +258,50 @@ export class HostExec {
     await this.save();
     this.deps.onSessionChange?.(job.sessionId);
     return publicJob(job);
+  }
+
+  /**
+   * Run a short command on a machine without recording it, for a timer's
+   * check: its exit code and output (stdout and stderr together, shortened in
+   * the middle), or why it could not run. Past `timeoutMs` it is stopped.
+   */
+  async check(input: { host: string; command: string; cwd?: string | null; timeoutMs: number }): Promise<CheckRun> {
+    let proc: RemoteProcess;
+    try {
+      const machine = await this.machine(input.host.trim());
+      const unusable = this.unusable(machine, null);
+      if (unusable) throw unusable;
+      proc = this.spawnShell(machine, input.command.trim(), input.cwd?.trim() || null, null);
+    } catch (error) {
+      return { exitCode: null, output: "", error: error instanceof Error ? error.message : String(error) };
+    }
+    const chunks: Buffer[] = [];
+    let kept = 0;
+    const output = (chunk: Buffer) => {
+      if (kept >= CHECK_READ_BYTES) return;
+      chunks.push(chunk);
+      kept += chunk.length;
+    };
+    proc.stdout.on("data", output);
+    proc.stderr.on("data", output);
+    let error: string | undefined;
+    proc.on("error", (e: Error) => {
+      error ??= e.message;
+    });
+    let timedOut = false;
+    const limit = setTimeout(() => {
+      timedOut = true;
+      proc.kill("SIGTERM");
+    }, input.timeoutMs);
+    const code = await new Promise<number | null>((resolve) => proc.once("exit", (exitCode) => resolve(exitCode)));
+    clearTimeout(limit);
+    await Promise.all([ended(proc.stdout), ended(proc.stderr)]);
+    if (timedOut) error = `stopped after ${formatDuration(input.timeoutMs)}, its time limit`;
+    return {
+      exitCode: error ? null : code,
+      output: middleTruncate(Buffer.concat(chunks).toString("utf8"), CHECK_OUTPUT_CHARS),
+      ...(error ? { error } : {}),
+    };
   }
 
   get(id: string): ExecJob | null {
@@ -561,22 +618,33 @@ export class HostExec {
 
   /** Start the job's process on the machine. */
   private launch(job: StoredJob, machine: { id: string; name: string }): void {
-    const proc = this.deps.links.spawn(machine.id, {
-      command: "/bin/sh",
-      args: ["-c", LOGIN_SHELL_SCRIPT, "takode-exec", job.command, job.cwd ?? ""],
-      // This machine's own node takes a complete environment; other hosts use their own.
-      env: machine.id === LOCAL_HOST_ID ? { ...inheritedLaunchEnv(process.env), PATH: getEnrichedPath() } : {},
-      group: true,
-      ...(job.memoryLimitBytes ? { memoryLimitBytes: job.memoryLimitBytes } : {}),
-    });
-    // Like `ssh -n`: a command waiting for input would otherwise hang.
-    proc.stdin.end();
+    const proc = this.spawnShell(machine, job.command, job.cwd, job.memoryLimitBytes ?? null);
     job.procId = proc.procId;
     job.hostId = machine.id;
     job.host = machine.name;
     job.status = "running";
     this.attach(job, proc, 0);
     console.log(`[host-exec] ${job.id} started on ${job.host} for session ${job.sessionNum ?? job.sessionId}`);
+  }
+
+  /** Run a command as the machine user's login shell (see {@link LOGIN_SHELL_SCRIPT}). */
+  private spawnShell(
+    machine: { id: string; name: string },
+    command: string,
+    cwd: string | null,
+    memoryLimitBytes: number | null,
+  ): RemoteProcess {
+    const proc = this.deps.links.spawn(machine.id, {
+      command: "/bin/sh",
+      args: ["-c", LOGIN_SHELL_SCRIPT, "takode-exec", command, cwd ?? ""],
+      // This machine's own node takes a complete environment; other hosts use their own.
+      env: machine.id === LOCAL_HOST_ID ? { ...inheritedLaunchEnv(process.env), PATH: getEnrichedPath() } : {},
+      group: true,
+      ...(memoryLimitBytes ? { memoryLimitBytes } : {}),
+    });
+    // Like `ssh -n`: a command waiting for input would otherwise hang.
+    proc.stdin.end();
+    return proc;
   }
 
   /** A queued command got its slot: start it on the slot's machine, or give the slot back. */

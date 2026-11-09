@@ -271,6 +271,14 @@ Turn **Agents may run commands here** off for a machine in
 **Settings → Hosts** to refuse new commands on it. The calling session's own
 permission mode still applies to its `takode exec` call.
 
+A timer's check (`takode timer create ... --every 5m --check '<command>'`)
+runs the same way at each tick, on the session's own machine (in its folder)
+or the machine named with `--host`, so a waiting session is woken only when
+the check exits 0, or with its latest result every `--wake-every` checks (10
+by default). Checks are not recorded as jobs, are stopped after 2 minutes,
+carry no session credentials, and are refused on machines with commands
+turned off; a check that cannot run counts as not passed and shows why.
+
 A Git worktree a session creates on another machine this way is registered
 with `takode worktree register <absolute-path> --host <machine> ...`; its
 checks, and its removal when the session is archived, then run on that

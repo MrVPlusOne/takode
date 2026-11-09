@@ -78,6 +78,27 @@ export function PlaygroundTimerStates() {
                           createdAt: now - 300_000,
                           fireCount: 0,
                         },
+                        {
+                          // A timer with a check: the server runs it at each tick and wakes
+                          // the session only when it passes, or after 10 checks that do not.
+                          id: "t4",
+                          sessionId: "playground-timers",
+                          title: "Wave 1 at Harbor",
+                          description: "Launch the GPT-5.6 run on wave 1.",
+                          type: "recurring" as const,
+                          originalSpec: "5m",
+                          nextFireAt: now + 120_000,
+                          intervalMs: 300_000,
+                          createdAt: now - 1_800_000,
+                          fireCount: 0,
+                          check: {
+                            command: "cat ~/runs/w1.status; grep -q harbor-passed ~/runs/w1.status",
+                            host: "condor1-cpu-takode",
+                            wakeEvery: 10,
+                            checksSinceWake: 6,
+                            lastResult: { at: now - 180_000, exitCode: 1, output: "baking 227/337 images\n" },
+                          },
+                        },
                       ],
                     ],
                   ]),
@@ -100,9 +121,10 @@ export function PlaygroundTimerStates() {
               </div>
             </div>
             <p className="text-[10px] text-cc-muted">
-              Click "Seed timer data" first: the chip shows the soonest timer's countdown and "+2" for the others. "Add
-              job + queue waits" makes the background job lead, with its run time, and "+4". Click the chip to list
-              every wait, timers with untruncated prompt text and cancel controls.
+              Click "Seed timer data" first: the chip shows the soonest timer's countdown and "+3" for the others; t4
+              has a check with its latest result. "Add job + queue waits" makes the background job lead, with its run
+              time, and "+5". Click the chip to list every wait, timers with untruncated prompt text and cancel
+              controls.
             </p>
           </div>
         </Card>

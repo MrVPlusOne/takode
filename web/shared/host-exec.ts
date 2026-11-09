@@ -89,3 +89,10 @@ export function describeExecOutcome(
   if (job.status === "failed" || job.exitCode === null) return `failed: ${job.error ?? "the process was lost"}`;
   return `exit ${job.exitCode}`;
 }
+
+/** `text` with its middle replaced by a note when it is longer than `max` characters. */
+export function middleTruncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const half = Math.floor(max / 2);
+  return `${text.slice(0, half)}\n[... ${text.length - 2 * half} characters left out ...]\n${text.slice(-half)}`;
+}

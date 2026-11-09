@@ -887,12 +887,22 @@ export type SessionTimerDetail = {
   intervalMs?: number;
   createdAt?: number;
   lastFiredAt?: number;
+  check?: {
+    command: string;
+    host: string;
+    wakeEvery: number;
+    checksSinceWake: number;
+    lastResult?: { at: number; exitCode: number | null; output: string; error?: string };
+  };
 };
 
 export const TIMER_CREATE_GUIDANCE =
   "Guidance: keep the timer title short and scannable. Use the description only for extra detail. " +
   "For recurring timers, keep the description general so it does not go stale across repeated firings. " +
-  "Leader timers use the current active thread; pass --thread main|q-N when no active thread is known or to choose another destination.";
+  "Leader timers use the current active thread; pass --thread main|q-N when no active thread is known or to choose another destination. " +
+  "When a recurring timer's point is to see whether something happened (a job finished, a log reached a stage), give it a --check " +
+  "that exits 0 once it has: the server runs it at each tick and wakes you only then, or with its latest result every --wake-every checks. " +
+  "Keep plain timers for clock times, judgment calls and checks only you can do.";
 
 /** A delay timer's spec ("in 152h") counts from its creation, so it is shown as "once" to avoid reading as a countdown. */
 export function formatTimerScheduleLabel(timer: Pick<SessionTimerDetail, "type" | "originalSpec">): string {
@@ -933,6 +943,16 @@ export function printTimerRows(timers: SessionTimerDetail[]): void {
     console.log(`${parts.join("  ")}  "${formatInlineText(timer.title)}"`);
     if (timer.description) {
       console.log(`      ${formatInlineText(timer.description)}`);
+    }
+    if (timer.check) {
+      const last = timer.check.lastResult;
+      const outcome = !last
+        ? "not run yet"
+        : `${last.error ? `could not run (${last.error})` : `exit ${last.exitCode}`} at ${formatTimestampCompact(last.at)}`;
+      console.log(
+        `      check on ${timer.check.host}: ${formatInlineText(timer.check.command)}  ` +
+          `(last: ${outcome}; ${timer.check.checksSinceWake}/${timer.check.wakeEvery} checks before the next wake)`,
+      );
     }
   }
 }

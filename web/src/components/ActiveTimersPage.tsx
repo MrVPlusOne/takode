@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type ActiveTimerSession } from "../api.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
+import { TimerCheckDetails } from "./TimerCheckDetails.js";
 
 function formatRelativeTime(epochMs: number): string {
   const diffMs = epochMs - Date.now();
@@ -36,6 +37,7 @@ function TimerRow({ timer }: { timer: ActiveTimerSession["timers"][number] }) {
           {timer.description && (
             <p className="text-xs leading-relaxed text-cc-muted whitespace-pre-wrap">{timer.description}</p>
           )}
+          {timer.check && <TimerCheckDetails check={timer.check} />}
         </div>
         <div className="shrink-0 text-right">
           <div className="text-sm font-mono-code text-cc-fg">next in {formatRelativeTime(timer.nextFireAt)}</div>

@@ -314,7 +314,17 @@ const prPoller = new PRPoller(wsBridge);
 const recorder = new RecorderManager();
 const imageStore = new ImageStore();
 const cronScheduler = new CronScheduler(launcher, wsBridge);
-const timerManager = new TimerManager(wsBridge);
+const timerManager = new TimerManager(wsBridge, {
+  // A check runs on the session's own machine, in its folder, unless another machine is named.
+  target: async (sessionId, host) => {
+    const session = launcher.getSession(sessionId);
+    const own = session?.hostId ?? LOCAL_HOST_ID;
+    const machine = await hostExec.findMachine(host ?? own);
+    if (!machine) throw new Error(`No machine named ${host ?? own}`);
+    return { host: machine.name, ...(machine.id === own && session?.cwd ? { cwd: session.cwd } : {}) };
+  },
+  run: (input) => hostExec.check(input),
+});
 const resourceLeaseManager = new ResourceLeaseManager(wsBridge, new ResourceLeaseStore(serverId));
 const hostRegistry = HostRegistry.forServer(serverId);
 // Claude/Codex binaries are per-machine settings now; older builds kept them as

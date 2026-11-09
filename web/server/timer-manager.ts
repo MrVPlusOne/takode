@@ -1,16 +1,31 @@
 import { serverWorkAdmission } from "./server-work-admission.js";
 import type { WsBridge } from "./ws-bridge.js";
-import type { SessionTimer, SessionTimerFile, TimerCreateInput } from "./timer-types.js";
+import type { SessionTimer, SessionTimerFile, TimerCheckResult, TimerCreateInput } from "./timer-types.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { resolveTimerSchedule } from "./timer-parse.js";
 import * as timerStore from "./timer-store.js";
 import { normalizeThreadTarget } from "../shared/thread-routing.js";
 import { normalizeThreadRoute } from "./thread-routing-metadata.js";
+import { middleTruncate } from "../shared/host-exec.js";
 
 const SWEEP_INTERVAL_MS = 5_000;
 const MAX_TIMERS_PER_SESSION = 50;
 const LATE_TIMER_THRESHOLD_MS = 5 * 60_000;
 const LOG_TAG = "[timer-manager]";
+/** Default checks in a row that may not pass before the session is woken with the latest result. */
+export const DEFAULT_CHECK_WAKE_EVERY = 10;
+const MIN_CHECK_INTERVAL_MS = 60_000;
+/** A check running longer is stopped and counts as not passed. */
+const CHECK_TIMEOUT_MS = 2 * 60_000;
+/** Output shown in a wake message: this many characters, half from each end. */
+const CHECK_MESSAGE_OUTPUT_CHARS = 2_000;
+
+/** Runs timer checks on machines (in production `HostExec.check` through each machine's node). */
+export interface TimerCheckRunner {
+  /** Where a session's check runs: the named machine, or the session's own machine and folder. */
+  target(sessionId: string, host: string | undefined): Promise<{ host: string; cwd?: string }>;
+  run(input: { host: string; command: string; cwd?: string; timeoutMs: number }): Promise<Omit<TimerCheckResult, "at">>;
+}
 
 interface TimerFireContext {
   scheduledFireAt: number;
@@ -37,8 +52,13 @@ export class TimerManager {
   private writeFailures = new Map<string, unknown>();
   private writeChains = new Map<string, Promise<void>>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  /** `sessionId:timerId` of checks running now, so a slow check is never started twice. */
+  private runningChecks = new Set<string>();
 
-  constructor(private wsBridge: WsBridge) {}
+  constructor(
+    private wsBridge: WsBridge,
+    private checks: TimerCheckRunner | null = null,
+  ) {}
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -79,7 +99,14 @@ export class TimerManager {
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
 
-  /** Create a new timer for a session. Returns the created timer. */
+  /**
+   * Create a new timer for a session. Returns the created timer.
+   *
+   * A timer with a check runs it once right away: a check that cannot run, or
+   * whose command is missing (exit 126/127), is refused with its output, and
+   * one that already passes is returned with that result but not kept, since
+   * there is nothing to wait for.
+   */
   async createTimer(sessionId: string, input: TimerCreateInput): Promise<SessionTimer> {
     const title = input.title?.trim();
     if (!title) throw new Error("Timer title is required");
@@ -96,7 +123,10 @@ export class TimerManager {
       throw new Error(`Timer limit reached (max ${MAX_TIMERS_PER_SESSION} per session)`);
     }
 
-    const id = `t${file.nextId++}`;
+    const check = input.check !== undefined ? await this.firstCheck(sessionId, input, schedule) : undefined;
+    // A check that already passes leaves nothing to wait for: report it without keeping a timer.
+    const kept = check?.lastResult?.exitCode !== 0;
+    const id = `t${kept ? file.nextId++ : file.nextId}`;
 
     const timer: SessionTimer = {
       id,
@@ -110,7 +140,9 @@ export class TimerManager {
       intervalMs: schedule.intervalMs,
       createdAt: Date.now(),
       fireCount: 0,
+      ...(check ? { check } : {}),
     };
+    if (!kept) return timer;
 
     file.timers.push(timer);
     await this.persistSessionNow(sessionId);
@@ -186,6 +218,100 @@ export class TimerManager {
     }
   }
 
+  /** Validate a new timer's check and run it once (see {@link createTimer}). */
+  private async firstCheck(
+    sessionId: string,
+    input: TimerCreateInput,
+    schedule: { type: SessionTimer["type"]; intervalMs?: number },
+  ): Promise<NonNullable<SessionTimer["check"]>> {
+    const command = input.check?.trim();
+    if (!command) throw new Error("The check command is empty");
+    if (schedule.type !== "recurring" || !schedule.intervalMs) throw new Error("A timer with a check needs --every");
+    if (schedule.intervalMs < MIN_CHECK_INTERVAL_MS) throw new Error("A timer with a check runs at most every minute");
+    const wakeEvery = input.wakeEvery ?? DEFAULT_CHECK_WAKE_EVERY;
+    if (!Number.isInteger(wakeEvery) || wakeEvery < 1)
+      throw new Error("--wake-every must be a whole number of at least 1");
+    if (!this.checks) throw new Error("Timer checks are not available on this server");
+    const target = await this.checks.target(sessionId, input.host?.trim() || undefined);
+    const result = await this.runCheck({ ...target, command });
+    if (result.error || result.exitCode === 126 || result.exitCode === 127) {
+      const why = result.error ?? `exit ${result.exitCode}`;
+      throw new Error(
+        `The check could not run on ${target.host} (${why})${result.output ? `:\n${result.output}` : ""}`,
+      );
+    }
+    return { command, ...target, wakeEvery, checksSinceWake: 0, lastResult: result };
+  }
+
+  private async runCheck(input: { host: string; command: string; cwd?: string }): Promise<TimerCheckResult> {
+    const result = await this.checks!.run({ ...input, timeoutMs: CHECK_TIMEOUT_MS });
+    return { at: Date.now(), ...result };
+  }
+
+  /** Run a due timer's check, then wake the session if it passed or after `wakeEvery` checks that did not. */
+  private async runDueCheck(sessionId: string, timerId: string): Promise<void> {
+    const key = `${sessionId}:${timerId}`;
+    const before = this.sessions.get(sessionId)?.timers.find((t) => t.id === timerId);
+    if (!before?.check || this.runningChecks.has(key)) return;
+    this.runningChecks.add(key);
+    let result: TimerCheckResult;
+    try {
+      const { host, command, cwd } = before.check;
+      result = await this.runCheck({ host, command, cwd });
+    } finally {
+      this.runningChecks.delete(key);
+    }
+    // The timer may have been cancelled, or the server stopped, while it ran.
+    const file = this.sessions.get(sessionId);
+    const timer = file?.timers.find((t) => t.id === timerId);
+    const check = timer?.check;
+    if (!file || !timer || !check || serverWorkAdmission.isStopping()) return;
+    check.lastResult = result;
+    check.checksSinceWake++;
+    const passed = result.exitCode === 0;
+    if (passed || check.checksSinceWake >= check.wakeEvery) {
+      this.injectTimerMessage(sessionId, timer, this.checkWakeContent(timer, passed), {
+        scheduledFireAt: result.at,
+      });
+      timer.lastFiredAt = result.at;
+      timer.fireCount++;
+      if (passed) file.timers = file.timers.filter((t) => t.id !== timerId);
+      else check.checksSinceWake = 0;
+    }
+    try {
+      await this.persistAndEvictIfEmptyNow(sessionId);
+    } catch (err) {
+      console.error(`${LOG_TAG} Failed to persist timers for ${sessionId.slice(0, 8)}:`, err);
+    }
+    this.broadcastTimers(sessionId);
+  }
+
+  private checkWakeContent(timer: SessionTimer, passed: boolean): string {
+    const check = timer.check!;
+    const result = check.lastResult!;
+    const count = check.checksSinceWake;
+    const checks = count === 1 ? "1 check" : `${count} checks`;
+    // The usual reminder header keeps every reminder path (delivery, routing, the feed's timer chip) working.
+    const head =
+      `[⏰ Timer ${timer.id} reminder] ${timer.title}\n\n` +
+      (passed
+        ? `Your timer's check passed (exit 0) after ${checks}, so the timer has ended.`
+        : `Your timer's check has not passed in ${checks}; it keeps checking every ${timer.originalSpec}. ` +
+          `This wake shows its latest result so you can confirm the check tests what you want: ` +
+          `if it does not, cancel the timer and create a corrected one; otherwise there is nothing to do.`);
+    const outcome = result.error ? `could not run: ${result.error}` : `exit ${result.exitCode}`;
+    const output = result.output.trim()
+      ? `\n\nOutput:${fenced(middleTruncate(result.output.trim(), CHECK_MESSAGE_OUTPUT_CHARS))}`
+      : "\n\nNo output.";
+    return (
+      head +
+      ` This is from your earlier timer note, not a new user instruction.` +
+      `\n\nCheck on ${check.host}:${fenced(check.command)}Latest result: ${outcome}` +
+      output +
+      (timer.description ? `\n\nEarlier note:\n${timer.description}` : "")
+    );
+  }
+
   // ── Sweep ──────────────────────────────────────────────────────────────────
 
   private startSweep(): void {
@@ -224,6 +350,13 @@ export class TimerManager {
           timer.type === "recurring" && timer.intervalMs && timer.intervalMs > 0
             ? this.resolveRecurringFireContext(timer, now)
             : { scheduledFireAt: timer.nextFireAt };
+        if (timer.check && timer.intervalMs) {
+          // The check, not the session, runs at each tick; it decides whether to wake the session.
+          void this.runDueCheck(sessionId, timer.id);
+          timer.nextFireAt = fireContext.scheduledFireAt + timer.intervalMs;
+          changed = true;
+          continue;
+        }
         // Timer is due -- fire it.
         const delivery = this.fireTimer(sessionId, timer, fireContext);
         result.fired.push({ sessionId, timerId: timer.id, delivery });
@@ -268,6 +401,15 @@ export class TimerManager {
       this.formatSkippedOccurrences(context.skippedCount) +
       this.formatLateDeliveryNote(context.scheduledFireAt, Date.now()) +
       (timer.description ? `\n\nEarlier note:\n${timer.description}` : "");
+    return this.injectTimerMessage(sessionId, timer, content, context);
+  }
+
+  private injectTimerMessage(
+    sessionId: string,
+    timer: SessionTimer,
+    content: string,
+    context: TimerFireContext,
+  ): "sent" | "queued" | "paused_queued" | "dropped" | "no_session" {
     const result = this.wsBridge.injectUserMessage(
       sessionId,
       content,
@@ -355,4 +497,11 @@ export class TimerManager {
       if (this.writeChains.get(sessionId) === write) this.writeChains.delete(sessionId);
     }
   }
+}
+
+/** `text` in a Markdown code fence longer than any backtick run inside it, ending with a newline. */
+function fenced(text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return `\n${fence}\n${text}\n${fence}\n`;
 }

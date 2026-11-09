@@ -515,21 +515,33 @@ const TIMER_HELP = `Usage: takode timer <create|list|cancel> ...
 Session-scoped timers for the current session.
 
 Subcommands:
-  create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>
+  create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec> [--check <command> [--host <machine>] [--wake-every <N>]]
   list
   cancel <timer-id>
 
 ${TIMER_CREATE_GUIDANCE}
 `;
 
-const TIMER_CREATE_HELP = `Usage: takode timer create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>
+const TIMER_CREATE_HELP = `Usage: takode timer create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec> [--check <command> [--host <machine>] [--wake-every <N>]]
 
 Create a session-scoped timer.
+
+Checks (with --every, at least 1m):
+  --check <command>   Run this at each tick instead of waking you. Exit 0 wakes you and ends the timer;
+                      any other result waits for the next tick. It runs once now: a check that cannot run
+                      is refused, and one that already passes creates no timer.
+  --host <machine>    Machine the check runs on (default: this session's machine, in its folder).
+  --wake-every <N>    Also wake you with the latest result after N checks that did not pass (default 10).
+  Checks run in your login shell like takode exec, are stopped after 2 minutes, and carry no session credentials.
+
+${TIMER_CREATE_GUIDANCE}
 
 Examples:
   takode timer create "Check build health" --desc "Inspect the latest failing shard if red." --in 30m
   takode timer create "Deploy reminder" --at 3pm
   takode timer create "Refresh context" --desc "Summarize new blockers since the last run." --every 10m
+  takode timer create "Wave 1 at Harbor" --every 5m --host condor --check 'grep -q "harbor: passed" ~/logs/build.log' --desc "Launch the GPT-5.6 run on wave 1."
+  takode timer create "Condor load high" --every 10m --host condor --check 'awk "{exit !(\\$1 > 60)}" /proc/loadavg' --wake-every 12
 `;
 
 const TIMER_LIST_HELP = `Usage: takode timer list
