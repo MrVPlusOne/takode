@@ -23,13 +23,20 @@ import { describe, expect, it } from "vitest";
 const WEB_DIR = resolve(__dirname, "..");
 
 /** Host-side entry modules outside `bin/`. */
-const HOST_SERVER_MODULES = ["server/remote-host/host-agent.ts", "server/remote-host/host-operations.ts"];
+const HOST_SERVER_MODULES = [
+  "server/remote-host/host-agent.ts",
+  "server/remote-host/host-operations.ts",
+  "server/remote-host/remote-node-setup.ts",
+];
 
 /**
  * Modules that keep coordinator data without naming its paths themselves, so
  * importing them counts like importing the store they wrap.
  */
 const COORDINATOR_DATA_WRAPPERS = ["server/stream-command.ts", "server/workstream-memory-service.ts"];
+
+/** Modules that pass on another module's `~/.companion` paths, so importing them counts too. */
+const PATH_REEXPORTS = ["server/git-utils.ts"];
 
 const LOCAL_READ_FALLBACK =
   "Read fallback to this machine's store, only when no server answers on the server's own machine and never on a " +
@@ -74,14 +81,14 @@ const INVENTORY: Record<string, string> = {
   "bin/takode-sidecar-client.ts -> server/codex-sidecar-auth.ts":
     "Credentials for the Takode server on this machine, used by a standalone Codex task",
   "bin/takode-land.ts: landing": "Checkouts, scratch space and logs of landing runs on this machine",
-  "bin/takode-node.ts -> server/git-utils.ts":
+  "bin/takode-node.ts -> server/worktrees-base.ts":
     "Counts the entries of this machine's worktree folder, whose size slows Bun starts there",
-  "bin/takode-node.ts -> server/landing-runner-launcher.ts": LANDING_RUNNERS,
+  "server/remote-host/remote-node-setup.ts -> server/landing-runner-launcher.ts": LANDING_RUNNERS,
   "bin/takode-node.ts -> server/machine-identity.ts":
     "This machine's name belongs to the machine; the node reports it to the coordinator",
-  "bin/takode-node.ts -> server/quest-integration.ts":
+  "server/remote-host/remote-node-setup.ts -> server/quest-integration.ts":
     "Installs CLI wrappers and skills from this machine's Takode checkout (code, not configuration)",
-  "bin/takode-node.ts -> server/quest-journey-phases.ts":
+  "server/remote-host/remote-node-setup.ts -> server/quest-journey-phases.ts":
     "Installs Quest Journey phase briefs from this machine's Takode checkout (code, not configuration)",
   "server/remote-host/host-agent.ts -> server/cli-launcher-codex.ts":
     "Prepares Codex launches with this machine's Codex install and session homes; settings come from the coordinator",
@@ -143,6 +150,7 @@ function hostLocalReaches(): Set<string> {
   const companionModules = new Set([
     ...sourceFiles("server").filter((file) => companionEntries(file).length > 0),
     ...COORDINATOR_DATA_WRAPPERS,
+    ...PATH_REEXPORTS,
   ]);
   const reaches = new Set<string>();
   for (const file of [...sourceFiles("bin"), ...HOST_SERVER_MODULES]) {

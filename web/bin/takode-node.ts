@@ -22,9 +22,11 @@
  *
  * `--shared-checkout` is how a coordinator starts its own machine's node (see
  * `local-node.ts`): the node runs from the coordinator's checkout, so it leaves
- * installing the agent CLI wrappers and skills to the coordinator, and an
- * update restarts it on that checkout's current code instead of switching the
- * checkout; the coordinator starts it again.
+ * installing the agent CLI wrappers and skills, and running host operations,
+ * to the coordinator. An update restarts it on that checkout's current code
+ * instead of switching the checkout, and comes only when the code the node
+ * loads changed (`nodeCodeFingerprint`), not on every commit; the coordinator
+ * starts it again.
  *
  * Which Claude Code and Codex programs it runs comes from this host's settings
  * on the coordinator (Settings > Hosts). `--claude` and `--codex` override
@@ -51,14 +53,9 @@ import {
   readCheckoutCommit,
   switchCheckoutToCommit,
 } from "../server/remote-host/host-update.js";
-import { ensureBuiltInQuestJourneyPhaseData } from "../server/quest-journey-phases.js";
-import { ensureQuestmasterIntegration } from "../server/quest-integration.js";
-import { ensureSkillSymlinks, GLOBAL_SKILL_SLUGS } from "../server/skill-symlink.js";
-import { ensureTakodeIntegration } from "../server/takode-integration.js";
-import { setLandingRunnerApiPort } from "../server/landing-runner-launcher.js";
-import { runPreListenStartupReadiness } from "../server/startup-readiness.js";
+import { nodeCodeFingerprint } from "../server/remote-host/node-code.js";
 import { findCrowdedDirectories } from "../server/remote-host/crowded-directory-check.js";
-import { WORKTREES_BASE } from "../server/git-utils.js";
+import { WORKTREES_BASE } from "../server/worktrees-base.js";
 import { crowdedDirectoryWarning } from "../shared/crowded-directories.js";
 
 const args = process.argv.slice(2);
@@ -107,22 +104,13 @@ async function main(): Promise<void> {
   let agent: HostAgent | null = null;
   // Agent CLIs wait while the coordinator is away (e.g. restarting) instead of failing.
   const proxy = startApiProxy({ coordinatorUrl, port: apiPort, coordinatorConnected: () => agent?.connected ?? false });
-  // Landing runners the coordinator starts here reach it through the same proxy.
-  setLandingRunnerApiPort(proxy.port);
-  // Agents here need the same CLI wrappers, skills and phase briefs as on the
-  // coordinator, installed from this machine's own Takode checkout.
+  // Loaded only here, so this machine's own node does not count that code as its own (`nodeCodeFingerprint`).
   if (!sharedCheckout) {
-    await runPreListenStartupReadiness(
-      {
-        ensureQuestmasterIntegration,
-        ensureTakodeIntegration,
-        ensureBuiltInQuestJourneyPhaseData,
-        ensureSkillSymlinks,
-      },
-      { port: proxy.port, packageRoot, startupSkillSlugs: GLOBAL_SKILL_SLUGS },
-    );
+    const { setUpRemoteNode } = await import("../server/remote-host/remote-node-setup.js");
+    await setUpRemoteNode(proxy.port, packageRoot);
   }
   const build = await readCheckoutCommit(packageRoot);
+  const codeFingerprint = await nodeCodeFingerprint(packageRoot);
   const crowdedDirectories = await findCrowdedDirectories({
     takodeRoot: packageRoot,
     tempDir: tmpdir(),
@@ -140,6 +128,9 @@ async function main(): Promise<void> {
     apiProxyPort: proxy.port,
     commands,
     build,
+    codeFingerprint,
+    // This machine's coordinator runs host operations for its sessions itself.
+    hostOperations: !sharedCheckout,
     crowdedDirectories,
     machineName: await readMachineName(),
     guardMemory: true,
@@ -148,12 +139,12 @@ async function main(): Promise<void> {
       ? {
           // The coordinator's own checkout: there is nothing to fetch, only the code to restart on.
           prepareUpdate: async () => {
-            await sharedCheckoutCommit(packageRoot, build);
+            await refuseUnchangedCode(packageRoot, codeFingerprint);
             return { ready: true as const };
           },
           update: async () => {
-            const current = await sharedCheckoutCommit(packageRoot, build);
-            console.log(`[takode node] Restarting to run ${current ?? "the checkout's current code"}`);
+            await refuseUnchangedCode(packageRoot, codeFingerprint);
+            console.log("[takode node] Restarting to run the checkout's current code");
             await restart();
           },
         }
@@ -193,13 +184,11 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
 }
 
-/** The commit of the shared checkout the node would restart on; throws when the node already runs it. */
-async function sharedCheckoutCommit(packageRoot: string, build: string | null): Promise<string | null> {
-  const current = await readCheckoutCommit(packageRoot);
-  if (current === build) {
+/** Throws when restarting on the shared checkout would load the code this node already runs. */
+async function refuseUnchangedCode(packageRoot: string, running: string | null): Promise<void> {
+  if (running !== null && (await nodeCodeFingerprint(packageRoot)) === running) {
     throw new Error("It already runs the checkout's current code; restart the server to match it");
   }
-  return current;
 }
 
 /**

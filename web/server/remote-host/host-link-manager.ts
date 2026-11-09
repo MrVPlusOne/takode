@@ -138,6 +138,10 @@ interface HostLink {
   /** Whether the host last reported a usable network of its own. */
   network: boolean;
   build: string | null;
+  /** Fingerprint of the code the host's node loaded (`nodeCodeFingerprint`); null from older hosts. */
+  codeFingerprint: string | null;
+  /** This machine's own node, which runs the coordinator's checkout. */
+  local: boolean;
   autoUpdate: boolean;
   /** The host answers `prepare_update`; older hosts are sent `update` without it. */
   preparesUpdates: boolean;
@@ -207,6 +211,15 @@ export class HostLinkManager {
    * auto-updated to. Null when unknown, which disables both.
    */
   build: string | null;
+  /**
+   * Fingerprint of the code this machine's own node would load from this
+   * coordinator's checkout (`nodeCodeFingerprint`). That node runs the
+   * checkout as it is, and only a change to this code restarts it: Restart
+   * Server ends its sessions' processes, with any sub-agents running in them,
+   * only when the node itself changed. Null when unknown, which compares
+   * commits instead, as for other hosts.
+   */
+  localNodeCode: string | null = null;
   /**
    * This coordinator was started by the user's Restart Server: each
    * auto-updating host on another build is updated right away, once,
@@ -427,14 +440,18 @@ export class HostLinkManager {
   }
 
   /**
-   * The connected hosts a coordinator running `commit` would update: they let
-   * it, and run another build. Restart Server asks this about the build it is
-   * about to load, since those nodes' processes end with their update.
+   * The connected hosts a coordinator running `next` would update: they let
+   * it, and run another build (this machine's node: other code). Restart
+   * Server asks this about the build it is about to load, since those nodes'
+   * processes end with their update.
    */
-  hostsUpdatedTo(commit: string | null): string[] {
-    if (!commit) return [];
+  hostsUpdatedTo(next: { commit: string | null; localNodeCode: string | null }): string[] {
+    if (!next.commit) return [];
     return [...this.links]
-      .filter(([, link]) => link.online && link.socket && link.autoUpdate && link.build !== commit)
+      .filter(
+        ([, link]) =>
+          link.online && link.socket && link.autoUpdate && this.differsFrom(link, next.commit, next.localNodeCode),
+      )
       .map(([hostId]) => hostId);
   }
 
@@ -635,6 +652,7 @@ export class HostLinkManager {
       link.nextCommandSeq = link.unacked.length + 1;
       link.hostInstanceId = hello.instanceId;
       link.build = hello.build ?? null;
+      link.codeFingerprint = hello.codeFingerprint ?? null;
       link.autoUpdate = hello.autoUpdate === true;
       link.preparesUpdates = hello.preparesUpdates === true;
       link.preparing = false;
@@ -691,7 +709,20 @@ export class HostLinkManager {
 
   /** Whether the host runs a build other than this coordinator's, or one it does not report. */
   private buildMismatch(link: HostLink): boolean {
-    return link.hostInstanceId !== null && this.build !== null && link.build !== this.build;
+    return (
+      link.hostInstanceId !== null && this.build !== null && this.differsFrom(link, this.build, this.localNodeCode)
+    );
+  }
+
+  /**
+   * Whether the host's node runs other code than a coordinator running `commit`
+   * would have it run. This machine's node compares the code it loaded, since
+   * most commits leave it alone; other hosts, and a node that does not report
+   * its code, compare commits.
+   */
+  private differsFrom(link: HostLink, commit: string | null, localNodeCode: string | null): boolean {
+    if (link.local && link.codeFingerprint && localNodeCode) return link.codeFingerprint !== localNodeCode;
+    return link.build !== commit;
   }
 
   private mismatchText(hostId: string, link: HostLink): string {
@@ -914,6 +945,8 @@ export class HostLinkManager {
         user: null,
         network: true,
         build: null,
+        codeFingerprint: null,
+        local: hostId === LOCAL_HOST_ID,
         autoUpdate: false,
         preparesUpdates: false,
         preparing: false,

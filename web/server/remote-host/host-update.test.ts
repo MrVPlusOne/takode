@@ -221,16 +221,16 @@ describe("host builds and auto-update over the link", () => {
   it("names the hosts a coordinator on a given build would update", async () => {
     agent = startAgent({ build: HOST_BUILD, update: async () => {} });
     await waitFor(() => manager.status(hostId).online);
-    expect(manager.hostsUpdatedTo(COORDINATOR_BUILD)).toEqual([hostId]);
-    expect(manager.hostsUpdatedTo(HOST_BUILD)).toEqual([]);
-    expect(manager.hostsUpdatedTo(null)).toEqual([]);
+    expect(manager.hostsUpdatedTo({ commit: COORDINATOR_BUILD, localNodeCode: null })).toEqual([hostId]);
+    expect(manager.hostsUpdatedTo({ commit: HOST_BUILD, localNodeCode: null })).toEqual([]);
+    expect(manager.hostsUpdatedTo({ commit: null, localNodeCode: null })).toEqual([]);
 
     agent.stop();
     await waitFor(() => !manager.status(hostId).online);
-    expect(manager.hostsUpdatedTo(COORDINATOR_BUILD)).toEqual([]);
+    expect(manager.hostsUpdatedTo({ commit: COORDINATOR_BUILD, localNodeCode: null })).toEqual([]);
     agent = startAgent({ build: HOST_BUILD });
     await waitFor(() => manager.status(hostId).online);
-    expect(manager.hostsUpdatedTo(COORDINATOR_BUILD)).toEqual([]);
+    expect(manager.hostsUpdatedTo({ commit: COORDINATOR_BUILD, localNodeCode: null })).toEqual([]);
   });
 
   // A host without --auto-update is never asked, however idle it is.

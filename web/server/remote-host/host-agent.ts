@@ -7,7 +7,6 @@ import { dirname } from "node:path";
 import { getEnrichedPath } from "../path-resolver.js";
 import { inheritedLaunchEnv } from "../cli-launcher-env.js";
 import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
-import { performHostOperation } from "./host-operations.js";
 import type { CrowdedDirectory } from "../../shared/crowded-directories.js";
 import type { UpdatePreparation } from "./host-update.js";
 import { HOST_LINK_FEATURES, HostLinkCodec, processBytes, processData } from "./host-link-codec.js";
@@ -74,6 +73,14 @@ export interface HostAgentOptions {
   }>;
   /** Git commit this node's Takode checkout was at when it started, reported to the coordinator. */
   build?: string | null;
+  /** Fingerprint of the code this node loaded at start (`nodeCodeFingerprint`), reported to the coordinator. */
+  codeFingerprint?: string | null;
+  /**
+   * Run the coordinator's host operations (Git, worktrees, deliveries) here,
+   * as a node on another machine does; on by default. This machine's own node
+   * has the coordinator run them itself, so it leaves them unloaded.
+   */
+  hostOperations?: boolean;
   /** The name this machine keeps for itself, or null when it has none yet. */
   machineName?: string | null;
   /** Keep a new name for this machine: the registration name when it had none, or a rename. */
@@ -187,12 +194,16 @@ export class HostAgent {
   private readonly log: (message: string) => void;
   private readonly memoryGuard: MemoryGuard | null;
   private readonly caffeinate: Caffeinate;
+  /** The host operations module, loaded right away unless this node runs none (see `hostOperations`). */
+  private readonly hostOperations: Promise<HostOperations> | null;
 
   constructor(private readonly options: HostAgentOptions) {
     this.log = options.log ?? ((message) => console.log(`[takode node] ${message}`));
     this.caffeinate = options.caffeinate ?? new Caffeinate(this.log);
     this.machineName = options.machineName ?? null;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
+    // Loaded at start rather than on first use, so this node runs the code it started with.
+    this.hostOperations = options.hostOperations === false ? null : loadHostOperations();
     this.maxReconnectDelayMs = isLoopbackHost(new URL(options.coordinatorUrl).hostname)
       ? MAX_LOOPBACK_RECONNECT_DELAY_MS
       : MAX_RECONNECT_DELAY_MS;
@@ -273,6 +284,7 @@ export class HostAgent {
           (feature) => feature !== "memory_limit" || this.memoryGuard !== null,
         ),
         ...(this.options.build ? { build: this.options.build } : {}),
+        ...(this.options.codeFingerprint ? { codeFingerprint: this.options.codeFingerprint } : {}),
         ...(this.options.update ? { autoUpdate: true } : {}),
         ...(this.options.update && this.options.prepareUpdate ? { preparesUpdates: true } : {}),
         ...(this.options.commands && Object.keys(this.options.commands).length > 0
@@ -491,7 +503,7 @@ export class HostAgent {
           ? await this.prepareCodex(request)
           : request.kind === "prepare_update"
             ? await this.prepareUpdate(request)
-            : await performHostRequest(request);
+            : await performHostRequest(request, this.hostOperations);
       this.send({ t: "response", id, ok: true, response });
     } catch (error) {
       this.send({ t: "response", id, ok: false, error: errorMessage(error) });
@@ -835,7 +847,23 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /** Perform one coordinator request on this machine. */
-export async function performHostRequest(request: HostRequest): Promise<HostResponse> {
+type HostOperations = typeof import("./host-operations.js");
+
+let hostOperationsModule: Promise<HostOperations> | null = null;
+
+/** The host operations module, imported once for every agent in this process. */
+function loadHostOperations(): Promise<HostOperations> {
+  if (!hostOperationsModule) {
+    hostOperationsModule = import("./host-operations.js");
+    hostOperationsModule.catch(() => {});
+  }
+  return hostOperationsModule;
+}
+
+export async function performHostRequest(
+  request: HostRequest,
+  hostOperations: Promise<HostOperations> | null,
+): Promise<HostResponse> {
   switch (request.kind) {
     case "exec":
       return runShell(request);
@@ -867,8 +895,11 @@ export async function performHostRequest(request: HostRequest): Promise<HostResp
       throw new Error("Codex launches are prepared by the host agent");
     case "prepare_update":
       throw new Error("Updates are prepared by the host agent");
-    case "operation":
+    case "operation": {
+      if (!hostOperations) throw new Error("This machine's own node does not run host operations");
+      const { performHostOperation } = await hostOperations;
       return { kind: "operation", result: await performHostOperation(request.name, request.args) };
+    }
     case "write_file":
       await mkdir(dirname(request.path), { recursive: true });
       await writeFile(request.path, Buffer.from(request.data, "base64"), { mode: request.mode });

@@ -256,6 +256,12 @@ export type HostToCoordinator =
        */
       build?: string;
       /**
+       * Fingerprint of the code this `takode node` process loaded when it
+       * started (`nodeCodeFingerprint`); absent from older hosts. This
+       * machine's own node is restarted only when it changes.
+       */
+      codeFingerprint?: string;
+      /**
        * Whether this host accepts `update`: the coordinator may switch it to the
        * coordinator's own commit (`takode node` without `--no-auto-update`).
        */

@@ -3,7 +3,6 @@ import { promisify } from "node:util";
 import { existsSync, mkdirSync } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
 import { join, basename, resolve } from "node:path";
-import { homedir } from "node:os";
 import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "./constants.js";
 import { captureCreatedWorktreeBranch, type CreatedWorktreeBranch } from "./worktree-branch-retirement.js";
 import type { Machine } from "./remote-host/session-machine.js";
@@ -49,12 +48,9 @@ export interface WorktreeCreateResult {
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
 
-/** A machine's default folder for session worktrees, given its home directory. */
-export function defaultWorktreesBase(home: string): string {
-  return join(home, ".companion", "worktrees");
-}
-
-export const WORKTREES_BASE = defaultWorktreesBase(homedir());
+// In their own module so `takode node` can use them without loading the rest of this one.
+import { WORKTREES_BASE } from "./worktrees-base.js";
+export { defaultWorktreesBase, WORKTREES_BASE } from "./worktrees-base.js";
 
 function sanitizeBranch(branch: string): string {
   return branch.replace(/\//g, "--");

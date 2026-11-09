@@ -107,6 +107,7 @@ import { HostUpdateSessions } from "./remote-host/host-update-sessions.js";
 import { hostPortFor, hostPortGate, mainPortHostRefusal } from "./remote-host/host-port.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { createUpdateBundle, readCheckoutCommit } from "./remote-host/host-update.js";
+import { nodeCodeFingerprint } from "./remote-host/node-code.js";
 import { configureRemoteMachines, hostIsOnline } from "./remote-host/session-machine.js";
 import { configureMachines } from "./remote-host/machines.js";
 import { ThisMachine, thisMachineDetails } from "./machine-identity.js";
@@ -344,6 +345,7 @@ configureMachineSettings(hostRegistry);
 const browserLogin = await BrowserLogin.forServer(serverId);
 const runningCommit = await readCheckoutCommit(packageRoot);
 const hostLinks = new HostLinkManager({ build: runningCommit });
+hostLinks.localNodeCode = await nodeCodeFingerprint(packageRoot);
 const previousBuild = await rememberServerBuild(join(sessionStore.directory, "server-build.json"), runningCommit).catch(
   (error) => {
     console.warn("[server] Could not record the server build:", error);
@@ -1506,7 +1508,13 @@ app.route(
       serverCheckout,
       updateCheckoutOnRestart: frontendRequired,
       // The restarted server runs the commit its checkout is at now (after any update before the restart).
-      nodesUpdatedAfterRestart: async () => new Set(hostLinks.hostsUpdatedTo(await readCheckoutCommit(packageRoot))),
+      nodesUpdatedAfterRestart: async () =>
+        new Set(
+          hostLinks.hostsUpdatedTo({
+            commit: await readCheckoutCommit(packageRoot),
+            localNodeCode: await nodeCodeFingerprint(packageRoot),
+          }),
+        ),
       restartSupported,
       buildIdentity: runtimeBuildIdentity,
       codexSidecarRegistry,
