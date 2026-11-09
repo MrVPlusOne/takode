@@ -16,6 +16,162 @@ The rest of the release is about spending less effort keeping up with your agent
 
 Under the hood, Claude sessions now run only through the Claude Agent SDK, with Claude's native Auto permission mode, a reasoning effort picker and the model list Claude Code itself reports. Teams that share a branch can turn on a landing queue that tests waiting changes together and lands them, so workers are free as soon as they submit. Switching sessions over a slow connection is much faster thanks to compressed traffic and a reused connection. The dated entries below list every notable change.
 
+## 2026-11-09
+
+### Added
+
+- **Scenic backgrounds** -- Settings → Appearance can put a painted landscape behind the conversation: Summer Meadow, Seaside Town or Ink & Paper (off by default). Each style has day and night paintings for the light and dark themes and taller ones for phones, drifting clouds, haze or mist, and a reading veil that keeps text legible. Finishing a quest briefly lifts the veil with a fanfare, and a landing gets a small one; reduced motion keeps the painting still and skips the fanfares.
+
+### Changed
+
+- **Waiting for a pool slot** -- `takode lease run` and `takode exec --pool` print a line every 10 minutes while they wait, with the wait so far, the place in line and who holds the slots, and `takode exec status` shows the same. Starting a pooled command from one that already holds a slot of the same pool warns that it can deadlock, and the work board's alert for a worker stuck waiting for a lease says how long it has waited.
+
+### Fixed
+
+- **Selecting draft and visual titles** -- The titles of draft cards and visuals can be selected and copied.
+
+## 2026-11-08
+
+### Added
+
+- **Shared compute budgets** -- A lease pool can be shared by many commands of one session, such as a worker's sub-agents. `takode exec --pool <name>` and `takode lease run <pool> -- <command>` hold a slot only while their command runs, wait in line quietly when the pool is full and free the slot when the command ends; without `--host`, `takode exec --pool` runs on whichever machine with that pool frees a slot first.
+- **Timers that check before waking** -- A recurring timer created with `--check '<command>'` runs the command on the session's machine (or `--host`) at each tick and wakes the session only when it succeeds, which ends the timer. Every `--wake-every` failed checks (10 by default) it also wakes the session with the latest result, so a wrong check can't keep it asleep. Creating one runs the check once and refuses a check that can't run; the waiting list and Active Timers page show each check's latest result.
+- **Stopped sub-agents** -- When a Claude session's process ends (a node update, an idle stop, the memory guard or a crash), the session is told which background sub-agents and commands stopped with it so it can resume them. The notice starts the session again, survives a server restart and shows as a collapsed chip; a session someone stopped on purpose stays stopped and is told when it next starts.
+
+### Changed
+
+- **Notify Me at a glance** -- While Notify Me is on or a reminder is set, the Notify button is a tinted pill with a filled target and a label, instead of looking the same as off.
+- **Fewer node restarts** -- Restart Server restarts this machine's `takode node`, which ends its sessions' processes and their sub-agents, only when the code that node loaded changed, a few percent of commits. Nodes on other machines still follow every new build.
+
+## 2026-11-06
+
+### Added
+
+- **Backups** -- The server backs up its data about once an hour: quests, memory with its full Git history, settings without secrets, to-dos, the Library, your instructions and skills, and the session list. Choose a private Git repository and/or a copy on one of your registered machines in Settings → Backups or with `takode backup`. Nothing is force-pushed, a weekly restore test checks the latest backup, repeated failures alert your phone, and `takode backup restore` rebuilds a `.companion` folder without a server.
+- **Memory limits for remote commands** -- `takode exec --memory-limit 64G` kills the command and everything it started once together they use more memory than that, and its outcome says so. A node that can't enforce the limit refuses the option rather than running uncapped.
+- **Other leaders' messages** -- In a leader's conversation, a message from another leader shows as a muted collapsed line with the sender's portrait, name and first line, opening to the full text on click, so your own messages stand out.
+
+### Changed
+
+- **Side column groups** -- The side column groups what you put in it by kind, above the followed topic page: chats, quest pages and other pages (artifacts, Homes, pinned topic pages) each fold on their own, and opening something unfolds only its group. Chats fold from a fixed Chats button in the top row; folded, a bar names each chat with its status dot, asking and unread first, after the bell and unread count. Pages get slim bars naming their kind while open and their title while folded.
+- **One file per quest** -- Questmaster keeps each quest in its own file, so a quest change no longer rewrites the whole store, which took over a second on large stores. The server moves an existing store at startup after a verified backup and refuses quest changes until a failed move succeeds on a later start. Questmaster's local backup snapshots keep each quest version once and share the rest.
+- **`takode exec` waits for long commands** -- `takode exec` always waits for its command, like a local command, and no longer fails after about two minutes. The command stops with its caller (an interrupt, a tool timeout, or nobody asking about it for five minutes). `--background` is retired, so finished remote commands no longer wake sessions for nothing, and Claude's Bash calls can ask for timeouts of up to a day.
+
+### Fixed
+
+- **Pasting into the composer** -- Pasted text goes into the composer even when the browser's own paste stops short. With the input trace on, recordings are saved to the server automatically (`takode input-trace` lists them) rather than only when you report a glitch.
+- **Long sleeps** -- A Claude session's own long `sleep` is refused by a hook instead of interrupting its turn, so running sub-agents keep going, and sub-agents' sleeps are left alone.
+- **Slack lists from drafts** -- Draft lines written with `•` bullets show as a list, and Copy pastes them into Slack as a real list.
+- **Memory guard under Slurm** -- The memory guard reads cgroup v1 memory limits such as a Slurm job's, so it acts before the job's own out-of-memory killer.
+- **Disconnected label** -- A Claude session relaunched while you watch no longer keeps a Disconnected label while it works.
+- **Topic page intros** -- A topic page's intro renders as Markdown with working links, and Update no longer stays lit after an update; while a page is open, its waiting events reach the Scribe within three minutes.
+- **Home and artifact chat drafts** -- Unsent text in a leader's Home box or an artifact's chat survives reconnects, such as switching apps on an iPhone.
+- **Worker reports** -- Reports a worker sends with `takode worker-stream` from a turn started by a timer or a finished command reach its quest instead of being refused.
+- **Board rows** -- `takode board set` refuses an archived, unknown or unherded worker, and a wait on an unknown or archived session, before changing anything.
+- **Freezes with large data** -- Saving a very large session no longer blocks the server for hundreds of milliseconds after tool results or during long Codex turns, a quest store whose notes link many quests no longer blocks it for over a minute, and the memory catalog given to new sessions is kept ready instead of being scanned under a time limit that a busy server could miss.
+
+## 2026-11-05
+
+### Added
+
+- **Reports in the side panel** -- On wide screens, the expand button on a report, draft or visual opens it in the resizable panel that slides in from the right, like images and files, so you choose its line length. Phones keep the full-window view, and slide decks keep their own full screen.
+- **To-do category order** -- To-do categories keep the order you arrange (drag a header's handle, or Move up and down in its menu on touch), and a category whose to-dos are all Done can be archived.
+- **New, deleted and renamed files** -- Guided reviews and diffs label files a change added, deleted or renamed.
+
+### Changed
+
+- **Voiceback reads questions** -- Voiceback also reads every new question: its explanation, then the question and its suggested answers. It is now a mode of the device rather than of one session: it follows the session on screen and comes back on after a reload.
+
+### Fixed
+
+- **Restarts with nodes** -- After Restart Server, a node on an older build is updated before its sessions are taken over, so they no longer load their history twice. Busy sessions on nodes updated right away are interrupted and continued, as sessions without a node are, and a session running outdated instructions restarts at its first idle moment instead of being cut off mid-turn.
+- **Codex resume freezes** -- Resuming a long Codex session no longer freezes the server for 15 to 40 seconds, long enough to show it as unreachable.
+- **Comments stay in their thread** -- Unsent comments you start in one of a leader's threads stay with that thread instead of following you to others and being sent there.
+- **Plain thread status chips** -- A plain thread shows its Ready or Waiting chip in its own feed, however old it is.
+- **Answers resent after a reminder** -- An answer a leader resends to its thread after a routing reminder stays visible there instead of folding into the activity.
+- **Scribes of archived leaders** -- Archiving a leader archives its Scribe too, and no new Scribe starts for an archived leader.
+- **Completing published work** -- Final completion accepts a change delivered to an approved published branch, instead of needing the leader's override.
+- **Slack links with code labels** -- Copy for Slack keeps a link whose label is inline code as a link.
+
+## 2026-11-04
+
+### Added
+
+- **Voiceback** -- A composer toggle reads each new final message aloud as it arrives: a leader's answers and reports, or the message another session's turn ends on. Arrivals play one after another, a leader's result read to its end is marked read, and the screen stays awake while it is on. Pausing other input sources moves to Session Info, and the paused banner gains Resume.
+- **Drafts read aloud** -- Read aloud reads drafts in full after a short introduction, from the whole message or from a speaker in each draft card's header.
+- **Download** -- The file viewer's Download saves a file's original bytes, from remote hosts too, with the PDF, image and web page exports beside it for Markdown files; a file link's menu offers Download for files that open outside the viewer. Report, slide deck, draft and visual cards list Download (their Markdown as written) beside Export, and the Library gives reports, tables and figures the same menu.
+- **A chat in both views** -- Clicking move-to-side or Open in the main view while holding the Open in the Other Column key (Shift by default, in Settings → Keyboard) keeps the chat in both views, so it can be scrolled to two places at once.
+
+### Changed
+
+- **Message times on the tag line** -- A message's time shares a line with the answer tag, and your own messages' times sit beside the bubble.
+- **Slide deck controls** -- A deck's controls are one centered group under the slide, in the card and in full screen alike. Play reads the deck aloud right in the card, a click on a slide turns to the next one and a right-click to the previous one (a tap on the left third on touch screens), and Space pauses and resumes the reading.
+- **Guided review walkthrough** -- The walkthrough shows the code on the left and the explanation on the right, next to Back and Next.
+- **Sending while images upload** -- Send pressed while an attached image is still uploading waits and sends once every image is ready, instead of being refused.
+- **Keep-alive and keep-awake per machine** -- Each machine enforces Max Keep-Alive on its own sessions, with a per-machine override under Settings → Hosts, and each Mac keeps itself awake while its own sessions are mid-turn, switchable per machine.
+- **Copy on draft cards** -- A draft card's copy button is called Copy, since drafts aren't only for Slack.
+
+### Fixed
+
+- **Notify Me after reading** -- Reading a tracked thread's answer acknowledges its Notify Me result, so Next no longer takes you back to it.
+
+## 2026-11-03
+
+### Added
+
+- **Glossary** -- "Takode at a glance" explains Takode's terms for people coming from Claude Code or the Codex app, with a diagram of how leaders, quests, workers and the Scribe fit together. A Glossary link beside the sidebar's build label opens it and is highlighted until you first open it.
+- **Attention cues** -- When a new question arrives its bell rings, and when new answers arrive their unread count pops, in the side column, the Threads view and the top bar.
+- **Right-click menus everywhere** -- To-do rows open Takode's menu on right-click or long-press (status, due date, add below, move, copy, archive), and category headers get their own. Home rows, Questmaster and board rows, quest links in messages and topic pages, Library and topic artifact cards and side column headers also open Takode's menus instead of the browser's.
+- **Integration tracks** -- A leader can declare a track (`takode track add`), an integration branch for a parallel line of work. `takode spawn --track` starts workers from it and makes it their landing target, and `takode track list` shows each track's workers and how far it is behind the branch it follows.
+- **Sharing a worker's draft** -- `takode artifact share` posts a worker's Library draft into a leader's thread as the same draft card, with its versions, and makes the thread unread.
+
+### Changed
+
+- **Message times at the start** -- A message's time sits at its start instead of its lower-right corner: in the left margin where there's room, otherwise on a small line just above it. In a quick run of messages, times within three minutes of the first are left out.
+- **One title per thread** -- Each thread shows one title, its quest's or its own name, followed in the strip, side title bars, Home rows and the Threads view by its news line, marked as an update. Round titles leave thread lists.
+- **A news line for every result** -- The Scribe rewrites a thread's news line for every new answer, report or finished quest, saying what the newest result is about.
+- **Threads view rows** -- Rows lead with the leader's portrait, ringed in the thread's status colour, with the update starting at the row's left edge, and hovering a row shows a hover card.
+- **Home's Next chip** -- A leader's Home shows its Next chip at the lower right, as a conversation does.
+- **Reporting input glitches** -- Input glitches are reported from Settings → Diagnostics or the shortcut; the sidebar button is gone.
+- **Wider side column** -- The side column can widen until the main view reaches its minimum width.
+- **Host offline alerts** -- A host going offline alerts only for sessions it actually stalls (mid-turn or with queued input), and the back-online event stays quiet when none of them needs resuming.
+
+### Fixed
+
+- **Leader answers with tool calls** -- A Claude leader's answer followed by a tool call in the same response counts as the answer instead of folding away, and a leader is reminded when it leaves a draft, image, table, visual or long result as commentary.
+- **Board ownership** -- `takode board set` refuses a quest another active leader runs unless given `--take-over`, and removing such a quest leaves no trace in the leader's threads or Next.
+- **Slash commands in threads** -- A slash command sent in a thread stays in that thread.
+- **Slack syntax in drafts** -- Draft cards turn Slack's `<url|name>` links into real links, so Copy pastes working links, and warn about `<@U…>` mentions, which paste as plain text.
+- **Thread counts** -- A leader's sidebar row counts threads as its status row does, and a Notify Me result isn't counted as unread in the Threads view.
+- **Side pane on the main view's thread** -- A side pane showing the same thread as the main view reads and marks its own unread answers.
+- **Closing the open chat** -- With chats one at a time, closing the open chat opens another.
+- **Takeovers after a restart** -- A session whose process ended while the restarted server was taking it over starts afresh, instead of looking connected while its messages go nowhere, and a Claude turn that gets no output at all restarts its backend.
+
+## 2026-11-02
+
+### Added
+
+- **Input trace** -- Settings gains a Diagnostics section. Its input trace, off by default, keeps the last hour of input activity in the browser (never the characters typed), and Report input glitch, a sidebar button while it records, in Settings or on a shortcut, sends it to the server log for diagnosis.
+- **One chat at a time** -- The side column has a one-at-a-time mode for chats: opening one folds the others and it takes their shared height, while the column scrolls as before.
+- **Quest chips in side conversations** -- A quest's side conversation shows its quest chips and the side-quest mark, as the main view does.
+- **Tooltips on every button** -- Takode draws button tooltips itself, and every icon button has one.
+- **Cleaning up worktree registrations** -- `takode worktree unregister` drops a registration without touching files, `takode worktree list` marks checkouts that no longer exist, and archive cleanup drops temporary registrations whose checkout is gone instead of reporting them blocked.
+
+### Changed
+
+- **Unread bars** -- Each unread answer gets a short blue bar beside its first line, in the left margin, so nothing shifts when it appears or goes. Once the answer is read the bar stretches briefly and turns grey, staying until the chat loses focus.
+- **News on topic pages** -- Each open quest on a topic page shows its news line, and Home's By topic view shows every running, unread or asking thread of a topic, not only three.
+- **Needs attention by thread** -- The attention list, its Next order and its counts go by thread rather than by Library topic.
+- **Faster Home** -- Returning to a leader's Home shows its news lines and workers' latest steps at once.
+
+### Fixed
+
+- **First paste on a Mac** -- The first Cmd+V with nothing focused pastes into the composer instead of only focusing it.
+- **Artifact side chats** -- An artifact's side chat shows the leader's answer as it arrives instead of staying on "Sending...".
+- **Comment chips in side panes** -- A comment chip in a side pane opens the comment there, and an open comment holds back only its own composer's Send.
+- **Answers in joined threads** -- A thread joined onto a quest shows all its answers, so they can be read and its "N new" clears.
+- **Duplicate leader answers** -- Reminders to answer wait until a Claude leader is idle and are checked again before sending, so a leader no longer answers the same request twice.
+
 ## 2026-11-01
 
 ### Added
@@ -28,6 +184,7 @@ Under the hood, Claude sessions now run only through the Claude Agent SDK, with 
 - **Scribe context limit** -- Scribes keep running instead of being replaced after a day, and Settings → Sessions → Topics and Scribes sets how much context a Scribe keeps before compacting (256K tokens by default). A change restarts running Scribes so it applies at once, and Session Info measures a Claude Scribe against its limit.
 - **Lean 4 and Rocq highlighting** -- Fenced `lean`/`lean4` and `rocq`/`coq` code blocks and `.lean`/`.v` files are highlighted.
 - **Memory guard on hosts** -- On Linux machines, `takode node` watches memory every 2 seconds and, at 90% of the machine's or container's limit, stops the largest process tree its sessions started and tells that session why, so a runaway job can't take down Takode itself. Each machine also gets a Note for agents setting, added to the instructions of every session that runs there.
+- **Checkouts on other machines** -- `takode worktree register --host <machine>` records a checkout that lives on another machine, such as one made with `takode exec --host`; its checks and its removal at archive run on that machine, and nothing is removed while the machine is offline.
 
 ### Changed
 
@@ -44,6 +201,7 @@ Under the hood, Claude sessions now run only through the Claude Agent SDK, with 
 - **Code around a guided review stop** -- The code around each stop is read from git when the stop is viewed, with Show more adding 20 lines at a time; when it can't be read, the stop says so with Retry.
 - **Every transcript enhanced** -- With transcript enhancement on, every voice transcript goes through it, however short and with or without conversation context.
 - **Hosts follow the coordinator's build** -- `takode node` updates itself to the coordinator's build by default; start it with `--no-auto-update` to opt out.
+- **Even Home rows** -- Home's rows are three lines high: the title, a one-line news line whose full text unfolds on hover or long-press, and the status.
 
 ### Fixed
 
@@ -59,6 +217,8 @@ Under the hood, Claude sessions now run only through the Claude Agent SDK, with 
 - **Completing landed work** -- Final Memory recognizes commits the landing queue already landed after rebasing them, instead of refusing until the worker resets its checkout.
 - **Stopping remote commands** -- `takode exec kill` also stops processes that left the command's process group, such as `timeout` pipelines, and a worker disconnected while its command runs is no longer flagged as stalled.
 - **HTML files on remote hosts** -- HTML file links from a session on a remote host open, with the page and its assets read through that host.
+- **Visuals in the dark theme** -- Sessions outside the Takode repo now get the visual-blocks skill, so their visuals no longer use fixed light colours that glare on the dark theme, and `takode visual preview` flags light boxes and low-contrast text.
+- **Replies in side panes** -- A reply that begins with thinking keeps its place in a side pane instead of jumping to the end of the feed, and a side pane's refreshes send the newest messages once you are back at them.
 
 ## 2026-10-31
 
