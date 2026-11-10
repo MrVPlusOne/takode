@@ -642,6 +642,10 @@ async function launchChrome(explicit?: string): Promise<ChromeConnection> {
       "--no-default-browser-check",
       "--hide-scrollbars",
       "--mute-audio",
+      // Never touch the user's credential store: on macOS a Chrome that looks for its
+      // keychain (none under a disposable HOME) pops up "Keychain Not Found" dialogs.
+      "--use-mock-keychain",
+      "--password-store=basic",
       // A visual that hogs memory crashes its own page instead of growing without bound.
       "--js-flags=--max-old-space-size=512",
       "about:blank",

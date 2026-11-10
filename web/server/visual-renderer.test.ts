@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { afterAll, describe, expect, it } from "vitest";
 import { findChrome, VisualRenderer } from "./visual-renderer.js";
 
@@ -23,6 +24,19 @@ describe.skipIf(!chrome)("VisualRenderer with a real Chrome", () => {
     // The snapshot is what the script left behind, without the script.
     expect(result.snapshotHtml).toContain("tk-box");
     expect(result.snapshotHtml).not.toContain("<script");
+  }, 30_000);
+
+  // On a Mac, a Chrome that looks for the user's keychain (there is none under a test's
+  // disposable HOME) pops up "Keychain Not Found" dialogs and can rewrite the login keychain.
+  it("runs Chrome without the user's keychain or password store", async () => {
+    await renderer.render({ source: "<p>x</p>", width: 400, theme: "dark" });
+    // This renderer's Chrome, a child of this process: a Takode server on the same machine runs its own.
+    const browser = execFileSync("ps", ["-A", "-o", "ppid=,args="], { encoding: "utf-8" })
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.startsWith(`${process.pid} `) && line.includes("--remote-debugging-port=0"));
+    expect(browser).toContain("--use-mock-keychain");
+    expect(browser).toContain("--password-store=basic");
   }, 30_000);
 
   it("finds fixed colours that don't suit the theme, and none in kit shapes", async () => {
