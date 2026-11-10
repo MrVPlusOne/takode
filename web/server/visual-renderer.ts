@@ -17,6 +17,7 @@ import { mkdtemp, readFile, readdir, rm, access } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildVisualDocument, parseVisualBlock, visualSourceHash, type VisualTheme } from "../shared/visual-block.js";
+import { readPhysFootprint } from "./process-footprint.js";
 
 export interface VisualRenderRequest {
   source: string;
@@ -176,8 +177,16 @@ export class VisualRenderer {
       page.crashed = true;
       void this.restart();
     });
+    await watch.ready;
     try {
-      return await renderInPage(page, request, this.options.assetBase, budget, base);
+      const result = await renderInPage(page, request, this.options.assetBase, budget, base);
+      if (result.status !== "ok") return result;
+      // A visual can settle and be measured while it still allocates, faster than the polls
+      // see, and then crash its page: check both before calling it fine.
+      await watch.checkNow();
+      if (overLimit) return { ...base, status: "crashed", detail: `It used more than ${limitMb} MB of memory.` };
+      if (page.crashed) return { ...base, status: "crashed", detail: "The page crashed (often memory)." };
+      return result;
     } catch (error) {
       if (overLimit) return { ...base, status: "crashed", detail: `It used more than ${limitMb} MB of memory.` };
       throw error;
@@ -477,50 +486,77 @@ function cacheKey(request: VisualRenderRequest): string {
 }
 
 /**
- * Poll the resident memory of a process and all its descendants; call `onExceeded` once
- * when the total has grown by more than `limitBytes` since the first poll. Growth, because
- * Chrome's processes share pages that every process's RSS counts again (an idle headless
- * Chrome adds up to over 1 GB). Uses `ps`, which Linux and macOS both have.
+ * Poll the memory of a process and all its descendants; call `onExceeded` once when the
+ * total has grown by more than `limitBytes` since the first poll. Growth, because Chrome's
+ * processes share pages that every process's RSS counts again (an idle headless Chrome adds
+ * up to over 1 GB). `ps` lists the tree and its resident sizes; on macOS each process's
+ * physical footprint is counted instead, since memory macOS compresses leaves the resident
+ * size, and a visual filling buffers with one value can grow by gigabytes unseen.
+ *
+ * `ready` settles once the first poll has set the baseline, so a visual started after it
+ * cannot count toward it. `checkNow` polls once more right away: a runaway visual can let
+ * its page settle and be measured between two polls.
  */
-function watchProcessTreeMemory(rootPid: number, limitBytes: number, onExceeded: () => void): { stop(): void } {
+function watchProcessTreeMemory(
+  rootPid: number,
+  limitBytes: number,
+  onExceeded: () => void,
+): { ready: Promise<void>; checkNow(): Promise<void>; stop(): void } {
   let stopped = false;
   let baseline: number | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const measure = () =>
+    new Promise<void>((resolve) => {
+      if (stopped || !rootPid) return resolve();
+      execFile("ps", ["-A", "-o", "pid=,ppid=,rss="], { maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+        if (!error && !stopped) {
+          const total = treeMemory(rootPid, stdout);
+          baseline ??= total;
+          if (total - baseline > limitBytes) {
+            stopped = true;
+            onExceeded();
+          }
+        }
+        resolve();
+      });
+    });
   const poll = () => {
-    if (stopped || !rootPid) return;
-    execFile("ps", ["-A", "-o", "pid=,ppid=,rss="], { maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
-      if (stopped) return;
-      if (!error) {
-        const children = new Map<number, number[]>();
-        const rss = new Map<number, number>();
-        for (const line of stdout.split("\n")) {
-          const [pid, ppid, kb] = line.trim().split(/\s+/).map(Number);
-          if (!pid || ppid === undefined || kb === undefined) continue;
-          rss.set(pid, kb * 1024);
-          children.set(ppid, [...(children.get(ppid) ?? []), pid]);
-        }
-        let total = 0;
-        const pending = [rootPid];
-        while (pending.length) {
-          const pid = pending.pop()!;
-          total += rss.get(pid) ?? 0;
-          pending.push(...(children.get(pid) ?? []));
-        }
-        baseline ??= total;
-        if (total - baseline > limitBytes) {
-          stopped = true;
-          onExceeded();
-          return;
-        }
-      }
-      setTimeout(poll, MEMORY_POLL_MS);
+    timer = null;
+    void measure().then(() => {
+      if (!stopped) timer = setTimeout(poll, MEMORY_POLL_MS);
     });
   };
-  poll();
+  const ready = measure().then(() => {
+    if (!stopped) timer = setTimeout(poll, MEMORY_POLL_MS);
+  });
   return {
+    ready,
+    checkNow: measure,
     stop() {
       stopped = true;
+      if (timer) clearTimeout(timer);
     },
   };
+}
+
+/** The memory of `rootPid` and its descendants, from `ps -A -o pid=,ppid=,rss=` output. */
+function treeMemory(rootPid: number, psOutput: string): number {
+  const children = new Map<number, number[]>();
+  const rss = new Map<number, number>();
+  for (const line of psOutput.split("\n")) {
+    const [pid, ppid, kb] = line.trim().split(/\s+/).map(Number);
+    if (!pid || ppid === undefined || kb === undefined) continue;
+    rss.set(pid, kb * 1024);
+    children.set(ppid, [...(children.get(ppid) ?? []), pid]);
+  }
+  let total = 0;
+  const pending = [rootPid];
+  while (pending.length) {
+    const pid = pending.pop()!;
+    total += readPhysFootprint(pid) ?? rss.get(pid) ?? 0;
+    pending.push(...(children.get(pid) ?? []));
+  }
+  return total;
 }
 
 // ---- Minimal Chrome DevTools Protocol client --------------------------------
