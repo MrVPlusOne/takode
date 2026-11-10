@@ -442,9 +442,16 @@ describe("host link", () => {
   // `setsid` does, which together pass its limit while the machine has room.
   // The node kills the whole command and tells the coordinator why. The
   // machine-wide check reads nothing, so only the command's limit can act.
+  // On macOS the workers' filled buffers are what its memory compressor
+  // shrinks, so this also checks that a limit counts compressed memory.
   it("kills a command whose processes together pass its memory limit", async () => {
     const MB = 2 ** 20;
-    const worker = `${JSON.stringify(process.execPath)} -e 'const b = Buffer.alloc(150e6, 1); setInterval(() => b[0]++, 1000)'`;
+    const allocate = "const b = Buffer.alloc(150e6, 1); setInterval(() => b[0]++, 1000)";
+    const worker = `${JSON.stringify(process.execPath)} -e '${allocate}'`;
+    // macOS has no `setsid` program, so the worker calls libc's setsid() itself.
+    const libc = process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6";
+    const newSession = `require("bun:ffi").dlopen(${JSON.stringify(libc)}, { setsid: { returns: "i32" } }).symbols.setsid()`;
+    const ownSessionWorker = `${JSON.stringify(process.execPath)} -e '${newSession}; ${allocate}'`;
     const reports: Array<{ procId: string; reason?: string; processes: number; bytes: number }> = [];
     manager.onMemoryKill = (_host, procId, kill) =>
       reports.push({ procId, reason: kill.reason, processes: kill.processes, bytes: kill.bytes });
@@ -454,7 +461,7 @@ describe("host link", () => {
 
     const proc = manager.spawn(hostId, {
       command: "/bin/sh",
-      args: ["-c", `${worker} & setsid ${worker} & wait`],
+      args: ["-c", `${worker} & ${ownSessionWorker} & wait`],
       env: {},
       group: true,
       memoryLimitBytes: 200 * MB,

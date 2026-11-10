@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { HostProcessEvent } from "../../shared/host-protocol.js";
 import { formatBytes, MEMORY_GUARD_MESSAGE_TAG } from "../../shared/memory-guard.js";
+import { readPhysFootprint } from "../process-footprint.js";
 import { jobProcessGroups } from "./process-tree.js";
 
 const execFileAsync = promisify(execFile);
@@ -60,6 +61,11 @@ export interface MemoryGuardOptions {
   anonBytes?: (pid: number) => Promise<number>;
   /** A process's share of the memory it uses (see {@link readMemoryShare}); null where it cannot be read. */
   memoryShare?: (pid: number) => Promise<number | null>;
+  /**
+   * Whether `ps`'s resident size is at least each process's memory share, so a
+   * command within its limit by `ps` is within it. True except on macOS.
+   */
+  rssCoversShare?: boolean;
   kill?: (pid: number) => void;
   now?: () => number;
 }
@@ -89,7 +95,8 @@ const COOLDOWN_MS = 15_000;
  *
  * The same checks enforce the memory limit a command may be given: past it,
  * the whole command goes, as for `takode exec kill`. That needs no cgroup and
- * works off Linux too, where the machine-wide check finds nothing to read.
+ * works on macOS too (by physical footprint), where the machine-wide check
+ * finds nothing to read.
  */
 export class MemoryGuard {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -152,13 +159,15 @@ export class MemoryGuard {
     if (pending.length === 0) return;
     const listed = await (this.options.listProcesses ?? listProcesses)();
     const memoryShare = this.options.memoryShare ?? readMemoryShare;
+    const rssCoversShare = this.options.rssCoversShare ?? process.platform !== "darwin";
     for (const command of pending) {
       const limit = command.memoryLimitBytes!;
       const groups = jobProcessGroups(command.pid, listed);
       const members = listed.filter((proc) => groups.includes(proc.pgid));
       // `ps` is cheap but counts a page every process maps in full, such as the
-      // copy-on-write memory forked workers share, so it can only clear a command.
-      if (sum(members.map((member) => member.rssBytes)) <= limit) continue;
+      // copy-on-write memory forked workers share, so on Linux it can only clear
+      // a command. Not on macOS, where compressed memory leaves its count.
+      if (rssCoversShare && sum(members.map((member) => member.rssBytes)) <= limit) continue;
       const measured = await Promise.all(
         members.map(async (member) => ({ ...member, bytes: (await memoryShare(member.pid)) ?? member.rssBytes })),
       );
@@ -420,10 +429,12 @@ async function readAnonBytes(pid: number): Promise<number> {
  * (tmpfs, shared memory) alike, counting pages it shares with others in part
  * (PSS), so forked workers' shared copy-on-write memory counts once among
  * them. Older kernels lack that split; there it is the resident anonymous
- * and shared memory. 0 once the process ended; null without
- * `/proc` (macOS), where `ps` must do.
+ * and shared memory. 0 once the process ended. On macOS it is the physical
+ * footprint, which unlike `ps`'s resident size keeps compressed memory. Null
+ * where neither can be read, so `ps` must do.
  */
 export async function readMemoryShare(pid: number): Promise<number | null> {
+  if (process.platform === "darwin") return readPhysFootprint(pid);
   if (process.platform !== "linux") return null;
   const rollup = await readFile(`/proc/${pid}/smaps_rollup`, "utf-8").catch(() => "");
   if (rollup.includes("Pss_Anon:")) return kibValue(rollup, "Pss_Anon") + kibValue(rollup, "Pss_Shmem");

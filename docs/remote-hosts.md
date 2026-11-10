@@ -260,9 +260,10 @@ seconds, with the same memory guard as below, and past it kills them all
 "killed for using 65.1 GB, over its 64.0 GB memory limit (lean ×12)". It is
 off unless given. It counts resident memory that cannot be dropped (anonymous
 and shared memory, not file cache), sharing pages that several processes map,
-such as forked workers' copy-on-write memory, among them (PSS); on macOS it
-uses `ps`'s resident memory. Memory that grows faster than the checks can
-briefly pass it. It is not a kernel limit, which would need a cgroup the node
+such as forked workers' copy-on-write memory, among them (PSS). On macOS it
+counts each process's physical footprint, the memory Activity Monitor shows,
+which keeps memory macOS has compressed. Memory that grows faster than the
+checks can briefly pass it. It is not a kernel limit, which would need a cgroup the node
 may manage (see below): every machine we use lacks one, and an address-space
 limit (`ulimit -v`) applies per process and breaks programs that reserve large
 address ranges. A node too old to enforce it refuses the option.

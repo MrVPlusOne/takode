@@ -23,7 +23,12 @@ type FakeProcess = Pick<ListedProcess, "pid" | "ppid" | "name"> & Partial<Listed
  * A guard over a fake machine: `memory` is what it reads, `table` the process
  * table, and killed pids (negative for process groups) are recorded.
  */
-function fakeGuard(options: { memory: MemoryUse | null; table: FakeProcess[]; processes: GuardedProcess[] }) {
+function fakeGuard(options: {
+  memory: MemoryUse | null;
+  table: FakeProcess[];
+  processes: GuardedProcess[];
+  rssCoversShare?: boolean;
+}) {
   const killed: number[] = [];
   const kills: Array<{ procId: string; kill: MemoryKill }> = [];
   const logs: string[] = [];
@@ -38,6 +43,7 @@ function fakeGuard(options: { memory: MemoryUse | null; table: FakeProcess[]; pr
     memoryShare: async (pid) => options.table.find((proc) => proc.pid === pid)?.bytes ?? 0,
     kill: (pid) => void killed.push(pid),
     now: () => now,
+    rssCoversShare: options.rssCoversShare ?? true,
   });
   return { guard, killed, kills, logs, advance: (ms: number) => (now += ms) };
 }
@@ -250,6 +256,21 @@ describe("command memory limits", () => {
     const fake = fakeGuard({ memory: null, table: evaluation(2 * GB, 6 * GB), processes: PROCESSES });
     await fake.guard.check();
     expect(fake.kills).toEqual([]);
+  });
+
+  // macOS compresses memory before it swaps, and compressed pages leave `ps`'s
+  // resident size: 4 x 5 GB of footprint can show as 4 x 1 GB there. So on
+  // macOS `ps` cannot clear a command; each process's footprint is read.
+  it("reads each process's footprint where compressed memory leaves ps under it", async () => {
+    const fake = fakeGuard({
+      memory: null,
+      table: evaluation(5 * GB, 1 * GB),
+      processes: PROCESSES,
+      rssCoversShare: false,
+    });
+    await fake.guard.check();
+    expect(fake.killed.sort((a, b) => a - b)).toEqual([-401, -400]);
+    expect(fake.kills.map(({ procId, kill }) => [procId, kill.bytes])).toEqual([["p-eval", 20.011 * GB]]);
   });
 });
 
