@@ -158,6 +158,35 @@ describe("an artifact's side chat", () => {
     expect(await screen.findByTestId("side-conversation")).toHaveAttribute("data-thread-key", "topic:t9");
   });
 
+  // The chat must not squeeze the artifact (a deck would lose its 16:9 stage): it sits beside it
+  // when both fit at the artifact's own width, pops over its right side when not, and goes under it
+  // on a phone or in a narrow column. The page grows by the open chat's width (440 by default).
+  it.each([
+    { width: 1464, placement: "beside" },
+    { width: 1100, placement: "over" },
+    { width: 600, placement: "under" },
+  ])("places the side chat $placement the artifact in a $width pixel view", async ({ width, placement }) => {
+    const clientWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.dataset.testid === "artifact-conversation" ? width : 0;
+    });
+    try {
+      render(<ArtifactViewer id="a1" />);
+      const viewer = await screen.findByTestId("artifact-viewer");
+      fireEvent.click(await screen.findByRole("button", { name: "Ask about this report" }));
+      expect(await screen.findByTestId("artifact-side-chat")).toHaveAttribute("data-placement", placement);
+      expect(viewer.style.getPropertyValue("--artifact-chat-w")).toBe("440px");
+
+      // Closed, the page is back to the artifact's own width.
+      fireEvent.click(screen.getAllByRole("button", { name: "Close the side chat" })[0]);
+      await waitFor(() => expect(screen.queryByTestId("artifact-side-chat")).toBeNull());
+      expect(viewer.style.getPropertyValue("--artifact-chat-w")).toBe("0px");
+    } finally {
+      clientWidth.mockRestore();
+    }
+  });
+
   it("has no side chat for an artifact shown by a session that is not a leader", async () => {
     leader.value = false;
     render(<ArtifactViewer id="a1" />);

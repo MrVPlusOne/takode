@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ARTIFACT_KIND_LABELS, type ArtifactDetail } from "../../../shared/artifact-library.js";
 import type { AnnotationArtifact } from "../../../shared/conversation-annotations.js";
 import { topicApi } from "../../api/topics.js";
@@ -23,8 +23,23 @@ import { LeaderName } from "../side-column/SideChatLeaders.js";
 import { ThreadOriginName } from "../side-column/thread-names.js";
 import { NewThreadIcon } from "./library-icons.js";
 
-/** Wide enough for the artifact and its side chat side by side. */
-const SIDE_BY_SIDE_MIN_WIDTH = 900;
+/**
+ * The narrowest the artifact gets beside its side chat: a slide deck still shows its 16:9 stage
+ * (640 pixels wide) inside the column's padding. With less room the chat goes over the artifact
+ * instead of squeezing it.
+ */
+const ARTIFACT_MIN_WIDTH = 720;
+/** Narrower than this (a phone, a narrow side column), the side chat sits under the artifact. */
+const OVER_MIN_WIDTH = 900;
+
+/** Where the side chat sits: beside the artifact, over its right side, or under it. */
+type ChatPlacement = "beside" | "over" | "under";
+
+const PLACEMENT_CLASSES: Record<ChatPlacement, string> = {
+  beside: "min-h-0 w-[var(--split-w)] shrink-0 border-l border-cc-border",
+  over: "absolute inset-y-0 right-0 z-10 w-[var(--split-w)] border-l border-cc-border bg-cc-bg shadow-2xl",
+  under: "h-[55%] shrink-0 border-t border-cc-border",
+};
 
 /**
  * An artifact's side chat: a thread with the leader that showed it, about it, opened from the
@@ -68,16 +83,21 @@ export function ArtifactSideChatButton({ detail, version }: { detail: ArtifactDe
  * An artifact's text with its side chat. Selected text can be commented on; the comment names the
  * artifact, goes to the side chat's message box and opens the side chat. The chat is the artifact's
  * thread with its leader once a first message started it, and an empty new thread before (nothing
- * is created until then); it sits beside the artifact when there is room, else under it.
+ * is created until then). It sits beside the artifact when both fit, else over the artifact's right
+ * side, and under it on a phone or in a narrow column. `onChatWidth` hears the room the open chat
+ * takes beside the artifact, so the page can grow by that much instead of narrowing the artifact.
  */
 export function ArtifactConversation({
   detail,
   version,
+  onChatWidth,
   children,
 }: {
   detail: ArtifactDetail;
   /** The version on screen; comments name it. */
   version: number;
+  /** The open side chat's width in pixels, 0 while closed. */
+  onChatWidth?: (width: number) => void;
   children: ReactNode;
 }) {
   const { leaderId, startedFrom, available, open, toggle } = useArtifactSideChat(detail, version);
@@ -105,7 +125,6 @@ export function ArtifactConversation({
     [detail.id, version, detail.title],
   );
   const rootRef = useRef<HTMLDivElement>(null);
-  const wide = useWidth(rootRef) >= SIDE_BY_SIDE_MIN_WIDTH;
   const split = useSplitWidth("artifact-side-chat", {
     defaultWidth: 440,
     min: 320,
@@ -114,6 +133,14 @@ export function ArtifactConversation({
     share: true,
     keepUncovered: 480,
   });
+  const width = useWidth(rootRef);
+  const placement: ChatPlacement =
+    width - split.width >= ARTIFACT_MIN_WIDTH ? "beside" : width >= OVER_MIN_WIDTH ? "over" : "under";
+  // Before paint, so the page grows with the chat (and with a drag of its divider) in one step.
+  useLayoutEffect(() => {
+    onChatWidth?.(open ? split.width : 0);
+    return () => onChatWidth?.(0);
+  }, [onChatWidth, open, split.width]);
   const kind = kindName(detail);
 
   const text = available ? (
@@ -157,29 +184,28 @@ export function ArtifactConversation({
     </>
   ) : null;
 
-  // One element for both layouts (React keeps it), so its width stays measured.
+  // One element for every placement (React keeps them), so the width stays measured and a drag of
+  // the divider goes on when the chat moves between beside and over.
   return (
     <div
       ref={rootRef}
-      className={`flex min-h-0 flex-1 ${wide ? "flex-row" : "flex-col"}`}
+      className={`relative flex min-h-0 flex-1 ${placement === "under" ? "flex-col" : "flex-row"}`}
       data-testid="artifact-conversation"
     >
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-6">{text}</div>
-      {chat && wide && (
-        <>
-          <SplitHandle label="Resize the side chat" className="block" {...split.handleProps} />
-          <div
-            className="flex min-h-0 w-[var(--split-w)] shrink-0 flex-col border-l border-cc-border"
-            style={split.style}
-            data-testid="artifact-side-chat"
-          >
-            {chat}
-          </div>
-        </>
-      )}
-      {chat && !wide && (
-        <div className="flex h-[55%] shrink-0 flex-col border-t border-cc-border" data-testid="artifact-side-chat">
-          {chat}
+      {chat && (
+        <div
+          className={`flex ${PLACEMENT_CLASSES[placement]}`}
+          style={placement === "under" ? undefined : split.style}
+          data-testid="artifact-side-chat"
+          data-placement={placement}
+        >
+          <SplitHandle
+            label="Resize the side chat"
+            className={placement === "under" ? "hidden" : "block"}
+            {...split.handleProps}
+          />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">{chat}</div>
         </div>
       )}
     </div>

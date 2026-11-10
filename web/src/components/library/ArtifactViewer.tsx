@@ -56,6 +56,8 @@ export function ArtifactViewer({
   // The shown version's content once loaded, for Download; and the element showing it, for exports.
   const [loaded, setLoaded] = useState<{ n: number; content: ArtifactVersionContent } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // The open side chat's width: the page grows by it, so the artifact keeps its width beside it.
+  const [chatWidth, setChatWidth] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,7 +126,7 @@ export function ArtifactViewer({
   const version = detail.versions[index];
   const source = version.source;
   return (
-    <ViewerFrame onBack={onBack}>
+    <ViewerFrame onBack={onBack} chatWidth={chatWidth}>
       <div className="px-4 pb-2 pt-3">
         <div className="flex items-start gap-2">
           {renaming === null ? (
@@ -236,7 +238,7 @@ export function ArtifactViewer({
         </div>
       </div>
       {version.kept ? (
-        <ArtifactConversation detail={detail} version={version.n}>
+        <ArtifactConversation detail={detail} version={version.n} onChatWidth={setChatWidth}>
           <div ref={contentRef}>
             <ArtifactVersionLoader
               id={detail.id}
@@ -314,11 +316,21 @@ function NewWindowIcon() {
   );
 }
 
-function ViewerFrame({ onBack, children }: { onBack?: () => void; children: React.ReactNode }) {
+function ViewerFrame({
+  onBack,
+  chatWidth = 0,
+  children,
+}: {
+  onBack?: () => void;
+  /** The open side chat's width, added to the page's so it doesn't narrow the artifact. */
+  chatWidth?: number;
+  children: React.ReactNode;
+}) {
   return (
     // A long report (one with a jump list) reads in a wider column.
     <div
-      className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col has-[[data-section-jump-list]]:max-w-6xl"
+      className="mx-auto flex min-h-0 w-full max-w-[calc(64rem+var(--artifact-chat-w))] flex-1 flex-col has-[[data-section-jump-list]]:max-w-[calc(72rem+var(--artifact-chat-w))]"
+      style={{ "--artifact-chat-w": `${chatWidth}px` } as React.CSSProperties}
       data-testid="artifact-viewer"
     >
       {onBack && (
