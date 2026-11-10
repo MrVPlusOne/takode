@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeMarkdownReportFixture } from "../../../shared/test-fixtures/markdown-report.js";
 import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
 import { ArtifactVersionContentView } from "../ArtifactInline.js";
+import { SlideView } from "./SlideDeck.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { MessageBubble } from "../MessageBubble.js";
 import { useStore } from "../../store.js";
@@ -411,5 +412,54 @@ describe("slide decks in the Library", () => {
     );
     expect(screen.queryByTestId("slide-deck-card")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Part two" })).toBeInTheDocument();
+  });
+});
+
+describe("fitting a slide to the stage", () => {
+  // A slide too tall for the stage zooms down until it fits. Its height does not shrink smoothly
+  // with the zoom: a smaller zoom lays the text out wider, so a line can unwrap or a code block
+  // lose its scrollbar at one step. Here the content is 800 tall at zooms above 0.8 and 700 at or
+  // below it, and the box is 600. Refitting from the current zoom swung between 0.75 and 0.86 on
+  // every resize report (the flicker); the fit must settle on 0.8, the largest zoom that fits.
+  it("settles on one zoom when the content's height jumps between zooms", () => {
+    let report: () => void = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          report = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid === "slide-stage-box") return { height: 600 } as DOMRect;
+      const zoom = Number(this.style.zoom || 1);
+      return { height: zoom * (zoom > 0.8 ? 800 : 700) } as DOMRect;
+    });
+
+    render(
+      <SlideView
+        slide={{ markdown: "## Two code blocks", notes: "", title: "Two code blocks" }}
+        layout="stage"
+        width={1280}
+        render={(markdown) => <p>{markdown}</p>}
+      />,
+    );
+    const content = screen.getByText("## Two code blocks").closest("[data-slide-fit]") as HTMLElement;
+    expect(content).toHaveAttribute("data-slide-fit", "0.8");
+
+    // Every later size report (the zoom just set, an image arriving) keeps the same zoom.
+    for (let i = 0; i < 4; i += 1) {
+      act(() => report());
+      expect(content).toHaveAttribute("data-slide-fit", "0.8");
+      expect(content.style.zoom).toBe("0.8");
+    }
   });
 });

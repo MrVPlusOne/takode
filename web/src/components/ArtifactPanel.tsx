@@ -81,7 +81,9 @@ export function ArtifactPanel({
           </button>
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-4 sm:px-6">
+      {/* A stable gutter: a slide deck sizes itself to this width, and a scrollbar coming and going
+          with its height would resize it for ever. */}
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-4 [scrollbar-gutter:stable] sm:px-6">
         {selection ? (
           <SelectableMessage sessionId={selection.sessionId} messageId={selection.messageId}>
             {content}

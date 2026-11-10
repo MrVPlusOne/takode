@@ -1592,6 +1592,8 @@ select {
 .takode-slide-page .markdown-body h1 { font-size: 1.9em; line-height: 1.2; margin: 0 0 0.5em; }
 .takode-slide-page .markdown-body h2 { font-size: 1.5em; line-height: 1.25; margin: 0 0 0.6em; }
 .takode-slide-stage .markdown-body pre { font-size: 0.7em; }
+/* A slide shows a code block whole: the slide shrinks to fit it, and scrolls only past that. */
+.takode-slide-stage .markdown-body pre[data-testid="code-block-pre"] { max-height: none; }
 .takode-slide-stage .markdown-body code { font-size: 0.85em; }
 .takode-slide-stage .markdown-body pre code { font-size: inherit; }
 .takode-slide-stage .markdown-body [data-visual-block] { zoom: 1.5; }

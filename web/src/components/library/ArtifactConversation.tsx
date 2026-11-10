@@ -192,7 +192,9 @@ export function ArtifactConversation({
       className={`relative flex min-h-0 flex-1 ${placement === "under" ? "flex-col" : "flex-row"}`}
       data-testid="artifact-conversation"
     >
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-6">{text}</div>
+      {/* A stable gutter: a slide deck sizes itself to this width, and a scrollbar coming and going
+          with its height would resize it for ever. */}
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-6 [scrollbar-gutter:stable]">{text}</div>
       {chat && (
         <div
           className={`flex ${PLACEMENT_CLASSES[placement]}`}

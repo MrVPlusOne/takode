@@ -94,31 +94,38 @@ function FittedSlide({ markdown, render }: { markdown: string; render: RenderSli
   const boxRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState(1);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const box = boxRef.current;
     const content = contentRef.current;
-    if (!box || !content || typeof ResizeObserver === "undefined") return;
+    if (!box || !content) return;
     const measure = () => {
-      // Drawn sizes: both include the stage's scale and the content's current zoom.
-      const available = box.getBoundingClientRect().height;
-      const needed = content.getBoundingClientRect().height;
-      if (!available || !needed) return;
-      // Grows back too: a visual's placeholder can be taller than the visual it becomes.
-      setFit((current) => {
-        if (current === 1 && needed <= available + 1) return current;
-        const next = Math.max(MIN_FIT, Math.min(1, (current * available) / needed));
-        return Math.abs(next - current) < 0.01 ? current : next;
-      });
+      const next = fitContent(box, content);
+      if (next !== null) setFit(next);
     };
     measure();
-    // Images and visuals arrive after the first render and make the slide taller.
-    const observer = new ResizeObserver(measure);
+    if (typeof ResizeObserver === "undefined") return;
+    // Images and visuals arrive after the first render and make the slide taller. Fitting tries
+    // zooms on the content, so it runs in the next frame rather than inside the observer's callback,
+    // which must not resize what it observes; the frame ends on the result, so nothing flashes.
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    });
     observer.observe(content);
-    return () => observer.disconnect();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, []);
   return (
     <div className="flex h-full flex-col px-[72px] py-[52px]">
-      <div ref={boxRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="slide-stage-box">
+      {/* A stable gutter: a scrollbar showing up must not narrow the content and rewrap it. */}
+      <div
+        ref={boxRef}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]"
+        data-testid="slide-stage-box"
+      >
         <div
           ref={contentRef}
           className={isTitleSlide(markdown) ? "my-auto" : ""}
@@ -130,6 +137,45 @@ function FittedSlide({ markdown, render }: { markdown: string; render: RenderSli
       </div>
     </div>
   );
+}
+
+/** Zooms tried when fitting a slide: hundredths from 1 down to `MIN_FIT`. */
+const FIT_STEPS = Math.round((1 - MIN_FIT) * 100);
+
+/**
+ * The largest zoom (in hundredths, down to `MIN_FIT`) at which the content's height fits the box,
+ * found by trying zooms on the content, which is left at the result. Each fit is searched afresh,
+ * so the same content in the same box always gets the same zoom. Refitting from the zoom it had
+ * swung between two sizes for ever when one size rewrapped a line or gave a code block a
+ * scrollbar and the other did not. Null while the slide is not laid out (a hidden view).
+ */
+function fitContent(box: HTMLElement, content: HTMLElement): number | null {
+  // Drawn sizes: both include the stage's scale and the content's zoom. The box's height doesn't
+  // depend on the content's.
+  const available = box.getBoundingClientRect().height;
+  if (!available) return null;
+  const fits = (zoom: number) => {
+    content.style.zoom = String(zoom);
+    return content.getBoundingClientRect().height <= available + 1;
+  };
+  const zoom = largestFitting(fits);
+  content.style.zoom = String(zoom);
+  return zoom;
+}
+
+/** The largest of 1, 0.99, ... `MIN_FIT` that `fits`, or `MIN_FIT` when none does (the slide scrolls). */
+function largestFitting(fits: (zoom: number) => boolean): number {
+  const zoomAt = (step: number) => Math.round(100 - step) / 100;
+  if (fits(1)) return 1;
+  // Smaller zooms make content shorter, so search for the first step that fits.
+  let low = 1;
+  let high = FIT_STEPS;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (fits(zoomAt(middle))) high = middle;
+    else low = middle + 1;
+  }
+  return zoomAt(low);
 }
 
 /** The width an element gets, kept current as it resizes. */
