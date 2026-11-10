@@ -216,8 +216,8 @@ Sessions can run commands on any machine with a Takode node, whatever machine
 they run on themselves, with `takode exec` (see `takode exec --help`):
 
 ```bash
-takode exec --host condor1-cpu-takode --cwd '~/repo' -- 'git status --short'
-takode exec --host condor1-cpu-takode --memory-limit 64G -- 'cd ~/images && make build'
+takode exec --host fv-agent-host --cwd '~/repo' -- 'git status --short'
+takode exec --host fv-agent-host --memory-limit 64G -- 'cd ~/images && make build'
 takode exec status x-12; takode exec logs x-12; takode exec kill x-12
 ```
 
@@ -298,10 +298,10 @@ slot frees up; its slot is freed when it ends, is stopped, or its caller goes
 away. A leader sets the pool's size:
 
 ```bash
-takode lease configure lean-checks@condor1-cpu-takode --capacity 48
-takode exec --host condor1-cpu-takode --pool lean-checks -- 'bash ~/pipeline/lean.sh Task.lean'
+takode lease configure lean-checks@fv-agent-host --capacity 48
+takode exec --host fv-agent-host --pool lean-checks -- 'bash ~/pipeline/lean.sh Task.lean'
 takode exec --pool lean-checks -- 'bash ~/pipeline/lean.sh Task.lean'
-takode lease status lean-checks@condor1-cpu-takode
+takode lease status lean-checks@fv-agent-host
 ```
 
 Without `--host`, the command can run on any machine where the pool has a
