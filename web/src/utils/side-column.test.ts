@@ -144,18 +144,25 @@ describe("closing chats one at a time", () => {
       .filter((item) => !isRememberedFolded(sideFoldId(item.id)))
       .map((item) => item.id);
 
-  it("opens the chat used most recently when the open chat is removed", () => {
+  // Jiayi (Nov 10): closing the open chat opens the next one down, so chats read top to bottom,
+  // even when another chat was used more recently; the last chat falls back to the one above.
+  it("opens the chat below when the open chat is removed, else the one above", () => {
     const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
     const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     const c = openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
     setSideOneAtATime(true);
-    // Used order: c, then a (opened again), then b.
+    // Listed top to bottom: c, b, a. Used order: c, then a (opened again), then b.
+    expect(items().map((item) => item.id)).toEqual([c, b, a]);
     unfoldSideItem(a);
     unfoldSideItem(c);
     expect(openChats()).toEqual([c]);
     closeSideItem(c);
-    expect(openChats()).toEqual([a]);
-    expect(isRememberedFolded(sideFoldId(b))).toBe(true);
+    expect(openChats()).toEqual([b]);
+    expect(isRememberedFolded(sideFoldId(a))).toBe(true);
+    // The last chat has none below it: the one above opens.
+    unfoldSideItem(a);
+    closeSideItem(a);
+    expect(openChats()).toEqual([b]);
   });
 
   it("opens a neighbour when no other chat was used, and nothing once none is left", () => {
