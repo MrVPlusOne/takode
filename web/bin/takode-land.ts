@@ -554,11 +554,10 @@ async function landRun(base: string, flags: Flags): Promise<void> {
   console.log(`Started landing runner ${runner.launchId} on this machine (log: ${logPath}).`);
 }
 
-/** The runner process itself: one landing run for the queue, with the runner's own credentials. */
-async function runAsRunner(base: string, ctx: LandContext, logPath: string | undefined): Promise<void> {
-  const log = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
+/** The landing-run API a runner process uses, over the Takode server at `base`. */
+export function landingRunnerApi(base: string): LandingRunApi {
   let runId = "";
-  const runApi: LandingRunApi = {
+  return {
     claim: async (target) => {
       const claim = await withRetry(() => apiPost(base, "/takode/land/runs", { target }));
       runId = (claim as { run?: { id: string } }).run?.id ?? runId;
@@ -583,11 +582,23 @@ async function runAsRunner(base: string, ctx: LandContext, logPath: string | und
       return Buffer.from(data, "base64");
     },
     gate: async (target) => (await withRetry(() => savedGate(base, target)))?.config ?? null,
-    // A heartbeat renews the queue's lease and fails once the queue no longer holds it.
+    // A heartbeat renews the queue's lease and fails once the queue no longer holds it. A server
+    // that cannot be reached (a restart) has not refused it: the lease outlives a restart, and the
+    // server checks it again before the push, so only a refusal counts as losing it.
     renewLease: async () => {
-      await apiPost(base, `/takode/land/runs/${runId}/heartbeat`, {});
+      try {
+        await apiPost(base, `/takode/land/runs/${runId}/heartbeat`, {});
+      } catch (error) {
+        if (!isTransientApiError(error)) throw error;
+      }
     },
   };
+}
+
+/** The runner process itself: one landing run for the queue, with the runner's own credentials. */
+async function runAsRunner(base: string, ctx: LandContext, logPath: string | undefined): Promise<void> {
+  const log = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
+  const runApi = landingRunnerApi(base);
   const slug = `${ctx.target.repo}-${ctx.target.branch.replace(/[^A-Za-z0-9._-]/g, "_")}-${await shortHash(ctx.baseCheckout)}`;
   const landingDir = join(LANDING_HOME, "checkouts", slug);
   const lockPath = `${landingDir}.runner`;
@@ -669,6 +680,17 @@ async function shortHash(text: string): Promise<string> {
 }
 
 /**
+ * A failure to reach the server (or a 5xx while it is away), as opposed to a refusal.
+ * Bun's fetch reports a refused connection as "Unable to connect" with code ConnectionRefused.
+ */
+function isTransientApiError(error: unknown): boolean {
+  const { message, code } = error as Error & { code?: unknown };
+  return /fetch failed|Unable to connect|ECONNREFUSED|ECONNRESET|ConnectionRefused|ConnectionClosed|socket|HTTP 5\d\d|unreachable|Bad Gateway|Service Unavailable|Gateway Timeout|Internal Server Error/i.test(
+    `${message} ${typeof code === "string" ? code : ""}`,
+  );
+}
+
+/**
  * Retry calls that must reach the server, such as a runner's final report
  * across a coordinator restart. A host's API proxy answers 502 while the
  * coordinator is away, which the CLI sees as "Bad Gateway".
@@ -678,12 +700,7 @@ async function withRetry<T>(call: () => Promise<T>, attempts = 12): Promise<T> {
     try {
       return await call();
     } catch (error) {
-      const message = (error as Error).message;
-      const transient =
-        /fetch failed|ECONNREFUSED|ECONNRESET|socket|HTTP 5\d\d|unreachable|Bad Gateway|Service Unavailable|Gateway Timeout|Internal Server Error/i.test(
-          message,
-        );
-      if (!transient || attempt >= attempts) throw error;
+      if (!isTransientApiError(error) || attempt >= attempts) throw error;
       await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, 2_000 * attempt)));
     }
   }
