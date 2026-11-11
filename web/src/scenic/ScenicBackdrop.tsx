@@ -4,14 +4,18 @@
  *   version on narrow panes such as phones) that breathes with a very slow camera drift, a cloud,
  *   haze or mist layer drifting in front of it, warm light rays, a reading veil where the text
  *   sits, gentle pointer parallax on desktop, and small lights (pollen, fireflies, glints).
+ *   Ink & Paper is instead a living painting drawn with WebGL (`ink-alive/`): clouds and ink flow
+ *   slowly, and now and then cranes cross or ink blooms into a cloud. Without WebGL it falls back
+ *   to its still painting.
  * - `ScenicPanels` lays the same painting, faded, under the sessions panel and the side column.
  * The paintings are bundled WebP files that load only when a style is on, and only the day or the
  * night one for the theme in use. Lights run on one canvas at about 30 frames a second and pause
  * while the page is hidden; nothing moves with reduced motion, and both render nothing when the
  * setting is Off.
  */
-import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store.js";
+import { InkAliveCanvas } from "./ink-alive/InkAliveCanvas.js";
 import { SCENIC_REVEAL_EVENT, type ScenicStyle, scenicMotionAllowed, useScenicStyle } from "./scenic-styles.js";
 
 type LightKind = "pollen" | "firefly" | "glint" | "glint-night";
@@ -28,8 +32,11 @@ interface SceneArt {
 
 /** A bundled scenic image by name. The version in the name lets browsers keep it for good. */
 export function scenicAsset(name: string): string {
-  return `/scenic/${name}.v1.webp`;
+  return `/scenic/${name}.v${ASSET_VERSIONS[name] ?? 1}.webp`;
 }
+
+/** Files repainted since they first shipped; a new version makes browsers fetch the new image. */
+const ASSET_VERSIONS: Record<string, number> = { "ink-day-thumb": 2, "ink-night-thumb": 2 };
 
 const SCENES: Record<ScenicStyle, SceneArt> = {
   meadow: {
@@ -88,7 +95,11 @@ export function ScenicBackdrop() {
     return () => observer.disconnect();
   }, [style]);
   useParallax(ref, style !== null);
+  const [aliveFailed, setAliveFailed] = useState(false);
+  const onAliveUnavailable = useCallback(() => setAliveFailed(true), []);
   if (!style) return null;
+  // Ink & Paper is a living painting drawn with WebGL; without WebGL it shows its still painting.
+  const alive = style === "ink" && !aliveFailed;
   const art = SCENES[style];
   const motion = scenicMotionAllowed();
   const lights = art.lights[dark ? 1 : 0];
@@ -105,39 +116,45 @@ export function ScenicBackdrop() {
       data-scenic-style={style}
       className="pointer-events-none absolute inset-0 overflow-hidden"
     >
-      <Layer depth={5}>
-        <div
-          data-testid="scenic-painting"
-          className="absolute inset-[-3%]"
-          style={{
-            backgroundImage: `url("${scenicPainting(style, dark, tall)}")`,
-            backgroundSize: "cover",
-            backgroundPosition: "center bottom",
-            transformOrigin: "50% 100%",
-            animation: motion ? "scenic-camera 90s ease-in-out infinite alternate" : undefined,
-          }}
-        />
-      </Layer>
-      <Layer depth={16}>
-        <div
-          data-testid="scenic-drift"
-          className="absolute left-[-15%] right-[-15%]"
-          style={{
-            [art.drift.edge]: 0,
-            height: art.drift.height,
-            backgroundImage: `url("${scenicAsset(`${style}-${DRIFT_LAYERS[style]}`)}")`,
-            backgroundSize: "100% 100%",
-            opacity: art.drift.opacity[dark ? 1 : 0],
-            maskImage:
-              art.drift.edge === "top"
-                ? "linear-gradient(black 55%, transparent)"
-                : "linear-gradient(transparent, black 45%)",
-            animation: motion ? "scenic-float 140s ease-in-out infinite alternate" : undefined,
-          }}
-        />
-      </Layer>
+      {alive && <InkAliveCanvas dark={dark} motion={motion} onUnavailable={onAliveUnavailable} />}
+      {!alive && (
+        <Layer depth={5}>
+          <div
+            data-testid="scenic-painting"
+            className="absolute inset-[-3%]"
+            style={{
+              backgroundImage: `url("${scenicPainting(style, dark, tall)}")`,
+              backgroundSize: "cover",
+              backgroundPosition: "center bottom",
+              transformOrigin: "50% 100%",
+              animation: motion ? "scenic-camera 90s ease-in-out infinite alternate" : undefined,
+            }}
+          />
+        </Layer>
+      )}
+      {!alive && (
+        <Layer depth={16}>
+          <div
+            data-testid="scenic-drift"
+            className="absolute left-[-15%] right-[-15%]"
+            style={{
+              [art.drift.edge]: 0,
+              height: art.drift.height,
+              backgroundImage: `url("${scenicAsset(`${style}-${DRIFT_LAYERS[style]}`)}")`,
+              backgroundSize: "100% 100%",
+              opacity: art.drift.opacity[dark ? 1 : 0],
+              maskImage:
+                art.drift.edge === "top"
+                  ? "linear-gradient(black 55%, transparent)"
+                  : "linear-gradient(transparent, black 45%)",
+              animation: motion ? "scenic-float 140s ease-in-out infinite alternate" : undefined,
+            }}
+          />
+        </Layer>
+      )}
       {art.rays && !dark && <Rays side={art.rays} motion={motion} />}
-      <Veil width={size.width} />
+      {/* The living ink keeps its moments off the reading column, so a lighter veil reads as well. */}
+      <Veil width={size.width} strength={alive ? 0.72 : 1} />
       {motion && lights && <LightCanvas kind={lights} from={art.lightsFrom} />}
     </div>
   );
@@ -180,18 +197,17 @@ function Rays({ side, motion }: { side: "left" | "right"; motion: boolean }) {
  * thinner at the top and bottom so the sky and the land stay vivid there. Narrow panes get it
  * across their whole width.
  */
-function Veil({ width }: { width: number }) {
+function Veil({ width, strength }: { width: number; strength: number }) {
   const ref = useRef<HTMLDivElement>(null);
   // While a quest-finishing fanfare plays, the veil lifts and the whole painting shows.
   useEffect(() => {
-    const reveal = () =>
+    const reveal = () => {
+      const base = Number(ref.current?.style.opacity || 1);
       ref.current?.animate?.(
-        [{ opacity: 1 }, { opacity: 0.12, offset: 0.2 }, { opacity: 0.12, offset: 0.75 }, { opacity: 1 }],
-        {
-          duration: 3600,
-          easing: "ease-in-out",
-        },
+        [{ opacity: base }, { opacity: 0.12, offset: 0.2 }, { opacity: 0.12, offset: 0.75 }, { opacity: base }],
+        { duration: 3600, easing: "ease-in-out" },
       );
+    };
     window.addEventListener(SCENIC_REVEAL_EVENT, reveal);
     return () => window.removeEventListener(SCENIC_REVEAL_EVENT, reveal);
   }, []);
@@ -204,9 +220,11 @@ function Veil({ width }: { width: number }) {
   return (
     <div
       ref={ref}
+      data-testid="scenic-veil"
       className="absolute inset-0"
       style={{
         background,
+        opacity: strength,
         maskImage:
           // Stops stay in order on short panes too, so the veil never shows a hard edge.
           "linear-gradient(to bottom, rgba(0,0,0,0.3) 0px, rgba(0,0,0,0.92) min(190px, 25%), black 50%, rgba(0,0,0,0.94) max(calc(100% - 200px), 75%), rgba(0,0,0,0.55) 100%)",

@@ -17,7 +17,7 @@ vi.mock("../api.js", async (importOriginal) => {
 
 import { useStore } from "../store.js";
 import { SettingsScenicBackgroundSection } from "../components/SettingsScenicBackgroundSection.js";
-import { ScenicBackdrop, ScenicPanels, scenicPainting } from "./ScenicBackdrop.js";
+import { ScenicBackdrop, ScenicPanels, scenicAsset, scenicPainting } from "./ScenicBackdrop.js";
 import { playScenicMoment } from "./scenic-moments.js";
 import { SCENIC_REVEAL_EVENT, applyScenicClass } from "./scenic-styles.js";
 import scenicCss from "./scenic.css?raw";
@@ -109,6 +109,21 @@ describe("ScenicBackdrop", () => {
     expect(screen.getByTestId("scenic-painting").style.backgroundImage).toContain(
       "/scenic/seaside-day-portrait.v1.webp",
     );
+  });
+
+  it("shows Ink & Paper's still painting where the living painting cannot run without WebGL", () => {
+    // jsdom has no WebGL, like a browser with it turned off: the living canvas gives way to the
+    // painting instead of leaving the pane blank.
+    useStore.setState({ scenicBackground: "ink" });
+    render(<ScenicBackdrop />);
+    expect(screen.queryByTestId("scenic-ink-alive")).toBeNull();
+    expect(screen.getByTestId("scenic-painting").style.backgroundImage).toContain("/scenic/ink-day.v1.webp");
+  });
+
+  it("asks for the repainted Ink & Paper thumbnails by their new version", () => {
+    // Scenic files are cached for good, so a repainted file must change its name.
+    expect(scenicAsset("ink-day-thumb")).toBe("/scenic/ink-day-thumb.v2.webp");
+    expect(scenicAsset("meadow-day-thumb")).toBe("/scenic/meadow-day-thumb.v1.webp");
   });
 
   it("keeps the painting still and draws no lights with reduced motion", () => {
