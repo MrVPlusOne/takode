@@ -56,6 +56,42 @@ describe("thread numbers", () => {
     expect(reloaded.startThread({ space: "MSI", name: "Later", leaderId: "leader-a" }).address).toBe("t-3");
   });
 
+  it("finds threads by handle as they are started and removed", async () => {
+    // Handle lookups use an index built once (projections resolve a handle per message on every
+    // recompute); starting or removing a thread must be seen by the very next lookup.
+    const store = await newStore();
+    const first = store.startThread({ space: "MSI", name: "First", leaderId: "leader-a" });
+    expect(store.resolveHandle(first.id)?.id).toBe(first.id);
+    expect(store.thread(first.key)?.id).toBe(first.id);
+    const second = store.startThread({ space: "MSI", name: "Second", leaderId: "leader-a" });
+    expect(store.resolveHandle(second.key.slice("topic:".length))?.id).toBe(second.id);
+    store.removeThread(first.key);
+    expect(store.resolveHandle(first.id)).toBeUndefined();
+    expect(store.thread(first.key)).toBeUndefined();
+    expect(store.thread(second.address!)?.id).toBe(second.id);
+  });
+
+  it("writes a leader's cursor with the next change, or alone at most once a minute", async () => {
+    // The cursor moves with every leader save; rewriting the whole topics file for it alone kept
+    // the server busy. Messages that record nothing are safe to read again after a restart.
+    const store = await newStore();
+    store.enableLeader("leader-a");
+    await store.flush();
+    const saved = async () => JSON.parse(await readFile(join(root, "topics.json"), "utf-8")).cursors["leader-a"];
+    store.setCursor("leader-a", 5);
+    await store.flush();
+    expect(await saved()).toBeUndefined();
+    store.startThread({ space: "MSI", name: "News", leaderId: "leader-a" });
+    await store.flush();
+    expect(await saved()).toBe(5);
+    store.setCursor("leader-a", 9);
+    await store.flush();
+    expect(await saved()).toBe(5);
+    now += 60_000;
+    await store.flush();
+    expect(await saved()).toBe(9);
+  });
+
   it("numbers threads saved before addresses existed by when they started, after numbers already given", async () => {
     const store = await newStore();
     const older = store.startThread({ space: "MSI", name: "Older", leaderId: "leader-a" });

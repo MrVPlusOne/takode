@@ -32,6 +32,8 @@ import {
  */
 
 const MAX_EVENTS_PER_TOPIC = 200;
+/** A leader's cursor alone is written at most this often; see `setCursor`. */
+const CURSOR_WRITE_INTERVAL_MS = 60_000;
 const MAX_CHANGES = 300;
 const MAX_QUESTS_TOLD = 500;
 /** Where a topic stands: at most this many lines, each at most this long (links count as their text). */
@@ -258,8 +260,12 @@ export class TopicStoreError extends Error {
 
 export class TopicStore {
   private state: TopicState | null = null;
+  /** Topic ID by thread handle, built on first use and dropped whenever a topic is added or removed. */
+  private handleIds: Map<string, string> | null = null;
   private writeChain: Promise<void> = Promise.resolve();
   private dirty = false;
+  private cursorsChanged = false;
+  private lastWriteAt = 0;
   /** Told whenever one of a leader's threads changes, so an open Threads menu updates at once. */
   onThreadChange?: (leaderId: string) => void;
 
@@ -274,6 +280,7 @@ export class TopicStore {
       const parsed = JSON.parse(await readFile(join(this.root, "topics.json"), "utf-8")) as TopicState;
       if (parsed?.version !== 1 || typeof parsed.topics !== "object") throw new Error("unknown topics format");
       this.state = parsed;
+      this.handleIds = null;
       this.upgradeState(parsed);
       this.coverMergedEvents();
     } catch (error) {
@@ -283,6 +290,7 @@ export class TopicStore {
           () => {},
         );
       }
+      this.handleIds = null;
       this.state = {
         version: 1,
         topics: {},
@@ -588,7 +596,11 @@ export class TopicStore {
   setCursor(leaderId: string, count: number): void {
     if (this.s().cursors[leaderId] === count) return;
     this.s().cursors[leaderId] = count;
-    this.dirty = true;
+    // The cursor moves with every save of a leader, and writing the whole topics file (over a
+    // megabyte) each time kept the server busy. A message that records an event marks the store
+    // changed, so the cursor written with it covers it; re-reading the other messages after a
+    // restart records nothing, so a cursor change alone is written at most once a minute.
+    this.cursorsChanged = true;
   }
 
   // ─── Topics and quests ────────────────────────────────────────────────────
@@ -751,8 +763,8 @@ export class TopicStore {
   /** A thread by ID or handle (also `topic:<handle>`); undefined for topics and unknown refs. */
   thread(ref: string): StoredTopic | undefined {
     // A thread number (`t-17`) or key (`topic:<handle>`), else an ID or handle.
-    const handle = topicIdOfViewKey(ref) ?? topicHandle(ref);
-    const topic = Object.values(this.s().topics).find((candidate) => topicHandle(candidate.id) === handle);
+    const id = this.idOfHandle(topicIdOfViewKey(ref) ?? topicHandle(ref));
+    const topic = id ? this.s().topics[id] : undefined;
     return topic?.thread ? topic : undefined;
   }
 
@@ -794,6 +806,7 @@ export class TopicStore {
     if (thread.thread.lastMessageAt !== undefined)
       throw new TopicStoreError("Only a thread with no messages can be removed.", 409);
     delete this.s().topics[thread.id];
+    this.handleIds = null;
     this.dirty = true;
     this.onThreadChange?.(thread.thread.leaderId);
   }
@@ -1220,6 +1233,7 @@ export class TopicStore {
     } else if (undo.kind === "merge") {
       const into = this.s().topics[undo.intoId];
       this.s().topics[undo.from.id] = structuredClone(undo.from);
+      this.handleIds = null;
       for (const questId of undo.questIds) {
         if (this.s().questTopics[questId] === undo.intoId) this.s().questTopics[questId] = undo.from.id;
       }
@@ -1237,6 +1251,7 @@ export class TopicStore {
       else delete this.s().questTopics[undo.questId];
       if (undo.createdTopicId && this.questsOf(undo.createdTopicId).length === 0) {
         delete this.s().topics[undo.createdTopicId];
+        this.handleIds = null;
       }
     } else {
       // Only quests still where the change put them go back; later moves of a quest are kept.
@@ -1250,6 +1265,7 @@ export class TopicStore {
       }
       if (undo.createdTopicId && this.questsOf(undo.createdTopicId).length === 0) {
         delete this.s().topics[undo.createdTopicId];
+        this.handleIds = null;
       }
     }
     for (const topicId of new Set(affected)) {
@@ -1515,8 +1531,7 @@ export class TopicStore {
    * or the topic it was merged into.
    */
   resolveHandle(handle: string): StoredTopic | undefined {
-    const key = topicHandle(handle);
-    const id = Object.keys(this.s().topics).find((candidate) => topicHandle(candidate) === key);
+    const id = this.idOfHandle(topicHandle(handle));
     return id ? this.live(id) : undefined;
   }
 
@@ -1629,8 +1644,12 @@ export class TopicStore {
   }
 
   flush(): Promise<void> {
-    if (!this.dirty || !this.state) return this.writeChain;
+    if (!this.state) return this.writeChain;
+    const cursorsDue = this.cursorsChanged && this.now() - this.lastWriteAt >= CURSOR_WRITE_INTERVAL_MS;
+    if (!this.dirty && !cursorsDue) return this.writeChain;
     this.dirty = false;
+    this.cursorsChanged = false;
+    this.lastWriteAt = this.now();
     const json = JSON.stringify(this.state);
     this.writeChain = this.writeChain
       .then(async () => {
@@ -1663,6 +1682,7 @@ export class TopicStore {
       events: [],
     };
     this.s().topics[topic.id] = topic;
+    this.handleIds = null;
     return topic;
   }
 
@@ -1677,6 +1697,21 @@ export class TopicStore {
     return Object.values(this.s().topics).filter(
       (topic) => !topic.mergedInto && !topic.thread && (!space || topic.space === space),
     );
+  }
+
+  /**
+   * The ID of the first stored topic with this handle. Leader projections resolve a thread key once
+   * per message and notification on every recompute, so this must not scan every topic.
+   */
+  private idOfHandle(handle: string): string | undefined {
+    if (!this.handleIds) {
+      this.handleIds = new Map();
+      for (const id of Object.keys(this.s().topics)) {
+        const key = topicHandle(id);
+        if (!this.handleIds.has(key)) this.handleIds.set(key, id);
+      }
+    }
+    return this.handleIds.get(handle);
   }
 
   private live(id: string): StoredTopic | undefined {
