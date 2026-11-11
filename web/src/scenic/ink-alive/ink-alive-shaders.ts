@@ -25,7 +25,6 @@ uniform vec2 uRes;      // canvas size in pixels
 uniform float uScale;   // canvas pixels per pane pixel
 uniform float uTime;    // seconds
 uniform float uDark;    // 0 light theme, 1 dark theme
-uniform vec2 uPointer;  // pointer in [-1, 1], for gentle parallax
 
 uniform sampler2D uNoise;
 uniform sampler2D uPaper;
@@ -82,21 +81,24 @@ float inkAt(sampler2D tex, vec4 rect, vec2 px) {
   return 1.0 - texture2D(tex, uv).r;
 }
 
-// Clouds that flow sideways and curl as they go.
+// Clouds drifting sideways at a pace you can follow (speed in pane heights a second), billowing
+// as they go: the warp that shapes them evolves on its own, so their forms roll and change.
 float cloud(vec2 q, float speed, float scale, float threshold, float seed) {
-  float moved = uTime * speed * 0.45;
-  vec2 flow = vec2(moved, sin(moved * 7.0 + seed) * 0.02);
-  vec2 warp = vec2(fbm(q * 1.7 + flow * 0.6 + seed), fbm(q * 1.7 - flow * 0.4 + seed + 5.2));
-  float n = fbm(q * vec2(scale, scale * 2.4) - flow + warp * 0.9 + seed);
-  return smoothstep(threshold, threshold + 0.24, n);
+  vec2 flow = vec2(uTime * speed, sin(uTime * speed * 3.0 + seed) * 0.02);
+  vec2 p = q - flow;
+  vec2 warp = vec2(fbm(p * 1.7 + seed + uTime * 0.012), fbm(p * 1.7 + seed + 5.2 - uTime * 0.01));
+  float n = fbm(p * vec2(scale, scale * 2.4) + warp * 0.9 + seed);
+  return smoothstep(threshold, threshold + 0.16, n);
 }
 
-// The slow flow of wet ink: where it is on, sampling drifts along a curl field and gathers
-// back each cycle; two samples half a cycle apart hide the restart.
-vec2 curl(vec2 p) {
-  float e = 0.06;
-  float n = fbm(p);
-  return vec2(fbm(p + vec2(0.0, e)) - n, -(fbm(p + vec2(e, 0.0)) - n)) / e;
+// The flow of the ink itself, in the spirit of paint flowing in water: a field warped twice, which
+// evolves slowly and never resets, so shapes drawn through it melt, stream and curl continuously.
+// Returns the warp vector (centred on zero) in .xy and the warped field's value in .z.
+vec3 inkFlow(vec2 q, float t) {
+  vec2 p = q * vec2(1.8, 3.2) + vec2(-t * 0.016, 0.0);
+  vec2 a = vec2(fbm(p + vec2(0.0, t * 0.021)), fbm(p + vec2(5.2, -t * 0.018)));
+  vec2 b = vec2(fbm(p + 2.6 * a + vec2(1.7, 9.2) + t * 0.012), fbm(p + 2.6 * a + vec2(8.3, 2.8) - t * 0.01));
+  return vec3(b - 0.5, fbm(p + 2.6 * b));
 }
 
 float lightAt(sampler2D tex, vec4 rect, vec2 px) {
@@ -105,16 +107,11 @@ float lightAt(sampler2D tex, vec4 rect, vec2 px) {
   return texture2D(tex, uv).r;
 }
 
-// A layer's ink density by day (x) and its moonlit brightness at night (y), flowing together.
-vec2 flowingInk(sampler2D day, sampler2D night, vec4 rect, vec2 px, vec2 flow, float strength) {
-  float cycle = 24.0;
-  float a = fract(uTime / cycle);
-  float b = fract(uTime / cycle + 0.5);
-  vec2 pa = px - flow * a * strength;
-  vec2 pb = px - flow * b * strength;
-  vec2 sa = vec2(inkAt(day, rect, pa), lightAt(night, rect, pa));
-  vec2 sb = vec2(inkAt(day, rect, pb), lightAt(night, rect, pb));
-  return mix(sa, sb, abs(1.0 - 2.0 * a));
+// A layer's ink density by day (x) and its moonlit brightness at night (y), sampled through the
+// ink's flow so the brushwork itself moves.
+vec2 flowingInk(sampler2D day, sampler2D night, vec4 rect, vec2 px, vec2 offset) {
+  vec2 at = px - offset;
+  return vec2(inkAt(day, rect, at), lightAt(night, rect, at));
 }
 
 // Paints a moonlit layer over the night scene so far (premultiplied colour and coverage):
@@ -142,14 +139,15 @@ void main() {
   float h = size.y;
   vec2 q = px / h;
   float t = uTime;
-  // A slow camera breath plus pointer parallax; nearer layers move more.
-  vec2 drift = vec2(sin(t * 0.014) * 0.008 * size.x, 0.0) + uPointer * vec2(-10.0, -4.0);
+  // A slow camera breath; nearer layers move more.
+  vec2 drift = vec2(sin(t * 0.014) * 0.008 * size.x, 0.0);
   bool lake = px.y > uHorizon;
 
-  // Wet ink: a curl field, switched on in patches that come and go.
-  vec2 flow = curl(q * 1.3 + vec2(t * 0.011, t * 0.005));
-  float wet = smoothstep(0.45, 0.75, noise(q * 1.2 + vec2(t * 0.016, -t * 0.01)));
-  float flowStrength = 0.018 * h * wet;
+  // The ink's flow: gentle on the peaks' upper slopes, strong where their feet dissolve into the
+  // sea of clouds, so the washes there melt and stream away like paint in water.
+  vec3 ink = inkFlow(q, t);
+  float feet = band(px.y, uHorizon - 0.3 * h, uHorizon + 0.04 * h, 0.08 * h);
+  vec2 inkOffset = ink.xy * h * mix(0.012, 0.06, feet);
 
   // Where the peaks are sampled from: themselves, or their mirror image in the lake.
   vec2 at = px;
@@ -168,8 +166,11 @@ void main() {
   }
   if (lake) {
     float depth = (px.y - uHorizon) / h;
-    float wobble = sin(px.y * 0.9 + t * 0.8) * (1.0 + depth * 30.0)
-      + (noise(vec2(px.x * 0.02, px.y * 0.25 + t * 0.35)) - 0.5) * 6.0;
+    // Gentle swell: rows of small waves travelling toward you, breaking the reflection into
+    // softly moving bands.
+    float swell = sin(px.y * 0.45 - t * 1.4 + noise(vec2(px.x * 0.01, px.y * 0.05)) * 4.0);
+    float wobble = swell * (2.0 + depth * 60.0)
+      + (noise(vec2(px.x * 0.02 + t * 0.05, px.y * 0.25 - t * 0.6)) - 0.5) * (6.0 + depth * 40.0);
     at = vec2(px.x + wobble + rings * 4.0, uHorizon - (px.y - uHorizon) * 1.15 + rings * 2.0);
     mirror = 0.42 * (1.0 - smoothstep(0.0, 0.24, depth));
   }
@@ -178,20 +179,20 @@ void main() {
   vec3 moon = vec3(0.9, 0.92, 0.97);
   vec3 fog = vec3(0.26, 0.27, 0.29);
   vec4 moonlit = vec4(0.0);
-  vec2 farS = flowingInk(uFar, uFarNight, uFarRect, at + drift * 0.25, flow, flowStrength * 0.6);
+  vec2 farS = flowingInk(uFar, uFarNight, uFarRect, at + drift * 0.25, inkOffset * 0.5);
   float far = farS.x * 0.7;
   over(moonlit, moon * farS.y * 0.5, smoothstep(0.02, 0.3, farS.x) * 0.85);
-  float hazeFar = cloud(q, 0.008, 1.1, 0.5, 3.0) * band(at.y, uHorizon - 0.24 * h, uHorizon, 0.06 * h);
+  float hazeFar = cloud(q, 0.006, 1.1, 0.5, 3.0) * band(at.y, uHorizon - 0.24 * h, uHorizon, 0.06 * h);
   far *= 1.0 - hazeFar * 0.8;
   over(moonlit, fog, hazeFar * 0.55);
-  vec2 midFarS = flowingInk(uMidFar, uMidFarNight, uMidFarRect, at + drift * 0.5, flow, flowStrength * 0.8);
+  vec2 midFarS = flowingInk(uMidFar, uMidFarNight, uMidFarRect, at + drift * 0.5, inkOffset * 0.75);
   float midFar = midFarS.x * 0.75;
   over(moonlit, moon * midFarS.y * 0.76, smoothstep(0.02, 0.3, midFarS.x) * 0.9);
   float peaks = 1.0 - (1.0 - far) * (1.0 - midFar);
-  float hazeMid = cloud(q, 0.011, 1.25, 0.48, 9.0) * band(at.y, uHorizon - 0.3 * h, uHorizon + 0.02 * h, 0.07 * h);
+  float hazeMid = cloud(q, 0.009, 1.25, 0.48, 9.0) * band(at.y, uHorizon - 0.3 * h, uHorizon + 0.02 * h, 0.07 * h);
   peaks *= 1.0 - hazeMid * 0.85;
   over(moonlit, fog, hazeMid * 0.6);
-  vec2 midS = flowingInk(uMid, uMidNight, uMidRect, at + drift, flow, flowStrength);
+  vec2 midS = flowingInk(uMid, uMidNight, uMidRect, at + drift, inkOffset);
   float mid = midS.x;
   over(moonlit, moon * midS.y, smoothstep(0.02, 0.28, midS.x));
   peaks = 1.0 - (1.0 - peaks) * (1.0 - mid);
@@ -199,17 +200,27 @@ void main() {
   moonlit *= mirror;
 
   // Clouds through the peaks: thin streams high up and a thick sea of clouds at their feet.
-  float high = cloud(q, 0.013, 1.3, 0.5, 1.0) * band(px.y, uHorizon - 0.5 * h, uHorizon - 0.26 * h, 0.08 * h);
-  float sea = cloud(q, 0.017, 1.0, 0.42, 7.0) * band(px.y, uHorizon - 0.2 * h, uHorizon + 0.05 * h, 0.07 * h);
+  float high = cloud(q, 0.011, 1.3, 0.5, 1.0) * band(px.y, uHorizon - 0.5 * h, uHorizon - 0.26 * h, 0.08 * h);
+  float sea = cloud(q, 0.015, 1.0, 0.42, 7.0) * band(px.y, uHorizon - 0.2 * h, uHorizon + 0.05 * h, 0.07 * h);
   float mist = max(high * 0.85, sea * 0.92);
   peaks *= 1.0 - mist;
-  over(moonlit, fog * 1.15, mist * 0.6);
+  over(moonlit, fog * 1.25, mist * 0.75);
   // Clouds are painted by leaving paper and washing grey under their lower edges.
-  float under = cloud(q - vec2(0.0, 0.018), 0.017, 1.0, 0.42, 7.0)
+  float under = cloud(q - vec2(0.0, 0.018), 0.015, 1.0, 0.42, 7.0)
     * band(px.y - 0.018 * h, uHorizon - 0.2 * h, uHorizon + 0.05 * h, 0.07 * h);
-  float underHigh = cloud(q - vec2(0.0, 0.014), 0.013, 1.3, 0.5, 1.0)
+  float underHigh = cloud(q - vec2(0.0, 0.014), 0.011, 1.3, 0.5, 1.0)
     * band(px.y - 0.014 * h, uHorizon - 0.5 * h, uHorizon - 0.26 * h, 0.08 * h);
-  float shading = max(under - sea, 0.0) * 0.16 + max(underHigh - high, 0.0) * 0.12;
+  float shading = max(under - sea, 0.0) * 0.3 + max(underHigh - high, 0.0) * 0.22;
+
+  // Ink currents: thin marbled streams of grey ink carried through the sea of clouds, fed by the
+  // peaks' washes upstream, as if the painting's ink were slowly flowing away in water.
+  float upstream = inkAt(uMid, uMidRect, px + vec2(0.05 * h, 0.0) - inkOffset * 2.0)
+    + inkAt(uMidFar, uMidFarRect, px + vec2(0.08 * h, 0.0) - inkOffset * 1.5) * 0.6;
+  // Broad, soft streams rather than thin lines: wet ink spreads, it does not scratch.
+  float filaments = pow(1.0 - abs(sin(ink.z * 9.0 + ink.x * 5.0)), 3.0) * smoothstep(0.3, 0.6, ink.z);
+  float wash = smoothstep(0.52, 0.78, ink.z);
+  float currents = (filaments * 0.55 + wash * 0.5) * feet * (0.35 + 0.65 * clamp(upstream, 0.0, 1.0));
+  currents *= (1.0 - sea * 0.5) * 0.32;
 
   // Ink drops blooming in the sky: each curls into an ink-wash cloud, drifts with the wind and
   // thins away. They stay in the upper sky and fade near the sun.
@@ -234,9 +245,10 @@ void main() {
   // The lake: faint moving strokes of water.
   float water = 0.0;
   if (lake) {
-    float streak = smoothstep(0.7, 0.95, noise(vec2(px.x * 0.004 - t * 0.03, px.y * 0.09)))
-      * smoothstep(0.2, 0.8, noise(vec2(px.x * 0.01, t * 0.05)));
-    water = streak * 0.06 + max(rings, 0.0) * 0.08;
+    // Water painted as thin ink lines that drift and break, as in ink-wash water.
+    float streak = smoothstep(0.62, 0.9, noise(vec2(px.x * 0.005 - t * 0.09, px.y * 0.11 - t * 0.06)))
+      * smoothstep(0.25, 0.75, noise(vec2(px.x * 0.012 + t * 0.04, px.y * 0.02)));
+    water = streak * 0.13 + max(rings, 0.0) * 0.1;
   }
   float boat = inkAt(uBoat, uBoatRect, px);
   float keel = uBoatRect.y + uBoatRect.w * 0.92;
@@ -283,13 +295,15 @@ void main() {
 
   // By day everything is dark ink on paper. At night the distant peaks are pale ink lit by the
   // moon, the clouds glow, and the near cliffs stand dark in front.
-  float inked = 1.0 - (1.0 - max(peaks, shading)) * (1.0 - blooms) * (1.0 - water);
+  float inked = 1.0 - (1.0 - max(peaks, shading)) * (1.0 - blooms) * (1.0 - water) * (1.0 - currents);
   vec3 dayInk = vec3(0.11, 0.105, 0.1);
   vec3 dayColor = mix(color, dayInk, inked);
   vec3 nightColor = color * (1.0 - moonlit.a) + moonlit.rgb;
   nightColor = mix(nightColor, vec3(0.3, 0.31, 0.33), water * 2.0);
   // At night the ink clouds are moonlit smoke.
   nightColor = mix(nightColor, vec3(0.36, 0.37, 0.4), blooms * 0.85);
+  // The ink currents glow faintly in the moonlit fog.
+  nightColor = mix(nightColor, vec3(0.42, 0.43, 0.46), currents * 1.2);
   color = mix(dayColor, nightColor, uDark);
 
   // Cranes fly in front of the peaks and behind the near cliffs; thin cloud can veil them.

@@ -3,7 +3,7 @@
  * - `ScenicBackdrop` paints the scene behind the conversation: a hand-painted landscape (a tall
  *   version on narrow panes such as phones) that breathes with a very slow camera drift, a cloud,
  *   haze or mist layer drifting in front of it, warm light rays, a reading veil where the text
- *   sits, gentle pointer parallax on desktop, and small lights (pollen, fireflies, glints).
+ *   sits, and small lights (pollen, fireflies, glints).
  *   Ink & Paper is instead a living painting drawn with WebGL (`ink-alive/`): clouds and ink flow
  *   slowly, and now and then cranes cross or ink blooms into a cloud. Without WebGL it falls back
  *   to its still painting.
@@ -13,7 +13,7 @@
  * while the page is hidden; nothing moves with reduced motion, and both render nothing when the
  * setting is Off.
  */
-import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store.js";
 import { InkAliveCanvas } from "./ink-alive/InkAliveCanvas.js";
 import { SCENIC_REVEAL_EVENT, type ScenicStyle, scenicMotionAllowed, useScenicStyle } from "./scenic-styles.js";
@@ -94,7 +94,6 @@ export function ScenicBackdrop() {
     observer.observe(element);
     return () => observer.disconnect();
   }, [style]);
-  useParallax(ref, style !== null);
   const [aliveFailed, setAliveFailed] = useState(false);
   const onAliveUnavailable = useCallback(() => setAliveFailed(true), []);
   if (!style) return null;
@@ -118,7 +117,7 @@ export function ScenicBackdrop() {
     >
       {alive && <InkAliveCanvas dark={dark} motion={motion} onUnavailable={onAliveUnavailable} />}
       {!alive && (
-        <Layer depth={5}>
+        <div className="absolute inset-0">
           <div
             data-testid="scenic-painting"
             className="absolute inset-[-3%]"
@@ -130,10 +129,10 @@ export function ScenicBackdrop() {
               animation: motion ? "scenic-camera 90s ease-in-out infinite alternate" : undefined,
             }}
           />
-        </Layer>
+        </div>
       )}
       {!alive && (
-        <Layer depth={16}>
+        <div className="absolute inset-0">
           <div
             data-testid="scenic-drift"
             className="absolute left-[-15%] right-[-15%]"
@@ -150,27 +149,12 @@ export function ScenicBackdrop() {
               animation: motion ? "scenic-float 140s ease-in-out infinite alternate" : undefined,
             }}
           />
-        </Layer>
+        </div>
       )}
       {art.rays && !dark && <Rays side={art.rays} motion={motion} />}
       {/* The living ink keeps its moments off the reading column, so a lighter veil reads as well. */}
       <Veil width={size.width} strength={alive ? 0.72 : 1} />
       {motion && lights && <LightCanvas kind={lights} from={art.lightsFrom} />}
-    </div>
-  );
-}
-
-/** A full-size layer that shifts with the pointer by up to `depth` pixels: nearer layers move more. */
-function Layer({ depth, children }: { depth: number; children: ReactNode }) {
-  return (
-    <div
-      className="absolute inset-0"
-      style={{
-        transform: `translate3d(calc(var(--scenic-mx, 0) * ${-depth}px), calc(var(--scenic-my, 0) * ${-depth * 0.5}px), 0)`,
-        transition: "transform 1.6s cubic-bezier(0.2, 0.6, 0.2, 1)",
-      }}
-    >
-      {children}
     </div>
   );
 }
@@ -231,31 +215,6 @@ function Veil({ width, strength }: { width: number; strength: number }) {
       }}
     />
   );
-}
-
-/** Pointer parallax on desktop: sets --scenic-mx and --scenic-my in [-1, 1] on the backdrop. */
-function useParallax(ref: RefObject<HTMLDivElement | null>, enabled: boolean) {
-  useEffect(() => {
-    if (!enabled || !scenicMotionAllowed() || !window.matchMedia?.("(pointer: fine)").matches) return;
-    let frame = 0;
-    let x = 0;
-    let y = 0;
-    const move = (event: PointerEvent) => {
-      x = (event.clientX / window.innerWidth) * 2 - 1;
-      y = (event.clientY / window.innerHeight) * 2 - 1;
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        ref.current?.style.setProperty("--scenic-mx", x.toFixed(3));
-        ref.current?.style.setProperty("--scenic-my", y.toFixed(3));
-      });
-    };
-    window.addEventListener("pointermove", move, { passive: true });
-    return () => {
-      window.removeEventListener("pointermove", move);
-      cancelAnimationFrame(frame);
-    };
-  }, [ref, enabled]);
 }
 
 // ─── Small lights ─────────────────────────────────────────────────────────────

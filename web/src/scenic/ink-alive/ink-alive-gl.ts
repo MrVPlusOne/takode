@@ -1,7 +1,7 @@
 /**
  * Runs the living Ink & Paper scene on a canvas with WebGL: loads its painted layers, lays them
  * out for the pane (`layoutScene`), lets the director (`InkDirector`) decide what moves, and draws
- * about 30 frames a second while the page is visible, 12 while another window is in front. With
+ * 20 frames a second while the page is visible, 6 while another window is in front. With
  * reduced motion it draws a single still frame. Returns a stop function, or null when WebGL is
  * unavailable; `onFail` reports a later failure (layers that do not load, a lost context).
  */
@@ -53,7 +53,6 @@ export function startInkAlive(
   let pane = { width: 1, height: 1 };
   let scale = 1;
   const sizes = {} as Record<TextureName, ImageSize>;
-  const pointer = { x: 0, y: 0 };
   const started = performance.now();
   const now = () => (performance.now() - started) / 1000;
   const director = new InkDirector(Math.floor(Math.random() * 2 ** 31));
@@ -61,10 +60,10 @@ export function startInkAlive(
   // A weak GPU that cannot keep up would stall the page itself, so the scene steps down to fewer
   // pixels and frames when its frames run long, and stays there.
   const levels = [
-    { scale: 1, fps: 30 },
-    { scale: 0.75, fps: 24 },
-    { scale: 0.5, fps: 20 },
-    { scale: 0.5, fps: 10 },
+    { scale: 1, fps: 20 },
+    { scale: 0.75, fps: 20 },
+    { scale: 0.5, fps: 15 },
+    { scale: 0.5, fps: 8 },
   ];
   let level = 0;
   let strain = 0;
@@ -108,7 +107,6 @@ export function startInkAlive(
     gl.uniform1f(uniform("uScale"), scale);
     gl.uniform1f(uniform("uTime"), frameState.sceneTime);
     gl.uniform1f(uniform("uDark"), options.dark ? 1 : 0);
-    gl.uniform2f(uniform("uPointer"), pointer.x, pointer.y);
     gl.uniform1f(uniform("uHorizon"), layout.horizon);
     gl.uniform3fv(uniform("uSun"), layout.sun);
     gl.uniform4fv(uniform("uFarRect"), layout.far);
@@ -127,13 +125,23 @@ export function startInkAlive(
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   };
 
+  // Frames are scheduled with a timer at the scene's own rate, then drawn in the next animation
+  // frame. Looping on requestAnimationFrame instead would wake the page at the display's rate
+  // (120 times a second on ProMotion screens) just to skip most of those wake-ups.
+  let timer = 0;
   let last = 0;
+  const schedule = () => {
+    // Full rate while the window has focus; a slow drift while another app is in front.
+    const rate = Math.min(levels[level]!.fps, document.hasFocus() ? levels[level]!.fps : 6);
+    timer = window.setTimeout(() => {
+      frame = requestAnimationFrame(loop);
+    }, 1000 / rate);
+  };
   const loop = (stamp: number) => {
-    frame = requestAnimationFrame(loop);
-    // Full rate while the window has focus; a slower drift while another app is in front.
-    const rate = Math.min(levels[level]!.fps, document.hasFocus() ? 30 : 12);
-    if (document.hidden || stamp - last < 1000 / rate - 2) return;
-    const late = last > 0 && stamp - last > 3000 / rate;
+    schedule();
+    if (document.hidden) return;
+    const rate = levels[level]!.fps;
+    const late = last > 0 && document.hasFocus() && stamp - last > 3000 / rate;
     last = stamp;
     const begin = performance.now();
     draw();
@@ -202,7 +210,7 @@ export function startInkAlive(
     .then(() => {
       ready = true;
       draw();
-      if (options.motion) frame = requestAnimationFrame(loop);
+      if (options.motion) schedule();
     })
     .catch((error) => {
       console.warn("[scenic] living ink layers failed to load:", error);
@@ -221,13 +229,6 @@ export function startInkAlive(
   });
   observer.observe(canvas);
 
-  const finePointer = options.motion && window.matchMedia?.("(pointer: fine)").matches;
-  const move = (event: PointerEvent) => {
-    pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-    pointer.y = (event.clientY / window.innerHeight) * 2 - 1;
-  };
-  if (finePointer) window.addEventListener("pointermove", move, { passive: true });
-
   // Typing, scrolling and arriving replies hush the scene; moments wait until you pause.
   const note = (kind: ActivityKind) => director.noteActivity(kind, now());
   const typing = () => note("typing");
@@ -243,9 +244,9 @@ export function startInkAlive(
 
   return () => {
     stopped = true;
+    window.clearTimeout(timer);
     cancelAnimationFrame(frame);
     observer.disconnect();
-    if (finePointer) window.removeEventListener("pointermove", move);
     window.removeEventListener("keydown", typing, { capture: true });
     window.removeEventListener("wheel", scrolling, { capture: true });
     window.removeEventListener("touchmove", scrolling, { capture: true });

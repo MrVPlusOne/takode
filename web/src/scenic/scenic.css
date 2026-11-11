@@ -49,6 +49,17 @@ html.scenic [data-testid="quest-completion-summary"] .text-cc-success {
   letter-spacing: 0.12em;
 }
 
+/*
+ * The conversation sits on a sheet of paper: the feed's column gets a nearly opaque backing with a
+ * soft, feathered edge, so text reads cleanly even over the busiest part of the painting, which
+ * stays vivid on either side. (A background and a shadow add no stacking context.)
+ */
+html.scenic [data-feed-content-root="true"] {
+  background: color-mix(in srgb, var(--color-cc-bg) 97%, transparent);
+  box-shadow: 0 0 48px 28px color-mix(in srgb, var(--color-cc-bg) 90%, transparent);
+  border-radius: 16px;
+}
+
 /* The sessions panel and the side column show the same painting, faded behind the page colour. */
 html.scenic [data-testid="app-sidebar-shell"] > aside,
 html.scenic [data-testid="topic-side-panel"] {

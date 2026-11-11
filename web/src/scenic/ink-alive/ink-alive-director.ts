@@ -16,8 +16,8 @@ export type MomentKind = "cranes" | "bloom" | "ring";
 
 /** How long the scene stays calm after each kind of activity, in seconds. */
 const CALM_FOR: Record<ActivityKind, number> = { typing: 6, scrolling: 4, message: 12 };
-/** Ambient speed while calm: a hush, not a freeze, so nothing stops abruptly. */
-const CALM_RATE = 0.2;
+/** Ambient speed while calm: the mist keeps flowing visibly, a little slower; only moments wait. */
+const CALM_RATE = 0.6;
 /** Idle seconds needed before a moment may begin. */
 const SETTLE = 15;
 

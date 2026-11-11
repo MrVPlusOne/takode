@@ -88,7 +88,7 @@ describe("InkDirector", () => {
     expect(flights.size).toBeLessThanOrEqual(10);
   });
 
-  it("hushes the ambient motion within a second or two of typing and wakes again after a pause", () => {
+  it("slows the ambient motion a little within a second or two of typing and recovers after a pause", () => {
     const director = new InkDirector(3);
     // Type from 10 s to 20 s, then rest.
     const frames = run(director, 40, (t) => (t >= 10 && t < 20 ? "typing" : null));
@@ -97,8 +97,8 @@ describe("InkDirector", () => {
       return (frames[i + 1]!.frame.sceneTime - frames[i]!.frame.sceneTime) / 0.1;
     };
     expect(rateAt(5)).toBeGreaterThan(0.95);
-    expect(rateAt(12)).toBeLessThan(0.3);
-    expect(rateAt(24)).toBeLessThan(0.3);
+    expect(rateAt(12)).toBeLessThan(0.7);
+    expect(rateAt(24)).toBeLessThan(0.7);
     expect(rateAt(38)).toBeGreaterThan(0.9);
   });
 });
