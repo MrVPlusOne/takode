@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { availableParallelism, cpus, loadavg } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
+import { promisify } from "node:util";
 
 /**
  * How many test workers one Vitest run should start.
@@ -27,6 +29,41 @@ export async function vitestWorkerCount(root = "/", sampleMs = 300): Promise<num
   const constrained = budget < machineCpus;
   const busy = constrained ? ((await sampleBusyCpus(limit.usageFile, sampleMs)) ?? 0) : loadavg()[0]!;
   return workersFor(budget, busy);
+}
+
+/**
+ * Keep this test run, and every worker and process it starts, to the CPUs
+ * `testCpus` picks. Call it before starting workers: they inherit the set.
+ */
+export async function confineToTestCpus(root = "/", pid = process.pid): Promise<void> {
+  const cpus = await testCpus(root);
+  if (!cpus) return;
+  try {
+    await promisify(execFile)("taskset", ["--all-tasks", "--pid", "--cpu-list", cpus.join(","), String(pid)]);
+  } catch (error) {
+    console.warn(`Tests could not keep to ${cpus.length} CPUs below the CPU quota: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * The CPUs a test run should keep to, or undefined to leave it where it is.
+ *
+ * A container whose CPU quota is smaller than the CPUs it can run on (the
+ * DevBox: 15 of 96) is frozen whole for the rest of each 100 ms period once its
+ * processes have used up the quota. A full suite spread over all those CPUs
+ * uses it up in a burst, so the Takode server and every session in the
+ * container stall with it: restarts took 5-8x longer during landing gates. Kept
+ * to fewer CPUs than the quota, tests cannot use it all, and a quarter of it
+ * stays free for everything else. Every run picks the same CPUs, so runs at the
+ * same time share them instead of adding up.
+ */
+export async function testCpus(root = "/"): Promise<number[] | undefined> {
+  const allowed = expandCpuList(statusField(await readText(join(root, "proc/self/status")), "Cpus_allowed_list"));
+  const quota = (await cgroupCpuLimit(root)).cpus;
+  if (!allowed || quota === undefined || allowed.length <= quota) return undefined;
+  const share = quota - Math.ceil(quota / 4);
+  // The highest-numbered ones, away from CPU 0, which tends to take more interrupts.
+  return share >= 1 ? allowed.slice(-share) : undefined;
 }
 
 /**
@@ -146,17 +183,22 @@ export async function readUsageMicros(usageFile: NonNullable<CpuLimit["usageFile
 
 /** Count of a Linux CPU list such as "0-3,8,10-11"; undefined when absent or malformed. */
 export function parseCpuList(list: string | undefined): number | undefined {
+  return expandCpuList(list)?.length;
+}
+
+/** The CPUs of a Linux CPU list such as "0-3,8,10-11", in order; undefined when absent or malformed. */
+export function expandCpuList(list: string | undefined): number[] | undefined {
   if (!list?.trim()) return undefined;
-  let count = 0;
+  const cpus: number[] = [];
   for (const part of list.trim().split(",")) {
     const match = /^(\d+)(?:-(\d+))?$/.exec(part.trim());
     if (!match) return undefined;
     const low = Number(match[1]);
     const high = match[2] === undefined ? low : Number(match[2]);
     if (high < low) return undefined;
-    count += high - low + 1;
+    for (let cpu = low; cpu <= high; cpu++) cpus.push(cpu);
   }
-  return count;
+  return cpus;
 }
 
 function statusField(status: string | undefined, field: string): string | undefined {

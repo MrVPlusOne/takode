@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import { vitestWorkerCount } from "./scripts/vitest-worker-budget";
+import { confineToTestCpus, vitestWorkerCount } from "./scripts/vitest-worker-budget";
 
 // Set before Vite resolves anything; workers inherit it. Sessions launched by a
 // production server otherwise pass NODE_ENV=production, which makes Vite
@@ -7,6 +7,9 @@ import { vitestWorkerCount } from "./scripts/vitest-worker-budget";
 // 19.2+ also only exports `act` in its development build.
 process.env.NODE_ENV = "test";
 
+// Under a CPU quota, keep tests to fewer CPUs than the quota so the rest of the
+// container (the Takode server, sessions) is never frozen with them; see the helper.
+await confineToTestCpus();
 // Sized to the CPUs this run may use (cgroup quota, affinity) minus busy ones; see the helper.
 const maxWorkers = await vitestWorkerCount();
 
