@@ -1065,12 +1065,12 @@ function SideItemIcon({
   // The Topics section (pages have `PageIcon`).
   if (!item || !isChatItem(item)) return <TopicIcon className={`${className} text-cc-primary`} />;
   if (item.kind === "session") return <SessionIcon className={`${className} text-cc-muted`} />;
-  if (item.kind === "new-chat" || (thread && group === "idle"))
-    return <NewThreadIcon className={`${className} text-cc-primary`} />;
+  if (item.kind === "new-chat") return <NewThreadIcon className={`${className} text-cc-primary`} />;
   if (isTopicViewKey(key) && !thread) return <TopicIcon className={`${className} text-cc-primary`} />;
-  // A quest's conversation, or a thread with something to show: its status
-  // group's dot, the same rule and colors as the status row's. A quest's lifecycle (done, Memory)
-  // is not a status here; a finished quest with nothing waiting is Idle.
+  // A quest's conversation or a thread: its status group's dot, the same rule and colors as the
+  // status row's. An idle thread is grey like an idle quest, not the thread icon, which said nothing
+  // of its state (Jiayi, Nov 10). A quest's lifecycle (done, Memory) is not a status here; a
+  // finished quest with nothing waiting is Idle.
   return (
     <span className={`${className} inline-flex items-center justify-center`}>
       <span

@@ -723,6 +723,59 @@ describe("SideColumn", () => {
     }
   });
 
+  it("shows a plain thread's status dot where the thread icon was, by the same rule as a quest's", () => {
+    // Jiayi (Nov 10): a plain thread's row showed the thread icon, which says nothing of its state.
+    // It shows its status group's dot like a quest's row: grey while idle, blue with an unread
+    // answer, green while the leader writes in it. A new thread not yet started keeps its icon.
+    rememberThreads("l1", [
+      {
+        id: "aaaa0004-0000",
+        key: "topic:aaaa0004",
+        name: "How data was made",
+        leaderId: "l1",
+        createdAt: 1,
+        activityAt: 1,
+      },
+    ]);
+    render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+    act(() => {
+      openInSide({ kind: "new-chat", leaderId: "l1", startedFrom: null });
+      openInSide({ kind: "conversation", threadKey: "topic:aaaa0004", leaderId: "l1" });
+    });
+    const dot = () => within(rows()[0]!).queryByTestId("side-item-dot");
+    expect(dot()?.dataset.group).toBe("idle");
+    expect(within(rows()[1]!).queryByTestId("side-item-dot")).toBeNull();
+    const unread = {
+      id: "n1",
+      category: "review",
+      summary: "done",
+      timestamp: 1,
+      messageId: "m1",
+      threadKey: "topic:aaaa0004",
+      done: false,
+    };
+    try {
+      act(() => {
+        useStore.setState({ sessionNotifications: new Map([["l1", [unread]]]) } as never);
+      });
+      expect(dot()?.dataset.group).toBe("new-results");
+      act(() => {
+        useStore.setState({
+          sessionNotifications: new Map(),
+          activeTurnRoutes: new Map([["l1", { threadKey: "topic:aaaa0004" }]]),
+          sessionStatus: new Map([["l1", "running"]]),
+        } as never);
+      });
+      expect(dot()?.dataset.group).toBe("in-progress");
+    } finally {
+      useStore.setState({
+        sessionNotifications: new Map(),
+        activeTurnRoutes: new Map(),
+        sessionStatus: new Map(),
+      } as never);
+    }
+  });
+
   it("colors a quest's dot only by its status group, never by its Questmaster status, and links its number", () => {
     // Jiayi (Oct 31): a finished quest's row showed a purple dot, Questmaster's "done" color. Status
     // dots use the four group colors only; a done quest, or one in Memory, with nothing waiting is Idle.
