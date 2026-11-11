@@ -53,7 +53,7 @@ const SHOULD_GLOW: Record<SessionVisualStatus, boolean> = {
 };
 
 /**
- * Maps visual status to the CSS color for drop-shadow glow.
+ * Maps visual status to the breathing glow's color.
  * Only entries where SHOULD_GLOW is true need a value.
  */
 const GLOW_COLOR: Record<SessionVisualStatus, string> = {
@@ -153,13 +153,7 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
   const glowColor = GLOW_COLOR[visualStatus];
   const label = STATUS_LABEL[visualStatus];
 
-  // Use CSS filter drop-shadow for glow so the compact dot stays crisp.
-  const glowStyle: React.CSSProperties | undefined = showGlow
-    ? {
-        ["--glow-color" as string]: glowColor,
-        animation: "yarn-glow-breathe 2s ease-in-out infinite",
-      }
-    : undefined;
+  const glowStyle: React.CSSProperties | undefined = showGlow ? { ["--glow-color" as string]: glowColor } : undefined;
 
   const isDisconnected = visualStatus === "disconnected";
 
@@ -170,12 +164,16 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
       aria-label={label}
       data-testid="session-status-dot"
       data-status={visualStatus}
-      style={glowStyle}
     >
       {isDisconnected ? (
         <PowerPlugDot className="block h-2.5 w-2.5 text-cc-muted/60" />
       ) : (
-        <span className={`block h-2 w-2 rounded-full ${DOT_CLASS[visualStatus]}`} />
+        <span
+          // Keyed by status so a new glowing state (running, then a permission prompt) breathes again.
+          key={visualStatus}
+          className={`relative block h-2 w-2 rounded-full ${DOT_CLASS[visualStatus]} ${showGlow ? "cc-glow-breathe" : ""}`}
+          style={glowStyle}
+        />
       )}
     </div>
   );

@@ -47,6 +47,15 @@ html, body {
   --color-cc-phase-sky: #0369a1;
   --color-cc-phase-violet: #6d28d9;
   --color-cc-phase-yellow: #854d0e;
+
+  /*
+   * Takode's loops never run for good while nothing changes: any running animation makes Chrome draw
+   * every display refresh (120 a second on ProMotion), loading the GPU and the window server even on
+   * an idle page. A pulse breathes a few times and settles at its normal look; a spinner keeps turning
+   * but in 12 steps a second, so Chrome draws 12 frames a second instead of every refresh.
+   */
+  --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 3;
+  --animate-spin: spin 1s steps(12) infinite;
 }
 
 :root {
@@ -294,7 +303,7 @@ html, body {
 }
 
 .animate-spin-slow {
-  animation: spin-slow 3s linear infinite;
+  animation: spin-slow 3s steps(36) infinite;
 }
 
 @media (hover: none) and (pointer: coarse) {
@@ -530,16 +539,32 @@ html, body {
   75%      { transform: translateY(-2px) rotate(8deg) scale(1.05); }
 }
 
-/* Yarn ball glow — uses drop-shadow to follow shape instead of box-shadow */
-@keyframes yarn-glow-breathe {
-  0%, 100% { filter: drop-shadow(0 0 0 transparent); }
-  50% { filter: drop-shadow(0 0 4px var(--glow-color, transparent)); }
+/*
+ * Status glow (running sessions, permission prompts, reviewer badges) in --glow-color around a round or
+ * pill-shaped element, which must be positioned. It breathes three times when it appears, then holds
+ * steady, so an idle page draws nothing (see --animate-pulse). The glow is drawn once on a
+ * pseudo-element and only its opacity animates, which Chrome runs on the compositor: animating the
+ * shadow itself restyled and repainted the page on every display refresh.
+ */
+.cc-glow-breathe::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  box-shadow: 0 0 var(--glow-size, 4px) var(--glow-color, transparent);
+  pointer-events: none;
+  opacity: 0.6;
+  animation: cc-glow-breathe 6s ease-in-out;
 }
-
-/* Reviewer badge glow — box-shadow ring for pill-shaped badges */
-@keyframes reviewer-badge-glow {
-  0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  50% { box-shadow: 0 0 6px 0 var(--glow-color, transparent); }
+@keyframes cc-glow-breathe {
+  0%, 33.33%, 66.67% { opacity: 0; }
+  16.67%, 50%, 83.33% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-glow-breathe::after {
+    animation: none;
+  }
 }
 
 /* The secondary view slides in from the right; transform-only so it never paints transparent. */

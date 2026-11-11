@@ -1551,7 +1551,7 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Running / Thinking">
             <div className="flex items-center gap-2 px-3 py-2 bg-cc-card border border-cc-border rounded-lg">
-              <YarnBallDot className="text-cc-primary animate-[pulse-dot_1.5s_ease-in-out_infinite]" />
+              <YarnBallDot className="text-cc-primary animate-[pulse-dot_1.5s_ease-in-out_3]" />
               <span className="text-xs text-cc-fg font-medium">Thinking</span>
             </div>
           </Card>

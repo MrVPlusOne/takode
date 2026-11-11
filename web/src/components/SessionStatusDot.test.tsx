@@ -250,52 +250,66 @@ describe("SessionStatusDot component", () => {
   it("applies breathing glow animation for running status", () => {
     // Running status should have the shared glow animation.
     render(<SessionStatusDot {...makeProps({ status: "running" })} />);
-    const dot = screen.getByTestId("session-status-dot");
-    expect(dot.style.animation).toBe("yarn-glow-breathe 2s ease-in-out infinite");
-    expect(dot.style.getPropertyValue("--glow-color")).toBe("rgba(34, 197, 94, 0.6)");
+    const glow = screen.getByTestId("session-status-dot").querySelector(".cc-glow-breathe") as HTMLElement;
+    expect(glow).not.toBeNull();
+    expect(glow.style.getPropertyValue("--glow-color")).toBe("rgba(34, 197, 94, 0.6)");
   });
 
   it("applies breathing glow animation for permission status", () => {
     // Permission status should have the shared glow animation and amber glow color.
     render(<SessionStatusDot {...makeProps({ permCount: 1 })} />);
-    const dot = screen.getByTestId("session-status-dot");
-    expect(dot.style.animation).toBe("yarn-glow-breathe 2s ease-in-out infinite");
-    expect(dot.style.getPropertyValue("--glow-color")).toBe("rgba(245, 158, 11, 0.6)");
+    const glow = screen.getByTestId("session-status-dot").querySelector(".cc-glow-breathe") as HTMLElement;
+    expect(glow).not.toBeNull();
+    expect(glow.style.getPropertyValue("--glow-color")).toBe("rgba(245, 158, 11, 0.6)");
   });
 
   it("applies breathing glow animation for compacting status", () => {
     // Compacting uses the same green activity glow as running.
     render(<SessionStatusDot {...makeProps({ status: "compacting" })} />);
-    const dot = screen.getByTestId("session-status-dot");
-    expect(dot.style.animation).toBe("yarn-glow-breathe 2s ease-in-out infinite");
-    expect(dot.style.getPropertyValue("--glow-color")).toBe("rgba(34, 197, 94, 0.6)");
+    const glow = screen.getByTestId("session-status-dot").querySelector(".cc-glow-breathe") as HTMLElement;
+    expect(glow).not.toBeNull();
+    expect(glow.style.getPropertyValue("--glow-color")).toBe("rgba(34, 197, 94, 0.6)");
+  });
+
+  it("restarts the glow when the session enters a different glowing state", () => {
+    // The glow breathes only when it appears, then holds. A permission prompt during a running
+    // turn must breathe again, so the glowing dot is a new element per status, which restarts
+    // its CSS animation; staying in the same state keeps the element.
+    const { rerender } = render(<SessionStatusDot {...makeProps({ status: "running" })} />);
+    const runningGlow = screen.getByTestId("session-status-dot").querySelector(".cc-glow-breathe");
+    rerender(<SessionStatusDot {...makeProps({ status: "running" })} />);
+    expect(screen.getByTestId("session-status-dot").querySelector(".cc-glow-breathe")).toBe(runningGlow);
+    rerender(<SessionStatusDot {...makeProps({ status: "running", permCount: 1 })} />);
+    const permissionGlow = screen.getByTestId("session-status-dot").querySelector(".cc-glow-breathe");
+    expect(permissionGlow).not.toBeNull();
+    expect(permissionGlow).not.toBe(runningGlow);
   });
 
   it("does NOT apply glow animation for idle status", () => {
     // Idle sessions should have no animation or glow
     render(<SessionStatusDot {...makeProps()} />);
     const dot = screen.getByTestId("session-status-dot");
-    expect(dot.style.animation).toBe("");
+    expect(dot.querySelector(".cc-glow-breathe")).toBeNull();
   });
 
   it("does NOT apply glow animation for archived status", () => {
     // Archived sessions should have no animation or glow
     render(<SessionStatusDot {...makeProps({ archived: true })} />);
     const dot = screen.getByTestId("session-status-dot");
-    expect(dot.style.animation).toBe("");
+    expect(dot.querySelector(".cc-glow-breathe")).toBeNull();
   });
 
   it("does NOT apply glow animation for disconnected status", () => {
     // Disconnected sessions should have no animation or glow
     render(<SessionStatusDot {...makeProps({ isConnected: false, sdkState: "exited" })} />);
     const dot = screen.getByTestId("session-status-dot");
-    expect(dot.style.animation).toBe("");
+    expect(dot.querySelector(".cc-glow-breathe")).toBeNull();
   });
 
   it("does NOT apply glow animation for scheduled timer status", () => {
     render(<SessionStatusDot {...makeProps({ activeTimerCount: 1 })} />);
     const timerIcon = screen.getByTestId("session-status-waiting-icon");
-    expect(timerIcon.style.animation).toBe("");
+    expect(timerIcon.querySelector(".cc-glow-breathe")).toBeNull();
   });
 
   it("does not render a separate pulse ring element", () => {
@@ -348,7 +362,7 @@ describe("SessionStatusDot component", () => {
     expect(dot).toHaveAttribute("data-status", "completed_unread");
     const statusDot = dot.querySelector("span")!;
     expect(statusDot).toHaveClass("rounded-full", "bg-blue-500");
-    expect(dot.style.animation).toBe(""); // no glow
+    expect(dot.querySelector(".cc-glow-breathe")).toBeNull(); // no glow
     expect(screen.getByTitle("Completed — needs review")).toBeInTheDocument();
   });
 

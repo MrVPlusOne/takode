@@ -1203,11 +1203,8 @@ export function PlaygroundStateSections() {
                   </span>
                   <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
                     <span
-                      className="h-2 w-2 rounded-full bg-emerald-500"
-                      style={{
-                        animation: "yarn-glow-breathe 2s ease-in-out infinite",
-                        ["--glow-color" as string]: "rgba(34, 197, 94, 0.6)",
-                      }}
+                      className="cc-glow-breathe relative h-2 w-2 rounded-full bg-emerald-500"
+                      style={{ ["--glow-color" as string]: "rgba(34, 197, 94, 0.6)" }}
                     />
                     W <span className="font-mono-code text-amber-400">#70</span>
                   </span>

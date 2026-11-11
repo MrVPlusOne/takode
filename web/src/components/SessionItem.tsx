@@ -470,12 +470,8 @@ function SessionItemComponent({
       : visualStatus === "running" || visualStatus === "compacting"
         ? "rgba(34, 197, 94, 0.7)"
         : "";
-  const glowStyle: React.CSSProperties | undefined = glowColor
-    ? {
-        ["--glow-color" as string]: glowColor,
-        animation: "yarn-glow-breathe 2s ease-in-out infinite",
-      }
-    : undefined;
+  const glowClass = glowColor ? "cc-glow-breathe" : "";
+  const glowStyle: React.CSSProperties | undefined = glowColor ? { ["--glow-color" as string]: glowColor } : undefined;
   const roleBadgeStyle = herdGroupBadgeTheme
     ? {
         color: herdGroupBadgeTheme.textColor,
@@ -491,7 +487,7 @@ function SessionItemComponent({
     !compact && !isEditing && !archived && s.isOrchestrator && !!s.leaderProfilePortrait;
   const leaderPortraitStatusRing = usesExpandedLeaderPortrait
     ? {
-        className: STATUS_RING_CLASS[visualStatus],
+        className: `${STATUS_RING_CLASS[visualStatus]} ${glowClass}`,
         status: visualStatus,
         style: glowStyle,
       }
@@ -551,7 +547,9 @@ function SessionItemComponent({
       {/* Left-edge status stripe for status-bar row variants. */}
       {useStatusBar && (
         <span
-          className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-full block ${statusColorClass} ${
+          // Keyed by status so a new glowing state breathes again before it holds.
+          key={visualStatus}
+          className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-full block ${statusColorClass} ${glowClass} ${
             isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
           } transition-opacity`}
           data-testid="session-status-stripe"
@@ -622,7 +620,8 @@ function SessionItemComponent({
               !useStatusBar &&
               !usesExpandedLeaderPortrait && (
                 <span
-                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${statusColorClass} ${
+                  key={visualStatus}
+                  className={`relative shrink-0 w-1.5 h-1.5 rounded-full ${statusColorClass} ${glowClass} ${
                     isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
                   } transition-opacity`}
                   data-testid="session-status-dot"
@@ -851,13 +850,10 @@ function SessionItemComponent({
                       }}
                       title={reviewerBadgeLabel}
                       aria-label={reviewerBadgeLabel}
-                      className={`inline-flex max-w-[3.75rem] items-center gap-px overflow-hidden text-[9px] font-medium px-1 rounded-full leading-[16px] shrink-0 ${rvTheme.text} bg-cc-muted/10 hover:bg-cc-muted/20 transition-colors cursor-pointer border ${rvTheme.border}`}
+                      className={`relative inline-flex max-w-[3.75rem] items-center gap-px text-[9px] font-medium px-1 rounded-full leading-[16px] shrink-0 ${rvTheme.text} bg-cc-muted/10 hover:bg-cc-muted/20 transition-colors cursor-pointer border ${rvTheme.border} ${rvTheme.glow ? "cc-glow-breathe" : ""}`}
                       style={
                         rvTheme.glow
-                          ? {
-                              ["--glow-color" as string]: rvTheme.glow,
-                              animation: "reviewer-badge-glow 2s ease-in-out infinite",
-                            }
+                          ? { ["--glow-color" as string]: rvTheme.glow, ["--glow-size" as string]: "6px" }
                           : undefined
                       }
                       data-testid="session-reviewer-badge"
@@ -866,7 +862,8 @@ function SessionItemComponent({
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-2 h-2">
                         <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85a1.007 1.007 0 00-.115-.1zM12 6.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z" />
                       </svg>
-                      <span className="truncate">{reviewerBadgeText}</span>
+                      {/* min-w-0 truncates the name without clipping the badge, whose glow draws outside it. */}
+                      <span className="min-w-0 truncate">{reviewerBadgeText}</span>
                     </div>
                   );
                 })()}

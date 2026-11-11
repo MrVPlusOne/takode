@@ -299,7 +299,9 @@ describe("TreeViewGroup leader herd summary", () => {
     const badge = within(workerRow as HTMLElement).getByTestId("session-reviewer-badge");
     expect(badge).toHaveTextContent("reviewer");
     expect(badge).toHaveAccessibleName("Reviewer #12, click to open");
-    expect(badge).toHaveClass("max-w-[3.75rem]", "gap-px", "overflow-hidden", "px-1");
+    expect(badge).toHaveClass("max-w-[3.75rem]", "gap-px", "px-1");
+    // The label truncates inside the capped width; the badge itself doesn't clip, so its glow stays visible.
+    expect(badge.querySelector("span")).toHaveClass("min-w-0", "truncate");
     expect(badge).not.toHaveTextContent("Reviewer of");
     expect(within(workerRow as HTMLElement).getByText("wt")).toBeInTheDocument();
 

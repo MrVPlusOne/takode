@@ -369,15 +369,13 @@ function sessionLabel(session: WaitingSession): string {
   return session.sessionNum === null ? (session.helper ? "Helper" : "Worker") : `#${session.sessionNum}`;
 }
 
-/** A working session pulses green; the dot's name says what no pill repeats. */
+/** A working session pulses green a few times, then holds; the dot's name says what no pill repeats. */
 function StatusDot({ status }: { status: WaitingWorkerStatus }) {
   const running = status === "running";
   return (
     <span
       className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-        running
-          ? "bg-cc-success animate-[pulse-dot_1.5s_ease-in-out_infinite] motion-reduce:animate-none"
-          : "bg-cc-muted/50"
+        running ? "bg-cc-success animate-[pulse-dot_1.5s_ease-in-out_3] motion-reduce:animate-none" : "bg-cc-muted/50"
       }`}
       role="img"
       aria-label={running ? "working" : status}

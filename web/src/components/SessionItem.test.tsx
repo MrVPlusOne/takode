@@ -728,7 +728,7 @@ describe("SessionItem status dot", () => {
 
     const dot = screen.getByTestId("session-status-dot");
     expect(dot).toHaveAttribute("data-status", "running");
-    expect(dot).toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
+    expect(dot).toHaveClass("cc-glow-breathe");
   });
 
   it("shows a glowing amber dot when permissions are pending", () => {
@@ -739,7 +739,7 @@ describe("SessionItem status dot", () => {
 
     const dot = screen.getByTestId("session-status-dot");
     expect(dot).toHaveAttribute("data-status", "permission");
-    expect(dot).toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
+    expect(dot).toHaveClass("cc-glow-breathe");
   });
 
   it("shows a gray dot when idle", () => {
@@ -750,7 +750,7 @@ describe("SessionItem status dot", () => {
 
     const dot = screen.getByTestId("session-status-dot");
     expect(dot).toHaveAttribute("data-status", "idle");
-    expect(dot).not.toHaveStyle({ animation: "yarn-glow-breathe 2s ease-in-out infinite" });
+    expect(dot).not.toHaveClass("cc-glow-breathe");
   });
 
   it("replaces the idle dot with a timer icon when the session is waiting on timers", () => {
@@ -1450,8 +1450,11 @@ describe("SessionItem reviewer badge", () => {
     expect(badge).toBeInTheDocument();
     expect(badge).toHaveTextContent("reviewer");
     expect(badge).toHaveAccessibleName("Reviewer #42, click to open");
-    expect(badge).toHaveClass("max-w-[3.75rem]", "gap-px", "overflow-hidden", "px-1");
+    expect(badge).toHaveClass("max-w-[3.75rem]", "gap-px", "px-1");
     expect(badge.querySelector("svg")).toHaveClass("w-2", "h-2");
+    // The label truncates inside the capped width; the badge itself must not clip, or its glow would be cut off.
+    expect(badge.querySelector("span")).toHaveClass("min-w-0", "truncate");
+    expect(badge).not.toHaveClass("overflow-hidden");
   });
 
   it("does not render a review badge when reviewerSession is undefined", () => {
@@ -1597,7 +1600,7 @@ describe("SessionItem reviewer badge", () => {
 
     const badge = screen.getByTestId("session-reviewer-badge");
     expect(badge).toHaveAttribute("data-reviewer-status", "running");
-    expect(badge).toHaveStyle({ animation: "reviewer-badge-glow 2s ease-in-out infinite" });
+    expect(badge).toHaveClass("cc-glow-breathe");
   });
 
   it("shows permission status glow when reviewer needs approval", () => {
@@ -1618,7 +1621,7 @@ describe("SessionItem reviewer badge", () => {
 
     const badge = screen.getByTestId("session-reviewer-badge");
     expect(badge).toHaveAttribute("data-reviewer-status", "permission");
-    expect(badge).toHaveStyle({ animation: "reviewer-badge-glow 2s ease-in-out infinite" });
+    expect(badge).toHaveClass("cc-glow-breathe");
   });
 
   it("shows no glow animation when reviewer is idle", () => {
@@ -1639,7 +1642,7 @@ describe("SessionItem reviewer badge", () => {
 
     const badge = screen.getByTestId("session-reviewer-badge");
     expect(badge).toHaveAttribute("data-reviewer-status", "idle");
-    expect(badge).not.toHaveStyle({ animation: "reviewer-badge-glow 2s ease-in-out infinite" });
+    expect(badge).not.toHaveClass("cc-glow-breathe");
   });
 
   it("uses the projection-owned reviewer attention index", () => {
@@ -1675,7 +1678,7 @@ describe("SessionItem reviewer badge", () => {
 
     const badge = screen.getByTestId("session-reviewer-badge");
     expect(badge).toHaveAttribute("data-reviewer-status", "disconnected");
-    expect(badge).not.toHaveStyle({ animation: "reviewer-badge-glow 2s ease-in-out infinite" });
+    expect(badge).not.toHaveClass("cc-glow-breathe");
   });
 
   it("shows archived status when reviewer session is archived", () => {
@@ -1697,7 +1700,7 @@ describe("SessionItem reviewer badge", () => {
 
     const badge = screen.getByTestId("session-reviewer-badge");
     expect(badge).toHaveAttribute("data-reviewer-status", "archived");
-    expect(badge).not.toHaveStyle({ animation: "reviewer-badge-glow 2s ease-in-out infinite" });
+    expect(badge).not.toHaveClass("cc-glow-breathe");
   });
 });
 
