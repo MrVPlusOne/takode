@@ -1,6 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { promisify } from "node:util";
 import { readClaudeCredentialStore } from "./claude-credentials.js";
+import { resolveBinary } from "./path-resolver.js";
+import { machineSettingsFor } from "./remote-host/machine-settings.js";
 import { parseSlackMessages, slackToolResultText, type SlackMessage } from "../shared/slack-updates.js";
 
 /** One open connection to Slack, for one round of reads. */
@@ -19,6 +24,9 @@ export type OpenSlackReader = () => Promise<
 const SLACK_MCP_HOST = "mcp.slack.com";
 /** Treat a token this close to expiry as expired, so a read does not fail halfway. */
 const EXPIRY_MARGIN_MS = 60_000;
+/** `claude mcp list` checks every MCP server Claude Code has; it normally takes a second or two. */
+const RENEWAL_TIMEOUT_MS = 60_000;
+const execFilePromise = promisify(execFile);
 
 interface McpOAuthEntry {
   serverUrl?: string;
@@ -29,27 +37,26 @@ interface McpOAuthEntry {
 /**
  * Connect to Slack's MCP server with the Slack login Claude Code keeps on this
  * machine. Its scopes only read (history, search, users), so nothing sent
- * through it can post. Takode never refreshes or rewrites that login: Slack
- * rotates refresh tokens, and a second refresher would break Claude Code's
- * copy. When the token has expired, reads wait until a Claude session uses
- * Slack and Claude Code refreshes it.
+ * through it can post. Takode never refreshes or rewrites that login itself:
+ * Slack rotates refresh tokens, and a second refresher would break Claude
+ * Code's copy. When the token has expired, Takode runs `claude mcp list`,
+ * whose health check makes Claude Code renew its own logins the way a session
+ * does, and reads the login again; if it is still expired, reads wait until a
+ * Claude session uses Slack.
  */
 export const openClaudeSlackReader: OpenSlackReader = async () => {
-  const store = await readClaudeCredentialStore();
-  const logins = Object.values((store?.parsed.mcpOAuth as Record<string, McpOAuthEntry> | undefined) ?? {}).filter(
-    (entry) => entry.accessToken && isSlackMcpUrl(entry.serverUrl),
-  );
-  const login = logins.sort((a, b) => (b.expiresAt ?? 0) - (a.expiresAt ?? 0))[0];
-  if (!login)
-    return {
-      ok: false,
-      reason: "Claude Code on this machine has no Slack login",
-    };
-  if (login.expiresAt !== undefined && login.expiresAt - EXPIRY_MARGIN_MS <= Date.now()) {
-    return {
-      ok: false,
-      reason: "Claude Code's Slack login has expired; waiting for a Claude session to use Slack",
-    };
+  let login = await readSlackLogin();
+  if (!login) return { ok: false, reason: "Claude Code on this machine has no Slack login" };
+  if (isExpired(login)) {
+    const renewal = await renewClaudeLogins();
+    login = await readSlackLogin();
+    if (!login || isExpired(login)) {
+      return {
+        ok: false,
+        reason: `Claude Code's Slack login has expired and \`claude mcp list\` did not renew it (${renewal}); waiting for a Claude session to use Slack`,
+      };
+    }
+    console.log("[slack-updates] Claude Code renewed its expired Slack login through `claude mcp list`");
   }
   const client = new Client({ name: "takode-slack-updates", version: "1" });
   try {
@@ -95,6 +102,30 @@ export const openClaudeSlackReader: OpenSlackReader = async () => {
     },
   };
 };
+
+async function readSlackLogin(): Promise<McpOAuthEntry | undefined> {
+  const store = await readClaudeCredentialStore();
+  const logins = Object.values((store?.parsed.mcpOAuth as Record<string, McpOAuthEntry> | undefined) ?? {}).filter(
+    (entry) => entry.accessToken && isSlackMcpUrl(entry.serverUrl),
+  );
+  return logins.sort((a, b) => (b.expiresAt ?? 0) - (a.expiresAt ?? 0))[0];
+}
+
+function isExpired(login: McpOAuthEntry): boolean {
+  return login.expiresAt !== undefined && login.expiresAt - EXPIRY_MARGIN_MS <= Date.now();
+}
+
+/** Run `claude mcp list` with this machine's Claude program; says how it went. */
+async function renewClaudeLogins(): Promise<string> {
+  const binary = resolveBinary(machineSettingsFor(null).claudeBinary || "claude");
+  if (!binary) return "no Claude program found";
+  try {
+    await execFilePromise(binary, ["mcp", "list"], { cwd: homedir(), timeout: RENEWAL_TIMEOUT_MS });
+    return "it ran";
+  } catch (error) {
+    return `it failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
 
 function isSlackMcpUrl(url: string | undefined): boolean {
   try {
