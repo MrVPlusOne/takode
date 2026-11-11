@@ -60,6 +60,12 @@ html.scenic [data-feed-content-root="true"] {
   border-radius: 16px;
 }
 
+/* At night a feathered dark edge reads as a murky halo, so the sheet gets a crisp edge instead. */
+html.dark.scenic [data-feed-content-root="true"] {
+  background: color-mix(in srgb, var(--color-cc-card) 94%, transparent);
+  box-shadow: 0 0 0 1px var(--scenic-edge);
+}
+
 /* The sessions panel and the side column show the same painting, faded behind the page colour. */
 html.scenic [data-testid="app-sidebar-shell"] > aside,
 html.scenic [data-testid="topic-side-panel"] {

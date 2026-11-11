@@ -8,10 +8,20 @@
 import { useStore } from "../../store.js";
 import { type ActivityKind, InkDirector, type MomentKind } from "./ink-alive-director.js";
 import { type ImageSize, layoutScene } from "./ink-alive-layout.js";
+import { type CloudFluid, createCloudFluid, type FluidWeather } from "./ink-alive-fluid.js";
 import { INK_ALIVE_SHADER, VERTEX_SHADER } from "./ink-alive-shaders.js";
+import { CloudBanks } from "./ink-alive-sources.js";
 
 /** Dispatch with a `MomentKind` as detail to start a moment now (the Playground's buttons). */
 export const SCENIC_INK_MOMENT_EVENT = "scenic-ink-moment";
+
+/** The texture unit the simulated clouds are read from; the painted layers and noise use 0-11. */
+const CLOUD_UNIT = 12;
+
+/** A slow breeze from right to left with gentle eddies; cloud lasts about 40 seconds. */
+const WEATHER: FluidWeather = { wind: [-0.9, 0], eddies: 0.12, fade: 40 };
+/** Seconds of weather run before the first frame, so the clouds have already arrived. */
+const SETTLE = 60;
 
 const alive = (name: string) => `/scenic/${name}.v1.webp`;
 
@@ -34,7 +44,10 @@ export function startInkAlive(
   canvas: HTMLCanvasElement,
   options: { dark: boolean; motion: boolean; onFail: () => void },
 ): (() => void) | null {
-  const gl = canvas.getContext("webgl", { alpha: false, antialias: false, powerPreference: "low-power" });
+  // WebGL 2 runs the clouds' fluid simulation; plain WebGL still draws the painting without it.
+  const attributes: WebGLContextAttributes = { alpha: false, antialias: false, powerPreference: "low-power" };
+  const gl2 = canvas.getContext("webgl2", attributes);
+  const gl: WebGLRenderingContext | WebGL2RenderingContext | null = gl2 ?? canvas.getContext("webgl", attributes);
   if (!gl) return null;
   const program = link(gl, INK_ALIVE_SHADER);
   if (!program) return null;
@@ -46,6 +59,9 @@ export function startInkAlive(
   gl.enableVertexAttribArray(position);
   gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
   const textures: WebGLTexture[] = [];
+  const fluid: CloudFluid | null = gl2 ? createCloudFluid(gl2) : null;
+  const banks = new CloudBanks(Math.floor(Math.random() * 2 ** 31));
+  let lastSceneTime: number | null = null;
 
   let stopped = false;
   let frame = 0;
@@ -77,6 +93,7 @@ export function startInkAlive(
     canvas.height = Math.max(1, Math.round(rect.height * scale));
     pane = { width: rect.width, height: rect.height };
     gl.viewport(0, 0, canvas.width, canvas.height);
+    fluid?.resize(pane.width, pane.height);
   };
   resize();
 
@@ -103,6 +120,31 @@ export function startInkAlive(
       time,
       frameState,
     );
+    // Move the clouds first: the simulation draws into its own textures.
+    if (fluid) {
+      const horizon = layout.horizon / pane.height;
+      // The valleys between the peaks, down past the shore, so the sea of clouds is not torn into
+      // dark shreds along the lake line.
+      const layer: [number, number] = [horizon - 0.4, horizon + 0.08];
+      // The sky starts with its clouds already in the valleys rather than empty: a minute of
+      // weather in coarse steps before the first frame.
+      if (lastSceneTime === null) {
+        for (let at = frameState.sceneTime - SETTLE; at < frameState.sceneTime; at += 0.5)
+          fluid.step(0.5, at, banks.release(at, 0.5, horizon), WEATHER, layer);
+      }
+      const dt = lastSceneTime === null ? 0 : Math.min(0.15, Math.max(0, frameState.sceneTime - lastSceneTime));
+      lastSceneTime = frameState.sceneTime;
+      fluid.step(dt, frameState.sceneTime, banks.release(frameState.sceneTime, dt, horizon), WEATHER, layer);
+      fluid.bindClouds(CLOUD_UNIT);
+    }
+    // The simulation (stepping or resizing) leaves its own program and framebuffer bound.
+    gl.useProgram(program);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform1i(uniform("uClouds"), CLOUD_UNIT);
+    gl.uniform1f(uniform("uHasClouds"), fluid ? 1 : 0);
     gl.uniform2f(uniform("uRes"), canvas.width, canvas.height);
     gl.uniform1f(uniform("uScale"), scale);
     gl.uniform1f(uniform("uTime"), frameState.sceneTime);
@@ -116,9 +158,6 @@ export function startInkAlive(
     gl.uniform4fv(uniform("uBoatRect"), layout.boat);
     gl.uniform4fv(uniform("uCraneRect"), layout.craneRects);
     gl.uniform4fv(uniform("uCranePose"), layout.cranePoses);
-    const blooms = frameState.blooms.slice(-2).flatMap((bloom) => [bloom.x, bloom.y, bloom.start, bloom.seed]);
-    while (blooms.length < 8) blooms.push(0, 0, -1e4, 0);
-    gl.uniform4fv(uniform("uBloom"), blooms);
     const rings = frameState.rings.slice(-2).flatMap((ring) => [ring.x, ring.depth, ring.start, 0]);
     while (rings.length < 8) rings.push(0, 0, -1e4, 0);
     gl.uniform4fv(uniform("uRing"), rings);
@@ -198,6 +237,8 @@ export function startInkAlive(
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
           });
+          // A resize may have left the simulation's program in use meanwhile.
+          gl.useProgram(program);
           gl.uniform1i(uniform(name), unit);
           sizes[name] = { width: image.naturalWidth, height: image.naturalHeight };
           resolve();
@@ -255,6 +296,7 @@ export function startInkAlive(
     canvas.removeEventListener("webglcontextlost", lost);
     // The context stays with the canvas: losing it here would break a restart on the same canvas.
     for (const handle of textures) gl.deleteTexture(handle);
+    fluid?.dispose();
     gl.deleteProgram(program);
     gl.deleteBuffer(buffer);
   };

@@ -87,7 +87,8 @@ function boatRect(pane: PaneSize, boat: ImageSize, horizon: number, time: number
   const going = leg < 1;
   const along = going ? leg : 2 - leg;
   const eased = along * along * (3 - 2 * along);
-  const x = w * (0.12 + eased * 0.72);
+  // Over open water, clear of the cliffs at both sides.
+  const x = w * 0.24 + eased * (w * 0.5 - boatWidth);
   const top = horizon + h * 0.045 - boatHeight;
   return going ? [x, top, boatWidth, boatHeight] : [x + boatWidth, top, -boatWidth, boatHeight];
 }

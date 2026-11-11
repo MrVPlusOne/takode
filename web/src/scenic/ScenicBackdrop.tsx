@@ -4,8 +4,8 @@
  *   version on narrow panes such as phones) that breathes with a very slow camera drift, a cloud,
  *   haze or mist layer drifting in front of it, warm light rays, a reading veil where the text
  *   sits, and small lights (pollen, fireflies, glints).
- *   Ink & Paper is instead a living painting drawn with WebGL (`ink-alive/`): clouds and ink flow
- *   slowly, and now and then cranes cross or ink blooms into a cloud. Without WebGL it falls back
+ *   Ink & Paper is instead a living painting drawn with WebGL (`ink-alive/`): a sea of clouds
+ *   streams slowly through the valleys, and now and then cranes cross. Without WebGL it falls back
  *   to its still painting.
  * - `ScenicPanels` lays the same painting, faded, under the sessions panel and the side column.
  * The paintings are bundled WebP files that load only when a style is on, and only the day or the
@@ -152,8 +152,8 @@ export function ScenicBackdrop() {
         </div>
       )}
       {art.rays && !dark && <Rays side={art.rays} motion={motion} />}
-      {/* The living ink keeps its moments off the reading column, so a lighter veil reads as well. */}
-      <Veil width={size.width} strength={alive ? 0.72 : 1} />
+      {/* The paper column keeps text readable over the living ink, so its veil is light by day and gone at night, where a dark feathered band read as a murky halo. */}
+      <Veil width={size.width} strength={alive ? (dark ? 0 : 0.4) : 1} />
       {motion && lights && <LightCanvas kind={lights} from={art.lightsFrom} />}
     </div>
   );

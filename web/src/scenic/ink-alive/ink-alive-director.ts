@@ -1,18 +1,18 @@
 /**
  * Decides when the living Ink & Paper scene moves and when it rests, so it never runs as a
  * visible loop:
- * - The ambient motion (clouds, ink breath, light) runs on a scene clock that eases almost to a
- *   stop while you type, scroll or a new reply arrives, and drifts on again once you pause.
- * - Moments (a few cranes crossing, an ink drop blooming into a cloud, a fish ring on the lake)
- *   come from a seeded random schedule counted in idle time only: a crane flight every few
- *   minutes, a bloom every minute or two, a ring now and then. None starts while you are busy.
+ * - The ambient motion (the sea of clouds, the lake) runs on a scene clock that slows while you
+ *   type, scroll or a new reply arrives, and drifts on again once you pause.
+ * - Moments (a few cranes crossing, a fish ring on the lake) come from a seeded random schedule
+ *   counted in idle time only: a crane flight every few minutes, a ring now and then. None starts
+ *   while you are busy.
  * - Cranes are small and far away, glide far more than they beat their wings, and always fly in
  *   past one edge and out past the other, on a different path, height, direction and number each
  *   time, slowly enough to read as part of the painting rather than as something on the screen.
  */
 
 export type ActivityKind = "typing" | "scrolling" | "message";
-export type MomentKind = "cranes" | "bloom" | "ring";
+export type MomentKind = "cranes" | "ring";
 
 /** How long the scene stays calm after each kind of activity, in seconds. */
 const CALM_FOR: Record<ActivityKind, number> = { typing: 6, scrolling: 4, message: 12 };
@@ -36,14 +36,6 @@ export interface CraneFlight {
   birds: Array<{ dx: number; dy: number; scale: number; seed: number; glide: number }>;
 }
 
-export interface Bloom {
-  x: number;
-  y: number;
-  /** Scene time it began. */
-  start: number;
-  seed: number;
-}
-
 export interface Ring {
   x: number;
   /** Depth below the lake line, as a fraction of the pane height. */
@@ -55,7 +47,6 @@ export interface DirectorFrame {
   /** Seconds on the scene clock, which slows while you work. */
   sceneTime: number;
   cranes: CraneFlight[];
-  blooms: Bloom[];
   rings: Ring[];
 }
 
@@ -78,10 +69,8 @@ export class InkDirector {
   private calmUntil = Number.NEGATIVE_INFINITY;
   private idle = 0;
   private nextCrane: number;
-  private nextBloom: number;
   private nextRing: number;
   private cranes: CraneFlight[] = [];
-  private blooms: Bloom[] = [];
   private rings: Ring[] = [];
 
   constructor(seed: number, sceneStart = 0) {
@@ -89,7 +78,6 @@ export class InkDirector {
     this.sceneTime = sceneStart;
     // The first moments come a little sooner than later ones, so the scene shows it is alive.
     this.nextCrane = this.between(40, 90);
-    this.nextBloom = this.between(20, 50);
     this.nextRing = this.between(10, 30);
   }
 
@@ -102,7 +90,6 @@ export class InkDirector {
   /** Starts a moment right away (the Playground's buttons). */
   spawn(kind: MomentKind, now: number) {
     if (kind === "cranes") this.cranes.push(this.flight(now));
-    if (kind === "bloom") this.blooms.push(this.bloom());
     if (kind === "ring")
       this.rings.push({ x: this.between(0.15, 0.85), depth: this.between(0.03, 0.12), start: this.sceneTime });
   }
@@ -120,15 +107,10 @@ export class InkDirector {
     if (!calm) this.idle += dt;
     if (this.idle >= SETTLE) {
       this.nextCrane -= dt;
-      this.nextBloom -= dt;
       this.nextRing -= dt;
       if (this.nextCrane <= 0) {
         this.cranes.push(this.flight(now));
         this.nextCrane = this.between(180, 420);
-      }
-      if (this.nextBloom <= 0) {
-        this.blooms.push(this.bloom());
-        this.nextBloom = this.between(60, 150);
       }
       if (this.nextRing <= 0) {
         this.rings.push({ x: this.between(0.08, 0.92), depth: this.between(0.03, 0.14), start: this.sceneTime });
@@ -136,9 +118,8 @@ export class InkDirector {
       }
     }
     this.cranes = this.cranes.filter((flight) => !flightDone(flight, now, width, height));
-    this.blooms = this.blooms.filter((bloom) => this.sceneTime - bloom.start < 42);
     this.rings = this.rings.filter((ring) => this.sceneTime - ring.start < 9);
-    return { sceneTime: this.sceneTime, cranes: this.cranes, blooms: this.blooms, rings: this.rings };
+    return { sceneTime: this.sceneTime, cranes: this.cranes, rings: this.rings };
   }
 
   private between(low: number, high: number) {
@@ -168,12 +149,6 @@ export class InkDirector {
         glide: this.between(6, 10),
       })),
     };
-  }
-
-  private bloom(): Bloom {
-    // Upper sky, to either side of the reading column.
-    const side = this.rand() < 0.5 ? this.between(0.04, 0.3) : this.between(0.7, 0.96);
-    return { x: side, y: this.between(0.06, 0.26), start: this.sceneTime, seed: this.between(0, 100) };
   }
 }
 

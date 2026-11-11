@@ -2,7 +2,7 @@
  * Scenic backgrounds: pick a style for this page (not saved), see its painted scene behind a
  * sample conversation, and replay a quest finishing and a change landing through their real
  * components to see that style's fanfare. Ink & Paper's living painting can be asked for its rare
- * moments (cranes, an ink bloom, a fish ring) on cue. Off shows today's look.
+ * moments (cranes, a fish ring) on cue. Off shows today's look.
  */
 import type { ScenicBackground } from "../../../shared/scenic-background.js";
 import { ScenicBackdrop } from "../../scenic/ScenicBackdrop.js";
@@ -16,7 +16,6 @@ import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const INK_MOMENTS: Array<{ kind: MomentKind; label: string }> = [
   { kind: "cranes", label: "Cranes fly over" },
-  { kind: "bloom", label: "Ink bloom" },
   { kind: "ring", label: "Fish ring" },
 ];
 

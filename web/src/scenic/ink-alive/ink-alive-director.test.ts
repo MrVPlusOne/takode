@@ -76,7 +76,6 @@ describe("InkDirector", () => {
     const frames = run(director, 20 * 60, () => "typing");
     const last = frames[frames.length - 1]!.frame;
     expect(last.cranes).toHaveLength(0);
-    expect(last.blooms).toHaveLength(0);
     expect(last.rings).toHaveLength(0);
   });
 
@@ -115,6 +114,30 @@ describe("layoutScene", () => {
       expect(x - r).toBeGreaterThan(0);
       expect(x + r).toBeLessThan(pane.width);
       expect(y - r).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("the boat", () => {
+  // The boat is drawn with the near cliffs; starting over a cliff face made it look like a
+  // ghost on the rock, so its whole path stays over the open water between them.
+  it("drifts only over open water, clear of the cliffs at both sides", () => {
+    for (const pane of [
+      { width: 1280, height: 800 },
+      { width: 1009, height: 763 },
+      { width: 430, height: 932 },
+    ]) {
+      for (let t = 0; t < 300; t += 2) {
+        const [x, , w] = layoutScene(pane, IMAGES, t, { sceneTime: t, cranes: [], rings: [] }).boat as [
+          number,
+          number,
+          number,
+        ];
+        const left = Math.min(x, x + w);
+        const right = Math.max(x, x + w);
+        expect(left).toBeGreaterThanOrEqual(pane.width * 0.24 - 0.001);
+        expect(right).toBeLessThanOrEqual(pane.width * 0.74 + 0.001);
+      }
     }
   });
 });
