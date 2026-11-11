@@ -839,24 +839,34 @@ html, body {
 .hljs-operator { color: var(--cc-syntax-fg); }
 .hljs-punctuation { color: var(--cc-syntax-fg); }
 
-/* Scrollbar styling */
+/* Scrollbar styling. Thumbs stay transparent until scrollbar-visibility.ts marks their scroller
+   while it is scrolled or hovered, then fade it out by animating --cc-scrollbar-thumb. The property
+   doesn't inherit, so showing and fading restyle only the scroller; the thumb takes it with
+   `inherit`. */
+@property --cc-scrollbar-thumb {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
+[data-scrollbar-shown] {
+  --cc-scrollbar-thumb: var(--color-cc-muted);
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-cc-muted);
+  --cc-scrollbar-thumb: inherit;
+  background: var(--cc-scrollbar-thumb);
   border-radius: 3px;
-  opacity: 0.4;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  opacity: 0.6;
 }
 
 /* Typography families */
