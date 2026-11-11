@@ -376,4 +376,42 @@ describe("SyncedProjectionRuntime", () => {
     expect(subscriber.updates).toEqual([]);
     expect(runtime.getSnapshot("example", "a")).toMatchObject({ revision: 1, value: { parity: 0 } });
   });
+
+  it("publishes a change at once after a quiet spell and gathers the next ones for one flush", async () => {
+    // A leader's turn end invalidates its projections many times within a second. Re-deriving on
+    // each one blocked the server, so changes right after a flush wait for the interval and are
+    // derived and published together, while snapshots stay current at any time.
+    vi.useFakeTimers();
+    try {
+      const sources = new Map<string, Source>([["a", { dependency: 1, unrelated: 0 }]]);
+      const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-a", minFlushIntervalMs: 100 });
+      const derive = vi.fn((_source: Source, _key: string, dependency: number) => ({ parity: dependency % 2 }));
+      runtime.register(definition(sources, { derive }));
+      const subscriber = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
+      subscribe(runtime, subscriber, ["a"]);
+      derive.mockClear();
+
+      sources.get("a")!.dependency = 2;
+      runtime.invalidate("example", "a");
+      await Promise.resolve();
+      expect(subscriber.updates).toHaveLength(1);
+
+      for (const dependency of [3, 4, 5]) {
+        sources.get("a")!.dependency = dependency;
+        runtime.invalidate("example", "a");
+        await Promise.resolve();
+      }
+      expect(subscriber.updates).toHaveLength(1);
+      expect(runtime.getSnapshot("example", "a")).toMatchObject({ value: { parity: 1 } });
+      sources.get("a")!.dependency = 6;
+      runtime.invalidate("example", "a");
+      await vi.advanceTimersByTimeAsync(100);
+      expect(subscriber.updates).toHaveLength(3);
+      expect(subscriber.updates.at(-1)).toMatchObject({ value: { parity: 0 } });
+      // The first change, the snapshot read of the burst, and one flush for the rest.
+      expect(derive).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

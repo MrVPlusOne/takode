@@ -89,6 +89,8 @@ export interface SyncedProjectionRuntimeOptions {
   generation: string;
   maxValueBytes?: number;
   maxSubscriptionsPerSubscriber?: number;
+  /** Least time between two publishing flushes; see `DEFAULT_MIN_FLUSH_INTERVAL_MS`. */
+  minFlushIntervalMs?: number;
   onError?: (error: unknown, context: { projection: string; key: string; phase: "derive" | "deliver" }) => void;
 }
 
@@ -117,6 +119,14 @@ type SubscriberState<TSubscriber> = {
 
 const DEFAULT_MAX_VALUE_BYTES = 32 * 1024;
 const DEFAULT_MAX_SUBSCRIPTIONS = 2_000;
+/**
+ * A leader's turn end changes its session a dozen times within a second (each save, status and
+ * attention change invalidates its projections), and every flush re-derives each changed
+ * projection from the whole session, which takes tens of milliseconds for a big leader. A flush
+ * right after an idle spell still runs at once; changes during the following interval wait and are
+ * published together. Snapshots are always derived on demand, so readers never see a stale value.
+ */
+const DEFAULT_MIN_FLUSH_INTERVAL_MS = 100;
 
 function createProjectionMetrics(): SyncedProjectionRuntimeProjectionMetrics {
   return {
@@ -169,6 +179,9 @@ export class SyncedProjectionRuntime<TSubscriber> {
   private readonly metrics = createMetrics();
   private transactionDepth = 0;
   private flushScheduled = false;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastFlushAt = Number.NEGATIVE_INFINITY;
+  private readonly minFlushIntervalMs: number;
   private flushing = false;
 
   constructor(options: SyncedProjectionRuntimeOptions) {
@@ -178,6 +191,7 @@ export class SyncedProjectionRuntime<TSubscriber> {
     this.generation = options.generation;
     this.maxValueBytes = options.maxValueBytes ?? DEFAULT_MAX_VALUE_BYTES;
     this.maxSubscriptionsPerSubscriber = options.maxSubscriptionsPerSubscriber ?? DEFAULT_MAX_SUBSCRIPTIONS;
+    this.minFlushIntervalMs = options.minFlushIntervalMs ?? DEFAULT_MIN_FLUSH_INTERVAL_MS;
     this.onError = options.onError;
   }
 
@@ -359,10 +373,13 @@ export class SyncedProjectionRuntime<TSubscriber> {
 
   flush(): void {
     this.flushScheduled = false;
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = null;
     if (this.flushing || this.transactionDepth > 0 || this.pending.size === 0) return;
     const batch = [...this.pending].filter((entryId) => this.hasSubscribersForEntryId(entryId));
     this.pending.clear();
     if (batch.length === 0) return;
+    this.lastFlushAt = performance.now();
     this.flushing = true;
     this.metrics.batches += 1;
     const batchProjections = new Set(batch.map((entryId) => entryId.slice(0, entryId.indexOf("\u0000"))));
@@ -400,7 +417,13 @@ export class SyncedProjectionRuntime<TSubscriber> {
   private scheduleFlush(): void {
     if (this.transactionDepth > 0 || this.flushing || this.pending.size === 0 || this.flushScheduled) return;
     this.flushScheduled = true;
-    queueMicrotask(() => this.flush());
+    const wait = this.lastFlushAt + this.minFlushIntervalMs - performance.now();
+    if (wait <= 0) {
+      queueMicrotask(() => this.flush());
+      return;
+    }
+    this.flushTimer = setTimeout(() => this.flush(), wait);
+    this.flushTimer.unref?.();
   }
 
   private hasSubscribersForEntryId(entryId: string): boolean {
