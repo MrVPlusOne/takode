@@ -32,6 +32,7 @@ import {
   LEADER_THREAD_RESPONSE_VERSION,
   LEGACY_LEADER_THREAD_RESPONSE_VERSION,
 } from "./leader-thread-response-types.js";
+import { ObjectMemo } from "../shared/object-memo.js";
 
 type PendingLeaderAnswerInput = Pick<
   Extract<BrowserIncomingMessage, { type: "user_message" }>,
@@ -239,7 +240,7 @@ function responseMessageMarkdown(message: ResponseHistoryMessage): string {
  * every answer's Markdown was most of that. Stored content only changes by being replaced with a
  * new array, so the array identifies its text.
  */
-const assistantResponseText = new WeakMap<object, { markdown: string; substantive: boolean }>();
+const assistantResponseText = new ObjectMemo<{ markdown: string; substantive: boolean }>("assistantResponseText");
 
 function responseText(message: ResponseHistoryMessage): { markdown: string; substantive: boolean } {
   const content = message.type === "assistant" ? message.message.content : null;

@@ -58,6 +58,7 @@ import type {
   LegacyLeaderThreadResponseRevisionMetadata,
   ThreadRef,
 } from "./session-types.js";
+import { ObjectMemo } from "../shared/object-memo.js";
 
 /** Subfolder of the sessions folder holding archived sessions' activity records. */
 const ACTIVITY_RECORD_DIR = "activity-records";
@@ -400,7 +401,7 @@ function recheckSpans(start: number, end: number, fresh: number, sweep: number) 
 }
 
 /** Replay keys of preview rows, by row object. Copies made for a save are new objects and get their own entry. */
-const previewReplayKeys = new WeakMap<object, string>();
+const previewReplayKeys = new ObjectMemo<string>("previewReplayKeys");
 
 /** Captures a session for saving, sharing (not copying) the given leading history and tool-result rows. */
 function captureSession(session: PersistedSession, shared: UnchangedHistoryPrefix): PersistedSession {

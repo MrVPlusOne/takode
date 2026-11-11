@@ -6,6 +6,7 @@ import {
   parseCommandThreadComment,
   parseThreadTextPrefix,
 } from "./thread-routing.js";
+import { ObjectMemo } from "./object-memo.js";
 
 /**
  * Which threads a message of a leader's history belongs to: the one rule that thread windows, live
@@ -39,7 +40,7 @@ interface Memo extends RouteKeys {
   textLength: number;
 }
 
-const memos = new WeakMap<object, Memo>();
+const memos = new ObjectMemo<Memo>("memos");
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 /**

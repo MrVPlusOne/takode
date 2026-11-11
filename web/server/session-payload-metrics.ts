@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage } from "./session-types.js";
+import { ObjectMemo } from "../shared/object-memo.js";
 
 export interface IndexedToolResultPayload {
   content: string;
@@ -12,7 +13,7 @@ export interface IndexedToolResultPayload {
  * a turn's last assistant message can still grow in place. An older entry edited in place
  * (for example a backfilled thread reference) keeps its old size, which only skews a display stat.
  */
-const entryBytes = new WeakMap<object, number>();
+const entryBytes = new ObjectMemo<number>("entryBytes");
 const FRESHLY_MEASURED_TAIL = 20;
 
 function measureEntry(entry: BrowserIncomingMessage): number {

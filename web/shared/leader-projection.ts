@@ -14,6 +14,7 @@ import type {
 } from "../server/session-types.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { normalizeThreadTarget, parseCommandThreadComment, parseThreadTextPrefix } from "./thread-routing.js";
+import { ObjectMemo } from "./object-memo.js";
 
 export interface LeaderProjectionBoardRow extends Omit<BoardRow, "createdAt"> {
   createdAt?: number;
@@ -295,7 +296,7 @@ interface MessageFacts {
   metadata: unknown;
 }
 
-const messageFactsCache = new WeakMap<object, MessageFacts>();
+const messageFactsCache = new ObjectMemo<MessageFacts>("messageFactsCache");
 
 function messageFacts(message: LeaderProjectionMessageLike): MessageFacts {
   const rawContent = (message.message as { content?: unknown } | null | undefined)?.content;

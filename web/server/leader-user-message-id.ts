@@ -6,6 +6,7 @@ import {
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import type { AnsweredMessageReference, BrowserIncomingMessage } from "./session-types.js";
 import { isActualHumanUserMessage } from "./user-message-classification.js";
+import { ObjectMemo } from "../shared/object-memo.js";
 
 export { isCanonicalLeaderUserMessageId, LEADER_USER_MESSAGE_ID_RE };
 
@@ -33,7 +34,7 @@ export function isLeaderUserMessageWithId(
  * eligibility several times per leader turn end, and classifying user messages reads their text.
  * Everything it depends on is fixed when the message is stored.
  */
-const eligibility = new WeakMap<object, boolean>();
+const eligibility = new ObjectMemo<boolean>("eligibility");
 
 function eligibleLeaderUserMessages(
   history: ReadonlyArray<BrowserIncomingMessage>,
