@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { listQuests } from "../quest-store.js";
-import { applyQuestListFilters } from "../quest-list-filters.js";
+import type { QuestListSearch } from "../quest-list-filters.js";
 import { grepQuests, type QuestGrepResponse } from "../quest-grep.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { getQuestOwner, sameQuestOwner, type QuestOwnerRef } from "../../shared/quest-owner.js";
@@ -10,20 +10,30 @@ import { getQuestOwner, sameQuestOwner, type QuestOwnerRef } from "../../shared/
  * server answers them from its cached store, so a CLI on a machine without the
  * quest store gets the same results and only the matching quests travel.
  */
-export function registerQuestCliReadRoutes(api: Hono): void {
+export function registerQuestCliReadRoutes(api: Hono, questSearch: QuestListSearch): void {
   api.get("/quests/_list", async (c) => {
     const query = (name: string) => c.req.query(name) || undefined;
     const ownerKind = query("ownerKind");
     const ownerSession = query("ownerSession");
     const owner = ownerKind && ownerSession ? ({ kind: ownerKind, sessionId: ownerSession } as QuestOwnerRef) : null;
-    const quests = applyQuestListFilters(await listQuests(), {
-      status: query("status"),
-      tags: query("tags"),
-      tag: query("tag"),
-      session: query("session"),
-      text: query("text"),
-      verification: query("verification"),
-    });
+    const signal = c.req.raw.signal;
+    let quests: QuestmasterTask[];
+    try {
+      quests = await questSearch.filter(
+        {
+          status: query("status"),
+          tags: query("tags"),
+          tag: query("tag"),
+          session: query("session"),
+          text: query("text"),
+          verification: query("verification"),
+        },
+        signal,
+      );
+    } catch (error) {
+      if (signal.aborted) return new Response(null, { status: 499 });
+      throw error;
+    }
     return c.json(owner ? quests.filter((quest) => sameQuestOwner(getQuestOwner(quest), owner)) : quests);
   });
 

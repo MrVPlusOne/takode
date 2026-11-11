@@ -436,9 +436,9 @@ export { validateV2CompletionGitState } from "./quest-completion-checks.js";
 
 export function createQuestRoutes(ctx: RouteContext) {
   const api = new Hono();
-  const searchQuestPage = createQuestListSearch(() => questStore.listQuests());
+  const questSearch = createQuestListSearch(() => questStore.listQuests());
   registerQuestDeliveryRoutes(api);
-  registerQuestCliReadRoutes(api);
+  registerQuestCliReadRoutes(api, questSearch);
   const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional, execCaptureStdoutAsync, resolveId } =
     ctx;
   const bridgeAny = wsBridge as any;
@@ -1026,7 +1026,7 @@ export function createQuestRoutes(ctx: RouteContext) {
   api.get("/quests/_page", async (c) => {
     const signal = c.req.raw.signal;
     try {
-      const page = await searchQuestPage(questListPageOptions(c), signal);
+      const page = await questSearch.page(questListPageOptions(c), signal);
       return cacheValidatedJson(c, page);
     } catch (error) {
       if (signal.aborted) return new Response(null, { status: 499 });

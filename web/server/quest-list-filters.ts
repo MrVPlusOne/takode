@@ -144,19 +144,46 @@ export function getQuestListPage(quests: QuestmasterTask[], options: QuestListPa
   );
 }
 
+/** Text searches over the whole quest store that share one document cache; see `createQuestListSearch`. */
+export interface QuestListSearch {
+  /** One page of quest previews, ranked by relevance when there is a text query. */
+  page(options: QuestListPageOptions, signal?: AbortSignal): Promise<QuestListPageResult>;
+  /** The full quests matching the filters, in store order, as `applyQuestListFilters` returns them. */
+  filter(filters: QuestListFilterOptions, signal?: AbortSignal): Promise<QuestmasterTask[]>;
+}
+
 /**
  * Share one prepared document per known quest while reading an authoritative corpus
  * for every request. Content fingerprints include derived relationships: neither
  * a quest's own version nor its timestamp proves that its search text is unchanged.
  * The cache retains documents, not quest records or per-query result sets.
+ *
+ * Every server text search over the store must go through this: preparing the
+ * documents for every quest from scratch takes seconds and allocates about a
+ * gigabyte, and done in one go on the event loop it once froze the server for a
+ * minute. Here it yields between small batches, stops when the request is
+ * aborted, and is paid once per changed quest.
  */
-export function createQuestListSearch(readQuests: () => Promise<QuestmasterTask[]>) {
+export function createQuestListSearch(readQuests: () => Promise<QuestmasterTask[]>): QuestListSearch {
   const documents = new Map<string, { fingerprint: string; document: QuestSearchDocument }>();
   let knownQuestIds = new Set<string>();
   let requestSequence = 0;
   let corpusSequence = 0;
 
-  return async (options: QuestListPageOptions, signal?: AbortSignal): Promise<QuestListPageResult> => {
+  const getDocument = (quest: QuestmasterTask): QuestSearchDocument => {
+    const fingerprint = questSearchFingerprint(quest);
+    const cached = documents.get(quest.questId);
+    let document = cached?.fingerprint === fingerprint ? cached.document : buildQuestSearchDocument(quest);
+    const recencyTs = questRecencyTs(quest);
+    if (document.recencyTs !== recencyTs) document = { ...document, recencyTs };
+    // An older in-flight snapshot must not resurrect an entry since deleted.
+    if (knownQuestIds.has(quest.questId) && cached?.document !== document) {
+      documents.set(quest.questId, { fingerprint, document });
+    }
+    return document;
+  };
+
+  const readCorpus = async (signal: AbortSignal | undefined): Promise<QuestmasterTask[]> => {
     signal?.throwIfAborted();
     const sequence = ++requestSequence;
     // Do not share an older pending read with a request arriving after a mutation.
@@ -169,22 +196,16 @@ export function createQuestListSearch(readQuests: () => Promise<QuestmasterTask[
         if (!knownQuestIds.has(questId)) documents.delete(questId);
       }
     }
+    return quests;
+  };
 
-    return getQuestListPageAsync(quests, options, {
-      signal,
-      getDocument: (quest) => {
-        const fingerprint = questSearchFingerprint(quest);
-        const cached = documents.get(quest.questId);
-        let document = cached?.fingerprint === fingerprint ? cached.document : buildQuestSearchDocument(quest);
-        const recencyTs = questRecencyTs(quest);
-        if (document.recencyTs !== recencyTs) document = { ...document, recencyTs };
-        // An older in-flight snapshot must not resurrect an entry since deleted.
-        if (knownQuestIds.has(quest.questId) && cached?.document !== document) {
-          documents.set(quest.questId, { fingerprint, document });
-        }
-        return document;
-      },
-    });
+  return {
+    page: async (options, signal) => getQuestListPageAsync(await readCorpus(signal), options, { signal, getDocument }),
+    filter: async (filters, signal) => {
+      const quests = await readCorpus(signal);
+      if ((filters.text ?? "").trim().length === 0) return applyQuestListFilters(quests, filters);
+      return (await filterQuestListAsync(quests, filters, { signal, getDocument })).filtered;
+    },
   };
 }
 
