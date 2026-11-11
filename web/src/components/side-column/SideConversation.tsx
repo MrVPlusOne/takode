@@ -7,6 +7,7 @@ import { sendToSession } from "../../ws.js";
 import { latestThreadWindowRequest } from "../../utils/latest-thread-window-request.js";
 import { useUnreadMessagesSeen } from "../../hooks/use-unread-messages-seen.js";
 import { useThreadReadOnScreen } from "../../hooks/use-thread-read-on-screen.js";
+import { useThreadViewed } from "../../hooks/use-thread-viewed.js";
 import { leaderResultsThreadKey, useThreadResultsRead } from "../../hooks/use-thread-results-read.js";
 import { useKnownThreadOfKey } from "../../utils/leader-topics.js";
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
@@ -57,6 +58,9 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
     readWhenSeen: true,
     onScreen: resultsOnScreen,
   });
+  // Focused for a moment, the pane's thread counts as viewed, as in the main view, and is listed
+  // in Recently viewed (Jiayi, Nov 10: a thread read here and closed couldn't be found again).
+  useThreadViewed({ leaderId, viewKey: key, focused, side: true });
   // A thread opened from this pane opens in it, in place of this conversation; the open-in-side
   // click opens it in the main view.
   const openThread = (next: string) =>

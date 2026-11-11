@@ -855,7 +855,8 @@ function projectUserInteractionTimes(
   tabs: readonly LeaderThreadTabsProjectionTab[],
 ): Record<string, number> {
   const kept = new Set(["main", ...tabs.map((tab) => tab.threadKey)]);
-  const entries = [...threadUserInteractionTimes(session.messageHistory, session.notifications)]
+  const times = threadUserInteractionTimes(session.messageHistory, session.notifications, session.state.threadViewedAt);
+  const entries = [...times]
     .filter(([key]) => key.length <= LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)
     .sort((left, right) => Number(kept.has(right[0])) - Number(kept.has(left[0])) || right[1] - left[1])
     .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_INTERACTIONS);

@@ -1715,4 +1715,15 @@ describe("side quests in leader tabs", () => {
     expect(sideQuestOf).toEqual({ "q-11": "main", "q-13": undefined, "q-15": undefined });
     expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
   });
+
+  it("orders by the user's views too: userInteractionAt includes the thread views the server kept", () => {
+    // A thread the user only looked at (no message, no result read) moves up the Threads view.
+    const session = makeSession({
+      state: { isOrchestrator: true, threadViewedAt: { "q-7": 900 } } as unknown as Session["state"],
+      messageHistory: [
+        { type: "user_message", content: "hi", timestamp: 100, threadKey: "q-7" },
+      ] as unknown as Session["messageHistory"],
+    });
+    expect(buildLeaderThreadTabsProjectionValue(session).userInteractionAt).toMatchObject({ "q-7": 900 });
+  });
 });

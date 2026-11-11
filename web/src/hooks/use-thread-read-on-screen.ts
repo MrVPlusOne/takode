@@ -13,7 +13,11 @@ export function useThreadReadOnScreen(scopeKey: string, enabled: boolean): boole
   const [settledScope, setSettledScope] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!enabled) return;
+    // Leaving forgets the dwell, so coming back waits again rather than counting at once.
+    if (!enabled) {
+      setSettledScope(null);
+      return;
+    }
     let timer: ReturnType<typeof setTimeout> | null = null;
     const stop = () => {
       if (timer) clearTimeout(timer);

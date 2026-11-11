@@ -64,6 +64,7 @@ import {
 } from "../utils/thread-viewport.js";
 import { ViewportHandoffThreadEntryGate } from "./ViewportHandoffEntryGate.js";
 import { useThreadReadOnScreen } from "../hooks/use-thread-read-on-screen.js";
+import { useThreadViewed } from "../hooks/use-thread-viewed.js";
 import { useUnreadMessagesSeen } from "../hooks/use-unread-messages-seen.js";
 import { leaderResultsThreadKey, useThreadResultsRead } from "../hooks/use-thread-results-read.js";
 import { MessageFeedUnreadAbove } from "./MessageFeedUnreadAbove.js";
@@ -646,6 +647,12 @@ export function ChatView({
   // moved to the side column: focus follows the conversation there.
   const mainFocused = useChatFocused(MAIN_CHAT);
   const mainFocusMarked = useChatFocusMarked(MAIN_CHAT);
+  // A leader's thread focused here for a moment counts as viewed: it moves up the Threads view.
+  useThreadViewed({
+    leaderId: isLeaderSession && !preview ? sessionId : null,
+    viewKey: feedThreadKey,
+    focused: mainFocused,
+  });
   const movedToSideRef = useRef(false);
   useEffect(() => {
     if (movedToSideRef.current) movedToSideRef.current = false;

@@ -50,6 +50,7 @@ import { registerArchivedSessionPageRoute } from "./session-archived-page-route.
 import { registerSessionMessageSearchRoute } from "./session-message-search-route.js";
 import { registerSessionStarredMessagesRoute } from "./session-starred-messages-route.js";
 import { registerSessionExpandedMessagesRoute } from "./session-expanded-messages-route.js";
+import { registerSessionThreadViewedRoute } from "./session-thread-viewed-route.js";
 import { registerSessionActivityPreviewRoute } from "./session-activity-preview-route.js";
 import { registerSessionModelProvenanceMigrationRoute } from "./session-model-provenance-migration-route.js";
 import { registerGlobalStarredMessageSearchRoute } from "./global-starred-message-search-route.js";
@@ -1242,6 +1243,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   registerSessionMessageSearchRoute(api, { launcher, wsBridge, resolveId });
   registerSessionStarredMessagesRoute(api, { launcher, wsBridge, resolveId });
   registerSessionExpandedMessagesRoute(api, { launcher, wsBridge, resolveId });
+  registerSessionThreadViewedRoute(api, { launcher, wsBridge, resolveId });
   registerSessionActivityPreviewRoute(api, { wsBridge, resolveId });
   registerSessionModelProvenanceMigrationRoute(api, ctx);
   api.get("/sessions/:id", (c) => {

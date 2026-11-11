@@ -12,14 +12,17 @@ import { isActualHumanUserMessage } from "./user-message-classification.js";
  * on top). It is the later of
  * - the user's own message there: typed, a command, or the answer to a question asked there;
  * - the user marking one of its results or questions done in a browser: reading it (on screen or
- *   with Mark as read), or dismissing a question.
+ *   with Mark as read), or dismissing a question;
+ * - the user viewing it: the chat showing it stayed focused for a moment (`viewedAt`, kept in
+ *   `SessionState.threadViewedAt`; Jiayi, Nov 10: a thread just looked at must be easy to find again).
  * Takode's and agents' activity (a new answer, a quest moving on) doesn't count, so an unread
- * result doesn't move a thread; only opening a thread doesn't count either. A thread joined onto
- * another, or handed to a quest, counts as that conversation.
+ * result doesn't move a thread. A thread joined onto another, or handed to a quest, counts as that
+ * conversation.
  */
 export function threadUserInteractionTimes(
   history: ReadonlyArray<BrowserIncomingMessage>,
   notifications: ReadonlyArray<SessionNotification>,
+  viewedAt: Readonly<Record<string, number>> = {},
 ): Map<string, number> {
   const times = new Map<string, number>();
   const record = (threadKey: string, at: unknown) => {
@@ -36,5 +39,6 @@ export function threadUserInteractionTimes(
     const owner = notification.threadKey?.trim() || notification.questId || "main";
     record(normalizeThreadTarget(owner)?.threadKey ?? "main", notification.userDoneAt);
   }
+  for (const [threadKey, at] of Object.entries(viewedAt)) record(threadKey, at);
   return times;
 }

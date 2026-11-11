@@ -6,6 +6,8 @@ export interface ViewedTab {
   /** The leader thread tab ("main", "all" or a quest ID); null for sessions without thread tabs. */
   threadKey: string | null;
   viewedAt: number;
+  /** Viewed in the side column rather than the main view, so it is not what the main view shows. */
+  side?: boolean;
 }
 
 const STORAGE_KEY = "cc-view-history";
@@ -24,15 +26,22 @@ export function getViewHistory(): readonly ViewedTab[] {
   return entries;
 }
 
-/** Move a tab to the top of the history, or add it. */
-export function recordViewedTab(sessionId: string, threadKey: string | null, now = Date.now()): void {
+/**
+ * Move a tab to the top of the history, or add it. A side-column view (`side`) of the tab the main
+ * view shows changes nothing: that entry stays the current one.
+ */
+export function recordViewedTab(
+  sessionId: string,
+  threadKey: string | null,
+  now = Date.now(),
+  { side = false }: { side?: boolean } = {},
+): void {
   const current = getViewHistory();
-  if (current[0]?.sessionId === sessionId && current[0].threadKey === threadKey) {
-    entries = [{ ...current[0], viewedAt: now }, ...current.slice(1)];
-  } else {
-    const rest = current.filter((entry) => entry.sessionId !== sessionId || entry.threadKey !== threadKey);
-    entries = [{ sessionId, threadKey, viewedAt: now }, ...rest].slice(0, MAX_ENTRIES);
-  }
+  const same = (entry: ViewedTab) => entry.sessionId === sessionId && entry.threadKey === threadKey;
+  const main = current.find((entry) => !entry.side);
+  if (side && main && same(main)) return;
+  const entry: ViewedTab = { sessionId, threadKey, viewedAt: now, ...(side ? { side } : {}) };
+  entries = [entry, ...current.filter((other) => !same(other))].slice(0, MAX_ENTRIES);
   try {
     scopedSetItem(STORAGE_KEY, JSON.stringify(entries));
   } catch (error) {
@@ -59,7 +68,8 @@ function load(): ViewedTab[] {
       (entry): entry is ViewedTab =>
         typeof entry?.sessionId === "string" &&
         (entry.threadKey === null || typeof entry.threadKey === "string") &&
-        typeof entry.viewedAt === "number",
+        typeof entry.viewedAt === "number" &&
+        (entry.side === undefined || typeof entry.side === "boolean"),
     );
   } catch (error) {
     console.warn("[view-history] ignoring unreadable saved history:", error);

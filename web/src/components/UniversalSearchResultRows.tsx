@@ -21,12 +21,16 @@ import { StarIcon } from "./StarredMessageIndicator.js";
 import { RecentAskBundleResult } from "./RecentAskBundleResult.js";
 import { SEARCH_ROW_CLASS, SearchMeta, SearchRowContent } from "./SearchSheet.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
+import { LeaderProfilePortraitImage } from "./LeaderProfilePortraitButton.js";
+import type { ThreadRow } from "./sidebar-threads/SidebarThreadsMode.js";
 
-/** Universal Search's result rows: quests, sessions, messages and Recent conversations. */
+/** Universal Search's result rows: threads, quests, sessions, messages and Recent conversations. */
 /** A message found by any search: in one session, among starred messages, or among the user's own. */
 type AnyMessageResult = MessageSearchResult | GlobalStarredMessageSearchResult | UserMessageSearchResult;
 
 export type UniversalSearchResult =
+  /** A leader's thread, shown above the open tab's results (`sidebar-threads/thread-search.ts`). */
+  | { kind: "thread"; id: string; thread: ThreadRow }
   | { kind: "quest"; id: string; quest: QuestListPreview }
   | { kind: "session"; id: string; session: SdkSessionInfo; rank: SearchRank | null }
   | { kind: "message"; id: string; message: MessageSearchResult | GlobalStarredMessageSearchResult }
@@ -140,6 +144,17 @@ export function ResultRow({
         onPointerMove={onPointerMove}
         onOpenMember={(member) => onOpenRecentMessage(result.bundle, member.messageId)}
         onNavigateQuest={onInlineNavigate}
+      />
+    );
+  }
+  if (result.kind === "thread") {
+    return (
+      <ThreadResultRow
+        thread={result.thread}
+        query={query}
+        selected={selected}
+        onPointerMove={onPointerMove}
+        onOpen={onOpen}
       />
     );
   }
@@ -407,6 +422,56 @@ const QUEST_STATUS_BAR: Record<string, string> = {
   in_progress: "progress",
   done: "done",
 };
+
+/** A thread's bar takes its status group's colour, as everywhere threads are listed. */
+const THREAD_GROUP_BAR: Record<ThreadRow["group"], string> = {
+  "needs-input": "var(--color-cc-attention)",
+  "new-results": "var(--color-cc-info)",
+  "in-progress": "var(--color-cc-success)",
+  idle: "var(--color-cc-muted)",
+};
+
+function ThreadResultRow({
+  thread,
+  query,
+  selected,
+  onPointerMove,
+  onOpen,
+}: {
+  thread: ThreadRow;
+  query: string;
+  selected: boolean;
+  onPointerMove: () => void;
+  onOpen: () => void;
+}) {
+  const leader = thread.leader.leader;
+  const leaderLabel = [leader.name ?? "Leader", leader.sessionNum != null ? `#${leader.sessionNum}` : null];
+  return (
+    <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
+      <SearchRowContent
+        barColor={THREAD_GROUP_BAR[thread.group]}
+        barQuiet={thread.group === "idle"}
+        meta={
+          <SearchMeta
+            truncate={1}
+            items={[
+              thread.questId ?? "Thread",
+              leaderLabel.filter(Boolean).join(" "),
+              timeAgo(thread.at || thread.activityAt),
+            ]}
+          />
+        }
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          {leader.leaderProfilePortrait && <LeaderProfilePortraitImage portrait={leader.leaderProfilePortrait} />}
+          <span className="truncate text-[14px] text-cc-fg">
+            <HighlightedText parts={getHighlightParts(thread.title, query)} />
+          </span>
+        </span>
+      </SearchRowContent>
+    </ResultOption>
+  );
+}
 
 function SessionResultRow({
   session,

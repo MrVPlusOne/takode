@@ -124,7 +124,9 @@ export function NavigationHistoryPanel({
   );
   const storeThreads = useAttentionThreadTitles(entries);
   const threads = threadsOverride ?? storeThreads;
-  const currentKey = entries[0] ? viewedTabKey(entries[0]) : null;
+  // The main view's tab: side-column views list above it while it stays on screen.
+  const currentEntry = entries.find((entry) => !entry.side);
+  const currentKey = currentEntry ? viewedTabKey(currentEntry) : null;
 
   useOutsidePress([panelRef, trigger], onClose, !inline);
   useEffect(() => {

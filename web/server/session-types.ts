@@ -1599,6 +1599,12 @@ export interface SessionState extends BackendSessionState {
   codexLeaderCompactionMode?: import("../shared/codex-leader-compaction-mode.js").CodexLeaderCompactionMode;
   /** Server-owned leader quest/thread tab state. Browsers must treat this as authoritative. */
   leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
+  /**
+   * When the user last viewed each of a leader's threads (a chat showing it stayed focused for a
+   * moment), by thread key: it orders the Threads view with the user's other dealings with a thread.
+   * The newest `MAX_THREAD_VIEWS` (`routes/session-thread-viewed-route.ts`) are kept.
+   */
+  threadViewedAt?: Record<string, number>;
   /** Durable Notify Me preferences and results; never owned by read/view state. */
   threadMonitoring?: import("../shared/thread-monitoring.js").ThreadMonitoringState;
   /** Server-owned starred chat messages keyed by stable raw message ID. */
@@ -1780,7 +1786,8 @@ type BrowserSessionInternalAlias =
   | "leaderOpenThreadTabs"
   | "leaderThreadStatuses"
   | "leaderThreadReminders"
-  | "threadMonitoring";
+  | "threadMonitoring"
+  | "threadViewedAt";
 
 /** Session state safe for current-build browser snapshots and patches. */
 export type BrowserSessionState = Omit<SessionState, BrowserSessionInternalAlias>;
@@ -1794,6 +1801,7 @@ export function projectBrowserSessionState<T extends Partial<SessionState>>(
     leaderThreadStatuses: _leaderThreadStatuses,
     leaderThreadReminders: _leaderThreadReminders,
     threadMonitoring: _threadMonitoring,
+    threadViewedAt: _threadViewedAt,
     codex_result_error_auto_pause_recovery_testing: _recoveryTesting,
     ...browserState
   } = state as T & { codex_result_error_auto_pause_recovery_testing?: unknown };

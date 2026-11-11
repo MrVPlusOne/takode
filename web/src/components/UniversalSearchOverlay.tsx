@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   api,
   type GlobalStarredMessageSearchResponse,
@@ -14,6 +14,7 @@ import { useArchivedSessionMatches } from "./universal-search-archived-sessions.
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { isAllThreadsKey } from "../utils/thread-projection.js";
 import { useTopicKeyNamer } from "../utils/leader-topics.js";
+import { searchThreadRows, useAllThreadRows } from "./sidebar-threads/thread-search.js";
 import { compareSearchRanks, rankSearchFields, type SearchRank } from "../../shared/search-utils.js";
 import {
   ResultRow,
@@ -742,13 +743,22 @@ export function UniversalSearchOverlay({
 
   // Recent shows what was fetched for the query it has now: conversations, or a search of the user's messages.
   const recentRemoteCurrent = remoteState.mode === "recent" && (remoteState.query ?? "") === recentQuery;
-  const results = useMemo(() => {
+  const modeResults = useMemo((): UniversalSearchResult[] => {
     if (mode === "recent") return recentRemoteCurrent ? remoteState.results : [];
     if (mode === "quests") return remoteState.mode === "quests" ? remoteState.results : [];
     if (mode === "sessions") return sessionResults;
     if (mode === "starred") return remoteState.mode === "starred" ? remoteState.results : [];
     return remoteState.mode === "messages" && remoteState.query === liveMessageQuery ? remoteState.results : [];
   }, [liveMessageQuery, mode, recentRemoteCurrent, remoteState, sessionResults]);
+  // Threads come first in every tab: those named like the query, or with nothing typed the ones the
+  // user last dealt with or viewed (Jiayi, Nov 10: a thread just read couldn't be found by search).
+  const allThreadRows = useAllThreadRows(sessions, open);
+  const threadResults = useMemo(
+    (): UniversalSearchResult[] =>
+      searchThreadRows(allThreadRows, debouncedQuery).map((thread) => ({ kind: "thread", id: thread.key, thread })),
+    [allThreadRows, debouncedQuery],
+  );
+  const results = useMemo(() => [...threadResults, ...modeResults], [modeResults, threadResults]);
 
   const totalResults = useMemo(() => {
     if (mode === "recent" && recentRemoteCurrent) return remoteState.total;
@@ -778,7 +788,7 @@ export function UniversalSearchOverlay({
     remoteState.status === "error" &&
     (mode !== "messages" || remoteState.query === liveMessageQuery);
   // Recent's conversations are one bounded list; a search of the user's messages pages like the others.
-  const hasMore = (mode !== "recent" || recentQuery.length > 0) && results.length < totalResults;
+  const hasMore = (mode !== "recent" || recentQuery.length > 0) && modeResults.length < totalResults;
   const selectedResultIndex = results.length === 0 ? -1 : clampSelection(selectedIndex, results.length);
 
   useEffect(() => {
@@ -810,7 +820,11 @@ export function UniversalSearchOverlay({
   const openResult = useCallback(
     (result: UniversalSearchResult | undefined) => {
       if (!result) return;
-      if (result.kind === "quest") {
+      if (result.kind === "thread") {
+        const leaderId = result.thread.leader.leader.id;
+        // Named outright: a bare leader address restores the thread viewed last instead.
+        navigateToSessionThread(leaderId, result.thread.threadKey, false, leaderId, { preserveMainThreadRoute: true });
+      } else if (result.kind === "quest") {
         onOpenQuest(result.quest.questId, debouncedQuery.trim());
       } else if (result.kind === "session") {
         navigateToSession(result.session.sessionId);
@@ -1149,41 +1163,45 @@ export function UniversalSearchOverlay({
         ) : (
           <div role="listbox" aria-label={`${modeLabel} results`}>
             {results.map((result, index) => (
-              <ResultRow
-                key={`${result.kind}:${result.id}`}
-                result={result}
-                query={debouncedQuery}
-                sessions={sessions}
-                selected={index === selectedResultIndex}
-                copiedQuestId={copiedQuestId}
-                questActionMenu={
-                  result.kind === "quest" && questActionMenu?.resultId === result.id ? questActionMenu : null
-                }
-                onPointerMove={() => {
-                  setSelectedIndex(index);
-                  if (questActionMenu && questActionMenu.resultId !== result.id) setQuestActionMenu(null);
-                }}
-                onOpen={() => openResult(result)}
-                onCopyQuestId={copyQuestId}
-                onOpenQuestActionMenu={() =>
-                  setQuestActionMenu({
-                    resultId: result.id,
-                    selectedActionIndex: 0,
-                  })
-                }
-                onSelectQuestAction={(selectedActionIndex) =>
-                  setQuestActionMenu({
-                    resultId: result.id,
-                    selectedActionIndex,
-                  })
-                }
-                onActivateQuestAction={(quest, action) => activateQuestResultAction(quest, action)}
-                onInlineNavigate={onClose}
-                onOpenRecentMessage={(bundle, messageId) => {
-                  onOpenMessage(bundle.sessionId, messageId, bundle.ownerThreadKey);
-                  onClose();
-                }}
-              />
+              <Fragment key={`${result.kind}:${result.id}`}>
+                {threadResults.length > 0 && (index === 0 || index === threadResults.length) && (
+                  <SearchSectionLabel>{index === 0 ? "Threads" : modeLabel}</SearchSectionLabel>
+                )}
+                <ResultRow
+                  result={result}
+                  query={debouncedQuery}
+                  sessions={sessions}
+                  selected={index === selectedResultIndex}
+                  copiedQuestId={copiedQuestId}
+                  questActionMenu={
+                    result.kind === "quest" && questActionMenu?.resultId === result.id ? questActionMenu : null
+                  }
+                  onPointerMove={() => {
+                    setSelectedIndex(index);
+                    if (questActionMenu && questActionMenu.resultId !== result.id) setQuestActionMenu(null);
+                  }}
+                  onOpen={() => openResult(result)}
+                  onCopyQuestId={copyQuestId}
+                  onOpenQuestActionMenu={() =>
+                    setQuestActionMenu({
+                      resultId: result.id,
+                      selectedActionIndex: 0,
+                    })
+                  }
+                  onSelectQuestAction={(selectedActionIndex) =>
+                    setQuestActionMenu({
+                      resultId: result.id,
+                      selectedActionIndex,
+                    })
+                  }
+                  onActivateQuestAction={(quest, action) => activateQuestResultAction(quest, action)}
+                  onInlineNavigate={onClose}
+                  onOpenRecentMessage={(bundle, messageId) => {
+                    onOpenMessage(bundle.sessionId, messageId, bundle.ownerThreadKey);
+                    onClose();
+                  }}
+                />
+              </Fragment>
             ))}
             {hasMore && (
               <button
@@ -1239,6 +1257,11 @@ function FilterChip({
       {label}
     </button>
   );
+}
+
+/** A heading between the threads and the open tab's own results. */
+function SearchSectionLabel({ children }: { children: ReactNode }) {
+  return <div className="px-4 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-cc-muted">{children}</div>;
 }
 
 function SearchSkeleton() {

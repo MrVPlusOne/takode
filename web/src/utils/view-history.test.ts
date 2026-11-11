@@ -54,6 +54,23 @@ describe("view history", () => {
     warn.mockRestore();
   });
 
+  // A thread viewed only in the side column is listed too (Jiayi, Nov 10: one read there and
+  // closed left no trace to find it by), marked as a side view so the main view's tab stays the
+  // current one. Viewing the main view's own tab in the side column changes nothing, and the main
+  // view opening a tab seen in the side column makes it an ordinary entry.
+  it("lists side-column views without displacing the main view's tab", () => {
+    recordViewedTab("leader", "q-1", 1);
+    recordViewedTab("other-leader", "q-9", 2, { side: true });
+    recordViewedTab("leader", "q-1", 3, { side: true });
+    expect(getViewHistory()).toEqual([
+      { sessionId: "other-leader", threadKey: "q-9", viewedAt: 2, side: true },
+      { sessionId: "leader", threadKey: "q-1", viewedAt: 1 },
+    ]);
+
+    recordViewedTab("other-leader", "q-9", 4);
+    expect(getViewHistory()[0]).toEqual({ sessionId: "other-leader", threadKey: "q-9", viewedAt: 4 });
+  });
+
   // An open Recently viewed list updates while the user keeps navigating.
   it("notifies subscribers on each record", () => {
     const listener = vi.fn();

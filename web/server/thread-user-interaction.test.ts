@@ -60,6 +60,18 @@ describe("threadUserInteractionTimes", () => {
     });
   });
 
+  it("counts viewing a thread, the later of a view and the user's other dealings winning", () => {
+    // Jiayi, Nov 10: a thread only looked at (in the side column, then closed) sat far down the
+    // Threads view under its 2:26 PM request and couldn't be found again a few minutes later.
+    const history = [user("q-1", 100), user("q-2", 900)];
+    const viewed = { "q-1": 500, "q-2": 300, "q-3": 700 };
+    expect(Object.fromEntries(threadUserInteractionTimes(history, [], viewed))).toEqual({
+      "q-1": 500,
+      "q-2": 900,
+      "q-3": 700,
+    });
+  });
+
   it("records the user reading a result only when the user marks it done", () => {
     const session = {
       id: "leader",
