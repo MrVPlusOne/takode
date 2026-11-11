@@ -145,6 +145,7 @@ import {
   beginCodexRollback as beginCodexRollbackController,
   buildPersistedSessionPayload as buildPersistedSessionPayloadController,
   clearActionAttentionIfNoPermissions as clearActionAttentionIfNoPermissionsController,
+  clearAttention as clearAttentionController,
   clearAttentionAndMarkRead as clearAttentionAndMarkReadController,
   deriveBackendState as deriveBackendStateController,
   finalizeCodexRollback as finalizeCodexRollbackController,
@@ -676,8 +677,7 @@ export function getSessionRegistryDeps(host: any) {
       deriveSessionStatusController(targetSession as Session, {
         backendConnected: (concreteSession: unknown) => backendConnectedController(concreteSession as Session),
       }),
-    clearAttentionAndMarkRead: (targetSession: unknown) =>
-      clearAttentionAndMarkReadController(targetSession as Session, notificationDeps),
+    clearAttention: (targetSession: unknown) => clearAttentionController(targetSession as Session, notificationDeps),
     setAttentionReview: (targetSession: unknown) =>
       setAttentionController(targetSession as Session, "review", notificationDeps),
     broadcastLeaderGroupIdle: (targetSession: unknown, payload: Record<string, unknown>) =>

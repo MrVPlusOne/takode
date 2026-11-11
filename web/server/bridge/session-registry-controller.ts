@@ -61,6 +61,7 @@ import type {
 } from "../session-types.js";
 export {
   clearActionAttentionIfNoNotifications,
+  clearAttention,
   clearAttentionAndMarkRead,
   getNotificationStatusSnapshot,
   getUserVisibleSessionNotifications,
@@ -114,7 +115,8 @@ export interface SessionRegistryDeps {
   getSessionNum?: (sessionId: string) => number | undefined;
   getSessionName?: (sessionId: string) => string | undefined;
   deriveSessionStatus?: (session: SessionLike & { isGenerating: boolean }) => string | null;
-  clearAttentionAndMarkRead?: (session: SessionLike & { isGenerating: boolean }) => void;
+  /** Removes the leader-group idle mark when the group is busy again; reads nothing. */
+  clearAttention?: (session: SessionLike & { isGenerating: boolean }) => void;
   setAttentionReview?: (session: SessionLike & { isGenerating: boolean }) => void;
   broadcastLeaderGroupIdle?: (
     session: SessionLike & { isGenerating: boolean },
@@ -1307,7 +1309,7 @@ type LeaderIdleDeps = {
   getSessionNum: NonNullable<SessionRegistryDeps["getSessionNum"]>;
   getSessionName: NonNullable<SessionRegistryDeps["getSessionName"]>;
   deriveSessionStatus: NonNullable<SessionRegistryDeps["deriveSessionStatus"]>;
-  clearAttentionAndMarkRead: NonNullable<SessionRegistryDeps["clearAttentionAndMarkRead"]>;
+  clearAttention: NonNullable<SessionRegistryDeps["clearAttention"]>;
   setAttentionReview: NonNullable<SessionRegistryDeps["setAttentionReview"]>;
   scheduleCompletedNotification: NonNullable<SessionRegistryDeps["scheduleCompletedNotification"]>;
   broadcastLeaderGroupIdle: NonNullable<SessionRegistryDeps["broadcastLeaderGroupIdle"]>;
@@ -1738,8 +1740,10 @@ export function updateLeaderGroupIdleState(
     idleState.notifiedWhileIdle = false;
     if (idleState.leaderUnreadSetByGroupIdle) {
       const leaderSession = state.sessions.get(leaderId);
+      // Only the idle mark goes: marking the session read here would also hide the leader's
+      // unread results from browsers without reading them (Nov 10, q-3149's three results).
       if (leaderSession?.attentionReason === "review" && leaderSession.manualUnread !== true) {
-        deps.clearAttentionAndMarkRead(leaderSession);
+        deps.clearAttention(leaderSession);
       }
       idleState.leaderUnreadSetByGroupIdle = false;
     }

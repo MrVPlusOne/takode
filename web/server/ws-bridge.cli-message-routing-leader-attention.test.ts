@@ -44,6 +44,7 @@ import {
   markNotificationDone as markNotificationDoneController,
   setSessionClaimedQuest as setSessionClaimedQuestController,
 } from "./bridge/session-registry-controller.js";
+import { getUserVisibleSessionNotifications } from "./bridge/session-notification-controller.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -858,6 +859,60 @@ describe("CLI message routing", () => {
     bridge.injectUserMessage(workerId, "Continue with validation");
     expect(bridge.getSession(leaderId)!.attentionReason).toBeNull();
     expect(bridge.getSession(workerId)!.attentionReason).toBeNull();
+
+    vi.useRealTimers();
+  });
+
+  it("leaves the leader's unread results unread when the group-idle badge clears", () => {
+    // Nov 10: three results in Daily Leader's q-3149 thread stayed unread on the server but
+    // vanished from every browser. The group-idle badge's undo marked the whole session read: it
+    // moved `lastReadAt` past the results, which hides older review notifications from browsers
+    // without marking them done. Undoing the badge must only remove the badge.
+    vi.useFakeTimers();
+    const leaderId = "orch-1b";
+    const workerId = "worker-1b";
+    const launcherSessions = new Map<string, any>([
+      [leaderId, { sessionId: leaderId, isOrchestrator: true, backendType: "claude", cwd: "/test" }],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
+    ]);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn((id: string) => launcherSessions.get(id)),
+      getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
+      getSessionNum: vi.fn((id: string) => (id === leaderId ? 18 : undefined)),
+    } as any);
+
+    const leaderCli = makeCliSocket(leaderId);
+    const workerCli = makeCliSocket(workerId);
+    leaderCli.attach(bridge);
+    workerCli.attach(bridge);
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-1b" }));
+    workerCli.message(makeInitMsg({ session_id: "cli-worker-1b" }));
+
+    // An unread result in a quest thread, with no attention mark (the user had opened the leader,
+    // which clears the mark but keeps thread results unread until they are seen).
+    const leader = bridge.getSession(leaderId)!;
+    leader.notifications.push({
+      id: "n-1",
+      category: "review",
+      summary: "q-1 ready for review",
+      timestamp: Date.now() - 1_000,
+      messageId: null,
+      threadKey: "q-1",
+      questId: "q-1",
+      unreadReason: "quest-complete",
+      done: false,
+    });
+    const lastReadAt = leader.lastReadAt;
+
+    vi.advanceTimersByTime(10_500);
+    expect(leader.attentionReason).toBe("review");
+    bridge.injectUserMessage(workerId, "Continue with validation");
+
+    expect(leader.attentionReason).toBeNull();
+    expect(leader.lastReadAt).toBe(lastReadAt);
+    expect(getUserVisibleSessionNotifications(leader).map((notification) => notification.id)).toEqual(["n-1"]);
 
     vi.useRealTimers();
   });

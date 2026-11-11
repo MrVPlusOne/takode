@@ -732,7 +732,7 @@ describe("session notification status metadata", () => {
       notifiedWhileIdle: true,
       leaderUnreadSetByGroupIdle: true,
     };
-    const clearAttentionAndMarkRead = vi.fn();
+    const clearAttention = vi.fn();
 
     updateLeaderGroupIdleState(
       {
@@ -750,7 +750,7 @@ describe("session notification status metadata", () => {
         getSessionNum: () => 1,
         getSessionName: () => "Leader",
         deriveSessionStatus: (session) => (session.isGenerating ? "running" : "idle"),
-        clearAttentionAndMarkRead,
+        clearAttention,
         setAttentionReview: vi.fn(),
         scheduleCompletedNotification: vi.fn(),
         broadcastLeaderGroupIdle: vi.fn(),
@@ -759,7 +759,7 @@ describe("session notification status metadata", () => {
       },
     );
 
-    expect(clearAttentionAndMarkRead).not.toHaveBeenCalled();
+    expect(clearAttention).not.toHaveBeenCalled();
     expect(leader).toMatchObject({ attentionReason: "review", manualUnread: true });
     expect(idleState.leaderUnreadSetByGroupIdle).toBe(false);
   });

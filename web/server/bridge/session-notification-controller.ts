@@ -192,6 +192,17 @@ export function announceAttentionAlert(
   });
 }
 
+/**
+ * Removes the session's attention mark without reading anything: for a mark that only asks the user
+ * to come look, such as the leader-group idle mark, which goes once the group is busy again. Unlike
+ * `clearAttentionAndMarkRead`, it leaves `lastReadAt` alone, so unread results stay unread and shown.
+ */
+export function clearAttention(session: SessionLike, deps: Pick<PersistNotificationDeps, "persistSession">): void {
+  if (session.attentionReason === null) return;
+  session.attentionReason = null;
+  deps.persistSession(session);
+}
+
 export function clearAttentionAndMarkRead(
   session: SessionLike,
   deps: PersistNotificationDeps,
