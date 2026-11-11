@@ -92,6 +92,28 @@ describe("user-message-classification", () => {
     expect(getLastActualHumanUserMessageTimestamp(history)).toBe(400);
   });
 
+  it("counts a grown history from where it stopped and recounts one that shrank or was replaced", () => {
+    // The session list and every turn end ask for the counts of large histories, so a history that
+    // only grew is counted from its last count. Each result must still equal a full recount.
+    const fresh = (messages: BrowserIncomingMessage[]) => computeSessionTurnMetrics([...messages]);
+    const history: BrowserIncomingMessage[] = [user("First", 100), assistant("a1")];
+    expect(computeSessionTurnMetrics(history)).toEqual({ userTurnCount: 1, agentTurnCount: 0 });
+
+    // A message about to be added counts once and is not remembered as counted.
+    expect(computeSessionTurnMetrics(history, result("r1", 1))).toEqual({ userTurnCount: 1, agentTurnCount: 1 });
+    history.push(result("r1", 1), user("Second", 200), assistant("a2"));
+    expect(computeSessionTurnMetrics(history)).toEqual(fresh(history));
+
+    // The last counted message replaced in place: count again from the start.
+    history[history.length - 1] = user("Third", 300);
+    expect(computeSessionTurnMetrics(history)).toEqual({ userTurnCount: 3, agentTurnCount: 1 });
+
+    // Shrunk below the counted length: count again from the start.
+    history.splice(2);
+    expect(computeSessionTurnMetrics(history)).toEqual({ userTurnCount: 1, agentTurnCount: 0 });
+    expect(computeSessionTurnMetrics(history)).toEqual(fresh(history));
+  });
+
   it("includes pending direct-human input while excluding agent-sourced input", () => {
     expect(
       getLastActualHumanInputTimestamp(

@@ -1014,7 +1014,7 @@ export function handleResultMessage(
     ...(resultTurnRoute?.questId ? { questId: resultTurnRoute.questId } : {}),
     ...(session.state.slackThreadChild?.threadId ? { slackThreadId: session.state.slackThreadChild.threadId } : {}),
   };
-  const turnMetrics = computeSessionTurnMetrics([...session.messageHistory, provisionalResultBrowserMsg]);
+  const turnMetrics = computeSessionTurnMetrics(session.messageHistory, provisionalResultBrowserMsg);
   session.state.total_cost_usd = msg.total_cost_usd;
   session.state.user_turn_count = turnMetrics.userTurnCount;
   session.state.agent_turn_count = turnMetrics.agentTurnCount;

@@ -66,29 +66,52 @@ export interface SessionTurnMetrics {
   agentTurnCount: number;
 }
 
-export function computeSessionTurnMetrics(messages: readonly BrowserIncomingMessage[]): SessionTurnMetrics {
-  let userTurnCount = 0;
-  let agentTurnCount = 0;
-  let sawTopLevelAssistantSinceResult = false;
+interface TurnMetricsScan {
+  userTurnCount: number;
+  agentTurnCount: number;
+  sawTopLevelAssistantSinceResult: boolean;
+}
 
-  for (const message of messages) {
-    if (isActualHumanUserMessage(message)) {
-      userTurnCount++;
-    }
+/** How far a history was counted: its length then and its last message, to see that it only grew since. */
+const turnMetricsScans = new WeakMap<
+  readonly BrowserIncomingMessage[],
+  TurnMetricsScan & { length: number; last: BrowserIncomingMessage | undefined }
+>();
 
-    if (isTopLevelAssistantMessage(message)) {
-      sawTopLevelAssistantSinceResult = true;
-      continue;
-    }
+/**
+ * Turn counts of a history, plus `next` when given (a message about to be added).
+ *
+ * The session list asks for every session's counts on each poll and a result asks on every turn
+ * end, and big sessions hold tens of thousands of messages, so a history that only grew since it
+ * was last counted is counted from where that count stopped. A history that shrank or whose last
+ * counted message was replaced is counted again from the start. Messages are not expected to
+ * change type, sender or text once added.
+ */
+export function computeSessionTurnMetrics(
+  messages: readonly BrowserIncomingMessage[],
+  next?: BrowserIncomingMessage,
+): SessionTurnMetrics {
+  const cached = turnMetricsScans.get(messages);
+  const resumable =
+    cached !== undefined && cached.length <= messages.length && messages[cached.length - 1] === cached.last;
+  const scan: TurnMetricsScan = resumable
+    ? { ...cached }
+    : { userTurnCount: 0, agentTurnCount: 0, sawTopLevelAssistantSinceResult: false };
+  for (let i = resumable ? cached.length : 0; i < messages.length; i++) countTurn(scan, messages[i]!);
+  turnMetricsScans.set(messages, { ...scan, length: messages.length, last: messages.at(-1) });
+  if (next) countTurn(scan, next);
+  return { userTurnCount: scan.userTurnCount, agentTurnCount: scan.agentTurnCount };
+}
 
-    if (message.type !== "result") continue;
-    if (sawTopLevelAssistantSinceResult) {
-      agentTurnCount++;
-    }
-    sawTopLevelAssistantSinceResult = false;
+function countTurn(scan: TurnMetricsScan, message: BrowserIncomingMessage): void {
+  if (isActualHumanUserMessage(message)) scan.userTurnCount++;
+  if (isTopLevelAssistantMessage(message)) {
+    scan.sawTopLevelAssistantSinceResult = true;
+    return;
   }
-
-  return { userTurnCount, agentTurnCount };
+  if (message.type !== "result") return;
+  if (scan.sawTopLevelAssistantSinceResult) scan.agentTurnCount++;
+  scan.sawTopLevelAssistantSinceResult = false;
 }
 
 export function getLastActualHumanUserMessageTimestamp(
