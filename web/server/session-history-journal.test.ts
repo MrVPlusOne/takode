@@ -60,6 +60,40 @@ it("round-trips chunked Unicode, literal marker-like values and property names t
   expect(await readdir(root)).not.toContain("large.history.jsonl");
 });
 
+it("appends a restored session's first save to the file it was read from", async () => {
+  // After a restart the writer used to have no record of the file, so the first save of every
+  // session serialized, hashed and rewrote its whole history into a new file. The rows a restore
+  // reads are now the writer's starting point.
+  const { root, value, store } = await setup();
+  await store.saveImmediate(value);
+  const before = await head(root);
+  const restarted = new SessionStore(root);
+  const restored = (await restarted.load(value.id))!;
+  restored.messageHistory.push({ type: "result", data: { subtype: "success" } } as never);
+  await restarted.saveImmediate(restored);
+  const after = await head(root);
+  expect(after.generation).toBe(before.generation);
+  expect(after.bytes - before.bytes).toBeLessThan(1000);
+  expect((await new SessionStore(root).load(value.id))?.messageHistory).toEqual(restored.messageHistory);
+});
+
+it("reads a history whose file holds a commit per save in time linear in its rows", async () => {
+  // Each commit used to walk every row read so far, so a long-running session's file (a commit per
+  // save) took commits times rows to read: tens of seconds at 200k rows, minutes beyond.
+  const { root, value, store } = await setup();
+  await store.saveImmediate(value);
+  for (let i = 0; i < 300; i++) {
+    value.messageHistory.push({ type: "user_message", content: `message ${i}`, timestamp: i + 2 });
+    await store.saveImmediate(value);
+  }
+  const committed = await head(root);
+  const file = await readFile(historyPath(root, value.id, committed.generation), "utf8");
+  expect(file.split("\n").filter((line) => line.startsWith('["commit"')).length).toBeGreaterThan(100);
+  const keys = vi.spyOn(Map.prototype, "keys");
+  expect((await readSessionHistory(root, value.id, committed)).messages).toEqual(value.messageHistory);
+  expect(keys).not.toHaveBeenCalled();
+});
+
 it("captures nested state at admission and holds reads behind the complete ownership save", async () => {
   const { root, value, store } = await setup();
   const held = gate(),

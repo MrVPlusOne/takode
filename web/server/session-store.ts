@@ -1335,7 +1335,9 @@ export class SessionStore {
 
     if (Object.hasOwn(hot, "_historyRef")) {
       if (!hot._historyRef) throw new SessionHistoryError(`Invalid committed history reference for ${sessionId}`);
-      const history = await readSessionHistory(this.dir, sessionId, hot._historyRef);
+      const history = await readSessionHistory(this.dir, sessionId, hot._historyRef, {
+        onCommittedRows: (rows) => this.historyJournal.adoptCommittedRows(sessionId, rows),
+      });
       this.historyReferences.set(sessionId, hot._historyRef);
       this.frozenCounts.set(sessionId, hot._historyRef.frozenCount);
       this.frozenToolResultCounts.set(sessionId, hot._historyRef.frozenToolCount);

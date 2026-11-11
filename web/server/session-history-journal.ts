@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { join } from "node:path";
@@ -41,12 +40,14 @@ interface StringRange extends Range {
 interface RowRange extends Range {
   digest: string;
 }
-/** What this process wrote last to a session's version 2 file. */
+/** What this process wrote last to a session's version 2 file, or read from it before writing. */
 interface JournalCache {
   head: HistoryReference;
   messages: RowRange[];
   tools: RowRange[];
 }
+/** The committed rows of a history file, as a read found them. */
+export type CommittedRows = JournalCache;
 export type RowSpan = [start: number, end: number];
 /** Leading rows the caller has not changed since its last save; they are live objects, not captured copies. */
 export interface UnchangedHistoryPrefix {
@@ -109,42 +110,68 @@ export function validateHistoryReference(value: HistoryReference): void {
   }
 }
 
+interface HistoryFrame {
+  value: unknown[];
+  start: number;
+  end: number;
+  bytes: Buffer;
+}
+
+/** Bytes read from a history file at a time. */
+const HISTORY_READ_BYTES = 1024 * 1024;
+
 /** Scan bounded frames in an exact byte range; partial lines never count as committed data. */
-export async function* historyFrames(
-  path: string,
-  range: Range,
-): AsyncGenerator<{ value: unknown[]; start: number; end: number; bytes: Buffer }> {
-  const input = createReadStream(path, { start: range.start, end: range.end - 1, highWaterMark: 64 * 1024 });
-  let pending = Buffer.alloc(0);
+export async function* historyFrames(path: string, range: Range): AsyncGenerator<HistoryFrame> {
+  for await (const batch of historyFrameBatches(path, range)) yield* batch;
+}
+
+/**
+ * The frames of an exact byte range, a read's worth at a time. Startup reads every active session's
+ * whole history, so reads are large and their frames are handed over together: going through an async
+ * generator per frame, and joining every small stream chunk onto the unfinished line, took about as
+ * long as parsing the history itself. Yields to the event loop between reads every ~20 ms.
+ */
+async function* historyFrameBatches(path: string, range: Range): AsyncGenerator<HistoryFrame[]> {
+  const file = await open(path, "r");
+  let carry = Buffer.alloc(0);
   let offset = range.start;
+  let position = range.start;
   let sliceStart = performance.now();
   try {
-    for await (const chunk of input) {
-      // Buffered stream chunks resolve as microtasks, so a long scan would otherwise hold the event loop.
+    while (position < range.end) {
+      const want = Math.min(HISTORY_READ_BYTES, range.end - position);
+      const data = Buffer.allocUnsafe(carry.length + want);
+      carry.copy(data, 0);
+      const { bytesRead } = await file.read(data, carry.length, want, position);
+      if (bytesRead === 0) break;
+      position += bytesRead;
+      const filled = data.subarray(0, carry.length + bytesRead);
+      const frames: HistoryFrame[] = [];
+      let start = 0;
+      for (;;) {
+        const newline = filled.indexOf(10, start);
+        if (newline < 0) break;
+        if (newline - start > HISTORY_FRAME_BYTES) throw new SessionHistoryError("Oversized history frame");
+        const bytes = filled.subarray(start, newline);
+        const value: unknown = JSON.parse(bytes.toString("utf8"));
+        if (!Array.isArray(value)) throw new SessionHistoryError("Invalid history frame");
+        const end = offset + newline + 1 - start;
+        frames.push({ value, start: offset, end, bytes });
+        offset = end;
+        start = newline + 1;
+      }
+      // The unfinished line is copied, so a batch's frames don't keep the whole read alive.
+      carry = Buffer.from(filled.subarray(start));
+      if (carry.length > HISTORY_FRAME_BYTES) throw new SessionHistoryError("Oversized history frame");
+      if (frames.length) yield frames;
       if (performance.now() - sliceStart > HISTORY_SCAN_SLICE_MS) {
         await new Promise((resolve) => setImmediate(resolve));
         sliceStart = performance.now();
       }
-      pending = Buffer.concat([pending, chunk as Buffer]);
-      let start = 0;
-      for (;;) {
-        const newline = pending.indexOf(10, start);
-        if (newline < 0) break;
-        if (newline - start > HISTORY_FRAME_BYTES) throw new SessionHistoryError("Oversized history frame");
-        const bytes = pending.subarray(start, newline);
-        const value: unknown = JSON.parse(bytes.toString("utf8"));
-        if (!Array.isArray(value)) throw new SessionHistoryError("Invalid history frame");
-        const end = offset + newline + 1 - start;
-        yield { value, start: offset, end, bytes };
-        offset = end;
-        start = newline + 1;
-      }
-      pending = pending.subarray(start);
-      if (pending.length > HISTORY_FRAME_BYTES) throw new SessionHistoryError("Oversized history frame");
     }
-    if (pending.length || offset !== range.end) throw new SessionHistoryError("Incomplete committed history extent");
+    if (carry.length || offset !== range.end) throw new SessionHistoryError("Incomplete committed history extent");
   } finally {
-    input.destroy();
+    await file.close();
   }
 }
 
@@ -169,87 +196,97 @@ async function indexJournal(
   let body: { kind: "value"; row: DecodedRow } | { kind: "text"; pieces: string[] } | undefined;
   let last: unknown[] = [];
   let first = true;
-  for await (const frame of historyFrames(path, { start: 0, end: head.bytes })) {
-    const v = frame.value;
-    if (first) {
-      first = false;
-      if (JSON.stringify(v) !== JSON.stringify(["history", head.version, sessionId, head.generation]))
-        throw new SessionHistoryError("History identity mismatch");
-    } else if (string) {
-      if (v[0] === "part" && v.length === 2 && typeof v[1] === "string" && v[1].length <= HISTORY_STRING_CHARS) {
-        stringChars += v[1].length;
-        if (decoded) parts.push(v[1]);
-      } else if (v[0] === "endString" && v.length === 1 && stringChars === string.length) {
-        string.end = frame.end;
-        index.strings.set(string.id, string);
-        decoded?.strings.set(string.id, parts.join(""));
-        string = undefined;
-      } else throw new SessionHistoryError("Invalid chunked history string");
-    } else if (row) {
-      if (v[0] === "endRow" && v.length === 1) {
-        row.range.end = frame.end;
-        (row.kind === "message" ? index.messages : index.tools).set(row.index, row.range);
-        if (decoded) {
-          const values = row.kind === "message" ? decoded.messages : decoded.tools;
-          values.set(
-            row.index,
-            head.version === 1 ? decodeRow(tokens, row.range.digest, decoded) : decodeBody(body, row.range.digest),
-          );
+  /** The highest row index set since the last commit dropped the rows past its count. */
+  const highest = { messages: -1, tools: -1 };
+  for await (const batch of historyFrameBatches(path, { start: 0, end: head.bytes }))
+    for (const frame of batch) {
+      const v = frame.value;
+      if (first) {
+        first = false;
+        if (JSON.stringify(v) !== JSON.stringify(["history", head.version, sessionId, head.generation]))
+          throw new SessionHistoryError("History identity mismatch");
+      } else if (string) {
+        if (v[0] === "part" && v.length === 2 && typeof v[1] === "string" && v[1].length <= HISTORY_STRING_CHARS) {
+          stringChars += v[1].length;
+          if (decoded) parts.push(v[1]);
+        } else if (v[0] === "endString" && v.length === 1 && stringChars === string.length) {
+          string.end = frame.end;
+          index.strings.set(string.id, string);
+          decoded?.strings.set(string.id, parts.join(""));
+          string = undefined;
+        } else throw new SessionHistoryError("Invalid chunked history string");
+      } else if (row) {
+        if (v[0] === "endRow" && v.length === 1) {
+          row.range.end = frame.end;
+          (row.kind === "message" ? index.messages : index.tools).set(row.index, row.range);
+          const kind = row.kind === "message" ? "messages" : "tools";
+          highest[kind] = Math.max(highest[kind], row.index);
+          if (decoded) {
+            const values = row.kind === "message" ? decoded.messages : decoded.tools;
+            values.set(
+              row.index,
+              head.version === 1 ? decodeRow(tokens, row.range.digest, decoded) : decodeBody(body, row.range.digest),
+            );
+          }
+          row = undefined;
+        } else if (head.version === 2) {
+          if (v[0] === "value" && v.length === 2 && !body) {
+            body = {
+              kind: "value",
+              row: decoded ? valueRow(v[1] as JsonValue, frame.bytes, row.range.digest) : INVALID,
+            };
+          } else if (
+            v[0] === "text" &&
+            v.length === 2 &&
+            typeof v[1] === "string" &&
+            v[1].length <= HISTORY_STRING_CHARS &&
+            body?.kind !== "value"
+          ) {
+            body ??= { kind: "text", pieces: [] };
+            if (decoded) body.pieces.push(v[1]);
+          } else throw new SessionHistoryError("Invalid history row record");
+        } else if (!["null", "bool", "number", "ref", "array", "object"].includes(v[0] as string))
+          throw new SessionHistoryError("Invalid history value token");
+        else if (decoded) tokens.push(v);
+      } else if (
+        head.version === 1 &&
+        v[0] === "string" &&
+        v.length === 3 &&
+        integer(v[1]) &&
+        integer(v[2]) &&
+        !index.strings.has(v[1])
+      ) {
+        string = { id: v[1], length: v[2], start: frame.start, end: 0 };
+        stringChars = 0;
+        parts = [];
+      } else if (
+        (v[0] === "message" || v[0] === "tool") &&
+        v.length === 3 &&
+        integer(v[1]) &&
+        typeof v[2] === "string" &&
+        /^[a-f0-9]{64}$/.test(v[2])
+      ) {
+        row = { kind: v[0], index: v[1], range: { start: frame.start, end: 0, digest: v[2] } };
+        tokens = [];
+        body = undefined;
+      } else if (v[0] === "commit" && v.length === 6 && v.slice(1).every(integer)) {
+        for (const [kind, rows, values, count] of [
+          ["messages", index.messages, decoded?.messages, v[2]],
+          ["tools", index.tools, decoded?.tools, v[3]],
+        ] as const) {
+          if ((count as number) > rows.size) throw new SessionHistoryError("Missing committed history rows");
+          // Only rows past the commit's count are dropped. Walking every row on each commit made a read
+          // grow with commits times rows, and a long-running session's file holds a commit per save.
+          for (let key = count as number; key <= highest[kind]; key++) {
+            rows.delete(key);
+            values?.delete(key);
+          }
+          highest[kind] = Math.min(highest[kind], (count as number) - 1);
+          if (rows.size !== count) throw new SessionHistoryError("Noncontiguous committed history rows");
         }
-        row = undefined;
-      } else if (head.version === 2) {
-        if (v[0] === "value" && v.length === 2 && !body) {
-          body = { kind: "value", row: decoded ? valueRow(v[1] as JsonValue, frame.bytes, row.range.digest) : INVALID };
-        } else if (
-          v[0] === "text" &&
-          v.length === 2 &&
-          typeof v[1] === "string" &&
-          v[1].length <= HISTORY_STRING_CHARS &&
-          body?.kind !== "value"
-        ) {
-          body ??= { kind: "text", pieces: [] };
-          if (decoded) body.pieces.push(v[1]);
-        } else throw new SessionHistoryError("Invalid history row record");
-      } else if (!["null", "bool", "number", "ref", "array", "object"].includes(v[0] as string))
-        throw new SessionHistoryError("Invalid history value token");
-      else if (decoded) tokens.push(v);
-    } else if (
-      head.version === 1 &&
-      v[0] === "string" &&
-      v.length === 3 &&
-      integer(v[1]) &&
-      integer(v[2]) &&
-      !index.strings.has(v[1])
-    ) {
-      string = { id: v[1], length: v[2], start: frame.start, end: 0 };
-      stringChars = 0;
-      parts = [];
-    } else if (
-      (v[0] === "message" || v[0] === "tool") &&
-      v.length === 3 &&
-      integer(v[1]) &&
-      typeof v[2] === "string" &&
-      /^[a-f0-9]{64}$/.test(v[2])
-    ) {
-      row = { kind: v[0], index: v[1], range: { start: frame.start, end: 0, digest: v[2] } };
-      tokens = [];
-      body = undefined;
-    } else if (v[0] === "commit" && v.length === 6 && v.slice(1).every(integer)) {
-      for (const [rows, values, count] of [
-        [index.messages, decoded?.messages, v[2]],
-        [index.tools, decoded?.tools, v[3]],
-      ] as const) {
-        if ((count as number) > rows.size) throw new SessionHistoryError("Missing committed history rows");
-        for (const key of rows.keys()) {
-          if (key < (count as number)) continue;
-          rows.delete(key);
-          values?.delete(key);
-        }
-        if (rows.size !== count) throw new SessionHistoryError("Noncontiguous committed history rows");
-      }
-    } else throw new SessionHistoryError("Unknown history record");
-    last = v;
-  }
+      } else throw new SessionHistoryError("Unknown history record");
+      last = v;
+    }
   if (string || row || JSON.stringify(last) !== JSON.stringify(historyCommitFrame(head)))
     throw new SessionHistoryError("Committed history terminal record mismatch");
   return index;
@@ -354,11 +391,20 @@ export async function readSessionHistory(
   dir: string,
   sessionId: string,
   head: HistoryReference,
+  options: {
+    /** Receives the committed rows' positions and digests, so a writer can append to the file it read. */
+    onCommittedRows?: (rows: CommittedRows) => void;
+  } = {},
 ): Promise<{ messages: JsonValue[]; tools: JsonValue[] }> {
   try {
     const path = historyPath(dir, sessionId, head.generation);
     const decoded: DecodedJournal = { strings: new Map(), messages: new Map(), tools: new Map() };
     const index = await indexJournal(path, sessionId, head, decoded);
+    options.onCommittedRows?.({
+      head,
+      messages: Array.from({ length: head.messageCount }, (_, i) => index.messages.get(i)!),
+      tools: Array.from({ length: head.toolCount }, (_, i) => index.tools.get(i)!),
+    });
     const rows = (ranges: Map<number, RowRange>, values: Map<number, DecodedRow>, count: number): JsonValue[] =>
       Array.from({ length: count }, (_, i) => {
         const row = values.get(i)!;
@@ -425,6 +471,16 @@ export class SessionHistoryJournal {
 
   release(sessionId: string): void {
     this.caches.delete(sessionId);
+  }
+
+  /**
+   * Takes the committed rows of a version 2 file a read just verified, unless this process already
+   * writes the session. The first save after a restart then appends to that file instead of
+   * serializing, hashing and rewriting every row of the history into a new one.
+   */
+  adoptCommittedRows(sessionId: string, rows: CommittedRows): void {
+    if (rows.head.version !== 2 || this.caches.has(sessionId)) return;
+    this.caches.set(sessionId, rows);
   }
 
   /**
