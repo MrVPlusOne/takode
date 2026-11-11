@@ -4,7 +4,7 @@ import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { DiffStatsSummary, DiffTotalStats } from "./DiffStatsSummary.js";
-import { YarnBallSpinner } from "./CatIcons.js";
+import { Spinner } from "./LoadingIndicators.js";
 import { orderDiffFilesCodeFirst, summarizeDiffFileStats } from "../../shared/diff-file-groups.js";
 import { setLocalStorageItem } from "../utils/scoped-storage.js";
 
@@ -119,7 +119,7 @@ function DiffPlaceholder({
           </span>
         )}
         {statusLabel && <span className="text-[10px] text-cc-muted">{statusLabel.trim()}</span>}
-        {loading && <YarnBallSpinner className="w-3 h-3 text-cc-primary ml-auto" />}
+        {loading && <Spinner className="w-3 h-3 text-cc-primary ml-auto" />}
       </div>
     </div>
   );
@@ -865,7 +865,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       <div className="flex-1 overflow-auto" ref={scrollContainerRef}>
         {allDiffsLoading && visibleChangedFiles.length > 0 && allDiffs.size === 0 ? (
           <div className="h-full flex items-center justify-center">
-            <YarnBallSpinner className="w-5 h-5 text-cc-primary" />
+            <Spinner className="w-5 h-5 text-cc-primary" />
           </div>
         ) : visibleChangedFiles.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-1 select-none px-6">

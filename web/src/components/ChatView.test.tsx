@@ -302,10 +302,6 @@ vi.mock("./WorkBoardBar.js", () => ({
   },
 }));
 
-vi.mock("./CatIcons.js", () => ({
-  YarnBallDot: () => <span data-testid="yarnball-dot" />,
-}));
-
 vi.mock("./QuestInlineLink.js", () => ({
   QuestInlineLink: ({
     questId,

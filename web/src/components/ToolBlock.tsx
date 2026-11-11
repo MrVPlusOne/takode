@@ -41,6 +41,7 @@ import { parseTakodeBoardCommand, parseTakodeNotifyCommand } from "../utils/tako
 export { parseTakodeBoardCommand, parseTakodeNotifyCommand } from "../utils/takode-tool-command.js";
 import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
 import { buildChangePatchGroups } from "../utils/diff-change-groups.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 /**
  * Lightweight error boundary that wraps the expanded content inside each ToolBlock.
@@ -1564,18 +1565,7 @@ function TodoWriteDetail({ input }: { input: Record<string, unknown> }) {
                   />
                 </svg>
               ) : status === "in_progress" ? (
-                <svg className="w-3.5 h-3.5 text-cc-primary animate-spin" viewBox="0 0 16 16" fill="none">
-                  <circle
-                    cx="8"
-                    cy="8"
-                    r="6"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeDasharray="28"
-                    strokeDashoffset="8"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                <Spinner className="w-3.5 h-3.5 text-cc-primary" />
               ) : (
                 <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cc-muted">
                   <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />

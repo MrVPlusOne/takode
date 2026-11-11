@@ -33,7 +33,7 @@ import {
 import { TaskOutlineBar } from "./TaskOutlineBar.js";
 import { TodoStatusLine } from "./TodoStatusLine.js";
 import { WorkBoardBar, type WorkBoardThreadNavigationRow } from "./WorkBoardBar.js";
-import { YarnBallDot } from "./CatIcons.js";
+import { ActivityDot, Spinner } from "./LoadingIndicators.js";
 import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
 import {
@@ -184,16 +184,7 @@ function LiveConnectionStatusBanner({
     >
       <div className="mx-auto flex max-w-3xl items-center justify-center gap-2 text-center sm:gap-3">
         {status === "starting" ? (
-          <svg
-            className="h-3 w-3 shrink-0 animate-spin text-cc-text-secondary"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
+          <Spinner className="h-3 w-3 text-cc-text-secondary" />
         ) : (
           <span
             className={`h-2 w-2 shrink-0 rounded-full ${isWarning ? "bg-cc-warning animate-pulse" : "bg-cc-muted"}`}
@@ -233,7 +224,7 @@ function CompactingIndicator({ sessionId }: { sessionId: string }) {
   if (sessionStatus !== "compacting") return null;
   return (
     <div className="shrink-0 flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code px-4 py-1">
-      <YarnBallDot className="text-cc-primary animate-pulse" />
+      <ActivityDot className="text-cc-primary" active />
       <span>Compacting conversation...</span>
     </div>
   );

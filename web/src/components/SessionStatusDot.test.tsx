@@ -10,7 +10,7 @@ import { deriveSessionStatus, SessionStatusDot, type SessionStatusDotProps } fro
  * The status priority (highest to lowest) is:
  *   1. archived       -> gray dot, no glow
  *   2. permission      -> amber dot, breathing glow
- *   3. disconnected    -> plug icon, no glow
+ *   3. disconnected    -> hollow ring, no glow
  *   4. running         -> green dot, breathing glow
  *   5. compacting      -> green dot, breathing glow
  *   6. completed_unread -> blue dot, no glow
@@ -341,11 +341,15 @@ describe("SessionStatusDot component", () => {
     expect(screen.getByTitle("1 scheduled timer")).toBeInTheDocument();
   });
 
-  it("preserves the unplug icon for disconnected state", () => {
+  it("renders a hollow gray ring, without glow, for disconnected state", () => {
+    // A disconnected session keeps the dot's size and place but shows only its outline,
+    // so it reads as "off" next to the filled idle and running dots.
     render(<SessionStatusDot {...makeProps({ isConnected: false, sdkState: "exited" })} />);
     const dot = screen.getByTestId("session-status-dot");
-    const plugSvg = dot.querySelector("svg")!;
-    expect(plugSvg.className.baseVal).toContain("text-cc-muted/60");
+    expect(dot.querySelector("svg")).toBeNull();
+    const ring = dot.querySelector("span")!;
+    expect(ring).toHaveClass("rounded-full", "border-[1.5px]", "border-cc-muted/60");
+    expect(ring).not.toHaveClass("cc-glow-breathe");
   });
 
   it("renders a simple green rounded dot for running state", () => {
@@ -396,13 +400,6 @@ describe("SessionStatusDot component", () => {
     expect(dot.querySelector("svg")).toBeNull();
     const statusDot = dot.querySelector("span")!;
     expect(statusDot).toHaveClass("rounded-full", "bg-cc-muted/50");
-  });
-
-  it("does not render a rounded dot for disconnected status", () => {
-    render(<SessionStatusDot {...makeProps({ isConnected: false, sdkState: "exited" })} />);
-    const dot = screen.getByTestId("session-status-dot");
-    expect(dot.querySelector("svg")).toBeInTheDocument();
-    expect(dot.querySelector("span")).toBeNull();
   });
 
   it("shows idle-killed sessions as idle (gray) with 'Idle' title", () => {

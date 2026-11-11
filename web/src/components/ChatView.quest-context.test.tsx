@@ -141,7 +141,6 @@ vi.mock("./TaskOutlineBar.js", () => ({
 }));
 vi.mock("./TodoStatusLine.js", () => ({ TodoStatusLine: () => null }));
 vi.mock("./WorkBoardBar.js", () => ({ WorkBoardBar: () => <div data-testid="work-board-bar" /> }));
-vi.mock("./CatIcons.js", () => ({ YarnBallDot: () => null }));
 vi.mock("./QuestInlineLink.js", () => ({
   QuestInlineLink: ({
     questId,

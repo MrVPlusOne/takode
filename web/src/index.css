@@ -306,6 +306,40 @@ html, body {
   animation: spin-slow 3s steps(36) infinite;
 }
 
+/*
+ * Activity dot (LoadingIndicators.tsx): a small solid dot whose glow breathes three times when it
+ * appears and then holds, like the status glow below. The glow is drawn once on a pseudo-element and
+ * only its opacity animates, so Chrome runs it on the compositor.
+ */
+.cc-activity-dot {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin: 0 3px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+.cc-activity-dot.is-active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  box-shadow: 0 0 6px 1px currentColor;
+  opacity: 0.6;
+  animation: cc-activity-breathe 2s ease-in-out 3;
+}
+@keyframes cc-activity-breathe {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-activity-dot.is-active::after {
+    animation: none;
+  }
+}
+
 @media (hover: none) and (pointer: coarse) {
   .mobile-scroll-stable-surface .animate-\[fadeSlideIn_0\.2s_ease-out\] {
     animation: none !important;
@@ -666,16 +700,6 @@ html, body {
   .attention-paw-stamp {
     animation: none;
   }
-}
-
-/* Yarn ball rolling — rocks ±10° with synchronized horizontal translation
-   to simulate a ball rolling back and forth on a surface. */
-@keyframes yarn-ball-roll {
-  0%, 100% { transform: translateX(0.6px)  rotate(10deg); }
-  50%      { transform: translateX(-0.6px) rotate(-10deg); }
-}
-.yarn-ball-roll {
-  animation: yarn-ball-roll 2s ease-in-out infinite;
 }
 
 /* Dark mode overrides */

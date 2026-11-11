@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { ActiveTurnRoute, SdkSessionInfo, SessionState } from "../types.js";
-import { YarnBallDot } from "./CatIcons.js";
+import { ActivityDot } from "./LoadingIndicators.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { useSecondaryFeed } from "./secondary-feed.js";
 import { WaitingChip } from "./WaitingChip.js";
@@ -149,18 +149,15 @@ export function ElapsedTimer({
     : streamRetry
       ? "Codex reported a retryable error and is retrying this response. Its attempt count is unavailable."
       : undefined;
-  const dotColor = isStuck
-    ? "text-cc-attention"
-    : streamingPauseStartedAt || networkWait
-      ? "text-cc-attention"
-      : "text-cc-primary animate-pulse";
+  const dotHeld = isStuck || !!streamingPauseStartedAt || !!networkWait;
+  const dotColor = dotHeld ? "text-cc-attention" : "text-cc-primary";
   const canNavigateActiveTurn =
     variant === "floating" && !!onSelectThread && !!activeTurnNavigationTarget && !isStuck && !streamingPauseStartedAt;
   const floatingChipContents = (
     <>
       <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
       <span className="relative flex min-w-0 items-center gap-1.5">
-        <YarnBallDot className={dotColor} />
+        <ActivityDot className={dotColor} active={!dotHeld} />
         <span className="truncate text-cc-fg/90" title={retryDetail}>
           {label}
         </span>
@@ -216,7 +213,7 @@ export function ElapsedTimer({
       ref={rootRef}
       className="shrink-0 flex items-center gap-1.5 border-t border-cc-border bg-cc-card px-3 sm:px-4 py-1.5 text-[11px] text-cc-muted font-mono-code"
     >
-      <YarnBallDot className={dotColor} />
+      <ActivityDot className={dotColor} active={!dotHeld} />
       <span title={retryDetail}>{label}</span>
       <span className="text-cc-muted/60">(</span>
       <span>{formatElapsed(elapsed)}</span>

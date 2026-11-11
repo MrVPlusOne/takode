@@ -4,7 +4,7 @@
  * Status priority (highest to lowest):
  *   1. archived          -> gray dot, no glow
  *   2. permission         -> amber dot, breathing glow (needs user action)
- *   3. disconnected       -> gray power plug, no glow
+ *   3. disconnected       -> hollow gray ring, no glow
  *   4. running            -> green dot, breathing glow (agent actively working)
  *   5. compacting         -> green dot, breathing glow (context compaction)
  *   6. completed_unread   -> blue dot, no glow (agent finished, user hasn't checked)
@@ -14,7 +14,6 @@
  */
 
 import { describeSessionWaits, primarySessionWaitKind, type SessionWait } from "../../shared/session-waits.js";
-import { PowerPlugDot } from "./CatIcons.js";
 import { WaitKindIcon } from "./WaitKindIcon.js";
 import {
   deriveSessionStatus,
@@ -32,7 +31,7 @@ export interface SessionStatusDotProps extends SessionVisualStatusInput {
 const DOT_CLASS: Record<SessionVisualStatus, string> = {
   archived: "bg-cc-muted/45",
   permission: "bg-amber-400",
-  disconnected: "bg-cc-muted/60",
+  disconnected: "border-[1.5px] border-cc-muted/60",
   running: "bg-emerald-500",
   compacting: "bg-emerald-500",
   completed_unread: "bg-blue-500",
@@ -155,8 +154,6 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
 
   const glowStyle: React.CSSProperties | undefined = showGlow ? { ["--glow-color" as string]: glowColor } : undefined;
 
-  const isDisconnected = visualStatus === "disconnected";
-
   return (
     <div
       className={`relative inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center ${className ?? "mt-[7px]"}`}
@@ -165,16 +162,12 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
       data-testid="session-status-dot"
       data-status={visualStatus}
     >
-      {isDisconnected ? (
-        <PowerPlugDot className="block h-2.5 w-2.5 text-cc-muted/60" />
-      ) : (
-        <span
-          // Keyed by status so a new glowing state (running, then a permission prompt) breathes again.
-          key={visualStatus}
-          className={`relative block h-2 w-2 rounded-full ${DOT_CLASS[visualStatus]} ${showGlow ? "cc-glow-breathe" : ""}`}
-          style={glowStyle}
-        />
-      )}
+      <span
+        // Keyed by status so a new glowing state (running, then a permission prompt) breathes again.
+        key={visualStatus}
+        className={`relative block h-2 w-2 rounded-full ${DOT_CLASS[visualStatus]} ${showGlow ? "cc-glow-breathe" : ""}`}
+        style={glowStyle}
+      />
     </div>
   );
 }

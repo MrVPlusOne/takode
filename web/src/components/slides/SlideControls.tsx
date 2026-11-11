@@ -17,6 +17,7 @@ import { useStore } from "../../store.js";
 import { useComposerTarget } from "../composer-target.js";
 import type { RenderSlide } from "./SlideDeck.js";
 import { setLocalStorageItem } from "../../utils/scoped-storage.js";
+import { Spinner } from "../LoadingIndicators.js";
 
 /** The conversation message a deck is, which its narration and its comments belong to. */
 export interface DeckMessage {
@@ -270,7 +271,7 @@ function PlayButton({ deck, index }: { deck: NarratedDeck; index: number }) {
         data-testid="narration-button"
       >
         {playing && read.status === "preparing" ? (
-          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          <Spinner className="h-3.5 w-3.5" />
         ) : playing && !playback.paused ? (
           <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5" aria-hidden="true">
             <rect x="4" y="3" width="3" height="10" rx="0.8" />

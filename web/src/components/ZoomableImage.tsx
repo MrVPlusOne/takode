@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import { YarnBallSpinner } from "./CatIcons.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 const MAX_SCALE = 5;
 const DOUBLE_TAP_SCALE = 2.5;
@@ -292,7 +292,7 @@ export function ZoomableImage({
           data-testid="zoomable-image-loading"
         >
           <span className="rounded-full border border-cc-border bg-cc-card/90 p-2 shadow-lg">
-            <YarnBallSpinner className="h-6 w-6 text-cc-primary" />
+            <Spinner className="h-6 w-6 text-cc-primary" />
           </span>
         </div>
       )}

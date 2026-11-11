@@ -18,7 +18,7 @@ import {
   getToolGroupFeedBlockId,
   isTimedChatMessage,
 } from "./message-feed-utils.js";
-import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
+import { ActivityDot, Spinner } from "./LoadingIndicators.js";
 import { PawTrailAvatar } from "./PawTrail.js";
 import {
   formatThreadAttachmentMarkerDetail,
@@ -1204,7 +1204,7 @@ function SubagentContainer({
 
           {childCount === 0 && delegateTraceCount === 0 && !isEffectivelyComplete && !isAbandoned && (
             <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
-              <YarnBallSpinner className="w-3.5 h-3.5" />
+              <Spinner className="w-3.5 h-3.5" />
               <span>{group.isBackground ? "Running in background..." : "Agent starting..."}</span>
             </div>
           )}
@@ -1271,7 +1271,7 @@ export const FeedFooter = memo(function FeedFooter({
           className="flex items-center gap-2 text-[12px] text-cc-muted font-mono-code pl-9 py-1 animate-[fadeSlideIn_0.2s_ease-out]"
           data-feed-block-id={getFooterFeedBlockId("compacting")}
         >
-          <YarnBallDot className="text-cc-primary animate-pulse" />
+          <ActivityDot className="text-cc-primary" active />
           <span>Compacting conversation...</span>
         </div>
       )}
@@ -1290,7 +1290,7 @@ export const FeedFooter = memo(function FeedFooter({
               className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9"
               data-feed-block-id={getFooterFeedBlockId("tool-progress")}
             >
-              <YarnBallDot className="text-cc-primary animate-pulse" />
+              <ActivityDot className="text-cc-primary" active />
               {nonTaskProgress.map((p, i) => (
                 <span key={i} className="flex items-center gap-1">
                   {i > 0 && <span className="text-cc-muted/40">·</span>}

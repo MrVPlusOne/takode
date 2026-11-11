@@ -291,7 +291,6 @@ vi.mock("./SessionStatusDot.js", () => ({ SessionStatusDot: () => null }));
 vi.mock("../hooks/useGlobalNeedsInputEntries.js", () => ({
   useGlobalNeedsInputEntries: () => ({ entries: [], mutedEntries: [], sdkSessions: [] }),
 }));
-vi.mock("./CatIcons.js", () => ({ YarnBallDot: () => null }));
 vi.mock("./QuestJourneyTimeline.js", () => ({
   isCompletedJourneyPresentationStatus: (status?: string) =>
     ["completed", "done"].includes((status ?? "").toLowerCase()),

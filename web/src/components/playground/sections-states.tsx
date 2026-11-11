@@ -4,7 +4,9 @@ import { VoiceEditPreview } from "../VoiceEditPreview.js";
 import { SessionCreationProgress } from "../SessionCreationProgress.js";
 import { StepList } from "../SessionCreationView.js";
 import { CodexInstructionsCollapsible } from "../TaskPanel.js";
-import { CatPawAvatar, CatPawLeft, YarnBallDot, YarnBallSpinner, SleepingCat, PowerPlugDot } from "../CatIcons.js";
+import { CatPawAvatar, CatPawLeft } from "../CatIcons.js";
+import { SleepingTako } from "../EmptyState.js";
+import { ActivityDot, Spinner } from "../LoadingIndicators.js";
 import { HighlightedText } from "../HighlightedText.js";
 import { VoiceLevelWaveform, VoiceRecordingStatus } from "../VoiceRecordingStatus.js";
 import { PlaygroundMicrophonePicker } from "./PlaygroundMicrophonePicker.js";
@@ -979,7 +981,7 @@ export function PlaygroundStateSections() {
           </Card>
           <Card label="Generation stats bar">
             <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
-              <YarnBallDot className="text-cc-primary animate-pulse" />
+              <ActivityDot className="text-cc-primary" active />
               <span>Generating...</span>
               <span className="text-cc-muted/60">(</span>
               <span>12s</span>
@@ -1213,7 +1215,7 @@ export function PlaygroundStateSections() {
                     <span className="font-mono-code text-amber-400">#71</span>
                   </span>
                   <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
-                    <PowerPlugDot className="h-2.5 w-2.5 text-cc-muted/60" />W{" "}
+                    <span className="h-2 w-2 rounded-full border-[1.5px] border-cc-muted/60" />W{" "}
                     <span className="font-mono-code text-amber-400">#72</span>
                   </span>
                 </div>
@@ -1514,91 +1516,41 @@ export function PlaygroundStateSections() {
       </Section>
 
       {/* ─── Cat Theme Elements ──────────────────────────────── */}
-      <Section title="Cat Theme Elements" description="Cat-themed UI icons and animations used throughout Takode">
+      <Section
+        title="Cat Theme Elements"
+        description="Paw trail and stamps, activity dot, spinner and the empty-state painting"
+      >
         <div className="space-y-4 max-w-3xl">
           <Card label="Paw Trail (newest answer keeps its paw; new answers land)">
             <PlaygroundPawTrailDemo />
           </Card>
-          <Card label="Yarn Ball Status Dot (sidebar sessions)">
+          <Card label="Activity dot (status pill, compacting, tool progress)">
             <div className="flex items-center gap-6 px-4 py-3">
               <div className="flex items-center gap-1.5">
-                <YarnBallDot
-                  className="text-cc-success"
-                  style={{ filter: "drop-shadow(0 0 4px rgba(34, 197, 94, 0.6))" }}
-                />
-                <span className="text-xs text-cc-muted">Running</span>
+                <ActivityDot className="text-cc-primary" active />
+                <span className="text-xs text-cc-muted">Running (breathes three times, then holds)</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <YarnBallDot
-                  className="text-cc-warning"
-                  style={{ filter: "drop-shadow(0 0 4px rgba(245, 158, 11, 0.6))" }}
-                />
-                <span className="text-xs text-cc-muted">Permission</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <YarnBallDot className="text-cc-error" />
-                <span className="text-xs text-cc-muted">Disconnected</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <YarnBallDot className="text-cc-muted/40" />
-                <span className="text-xs text-cc-muted">Idle</span>
+                <ActivityDot className="text-cc-attention" />
+                <span className="text-xs text-cc-muted">Stuck or paused</span>
               </div>
             </div>
           </Card>
-          <Card label="Yarn Ball Status Dots">
+          <Card label="Spinner">
             <div className="flex items-center gap-6 px-4 py-3">
-              <div className="flex items-center gap-1.5">
-                <YarnBallDot className="text-cc-primary animate-pulse" />
-                <span className="text-xs text-cc-muted">Running</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <YarnBallDot className="text-cc-warning animate-pulse" />
-                <span className="text-xs text-cc-muted">Compacting</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <YarnBallDot className="text-cc-success" />
-                <span className="text-xs text-cc-muted">Active</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <YarnBallDot className="text-blue-500" />
-                <span className="text-xs text-cc-muted">Unread</span>
-              </div>
+              <Spinner className="w-3 h-3 text-cc-primary" />
+              <Spinner className="w-4 h-4 text-cc-muted" />
+              <Spinner className="w-5 h-5 text-cc-primary" />
+              <span className="inline-flex items-center gap-2 rounded-xl bg-cc-primary px-3 py-2 text-sm font-medium text-white">
+                <Spinner className="w-4 h-4 text-white" />
+                Creating...
+              </span>
             </div>
           </Card>
-          <Card label="Yarn Ball Rolling (back-and-forth)">
+          <Card label="Sleeping Tako (empty conversation, no-sessions page)">
             <div className="flex items-center gap-6 px-4 py-3">
-              <div className="flex items-center gap-1.5">
-                <YarnBallDot
-                  className="text-cc-success yarn-ball-roll"
-                  style={{ filter: "drop-shadow(0 0 4px rgba(34, 197, 94, 0.6))" }}
-                />
-                <span className="text-xs text-cc-muted">Running</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <YarnBallDot
-                  className="text-cc-warning yarn-ball-roll"
-                  style={{ filter: "drop-shadow(0 0 4px rgba(245, 158, 11, 0.6))" }}
-                />
-                <span className="text-xs text-cc-muted">Compacting</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <YarnBallDot className="text-cc-muted/40" />
-                <span className="text-xs text-cc-muted">Static (idle)</span>
-              </div>
-            </div>
-          </Card>
-          <Card label="Yarn Ball Spinner">
-            <div className="flex items-center gap-6 px-4 py-3">
-              <YarnBallSpinner className="w-3 h-3 text-cc-primary" />
-              <YarnBallSpinner className="w-4 h-4 text-cc-muted" />
-              <YarnBallSpinner className="w-5 h-5 text-cc-primary" />
-              <span className="text-xs text-cc-muted">Various sizes</span>
-            </div>
-          </Card>
-          <Card label="Sleeping Cat (empty state)">
-            <div className="flex items-center gap-6 px-4 py-3">
-              <SleepingCat className="w-28 h-20" />
-              <SleepingCat className="w-20 h-14" />
+              <SleepingTako className="h-32 w-32" />
+              <SleepingTako className="h-24 w-24" />
             </div>
           </Card>
           <Card label="Paw Approval (button morph)">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type DelegateTraceResponse } from "../api.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 export function parseSubagentResultText(raw: string): string {
   try {
@@ -75,10 +76,7 @@ export function SubagentResult({
     <div className="px-3 pb-2">
       {loading && (
         <div className="flex items-center gap-1.5 mb-1.5 text-[11px] text-cc-muted">
-          <svg className="w-3 h-3 animate-spin text-cc-muted" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
+          <Spinner className="w-3 h-3 text-cc-muted" />
           <span>Loading full result...</span>
         </div>
       )}

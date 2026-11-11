@@ -2,7 +2,22 @@ import { useEffect } from "react";
 import { useStore } from "../store.js";
 import { getTreeGroupNewSessionDefaultsKey } from "../utils/new-session-defaults.js";
 import { navigateToMostRecentSession } from "../utils/routing.js";
-import { SleepingCat } from "./CatIcons.js";
+
+/**
+ * Painting of Tako, the cat in the Takode logo, curled up asleep, in the style of the leader
+ * portraits. Shown where there is nothing yet: an empty conversation and the no-sessions page.
+ * Size it with h-/w- classes; the image is 320px square, enough for 128px at 2.5x.
+ */
+export function SleepingTako({ className }: { className: string }) {
+  return (
+    <img
+      src="/empty-state/sleeping-tako.v1.320.webp"
+      alt=""
+      draggable={false}
+      className={`shrink-0 select-none rounded-full shadow-[0_6px_24px_rgba(0,0,0,0.18)] ring-1 ring-cc-border ${className}`}
+    />
+  );
+}
 
 export function EmptyState() {
   const serverName = useStore((s) => s.serverName);
@@ -18,7 +33,7 @@ export function EmptyState() {
 
   return (
     <div className="flex-1 h-full flex flex-col items-center justify-center px-4">
-      <SleepingCat className="w-32 h-24 mb-4" />
+      <SleepingTako className="mb-4 h-32 w-32" />
       <h1 className="text-lg font-semibold text-cc-fg mb-1">{serverName || "Takode"}</h1>
       <p className="text-sm text-cc-muted mb-6">No active sessions</p>
       <button

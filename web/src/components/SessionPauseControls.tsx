@@ -8,6 +8,7 @@ import type {
   SessionPauseState,
   SessionState,
 } from "../types.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 function PauseIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -294,12 +295,7 @@ export function PausedInputChip({
                   : "cursor-pointer border-cc-attention/55 bg-cc-card/65 text-cc-attention-strong hover:bg-cc-warning/10"
               }`}
             >
-              {releaseAccepted && (
-                <span
-                  className="h-2.5 w-2.5 shrink-0 animate-spin rounded-full border border-current border-r-transparent"
-                  aria-hidden="true"
-                />
-              )}
+              {releaseAccepted && <Spinner className="h-2.5 w-2.5" />}
               {releaseAccepted ? "Releasing…" : "Release now"}
             </button>
           )}

@@ -5,7 +5,8 @@ import { useTextSelection } from "../../hooks/useTextSelection.js";
 import type { ChatMessage, McpServerDetail, TaskItem } from "../../types.js";
 import { BoardBlock } from "../BoardBlock.js";
 import { QuestRecordFetchContext } from "../QuestSummaryCard.js";
-import { CatPawAvatar, YarnBallSpinner } from "../CatIcons.js";
+import { CatPawAvatar } from "../CatIcons.js";
+import { Spinner } from "../LoadingIndicators.js";
 import { ClaudeMdEditor } from "../ClaudeMdEditor.js";
 import { FolderPicker } from "../FolderPicker.js";
 import { Lightbox } from "../Lightbox.js";
@@ -591,7 +592,7 @@ export function PlaygroundSubagentGroup({
               {/* No children yet indicator */}
               {activityCount === 0 && !resultText && !interrupted && (
                 <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
-                  <YarnBallSpinner className="w-3.5 h-3.5" />
+                  <Spinner className="w-3.5 h-3.5" />
                   <span>Agent starting...</span>
                 </div>
               )}
@@ -1907,18 +1908,7 @@ export function TaskRow({ task }: { task: TaskItem }) {
       <div className="flex items-start gap-2">
         <span className="shrink-0 flex items-center justify-center w-4 h-4 mt-px">
           {isInProgress ? (
-            <svg className="w-4 h-4 text-cc-primary animate-spin" viewBox="0 0 16 16" fill="none">
-              <circle
-                cx="8"
-                cy="8"
-                r="6"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeDasharray="28"
-                strokeDashoffset="8"
-                strokeLinecap="round"
-              />
-            </svg>
+            <Spinner className="w-4 h-4 text-cc-primary" />
           ) : isCompleted ? (
             <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-cc-success">
               <path

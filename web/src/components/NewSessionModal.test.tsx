@@ -87,10 +87,6 @@ vi.mock("./FolderPicker.js", () => ({
   },
 }));
 
-vi.mock("./CatIcons.js", () => ({
-  YarnBallSpinner: (props: { className?: string }) => <div data-testid="spinner" className={props.className} />,
-}));
-
 import { NewSessionModal } from "./NewSessionModal.js";
 import { DEFAULT_SESSION_DEFAULTS } from "../../shared/session-defaults.js";
 

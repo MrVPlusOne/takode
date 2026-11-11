@@ -375,6 +375,7 @@ function resetStore() {
   mockStoreValues.streamingPausedDuration = new Map();
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
+  mockStoreValues.sessionStuck = new Map();
   mockStoreValues.sessions = new Map();
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.toolResults = new Map();
@@ -485,5 +486,34 @@ describe("ElapsedTimer - formatElapsed via stats bar", () => {
     render(<ElapsedTimer sessionId={sid} />);
 
     expect(screen.getByText(/^\d+m \d+s$/)).toBeTruthy();
+  });
+});
+
+describe("ElapsedTimer activity dot", () => {
+  // The dot breathes while the turn is working and holds still in the attention color once
+  // the turn is stuck, so a stuck turn never looks busy.
+  it("breathes while the turn runs", () => {
+    const sid = "test-activity-dot-running";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+
+    const { container } = render(<ElapsedTimer sessionId={sid} />);
+
+    const dot = container.querySelector(".cc-activity-dot")!;
+    expect(dot.classList.contains("is-active")).toBe(true);
+    expect(dot.classList.contains("text-cc-primary")).toBe(true);
+  });
+
+  it("holds still in the attention color when the turn is stuck", () => {
+    const sid = "test-activity-dot-stuck";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    mockStoreValues.sessionStuck = new Map([[sid, true]]);
+
+    const { container } = render(<ElapsedTimer sessionId={sid} />);
+
+    const dot = container.querySelector(".cc-activity-dot")!;
+    expect(dot.classList.contains("text-cc-attention")).toBe(true);
+    expect(dot.classList.contains("is-active")).toBe(false);
   });
 });

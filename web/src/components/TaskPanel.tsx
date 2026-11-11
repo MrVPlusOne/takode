@@ -34,6 +34,7 @@ export { SectionHeader } from "./PanelSection.js";
 const EMPTY_TASKS: TaskItem[] = [];
 
 import { useUsageLimits } from "../hooks/useUsageLimits.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 function UsageLimitsSection({ sessionId }: { sessionId: string }) {
   const limits = useUsageLimits(sessionId);
@@ -367,10 +368,7 @@ export function GitHubPRDisplay({ pr }: { pr: GitHubPRInfo }) {
             </>
           ) : cs.pending > 0 ? (
             <span className="flex items-center gap-1 text-cc-warning">
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 animate-spin">
-                <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8z" opacity=".2" />
-                <path d="M8 0a8 8 0 018 8h-2A6 6 0 008 2V0z" />
-              </svg>
+              <Spinner className="w-3 h-3" />
               {cs.pending} pending
               {cs.success > 0 && <span className="text-cc-success ml-1">{cs.success} passed</span>}
             </span>
@@ -1176,12 +1174,10 @@ export function TaskRow({ task, sessionId }: { task: TaskItem; sessionId?: strin
       <div className="flex items-start gap-2">
         {/* Status icon */}
         <span className="shrink-0 flex items-center justify-center w-4 h-4 mt-px">
-          {isInProgress ? (
-            <svg
-              className={`w-4 h-4 text-cc-primary ${isRunning ? "animate-spin" : ""}`}
-              viewBox="0 0 16 16"
-              fill="none"
-            >
+          {isInProgress && isRunning ? (
+            <Spinner className="w-4 h-4 text-cc-primary" />
+          ) : isInProgress ? (
+            <svg className="w-4 h-4 text-cc-primary" viewBox="0 0 16 16" fill="none">
               <circle
                 cx="8"
                 cy="8"

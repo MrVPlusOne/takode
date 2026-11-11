@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ServerRestartPhase } from "../store-types.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 const PHASE_COPY: Record<ServerRestartPhase, { title: string; detail: string }> = {
   preparing: {
@@ -53,7 +54,7 @@ export function ServerRestartOverlay({ phase }: { phase: ServerRestartPhase }) {
         aria-live="polite"
         className="w-full max-w-sm bg-cc-card border border-cc-border rounded-xl p-6 text-center"
       >
-        <div className="animate-spin w-8 h-8 border-2 border-cc-primary border-t-transparent rounded-full mx-auto mb-4" />
+        <Spinner className="mx-auto mb-4 block h-8 w-8 text-cc-primary" />
         <h2 className="text-sm font-semibold text-cc-fg">{copy.title}</h2>
         <p className="mt-2 text-xs text-cc-muted">{copy.detail}</p>
         <ol className="mt-4 flex items-center justify-center gap-2 text-[11px]" aria-label="Restart steps">

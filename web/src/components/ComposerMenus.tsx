@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
 import type { CommandItem, ReferenceSuggestion } from "./composer-reference-utils.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 type MentionResult = { relativePath: string; fileName: string };
 
@@ -225,7 +226,7 @@ export function ComposerMenus({
             </div>
           ) : mentionLoading && mentionResults.length === 0 ? (
             <div className="px-3 py-2.5 text-[12px] text-cc-muted flex items-center gap-2">
-              <span className="w-3 h-3 border-2 border-cc-muted/30 border-t-cc-muted rounded-full animate-spin shrink-0" />
+              <Spinner className="w-3 h-3" />
               Searching...
             </div>
           ) : mentionResults.length === 0 ? (

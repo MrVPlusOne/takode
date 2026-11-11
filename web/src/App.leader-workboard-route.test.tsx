@@ -153,7 +153,6 @@ vi.mock("./components/QuestInlineLink.js", () => ({
 vi.mock("./components/SessionInlineLink.js", () => ({
   SessionInlineLink: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
-vi.mock("./components/CatIcons.js", () => ({ PowerPlugDot: () => null, YarnBallDot: () => null }));
 vi.mock("./components/session-participant-status.js", () => ({ useParticipantSessionStatusDotProps: () => ({}) }));
 vi.mock("./utils/vscode-context.js", () => ({
   announceVsCodeReady: vi.fn(),

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useStore } from "../store.js";
 import { useOutsidePress } from "../hooks/useOutsidePress.js";
 import { TaskRow } from "./TaskPanel.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 export function TodoStatusLine({ sessionId }: { sessionId: string }) {
   const tasks = useStore((s) => s.sessionTasks.get(sessionId));
@@ -59,18 +60,7 @@ export function TodoStatusLine({ sessionId }: { sessionId: string }) {
         className="w-full flex items-center gap-2 px-3 sm:px-4 py-1.5 border-t border-cc-border bg-cc-card hover:bg-cc-hover/50 transition-colors cursor-pointer"
       >
         {activeTask ? (
-          <svg className="w-3.5 h-3.5 text-cc-primary animate-spin shrink-0" viewBox="0 0 16 16" fill="none">
-            <circle
-              cx="8"
-              cy="8"
-              r="6"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeDasharray="28"
-              strokeDashoffset="8"
-              strokeLinecap="round"
-            />
-          </svg>
+          <Spinner className="w-3.5 h-3.5 text-cc-primary" />
         ) : (
           <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cc-muted shrink-0">
             <path d="M4 4.5h8M4 8h8M4 11.5h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

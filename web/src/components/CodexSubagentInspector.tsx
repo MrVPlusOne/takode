@@ -24,6 +24,7 @@ import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-
 import { fetchCodexNativeSubagentHistory, type CodexNativeSubagentHistoryPage } from "../api/codex-native-subagents.js";
 import { CodexSubagentTranscript } from "./CodexSubagentTranscript.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 const HISTORY_PAGE_SIZE = 30;
 const MAX_CACHED_HISTORY_MESSAGES = 180;
@@ -558,7 +559,7 @@ function HistoryContent({
     return (
       <div className="flex flex-1 items-center justify-center p-6" role="status" aria-label="Loading child history">
         <div className="flex items-center gap-2 text-xs text-cc-muted">
-          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-cc-border border-t-cc-primary" />
+          <Spinner className="h-3.5 w-3.5 text-cc-primary" />
           Loading bounded history…
         </div>
       </div>

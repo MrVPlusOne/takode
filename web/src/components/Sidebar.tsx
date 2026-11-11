@@ -48,7 +48,7 @@ import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { RecentNewSessionMenuButton, RecentSessionList, RecentSpacesStatus } from "./RecentSessionList.js";
 import { SidebarThreadsMode, ThreadsModeNewButton, useThreadsModeData } from "./sidebar-threads/SidebarThreadsMode.js";
-import { YarnBallSpinner } from "./CatIcons.js";
+import { Spinner } from "./LoadingIndicators.js";
 import type { SdkSessionInfo } from "../types.js";
 import {
   beginActiveSessionListRequest,
@@ -1282,7 +1282,7 @@ function PendingSessionItem({
     >
       {/* Status indicator */}
       <div className="w-4 h-4 shrink-0 flex items-center justify-center">
-        {isCreating && <YarnBallSpinner className="w-3.5 h-3.5 text-cc-primary" />}
+        {isCreating && <Spinner className="w-3.5 h-3.5 text-cc-primary" />}
         {hasError && (
           <div className="w-3 h-3 rounded-full bg-cc-error/20 flex items-center justify-center">
             <div className="w-1.5 h-1.5 rounded-full bg-cc-error" />

@@ -41,7 +41,7 @@ import {
 import { EnvManager } from "./EnvManager.js";
 import { FolderPicker } from "./FolderPicker.js";
 import { useRemoteHosts } from "../remote-hosts.js";
-import { YarnBallSpinner } from "./CatIcons.js";
+import { Spinner } from "./LoadingIndicators.js";
 import { resolveSessionDefaultsForRole } from "../../shared/session-defaults.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
 
@@ -930,7 +930,7 @@ export function NewSessionModal({
                   <div className="max-h-[240px] overflow-y-auto border border-cc-border rounded-lg">
                     {loadingCliSessions ? (
                       <div className="flex items-center justify-center py-6 gap-2">
-                        <YarnBallSpinner className="w-4 h-4 text-cc-muted" />
+                        <Spinner className="w-4 h-4 text-cc-muted" />
                         <span className="text-xs text-cc-muted">Loading sessions...</span>
                       </div>
                     ) : cliSessions.length === 0 ? (
@@ -1074,7 +1074,7 @@ export function NewSessionModal({
                 >
                   {sending ? (
                     <>
-                      <YarnBallSpinner className="w-4 h-4 text-white" />
+                      <Spinner className="w-4 h-4 text-white" />
                       Resuming...
                     </>
                   ) : (
@@ -1796,7 +1796,7 @@ export function NewSessionModal({
                           >
                             {pulling ? (
                               <>
-                                <YarnBallSpinner className="w-3 h-3 text-cc-primary" />
+                                <Spinner className="w-3 h-3 text-cc-primary" />
                                 Pulling...
                               </>
                             ) : (
@@ -1833,7 +1833,7 @@ export function NewSessionModal({
                 >
                   {sending ? (
                     <>
-                      <YarnBallSpinner className="w-4 h-4 text-white" />
+                      <Spinner className="w-4 h-4 text-white" />
                       Creating...
                     </>
                   ) : (

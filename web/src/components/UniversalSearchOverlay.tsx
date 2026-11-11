@@ -25,6 +25,7 @@ import {
   type UniversalSearchResult,
 } from "./UniversalSearchResultRows.js";
 import { HIDDEN_SCROLLBAR_CLASS, SEARCH_ROW_CLASS, SearchField, SearchModeSwitch, SearchSheet } from "./SearchSheet.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 export type UniversalSearchMode = "recent" | "quests" | "sessions" | "messages" | "starred";
 
@@ -1016,14 +1017,7 @@ export function UniversalSearchOverlay({
         value={query}
         onChange={(event) => setUserQuery(event.target.value)}
         placeholder={placeholder}
-        trailing={
-          loading ? (
-            <span
-              aria-hidden="true"
-              className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-cc-muted/30 border-t-cc-primary motion-safe:animate-spin"
-            />
-          ) : null
-        }
+        trailing={loading ? <Spinner className="h-3.5 w-3.5 text-cc-primary motion-reduce:animate-none" /> : null}
       />
       {/* Recent lists and searches the user's own messages, so it offers no attention filters; only
           the Session Space choice, when there is more than one. */}

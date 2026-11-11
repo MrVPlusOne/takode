@@ -1,6 +1,6 @@
 import { useStore } from "../store.js";
 import { retryPendingCreation, cancelPendingCreation } from "../utils/pending-creation.js";
-import { YarnBallSpinner } from "./CatIcons.js";
+import { Spinner } from "./LoadingIndicators.js";
 import type { CreationProgressEvent } from "../api.js";
 
 interface Props {
@@ -136,7 +136,7 @@ export function StepList({ steps }: { steps: CreationProgressEvent[] }) {
         >
           {/* Icon */}
           <div className="w-5 h-5 flex items-center justify-center shrink-0">
-            {step.status === "in_progress" && <YarnBallSpinner className="w-4 h-4 text-cc-primary" />}
+            {step.status === "in_progress" && <Spinner className="w-4 h-4 text-cc-primary" />}
             {step.status === "done" && (
               <div className="w-5 h-5 rounded-full bg-cc-success/15 flex items-center justify-center">
                 <svg viewBox="0 0 16 16" fill="none" className="w-3 h-3 text-cc-success">

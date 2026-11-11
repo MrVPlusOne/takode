@@ -34,6 +34,7 @@ import { SessionRoleIcon } from "./SessionRoleLabel.js";
 import { SideQuestIcon } from "./SideQuestCue.js";
 import { useGroupMoveAnimation } from "./thread-tab-group-move.js";
 import type { PrimaryThreadChip } from "./WorkBoardThreadTabs.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 export type ThreadGroupId = "needs-input" | "new-results" | "idle" | "in-progress";
 
@@ -414,9 +415,11 @@ export function ActiveOutputSpinner() {
     <span
       role="img"
       aria-label="Leader working here"
-      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-cc-info/30 border-t-cc-info motion-safe:animate-spin"
+      className="inline-flex shrink-0"
       data-testid="thread-tab-active-output-spinner"
-    />
+    >
+      <Spinner className="h-2.5 w-2.5 text-cc-info motion-reduce:animate-none" />
+    </span>
   );
 }
 

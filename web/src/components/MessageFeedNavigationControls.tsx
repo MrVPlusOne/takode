@@ -3,7 +3,7 @@ import { type ScrollActivity, useIsScrolling } from "./message-feed-scroll-activ
 import { UserMessageNavigator } from "./UserMessageNavigator.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
-import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 const DESKTOP_NAV_STACK_BOTTOM_CLASS = "bottom-16";
 /** How close (px) the mouse must come to the faded desktop buttons to bring them back. */
@@ -207,7 +207,7 @@ export function SectionBoundaryControl({
     <div className={`flex justify-center ${direction === "older" ? "pb-2" : "pt-1"}`} aria-live="polite">
       {loading ? (
         <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
-          <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+          <Spinner className="h-3 w-3 text-cc-muted" />
           Loading {direction} section...
         </div>
       ) : (
@@ -216,7 +216,19 @@ export function SectionBoundaryControl({
           onClick={onLoad}
           className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
         >
-          <YarnBallDot className="text-cc-muted/70" />
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            className="h-3 w-3 text-cc-muted"
+          >
+            <path
+              d={direction === "older" ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
           Load {direction} section
         </button>
       )}

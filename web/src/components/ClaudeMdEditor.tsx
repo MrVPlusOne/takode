@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { SplitHandle, useSplitWidth } from "./SplitHandle.js";
 import { createPortal } from "react-dom";
 import { api } from "../api.js";
-import { YarnBallSpinner } from "./CatIcons.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 interface ClaudeMdFile {
   path: string;
@@ -160,7 +160,7 @@ export function ClaudeMdEditor({ cwd, open, initialPath, onClose }: ClaudeMdEdit
         <div data-testid="claude-md-editor-body" className="flex-1 flex flex-col sm:flex-row min-h-0">
           {loading ? (
             <div className="flex-1 flex items-center justify-center">
-              <YarnBallSpinner className="w-5 h-5 text-cc-primary" />
+              <Spinner className="w-5 h-5 text-cc-primary" />
             </div>
           ) : (
             <>

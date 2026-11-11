@@ -43,7 +43,7 @@ import { ToolBlock } from "../ToolBlock.js";
 import { GitHubPRDisplay } from "../TaskPanel.js";
 import { SessionStatusDot } from "../SessionStatusDot.js";
 import { SessionItem } from "../SessionItem.js";
-import { YarnBallDot } from "../CatIcons.js";
+import { ActivityDot, Spinner } from "../LoadingIndicators.js";
 import { BuildMismatchNotice } from "../BuildMismatchNotice.js";
 import { getShortcutTitle } from "../../shortcuts.js";
 import { useStore } from "../../store.js";
@@ -1360,14 +1360,14 @@ export function PlaygroundOverviewSections() {
         <div className="space-y-4 max-w-3xl">
           <Card label="Single tool running">
             <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
-              <YarnBallDot className="text-cc-primary animate-pulse" />
+              <ActivityDot className="text-cc-primary" active />
               <span>Terminal</span>
               <span className="text-cc-muted/60">8s</span>
             </div>
           </Card>
           <Card label="Multiple tools running">
             <div className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9">
-              <YarnBallDot className="text-cc-primary animate-pulse" />
+              <ActivityDot className="text-cc-primary" active />
               <span>Search Content</span>
               <span className="text-cc-muted/60">3s</span>
               <span className="text-cc-muted/40">&middot;</span>
@@ -1551,24 +1551,13 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Running / Thinking">
             <div className="flex items-center gap-2 px-3 py-2 bg-cc-card border border-cc-border rounded-lg">
-              <YarnBallDot className="text-cc-primary animate-[pulse-dot_1.5s_ease-in-out_3]" />
+              <ActivityDot className="text-cc-primary" active />
               <span className="text-xs text-cc-fg font-medium">Thinking</span>
             </div>
           </Card>
           <Card label="Compacting">
             <div className="flex items-center gap-2 px-3 py-2 bg-cc-card border border-cc-border rounded-lg">
-              <svg className="w-3.5 h-3.5 text-cc-muted animate-spin" viewBox="0 0 16 16" fill="none">
-                <circle
-                  cx="8"
-                  cy="8"
-                  r="6"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeDasharray="28"
-                  strokeDashoffset="8"
-                  strokeLinecap="round"
-                />
-              </svg>
+              <Spinner className="w-3.5 h-3.5 text-cc-muted" />
               <span className="text-xs text-cc-muted font-medium">Compacting context...</span>
             </div>
           </Card>

@@ -1,4 +1,5 @@
 import type { CreationProgressEvent } from "../api.js";
+import { Spinner } from "./LoadingIndicators.js";
 
 interface Props {
   steps: CreationProgressEvent[];
@@ -15,9 +16,7 @@ export function SessionCreationProgress({ steps, error }: Props) {
           <div key={step.step} className="flex items-center gap-2.5 py-1">
             {/* Status icon */}
             <div className="w-4 h-4 flex items-center justify-center shrink-0">
-              {step.status === "in_progress" && (
-                <span className="w-3.5 h-3.5 border-2 border-cc-primary/30 border-t-cc-primary rounded-full animate-spin" />
-              )}
+              {step.status === "in_progress" && <Spinner className="w-3.5 h-3.5 text-cc-primary" />}
               {step.status === "done" && (
                 <svg viewBox="0 0 16 16" fill="none" className="w-3.5 h-3.5 text-cc-success">
                   <path

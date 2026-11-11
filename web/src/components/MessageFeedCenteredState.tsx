@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { SleepingCat, YarnBallSpinner } from "./CatIcons.js";
+import { SleepingTako } from "./EmptyState.js";
+import { Spinner } from "./LoadingIndicators.js";
 import { FeedStatusPill } from "./MessageFeedStatus.js";
 import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
 
@@ -30,15 +31,13 @@ export function MessageFeedCenteredState({
       className="flex h-full flex-col items-center justify-center gap-4 select-none px-6"
       style={clearancePx > 0 ? { paddingBottom: clearancePx } : undefined}
     >
-      {loading ? <YarnBallSpinner className="w-5 h-5 text-cc-primary" /> : <SleepingCat className="w-20 h-14" />}
+      {loading ? <Spinner className="w-5 h-5 text-cc-primary" /> : <SleepingTako className="h-24 w-24" />}
       <div className="text-center">
         <p className="text-sm text-cc-fg font-medium mb-1">
           {loading ? "Loading conversation..." : "Start a conversation"}
         </p>
         <p className="text-xs text-cc-muted leading-relaxed">
-          {loading
-            ? "Restoring recent history for this session."
-            : "Send a message to begin working with The Companion."}
+          {loading ? "Restoring recent history for this session." : "Send a message to begin."}
         </p>
       </div>
     </div>
