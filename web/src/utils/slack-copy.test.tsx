@@ -144,6 +144,15 @@ describe("copying a message for Slack", () => {
     expect(content.innerHTML).toBe(before);
   });
 
+  it("unfolds a <details> section into a bold title line with its text, since Slack has no toggles", () => {
+    // The collapsed text is still copied: the reader in Slack cannot unfold anything.
+    const copy = messageCopyForSlack(
+      rendered("Intro\n\n<details>\n<summary>Run logs</summary>\n\n- first\n\n</details>\n\nDone."),
+    );
+    expect(copy.html).toBe("<p>Intro</p><p><b>Run logs</b></p><ul><li>first</li></ul><p>Done.</p>");
+    expect(copy.plain).toBe("Intro  \n**Run logs**\n- first\n\nDone.");
+  });
+
   it("carries underline in the HTML and drops it from the Markdown text, which has no underline", () => {
     // Drafts write Slack's bold-underlined titles as **<u>TL;DR</u>**. Slack's Markdown paste shows <u> as
     // typed, so the plain text keeps only the bold.

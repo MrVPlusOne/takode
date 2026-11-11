@@ -1091,6 +1091,55 @@ describe("MarkdownContent quest links", () => {
     expect(container.querySelector("b")).toBeNull();
   });
 
+  it("folds a GitHub-style <details> section under its summary, with Markdown inside", () => {
+    // Reports keep optional detail one click away, written as on GitHub so the same file folds there too.
+    const { container } = render(
+      <MarkdownContent
+        text={"Intro\n\n<details>\n<summary>Run logs &amp; notes</summary>\n\n- **bold** item\n\n</details>\n\nAfter"}
+      />,
+    );
+
+    const details = container.querySelector("details")!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toBe("Run logs & notes");
+    expect(details.querySelector("li strong")?.textContent).toBe("bold");
+    expect(container.textContent).not.toContain("<details>");
+    expect(container.textContent).toContain("After");
+  });
+
+  it("folds sections written without blank lines, nested or open, but not inside code or without a close", () => {
+    // Without blank lines Markdown would read the body as raw HTML; the renderer separates the tags first.
+    const text = [
+      "<details open><summary>Outer</summary>",
+      "Body with *emphasis*",
+      "<details>",
+      "<summary>Inner</summary>",
+      "Inner body",
+      "</details>",
+      "</details>",
+      "",
+      "```",
+      "<details>",
+      "<summary>Shown as code</summary>",
+      "```",
+      "",
+      "<details>",
+      "Never closed",
+    ].join("\n");
+    const { container } = render(<MarkdownContent text={text} />);
+
+    const [outer, inner] = [...container.querySelectorAll("details")];
+    expect(container.querySelectorAll("details")).toHaveLength(2);
+    expect(outer.open).toBe(true);
+    expect(outer.querySelector(":scope > summary")?.textContent).toBe("Outer");
+    expect(outer.querySelector("em")?.textContent).toBe("emphasis");
+    expect(outer.contains(inner)).toBe(true);
+    expect(inner.open).toBe(false);
+    expect(inner.textContent).toContain("Inner body");
+    expect(container.querySelector("pre")?.textContent?.trimEnd()).toBe("<details>\n<summary>Shown as code</summary>");
+    expect(container.textContent).toContain("<details>\nNever closed");
+  });
+
   it("opens explicit and standard HTML file links through native same-browser new-tab navigation", () => {
     // A real target=_blank anchor preserves browser popup, modifier, and keyboard semantics
     // without an async window.open call that can be blocked or duplicated.

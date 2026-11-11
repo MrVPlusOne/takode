@@ -73,7 +73,7 @@ import {
 import { MAX_FILE_LINK_DOWNLOAD_BYTES } from "../../shared/file-link-download.js";
 import { wrapSpacedFileLinkDestinations } from "../utils/markdown-file-link-destinations.js";
 import { REMARK_GFM_OPTIONS } from "../utils/markdown-syntax.js";
-import { remarkUnderline } from "../utils/markdown-underline.js";
+import { remarkAllowedHtml, separateDetailsTags } from "../utils/markdown-allowed-html.js";
 import {
   ARTIFACT_PLACEHOLDER_LANGUAGE,
   parseArtifactLinkHref,
@@ -692,7 +692,8 @@ export const MarkdownContent = memo(function MarkdownContent({
   const isConservative = variant === "conservative";
   const chatMessageLineHeight = useStore((s) => s.chatMessageLineHeight);
   const preparedMath = useMemo(
-    () => prepareMarkdownMathSource(wrapSpacedFileLinkDestinations(groupDraftPostsInMarkdown(text))),
+    () =>
+      prepareMarkdownMathSource(wrapSpacedFileLinkDestinations(separateDetailsTags(groupDraftPostsInMarkdown(text)))),
     [text],
   );
   const imagePathLinks = useContext(ImagePathLinkContext);
@@ -782,7 +783,7 @@ export const MarkdownContent = memo(function MarkdownContent({
       <Markdown
         remarkPlugins={[
           [remarkGfm, REMARK_GFM_OPTIONS],
-          remarkUnderline,
+          remarkAllowedHtml,
           remarkMath,
           remarkBreaks,
           remarkNormalizeOrderedListContinuations,
@@ -819,6 +820,19 @@ export const MarkdownContent = memo(function MarkdownContent({
           strong: ({ children }) => <strong className="font-semibold text-cc-fg">{highlightChildren(children)}</strong>,
           em: ({ children }) => <em className="italic">{highlightChildren(children)}</em>,
           u: ({ children }) => <u>{highlightChildren(children)}</u>,
+          details: ({ children, open }) => (
+            <details
+              open={open}
+              className="group/details mb-2.5 rounded-lg border border-cc-border px-3 py-1.5 last:mb-0 open:pb-2.5"
+            >
+              {children}
+            </details>
+          ),
+          summary: ({ children }) => (
+            <summary className="-mx-3 -my-1.5 cursor-pointer select-none px-3 py-1.5 font-medium text-cc-fg marker:text-cc-muted group-open/details:mb-2">
+              {highlightChildren(children)}
+            </summary>
+          ),
           h1: ({ children }) => (
             <h1 className="text-xl font-bold text-cc-fg mt-4 mb-2">{highlightChildren(children)}</h1>
           ),

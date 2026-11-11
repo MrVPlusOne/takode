@@ -80,6 +80,8 @@ Drafts. A <draft> section holds a message the agent drafted for the listener to 
 
 Questions. A <question> section is a question the agent is waiting for the listener to answer, shown in the app as a card with its suggested answers; its Title line sums it up. A message with a question always needs rewriting. Read every question in full, after a short lead-in such as "Now the question for you:", and say each one's suggested answers as choices, such as "The options are: launch all and tag them, add the lemma APIs first, or hold them back." Leave out the title when a question already says the same. Say that the listener can answer in the app, but do not answer the question yourself.
 
+Folded sections. A <details> section shows in the app as a line with its <summary> title that the listener can unfold to see the rest; the author folded it as optional detail. A message with one always needs rewriting. Say each folded section's title in a few words and that its details are folded in the message, without reading them.
+
 Takode links. Agents write these as Markdown links with fixed kinds of targets, and in the app each one is something the listener can tap:
 - [q-42](quest:q-42): quest 42, a tracked piece of work. The message usually says what it is about.
 - [q-42 feedback #3](quest:q-42:feedback:3): note 3 on quest 42, such as an agent's report on its work.

@@ -991,6 +991,39 @@ export function PlaygroundOverviewSections() {
       <PlaygroundArtifactLibrarySection />
 
       <Section
+        title="Folded Sections"
+        description="GitHub-style <details> sections fold optional detail under a title line; Markdown renders inside, and <details open> starts unfolded."
+      >
+        <div className="space-y-4 max-w-4xl">
+          <Card label="Report with folded detail">
+            <MarkdownContent
+              text={[
+                "**<u>Daily briefing</u>**",
+                "Two things need you today; everything else is on track.",
+                "",
+                "<details>",
+                "<summary>Slack threads (4)</summary>",
+                "",
+                "- **T7 eval thread:** evals start at `iter 2`",
+                "- Minhao asked about the seeded-QA PRs",
+                "",
+                "</details>",
+                "",
+                "<details open>",
+                "<summary>Calendar</summary>",
+                "",
+                "1. 10:30 design review",
+                "2. 14:00 1:1",
+                "",
+                "</details>",
+              ].join("\n")}
+              sessionId={MOCK_SESSION_ID}
+            />
+          </Card>
+        </div>
+      </Section>
+
+      <Section
         title="Markdown Tables"
         description="Markdown tables keep their inline scrollable layout, with a Copy menu (a table for Slack, sheets and docs, a code block, or Markdown) and a View table action that opens a wider overlay."
       >

@@ -89,6 +89,8 @@ const BLOCK_TAGS = new Set([
   "H5",
   "H6",
   "DIV",
+  "DETAILS",
+  "SUMMARY",
 ]);
 
 /**
@@ -132,6 +134,8 @@ function convertBlock(element: Element): string {
     case "H4":
     case "H5":
     case "H6":
+    // Slack has no folded sections: the title becomes a bold line with the section's text under it.
+    case "SUMMARY":
       return paragraph(`<b>${inlineChildren(element)}</b>`);
     case "UL":
     case "OL": {

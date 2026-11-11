@@ -45,6 +45,24 @@ describe("stripInlineMarkdown", () => {
 });
 
 describe("markdownToPlainText", () => {
+  it("reads a folded <details> section as its title and text, and drops underline tags", () => {
+    // Copies and previews of reports with toggles must not show the raw tags; code keeps them as written.
+    const markdown = [
+      "Intro",
+      "",
+      "<details><summary>Run logs</summary>",
+      "",
+      "- **first** item",
+      "",
+      "</details>",
+      "",
+      "**<u>TL;DR</u>** done, `<u>kept</u>`",
+    ].join("\n");
+    expect(markdownToPlainText(markdown)).toBe(
+      ["Intro", "", "Run logs", "", "first item", "", "TL;DR done, <u>kept</u>"].join("\n"),
+    );
+  });
+
   it("keeps identifiers and code intact in whole messages", () => {
     const markdown = [
       "# Update QA_DATASETS_1031",

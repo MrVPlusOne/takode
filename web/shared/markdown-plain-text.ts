@@ -16,6 +16,11 @@ export function markdownToPlainText(markdown: string): string {
     return `\0B${blocks.push(inner) - 1};`;
   });
   text = stripEscapedInlineMarkdown(text);
+  // A folded <details> section reads as its title followed by its text.
+  text = text
+    .replace(/<details(?:\s+open)?\s*>(?=[ \t]*<summary>)/gi, "")
+    .replace(/^[ \t]*(?:<details(?:\s+open)?\s*>|<\/details\s*>)[ \t]*(?:\n(?:[ \t]*\n)?|$)/gim, "")
+    .replace(/<\/?summary>/gi, "");
   // Remove heading markers
   text = text.replace(/^#{1,6}\s+/gm, "");
   // Remove blockquote markers
@@ -54,7 +59,8 @@ function stripEscapedInlineMarkdown(text: string): string {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\*{1,3}([^*]+)\*{1,3}/g, "$1")
     .replace(UNDERSCORE_EMPHASIS, "$1$3")
-    .replace(/~~([^~]+)~~/g, "$1");
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/<\/?u>/gi, "");
   return restoreTokens(stripped, "C", spans);
 }
 
