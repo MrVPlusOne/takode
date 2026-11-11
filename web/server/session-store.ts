@@ -25,6 +25,7 @@ import { isReplayableBufferedEvent } from "./bridge/replay-buffer-policy.js";
 import type { RecoveryDeliveryTransfer } from "./bridge/recovery-delivery-transfer.js";
 import { isModelProvenanceMigrationAcknowledgementStateFile } from "./model-provenance-migration-acknowledgement-store.js";
 import { SESSION_NUMBERS_FILE } from "./constants.js";
+import { LauncherStateFile } from "./launcher-state-file.js";
 import {
   buildCodexAutoPauseRecoverySearchText,
   CODEX_AUTO_PAUSE_RECOVERY_SEARCH_MAX_LENGTH,
@@ -451,7 +452,7 @@ export class SessionStore {
   /** Track in-flight async writes so flushAll can await them. */
   private inflightWrites = new Set<Promise<unknown>>();
   private persistenceFailures = new Map<string, unknown>();
-  private launcherWrite: Promise<void> = Promise.resolve();
+  private launcherFile: LauncherStateFile;
   private writeQueues = new Map<string, SessionWriteRequest[]>();
   private activeWriters = new Set<string>();
   private readyWriters = new Set<string>();
@@ -479,6 +480,7 @@ export class SessionStore {
     }
     mkdirSync(this.dir, { recursive: true });
     this.historyJournal = new SessionHistoryJournal(this.dir);
+    this.launcherFile = new LauncherStateFile(this.dir);
   }
 
   private filePath(sessionId: string): string {
@@ -570,7 +572,7 @@ export class SessionStore {
 
   private async loadLauncherRestoreState(metrics: SessionRestoreMetrics): Promise<Map<string, LauncherRestoreState>> {
     const index = new Map<string, LauncherRestoreState>();
-    const launcherSessions = await this.loadLauncher<LauncherRestoreInfo[]>();
+    const launcherSessions = await this.launcherFile.loadList<LauncherRestoreInfo[]>();
     if (!Array.isArray(launcherSessions)) return index;
 
     for (const session of launcherSessions) {
@@ -1673,11 +1675,10 @@ export class SessionStore {
     });
   }
 
-  /** Persist launcher state (separate file). */
+  /** Persist launcher state (`launcher.json`, see `LauncherStateFile`). */
   saveLauncher(data: unknown): void {
-    const dataJson = JSON.stringify(data, null, 2);
-    const p = this.launcherWrite
-      .then(() => writeFile(join(this.dir, "launcher.json"), dataJson, "utf-8"))
+    const p = this.launcherFile
+      .save(data)
       .then(() => {
         this.persistenceFailures.delete("launcher");
       })
@@ -1688,18 +1689,12 @@ export class SessionStore {
       .finally(() => {
         this.inflightWrites.delete(p);
       });
-    this.launcherWrite = p;
     this.inflightWrites.add(p);
   }
 
   /** Load launcher state. */
   async loadLauncher<T>(): Promise<T | null> {
-    try {
-      const raw = await readFile(join(this.dir, "launcher.json"), "utf-8");
-      return JSON.parse(raw) as T;
-    } catch {
-      return null;
-    }
+    return this.launcherFile.load<T>();
   }
 
   /**
