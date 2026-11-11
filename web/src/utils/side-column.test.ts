@@ -15,6 +15,7 @@ import {
   otherColumnClickLabel,
   openQuestInSide,
   openSessionInSide,
+  openSessionMessageInSide,
   openInSide,
   replaceSideItem,
   setSideOneAtATime,
@@ -26,7 +27,7 @@ import {
 } from "./side-column.js";
 import { useTopicPanel } from "./topic-panel.js";
 import { navigateToSessionMessageId } from "./routing.js";
-import { sideConversationFeedKey } from "../components/secondary-feed.js";
+import { sideConversationFeedKey, sideSessionFeedKey } from "../components/secondary-feed.js";
 import { isRememberedFolded, resetRememberedFoldsForTest, setRememberedFolded } from "./remembered-folds.js";
 import { markLeaderThreadDisplayed } from "./thread-viewport.js";
 
@@ -467,6 +468,64 @@ describe("opening in the side", () => {
       expect(items().map((item) => item.kind)).toEqual(["home", "home", "session", "quest"]);
       expect(items().map((item) => (item.kind === "home" ? item.leaderId : null))).toEqual(["l2", "l1", null, null]);
       expect(items()[3]).toEqual(expect.objectContaining({ questId: "q-5" }));
+    } finally {
+      shown();
+    }
+  });
+
+  it("opens a linked message in its thread in the side column, scrolled to it", async () => {
+    // Jiayi (Nov 10): Shift-clicking a link to a leader's message opened the leader's Home in the
+    // side column instead of the message, which a plain click shows in its thread in the main view.
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "l1", isOrchestrator: true, state: "connected", cwd: "/", createdAt: 1 },
+        { sessionId: "w1", herdedBy: "l1", state: "connected", cwd: "/", createdAt: 1 },
+      ],
+    } as never);
+    expect(openSessionMessageInSide("l1", Promise.resolve({ messageId: "m-1", threadKey: "t-3" }))).toBe(false);
+    const shown = showMainView("l1", "main");
+    const jump = () => [
+      useStore.getState().scrollToMessageId.get("l1"),
+      useStore.getState().scrollToMessageFeed.get("l1"),
+    ];
+    try {
+      // A message in a thread opens that thread, and its pane jumps to the message.
+      expect(openSessionMessageInSide("l1", Promise.resolve({ messageId: "m-1", threadKey: "T-3" }))).toBe(true);
+      await vi.waitFor(() => expect(keys()).toEqual(["t-3"]));
+      expect(jump()).toEqual(["m-1", sideConversationFeedKey("l1", "t-3")]);
+      // A leader's Main message opens in its leader log, as the main view shows it, not its Home.
+      openSessionMessageInSide("l1", Promise.resolve({ messageId: "m-2" }));
+      await vi.waitFor(() => expect(keys()).toEqual(["all", "t-3"]));
+      expect(jump()).toEqual(["m-2", sideConversationFeedKey("l1", "all")]);
+      // A worker's message opens in its conversation.
+      openSessionMessageInSide("w1", Promise.resolve({ messageId: "m-3" }));
+      await vi.waitFor(() => expect(items()[0]).toEqual(expect.objectContaining({ kind: "session", sessionId: "w1" })));
+      expect(useStore.getState().scrollToMessageFeed.get("w1")).toBe(sideSessionFeedKey("w1"));
+      // A message that can't be found opens its session, as a link to the session does.
+      openSessionMessageInSide("l1", Promise.reject(new Error("gone")));
+      await vi.waitFor(() => expect(items()[0]).toEqual(expect.objectContaining({ kind: "home", leaderId: "l1" })));
+    } finally {
+      shown();
+    }
+  });
+
+  it("opens a linked message clicked in a side pane in that pane once it is found", async () => {
+    // The message is found after the click is handled, when the pane click is no longer noted.
+    const shown = showMainView("l1", "main");
+    useStore.setState({
+      sdkSessions: [{ sessionId: "l1", isOrchestrator: true, state: "connected", cwd: "/", createdAt: 1 }],
+    } as never);
+    try {
+      const pane = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+      openInSide({ kind: "conversation", threadKey: "q-4", leaderId: "l1" });
+      let found!: (target: { messageId: string; threadKey: string }) => void;
+      notePaneClick(pane, { shiftKey: false, altKey: false, metaKey: false, ctrlKey: false });
+      expect(openSessionMessageInSide("l1", new Promise((resolve) => (found = resolve)))).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      found({ messageId: "m-9", threadKey: "q-7" });
+      await vi.waitFor(() => expect(keys()).toEqual(["q-4", "q-7"]));
+      expect(items()[1].id).toBe(pane);
+      expect(useStore.getState().scrollToMessageFeed.get("l1")).toBe(sideConversationFeedKey("l1", "q-7"));
     } finally {
       shown();
     }

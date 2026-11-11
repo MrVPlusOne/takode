@@ -1,4 +1,10 @@
-import { handleOpenInSideClick, openInSideOnScreen, openSessionInSide } from "../utils/side-column.js";
+import {
+  handleOpenInSideClick,
+  openInSideOnScreen,
+  openSessionInSide,
+  openSessionMessageInSide,
+  type SessionMessageTarget,
+} from "../utils/side-column.js";
 import { useRef, useMemo, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
@@ -112,15 +118,23 @@ export function SessionInlineLink({
         : `Open session ${sessionLabel}`
     : `${sessionLabel} not found`;
 
+  /** The linked message's stable ID and thread; null when it can't be found. */
+  async function resolveMessageTarget(): Promise<SessionMessageTarget | null> {
+    if (!resolvedSessionId || messageIndex == null) return null;
+    const message = await api.fetchMessagePreview(resolvedSessionId, messageIndex);
+    if (!message?.id) return null;
+    const threadKey = threadKeyForMessageLinkTarget(message);
+    return { messageId: message.id, ...(threadKey ? { threadKey } : {}) };
+  }
+
   async function navigateToResolvedMessageTarget() {
     if (!resolvedSessionId || messageIndex == null) return;
     try {
-      const message = await api.fetchMessagePreview(resolvedSessionId, messageIndex);
-      if (message?.id) {
-        const targetThreadKey = threadKeyForMessageLinkTarget(message);
-        navigateToSessionMessageId(resolvedSessionId, message.id, {
+      const target = await resolveMessageTarget();
+      if (target) {
+        navigateToSessionMessageId(resolvedSessionId, target.messageId, {
           routeSessionId: routeSessionRef ?? resolvedSessionId,
-          ...(targetThreadKey ? { threadKey: targetThreadKey, preserveMainThreadRoute: true } : {}),
+          ...(target.threadKey ? { threadKey: target.threadKey, preserveMainThreadRoute: true } : {}),
         });
         return;
       }
@@ -148,16 +162,18 @@ export function SessionInlineLink({
             }
             onNavigate?.();
           };
-          // The open-in-side click shows the session's conversation (a leader's thread as that thread)
-          // in the side column, as a plain click shows it in the main view.
+          // The open-in-side click shows in the side column what a plain click shows in the main view:
+          // the linked message in its thread, a leader's thread as that thread, else the session.
           const openInSideColumn = () =>
-            threadKey
-              ? openInSideOnScreen({
-                  kind: "conversation",
-                  threadKey: threadKey.toLowerCase(),
-                  leaderId: resolvedSessionId,
-                })
-              : openSessionInSide(resolvedSessionId);
+            messageIndex != null
+              ? openSessionMessageInSide(resolvedSessionId, resolveMessageTarget())
+              : threadKey
+                ? openInSideOnScreen({
+                    kind: "conversation",
+                    threadKey: threadKey.toLowerCase(),
+                    leaderId: resolvedSessionId,
+                  })
+                : openSessionInSide(resolvedSessionId);
           if (e.button === 0 && handleOpenInSideClick(e, openInSideColumn, open)) return;
           open();
         }}

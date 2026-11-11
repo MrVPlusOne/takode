@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { setTopicPanelOpen, setTopicSheetOpen } from "./topic-panel.js";
 import { readDisplayedLeaderThreadKey } from "./thread-viewport.js";
-import { ALL_THREADS_KEY, MAIN_THREAD_KEY } from "./thread-projection.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
+import { threadForMessagesOf } from "./leader-topics.js";
 import { useStore } from "../store.js";
 import { platformIsMac } from "../shortcuts.js";
 import type { OpenInSideModifier } from "../../shared/shortcut-settings.js";
@@ -299,9 +300,13 @@ export function focusSideItem(id: string): void {
  * it, scrolls the column to it and shows the column (on phones, its sheet).
  */
 export function openInSide(opened: SideItemInput): string {
+  return openInSideFrom(paneClick?.itemId ?? null, opened);
+}
+
+/** `openInSide` for a click made in `pane` (a side column item's ID, or null for elsewhere). */
+function openInSideFrom(pane: string | null, opened: SideItemInput): string {
   const input = asSideTarget(opened);
   // A link clicked in one of the column's panes opens in that pane, in place of what it showed.
-  const pane = paneClick?.itemId ?? null;
   if (pane && useSideColumnStore.getState().items.some((item) => item.id === pane)) {
     replaceSideItem(pane, input);
     focusSideItem(pane);
@@ -621,6 +626,49 @@ export function openQuestInSide(questId: string): boolean {
 export function openSessionInSide(sessionId: string): boolean {
   const leader = leaderOfSession(sessionId) === sessionId;
   return openInSideOnScreen(leader ? { kind: "home", leaderId: sessionId } : { kind: "session", sessionId });
+}
+
+/** A message of a session's conversation: its ID and the thread it belongs to (none: its Main). */
+export interface SessionMessageTarget {
+  messageId: string;
+  threadKey?: string;
+}
+
+/**
+ * Opens a message of a session's conversation in the side column, in the thread it belongs to (a
+ * leader's Main messages in its leader log, as the main view shows them), scrolled to it; false when
+ * there is no side column on screen. `target` finds the message after the click, so the pane the
+ * click was made in is noted now and the message opens in place of it. With no message found, the
+ * session opens as `openSessionInSide` opens it.
+ */
+export function openSessionMessageInSide(sessionId: string, target: Promise<SessionMessageTarget | null>): boolean {
+  if (!sideColumnOnScreen()) return false;
+  const pane = paneClick?.itemId ?? null;
+  target
+    .catch((error: unknown) => {
+      console.warn("[side-column] Could not find a linked message; opening its session:", error);
+      return null;
+    })
+    .then((found) => openMessageFrom(pane, sessionId, found));
+  return true;
+}
+
+function openMessageFrom(pane: string | null, sessionId: string, found: SessionMessageTarget | null): void {
+  const leader = leaderOfSession(sessionId) === sessionId;
+  if (!found) {
+    openInSideFrom(pane, leader ? { kind: "home", leaderId: sessionId } : { kind: "session", sessionId });
+    return;
+  }
+  const threadKey = normalizeThreadKey(threadForMessagesOf(sessionId, found.threadKey ?? MAIN_THREAD_KEY));
+  const feedKey = leader ? sideConversationFeedKey(sessionId, threadKey) : sideSessionFeedKey(sessionId);
+  openInSideFrom(
+    pane,
+    leader ? { kind: "conversation", threadKey, leaderId: sessionId } : { kind: "session", sessionId },
+  );
+  // The pane's feed jumps to the message once it shows it, loading the message's window if needed.
+  const store = useStore.getState();
+  store.requestScrollToMessage(sessionId, found.messageId, feedKey);
+  store.setExpandAllInTurn(sessionId, found.messageId);
 }
 
 /** Whether something can open in the side column now: a conversation is on screen. */

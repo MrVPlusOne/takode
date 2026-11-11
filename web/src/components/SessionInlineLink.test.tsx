@@ -134,4 +134,44 @@ describe("SessionInlineLink", () => {
       localStorage.clear();
     }
   });
+
+  it("opens a linked message in its thread in the side column on Shift-click", async () => {
+    // Jiayi (Nov 10): Shift-clicking a link to a Daily Leader draft opened the leader's Home in the
+    // side column, not the draft a plain click shows in the main view.
+    useStore
+      .getState()
+      .setSdkSessions([
+        { sessionId: "leader-1", sessionNum: 1, state: "connected", cwd: "/repo", createdAt: 1, isOrchestrator: true },
+      ] as any);
+    mockFetchMessagePreview.mockResolvedValue({
+      id: "draft-msg",
+      role: "assistant",
+      content: "draft",
+      timestamp: 1,
+      metadata: { threadKey: "t-12" },
+    });
+    useStore.setState({ currentSessionId: "leader-1" });
+    const mainView = showMainView("leader-1", "main");
+    const hashBefore = window.location.hash;
+    try {
+      render(
+        <SessionInlineLink sessionId="leader-1" messageIndex={23925}>
+          draft
+        </SessionInlineLink>,
+      );
+      expect(fireEvent.click(screen.getByRole("link", { name: "draft" }), { shiftKey: true })).toBe(false);
+      await waitFor(() =>
+        expect(useSideColumnStore.getState().items).toEqual([
+          expect.objectContaining({ kind: "conversation", threadKey: "t-12", leaderId: "leader-1" }),
+        ]),
+      );
+      expect(mockFetchMessagePreview).toHaveBeenCalledWith("leader-1", 23925);
+      expect(useStore.getState().scrollToMessageId.get("leader-1")).toBe("draft-msg");
+      expect(window.location.hash).toBe(hashBefore);
+    } finally {
+      mainView();
+      useSideColumnStore.setState({ items: [], focus: undefined, focusAt: undefined });
+      localStorage.clear();
+    }
+  });
 });
