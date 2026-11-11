@@ -15,7 +15,15 @@ import { celebrationAnchor, playCheckPop, usePlayOnArrival } from "./completion-
 import { playScenicMoment } from "../scenic/scenic-moments.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { InjectedMessageChip, InjectedMessageRow } from "./InjectedMessageChip.js";
-import { BookIcon, LandingIcon, LockIcon, RestartIcon, TerminalIcon, WarningIcon } from "./InjectedMessageIcons.js";
+import {
+  BookIcon,
+  ChatIcon,
+  LandingIcon,
+  LockIcon,
+  RestartIcon,
+  TerminalIcon,
+  WarningIcon,
+} from "./InjectedMessageIcons.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import {
@@ -161,5 +169,6 @@ function SystemReminderIcon({ kind }: { kind: SystemReminderViewModel["kind"] })
   if (kind === "long-sleep-guard" || kind === "session-recovery" || kind === "memory-guard") return <WarningIcon />;
   if (kind === "skills-changed") return <BookIcon />;
   if (kind === "command-finished") return <TerminalIcon />;
+  if (kind === "slack-updates") return <ChatIcon />;
   return <RestartIcon />;
 }

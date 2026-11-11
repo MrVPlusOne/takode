@@ -44,6 +44,11 @@ export function TerminalIcon() {
   return <StrokeIcon d={["M2.5 3.5h11v9h-11v-9z", "M5 6.5l2 1.5-2 1.5", "M8.5 10H11"]} />;
 }
 
+/** A speech bubble with lines of text: messages in a chat conversation. */
+export function ChatIcon() {
+  return <StrokeIcon d={["M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2v-7z", "M5 6h6M5 8.25h4"]} />;
+}
+
 /** An open book: skill text. */
 export function BookIcon() {
   return (

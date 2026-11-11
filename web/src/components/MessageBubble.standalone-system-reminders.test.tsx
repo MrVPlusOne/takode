@@ -5,6 +5,7 @@ import type { ChatMessage } from "../types.js";
 import { useStore } from "../store.js";
 import { STOPPED_BACKGROUND_TASKS_SOURCE } from "../../shared/injected-event-message.js";
 import { stoppedBackgroundTasksNotice } from "../../shared/stopped-background-tasks.js";
+import { formatSlackUpdatesNotice, SLACK_UPDATES_SOURCE } from "../../shared/slack-updates.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
 const markNotificationDoneMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -450,5 +451,34 @@ describe("MessageBubble standalone system reminder messages", () => {
 
     fireEvent.click(chip);
     expect(screen.getByText(/Load again only/)).toBeTruthy();
+  });
+
+  it("renders a Slack updates notice as a chip naming the conversations", () => {
+    // New Slack messages attached to a session's next input. The chip names the
+    // conversations and how many messages arrived; the messages themselves and
+    // the channel IDs the agent needs to re-read stay in the detail.
+    const msg = makeMessage({
+      content: formatSlackUpdatesNotice([
+        {
+          channelId: "C0AMX973N8P",
+          threadTs: "1793914798.906149",
+          label: "eval proposal",
+          messages: [{ ts: "1794358314.762619", author: "Weixin Wu", time: "16:51 PST", text: "Let's do both." }],
+          omitted: 1,
+        },
+      ]),
+      agentSource: SLACK_UPDATES_SOURCE,
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByTestId("standalone-system-reminder-chip");
+    expect(chip.getAttribute("data-chip-kind")).toBe("slack-updates");
+    expect(chip.textContent).toContain("Slack updates · eval proposal");
+    expect(chip.textContent).toContain("2 new");
+    expect(chip.textContent).not.toContain("C0AMX973N8P");
+
+    fireEvent.click(chip);
+    expect(screen.getByText(/Let's do both/)).toBeTruthy();
   });
 });

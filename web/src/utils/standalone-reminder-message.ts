@@ -16,6 +16,7 @@ import {
 import { HOST_EXEC_MESSAGE_SOURCE, HOST_EXEC_MESSAGE_TAG } from "../../shared/host-exec.js";
 import { MEMORY_GUARD_MESSAGE_SOURCE, MEMORY_GUARD_MESSAGE_TAG } from "../../shared/memory-guard.js";
 import { stripInlineMarkdown } from "../../shared/markdown-plain-text.js";
+import { SLACK_UPDATES_SOURCE, SLACK_UPDATES_TAG } from "../../shared/slack-updates.js";
 
 export type SystemReminderKind =
   | "resource-lease"
@@ -26,7 +27,8 @@ export type SystemReminderKind =
   | "skills-changed"
   | "command-finished"
   | "memory-guard"
-  | "stopped-background-tasks";
+  | "stopped-background-tasks"
+  | "slack-updates";
 
 /** Color of a chip: good news, something that needs a look, or neutral system info. */
 export type SystemReminderTone = "success" | "attention" | "info";
@@ -67,7 +69,8 @@ export function isStandaloneReminderMessage(message: ReminderCandidate): boolean
     sourceId === SKILL_CHANGE_NOTICE_SOURCE_ID ||
     sourceId === HOST_EXEC_MESSAGE_SOURCE.sessionId ||
     sourceId === MEMORY_GUARD_MESSAGE_SOURCE.sessionId ||
-    sourceId === STOPPED_BACKGROUND_TASKS_SOURCE.sessionId
+    sourceId === STOPPED_BACKGROUND_TASKS_SOURCE.sessionId ||
+    sourceId === SLACK_UPDATES_SOURCE.sessionId
   );
 }
 
@@ -105,6 +108,7 @@ export function buildSystemReminderViewModel(message: ReminderCandidate): System
   if (sourceId === MEMORY_GUARD_MESSAGE_SOURCE.sessionId) return buildMemoryGuardReminder(message.content);
   if (sourceId === STOPPED_BACKGROUND_TASKS_SOURCE.sessionId)
     return buildStoppedBackgroundTasksReminder(message.content);
+  if (sourceId === SLACK_UPDATES_SOURCE.sessionId) return buildSlackUpdatesReminder(message.content);
   return null;
 }
 
@@ -256,6 +260,27 @@ function buildStoppedBackgroundTasksReminder(content: string): SystemReminderVie
     tone: "attention",
     detailFacts: [],
     detailContent: content,
+  };
+}
+
+/**
+ * The notice starts "[Slack updates] 3 new messages in 2 Slack conversations
+ * ..." and names each conversation in a "### Thread: <first line>" heading;
+ * the chip shows the conversations with the message count beside them.
+ */
+function buildSlackUpdatesReminder(content: string): SystemReminderViewModel {
+  const body = content.startsWith(SLACK_UPDATES_TAG) ? content.slice(SLACK_UPDATES_TAG.length).trimStart() : content;
+  const count = body.match(/^(\d+) new messages?\b/)?.[1];
+  const labels = [...body.matchAll(/^### (?:Thread|Direct messages): (.+)$/gm)].map((match) => match[1]);
+  return {
+    kind: "slack-updates",
+    title: "Slack updates",
+    summary: labels.length > 0 ? labels.join(", ") : (body.split(/\r?\n/, 1)[0] ?? ""),
+    ...(count ? { meta: `${count} new` } : {}),
+    badge: "slack",
+    tone: "info",
+    detailFacts: [],
+    detailContent: body,
   };
 }
 

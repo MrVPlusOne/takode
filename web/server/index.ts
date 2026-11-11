@@ -159,6 +159,8 @@ import { ensureTakodeIntegration } from "./takode-integration.js";
 import { ensureBuiltInQuestJourneyPhaseData } from "./quest-journey-phases.js";
 import { ensureSkillSymlinks, GLOBAL_SKILL_SLUGS } from "./skill-symlink.js";
 import { recordSkillVersions } from "./skill-change-notice.js";
+import { startSlackConversationWatch } from "./slack-conversation-watch.js";
+import { openClaudeSlackReader } from "./slack-reader.js";
 import { runPreListenStartupReadiness } from "./startup-readiness.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
 import { RelaunchQueue } from "./relaunch-queue.js";
@@ -720,6 +722,11 @@ await recordSkillVersions({
 }).catch((error) => serverLog.error("Recording skill versions failed", { error: String(error) }));
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
+await startSlackConversationWatch({
+  statePath: join(homedir(), ".companion", "slack-watch", `${serverId}.json`),
+  openReader: openClaudeSlackReader,
+  isSessionActive: (id) => !!launcher.getSession(id) && !launcher.getSession(id)?.archived,
+});
 // Once: quest notes written before machine stamps existed get the machine their session ran on.
 void stampQuestMachines({ coordinatorMachine: thisMachine.name }).catch((error) =>
   serverLog.error("Stamping existing quest notes with machine names failed", { error: String(error) }),

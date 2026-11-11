@@ -180,6 +180,7 @@ import {
 } from "./bridge/session-registry-controller.js";
 import { isDuplicateCodexAssistantReplay as isDuplicateCodexAssistantReplayController } from "./bridge/codex-assistant-replay-dedup.js";
 import { wakeDueThreadReminders } from "./bridge/thread-reminders.js";
+import { recordSlackReads } from "./slack-conversation-watch.js";
 import { markCodexTurnRecoveryActionRequired } from "./bridge/codex-interrupted-turn-recovery.js";
 import { codexReasoningSnapshotFields } from "./bridge/codex-reasoning-preview-state.js";
 import { createClaudeMessageHandlers as createClaudeMessageHandlersController } from "./bridge/claude-message-controller.js";
@@ -1698,6 +1699,7 @@ export class WsBridge {
     session: Session,
     toolResults: Array<Extract<ContentBlock, { type: "tool_result" }>>,
   ): ToolResultPreview[] {
+    recordSlackReads(session, toolResults, deriveActiveTurnRouteBrowserTransportController(session));
     return buildToolResultPreviewsController(session, toolResults, this.getToolResultRecoveryDeps());
   }
 

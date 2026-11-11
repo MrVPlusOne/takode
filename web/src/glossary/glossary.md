@@ -33,6 +33,7 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 - **Landing queue**: on a shared branch, waiting changes are tested together and landed, so workers are free as soon as they submit.
 - **Memory notes**: Git-tracked Markdown notes that later sessions read before related work. There is no hidden model memory.
 - **Timer**: a session's reminder to itself, once or repeating. A timer with a check runs a command on schedule and wakes the session only when the command says the awaited thing happened, plus every tenth check or so with its latest result, so a waiting agent costs nothing in between.
+- **Slack updates**: when a Slack conversation an agent read gets new messages, Takode adds them to the next message that agent gets, for a week after its last read. It never wakes an agent for them.
 - **Lease**: a turn on a shared resource such as a dev server, the browser or a machine's capacity for builds and checks, held by a session or by one of its running commands, so agents don't collide. Leases are customizable: ask a leader or worker to add a new kind, such as one for heavy test runs on a machine, to bound how much runs at once.
 
 ## What needs you

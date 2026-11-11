@@ -34,6 +34,7 @@ import {
   PlaygroundLandingQueueMessage,
   PlaygroundSessionRecoveryMessage,
   PlaygroundSkillChangeMessage,
+  PlaygroundSlackUpdatesMessage,
 } from "./SystemNoticePlaygroundStates.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
 import { MarkdownContent } from "../MarkdownContent.js";
@@ -740,6 +741,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Background tasks stopped with the process">
             <PlaygroundStoppedBackgroundTasksMessage />
+          </Card>
+          <Card label="Slack updates attached to the next input">
+            <PlaygroundSlackUpdatesMessage />
           </Card>
           <Card label="Thread outcome reminder (collapsed chip)">
             <PlaygroundThreadOutcomeReminderMessage />

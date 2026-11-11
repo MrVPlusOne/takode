@@ -1,8 +1,9 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
-import { access, readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { readClaudeCredentialStore } from "./claude-credentials.js";
 
 export interface UsageLimits {
   five_hour: { utilization: number; resets_at: string | null } | null;
@@ -30,65 +31,15 @@ interface OAuthCredentials {
   [key: string]: unknown;
 }
 
-function getStdoutString(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (Buffer.isBuffer(result)) return result.toString("utf-8");
-  if (
-    result &&
-    typeof result === "object" &&
-    "stdout" in result &&
-    typeof (result as { stdout?: unknown }).stdout === "string"
-  ) {
-    return (result as { stdout: string }).stdout;
-  }
-  if (
-    result &&
-    typeof result === "object" &&
-    "stdout" in result &&
-    Buffer.isBuffer((result as { stdout?: unknown }).stdout)
-  ) {
-    return (result as { stdout: Buffer }).stdout.toString("utf-8");
-  }
-  return "";
-}
-
 async function readRawCredentials(): Promise<{
   raw: string;
   parsed: Record<string, unknown>;
   oauth: OAuthCredentials;
 } | null> {
-  try {
-    if (process.platform !== "darwin") {
-      // Windows and Linux: read from credentials file
-      const home = process.env.USERPROFILE || process.env.HOME || homedir() || "";
-      const credPath = join(home, ".claude", ".credentials.json");
-      try {
-        await access(credPath);
-      } catch {
-        return null;
-      }
-      const raw = await readFile(credPath, "utf-8");
-      const parsed = JSON.parse(raw);
-      if (!parsed?.claudeAiOauth?.accessToken) return null;
-      return { raw, parsed, oauth: parsed.claudeAiOauth };
-    }
-
-    // macOS: use Keychain
-    const raw = getStdoutString(
-      await execFilePromise("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], {
-        encoding: "utf-8",
-        timeout: 5000,
-      }),
-    ).trim();
-
-    const decoded = raw.startsWith("{") ? raw : Buffer.from(raw, "hex").toString("utf-8");
-
-    const parsed = JSON.parse(decoded);
-    if (!parsed?.claudeAiOauth?.accessToken) return null;
-    return { raw: decoded, parsed, oauth: parsed.claudeAiOauth };
-  } catch {
-    return null;
-  }
+  const store = await readClaudeCredentialStore();
+  const oauth = store?.parsed.claudeAiOauth as OAuthCredentials | undefined;
+  if (!store || !oauth?.accessToken) return null;
+  return { ...store, oauth };
 }
 
 async function writeCredentials(creds: Record<string, unknown>): Promise<void> {
