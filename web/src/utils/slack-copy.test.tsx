@@ -143,6 +143,70 @@ describe("copying a message for Slack", () => {
     messageCopyForSlack(content);
     expect(content.innerHTML).toBe(before);
   });
+
+  it("carries underline in the HTML and drops it from the Markdown text, which has no underline", () => {
+    // Drafts write Slack's bold-underlined titles as **<u>TL;DR</u>**. Slack's Markdown paste shows <u> as
+    // typed, so the plain text keeps only the bold.
+    const copy = messageCopyForSlack(rendered("**<u>TL;DR</u>**\nReady for review."));
+    expect(copy.html).toBe("<p><b><u>TL;DR</u></b><br>Ready for review.</p>");
+    expect(copy.plain).toBe("**TL;DR**  \nReady for review.");
+  });
+
+  it("writes Slack's own format, a Quill delta, with every format as Slack's composer copies it", () => {
+    // Slack desktop pastes slack/texty exactly: a paste test confirmed bold-underlined titles, tight lists,
+    // links, inline code, italic, strikethrough, a nested bullet, a numbered list, a quote and a code block.
+    // Each line ends in a newline carrying the line's format; a break inside a list item becomes a space,
+    // since a Slack list item holds no line break.
+    const text = [
+      "**<u>TL;DR</u>**",
+      "A [link](https://example.com/a), `code`, *italic*, ~~strike~~.",
+      "- First",
+      "  second line",
+      "  - Nested",
+      "1. Step",
+      "",
+      "> Quoted",
+      "",
+      "```",
+      "run it",
+      "",
+      "again",
+      "```",
+      "Last line.",
+    ].join("\n");
+    const { texty } = messageCopyForSlack(rendered(text));
+    expect(JSON.parse(texty!).ops).toEqual([
+      { insert: "TL;DR", attributes: { bold: true, underline: true } },
+      { insert: "\n" },
+      { insert: "A " },
+      { insert: "link", attributes: { link: "https://example.com/a" } },
+      { insert: ", " },
+      { insert: "code", attributes: { code: true } },
+      { insert: ", " },
+      { insert: "italic", attributes: { italic: true } },
+      { insert: ", " },
+      { insert: "strike", attributes: { strike: true } },
+      { insert: "." },
+      { insert: "\n" },
+      { insert: "First" },
+      { insert: " " },
+      { insert: "second line" },
+      { insert: "\n", attributes: { list: "bullet" } },
+      { insert: "Nested" },
+      { insert: "\n", attributes: { list: "bullet", indent: 1 } },
+      { insert: "Step" },
+      { insert: "\n", attributes: { list: "ordered" } },
+      { insert: "Quoted" },
+      { insert: "\n", attributes: { blockquote: true } },
+      { insert: "run it" },
+      { insert: "\n", attributes: { "code-block": true } },
+      { insert: "\n", attributes: { "code-block": true } },
+      { insert: "again" },
+      { insert: "\n", attributes: { "code-block": true } },
+      { insert: "Last line." },
+      { insert: "\n" },
+    ]);
+  });
 });
 
 describe("copying a selection for Slack", () => {

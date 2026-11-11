@@ -190,6 +190,46 @@ describe("copyRichText", () => {
     // Restore
     (globalThis as any).ClipboardItem = origClipboardItem;
   });
+
+  it("writes custom types such as slack/texty through a copy event, ahead of other copy handlers", async () => {
+    // Only a copy event can put an app's own type on the clipboard; the Clipboard API must not run too,
+    // and a document-level copy handler (the portable selection copy) must not rewrite the data.
+    const data = new Map<string, string>();
+    const execCommand = vi.fn(() => {
+      const event = new Event("copy", { bubbles: true, cancelable: true });
+      Object.assign(event, { clipboardData: { setData: (type: string, value: string) => data.set(type, value) } });
+      document.body.dispatchEvent(event);
+      return true;
+    });
+    Object.assign(document, { execCommand });
+    const documentHandler = vi.fn();
+    document.addEventListener("copy", documentHandler);
+    const mockWrite = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { write: mockWrite, writeText: vi.fn() } });
+
+    await copyRichText("<b>Hello</b>", "**Hello**", { "slack/texty": '{"ops":[]}' });
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(Object.fromEntries(data)).toEqual({
+      "text/html": "<b>Hello</b>",
+      "text/plain": "**Hello**",
+      "slack/texty": '{"ops":[]}',
+    });
+    expect(documentHandler).not.toHaveBeenCalled();
+    expect(mockWrite).not.toHaveBeenCalled();
+    document.removeEventListener("copy", documentHandler);
+  });
+
+  it("falls back to the Clipboard API when the browser runs no copy event", async () => {
+    // Outside a click the browser refuses the copy command; the standard types still get copied.
+    Object.assign(document, { execCommand: vi.fn(() => false) });
+    const mockWrite = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { write: mockWrite, writeText: vi.fn() } });
+
+    await copyRichText("<b>Hello</b>", "Hello", { "slack/texty": '{"ops":[]}' });
+
+    expect(mockWrite).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("installPortableSelectionCopy", () => {

@@ -73,6 +73,7 @@ import {
 import { MAX_FILE_LINK_DOWNLOAD_BYTES } from "../../shared/file-link-download.js";
 import { wrapSpacedFileLinkDestinations } from "../utils/markdown-file-link-destinations.js";
 import { REMARK_GFM_OPTIONS } from "../utils/markdown-syntax.js";
+import { remarkUnderline } from "../utils/markdown-underline.js";
 import {
   ARTIFACT_PLACEHOLDER_LANGUAGE,
   parseArtifactLinkHref,
@@ -781,6 +782,7 @@ export const MarkdownContent = memo(function MarkdownContent({
       <Markdown
         remarkPlugins={[
           [remarkGfm, REMARK_GFM_OPTIONS],
+          remarkUnderline,
           remarkMath,
           remarkBreaks,
           remarkNormalizeOrderedListContinuations,
@@ -816,6 +818,7 @@ export const MarkdownContent = memo(function MarkdownContent({
           p: ({ children }) => <p className="mb-2.5 last:mb-0">{highlightChildren(children)}</p>,
           strong: ({ children }) => <strong className="font-semibold text-cc-fg">{highlightChildren(children)}</strong>,
           em: ({ children }) => <em className="italic">{highlightChildren(children)}</em>,
+          u: ({ children }) => <u>{highlightChildren(children)}</u>,
           h1: ({ children }) => (
             <h1 className="text-xl font-bold text-cc-fg mt-4 mb-2">{highlightChildren(children)}</h1>
           ),

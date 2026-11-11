@@ -972,6 +972,7 @@ export function PlaygroundOverviewSections() {
                 "Here's a draft for the T7 thread. Nothing has been posted:",
                 "",
                 "```draft",
+                "**<u>TL;DR</u>**",
                 "Quick update on **T7**: training is _healthy_ and evals start at `iter 2`.",
                 "- 384K context is on for training; evals stay at 256K",
                 "- Next check around **5 PM**",

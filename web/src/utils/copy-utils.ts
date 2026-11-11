@@ -51,6 +51,8 @@ export function writeClipboardText(text: string): Promise<void> {
   ta.select();
   try {
     document.execCommand("copy");
+  } catch (error) {
+    console.warn("Copy through a copy event failed:", error);
   } finally {
     document.body.removeChild(ta);
   }
@@ -104,8 +106,20 @@ async function imageAsPng(src: string): Promise<Blob> {
 /**
  * Copy rich text (HTML) to clipboard using the Clipboard API.
  * Falls back to plain text if the ClipboardItem API is unavailable.
+ * `custom` adds app-specific types, such as Slack's `slack/texty`, which only a copy event can write; the
+ * copy then goes through one, and through the Clipboard API without them when the browser runs no copy event.
  */
-export async function copyRichText(html: string, plainText: string): Promise<void> {
+export async function copyRichText(
+  html: string,
+  plainText: string,
+  custom: Record<string, string> = {},
+): Promise<void> {
+  if (
+    Object.keys(custom).length > 0 &&
+    copyThroughEvent({ "text/html": toPortableHtml(html), "text/plain": plainText, ...custom })
+  ) {
+    return;
+  }
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
     const item = new ClipboardItem({
       "text/html": new Blob([toPortableHtml(html)], { type: "text/html" }),
@@ -115,6 +129,32 @@ export async function copyRichText(html: string, plainText: string): Promise<voi
   } else {
     await writeClipboardText(plainText);
   }
+}
+
+/**
+ * Put every type on the clipboard through a copy event, the one way a page can write a type of its own: the
+ * Clipboard API takes only standard ones. Browsers run the event only during a click or key press. Returns
+ * whether it ran. The listener runs first and stops the event, so no other copy handler rewrites it.
+ */
+function copyThroughEvent(types: Record<string, string>): boolean {
+  if (typeof document.execCommand !== "function") return false;
+  let written = false;
+  const onCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    for (const [type, data] of Object.entries(types)) event.clipboardData.setData(type, data);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    written = true;
+  };
+  window.addEventListener("copy", onCopy, true);
+  try {
+    document.execCommand("copy");
+  } catch (error) {
+    console.warn("Copy through a copy event failed:", error);
+  } finally {
+    window.removeEventListener("copy", onCopy, true);
+  }
+  return written;
 }
 
 /**

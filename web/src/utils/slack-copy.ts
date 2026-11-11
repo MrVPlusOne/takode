@@ -11,6 +11,8 @@ const MARKDOWN_BODY_SELECTOR = ".markdown-body";
 export interface ClipboardPayload {
   plain: string;
   html?: string;
+  /** Slack's own clipboard format, which Slack desktop pastes exactly: a Quill delta as JSON. */
+  texty?: string;
   write: () => Promise<void>;
 }
 
@@ -41,19 +43,23 @@ export function selectionCopyForSlack(range: Range): ClipboardPayload {
 
 /**
  * Rewrite rendered HTML into the small set of formats Slack keeps on paste: bold, italic, strikethrough,
- * inline code, links, bulleted and numbered lists (nested), quotes and code blocks. Slack has no headings,
+ * underline, inline code, links, bulleted and numbered lists (nested), quotes and code blocks. Slack has no headings,
  * so a heading becomes a bold line; it flattens HTML tables into running text but keeps a `<pre>` as one
  * code block, so a table becomes a code block with its columns lined up. Classes, styles, controls and the
- * whitespace between tags are dropped, so nothing of Takode's layout reaches Slack. The plain text is the
- * same content as Markdown: Slack formats pasted text that looks like Markdown itself and then ignores the
- * HTML, so that text has to carry the links and formatting too.
+ * whitespace between tags are dropped, so nothing of Takode's layout reaches Slack.
+ *
+ * Slack desktop pastes its own clipboard format, `slack/texty`, ahead of the HTML and plain text, so the copy
+ * carries that too and Slack gets exactly these formats, with underline and tight lists. The plain text is
+ * the same content as Markdown for everything else, including Slack where the custom format doesn't reach it
+ * (Safari, phones): Slack formats pasted text that looks like Markdown itself and then ignores the HTML.
+ * Markdown has no underline, so that text drops it.
  */
 function slackCopyOf(source: HTMLElement): ClipboardPayload {
   // A source line break is a <br> plus the newline after it; the newline is not a space.
   const html = blockChildren(source).replace(/\s*<br>\s*/g, "<br>");
   const container = source.ownerDocument.createElement("div");
   container.innerHTML = html;
-  return payload(markdownBlocks(container), html);
+  return payload(markdownBlocks(container), html, slackTexty(container));
 }
 
 const INLINE_TAGS: Record<string, string> = {
@@ -64,6 +70,7 @@ const INLINE_TAGS: Record<string, string> = {
   DEL: "s",
   S: "s",
   STRIKE: "s",
+  U: "u",
 };
 
 const BLOCK_TAGS = new Set([
@@ -297,6 +304,83 @@ function markdownInline(node: Node): string {
   }
 }
 
+type DeltaAttributes = Record<string, string | number | true>;
+
+interface DeltaOp {
+  insert: string;
+  attributes?: DeltaAttributes;
+}
+
+const TEXTY_INLINE: Record<string, DeltaAttributes> = {
+  B: { bold: true },
+  I: { italic: true },
+  S: { strike: true },
+  U: { underline: true },
+  CODE: { code: true },
+};
+
+/**
+ * The Slack HTML as `slack/texty`, the Quill delta Slack's composer copies and pastes: text runs carry their
+ * inline formats, and every line ends in a newline that carries the line's format (a list item and its
+ * depth, a quote, a code block line). Lines follow each other with no empty line between them, as in the
+ * HTML. A list item holds no line break in Slack, so a break inside one becomes a space.
+ */
+function slackTexty(parent: Element): string {
+  const ops: DeltaOp[] = [];
+  for (const child of Array.from(parent.children)) textyBlock(child, ops, {});
+  return JSON.stringify({ ops });
+}
+
+function textyBlock(element: Element, ops: DeltaOp[], line: DeltaAttributes): void {
+  const endLine = (attributes: DeltaAttributes) =>
+    ops.push(Object.keys(attributes).length > 0 ? { insert: "\n", attributes } : { insert: "\n" });
+  switch (element.tagName) {
+    case "UL":
+    case "OL": {
+      const depth = line.list === undefined ? 0 : Number(line.indent ?? 0) + 1;
+      const item: DeltaAttributes = {
+        list: element.tagName === "OL" ? "ordered" : "bullet",
+        ...(depth > 0 ? { indent: depth } : {}),
+      };
+      for (const child of Array.from(element.children)) {
+        const nested: Element[] = [];
+        for (const node of Array.from(child.childNodes)) {
+          if (node instanceof Element && BLOCK_TAGS.has(node.tagName)) nested.push(node);
+          else textyInline(node, ops, {}, () => ops.push({ insert: " " }));
+        }
+        endLine(item);
+        for (const block of nested) textyBlock(block, ops, item);
+      }
+      return;
+    }
+    case "BLOCKQUOTE":
+      for (const child of Array.from(element.children)) textyBlock(child, ops, { blockquote: true });
+      return;
+    case "PRE":
+      for (const text of (element.textContent ?? "").split("\n")) {
+        if (text) ops.push({ insert: text });
+        endLine({ "code-block": true });
+      }
+      return;
+    default:
+      for (const node of Array.from(element.childNodes)) textyInline(node, ops, {}, () => endLine(line));
+      endLine(line);
+  }
+}
+
+function textyInline(node: Node, ops: DeltaOp[], attributes: DeltaAttributes, lineBreak: () => void): void {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = node.textContent ?? "";
+    if (text) ops.push(Object.keys(attributes).length > 0 ? { insert: text, attributes } : { insert: text });
+    return;
+  }
+  if (!(node instanceof Element)) return;
+  if (node.tagName === "BR") return lineBreak();
+  const own = node.tagName === "A" ? { link: node.getAttribute("href") ?? "" } : TEXTY_INLINE[node.tagName];
+  const inner = own ? { ...attributes, ...own } : attributes;
+  for (const child of Array.from(node.childNodes)) textyInline(child, ops, inner, lineBreak);
+}
+
 /** Inline code whose backticks outnumber any run inside it, padded when it starts or ends with one. */
 function codeSpan(text: string): string {
   const ticks = "`".repeat(longestBacktickRun(text) + 1);
@@ -313,10 +397,11 @@ function longestBacktickRun(text: string): number {
   return Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
 }
 
-function payload(plain: string, html?: string): ClipboardPayload {
+function payload(plain: string, html?: string, texty?: string): ClipboardPayload {
   return {
     plain,
     ...(html !== undefined ? { html } : {}),
-    write: () => copyRichText(html ?? escapeHtml(plain), plain),
+    ...(texty !== undefined ? { texty } : {}),
+    write: () => copyRichText(html ?? escapeHtml(plain), plain, texty ? { "slack/texty": texty } : {}),
   };
 }

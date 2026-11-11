@@ -1075,6 +1075,22 @@ describe("MarkdownContent quest links", () => {
     expect([...container.querySelectorAll("del")].map((node) => node.textContent)).toEqual(["this"]);
   });
 
+  it("underlines <u> spans, inside or around other formatting, and leaves other HTML as typed", () => {
+    // Drafts mark Slack's bold-underlined titles as **<u>TL;DR</u>**. Only a matched <u>...</u> pair in
+    // one span becomes an underline; a lone <u> and any other tag stay literal text.
+    const { container } = render(
+      <MarkdownContent text={"**<u>TL;DR</u>** then <u>*both*</u>\n\n- item <u>b</u> and <u>open\n\n<b>raw</b>"} />,
+    );
+
+    const underlined = [...container.querySelectorAll("u")];
+    expect(underlined.map((node) => node.textContent)).toEqual(["TL;DR", "both", "b"]);
+    expect(underlined[0].parentElement?.tagName).toBe("STRONG");
+    expect(underlined[1].querySelector("em")?.textContent).toBe("both");
+    expect(container.textContent).toContain("and <u>open");
+    expect(container.textContent).toContain("<b>raw</b>");
+    expect(container.querySelector("b")).toBeNull();
+  });
+
   it("opens explicit and standard HTML file links through native same-browser new-tab navigation", () => {
     // A real target=_blank anchor preserves browser popup, modifier, and keyboard semantics
     // without an async window.open call that can be blocked or duplicated.
