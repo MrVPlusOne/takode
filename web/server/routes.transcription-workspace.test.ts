@@ -109,26 +109,32 @@ describe("transcription workspace context", () => {
     expect(activity).not.toContain("Kestrel");
   });
 
-  it("gives comment voice input the same workspace terms", async () => {
+  it("gives comment voice input the same workspace context and its own conversation", async () => {
     const context = { activeId: "active", selectedText: "the job", mainComposerText: "", otherAnnotations: [] };
     const sent = await transcribe({ annotationContext: JSON.stringify(context), composerText: "" });
     expect(sent.getAll("keywords[]")).toEqual(expect.arrayContaining(["Wenxu", "Condor"]));
-    expect(String(sent.get("prompt"))).toContain('"recent_quests": "Recent quests: Analyze seeded-QA signals"');
+    const prompt = String(sent.get("prompt"));
+    expect(prompt).toContain("Recent quests: Analyze seeded-QA signals");
+    expect(prompt).toContain("<COMMENTED_TEXT>\nthe job\n</COMMENTED_TEXT>");
+    expect(prompt).toContain("Notes in my own thread about Kestrel");
   });
 
-  it("leaves the user's vocabulary out of the terms, and rebuilds them when it changes", async () => {
-    // Comment voice input shows the terms on their own (key_terms), apart from the user's vocabulary.
-    const context = { activeId: "active", selectedText: "the job", mainComposerText: "", otherAnnotations: [] };
-    const comment = { annotationContext: JSON.stringify(context), composerText: "" };
-    expect(String((await transcribe(comment)).get("prompt"))).toContain(
-      '"key_terms": "seeded-QA, Kestrel, Wenxu, Condor"',
-    );
+  it("leaves the user's vocabulary out of the terms, puts the current topic first, and rebuilds on change", async () => {
+    // Settings vocabulary leads; Kestrel is in the dictated conversation, so it leads the workspace terms.
+    expect((await transcribe()).getAll("keywords[]")).toEqual([
+      "Takode",
+      "Yes",
+      "Kestrel",
+      "seeded-QA",
+      "Wenxu",
+      "Condor",
+    ]);
     const settings = settingsManager.getSettings();
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       ...settings,
       transcriptionConfig: { ...settings.transcriptionConfig, customVocabulary: "Takode, condor" },
     });
-    expect(String((await transcribe(comment)).get("prompt"))).toContain('"key_terms": "seeded-QA, Kestrel, Wenxu"');
+    expect((await transcribe()).getAll("keywords[]")).toEqual(["Takode", "condor", "Kestrel", "seeded-QA", "Wenxu"]);
   });
 
   it("reuses the quest titles and terms between dictations but reads recent activity fresh", async () => {

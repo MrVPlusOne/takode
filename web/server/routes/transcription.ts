@@ -1,9 +1,4 @@
-import {
-  readAnnotationVoiceContext,
-  buildAnnotationVoiceReference,
-  ANNOTATION_STT_INSTRUCTION,
-  type AnnotationVoiceContext,
-} from "../../shared/annotation-voice-context.js";
+import { readAnnotationVoiceContext, type AnnotationVoiceContext } from "../../shared/annotation-voice-context.js";
 import { Hono } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import {
@@ -18,8 +13,6 @@ import {
 import {
   enhanceTranscript,
   enhanceTranscriptFromReplayContext,
-  buildSttPrompt,
-  buildTranscriptionContext,
   addTranscriptionLogEntry,
   addTranscriptionReplayVariant,
   attachTranscriptionFrontendTiming,
@@ -34,6 +27,7 @@ import {
   type TranscriptionServerTiming,
   type TranscriptionUiTiming,
 } from "../transcription-enhancer.js";
+import { buildSttPrompt, buildTranscriptionContext } from "../transcription-prompts.js";
 import * as sessionNames from "../session-names.js";
 import { GPT_TRANSCRIBE_STT_MODEL, getSettings } from "../settings-manager.js";
 import type { RouteContext } from "./context.js";
@@ -49,8 +43,9 @@ import { listQuests } from "../quest-store.js";
 import { getQuestSessionSpaceSlug, normalizeQuestSessionSpaceSlug } from "../quest-session-space.js";
 import {
   buildWorkspaceVocabulary,
+  rankTermsFor,
   recentActivityLines,
-  workspaceReference,
+  sttVocabulary,
   ACTIVITY_HOURS,
   TERM_HOURS,
   type TranscriptionWorkspaceContext,
@@ -468,6 +463,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     return buildProjectedThreadEntries(history, threadKey).map((entry) => entry.message);
   }
 
+  /**
+   * The dictating session's context. A leader's conversation is cut to the dictated thread and keeps every
+   * reply (each one is addressed to the user); other sessions have one conversation, whatever thread key
+   * the browser sends.
+   */
   function getTranscriptionSessionContext(
     sessionId: string | undefined,
     threadKey: string | undefined,
@@ -476,6 +476,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     if (!sessionId) {
       return {
         messageHistory: null,
+        everyReply: false,
         taskHistory: [],
         sessionName: undefined,
         threadTitle: undefined,
@@ -484,9 +485,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     }
 
     const session = wsBridge.getSession(sessionId);
+    const leaderThread = launcher.getSession(sessionId)?.isOrchestrator ? threadKey : undefined;
     const activeSessionNames = getRecentSessionNames(sessionId, 20);
     return {
-      messageHistory: buildThreadScopedTranscriptionHistory(session?.messageHistory ?? null, threadKey),
+      messageHistory: buildThreadScopedTranscriptionHistory(session?.messageHistory ?? null, leaderThread),
+      everyReply: !!leaderThread,
       taskHistory: session?.taskHistory ?? [],
       sessionName: sessionNames.getName(sessionId),
       threadTitle,
@@ -655,7 +658,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       enhancementMode: config.enhancementMode ?? "default",
       model: config.enhancementModel || "gpt-5-mini",
       conversationContext: sessionContext.messageHistory
-        ? buildTranscriptionContext(sessionContext.messageHistory)
+        ? buildTranscriptionContext(sessionContext.messageHistory, { everyReply: sessionContext.everyReply })
         : "",
       extra,
     };
@@ -1209,26 +1212,27 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         const transcriptionConfig = settings.transcriptionConfig;
         const configuredSttModel = transcriptionConfig.sttModel || GPT_TRANSCRIBE_STT_MODEL;
         const usesGptTranscribeContext = backend === "openai" && configuredSttModel === GPT_TRANSCRIBE_STT_MODEL;
-        // A comment has no thread conversation in its prompts, so its own thread stays in the activity.
-        const workspace = await getTranscriptionWorkspace(
-          sessionId,
-          annotationContext ? undefined : (threadKey ?? "main"),
-        ).catch((error: unknown) => {
+        const sessionContext = getTranscriptionSessionContext(sessionId, threadKey, threadTitle);
+        // The dictated thread is left out of the activity: its conversation is in the prompts already.
+        const spaceContext = await getTranscriptionWorkspace(sessionId, threadKey ?? "main").catch((error: unknown) => {
           console.warn("[transcription] Workspace context unavailable:", error);
           return undefined;
         });
-        // Workspace terms join the user's own vocabulary: as keywords for gpt-transcribe, in the prompt otherwise.
-        const vocabulary =
-          [transcriptionConfig.customVocabulary, ...(workspace?.terms ?? [])].filter(Boolean).join(", ") || undefined;
+        // Terms of the current topic (the conversation, a comment's passage, the draft) come first.
+        const focusText = [
+          sessionContext.messageHistory
+            ? buildTranscriptionContext(sessionContext.messageHistory, { everyReply: sessionContext.everyReply })
+            : "",
+          annotationContext?.selectedText ?? "",
+          composerText ?? "",
+        ].join("\n");
+        const workspace = spaceContext && { ...spaceContext, terms: rankTermsFor(spaceContext.terms, focusText) };
+        // The leading workspace terms join the user's own vocabulary: as keywords for gpt-transcribe, in the prompt otherwise.
+        const vocabulary = sttVocabulary(transcriptionConfig.customVocabulary, workspace?.terms ?? []);
         const sanitizedKeywords = usesGptTranscribeContext
           ? sanitizeTranscriptionKeywords(vocabulary)
           : { keywords: [], droppedKeywordCount: 0 };
         const sttLanguageHints = usesGptTranscribeContext ? transcriptionConfig.sttLanguageHints || [] : [];
-        const sessionContext = getTranscriptionSessionContext(
-          annotationContext ? undefined : sessionId,
-          threadKey,
-          threadTitle,
-        );
         let sttPrompt = "";
         if (sessionId) {
           sttPrompt = buildSttPrompt({
@@ -1237,22 +1241,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             sessionName: sessionContext.sessionName,
             threadTitle: sessionContext.threadTitle,
             focusedContext,
+            annotationContext,
             activeSessionNames: sessionContext.activeSessionNames?.slice(0, 10),
             composerText: mode === "edit" || mode === "append" ? composerText : undefined,
             messageHistory: sessionContext.messageHistory,
+            everyReply: sessionContext.everyReply,
             customVocabulary: usesGptTranscribeContext ? undefined : vocabulary,
             workspace,
           });
-        }
-        if (annotationContext) {
-          sttPrompt =
-            ANNOTATION_STT_INSTRUCTION +
-            buildAnnotationVoiceReference(
-              annotationContext,
-              composerText ?? "",
-              usesGptTranscribeContext ? undefined : vocabulary,
-              workspaceReference(workspace),
-            ).text;
         }
         const sttContext = {
           promptLength: sttPrompt.length,
@@ -1407,6 +1403,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               threadTitle: sessionContext.threadTitle,
               focusedContext,
               activeSessionNames: sessionContext.activeSessionNames,
+              everyReply: sessionContext.everyReply,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
               workspace,
             },
@@ -1491,6 +1488,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               threadTitle: sessionContext.threadTitle,
               focusedContext,
               activeSessionNames: sessionContext.activeSessionNames,
+              everyReply: sessionContext.everyReply,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
               workspace,
             },
@@ -1573,6 +1571,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               threadTitle: sessionContext.threadTitle,
               focusedContext,
               activeSessionNames: sessionContext.activeSessionNames,
+              everyReply: sessionContext.everyReply,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
               workspace,
             },

@@ -66,6 +66,8 @@ export interface TranscriptionLogEntry extends Omit<TranscriptionLogIndexEntry, 
   };
   rawTranscript: string;
   sttPrompt: string;
+  /** What the speech-to-text request carried besides its prompt; only the keyword list is shown. */
+  sttReplayContext?: { keywords?: string[] };
   enhancement: {
     model: string;
     systemPrompt: string;

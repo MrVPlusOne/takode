@@ -178,6 +178,46 @@ describe("TranscriptionDebugPanel", () => {
     expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
+  it("shows the STT keyword list and a plain separator before the enhancement time", async () => {
+    // The keywords decide whether names are recognized, so the detail shows the list, not just its count.
+    // The header once rendered a literal "&middot;" inside a string.
+    mockApi.getTranscriptionLogs.mockResolvedValueOnce({
+      entries: [
+        {
+          id: 42,
+          recordingKey: "r_test-recording",
+          timestamp: Date.now(),
+          sessionId: "session-12345678",
+          mode: "dictation",
+          uploadDurationMs: 12,
+          sttModel: "gpt-transcribe",
+          sttDurationMs: 1100,
+          audioSizeBytes: 4096,
+          enhancement: {
+            model: "gpt-5.5",
+            durationMs: 2000,
+            enhancedTextPresent: true,
+          },
+        },
+      ],
+      nextCursor: null,
+      total: 1,
+    });
+    mockApi.getTranscriptionLogEntry.mockResolvedValueOnce({
+      ...(await mockApi.getTranscriptionLogEntry()),
+      sttModel: "gpt-transcribe",
+      sttReplayContext: { keywords: ["Takode", "Qingyu", "PRF"] },
+    });
+    render(<TranscriptionDebugPanel />);
+    fireEvent.click(screen.getByText("Show"));
+    fireEvent.click(await screen.findByText("gpt-transcribe"));
+
+    expect(await screen.findByText("Takode, Qingyu, PRF")).toBeInTheDocument();
+    expect(screen.getByText(/STT Keywords \(3, sent to gpt-transcribe\)/)).toBeInTheDocument();
+    expect(screen.getByText(/· Enh 2\.0s/)).toBeInTheDocument();
+    expect(screen.queryByText(/&middot;/)).not.toBeInTheDocument();
+  });
+
   it("exposes recording folder actions for path copy, open, and delete", async () => {
     render(<TranscriptionDebugPanel />);
 

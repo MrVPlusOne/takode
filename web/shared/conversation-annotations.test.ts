@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatAnnotatedMessage, readConversationAnnotations } from "./conversation-annotations.js";
-import {
-  ANNOTATION_STT_INSTRUCTION,
-  buildAnnotationEnhancementPrompt,
-  buildAnnotationVoiceReference,
-} from "./annotation-voice-context.js";
+import { buildAnnotationVoiceReference } from "./annotation-voice-context.js";
 
 const annotations = [
   { id: "first", selectedText: "quoted text 1", comment: "user's first comment" },
@@ -136,55 +132,48 @@ describe("conversation annotations", () => {
     expect(() => readConversationAnnotations([{ ...entry, threadKey: 7 }])).toThrow("unique ID");
   });
 
-  it("bounds only recognition/reference copies while keeping editable and spoken text complete", () => {
+  it("bounds the reference copy without touching the saved annotations", () => {
     const context = {
       activeId: "active",
       selectedText: "selected ".repeat(6000),
       mainComposerText: "main ".repeat(5000),
       otherAnnotations: annotations,
     };
-    const base = "editable ".repeat(5000);
     const original = JSON.stringify(context);
-    const hints = buildAnnotationVoiceReference(context, base);
+    const hints = buildAnnotationVoiceReference(context);
     expect(hints.shortened).toBe(true);
-    expect(ANNOTATION_STT_INSTRUCTION.length + hints.text.length).toBeLessThanOrEqual(10_000);
+    expect(hints.text.length).toBeLessThanOrEqual(9000);
     expect(hints.text).toContain("omitted from voice context");
-    const input = JSON.parse(buildAnnotationEnhancementPrompt(context, base, "change this word", "edit"));
-    expect(input.current_comment).toBe(base);
-    expect(input.transcript).toBe("change this word");
-    expect(input.reference.active_annotation).not.toHaveProperty("comment_draft");
+    expect(hints.text).toMatch(/^<COMMENTED_TEXT>[\s\S]*<MAIN_COMPOSER_TEXT>[\s\S]*<OTHER_COMMENTS>/);
+    // A smaller budget, as the speech-to-text prompt uses, is honored too.
+    expect(buildAnnotationVoiceReference(context, 2500).text.length).toBeLessThanOrEqual(2500);
     expect(JSON.stringify(context)).toBe(original);
   });
 
-  it("terminates with valid bounded JSON even when annotation labels exceed the hint budget", () => {
+  it("terminates within the budget even when annotation labels exceed it", () => {
     // The shrinking collection is the progress invariant for the unusual large-count path.
-    const hints = buildAnnotationVoiceReference(
-      {
-        activeId: "active",
-        selectedText: "quote",
-        mainComposerText: "",
-        otherAnnotations: Array.from({ length: 500 }, (_, index) => ({ ...annotations[0], id: String(index) })),
-      },
-      "",
-    );
+    const hints = buildAnnotationVoiceReference({
+      activeId: "active",
+      selectedText: "quote",
+      mainComposerText: "",
+      otherAnnotations: Array.from({ length: 500 }, (_, index) => ({ ...annotations[0], id: String(index) })),
+    });
     expect(hints.shortened).toBe(true);
     expect(hints.text.length).toBeLessThanOrEqual(9000);
-    expect(JSON.parse(hints.text).omitted_annotations).toBeGreaterThan(0);
+    expect(hints.text).toMatch(/\(\d+ more comments omitted\)/);
   });
 });
 
 // Display numbers remain stable when the active comment is excluded from read-only siblings.
 it("keeps original comment numbers in voice reference context", () => {
-  const hints = buildAnnotationVoiceReference(
-    {
-      activeId: "first",
-      activeNumber: 1,
-      selectedText: "quote",
-      mainComposerText: "",
-      otherAnnotations: [{ ...annotations[1], number: 2 }],
-    },
-    "draft",
-  );
-  expect(hints.reference.active_annotation.number).toBe(1);
-  expect(hints.reference.other_annotations[0].number).toBe(2);
+  const hints = buildAnnotationVoiceReference({
+    activeId: "first",
+    activeNumber: 1,
+    selectedText: "quote",
+    mainComposerText: "",
+    otherAnnotations: [{ ...annotations[1], number: 2 }],
+  });
+  expect(hints.text).toContain('<COMMENTED_TEXT comment="1">\nquote\n</COMMENTED_TEXT>');
+  expect(hints.text).toContain("Comment 2 on ");
+  expect(hints.text).not.toContain("<MAIN_COMPOSER_TEXT>");
 });

@@ -1474,6 +1474,8 @@ describe("POST /api/transcribe", () => {
   });
 
   it("uses selected quest-thread conversation context for STT and dictation enhancement", async () => {
+    // Thread-scoped conversation applies to leader sessions only.
+    launcher.getSession.mockReturnValue({ isOrchestrator: true } as never);
     mockVoiceSettings({ sttModel: "gpt-4o-mini-transcribe", customVocabulary: "Takode, WsBridge, SelectedCustomTerm" });
     vi.mocked(sessionNames.getName).mockReturnValue("Leader voice session");
     ensureBridgeSession(bridge, "session-1", {
@@ -1564,6 +1566,8 @@ describe("POST /api/transcribe", () => {
   });
 
   it("uses Main-local context when leader voice input requests the Main thread", async () => {
+    // Thread-scoped conversation applies to leader sessions only.
+    launcher.getSession.mockReturnValue({ isOrchestrator: true } as never);
     mockVoiceSettings({ enhancementEnabled: false });
     ensureBridgeSession(bridge, "session-1", {
       messageHistory: [
@@ -1602,6 +1606,8 @@ describe("POST /api/transcribe", () => {
   });
 
   it("keeps active Main-thread history available when recent Main activity has no transcription hints", async () => {
+    // Thread-scoped conversation applies to leader sessions only.
+    launcher.getSession.mockReturnValue({ isOrchestrator: true } as never);
     mockVoiceSettings({ enhancementEnabled: false });
     const recentNonHintMainActivity = Array.from({ length: 14 }, (_, index) => [
       {

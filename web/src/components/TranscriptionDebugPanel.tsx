@@ -463,7 +463,7 @@ export function TranscriptionDebugPanel({
                         {formatDuration(selectedIndexEntry.uploadDurationMs)} &middot; STT{" "}
                         {formatDuration(selectedIndexEntry.sttDurationMs)}
                         {selectedIndexEntry.enhancement && !selectedIndexEntry.enhancement.skipReasonCode
-                          ? ` &middot; Enh ${formatDuration(selectedIndexEntry.enhancement.durationMs)}`
+                          ? ` \u00b7 Enh ${formatDuration(selectedIndexEntry.enhancement.durationMs)}`
                           : ""}
                         {selectedIndexEntry.sessionId ? ` \u00b7 ${selectedIndexEntry.sessionId.slice(0, 8)}` : ""}
                       </span>
@@ -954,6 +954,18 @@ export function TranscriptionDebugPanel({
                         </span>
                         <pre className="mt-1 text-[12px] leading-relaxed text-cc-fg bg-cc-hover rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words font-mono">
                           {expandedEntry.sttPrompt}
+                        </pre>
+                      </div>
+                    )}
+
+                    {!!expandedEntry.sttReplayContext?.keywords?.length && (
+                      <div>
+                        <span className="text-[11px] uppercase tracking-wider text-cc-muted font-medium">
+                          STT Keywords ({expandedEntry.sttReplayContext.keywords.length}, sent to{" "}
+                          {expandedEntry.sttModel})
+                        </span>
+                        <pre className="mt-1 text-[12px] leading-relaxed text-cc-fg bg-cc-hover rounded-lg p-4 overflow-x-auto whitespace-pre-wrap break-words font-mono">
+                          {expandedEntry.sttReplayContext.keywords.join(", ")}
                         </pre>
                       </div>
                     )}

@@ -7,7 +7,6 @@
  * The key terms help most; the quest titles and activity lines are kept small because the
  * cleanup model is billed by input token (speech-to-text is billed by audio minute).
  */
-import type { AnnotationWorkspaceReference } from "../shared/annotation-voice-context.js";
 import type { ActivityThread } from "./activity-stream.js";
 import { COMMON_SPOKEN_WORDS } from "./common-spoken-words.js";
 
@@ -17,8 +16,13 @@ const QUEST_LIMIT = 25;
 /** Activity shown as text: the last day. Terms come from a longer window because they are short. */
 export const ACTIVITY_HOURS = 24;
 export const TERM_HOURS = 72;
-const ACTIVITY_LINE_CHARS = 400;
 const TERM_LIMIT = 100;
+/**
+ * The speech recognizer gets at most this many keywords (Settings vocabulary first). A long list dilutes
+ * it: replaying 12 past misheard-term dictations, 48 keywords got the term right in 13 of 24 runs and
+ * 108 in 8, and the colleague Qingyu came out "Chengyu's" or "Chainwise" with 108.
+ */
+const STT_KEYWORD_LIMIT = 48;
 /** Shorter terms (MB, AI, T7) are mostly noise a recognizer already handles. */
 const TERM_MIN_CHARS = 3;
 /** Longer tokens are file names or fragments, not words anyone says. */
@@ -27,15 +31,19 @@ const TERM_MAX_CHARS = 32;
 /** Rendered budgets. The speech-to-text prompt as a whole stays within its 10,000-character cap. */
 const QUEST_TITLE_CHARS = 1000;
 const STT_ACTIVITY_CHARS = 3000;
-const ENHANCER_ACTIVITY_CHARS = 3000;
-const ANNOTATION_ACTIVITY_CHARS = 2000;
+const STT_ACTIVITY_LINE_CHARS = 400;
+const ENHANCER_ACTIVITY_CHARS = 5000;
+const ENHANCER_ACTIVITY_LINE_CHARS = 1200;
 
 export interface TranscriptionWorkspaceContext {
   /** Titles of recently active or completed quests in the session's space, most recent first. */
   questTitles: string[];
-  /** The space's user messages and final answers from the last day, newest first, one line each. */
+  /** The space's user messages and final answers from the last day, newest first, one line each, links kept. */
   activity: string[];
-  /** Distinctive words from the quests and activity (names, acronyms, words with digits or joiners). */
+  /**
+   * Distinctive words from the quests and activity (names, acronyms, words with digits or joiners), most
+   * used first; per request, words of the current conversation are moved to the front.
+   */
   terms: string[];
 }
 
@@ -89,7 +97,8 @@ export function buildWorkspaceVocabulary(input: {
 }
 
 /**
- * The activity lines, newest first, from an activity stream over the last ACTIVITY_HOURS.
+ * The activity lines, newest first, from an activity stream over the last ACTIVITY_HOURS, with links as
+ * written: their text carries names. Each prompt cuts the lines to its own length.
  * `exclude` drops the thread being dictated into, whose conversation the prompts already carry.
  */
 export function recentActivityLines(
@@ -102,17 +111,14 @@ export function recentActivityLines(
     )
     .flatMap((thread) => thread.messages)
     .sort((a, b) => b.at - a.at)
-    .map(
-      (message) =>
-        `[${message.role === "user" ? "user" : "agent"}] ${oneLine(stripLinkTargets(message.text), ACTIVITY_LINE_CHARS)}`,
-    );
+    .map((message) => `[${message.role === "user" ? "user" : "agent"}] ${message.text.replace(/\s+/g, " ").trim()}`);
 }
 
 /** Speech-to-text lines: quest titles and activity, each within its budget (empty when there is none). */
 export function workspaceSttLines(context: TranscriptionWorkspaceContext | undefined) {
   return {
     questLine: questLine(context),
-    activityLines: withinBudget(context?.activity ?? [], STT_ACTIVITY_CHARS),
+    activityLines: withinBudget(context?.activity ?? [], STT_ACTIVITY_CHARS, STT_ACTIVITY_LINE_CHARS),
   };
 }
 
@@ -121,7 +127,7 @@ export function workspaceEnhancerBlocks(context: TranscriptionWorkspaceContext |
   const blocks: string[] = [];
   const quests = questLine(context);
   if (quests) blocks.push(`<RECENT_QUESTS>\n${quests}\n</RECENT_QUESTS>`);
-  const activity = withinBudget(context?.activity ?? [], ENHANCER_ACTIVITY_CHARS);
+  const activity = withinBudget(context?.activity ?? [], ENHANCER_ACTIVITY_CHARS, ENHANCER_ACTIVITY_LINE_CHARS);
   if (activity.length) {
     blocks.push(
       `<RECENT_ACTIVITY>\nRecent messages elsewhere in this workspace, newest first:\n${activity.join("\n")}\n</RECENT_ACTIVITY>`,
@@ -130,19 +136,28 @@ export function workspaceEnhancerBlocks(context: TranscriptionWorkspaceContext |
   return blocks;
 }
 
-/** The comment-voice reference fields: the same workspace context in JSON form. */
-export function workspaceReference(
-  context: TranscriptionWorkspaceContext | undefined,
-): AnnotationWorkspaceReference | undefined {
-  if (!context) return undefined;
-  const quests = questLine(context);
-  const activity = withinBudget(context.activity, ANNOTATION_ACTIVITY_CHARS);
-  if (!quests && !activity.length && !context.terms.length) return undefined;
-  return {
-    ...(context.terms.length ? { key_terms: context.terms.join(", ") } : {}),
-    ...(quests ? { recent_quests: quests } : {}),
-    ...(activity.length ? { recent_activity: activity } : {}),
+/**
+ * Move the terms that appear in `focusText` (the conversation being dictated into, a comment's passage) to
+ * the front, keeping the order within each group: the words of the current topic are the likeliest to be said.
+ */
+export function rankTermsFor(terms: ReadonlyArray<string>, focusText: string): string[] {
+  const focus = focusText.toLowerCase();
+  const inFocus = (term: string) => {
+    const at = focus.indexOf(term.toLowerCase());
+    return at >= 0 && !/[a-z0-9]/.test(focus[at - 1] ?? "") && !/[a-z0-9]/.test(focus[at + term.length] ?? "");
   };
+  return [...terms.filter(inFocus), ...terms.filter((term) => !inFocus(term))];
+}
+
+/**
+ * The speech recognizer's vocabulary as one comma-separated list: the user's Settings vocabulary, then the
+ * leading workspace terms up to STT_KEYWORD_LIMIT entries in all (Settings entries are never dropped).
+ */
+export function sttVocabulary(customVocabulary: string | undefined, terms: ReadonlyArray<string>): string | undefined {
+  const own = (customVocabulary ?? "").split(",").filter((term) => term.trim()).length;
+  return (
+    [customVocabulary, ...terms.slice(0, Math.max(0, STT_KEYWORD_LIMIT - own))].filter(Boolean).join(", ") || undefined
+  );
 }
 
 function questLine(context: TranscriptionWorkspaceContext | undefined): string {
@@ -264,19 +279,16 @@ function stripLinkTargets(text: string): string {
     .replace(/\[(?:transcribed|System)\]/g, " ");
 }
 
-function oneLine(text: string, maxChars: number): string {
-  return truncate(text.replace(/\s+/g, " ").trim(), maxChars);
-}
-
 function truncate(text: string, maxChars: number): string {
   return text.length <= maxChars ? text : text.slice(0, maxChars - 3).trimEnd() + "...";
 }
 
-/** Leading activity lines (in order) whose joined length fits the budget. */
-function withinBudget(lines: ReadonlyArray<string>, budget: number): string[] {
+/** Leading activity lines (in order), each cut to `lineChars`, whose joined length fits the budget. */
+function withinBudget(lines: ReadonlyArray<string>, budget: number, lineChars: number): string[] {
   const kept: string[] = [];
   let used = 0;
-  for (const line of lines) {
+  for (const fullLine of lines) {
+    const line = truncate(fullLine, lineChars);
     if (used + line.length + 1 > budget) break;
     kept.push(line);
     used += line.length + 1;

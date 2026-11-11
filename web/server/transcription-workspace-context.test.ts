@@ -3,9 +3,10 @@ import type { ActivityThread } from "./activity-stream.js";
 import {
   buildWorkspaceVocabulary,
   extractKeyTerms,
+  rankTermsFor,
   recentActivityLines,
+  sttVocabulary,
   workspaceEnhancerBlocks,
-  workspaceReference,
   workspaceSttLines,
 } from "./transcription-workspace-context.js";
 
@@ -168,20 +169,21 @@ describe("buildWorkspaceVocabulary", () => {
 });
 
 describe("recentActivityLines", () => {
-  it("lists messages newest first and drops the dictated thread's own lines", () => {
+  it("lists messages newest first, keeps links as written and drops the dictated thread's own lines", () => {
+    // Links stay: their text carries names, and stripping them left empty "( )" and "[ ]" behind.
     const activity = [
       thread("a", [[3, "user", "In main."]]),
       thread("a", [[1, "user", "In the quest thread."]], "q-7"),
-      thread("b", [[2, "answer", "See [the plan](file:docs/plan.md) at https://example.com."]]),
+      thread("b", [[2, "answer", "See [the plan](file:docs/plan.md) from\n[q-7](quest:q-7)."]]),
     ];
     expect(recentActivityLines(activity)).toEqual([
       "[user] In the quest thread.",
-      "[agent] See [the plan] at",
+      "[agent] See [the plan](file:docs/plan.md) from [q-7](quest:q-7).",
       "[user] In main.",
     ]);
     expect(recentActivityLines(activity, { sessionId: "a", threadKey: "main" })).toEqual([
       "[user] In the quest thread.",
-      "[agent] See [the plan] at",
+      "[agent] See [the plan](file:docs/plan.md) from [q-7](quest:q-7).",
     ]);
   });
 });
@@ -189,7 +191,7 @@ describe("recentActivityLines", () => {
 describe("workspace renderers", () => {
   const context = {
     questTitles: ["Analyze seeded-QA signals", "Audit Maidas rows"],
-    activity: Array.from({ length: 50 }, (_, i) => `[user] ${"x".repeat(200)} ${i}`),
+    activity: Array.from({ length: 50 }, (_, i) => `[user] ${"x".repeat(i === 0 ? 3000 : 200)} ${i}`),
     terms: ["seeded-QA", "Maidas"],
   };
 
@@ -198,24 +200,41 @@ describe("workspace renderers", () => {
     expect(quests).toBe(
       "<RECENT_QUESTS>\nRecent quests: Analyze seeded-QA signals; Audit Maidas rows\n</RECENT_QUESTS>",
     );
-    expect(activity!.length).toBeLessThanOrEqual(3200);
-    expect(activity).toContain("[user] ");
+    expect(activity!.length).toBeLessThanOrEqual(5200);
+    // The long first line is cut to the enhancer's line length, not dropped.
+    expect(activity).toContain(`[user] ${"x".repeat(1100)}`);
+    expect(activity).not.toContain("x".repeat(1300));
+    expect(workspaceEnhancerBlocks(undefined)).toEqual([]);
   });
 
-  it("gives speech-to-text the quest line and bounded activity lines", () => {
+  it("gives speech-to-text the quest line and shorter, bounded activity lines", () => {
     const { questLine, activityLines } = workspaceSttLines(context);
     expect(questLine).toBe("Recent quests: Analyze seeded-QA signals; Audit Maidas rows");
     expect(activityLines.join("\n").length).toBeLessThanOrEqual(3000);
+    expect(activityLines[0]!.length).toBeLessThanOrEqual(400);
+  });
+});
+
+describe("term ranking for one request", () => {
+  it("moves terms of the current topic to the front, matching whole words only", () => {
+    const terms = ["Condor", "Maidas", "Qingyu", "12B"];
+    expect(rankTermsFor(terms, "Run it on Qingyu's pool with the 12B model, not 12Bx.")).toEqual([
+      "Qingyu",
+      "12B",
+      "Condor",
+      "Maidas",
+    ]);
+    expect(rankTermsFor(terms, "MaidasX only")).toEqual(terms);
   });
 
-  it("puts terms, quests and activity in the comment reference, and nothing for an empty workspace", () => {
-    expect(workspaceReference(context)).toEqual(
-      expect.objectContaining({
-        key_terms: "seeded-QA, Maidas",
-        recent_quests: "Recent quests: Analyze seeded-QA signals; Audit Maidas rows",
-      }),
-    );
-    expect(workspaceReference({ questTitles: [], activity: [], terms: [] })).toBeUndefined();
-    expect(workspaceEnhancerBlocks(undefined)).toEqual([]);
+  it("caps the speech-to-text vocabulary at 48 entries but never drops the user's own terms", () => {
+    // 108 keywords diluted the recognizer in real replays; the user's Settings vocabulary always comes first.
+    const terms = Array.from({ length: 100 }, (_, i) => `Term${i}`);
+    const list = sttVocabulary("Takode, Claude Code", terms)!.split(", ");
+    expect(list).toHaveLength(48);
+    expect(list.slice(0, 3)).toEqual(["Takode", "Claude Code", "Term0"]);
+    const own = Array.from({ length: 60 }, (_, i) => `Own${i}`).join(", ");
+    expect(sttVocabulary(own, terms)!.split(", ")).toHaveLength(60);
+    expect(sttVocabulary(undefined, [])).toBeUndefined();
   });
 });

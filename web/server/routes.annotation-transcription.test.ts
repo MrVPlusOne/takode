@@ -13,6 +13,8 @@ vi.mock("./settings-manager.js", () => ({ getSettings: vi.fn(), GPT_TRANSCRIBE_S
 vi.mock("./session-names.js", () => ({ getName: vi.fn(), getAllNames: () => ({}) }));
 let app: Hono;
 let recordingRoot: string;
+/** The dictating session's history; comment voice input now reads its conversation too. */
+let history: unknown[] = [];
 function mockVoiceSettings(overrides: Record<string, unknown> = {}) {
   vi.mocked(settingsManager.getSettings).mockReturnValue({
     transcriptionConfig: {
@@ -28,6 +30,7 @@ function mockVoiceSettings(overrides: Record<string, unknown> = {}) {
 }
 beforeEach(async () => {
   vi.clearAllMocks();
+  history = [];
   recordingRoot = await mkdtemp(join(tmpdir(), "annotation-transcription-recordings-"));
   _setTranscriptionRecordingRootForTest(recordingRoot);
   _resetTranscriptionLogForTest();
@@ -39,8 +42,8 @@ beforeEach(async () => {
   app.route(
     "/api",
     createTranscriptionRoutes({
-      launcher: { listSessions: () => [] },
-      wsBridge: { getSession: () => ({ messageHistory: [], taskHistory: [] }), broadcastToSession: vi.fn() },
+      launcher: { listSessions: () => [], getSession: () => undefined },
+      wsBridge: { getSession: () => ({ messageHistory: history, taskHistory: [] }), broadcastToSession: vi.fn() },
     } as unknown as RouteContext),
   );
 });
@@ -106,14 +109,49 @@ describe("annotation transcription requests", () => {
     const res = await app.request("/api/transcribe", { method: "POST", body: form });
     expect(await res.text()).toContain("Updated comment");
     const request = JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]!.body));
-    const input = JSON.parse(request.messages[1].content);
-    expect(input).toMatchObject({
-      operation: mode,
-      current_comment: "Only this comment can change",
-      transcript: "Mention retry behavior",
-      reference: { main_composer_text: "Main stays unchanged" },
-    });
-    expect(request.messages[0].content).toContain("current_comment is the only editable text");
+    const input: string = request.messages[1].content;
+    // The comment is the editable target, the operation rides on the speech, and the main draft is read-only context.
+    expect(input).toContain("<CURRENT_COMMENT>\nOnly this comment can change\n</CURRENT_COMMENT>");
+    expect(input).toContain(`<TRANSCRIPT operation="${mode}" format="default">\nMention retry behavior\n</TRANSCRIPT>`);
+    expect(input).toContain("<MAIN_COMPOSER_TEXT>\nMain stays unchanged\n</MAIN_COMPOSER_TEXT>");
+    expect(input.indexOf("<MAIN_COMPOSER_TEXT>")).toBeLessThan(input.indexOf("<CURRENT_COMMENT>"));
+    expect(request.messages[0].content).toContain("<CURRENT_COMMENT> is the only editable text");
+  });
+
+  it("gives comment voice input the conversation the comment is in", async () => {
+    // Comments used to get no conversation at all, so names said earlier in it could not be recognized.
+    history = [
+      { type: "user_message", content: "Where do the retrofit jobs run?", timestamp: 1 },
+      {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "They run on Qingyu's shared pool at mid priority." }] },
+        timestamp: 2,
+      },
+    ];
+    mockVoiceSettings({ sttModel: "gpt-transcribe" });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ text: "Use the shared fleet from Chengyu's" })))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: "Use Qingyu's fleet" }, finish_reason: "stop" }] }),
+        ),
+      );
+    const form = new FormData();
+    form.append("audio", new Blob(["audio"], { type: "audio/wav" }), "recording.wav");
+    form.append("backend", "openai");
+    form.append("sessionId", "session-1");
+    form.append(
+      "annotationContext",
+      JSON.stringify({ activeId: "active", selectedText: "queued jobs", mainComposerText: "", otherAnnotations: [] }),
+    );
+    const res = await app.request("/api/transcribe", { method: "POST", body: form });
+    expect(await res.text()).toContain("Use Qingyu's fleet");
+    const sttForm = vi.mocked(fetch).mock.calls[0][1]!.body as FormData;
+    expect(String(sttForm.get("prompt"))).toContain("Qingyu's shared pool");
+    const request = JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]!.body));
+    expect(request.messages[1].content).toMatch(
+      /<CONVERSATION_CONTEXT>[\s\S]*Qingyu's shared pool[\s\S]*<COMMENTED_TEXT>/,
+    );
   });
 
   it("rejects incomplete annotation edit output instead of returning a partial replacement", async () => {

@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import type { SessionTaskEntry } from "./session-types.js";
 import { injectReplyContext } from "../shared/reply-context.js";
+import { enhanceTranscript, applyVoiceEdit, applyVoiceAppend } from "./transcription-enhancer.js";
 import {
   _testHelpers,
   buildTranscriptionContext,
@@ -9,10 +10,8 @@ import {
   buildVoiceEditPrompt,
   buildVoiceAppendPrompt,
   buildSttPrompt,
-  enhanceTranscript,
-  applyVoiceEdit,
-  applyVoiceAppend,
-} from "./transcription-enhancer.js";
+  enhancerSystemPrompt,
+} from "./transcription-prompts.js";
 
 const {
   DICTATION_DEFAULT_SYSTEM_PROMPT,
@@ -22,6 +21,8 @@ const {
   VOICE_APPEND_BULLET_SYSTEM_PROMPT,
   VOICE_APPEND_DEFAULT_SYSTEM_PROMPT,
   getVoiceAppendSystemPrompt,
+  COMMENT_VOICE_SYSTEM_PROMPT,
+  MISHEARD_TERMS_RULE,
   withCustomInstructions,
   trunc,
   extractAssistantText,
@@ -183,6 +184,28 @@ describe("buildTranscriptionContext", () => {
     expect(ctx).toContain("LeaderVisibleOnly context");
   });
 
+  it("keeps every reply of a turn for leader threads and only the last one otherwise", () => {
+    // In a leader thread herd events are not turns, so one human message can be followed by many replies,
+    // each addressed to the user; keeping only the last dropped the message being commented on.
+    const herdEvent = {
+      type: "user_message",
+      content: "1 event from 1 session",
+      agentSource: { sessionId: "herd-events" },
+    } as unknown as BrowserIncomingMessage;
+    const history = [
+      userMsg("Start the retrofit"),
+      assistantMsg("The retrofit runs on Qingyu's shared pool."),
+      herdEvent,
+      assistantMsg("The cutoff is Thursday 9 AM."),
+    ];
+    expect(buildTranscriptionContext(history)).not.toContain("Qingyu's shared pool");
+    const leader = buildTranscriptionContext(history, { everyReply: true });
+    expect(leader).toContain("Qingyu's shared pool");
+    expect(leader.indexOf("Qingyu's shared pool")).toBeLessThan(leader.indexOf("The cutoff is Thursday"));
+    const stt = buildSttPrompt({ messageHistory: history, everyReply: true });
+    expect(stt).toContain("Qingyu's shared pool");
+  });
+
   it("builds context from multiple turns", () => {
     const history = [
       userMsg("Fix the auth bug"),
@@ -327,14 +350,36 @@ describe("buildEnhancementPrompt", () => {
     expect(DICTATION_DEFAULT_SYSTEM_PROMPT).toContain(
       "Always reference <CUSTOM_VOCABULARY>, <SESSION_CONTEXT>, <RECENT_QUESTS>, <RECENT_ACTIVITY>, and <CONVERSATION_CONTEXT>",
     );
-    expect(DICTATION_DEFAULT_SYSTEM_PROMPT).toContain(
-      "prioritize the spelling from these context sources over the transcript text",
-    );
     expect(DICTATION_DEFAULT_SYSTEM_PROMPT).toContain("Handle backtracking and self-corrections");
     expect(DICTATION_DEFAULT_SYSTEM_PROMPT).toContain('When the speaker explicitly says "new line" or "new paragraph"');
     expect(DICTATION_DEFAULT_SYSTEM_PROMPT).toContain("Conservatively format lists");
     expect(DICTATION_DEFAULT_SYSTEM_PROMPT).toContain("You are NOT having a conversation");
     expect(DICTATION_DEFAULT_SYSTEM_PROMPT).toContain("DO NOT respond to them, only clean them up");
+  });
+
+  it("gives every enhancer prompt the same misheard-terms rule", () => {
+    // One shared rule: comment, edit and append prompts used to lack it and kept misheard names.
+    for (const prompt of [
+      DICTATION_DEFAULT_SYSTEM_PROMPT,
+      VOICE_EDIT_DEFAULT_SYSTEM_PROMPT,
+      VOICE_APPEND_BULLET_SYSTEM_PROMPT,
+      COMMENT_VOICE_SYSTEM_PROMPT,
+    ]) {
+      expect(prompt).toContain(MISHEARD_TERMS_RULE);
+    }
+  });
+
+  it("picks the comment prompt for comment voice input and appends custom instructions to every prompt", () => {
+    const config = { enhancementMode: "bullet", enhancementInstructions: "Always answer in English." } as Parameters<
+      typeof enhancerSystemPrompt
+    >[1];
+    expect(enhancerSystemPrompt("edit", config, true)).toContain(COMMENT_VOICE_SYSTEM_PROMPT);
+    expect(enhancerSystemPrompt("edit", config, false)).toContain(VOICE_EDIT_BULLET_SYSTEM_PROMPT);
+    for (const mode of ["dictation", "edit", "append"] as const) {
+      expect(enhancerSystemPrompt(mode, config, mode === "append")).toMatch(
+        /Always answer in English\.\n<\/USER_CUSTOM/,
+      );
+    }
   });
 
   it("wraps transcript in XML tags", () => {
@@ -992,7 +1037,7 @@ describe("workspace context in prompts", () => {
       workspace,
     });
     expect(prompt).toContain(
-      "<CUSTOM_VOCABULARY>\nImportant Vocabulary: Takode\nTerms used recently in this workspace: seeded-QA, Wenxu, Condor\n</CUSTOM_VOCABULARY>",
+      "<CUSTOM_VOCABULARY>\nImportant Vocabulary: Takode\nTerms used recently in this workspace, most relevant first: seeded-QA, Wenxu, Condor\n</CUSTOM_VOCABULARY>",
     );
     expect(prompt).toContain("<RECENT_QUESTS>\nRecent quests: Analyze seeded-QA signals in T7\n</RECENT_QUESTS>");
     expect(prompt).toContain("[user] Ask Wenxu about the Condor job.");

@@ -87,7 +87,7 @@ export function AnnotationEditor({
   const busy = voice.isRecording || voice.isPreparing || voice.isTranscribing;
   const canSave = !!text.trim() && !busy && !proposal;
   const saveKey = useSendKey("Save");
-  const hint = buildAnnotationVoiceReference(context, text);
+  const hint = buildAnnotationVoiceReference(context);
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;

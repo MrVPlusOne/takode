@@ -1,5 +1,5 @@
 import type { BrowserIncomingMessage } from "./session-types.js";
-import { buildTranscriptionContext } from "./transcription-enhancer.js";
+import { buildTranscriptionContext } from "./transcription-prompts.js";
 import { findStableStarTarget } from "./starred-messages.js";
 import { MAIN_THREAD_KEY, buildProjectedThreadEntries } from "../shared/thread-window.js";
 import { SpeechJob, concatBytes, type SpeechSegment } from "./read-aloud-speech.js";
