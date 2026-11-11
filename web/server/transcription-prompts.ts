@@ -80,18 +80,23 @@ function isSystemNoise(msg: BrowserIncomingMessage): boolean {
 // ─── System prompts ─────────────────────────────────────────────────────────
 
 /**
- * Cleaning rules shared by both dictation modes (prose & bullet).
- * Kept as a single string so both prompts stay in sync.
- */
-/**
  * How to fix names and terms the speech recognizer misheard, shared by every enhancer prompt. Without it
  * the model keeps a near miss ("Chengyu's" for a colleague named Qingyu) even with the name in the context,
  * treating the fix as adding content. A miss that is far in spelling ("Chainwise") is left to the speech
  * recognizer's keywords: no wording tried got the cleanup model to recover it from text.
+ *
+ * The second half keeps the fix from becoming a rewrite: given a conversation about per-row and per-rollout
+ * limits, an earlier wording turned the spoken "per row rollout" into "per row, not per rollout" in most runs.
+ * Saying that the context shows the topic, not the meaning, stopped that in replays. The examples are made up
+ * on purpose, so replays of real dictations stay a fair test.
  */
 const MISHEARD_TERMS_RULE =
-  "Speech recognition often turns names and project terms into ordinary words or into other names that sound alike. When a word or phrase in the speech is not a known term and sounds like a name or term in the context (vocabulary, session, quests, activity, conversation, commented text), write that name or term instead. This is a correction, not added content. Replace only the misheard words: never add words or change what was said, and leave words that already make sense as they are.";
+  'Speech recognition often turns names and project terms into ordinary words, or into other names or phrases that sound alike ("cash miss" for "cache miss", "pie torch" for "PyTorch"). When a word or phrase in the speech is not a known term and sounds like a name, term or phrase in the context (vocabulary, session, quests, activity, conversation, commented text), write that instead: this is a correction, not added content. Fix only words that sound wrong. The context shows what the speaker is talking about, not what they mean to say: keep their own words, phrasing and claims even where the context seems to say something else. Never add words such as "not", "but" or "instead", reorder words, or reword a phrase; an unusual phrase made of real words ("per task timeout run") stays as said, at most hyphenated.';
 
+/**
+ * Cleaning rules shared by both dictation modes (prose & bullet).
+ * Kept as a single string so both prompts stay in sync.
+ */
 const SHARED_CLEANING_RULES = `Cleaning rules:
 - Strip verbal filler and false starts — keep only the final, meaningful version
 - Fix misheard technical terms, variable names, file paths, and commands using the context provided
