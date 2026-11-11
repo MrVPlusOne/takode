@@ -1,4 +1,4 @@
-import { htmlFragmentToPlainText, htmlFragmentToRichText } from "./html-to-markdown.js";
+import { htmlFragmentToRichText } from "./html-to-markdown.js";
 import { copyRichText } from "./copy-utils.js";
 import { escapeHtml, readTableRows, tableToAlignedText } from "./table-copy.js";
 
@@ -44,18 +44,16 @@ export function selectionCopyForSlack(range: Range): ClipboardPayload {
  * inline code, links, bulleted and numbered lists (nested), quotes and code blocks. Slack has no headings,
  * so a heading becomes a bold line; it flattens HTML tables into running text but keeps a `<pre>` as one
  * code block, so a table becomes a code block with its columns lined up. Classes, styles, controls and the
- * whitespace between tags are dropped, so nothing of Takode's layout reaches Slack.
+ * whitespace between tags are dropped, so nothing of Takode's layout reaches Slack. The plain text is the
+ * same content as Markdown: Slack formats pasted text that looks like Markdown itself and then ignores the
+ * HTML, so that text has to carry the links and formatting too.
  */
 function slackCopyOf(source: HTMLElement): ClipboardPayload {
   // A source line break is a <br> plus the newline after it; the newline is not a space.
   const html = blockChildren(source).replace(/\s*<br>\s*/g, "<br>");
   const container = source.ownerDocument.createElement("div");
   container.innerHTML = html;
-  const range = source.ownerDocument.createRange();
-  range.selectNodeContents(container);
-  const codeBlocks = Array.from(container.querySelectorAll("pre"), (pre) => pre.textContent ?? "");
-  const plain = fenceCodeBlocks(htmlFragmentToPlainText(range), codeBlocks).replace(/\n{3,}/g, "\n\n");
-  return payload(plain, html);
+  return payload(markdownBlocks(container), html);
 }
 
 const INLINE_TAGS: Record<string, string> = {
@@ -221,19 +219,98 @@ function escapeAttribute(text: string): string {
   return escapeHtml(text).replace(/"/g, "&quot;");
 }
 
-/** In the plain-text copy, put each code block (tables included) inside a Markdown code fence. */
-function fenceCodeBlocks(plain: string, blocks: string[]): string {
-  let result = plain;
-  let from = 0;
-  for (const block of blocks) {
+/**
+ * The Slack HTML (the tags `slackCopyOf` writes) as Markdown. Paragraphs sit on consecutive lines, as in
+ * the HTML, joined by hard line breaks; a list or quote ends with a blank line, without which Markdown would
+ * read the next line as part of its last item. Slack itself sets an empty line around a pasted list.
+ */
+function markdownBlocks(parent: Element): string {
+  let markdown = "";
+  let previous = "";
+  for (const child of Array.from(parent.children)) {
+    const block = markdownBlock(child);
     if (!block) continue;
-    const at = result.indexOf(block, from);
-    if (at < 0) continue;
-    const fenced = "```\n" + block + "\n```";
-    result = result.slice(0, at) + fenced + result.slice(at + block.length);
-    from = at + fenced.length;
+    if (previous) markdown += blockSeparator(previous, child.tagName);
+    markdown += block;
+    previous = child.tagName;
   }
-  return result;
+  return markdown;
+}
+
+function blockSeparator(previous: string, next: string): string {
+  if (previous === "P" && next === "P") return "  \n";
+  return previous === "UL" || previous === "OL" || previous === "BLOCKQUOTE" ? "\n\n" : "\n";
+}
+
+function markdownBlock(element: Element): string {
+  switch (element.tagName) {
+    case "UL":
+    case "OL":
+      return Array.from(element.children)
+        .map((item, index) => markdownListItem(item, element.tagName === "OL" ? `${index + 1}. ` : "- "))
+        .join("\n");
+    case "BLOCKQUOTE":
+      return markdownBlocks(element)
+        .split("\n")
+        .map((line) => (line ? `> ${line}` : ">"))
+        .join("\n");
+    case "PRE":
+      return codeFence(element.textContent ?? "");
+    default:
+      return markdownInline(element);
+  }
+}
+
+/** A list item's text after its marker, with its continuation lines and nested blocks indented under it. */
+function markdownListItem(item: Element, marker: string): string {
+  const indent = " ".repeat(marker.length);
+  let text = "";
+  const nested: string[] = [];
+  for (const child of Array.from(item.childNodes)) {
+    if (child instanceof Element && BLOCK_TAGS.has(child.tagName)) nested.push(markdownBlock(child));
+    else text += markdownInline(child);
+  }
+  return [marker + text, ...nested].join("\n").replace(/\n/g, `\n${indent}`);
+}
+
+function markdownInline(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+  if (!(node instanceof Element)) return "";
+  const inner = Array.from(node.childNodes).map(markdownInline).join("");
+  switch (node.tagName) {
+    case "BR":
+      return "  \n";
+    case "B":
+      return `**${inner}**`;
+    case "I":
+      return `*${inner}*`;
+    case "S":
+      return `~~${inner}~~`;
+    case "CODE":
+      return codeSpan(node.textContent ?? "");
+    case "A": {
+      const href = node.getAttribute("href") ?? "";
+      return `[${inner.replace(/[[\]]/g, "\\$&")}](${/[\s()<>]/.test(href) ? `<${href}>` : href})`;
+    }
+    default:
+      return inner;
+  }
+}
+
+/** Inline code whose backticks outnumber any run inside it, padded when it starts or ends with one. */
+function codeSpan(text: string): string {
+  const ticks = "`".repeat(longestBacktickRun(text) + 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${ticks}${pad}${text}${pad}${ticks}`;
+}
+
+function codeFence(text: string): string {
+  const fence = "`".repeat(Math.max(3, longestBacktickRun(text) + 1));
+  return `${fence}\n${text}\n${fence}`;
+}
+
+function longestBacktickRun(text: string): number {
+  return Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
 }
 
 function payload(plain: string, html?: string): ClipboardPayload {

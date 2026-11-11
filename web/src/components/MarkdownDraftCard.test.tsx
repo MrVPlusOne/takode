@@ -118,4 +118,43 @@ describe("draft card", () => {
     await waitFor(() => expect(written).toHaveLength(1));
     expect(written[0]!["text/plain"]).not.toContain("Full Name");
   });
+
+  it("pastes a linked list and the line after it the way the card shows them", async () => {
+    // Slack formats pasted text that looks like Markdown and then ignores the HTML, so a draft with a list
+    // lost its links (the plain text had only their labels), gained a blank line before the list, and the
+    // line written right after the list joined its last bullet. The plain text now carries the links, and
+    // the line after the list ends the list in the card and the copy alike: Slack can't break a line inside
+    // a bullet. This is the shape of the draft that broke.
+    const text = [
+      "```draft",
+      "Can you look at these two PRs?",
+      "- [Runtime store: 64-bit offsets](https://github.com/org/repo/pull/1): payload offsets go 64-bit.",
+      "- [Task generator: problem types](https://github.com/org/repo/pull/2): types register an extension.",
+      "The pipeline itself is in [#103103](https://github.com/org/repo/pull/3).",
+      "```",
+    ].join("\n");
+    const { container } = render(<MarkdownContent text={text} />);
+    const card = container.querySelector("[data-markdown-draft]")!;
+    expect(card.querySelector("li:last-child")).not.toHaveTextContent("The pipeline itself");
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(written).toHaveLength(1));
+    expect(written[0]!["text/html"]).toBe(
+      [
+        "<p>Can you look at these two PRs?</p>",
+        '<ul><li><a href="https://github.com/org/repo/pull/1">Runtime store: 64-bit offsets</a>: payload offsets go 64-bit.</li>',
+        '<li><a href="https://github.com/org/repo/pull/2">Task generator: problem types</a>: types register an extension.</li></ul>',
+        '<p>The pipeline itself is in <a href="https://github.com/org/repo/pull/3">#103103</a>.</p>',
+      ].join(""),
+    );
+    expect(written[0]!["text/plain"]).toBe(
+      [
+        "Can you look at these two PRs?",
+        "- [Runtime store: 64-bit offsets](https://github.com/org/repo/pull/1): payload offsets go 64-bit.",
+        "- [Task generator: problem types](https://github.com/org/repo/pull/2): types register an extension.",
+        "",
+        "The pipeline itself is in [#103103](https://github.com/org/repo/pull/3).",
+      ].join("\n"),
+    );
+  });
 });

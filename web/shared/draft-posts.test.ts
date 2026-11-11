@@ -191,3 +191,22 @@ describe("bullet characters in drafts", () => {
     expect(draftMarkdown("```\n• still code")).toBe("```\n• still code");
   });
 });
+
+describe("a line written right after a list in a draft", () => {
+  // Markdown reads an unindented line after a list as part of its last item, and the card showed it on its
+  // own line under that item; Slack can't break a line inside a bullet, so the paste joined it to the item.
+  // In a draft, as in Slack, a line without a bullet after a list is no longer part of the list.
+  it("ends the list before the line", () => {
+    const text = ["Two PRs:", "- [First](https://example.com/1): one", "2. Second", "Closing line."].join("\n");
+    expect(draftMarkdown(text)).toBe(
+      ["Two PRs:", "- [First](https://example.com/1): one", "2. Second", "", "Closing line."].join("\n"),
+    );
+  });
+
+  it("keeps indented continuation lines and lists inside code as they are", () => {
+    const text = ["- Item", "  still the item", "", "After a blank line", "```", "- code", "not a list", "```"].join(
+      "\n",
+    );
+    expect(draftMarkdown(text)).toBe(text);
+  });
+});

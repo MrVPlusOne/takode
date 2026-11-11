@@ -89,12 +89,45 @@ describe("copying a message for Slack", () => {
     expect(plain).not.toContain("...");
   });
 
-  it("writes readable plain text with code blocks fenced and no runs of blank lines", () => {
-    const { plain } = messageCopyForSlack(rendered());
-    expect(plain).toContain("The run is healthy, mostly, not stalled, and step_time is fine.");
-    expect(plain).toContain("```\nDomain  Share\n------  -----\nSWE     15.5%\n```");
-    expect(plain).toContain("```\ndef f(x):\n    return x * 2\n```");
-    expect(plain).not.toMatch(/\n{3,}/);
+  it("writes the same content as Markdown for the plain text, which Slack formats itself", () => {
+    // Slack formats pasted text that looks like Markdown (a list is enough) and then ignores the HTML, so
+    // the plain text has to carry links and formatting too. Paragraphs stay on consecutive lines through
+    // hard breaks; a list or quote ends with a blank line, or Markdown would read on into its last item.
+    expect(messageCopyForSlack(rendered()).plain).toBe(
+      [
+        "**Status update**  ",
+        "The run is **healthy**, *mostly*, ~~not stalled~~, and `step_time` is fine. See [the dashboard](https://example.com/dash) and q-12.",
+        "- First point with **bold**",
+        "  - Nested detail",
+        "- Second point",
+        "",
+        "1. Step one",
+        "2. Step two",
+        "   1. Sub-step",
+        "",
+        "> Quoted line one.  ",
+        "> Quoted line two.",
+        "",
+        "──────────",
+        "```",
+        "Domain  Share",
+        "------  -----",
+        "SWE     15.5%",
+        "```",
+        "```",
+        "def f(x):",
+        "    return x * 2",
+        "```",
+        "Final line.",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps line breaks, backticks and brackets intact in the Markdown text", () => {
+    const text = "One line\nnext line, ``a`b`` and [a [b] c](https://example.com/x_(y)).";
+    expect(messageCopyForSlack(rendered(text)).plain).toBe(
+      "One line  \nnext line, ``a`b`` and [a \\[b\\] c](<https://example.com/x_(y)>).",
+    );
   });
 
   it("keeps the space next to a formatted word", () => {

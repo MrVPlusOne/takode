@@ -234,7 +234,7 @@ export function formatDraftPost(post: {
  * become Markdown links and lists, which the card's Copy turns into the HTML links and lists Slack keeps.
  */
 export function draftMarkdown(text: string): string {
-  return bulletCharacterLists(slackNativeLinksToMarkdown(text));
+  return endListsAtUnindentedLines(bulletCharacterLists(slackNativeLinksToMarkdown(text)));
 }
 
 /**
@@ -298,6 +298,32 @@ function bulletCharacterLists(text: string): string {
       if (index < lines.length && lines[index].trim()) out.push("");
     }
     return out.join("\n");
+  });
+}
+
+const LIST_ITEM_LINE = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\S/;
+
+/**
+ * A blank line before each unindented line that directly follows a list, outside code blocks. Markdown
+ * reads such a line as part of the list's last item, and the card shows it on its own line under that item,
+ * but Slack, which can't break a line inside a list item, joins it to the item on paste. Drafts are written
+ * the way Slack messages are, where a line without a bullet after a list is no longer part of it.
+ */
+function endListsAtUnindentedLines(text: string): string {
+  return mapOutsideFences(text, (region) => {
+    let inList = false;
+    return region
+      .split("\n")
+      .map((line) => {
+        if (LIST_ITEM_LINE.test(line)) inList = true;
+        else if (!line.trim()) inList = false;
+        else if (inList && !/^[ \t]/.test(line)) {
+          inList = false;
+          return `\n${line}`;
+        }
+        return line;
+      })
+      .join("\n");
   });
 }
 
