@@ -79,10 +79,16 @@ it("appends a restored session's first save to the file it was read from", async
 
 it("reads a history whose file holds a commit per save in time linear in its rows", async () => {
   // Each commit used to walk every row read so far, so a long-running session's file (a commit per
-  // save) took commits times rows to read: tens of seconds at 200k rows, minutes beyond.
+  // save) took commits times rows to read: tens of seconds at 200k rows, minutes beyond. The check
+  // counts that walk (Map key iteration) rather than timing the read, so load can't fail it.
   const { root, value, store } = await setup();
+  // The large first row puts the history in a journal file, which it then stays in. Shrinking it
+  // afterwards keeps the 150 saves cheap: each save re-reads the unfinished turn's rows, so with
+  // the large row building the file took over 10 s on a loaded machine. What matters is the
+  // number of commits, not their size.
   await store.saveImmediate(value);
-  for (let i = 0; i < 300; i++) {
+  value.messageHistory[0] = { type: "user_message", content: "first", timestamp: 1 };
+  for (let i = 0; i < 150; i++) {
     value.messageHistory.push({ type: "user_message", content: `message ${i}`, timestamp: i + 2 });
     await store.saveImmediate(value);
   }
