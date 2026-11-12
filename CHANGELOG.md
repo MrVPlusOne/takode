@@ -16,6 +16,74 @@ The rest of the release is about spending less effort keeping up with your agent
 
 Under the hood, Claude sessions now run only through the Claude Agent SDK, with Claude's native Auto permission mode, a reasoning effort picker and the model list Claude Code itself reports. Teams that share a branch can turn on a landing queue that tests waiting changes together and lands them, so workers are free as soon as they submit. Switching sessions over a slow connection is much faster thanks to compressed traffic and a reused connection. The dated entries below list every notable change.
 
+## 2026-11-12
+
+### Added
+
+- **Ink fireworks for a finished quest** -- In Ink & Paper, a finished quest sets off three ink fireworks that burst in the painting between the message sheets, never across text, and a vermilion seal is pressed onto the completion card where it covers no writing. The celebration plays in the pane that holds the card, a side chat included, and is gone after about four and a half seconds.
+- **Answers arrive like ink** -- With a scenic background on, a new answer spreads in from its centre like an ink blot.
+- **The Library from the side column** -- The open side column's top row has the same gallery button as the folded rail, opening the Library in one click.
+
+### Fixed
+
+- **Scenic fonts** -- Scenic styles keep the app's fonts: Ink & Paper no longer sets a serif on headings, so answers with Markdown headings match the rest.
+- **Your messages in the side chat** -- In the side column, your messages and their times take a deeper tone of the bubble, so they no longer blend into Ink & Paper's or Seaside's paper.
+- **Choosing a thread over an open page** -- Choosing a thread while Settings, Questmaster or the Library is open over the chat closes the page, so on a phone the tap no longer seems to do nothing.
+- **Session commands inside `takode exec`** -- `quest`, `takode`, `memory` and `stream` run through `takode exec` stop with a clear message that it carries no session identity, instead of failing with "command not found" or a bare 401.
+- **Why Work-to-Memory refuses a note** -- When `takode board work-to-memory` refuses the Work note it was given, it names the rule the note breaks (kind, author, phase, occurrence or length) and how to add one that qualifies.
+
+## 2026-11-11
+
+### Added
+
+- **Ink & Paper's sea of clouds and water** -- A sea of clouds now streams through Ink & Paper's valleys, lit silver by the moon at night, over a lake of real water that mirrors the peaks, clouds and sky, with ripples, short glints and a path of sun or moonlight. The pines sway in the same breeze and the boat bobs gently. The painting is glazed in light ochre and blue by day and stays ink at night, and switching sessions keeps the living scene running instead of restarting it.
+- **Paper and silk** -- With Ink & Paper on, the interface itself is made of paper and silk, like a painting mounted as a scroll: your messages are painting silk, the composer, menus and cards are mulberry paper, and the top bar, tab bar and banners are mounting silk. The textures are still images that load only while Ink & Paper is on.
+- **Slide decks in the Library** -- Reports published with `slides: true` are saved as slide decks, with their own Slides kind, a first-slide thumbnail and one history with the report they came from.
+- **PowerPoint decks** -- `takode artifact publish` uploads a `.pptx`, with optional per-slide pictures, from whichever machine the session runs on. The Library keeps it as a slide deck versioned by title, searches its slide text and speaker notes, and shows it slide by slide with notes, full screen and a Download .pptx button.
+- **Folded sections** -- `<details>` and `<summary>` render as a folded toggle with Markdown inside, in messages, reports and drafts (`<details open>` starts unfolded). Copy for Slack unfolds a section into a bold title and its text, and Read aloud says only a folded section's title.
+- **Underline and Slack's own paste format** -- Drafts can mark underline with `<u>text</u>`. Copy for Slack now writes Slack desktop's own clipboard format, so drafts paste into Slack with underline, links, code, nested lists, quotes and code blocks as written.
+- **Work delivered to several repositories** -- `takode board work-to-memory` and delivery recording accept several approved delivery targets, one per repository: each takes its own commits and is verified against its repository, and nothing is recorded unless every repository verifies.
+- **Fable 5.2 through Copilot** -- The Claude Code Copilot setup offers Fable 5.2 to Claude sessions when the account's Copilot serves it, and leaves it out with a note when it doesn't.
+
+### Changed
+
+- **Each message on its own sheet** -- With a scenic background, each answer, card and activity group sits on its own sheet of paper instead of one opaque column, so the painting shows between them, and small labels on the painting (times, activity summaries, live lines) get a slip of paper. Message times stay inside the column.
+- **Chats always one at a time** -- The side column always opens one chat at a time: opening a chat folds the others, and they share one height. The switch and the limit of three open conversations are gone, and a column saved with several chats open starts with one.
+- **Compact Slack updates** -- A repeated Slack update notice carries little more than the new messages: a conversation's title and the thread it was read in appear only in its first notice, and the chip names who wrote.
+- **Misheard names in dictation** -- Voice cleanup fixes misheard names using fuller context while keeping the speaker's wording: comment voice input gets its thread's conversation as dictation does, leader threads keep every agent reply in that context, and speech-to-text gets up to 48 key terms, your Settings vocabulary first. Transcription Detail shows the key term list.
+
+### Fixed
+
+- **A message being sent** -- A message still being sent looks as it will once delivered, with the day divider and time labels, so it no longer changes shape or moves when it lands; with a scenic background it is no longer wrapped in a dark oval.
+- **Server stalls** -- A `quest list --text` search no longer freezes the server for up to a minute on large quest stores, and leader turns, the session list's refresh and topic saves take far less work, as does memory cleanup with long histories.
+- **Faster restarts** -- Startup reads long session histories in linear time, and each session's first save after a restart adds to its history file instead of rewriting all of it, which took seconds for the largest sessions.
+
+## 2026-11-10
+
+### Added
+
+- **Slack updates** -- When an agent reads a Slack thread or a direct-message conversation, the server checks it every 10 minutes with Claude Code's read-only Slack login and attaches new messages to the agent's next input. It never wakes the agent, and it stops watching a conversation a week after the last read. When the login has expired, Takode has Claude Code renew it.
+- **Living Ink & Paper** -- Ink & Paper becomes a living ink painting drawn with WebGL: layered peaks with mist and clouds flowing between them, wet ink that slowly flows, a lake that mirrors the peaks, a drifting boat and, every few quiet minutes, cranes flying across. The scene hushes while you type, scroll or a reply arrives, steps down on a slow GPU, shows its still painting without WebGL, and draws a single still frame with reduced motion.
+- **Threads in Universal Search** -- Universal Search lists every leader's threads whose name matches above the tab's results, and the threads you dealt with or viewed last when nothing is typed.
+
+### Changed
+
+- **Viewing a thread moves it up** -- A thread on screen in a focused chat for 2 seconds, in the main view or the side column, counts as dealing with it, so the Threads view and Home list it near the top on every device. Side column views also go into the Recently viewed list.
+- **Scenic backgrounds stay put** -- No scenic background follows the mouse any more, and with one on, the conversation sits on a paper column so answers read as cleanly as your own messages.
+- **New spinner and painted Tako** -- Every spinner is one thin ring, the dot beside live statuses breathes and then holds, disconnected sessions show a hollow ring instead of a plug, and the empty conversation and the no-sessions page show a painting of Tako asleep in place of the old cat art.
+- **Fading scroll bars** -- Scroll bars appear while you scroll or hover them and fade shortly after, one at a time, so the side column and a pane inside it never show two side by side.
+- **Idle pages stay idle** -- Status glows and pulses breathe three times and then hold, and spinners turn in steps, so a page with running sessions no longer redraws every frame.
+- **Closing a side chat** -- Closing the open side chat opens the chat below it, else the one above, so closing chats one by one reads them top to bottom.
+- **Status dots for plain threads** -- In the side column, a plain thread shows its status dot, grey when idle, instead of the thread icon.
+
+### Fixed
+
+- **Unread results in quest threads** -- Unread results no longer disappear from quest threads when a leader's idle group gets busy again.
+- **Shift-click on a message link** -- Opening a message link in the other column opens the message's thread there, scrolled to the message, instead of the leader's Home, and a plain click on such a link in a side pane opens it in that pane.
+- **Slack paste from plain text** -- Copy for Slack's plain text is Markdown, so Slack keeps links and lists when it formats the paste itself.
+- **Stalls with many sessions** -- The server no longer rewrites every session's launch instructions on each state change, which with hundreds of sessions stalled requests and chat switches.
+- **Landing across a restart** -- A landing gate that passes while the server restarts keeps its result instead of running again.
+
 ## 2026-11-09
 
 ### Added
@@ -29,6 +97,11 @@ Under the hood, Claude sessions now run only through the Claude Agent SDK, with 
 ### Fixed
 
 - **Selecting draft and visual titles** -- The titles of draft cards and visuals can be selected and copied.
+- **Memory limits on macOS** -- `takode exec --memory-limit` on a Mac counts memory macOS has compressed (the footprint Activity Monitor shows), so a command can no longer grow far past its limit unseen.
+- **Runaway visuals** -- A visual that eats memory is stopped and reported as crashed even when its page settles between two memory checks, instead of coming back fine.
+- **Keychain dialogs on a Mac** -- The headless Chrome that draws visuals no longer touches the Mac keychain, so it can't pop up "Keychain Not Found" dialogs.
+- **Artifacts beside their side chat** -- Opening an artifact's side chat keeps the artifact's own width, so a slide deck keeps its 16:9 stage; when the window is too narrow for both, the chat opens over the artifact's right side, and on a phone it still sits under it.
+- **Steady slides** -- A slide whose notes about fill the column no longer flickers, a slide too tall for the stage always settles on the same zoom, and code blocks on a slide show whole.
 
 ## 2026-11-08
 
