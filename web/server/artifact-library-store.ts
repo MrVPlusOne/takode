@@ -19,6 +19,7 @@ import {
   type DraftDestination,
   type PostPartChanges,
 } from "../shared/draft-posts.js";
+import { isSlideDeck, splitSlides } from "../shared/slides.js";
 
 /**
  * The server's artifact library: an index of artifacts and their versions, plus the saved content
@@ -90,6 +91,11 @@ interface LibraryIndex {
    * was read, which the library skipped until Oct 27, 2026 (see `ArtifactLibrary.backfill`).
    */
   skippedTextReread?: boolean;
+  /**
+   * Slide decks were told apart from reports: decks saved before the Library had a kind for them
+   * were captured as reports (see `separateDecks`).
+   */
+  decksSeparated?: boolean;
 }
 
 export interface CaptureContext {
@@ -144,6 +150,7 @@ export class ArtifactLibraryStore {
         // A new library reads every kind from the start, and every message whole.
         backfilledKinds: [...KINDS_ADDED_LATER],
         skippedTextReread: true,
+        decksSeparated: true,
       };
       this.markChanged();
       await this.flush();
@@ -169,6 +176,36 @@ export class ArtifactLibraryStore {
   markSkippedTextReread(): void {
     this.state().skippedTextReread = true;
     this.markChanged();
+  }
+
+  needsDeckSeparation(): boolean {
+    return !this.state().decksSeparated;
+  }
+
+  /**
+   * Once: reports whose newest version is a slide deck become decks (and the other way round), so
+   * decks saved before the Library had a kind for them show under Presentations. Only the index
+   * changes (kinds and excerpts); versions and their saved content stay as they are. Returns the
+   * sessions whose messages show a changed artifact, to refresh.
+   */
+  async separateDecks(): Promise<Set<string>> {
+    const affected = new Set<string>();
+    for (const artifact of Object.values(this.state().artifacts)) {
+      if (artifact.kind !== "report" && artifact.kind !== "deck") continue;
+      const content = await this.versionContent(artifact.id, artifact.versions.at(-1)?.n ?? 0).catch((error) => {
+        console.error(`[artifact-library] Could not read the newest version of ${artifact.id}:`, error);
+        return null;
+      });
+      if (content?.kind !== "report") continue;
+      const kind = isSlideDeck(content.markdown) ? "deck" : "report";
+      if (kind === artifact.kind) continue;
+      artifact.kind = kind;
+      artifact.excerpt = excerptOf(content);
+      for (const sessionId of this.sessionsShowingArtifact(artifact.id)) affected.add(sessionId);
+    }
+    this.state().decksSeparated = true;
+    this.markChanged();
+    return affected;
   }
 
   /** Writes a copy of the index as it is now beside it, before a one-time repair; returns its path. */
@@ -338,6 +375,8 @@ export class ArtifactLibraryStore {
     };
     if (latest && artifact.kind === "figure") await this.dropFigureFile(latest);
     artifact.versions.push(version);
+    // A report file that became a slide deck, or stopped being one, keeps its history; its kind follows.
+    artifact.kind = capture.kind;
     artifact.updatedAt = Math.max(artifact.updatedAt, ref.at);
     artifact.preview = prepared.preview;
     if (prepared.excerpt !== undefined) artifact.excerpt = prepared.excerpt;
@@ -414,7 +453,8 @@ export class ArtifactLibraryStore {
       previewText = capture.markdown;
     } else {
       content = {
-        kind: capture.kind,
+        // A deck is saved as a report; its Markdown says it is a deck.
+        kind: capture.kind === "deck" ? "report" : capture.kind,
         markdown: capture.markdown,
         sourcePath: capture.sourcePath,
       };
@@ -720,7 +760,7 @@ export class ArtifactLibraryStore {
     const index = this.state();
     const from = index.artifacts[fromId];
     const into = index.artifacts[intoId];
-    if (!from || !into || from === into || from.kind !== into.kind) return null;
+    if (!from || !into || from === into || kindFamily(from.kind) !== kindFamily(into.kind)) return null;
     const combined = [
       ...into.versions.map((version) => ({ version, owner: intoId })),
       ...from.versions.map((version) => ({ version, owner: fromId })),
@@ -750,6 +790,9 @@ export class ArtifactLibraryStore {
     const latest = into.versions.at(-1)!;
     if (from.versions.some((version) => version.sha === latest.sha)) {
       into.preview = from.preview;
+      into.excerpt = from.excerpt;
+      // A report merged with a deck takes the kind of its newest version.
+      into.kind = from.kind;
     }
     delete index.artifacts[fromId];
     this.markChanged();
@@ -828,9 +871,16 @@ function groupingKey(ctx: CaptureContext, ref: ArtifactMessageRef, capture: Mess
       // Each table is its own artifact: tables in later answers are new results, not revisions.
       return `table|${ctx.sessionId}|${ref.messageId}|${capture.label}`;
     case "report":
+    case "deck":
     case "review":
-      return `${capture.kind}|${ctx.space}|${capture.sourcePath}`;
+      // A deck is a report file: one history whether or not it is a deck at the time.
+      return `${kindFamily(capture.kind)}|${ctx.space}|${capture.sourcePath}`;
   }
+}
+
+/** Kinds saved from the same files: decks are reports whose Markdown opens with `slides: true`. */
+function kindFamily(kind: ArtifactKind): ArtifactKind {
+  return kind === "deck" ? "report" : kind;
 }
 
 /**
@@ -914,14 +964,16 @@ function visualAltTitle(source: string): string {
 const EXCERPT_CHARS = 700;
 const EXCERPT_LINES = 16;
 
-/** The start of a text version, lines kept, for the gallery's text thumbnails. */
+/** The start of a text version, lines kept, for the gallery's text thumbnails; a deck's first slide. */
 export function excerptOf(content: ArtifactVersionContent): string {
   const text =
     content.kind === "post"
       ? content.parts.join("\n\n")
-      : content.kind === "report" || content.kind === "review" || content.kind === "table"
-        ? content.markdown
-        : "";
+      : content.kind === "report" && isSlideDeck(content.markdown)
+        ? (splitSlides(content.markdown)[0]?.markdown ?? "")
+        : content.kind === "report" || content.kind === "review" || content.kind === "table"
+          ? content.markdown
+          : "";
   const lines = text.replace(/\r/g, "").split("\n").slice(0, EXCERPT_LINES).join("\n").trimEnd();
   return lines.length > EXCERPT_CHARS ? lines.slice(0, EXCERPT_CHARS) : lines;
 }

@@ -194,13 +194,27 @@ const GALLERY_CARDS: ArtifactSummary[] = [
     excerpt:
       "# Why SD@400 scores lower\n\nThe gap comes from stricter grading, not the 384K context.\n\n## What we checked\n- Same problems, both graders\n- Rollouts past 256K only",
   }),
+  sampleArtifact({
+    id: "card-deck",
+    kind: "deck",
+    title: "Program verification evals in Lean and Rocq",
+    versionCount: 5,
+    // A presentation's excerpt is its first slide; a title slide is centred like on the stage.
+    excerpt: "# Program verification evals in Lean and Rocq\n\n*Where the 77B stands, November 10*",
+  }),
+  sampleArtifact({
+    id: "card-deck-content",
+    kind: "deck",
+    title: "Program-proof pilot: five tasks up close",
+    excerpt: "## Five tasks, three outcomes\n\n- 2 proved outright\n- 2 proved after a hint\n- 1 still open",
+  }),
 ];
 
 export function PlaygroundArtifactLibrarySection() {
   return (
     <Section
       title="Artifact Library in the Feed"
-      description="Drafts, reports, figures, visuals, tables and guided reviews are saved in the Library with versions. Messages can link to them with artifact: links, and the Library's gallery shows them as cards. A version a newer one replaced, or an earlier copy of a version sent again, collapses to one line whose content was not sent (Show loads it from the backend); the newest carries its Library link in the card header. A draft's title: header names it and is neither shown nor copied."
+      description="Drafts, reports, presentations, figures, visuals, tables and guided reviews are saved in the Library with versions. Messages can link to them with artifact: links, and the Library's gallery shows them as cards. A version a newer one replaced, or an earlier copy of a version sent again, collapses to one line whose content was not sent (Show loads it from the backend); the newest carries its Library link in the card header. A draft's title: header names it and is neither shown nor copied."
     >
       <Card label="Older version, collapsed">
         <div className="max-w-[640px]" data-testid="playground-artifact-older">
@@ -232,7 +246,7 @@ export function PlaygroundArtifactLibrarySection() {
           <MessageBubble message={LINK_MESSAGE} sessionId="playground-session" />
         </div>
       </Card>
-      <Card label="Gallery cards: table, post and report miniatures">
+      <Card label="Gallery cards: table, post, report and presentation miniatures">
         <div className="grid max-w-[700px] grid-cols-2 gap-3 sm:grid-cols-3" data-testid="playground-artifact-cards">
           {GALLERY_CARDS.map((artifact) => (
             <ArtifactCard key={artifact.id} artifact={artifact} showKind showSpace={false} onOpen={() => {}} />

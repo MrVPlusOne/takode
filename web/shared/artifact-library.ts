@@ -1,20 +1,34 @@
 import type { DraftDestination, PostPartChanges } from "./draft-posts.js";
 /**
- * The artifact library: things agents made for the user (drafts and posts, reports, figures,
- * visuals, guided reviews), saved by the server as they appear in conversations, with revisions of
- * the same thing grouped as versions. Shared by the server, the browser and the `takode artifact`
+ * The artifact library: things agents made for the user (drafts and posts, reports, presentations,
+ * figures, visuals, guided reviews), saved by the server as they appear in conversations, with
+ * revisions of the same thing grouped as versions. Shared by the server, the browser and the `takode artifact`
  * command.
  */
 
-export type ArtifactKind = "post" | "report" | "review" | "visual" | "figure" | "table";
+/**
+ * A `deck` is a slide deck: a report whose Markdown opens with `slides: true` front matter. Its
+ * versions are saved as report content, so a report file that became a deck (or stopped being one)
+ * keeps one history, and its kind follows its newest version.
+ */
+export type ArtifactKind = "post" | "report" | "deck" | "review" | "visual" | "figure" | "table";
 
 /** In the order the Library's kind tabs show them. */
-export const ARTIFACT_KINDS: readonly ArtifactKind[] = ["figure", "visual", "table", "post", "report", "review"];
+export const ARTIFACT_KINDS: readonly ArtifactKind[] = [
+  "figure",
+  "visual",
+  "table",
+  "post",
+  "report",
+  "deck",
+  "review",
+];
 
 /** User-facing names of the kinds, singular. */
 export const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
   post: "Post",
   report: "Report",
+  deck: "Slide deck",
   review: "Guided review",
   visual: "Visual",
   figure: "Figure",
@@ -25,6 +39,7 @@ export const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
 export const ARTIFACT_KIND_PLURALS: Record<ArtifactKind, string> = {
   post: "Posts",
   report: "Reports",
+  deck: "Slides",
   review: "Reviews",
   visual: "Visuals",
   figure: "Figures",
@@ -99,7 +114,10 @@ export interface ArtifactDetail extends ArtifactSummary {
   versions: ArtifactVersionSummary[];
 }
 
-/** A version's content: post parts, Markdown (reports, reviews), visual source, or a figure file. */
+/**
+ * A version's content: post parts, Markdown (reports, presentations, reviews), visual source, or a
+ * figure file. A presentation's versions are report content: the Markdown tells a deck apart.
+ */
 export type ArtifactVersionContent =
   | {
       kind: "post";

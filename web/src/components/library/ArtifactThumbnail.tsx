@@ -11,12 +11,13 @@ import { StarIcon } from "../ArtifactInline.js";
 import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../../hooks/useLongPress.js";
 import { libraryMenuItems } from "../artifact-card-menu.js";
 import { ContextMenu } from "../ContextMenu.js";
+import { isTitleSlide } from "../../../shared/slides.js";
 
 /**
  * Gallery thumbnails. Figures and visuals show a small picture the server makes once per version
  * (its URL names the version, so the browser caches it for good); posts, reports, reviews and
- * tables show a miniature of their first lines, drawn from the excerpt that comes with the list,
- * so they cost no extra request.
+ * tables show a miniature of their first lines, and presentations one of their first slide, drawn
+ * from the excerpt that comes with the list, so they cost no extra request.
  */
 const MAX_THUMB_ATTEMPTS = 8;
 const RETRY_MS = 2500;
@@ -67,6 +68,7 @@ function TextMiniature({ artifact }: { artifact: ArtifactSummary }) {
   const text = artifact.excerpt ?? artifact.preview;
   if (artifact.kind === "table") return <TableMiniature markdown={text} />;
   if (!text.trim()) return <KindGlyph kind={artifact.kind} />;
+  if (artifact.kind === "deck") return <SlideMiniature markdown={text} />;
   const lines = text
     .split("\n")
     .filter((line) => line.trim())
@@ -82,6 +84,44 @@ function TextMiniature({ artifact }: { artifact: ArtifactSummary }) {
             key={index}
             className={`${heading ? "mb-0.5 truncate text-[11px] font-semibold text-cc-fg" : "line-clamp-3 break-words"} ${bullet ? "pl-2" : ""}`}
           >
+            {bullet ? "• " : ""}
+            {plain}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A deck's first slide (its excerpt), laid out as the slide is: a title slide centred, others from the top. */
+function SlideMiniature({ markdown }: { markdown: string }) {
+  const lines = markdown
+    .split("\n")
+    .filter((line) => line.trim() && !line.trim().startsWith("```"))
+    .slice(0, 7);
+  const centred = isTitleSlide(markdown);
+  return (
+    <div
+      className={`flex h-full w-full flex-col gap-1 px-4 text-cc-fg/85 ${centred ? "justify-center text-center" : "pt-3 text-left"}`}
+      aria-hidden="true"
+      data-testid="slide-miniature"
+    >
+      {lines.map((line, index) => {
+        const heading = /^(#{1,6})\s+/.exec(line);
+        const bullet = /^\s*([-*+]|\d+\.)\s+/.test(line);
+        const plain = stripMarkdown(line.replace(/^#{1,6}\s+/, "").replace(/^\s*([-*+]|\d+\.)\s+/, ""));
+        if (heading) {
+          return (
+            <div
+              key={index}
+              className={`line-clamp-2 font-semibold text-cc-fg ${heading[1].length === 1 ? "text-[14px]" : "text-[12px]"}`}
+            >
+              {plain}
+            </div>
+          );
+        }
+        return (
+          <div key={index} className="truncate text-[10px] leading-[1.4]">
             {bullet ? "• " : ""}
             {plain}
           </div>
@@ -246,6 +286,7 @@ export function KindGlyph({ kind, className = "h-7 w-7" }: { kind: ArtifactKind;
   const paths: Record<ArtifactKind, string> = {
     post: "M4 5h16v11H9l-5 4z",
     report: "M7 3h7l5 5v13H7z M14 3v5h5 M10 13h6 M10 17h6",
+    deck: "M3 4h18 M4 4v11h16V4 M12 15v4 M8 21l4-2 4 2",
     review: "M8 6h12 M8 12h12 M8 18h12 M4 6h.01 M4 12h.01 M4 18h.01",
     visual: "M4 20V4 M4 20h16 M7 15l4-4 3 3 5-6",
     figure: "M3 5h18v14H3z M3 16l5-5 4 4 3-3 6 6",

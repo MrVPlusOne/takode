@@ -9,11 +9,12 @@ import {
   type DraftDestination,
 } from "../shared/draft-posts.js";
 import { findLocalImageReferences, type LocalImageReference } from "../shared/local-image-references.js";
+import { isSlideDeck } from "../shared/slides.js";
 
 /**
  * Finds the artifacts in one conversation message: draft blocks (posts), titled or untitled visual
- * blocks, images shown in an answer (figures), tables in an answer's prose, and published reports
- * and guided reviews. Pure and
+ * blocks, images shown in an answer (figures), tables in an answer's prose, and published reports,
+ * slide decks and guided reviews. Pure and
  * deterministic, so the same message always yields the same captures in the same order: the
  * library records which capture of a message became which artifact version by its `label`, and
  * the browser projection finds them again by label to collapse superseded ones.
@@ -67,7 +68,7 @@ export type MessageCapture =
       spans: TextSpan[];
     }
   | {
-      kind: "report" | "review";
+      kind: "report" | "deck" | "review";
       label: string;
       title: string;
       markdown: string;
@@ -132,7 +133,7 @@ function extractReport(message: Extract<BrowserIncomingMessage, { type: "markdow
     at: message.timestamp,
     captures: [
       {
-        kind: review ? "review" : "report",
+        kind: review ? "review" : isSlideDeck(message.content) ? "deck" : "report",
         label: "report",
         title: review ? review.map.title : reportTitle(message.content, message.source.sourcePath),
         markdown: message.content,

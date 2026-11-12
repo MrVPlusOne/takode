@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { Slide } from "../../../shared/slides.js";
+import { isTitleSlide, type Slide } from "../../../shared/slides.js";
 import type { NarratedDeck } from "../../read-aloud-player.js";
 import { SelectableMessage } from "../ArtifactPanel.js";
 import { useConversationShown } from "../KeptConversationViews.js";
@@ -35,11 +35,6 @@ export type RenderSlide = (markdown: string) => ReactNode;
 /** The layout for slides shown in a box `width` pixels wide. */
 export function slideLayoutFor(width: number): SlideLayout {
   return width < STAGE_MIN_WIDTH ? "page" : "stage";
-}
-
-/** A title slide (one led by a top-level heading) sits in the middle of the stage; others start at its top. */
-export function isTitleSlide(markdown: string): boolean {
-  return /^#[ \t]/.test(markdown.trimStart());
 }
 
 /**

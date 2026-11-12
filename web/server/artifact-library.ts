@@ -81,11 +81,13 @@ export class ArtifactLibrary {
   /**
    * Reads every loaded session once, so history from before the library (up to a month) is
    * captured. Kinds the library learned later are read from that history once as well, and so
-   * were, once, the messages skipped before the newest message was read again (see `captureSession`).
+   * were, once, the messages skipped before the newest message was read again (see `captureSession`);
+   * slide decks saved as reports are told apart once.
    */
   backfill(): Promise<void> {
     const ids = this.deps.listSessions().map((session) => session.id);
     this.running = this.running.then(async () => {
+      if (this.store.needsDeckSeparation()) await this.separateDecks();
       await this.captureSessions(ids, { yieldBetween: true });
       const kinds = this.store.kindsToBackfill();
       if (kinds.length > 0) {
@@ -96,6 +98,22 @@ export class ArtifactLibrary {
       if (this.store.needsSkippedTextReread()) await this.rereadSkippedText(ids);
     });
     return this.running;
+  }
+
+  /**
+   * Once: slide decks saved as reports before the Library had a kind for them become presentations.
+   * The index is backed up first; the conversations showing them get the new kind in their markers.
+   */
+  private async separateDecks(): Promise<void> {
+    const backup = await this.store.backUpIndex("decks");
+    const before = this.store.list({ kind: "deck" }).total;
+    const affected = await this.store.separateDecks();
+    await this.store.flush();
+    console.log(
+      `[artifact-library] Told slide decks apart from reports: ${this.store.list({ kind: "deck" }).total - before} ` +
+        `report(s) became slide decks; index backed up to ${backup}`,
+    );
+    for (const id of affected) this.deps.refreshConversation(id);
   }
 
   /**

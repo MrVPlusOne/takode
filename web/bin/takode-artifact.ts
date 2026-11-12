@@ -10,8 +10,8 @@ import { apiGet, apiPatch, apiPost, assertKnownFlags, err, formatRelativeTime, p
 
 export const ARTIFACT_HELP = `Usage: takode artifact <list|show|share|rename|merge> ...
 
-The artifact library: drafts and posts, reports, figures, visuals, tables and guided reviews saved
-from conversations, with revisions grouped as versions. Takode saves them by itself; name a draft
+The artifact library: drafts and posts, reports, presentations (slide decks), figures, visuals,
+tables and guided reviews saved from conversations, with revisions grouped as versions. Takode saves them by itself; name a draft
 with a "title: <name>" line and a "---" line at its start so its revisions group under that name.
 Each artifact is printed as a ready-to-paste link, [title](artifact:<id>); add :v<n> after the ID
 to link one version.

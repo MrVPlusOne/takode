@@ -29,6 +29,11 @@ export function isSlideDeck(markdown: string): boolean {
   return !!front && DECK_KEY.test(front[1]);
 }
 
+/** A title slide (one led by a top-level heading) sits in the middle of the stage; others start at its top. */
+export function isTitleSlide(markdown: string): boolean {
+  return /^#[ \t]/.test(markdown.trimStart());
+}
+
 /** The Markdown without its front matter, as it shows on screen. */
 export function withoutFrontMatter(markdown: string): string {
   const text = markdown.replace(/^﻿/, "");

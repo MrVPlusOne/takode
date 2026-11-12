@@ -255,7 +255,7 @@ function KindTabs({
 }) {
   return (
     <div
-      className="grid grid-cols-7 overflow-hidden rounded-lg border border-cc-border bg-cc-card text-[12.5px]"
+      className="grid grid-cols-8 overflow-hidden rounded-lg border border-cc-border bg-cc-card text-[12.5px]"
       role="tablist"
       aria-label="Kind"
     >

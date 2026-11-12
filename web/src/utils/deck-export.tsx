@@ -2,9 +2,9 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import type { ReactNode } from "react";
 import { scanFences } from "../../shared/draft-posts.js";
-import { splitSlides } from "../../shared/slides.js";
+import { isTitleSlide, splitSlides } from "../../shared/slides.js";
 import { parseVisualBlock } from "../../shared/visual-block.js";
-import { isTitleSlide, STAGE_HEIGHT, STAGE_WIDTH } from "../components/slides/SlideDeck.js";
+import { STAGE_HEIGHT, STAGE_WIDTH } from "../components/slides/SlideDeck.js";
 import { exportFileName, renderDocument, saveFile, standalonePage, type ExportFormat } from "./artifact-export.js";
 
 /**

@@ -74,7 +74,9 @@ function MarkdownReportBody({
 }) {
   const [panelOpen, setPanelOpen] = useState(false);
   const source = message.metadata!.markdownReport!;
-  const reportMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "report");
+  const reportMarker = message.metadata?.artifacts?.find(
+    (marker) => marker.kind === "report" || marker.kind === "deck",
+  );
   // The Library's name for the report (the agent's or the user's), else its first heading or file name.
   const title = reportMarker?.title || reportTitleOf(message.content, source.sourcePath);
   const cardContentRef = useRef<HTMLDivElement>(null);
@@ -204,7 +206,9 @@ function MarkdownReportDeck({
   readOnly: boolean;
 }) {
   const source = message.metadata!.markdownReport!;
-  const reportMarker = message.metadata?.artifacts?.find((marker) => marker.kind === "report");
+  const reportMarker = message.metadata?.artifacts?.find(
+    (marker) => marker.kind === "report" || marker.kind === "deck",
+  );
   const title = reportMarker?.title || reportTitleOf(message.content, source.sourcePath);
   const renderSlide = useCallback(
     (markdown: string) => (
