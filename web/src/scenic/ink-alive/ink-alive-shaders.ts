@@ -85,10 +85,16 @@ float band(float y, float top, float bottom, float soft) {
 }
 
 // Ink density (0 paper, 1 black ink) of a layer painted as dark ink on white.
+// Layers are read everywhere and masked to their rect afterwards, never skipped by an early return:
+// a skipped read leaves the mip level of its neighbouring pixels undefined, and the mipmapped boat
+// and cranes then drew a faint, flickering dark box along their edges from a coarse level.
+float insideRect(vec2 uv) {
+  return step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+}
+
 float inkAt(sampler2D tex, vec4 rect, vec2 px) {
   vec2 uv = (px - rect.xy) / rect.zw;
-  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-  return 1.0 - texture2D(tex, uv).r;
+  return (1.0 - texture2D(tex, uv).r) * insideRect(uv);
 }
 
 // Clouds drifting sideways at a pace you can follow (speed in pane heights a second), billowing
@@ -103,8 +109,7 @@ float cloud(vec2 q, float speed, float scale, float threshold, float seed) {
 
 float lightAt(sampler2D tex, vec4 rect, vec2 px) {
   vec2 uv = (px - rect.xy) / rect.zw;
-  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-  return texture2D(tex, uv).r;
+  return texture2D(tex, uv).r * insideRect(uv);
 }
 
 // A layer's ink density by day (x) and its moonlit brightness at night (y). The painting itself
@@ -139,10 +144,11 @@ vec4 crane(vec4 rect, vec4 pose, vec2 px) {
   float s = sin(-pose.w);
   d = vec2(c * d.x - s * d.y, s * d.x + c * d.y);
   vec2 uv = d / rect.zw + 0.5;
-  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0);
-  vec4 a = texture2D(uCrane, vec2((pose.x + uv.x) / 6.0, uv.y));
-  vec4 b = texture2D(uCrane, vec2((pose.y + uv.x) / 6.0, uv.y));
-  return mix(a, b, pose.z);
+  // Clamped into its own frame, so a read outside the bird never picks up the next frame.
+  vec2 f = clamp(uv, 0.0, 1.0);
+  vec4 a = texture2D(uCrane, vec2((pose.x + f.x) / 6.0, f.y));
+  vec4 b = texture2D(uCrane, vec2((pose.y + f.x) / 6.0, f.y));
+  return mix(a, b, pose.z) * insideRect(uv);
 }
 
 // The sea of clouds' lumps and gaps at p (0 a gap, 1 a lump), given where its top lies and the
@@ -291,11 +297,10 @@ void main() {
   float shading = max(underHigh - high, 0.0) * 0.22 + lobeWash * 0.14;
 
   float boat = inkAt(uBoat, uBoatRect, px);
+  // Its reflection below the keel, read everywhere and kept only below it (see insideRect).
   float keel = uBoatRect.y + uBoatRect.w * 0.92;
-  if (px.y > keel) {
-    vec2 m = vec2(px.x + sin(px.y * 0.8 + t * 0.8) * 1.5, keel - (px.y - keel));
-    boat = max(boat, inkAt(uBoat, uBoatRect, m) * 0.28);
-  }
+  vec2 m = vec2(px.x + sin(px.y * 0.8 + t * 0.8) * 1.5, keel - (px.y - keel));
+  boat = max(boat, inkAt(uBoat, uBoatRect, m) * 0.28 * step(keel, px.y));
 
   // Near cliffs and pines. Where things stand is this painting's own geometry, in its uv: a
   // cliff at each side with pines on top, and mist at their feet.
