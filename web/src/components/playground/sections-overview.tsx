@@ -742,8 +742,11 @@ export function PlaygroundOverviewSections() {
           <Card label="Background tasks stopped with the process">
             <PlaygroundStoppedBackgroundTasksMessage />
           </Card>
-          <Card label="Slack updates attached to the next input">
-            <PlaygroundSlackUpdatesMessage />
+          <Card label="Slack updates: a session's first notice">
+            <PlaygroundSlackUpdatesMessage repeat={false} />
+          </Card>
+          <Card label="Slack updates: a repeated update of the same thread">
+            <PlaygroundSlackUpdatesMessage repeat />
           </Card>
           <Card label="Thread outcome reminder (collapsed chip)">
             <PlaygroundThreadOutcomeReminderMessage />

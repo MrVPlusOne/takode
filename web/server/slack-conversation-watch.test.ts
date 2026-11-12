@@ -195,6 +195,7 @@ describe("SlackConversationWatch", () => {
         label: "eval",
         messages: [message("300.000001")],
         omitted: 0,
+        introduce: true,
       },
     ]);
 
@@ -343,7 +344,7 @@ describe("attachSlackUpdates", () => {
     expect(attached.message.deliveryContent).toContain("> new reply");
     expect(attached.message.historyFollowUps).toEqual([
       {
-        content: expect.stringContaining("### Thread: eval proposal"),
+        content: expect.stringContaining('`C1/1.000001`: thread "eval proposal"'),
         agentSource: SLACK_UPDATES_SOURCE,
       },
     ]);
@@ -363,7 +364,29 @@ describe("attachSlackUpdates", () => {
         agentSource: SLACK_UPDATES_SOURCE,
       }),
     ]);
-    expect(attached.message.deliveryContent).toContain("You read it in thread q-12.");
+    expect(attached.message.deliveryContent).toContain('`C1/1.000001`: thread "eval proposal", read in q-12');
+  });
+
+  it("names a conversation and explains the format only the first time", async () => {
+    // Jiayi found repeated notices noisy: the second update of the same thread
+    // carries only its ID and the new messages; a conversation first seen later
+    // gets its title, but the format is not explained again.
+    const { watch, session } = await watchWithUpdates("q-12");
+    const first = attachSlackUpdates(session, userMessage("one"))!;
+    expect(first.message.deliveryContent).toContain("Only messages you have not seen are shown");
+    first.accept();
+
+    slack.thread.set("C1/1.000001", [message("2.000001", "new reply"), message("3.000001", "another reply")]);
+    watch.recordRead("s1", { channelId: "C2", threadTs: "9.000001", label: "other thread", seenTs: "9.000001" });
+    slack.thread.set("C2/9.000001", [message("10.000001", "other news")]);
+    await watch.poll();
+    const second = attachSlackUpdates(session, userMessage("two"))!.message.deliveryContent!;
+    expect(second).not.toContain("Only messages you have not seen are shown");
+    expect(second).not.toContain("eval proposal");
+    expect(second).toContain("`C1/1.000001`\n\n**Weixin Wu**");
+    expect(second).toContain("> another reply");
+    expect(second).not.toContain("> new reply");
+    expect(second).toContain('`C2/9.000001`: thread "other thread"');
   });
 
   it("leaves Takode's own messages and inputs with images alone", async () => {

@@ -55,6 +55,8 @@ interface WatchedConversation {
   pendingOmitted: number;
   /** The newest new message, kept or counted. */
   pendingLatestTs?: string;
+  /** A notice has named this conversation to the session, so later ones only carry its ID. */
+  introduced?: boolean;
 }
 
 /** A conversation read in one tool result. */
@@ -169,10 +171,13 @@ export class SlackConversationWatch {
   /** New messages waiting for the session, and how to mark them told once its input was accepted. */
   takeUpdates(sessionId: string): {
     updates: (SlackUpdate & { questId?: string })[];
+    /** The session has had no notice yet (among the conversations it watches): explain the format. */
+    explain: boolean;
     accept: () => void;
   } | null {
     const ready = this.conversations.filter((c) => c.sessionId === sessionId && c.pendingLatestTs);
     if (ready.length === 0) return null;
+    const explain = !this.conversations.some((c) => c.sessionId === sessionId && c.introduced);
     const told = ready.map((conversation) => ({
       conversation,
       latestTs: conversation.pendingLatestTs!,
@@ -186,9 +191,14 @@ export class SlackConversationWatch {
         omitted: conversation.pendingOmitted,
         ...(conversation.threadKey ? { threadKey: conversation.threadKey } : {}),
         ...(conversation.questId ? { questId: conversation.questId } : {}),
+        introduce: !conversation.introduced,
       })),
+      explain,
       accept: () => {
-        for (const { conversation, latestTs } of told) markSeen(conversation, latestTs);
+        for (const { conversation, latestTs } of told) {
+          markSeen(conversation, latestTs);
+          conversation.introduced = true;
+        }
         this.persist();
       },
     };
@@ -349,8 +359,9 @@ export function attachSlackUpdates(
     const key = update.threadKey ?? "";
     byThread.set(key, [...(byThread.get(key) ?? []), update]);
   }
-  const notices = [...byThread.values()].map((updates) => ({
-    content: formatSlackUpdatesNotice(updates),
+  // The format is explained once, in the first notice.
+  const notices = [...byThread.values()].map((updates, index) => ({
+    content: formatSlackUpdatesNotice(updates, { explain: taken.explain && index === 0 }),
     agentSource: SLACK_UPDATES_SOURCE,
     ...(updates[0]!.threadKey ? { threadKey: updates[0]!.threadKey } : {}),
     ...(updates[0]!.questId ? { questId: updates[0]!.questId } : {}),

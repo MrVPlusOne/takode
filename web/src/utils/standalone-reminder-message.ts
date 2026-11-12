@@ -264,18 +264,18 @@ function buildStoppedBackgroundTasksReminder(content: string): SystemReminderVie
 }
 
 /**
- * The notice starts "[Slack updates] 3 new messages in 2 Slack conversations
- * ..." and names each conversation in a "### Thread: <first line>" heading;
- * the chip shows the conversations with the message count beside them.
+ * The notice starts "[Slack updates] 3 new messages ..." and lists each new
+ * message under a "**<author>** (<time>)" line; the chip names who wrote with
+ * the message count beside them. Conversation IDs stay in the detail.
  */
 function buildSlackUpdatesReminder(content: string): SystemReminderViewModel {
   const body = content.startsWith(SLACK_UPDATES_TAG) ? content.slice(SLACK_UPDATES_TAG.length).trimStart() : content;
   const count = body.match(/^(\d+) new messages?\b/)?.[1];
-  const labels = [...body.matchAll(/^### (?:Thread|Direct messages): (.+)$/gm)].map((match) => match[1]);
+  const authors = [...new Set([...body.matchAll(/^\*\*(.+?)\*\* \(/gm)].map((match) => match[1]))];
   return {
     kind: "slack-updates",
     title: "Slack updates",
-    summary: labels.length > 0 ? labels.join(", ") : (body.split(/\r?\n/, 1)[0] ?? ""),
+    summary: authors.length > 0 ? authors.join(", ") : (body.split(/\r?\n/, 1)[0] ?? ""),
     ...(count ? { meta: `${count} new` } : {}),
     badge: "slack",
     tone: "info",

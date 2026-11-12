@@ -36,6 +36,8 @@ export interface SlackUpdate {
   omitted: number;
   /** The leader thread the session read the conversation in, when not Main. */
   threadKey?: string;
+  /** The first notice about this conversation: name it and say where it was read. Later ones only carry its ID. */
+  introduce: boolean;
 }
 
 const SECTION_HEADER = /^(?:=== THREAD PARENT MESSAGE ===|=== THREAD REPLIES\b.*===|--- Reply \d+ of \d+ ---)\s*$/;
@@ -138,34 +140,42 @@ export function compareSlackTs(a: string, b: string): number {
   return left === right ? 0 : left < right ? -1 : 1;
 }
 
-/** The notice a session gets with its next input; `updates` all have new messages. */
-export function formatSlackUpdatesNotice(updates: readonly SlackUpdate[]): string {
+/**
+ * The notice a session gets with its next input; `updates` all have new
+ * messages. Each conversation is named by its ID (`channel/ts` for a thread,
+ * the channel for a direct-message conversation), which is also what the read
+ * tools take. Its title appears only in its first notice, and the reading
+ * instructions only with `explain`, the session's first notice, so repeated
+ * updates carry little more than the new messages.
+ */
+export function formatSlackUpdatesNotice(updates: readonly SlackUpdate[], options: { explain: boolean }): string {
   const total = updates.reduce((sum, update) => sum + update.messages.length + update.omitted, 0);
-  const lines = [
-    `${SLACK_UPDATES_TAG} ${plural(total, "new message")} in ${plural(updates.length, "Slack conversation")} you read earlier. ` +
-      "They arrived after you last saw these conversations; act on them only if they change your work.",
-  ];
-  for (const update of updates) {
-    const tool = update.threadTs
-      ? `\`slack_read_thread\` (channel_id \`${update.channelId}\`, message_ts \`${update.threadTs}\`)`
-      : `\`slack_read_channel\` (channel_id \`${update.channelId}\`)`;
-    const where = update.threadKey ? ` You read it in thread ${update.threadKey}.` : "";
+  const lines = [`${SLACK_UPDATES_TAG} ${plural(total, "new message")} in Slack conversations you read.`];
+  if (options.explain) {
     lines.push(
-      "",
-      `### ${update.threadTs ? "Thread" : "Direct messages"}: ${update.label}`,
-      `Read it with ${tool}.${where}`,
+      "Only messages you have not seen are shown, under the conversation's ID: `<channel_id>/<message_ts>` for a thread " +
+        "(read it all with `slack_read_thread`), or a direct-message conversation's `<channel_id>` (`slack_read_channel`). " +
+        "Act on them only if they change your work.",
     );
+  }
+  for (const update of updates) {
+    const id = `\`${slackConversationId(update)}\``;
+    const intro = update.introduce
+      ? `: ${update.threadTs ? "thread" : "direct messages"} "${update.label}"${update.threadKey ? `, read in ${update.threadKey}` : ""}`
+      : "";
+    lines.push("", `${id}${intro}`);
     for (const message of update.messages) {
+      // A blank line ends the quote above, or Markdown folds the next line into it.
       lines.push("", `**${message.author || "Someone"}** (${message.time})`, quote(message.text));
     }
-    if (update.omitted > 0) {
-      lines.push(
-        "",
-        `${plural(update.omitted, "newer message")} did not fit here; read the ${update.threadTs ? "thread" : "conversation"} to see ${update.omitted === 1 ? "it" : "them"}.`,
-      );
-    }
+    if (update.omitted > 0) lines.push("", `+${plural(update.omitted, "newer message")} not shown.`);
   }
   return lines.join("\n");
+}
+
+/** How a notice names a conversation: `channel/ts` for a thread, the channel for direct messages. */
+export function slackConversationId(update: Pick<SlackUpdate, "channelId" | "threadTs">): string {
+  return update.threadTs ? `${update.channelId}/${update.threadTs}` : update.channelId;
 }
 
 function body(lines: string[]): string {

@@ -453,20 +453,27 @@ describe("MessageBubble standalone system reminder messages", () => {
     expect(screen.getByText(/Load again only/)).toBeTruthy();
   });
 
-  it("renders a Slack updates notice as a chip naming the conversations", () => {
+  it("renders a Slack updates notice as a chip naming who wrote", () => {
     // New Slack messages attached to a session's next input. The chip names the
-    // conversations and how many messages arrived; the messages themselves and
-    // the channel IDs the agent needs to re-read stay in the detail.
+    // authors and how many messages arrived; the messages and the conversation
+    // ID the agent needs to re-read stay in the detail.
     const msg = makeMessage({
-      content: formatSlackUpdatesNotice([
-        {
-          channelId: "C0AMX973N8P",
-          threadTs: "1793914798.906149",
-          label: "eval proposal",
-          messages: [{ ts: "1794358314.762619", author: "Weixin Wu", time: "16:51 PST", text: "Let's do both." }],
-          omitted: 1,
-        },
-      ]),
+      content: formatSlackUpdatesNotice(
+        [
+          {
+            channelId: "C0AMX973N8P",
+            threadTs: "1793914798.906149",
+            label: "eval proposal",
+            messages: [
+              { ts: "1794358314.762619", author: "Weixin Wu", time: "16:51 PST", text: "Let's do both." },
+              { ts: "1794358315.762619", author: "Weixin Wu", time: "16:52 PST", text: "Starting now." },
+            ],
+            omitted: 1,
+            introduce: false,
+          },
+        ],
+        { explain: false },
+      ),
       agentSource: SLACK_UPDATES_SOURCE,
     });
 
@@ -474,8 +481,9 @@ describe("MessageBubble standalone system reminder messages", () => {
 
     const chip = screen.getByTestId("standalone-system-reminder-chip");
     expect(chip.getAttribute("data-chip-kind")).toBe("slack-updates");
-    expect(chip.textContent).toContain("Slack updates · eval proposal");
-    expect(chip.textContent).toContain("2 new");
+    expect(chip.textContent).toContain("Slack updates · Weixin Wu");
+    expect(chip.textContent).not.toContain("Weixin Wu, Weixin Wu");
+    expect(chip.textContent).toContain("3 new");
     expect(chip.textContent).not.toContain("C0AMX973N8P");
 
     fireEvent.click(chip);

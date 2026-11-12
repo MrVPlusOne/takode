@@ -110,45 +110,52 @@ describe("compareSlackTs", () => {
 });
 
 describe("formatSlackUpdatesNotice", () => {
-  it("lists each conversation's new messages with how to re-read it", () => {
-    const notice = formatSlackUpdatesNotice([
-      {
-        channelId: "C1",
-        threadTs: "1.000001",
-        label: "eval proposal",
-        messages: [
-          {
-            ts: "2.000001",
-            author: "Weixin Wu",
-            time: "16:51 PST",
-            text: "line one\nline two",
-          },
-        ],
-        omitted: 2,
-        threadKey: "q-12",
-      },
-      {
-        channelId: "D1",
-        label: "@Yang Zou",
-        messages: [
-          {
-            ts: "3.000001",
-            author: "Yang Zou",
-            time: "17:03 PST",
-            text: "sent",
-          },
-        ],
-        omitted: 0,
-      },
-    ]);
-    expect(notice.split("\n")[0]).toContain("[Slack updates] 4 new messages in 2 Slack conversations");
-    expect(notice).toContain("### Thread: eval proposal");
-    expect(notice).toContain(
-      "Read it with `slack_read_thread` (channel_id `C1`, message_ts `1.000001`). You read it in thread q-12.",
+  const thread = {
+    channelId: "C1",
+    threadTs: "1.000001",
+    label: "eval proposal",
+    messages: [{ ts: "2.000001", author: "Weixin Wu", time: "16:51 PST", text: "line one\nline two" }],
+    omitted: 2,
+    threadKey: "q-12",
+  };
+
+  it("names each conversation and explains the format in a session's first notice", () => {
+    const notice = formatSlackUpdatesNotice(
+      [
+        { ...thread, introduce: true },
+        {
+          channelId: "D1",
+          label: "@Yang Zou",
+          messages: [{ ts: "3.000001", author: "Yang Zou", time: "17:03 PST", text: "sent" }],
+          omitted: 0,
+          introduce: true,
+        },
+      ],
+      { explain: true },
     );
-    expect(notice).toContain("**Weixin Wu** (16:51 PST)\n> line one\n> line two");
-    expect(notice).toContain("2 newer messages did not fit here");
-    expect(notice).toContain("### Direct messages: @Yang Zou");
-    expect(notice).toContain("Read it with `slack_read_channel` (channel_id `D1`).");
+    const lines = notice.split("\n");
+    expect(lines[0]).toBe("[Slack updates] 4 new messages in Slack conversations you read.");
+    expect(lines[1]).toContain("`slack_read_thread`");
+    expect(notice).toContain(
+      '`C1/1.000001`: thread "eval proposal", read in q-12\n\n**Weixin Wu** (16:51 PST)\n> line one\n> line two',
+    );
+    expect(notice).toContain("+2 newer messages not shown.");
+    expect(notice).toContain('`D1`: direct messages "@Yang Zou"');
+  });
+
+  it("carries only the conversation ID and new messages in a repeated update", () => {
+    // Before/after: the first notice of a thread names it; a repeat is the
+    // header line, the ID and the messages, nothing else.
+    expect(formatSlackUpdatesNotice([{ ...thread, omitted: 0, introduce: false }], { explain: false })).toBe(
+      [
+        "[Slack updates] 1 new message in Slack conversations you read.",
+        "",
+        "`C1/1.000001`",
+        "",
+        "**Weixin Wu** (16:51 PST)",
+        "> line one",
+        "> line two",
+      ].join("\n"),
+    );
   });
 });

@@ -150,47 +150,72 @@ export function PlaygroundStoppedBackgroundTasksMessage() {
   return <MessageBubble message={message} sessionId="playground-stopped-background-tasks" showTimestamp={false} />;
 }
 
-/** New messages in two Slack conversations the session read, as attached to its next input. */
-export function PlaygroundSlackUpdatesMessage() {
+/**
+ * New Slack messages attached to a session's next input. The first notice
+ * explains the format and names each conversation; a repeated update of the
+ * same thread carries only its ID and the new messages.
+ */
+export function PlaygroundSlackUpdatesMessage({ repeat }: { repeat: boolean }) {
+  const thread = {
+    channelId: "C0AMX973N8P",
+    threadTs: "1793914798.906149",
+    label: "formal verification public benchmark nll eval proposal :thread:",
+    threadKey: "q-12",
+    introduce: !repeat,
+  };
+  const updates = repeat
+    ? [
+        {
+          ...thread,
+          messages: [
+            {
+              ts: "1794362001.000200",
+              author: "Yang Zou",
+              time: "2026-11-10 17:53:21 PST",
+              text: "Decontam numbers are in.",
+            },
+          ],
+          omitted: 0,
+        },
+      ]
+    : [
+        {
+          ...thread,
+          messages: [
+            {
+              ts: "1794358314.762619",
+              author: "Weixin Wu",
+              time: "2026-11-10 16:51:54 PST",
+              text: "yeah, I was discussing exactly the same thing with Aroma about diversity.\nWe can sample uniformly and dedupe before the scaling fit.",
+            },
+            {
+              ts: "1794358401.100200",
+              author: "Aroma Mahendru",
+              time: "2026-11-10 16:53:21 PST",
+              text: "Sounds good, let's do both.",
+            },
+          ],
+          omitted: 2,
+        },
+        {
+          channelId: "D0A1B2C3D4E",
+          label: "@Yang Zou",
+          introduce: true,
+          messages: [
+            {
+              ts: "1794359000.000100",
+              author: "Yang Zou",
+              time: "2026-11-10 17:03:20 PST",
+              text: "Sent you the decontam script.",
+            },
+          ],
+          omitted: 0,
+        },
+      ];
   const message: ChatMessage = {
-    id: "playground-slack-updates",
+    id: `playground-slack-updates-${repeat ? "repeat" : "first"}`,
     role: "user",
-    content: formatSlackUpdatesNotice([
-      {
-        channelId: "C0AMX973N8P",
-        threadTs: "1793914798.906149",
-        label: "formal verification public benchmark nll eval proposal :thread:",
-        messages: [
-          {
-            ts: "1794358314.762619",
-            author: "Weixin Wu",
-            time: "2026-11-10 16:51:54 PST",
-            text: "yeah, I was discussing exactly the same thing with Aroma about diversity.\nWe can sample uniformly and dedupe before the scaling fit.",
-          },
-          {
-            ts: "1794358401.100200",
-            author: "Aroma Mahendru",
-            time: "2026-11-10 16:53:21 PST",
-            text: "Sounds good, let's do both.",
-          },
-        ],
-        omitted: 2,
-        threadKey: "q-12",
-      },
-      {
-        channelId: "D0A1B2C3D4E",
-        label: "@Yang Zou",
-        messages: [
-          {
-            ts: "1794359000.000100",
-            author: "Yang Zou",
-            time: "2026-11-10 17:03:20 PST",
-            text: "Sent you the decontam script.",
-          },
-        ],
-        omitted: 0,
-      },
-    ]),
+    content: formatSlackUpdatesNotice(updates, { explain: !repeat }),
     timestamp: Date.now() - 4_000,
     agentSource: SLACK_UPDATES_SOURCE,
   };
