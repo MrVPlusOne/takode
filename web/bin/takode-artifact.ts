@@ -6,9 +6,20 @@ import type {
 } from "../shared/artifact-library.js";
 import { ARTIFACT_KIND_LABELS, ARTIFACT_KINDS, formatArtifactLink } from "../shared/artifact-library.js";
 import { parseActivityTime } from "./takode-activity.js";
-import { apiGet, apiPatch, apiPost, assertKnownFlags, err, formatRelativeTime, parseFlags } from "./takode-core.js";
+import { readdir, readFile } from "node:fs/promises";
+import { basename, extname, join, resolve } from "node:path";
+import {
+  apiGet,
+  apiPatch,
+  apiPost,
+  assertKnownFlags,
+  err,
+  formatRelativeTime,
+  parseFlags,
+  takodeAuthHeaders,
+} from "./takode-core.js";
 
-export const ARTIFACT_HELP = `Usage: takode artifact <list|show|share|rename|merge> ...
+export const ARTIFACT_HELP = `Usage: takode artifact <list|show|publish|share|rename|merge> ...
 
 The artifact library: drafts and posts, reports, presentations (slide decks), figures, visuals,
 tables and guided reviews saved from conversations, with revisions grouped as versions. Takode saves them by itself; name a draft
@@ -20,6 +31,13 @@ to link one version.
       Newest first. Default space: your session's. Kinds: ${ARTIFACT_KINDS.join(", ")}.
   takode artifact show <id> [--version N] [--json]
       An artifact's versions and the content of the newest (or the given) version.
+  takode artifact publish <file.pptx> [--title <name>] [--previews <dir>] [--thread <q-N|t-N|main>] [--json]
+      Save a PowerPoint deck in the Library under Slides, from any machine, so the user can find,
+      page through and download it; paste the printed link into your answer. Publishing again with
+      the same title (default: the file's name) adds a version. --previews names a folder of slide
+      pictures (PNG, JPEG or WebP, one per shown slide, numbered like slide1.png, slide2.png), such
+      as LibreOffice renders; without them the deck shows its slides' text. Leaders name the
+      thread the deck belongs to.
   takode artifact share <id> --thread <q-N|t-N> [--json]
   takode artifact share --from <session> [--title <title> | --message <index>] --thread <q-N|t-N> [--json]
       Post a draft into one of your threads as its normal card, without copying its text: the newest
@@ -44,6 +62,8 @@ export async function handleArtifact(base: string, args: string[]): Promise<void
       return listArtifacts(base, rest);
     case "show":
       return showArtifact(base, rest);
+    case "publish":
+      return publishDeck(base, rest);
     case "share":
       return shareDraft(base, rest);
     case "rename": {
@@ -69,6 +89,59 @@ export async function handleArtifact(base: string, args: string[]): Promise<void
       console.log(ARTIFACT_HELP);
       if (subcommand) process.exit(1);
   }
+}
+
+const PUBLISH_FLAGS = new Set(["title", "previews", "thread", "json"]);
+const PUBLISH_USAGE =
+  "Usage: takode artifact publish <file.pptx> [--title <name>] [--previews <dir>] [--thread <q-N|t-N|main>]";
+const PICTURE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+
+/** `takode artifact publish`: uploads a PowerPoint deck, and its slide pictures, to the Library. */
+async function publishDeck(base: string, args: string[]): Promise<void> {
+  const flags = parseFlags(args);
+  assertKnownFlags(flags, PUBLISH_FLAGS, PUBLISH_USAGE);
+  const path = args[0] && !args[0].startsWith("--") ? resolve(args[0]) : undefined;
+  if (!path || extname(path).toLowerCase() !== ".pptx") err(PUBLISH_USAGE);
+  const form = new FormData();
+  const data = await readFile(path).catch(() => err(`Cannot read ${path}`));
+  form.set("file", new File([data], basename(path)));
+  if (typeof flags.title === "string") form.set("title", flags.title);
+  if (typeof flags.thread === "string") form.set("threadKey", flags.thread);
+  const pictures = typeof flags.previews === "string" ? await slidePictures(resolve(flags.previews)) : [];
+  for (const picture of pictures) form.append("pictures", new File([await readFile(picture)], basename(picture)));
+  const response = await fetch(`${base}/artifacts/publish`, {
+    method: "POST",
+    headers: takodeAuthHeaders(),
+    body: form,
+  });
+  const body = (await response.json().catch(() => ({ error: response.statusText }))) as ArtifactDetail & {
+    error?: string;
+    version: number;
+    added: boolean;
+  };
+  if (!response.ok) err(body.error || `HTTP ${response.status}`);
+  if (flags.json === true) {
+    console.log(JSON.stringify(body));
+    return;
+  }
+  const link = formatArtifactLink(body.title, body.id);
+  const pictured = pictures.length > 0 ? `${pictures.length} slide pictures` : "no slide pictures";
+  console.log(
+    body.added
+      ? `Published ${link} as version ${body.version} (${pictured}). Paste the link into your answer.`
+      : `Unchanged: ${link} version ${body.version} already has this file and these pictures.`,
+  );
+}
+
+/** The slide pictures in a folder, in slide order: by the last number in each name, else by name. */
+export async function slidePictures(dir: string): Promise<string[]> {
+  const names = await readdir(dir).catch(() => err(`Cannot read the folder ${dir}`));
+  const pictures = names.filter((name) => PICTURE_EXTENSIONS.has(extname(name).toLowerCase()));
+  if (pictures.length === 0) err(`No PNG, JPEG or WebP slide pictures in ${dir}`);
+  const numberOf = (name: string) => Number(/(\d+)\D*$/.exec(name)?.[1] ?? Number.NaN);
+  return pictures
+    .sort((a, b) => numberOf(a) - numberOf(b) || a.localeCompare(b, undefined, { numeric: true }))
+    .map((name) => join(dir, name));
 }
 
 const SHARE_FLAGS = new Set(["thread", "from", "title", "message", "json"]);
@@ -191,6 +264,19 @@ function formatContent(content: ArtifactVersionContent | null, kept: boolean): s
       return content.source;
     case "figure":
       return `Figure file: ${content.path}`;
+    case "pptx":
+      return [
+        `PowerPoint file: ${content.name}`,
+        ...content.slides.map((slide, index) =>
+          [
+            `--- slide ${index + 1}${slide.title ? `: ${slide.title}` : ""} ---`,
+            slide.text,
+            slide.notes && `Notes: ${slide.notes}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        ),
+      ].join("\n\n");
   }
 }
 

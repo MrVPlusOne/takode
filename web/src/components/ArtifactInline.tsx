@@ -22,6 +22,7 @@ import { VisualBlock } from "./VisualBlock.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { isSlideDeck } from "../../shared/slides.js";
 import { SlideDeckCard } from "./slides/SlideDeckCard.js";
+import { PptxDeck } from "./slides/PptxDeck.js";
 import { ReadAloudButton, ReadAloudMessageContext } from "./ReadAloudPlayer.js";
 import { startReadAloud } from "../read-aloud-player.js";
 import { readAloudDraftText } from "../read-aloud-text.js";
@@ -154,7 +155,7 @@ export function ArtifactVersionLoader({
   );
 }
 
-/** A version's content as the user saw it: posts as draft cards, reports as Markdown, visuals, figures. */
+/** A version's content as the user saw it: posts as draft cards, reports as Markdown, decks, visuals, figures. */
 export function ArtifactVersionContentView({
   content,
   title,
@@ -240,6 +241,8 @@ export function ArtifactVersionContentView({
       ) : (
         <p className="py-1 text-[13px] text-cc-muted">Only the newest version of a figure is kept.</p>
       );
+    case "pptx":
+      return <PptxDeck content={content} title={title ?? content.name} renderMarkdown={renderMarkdown} />;
   }
 }
 

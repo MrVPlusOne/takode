@@ -273,8 +273,9 @@ export function ArtifactViewer({
 
 /**
  * Download and Export for an artifact shown without a card of its own: a report or table (its
- * Markdown, plus the exports report cards have, made from it as shown here) and a figure (its
- * image). Posts, visuals and decks show their card, whose More menu has Download and Export.
+ * Markdown, plus the exports report cards have, made from it as shown here), a figure (its
+ * image) and a published PowerPoint deck (its file). Posts, visuals and Markdown decks show their
+ * card, whose More menu has Download and Export.
  */
 function ArtifactDownloadButton({
   content,
@@ -292,6 +293,10 @@ function ArtifactDownloadButton({
       [contentRef, markdown, title],
     ),
   );
+  if (content.kind === "pptx") {
+    const { fileUrl, name } = content;
+    return <DownloadButton items={[{ label: "Download .pptx", onClick: () => saveUrl(fileUrl, name) }]} />;
+  }
   if (content.kind === "figure") {
     const { fileUrl, path } = content;
     if (!fileUrl) return null;

@@ -6,7 +6,9 @@ import {
   type ArtifactKind,
   type ArtifactListQuery,
 } from "../../shared/artifact-library.js";
+import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { getArtifactLibrary, type ArtifactLibrary } from "../artifact-library.js";
+import { readPptxSlides } from "../pptx-slides.js";
 import { getArtifactThumbnails, type ArtifactThumbnails } from "../artifact-thumbnails.js";
 import { sharedLocalImageVariantStore } from "../local-image-variant-store.js";
 import type { RouteContext } from "./context.js";
@@ -19,6 +21,15 @@ const FIGURE_CONTENT_TYPES: Record<string, string> = {
   ".webp": "image/webp",
   ".svg": "image/svg+xml",
 };
+
+/**
+ * A published deck's largest file, and its slide pictures' (each and in all). Together they stay
+ * under the 128 MB a request may carry through a host's API proxy (Bun's default).
+ */
+const MAX_PPTX_BYTES = 64 * 1024 * 1024;
+const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
+const MAX_PICTURES_BYTES = 60 * 1024 * 1024;
+const PICTURE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
 /**
  * The artifact library's API, for the Library page and `takode artifact`: list and search
@@ -98,6 +109,115 @@ export function createArtifactRoutes(
       return c.json({ ...content, message: { sessionId: source.sessionId, messageId: source.messageId } });
     }
     return c.json(content);
+  });
+
+  /**
+   * `takode artifact publish`: a session publishes a PowerPoint deck (`file`) with an optional
+   * `title` and `threadKey`, and optionally one picture per slide (`pictures`, in order). It is
+   * saved as a slide deck, a new version of the deck with that title in the session's space.
+   */
+  api.post("/artifacts/publish", async (c) => {
+    const auth = ctx.authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    const lib = library();
+    if (!lib) return c.json({ error: "The Library is not running." }, 503);
+    let form: FormData;
+    try {
+      form = await c.req.formData();
+    } catch {
+      return c.json({ error: "Send the deck as a multipart form." }, 400);
+    }
+    const file = form.get("file");
+    if (!(file instanceof File) || !/\.pptx$/i.test(file.name)) {
+      return c.json({ error: "Publish a PowerPoint file (.pptx)." }, 400);
+    }
+    if (file.size > MAX_PPTX_BYTES) {
+      return c.json(
+        { error: `The file is ${megabytes(file.size)}; the Library takes up to ${megabytes(MAX_PPTX_BYTES)}.` },
+        413,
+      );
+    }
+    const target = normalizeThreadTarget(String(form.get("threadKey") ?? "main"));
+    if (!target) return c.json({ error: "Name a thread as q-N, t-N or main." }, 400);
+    const pictureFiles = form.getAll("pictures").filter((entry): entry is File => entry instanceof File);
+    const badPicture = pictureFiles.find((picture) => !PICTURE_EXTENSIONS.has(extensionOf(picture.name)));
+    if (badPicture) return c.json({ error: `Slide pictures must be PNG, JPEG or WebP: ${badPicture.name}` }, 400);
+    const total = pictureFiles.reduce((sum, picture) => sum + picture.size, 0);
+    if (pictureFiles.some((picture) => picture.size > MAX_PICTURE_BYTES) || total > MAX_PICTURES_BYTES) {
+      return c.json({ error: "The slide pictures are too large; render them at a smaller size." }, 413);
+    }
+    const data = new Uint8Array(await file.arrayBuffer());
+    let slides: ReturnType<typeof readPptxSlides>;
+    try {
+      slides = readPptxSlides(data);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Could not read the .pptx file." }, 400);
+    }
+    if (pictureFiles.length > 0 && pictureFiles.length !== slides.length) {
+      return c.json(
+        {
+          error:
+            `The deck shows ${slides.length} slide(s) but ${pictureFiles.length} picture(s) were sent; ` +
+            "send one picture per shown slide, in order, or none.",
+        },
+        400,
+      );
+    }
+    const titleField = form.get("title");
+    // Versions group by title, so the default is the file's name, which stays put between revisions.
+    const title = (typeof titleField === "string" && titleField.trim()) || fileTitle(file.name);
+    const result = await lib.publishPptx(auth.callerId, target.threadKey, {
+      title: title.slice(0, 200),
+      name: file.name.split(/[\\/]/).pop() || file.name,
+      data,
+      slides,
+      pictures: await Promise.all(
+        pictureFiles.map(async (picture) => ({
+          data: new Uint8Array(await picture.arrayBuffer()),
+          ext: extensionOf(picture.name),
+        })),
+      ),
+    });
+    return c.json({ ...lib.store.get(result.artifactId), version: result.n, added: result.added }, 201);
+  });
+
+  /** A published deck version's file, saved under its original name. */
+  api.get("/artifacts/:id/versions/:n/file", async (c) => {
+    const lib = library();
+    const id = resolve(lib, c.req.param("id"));
+    const n = Number(c.req.param("n"));
+    const file = lib && id && Number.isInteger(n) ? await lib.store.pptxFile(id, n) : null;
+    if (!file) return c.json({ error: "No saved file" }, 404);
+    try {
+      return c.body(new Uint8Array(await readFile(file.path)), 200, {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+        "Cache-Control": "private, max-age=31536000, immutable",
+      });
+    } catch {
+      return c.json({ error: "No saved file" }, 404);
+    }
+  });
+
+  /** A published deck version's picture of one slide (1-based). */
+  api.get("/artifacts/:id/versions/:n/slides/:slide", async (c) => {
+    const lib = library();
+    const id = resolve(lib, c.req.param("id"));
+    const n = Number(c.req.param("n"));
+    const slide = Number(c.req.param("slide"));
+    const picture =
+      lib && id && Number.isInteger(n) && Number.isInteger(slide) ? await lib.store.pptxPicture(id, n, slide) : null;
+    const contentType = picture && FIGURE_CONTENT_TYPES[picture.ext];
+    if (!picture || !contentType) return c.json({ error: "No slide picture" }, 404);
+    try {
+      return c.body(new Uint8Array(await readFile(picture.path)), 200, {
+        "Content-Type": contentType,
+        // A version's pictures never change.
+        "Cache-Control": "private, max-age=31536000, immutable",
+      });
+    } catch {
+      return c.json({ error: "No slide picture" }, 404);
+    }
   });
 
   api.get("/artifacts/:id/file", async (c) => {
@@ -200,6 +320,23 @@ export function createArtifactRoutes(
   });
 
   return api;
+}
+
+function extensionOf(name: string): string {
+  return /\.[a-z0-9]+$/i.exec(name)?.[0]?.toLowerCase() ?? "";
+}
+
+/** A deck's title from its file name when it has none: "fv_weekly-2026.pptx" reads "Fv weekly 2026". */
+function fileTitle(name: string): string {
+  const words = (name.split(/[\\/]/).pop() ?? name)
+    .replace(/\.pptx$/i, "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+  return words ? words[0]!.toUpperCase() + words.slice(1) : "Slides";
+}
+
+function megabytes(bytes: number): string {
+  return `${Math.round(bytes / 1024 / 1024)} MB`;
 }
 
 /** A leader and the sessions it herds (workers, reviewers), archived ones included. */

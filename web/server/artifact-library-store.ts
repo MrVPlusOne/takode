@@ -20,6 +20,7 @@ import {
   type PostPartChanges,
 } from "../shared/draft-posts.js";
 import { isSlideDeck, splitSlides } from "../shared/slides.js";
+import type { PptxSlideText } from "./pptx-slides.js";
 
 /**
  * The server's artifact library: an index of artifacts and their versions, plus the saved content
@@ -27,7 +28,8 @@ import { isSlideDeck, splitSlides } from "../shared/slides.js";
  * version; a figure keeps only its newest file, and older figure versions remain as records.
  *
  * Layout under the root: `index.json` (the whole index, rewritten atomically), `text/<sha>.json`
- * (one file per distinct text version) and `files/<sha><ext>` (newest figure files).
+ * (one file per distinct text version) and `files/<sha><ext>` (newest figure files, and every
+ * version of a published PowerPoint deck and its slide pictures).
  */
 
 /** Untitled redrafts group only while they keep coming; a day later the same first line starts a new post. */
@@ -44,6 +46,28 @@ interface StoredVersion extends ArtifactVersionSummary {
   sha: string;
   /** Saved content: a text file name, or a figure file name. */
   stored?: string;
+  /** A published deck's first slide picture (a file name), its gallery thumbnail. */
+  cover?: string;
+}
+
+/** How a published PowerPoint version is saved: its file and slide pictures by their file names. */
+interface StoredPptx {
+  kind: "pptx";
+  name: string;
+  bytes: number;
+  file: string;
+  slides: Array<PptxSlideText & { picture?: string }>;
+}
+
+/** What `publishPptx` saves: the file, its slides' text, and their pictures when there are any. */
+export interface PptxPublication {
+  title: string;
+  /** The file's name as published. */
+  name: string;
+  data: Uint8Array;
+  slides: PptxSlideText[];
+  /** One per slide, in order, or none. */
+  pictures: Array<{ data: Uint8Array; ext: string }>;
 }
 
 interface StoredArtifact {
@@ -675,7 +699,129 @@ export class ArtifactLibraryStore {
       };
     }
     if (!version.stored) return null;
-    return JSON.parse(await readFile(join(this.root, "text", version.stored), "utf-8")) as ArtifactVersionContent;
+    const saved = JSON.parse(await readFile(join(this.root, "text", version.stored), "utf-8")) as
+      | ArtifactVersionContent
+      | StoredPptx;
+    if (saved.kind !== "pptx" || !("file" in saved)) return saved;
+    const base = `/api/artifacts/${artifact.id}/versions/${n}`;
+    return {
+      kind: "pptx",
+      name: saved.name,
+      bytes: saved.bytes,
+      fileUrl: `${base}/file`,
+      slides: saved.slides.map(({ picture, ...slide }, index) => ({
+        ...slide,
+        ...(picture ? { pictureUrl: `${base}/slides/${index + 1}` } : {}),
+      })),
+    };
+  }
+
+  /**
+   * Saves a PowerPoint deck an agent published, as a new version of the deck with the same title in
+   * the session's space (or a new deck). Every version keeps its file and slide pictures. Sending
+   * the same file and pictures again adds no version.
+   */
+  async publishPptx(
+    ctx: CaptureContext,
+    ref: ArtifactMessageRef,
+    input: PptxPublication,
+  ): Promise<{ artifactId: string; n: number; added: boolean }> {
+    const index = this.state();
+    const file = await this.saveFile(input.data, ".pptx");
+    const pictures = await Promise.all(input.pictures.map((picture) => this.saveFile(picture.data, picture.ext)));
+    const saved: StoredPptx = {
+      kind: "pptx",
+      name: input.name,
+      bytes: input.data.length,
+      file,
+      slides: input.slides.map((slide, position) => ({
+        ...slide,
+        ...(pictures[position] ? { picture: pictures[position] } : {}),
+      })),
+    };
+    const json = JSON.stringify(saved);
+    const sha = sha256(json);
+    const stored = `${sha}.json`;
+    await this.writeIfMissing(join(this.root, "text", stored), json);
+    const key = `deck-file|${ctx.space}|${normalizeTitle(input.title)}`;
+    let artifact = index.keys[key] ? index.artifacts[index.keys[key]!] : undefined;
+    if (!artifact) {
+      artifact = {
+        id: randomUUID(),
+        kind: "deck",
+        title: input.title,
+        titleSource: "explicit",
+        key,
+        space: ctx.space,
+        sessionId: ctx.sessionId,
+        threadKey: ref.threadKey,
+        createdAt: ref.at,
+        updatedAt: ref.at,
+        starred: false,
+        preview: "",
+        versions: [],
+      };
+      index.artifacts[artifact.id] = artifact;
+      index.keys[key] = artifact.id;
+    }
+    const latest = artifact.versions.at(-1);
+    let n = latest?.n ?? 0;
+    const added = latest?.sha !== sha;
+    if (added) {
+      n += 1;
+      artifact.versions.push({
+        n,
+        at: ref.at,
+        bytes: input.data.length,
+        kept: true,
+        sha,
+        stored,
+        ...(pictures[0] ? { cover: pictures[0] } : {}),
+        source: ref,
+      });
+      artifact.updatedAt = Math.max(artifact.updatedAt, ref.at);
+      const all = saved.slides.map((slide) => [slide.title, slide.text].filter(Boolean).join("\n"));
+      artifact.preview = previewOf(all.join("\n"));
+      const first = saved.slides[0];
+      artifact.excerpt = first ? [first.title && `# ${first.title}`, first.text].filter(Boolean).join("\n\n") : "";
+    }
+    // The session that published it shows it, so it counts among that session's (and its leader's) artifacts.
+    index.messages[messageIndexKey(ctx.sessionId, ref.messageId)] = [{ label: "pptx", artifactId: artifact.id, n }];
+    this.markChanged();
+    return { artifactId: artifact.id, n, added };
+  }
+
+  /** A published deck version's file, for download. */
+  pptxFile(id: string, n: number): Promise<{ path: string; name: string } | null> {
+    return this.storedPptx(id, n).then((saved) =>
+      saved ? { path: join(this.root, "files", saved.file), name: saved.name } : null,
+    );
+  }
+
+  /** A published deck version's picture of slide `slide` (1-based). */
+  pptxPicture(id: string, n: number, slide: number): Promise<{ path: string; ext: string } | null> {
+    return this.storedPptx(id, n).then((saved) => {
+      const picture = saved?.slides[slide - 1]?.picture;
+      return picture ? { path: join(this.root, "files", picture), ext: extname(picture) } : null;
+    });
+  }
+
+  private async storedPptx(id: string, n: number): Promise<StoredPptx | null> {
+    const version = this.state().artifacts[id]?.versions.find((candidate) => candidate.n === n);
+    if (!version?.stored?.endsWith(".json")) return null;
+    const saved = JSON.parse(await readFile(join(this.root, "text", version.stored), "utf-8")) as StoredPptx;
+    return saved.kind === "pptx" && "file" in saved ? saved : null;
+  }
+
+  /** Saves a file under `files/`, named by its content; returns the name. */
+  private async saveFile(data: Uint8Array, ext: string): Promise<string> {
+    const name = `${createHash("sha256").update(data).digest("hex")}${ext.toLowerCase()}`;
+    const target = join(this.root, "files", name);
+    if (!(await exists(target))) {
+      await mkdir(join(this.root, "files"), { recursive: true });
+      await writeFile(target, data);
+    }
+    return name;
   }
 
   /** What the newest version's thumbnail is made from, keyed by its version; null for kinds shown as text. */
@@ -691,6 +837,7 @@ export class ArtifactLibraryStore {
     const latest = artifact?.versions.at(-1);
     if (!artifact || !key || !latest?.stored) return null;
     if (artifact.kind === "figure") return { kind: "figure", key, filePath: join(this.root, "files", latest.stored) };
+    if (latest.cover) return { kind: "figure", key, filePath: join(this.root, "files", latest.cover) };
     const stored = latest.stored;
     return {
       kind: "visual",
@@ -1000,7 +1147,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 function publicVersion(version: StoredVersion): ArtifactVersionSummary {
-  const { sha: _sha, stored: _stored, ...rest } = version;
+  const { sha: _sha, stored: _stored, cover: _cover, ...rest } = version;
   return rest;
 }
 
@@ -1024,9 +1171,14 @@ function summarize(artifact: StoredArtifact): ArtifactSummary {
 }
 
 /** Identifies the newest version's picture thumbnail; none for kinds shown as text, or a figure not kept. */
-export function thumbKey(artifact: { kind: ArtifactKind; versions: Array<{ sha: string; kept: boolean }> }) {
+export function thumbKey(artifact: {
+  kind: ArtifactKind;
+  versions: Array<{ sha: string; kept: boolean; cover?: string }>;
+}) {
   const latest = artifact.versions.at(-1);
   if (!latest) return undefined;
-  if (artifact.kind === "visual" || (artifact.kind === "figure" && latest.kept)) return latest.sha.slice(0, 16);
+  if (artifact.kind === "visual" || (artifact.kind === "figure" && latest.kept) || latest.cover) {
+    return latest.sha.slice(0, 16);
+  }
   return undefined;
 }

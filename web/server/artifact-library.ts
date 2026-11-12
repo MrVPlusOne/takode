@@ -6,7 +6,8 @@ import {
   type ArtifactMessageMarker,
 } from "../shared/artifact-library.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
-import { ArtifactLibraryStore, type CaptureResult } from "./artifact-library-store.js";
+import { randomUUID } from "node:crypto";
+import { ArtifactLibraryStore, type CaptureResult, type PptxPublication } from "./artifact-library-store.js";
 import {
   assistantMessageId,
   extractFromTextBlocks,
@@ -159,6 +160,24 @@ export class ArtifactLibrary {
     const sessions = this.store.showVersion(sessionId, messageId, artifactId, n);
     await this.store.flush();
     for (const id of sessions) this.deps.refreshConversation(id);
+  }
+
+  /**
+   * Saves a PowerPoint deck a session published (see `ArtifactLibraryStore.publishPptx`) and tells
+   * the session's topic about a new version, as a captured artifact does.
+   */
+  async publishPptx(
+    sessionId: string,
+    threadKey: string,
+    input: PptxPublication,
+  ): Promise<{ artifactId: string; n: number; added: boolean }> {
+    const ref = { sessionId, messageId: `publish-${randomUUID()}`, threadKey, at: Date.now() };
+    const result = await this.store.publishPptx({ sessionId, space: this.deps.spaceFor(sessionId) }, ref, input);
+    await this.store.flush();
+    if (result.added) {
+      this.deps.onNewVersion?.({ sessionId, threadKey, title: input.title, kind: "deck", version: result.n });
+    }
+    return result;
   }
 
   /** Waits for captures already scheduled or running: for sharing what was just written, tests and shutdown. */

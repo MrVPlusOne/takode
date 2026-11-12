@@ -204,6 +204,7 @@ export function SlidePresenter({
   onClose,
   narration,
   comments,
+  layout: fixedLayout,
 }: {
   title: string;
   slides: readonly Slide[];
@@ -213,6 +214,8 @@ export function SlidePresenter({
   onClose: () => void;
   narration?: NarratedDeck;
   comments?: DeckComments;
+  /** Always this layout, whatever the width (slide pictures read best on the stage). */
+  layout?: SlideLayout;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
@@ -221,7 +224,7 @@ export function SlidePresenter({
     (next: number) => onChange(Math.max(0, Math.min(slides.length - 1, next))),
     [onChange, slides.length],
   );
-  const layout = slideLayoutFor(size.width);
+  const layout = fixedLayout ?? slideLayoutFor(size.width);
   const [notesShown, toggleNotes] = usePresenterNotes();
   usePreviewSheetHistoryEntry(true, panelRef, onClose);
 

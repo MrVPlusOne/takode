@@ -7,9 +7,10 @@ import type { DraftDestination, PostPartChanges } from "./draft-posts.js";
  */
 
 /**
- * A `deck` is a slide deck: a report whose Markdown opens with `slides: true` front matter. Its
- * versions are saved as report content, so a report file that became a deck (or stopped being one)
- * keeps one history, and its kind follows its newest version.
+ * A `deck` is a slide deck: either a report whose Markdown opens with `slides: true` front matter,
+ * or a PowerPoint file an agent published. A Markdown deck's versions are saved as report content,
+ * so a report file that became a deck (or stopped being one) keeps one history, and its kind follows
+ * its newest version; a PowerPoint deck's versions are `pptx` content, grouped by title.
  */
 export type ArtifactKind = "post" | "report" | "deck" | "review" | "visual" | "figure" | "table";
 
@@ -137,9 +138,32 @@ export type ArtifactVersionContent =
       /** For a report: the message it was published in, which a slide deck is played (read aloud) through. */
       message?: { sessionId: string; messageId: string };
     }
+  | {
+      /** A PowerPoint deck published as a file (`takode artifact publish`). */
+      kind: "pptx";
+      /** The file's name as published. */
+      name: string;
+      bytes: number;
+      /** Downloads this version's file. */
+      fileUrl: string;
+      /** In presentation order. */
+      slides: PptxSlide[];
+    }
   | { kind: "table"; markdown: string }
   | { kind: "visual"; source: string }
   | { kind: "figure"; path: string; fileUrl: string | null };
+
+/** A slide of a published PowerPoint deck: its text, read from the file, and its picture when one was published. */
+export interface PptxSlide {
+  /** Its title; empty when the slide has none. */
+  title: string;
+  /** Its other text, one paragraph per line. */
+  text: string;
+  /** Its speaker notes. */
+  notes: string;
+  /** Its picture, when the deck was published with slide pictures. */
+  pictureUrl?: string;
+}
 
 /** A file attached to a post's part: its path, and the Library figure keeping it when it is an image. */
 export interface PostAttachment {
