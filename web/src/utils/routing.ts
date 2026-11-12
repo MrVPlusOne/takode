@@ -470,6 +470,9 @@ export function retireSessionMessageRoute(sessionId: string, threadKey?: string)
  * Navigate within a leader session to Main, All Threads, or a quest thread.
  * Preserves the current session route shape and query params when already on a
  * session URL, so numeric session routes and quest overlays remain stable.
+ * A new navigation shows the thread, so it closes a page open over the chat (the
+ * `view` param), as choosing another session does; a replacing one, such as
+ * restoring the thread a leader was showing, leaves the page open.
  */
 export function navigateToSessionThread(
   sessionId: string,
@@ -496,9 +499,10 @@ export function navigateToSessionThread(
     params.delete(LEGACY_TOPIC_VIEW_QUERY_PARAM);
     currentHash = joinHash(otherThread ? sessionHash(currentRoute.sessionId) : splitHash(currentHash).path, params);
   }
-  const newHash = withThreadKeyInHashOptions(currentHash, threadKey, {
+  const threadHash = withThreadKeyInHashOptions(currentHash, threadKey, {
     preserveMain: options.preserveMainThreadRoute,
   });
+  const newHash = replace ? threadHash : withSecondaryPageInHash(threadHash, null);
   if (newHash === window.location.hash) return;
 
   if (replace) {

@@ -496,6 +496,31 @@ describe("navigateToSessionThread", () => {
     });
   });
 
+  // Choosing a thread (from the sidebar, a link in Questmaster or the Library) must show it. The
+  // same-session route kept every param, so on a phone a page such as Settings stayed over the
+  // chat and the tap seemed to do nothing. Passive restores of the thread a leader was showing
+  // replace the entry and must leave the page open.
+  it("closes a page open over the chat when a thread is chosen, but not when one is restored", async () => {
+    window.location.hash = "#/session/s1?thread=q-1&view=settings";
+    navigateToSessionThread("s1", "q-2");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-2");
+
+    // The thread already on screen: the page still closes.
+    window.location.hash = "#/session/s1?thread=q-2&view=library";
+    navigateToSessionThread("s1", "q-2");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-2");
+
+    // Back returns to the page over the thread it covered.
+    history.back();
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#/session/s1?thread=q-2&view=library");
+    });
+
+    window.location.hash = "#/session/s1?view=questmaster";
+    navigateToSessionThread("s1", "q-3", true);
+    expect(window.location.hash).toBe("#/session/s1?view=questmaster&thread=q-3");
+  });
+
   it("uses replaceState for passive thread route normalization", () => {
     window.location.hash = "#/session/s1?thread=oops";
     const spy = vi.spyOn(history, "replaceState");
