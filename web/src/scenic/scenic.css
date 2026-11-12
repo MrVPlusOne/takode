@@ -105,6 +105,26 @@ html.scenic [data-testid="message-time-label"][data-side="user"] {
   box-sizing: content-box;
 }
 
+/* The side column's paper is nearly the user bubble's colour, so there your messages and the times
+   beside them take a deeper tone of the bubble (mixed in OKLab, so it keeps its hue), to stand out
+   as they do over the painting in the main chat. */
+html.scenic [data-testid="topic-side-panel"] {
+  --scenic-side-bubble: color-mix(in oklab, var(--color-cc-user-bubble) 95%, black);
+}
+
+html.dark.scenic [data-testid="topic-side-panel"] {
+  --scenic-side-bubble: color-mix(in oklab, var(--color-cc-user-bubble) 96%, white);
+}
+
+html.scenic [data-testid="topic-side-panel"] [data-testid="user-message-bubble"] {
+  --color-cc-user-bubble: var(--scenic-side-bubble);
+}
+
+html.scenic [data-testid="topic-side-panel"] :is(.turn-container > :has([data-testid="user-message-bubble"]), [data-pending-status])
+  [data-testid="message-time-label"]:not([data-hidden]) {
+  background: var(--scenic-side-bubble);
+}
+
 /* At night a ringed capsule reads as a button among dark sheets: the summary is a plain slip. */
 html.dark.scenic [data-turn-toggle] {
   box-shadow: none;

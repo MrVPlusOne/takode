@@ -292,6 +292,21 @@ describe("message sheets", () => {
     expect(selectors.some((selector) => selector.includes("[data-feed-status-line]"))).toBe(true);
   });
 
+  it("gives your messages in the side column a deeper tone of the bubble", () => {
+    // The side column's paper is nearly the bubble's colour (Jiayi: they blended in Ink & Paper), so
+    // there the bubble and the time beside it take the deeper tone, by day and by night.
+    const bodyFor = (pattern: RegExp) =>
+      rules.find((rule) => rule.selectors.some((selector) => pattern.test(selector)))?.body ?? "";
+    expect(bodyFor(/^html\.scenic \[data-testid="topic-side-panel"\]$/)).toMatch(
+      /--scenic-side-bubble:\s*color-mix\(in oklab, var\(--color-cc-user-bubble\)/,
+    );
+    expect(bodyFor(/^html\.dark\.scenic \[data-testid="topic-side-panel"\]$/)).toContain("--scenic-side-bubble");
+    expect(bodyFor(/topic-side-panel"\] \[data-testid="user-message-bubble"\]$/)).toContain(
+      "--color-cc-user-bubble: var(--scenic-side-bubble)",
+    );
+    expect(bodyFor(/topic-side-panel"\][\s\S]*message-time-label/)).toContain("var(--scenic-side-bubble)");
+  });
+
   it("makes the sheet from each theme's own paper, by day and by night", () => {
     // Meadow, Seaside and Ink & Paper each set their page and card colours; the sheet is mixed from
     // them rather than from a fixed colour, so every theme keeps its own paper.
