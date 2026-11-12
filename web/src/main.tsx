@@ -15,6 +15,7 @@ import { installPortableSelectionCopy } from "./utils/copy-utils.js";
 import { purgeStoredDataThumbnails } from "./utils/image-thumbnail-load-memory.js";
 import "./index.css";
 import "./scenic/scenic.css";
+import "./scenic/ink-textures.css";
 
 purgeStoredDataThumbnails();
 installUiCrashDebugHooks();

@@ -1,0 +1,167 @@
+/*
+ * Ink & Paper: the UI itself is made of paper and silk, like a painting mounted as a scroll.
+ * - The conversation and Home's thread list are a sheet of xuan paper (生宣).
+ * - Your messages are painting silk (绢), with a soft diagonal sheen.
+ * - The composer, menus, popovers and cards are mulberry paper (皮纸).
+ * - The panels and bars are plain mounting silk (素绫); the side panels keep the faded painting under it.
+ *
+ * Each material is a seamless grey relief tile laid over the surface's own colour with `hard-light`:
+ * mid-grey changes nothing, darker greys darken and lighter greys lighten, so the same tile makes
+ * shadows on light paper and pale fibres on dark paper. A veil of the surface's own colour over the
+ * tile leaves `--tex-k` of it showing. Night swaps in its own paper and silk tiles, because fine
+ * fibres that look right on light paper read as scratches on dark paper.
+ *
+ * Backgrounds and blend modes create no stacking context (menus stay on top) and cost nothing once
+ * painted. The tiles load only while Ink & Paper is on. The `:root ... body` selectors outrank the
+ * shared surface rules in scenic.css, whatever the stylesheet order.
+ */
+html.scenic-ink {
+  --tex-xuan: url("/scenic/ink-tex-xuan.v1.webp");
+  --tex-mulberry: url("/scenic/ink-tex-mulberry.v1.webp");
+  --tex-silk: url("/scenic/ink-tex-silk.v1.webp");
+  --tex-ling: url("/scenic/ink-tex-ling-day.v1.webp");
+  /* The bars' silk: warm like the paper, a few levels lighter than the side panels. */
+  --ink-bar: #f6f2e8;
+  --silk-sheen: linear-gradient(
+    112deg,
+    rgba(255, 255, 255, 0) 25%,
+    rgba(255, 255, 255, 0.22) 48%,
+    rgba(255, 255, 255, 0) 72%
+  );
+}
+
+html.dark.scenic-ink {
+  /* Dark-dyed paper: a broad soft cloudiness with a few faint fibres. */
+  --tex-xuan: url("/scenic/ink-tex-xuan-night.v1.webp");
+  --tex-ling: url("/scenic/ink-tex-ling-night.v1.webp");
+  --ink-bar: #211f1c;
+  --silk-sheen: linear-gradient(
+    112deg,
+    rgba(255, 244, 222, 0) 25%,
+    rgba(255, 244, 222, 0.035) 48%,
+    rgba(255, 244, 222, 0) 72%
+  );
+}
+
+:root.scenic.scenic-ink body :where(
+    [data-feed-content-root="true"],
+    [data-testid="leader-home-threads"],
+    [data-testid="user-message-bubble"],
+    [data-testid="composer-input-card"],
+    [data-testid="quest-completion-summary"],
+    [data-testid="topic-lead"],
+    header:has([data-testid="topbar-identity"]),
+    [data-testid="thread-group-bar"],
+    [data-testid="quest-thread-banner"],
+    [data-testid="workboard-main-banner"],
+    :is(.bg-cc-card, .bg-cc-bg):is(.shadow-lg, .shadow-xl, .shadow-2xl)
+  ),
+:root.dark.scenic.scenic-ink body :where(
+    [data-feed-content-root="true"],
+    [data-testid="leader-home-threads"],
+    [data-testid="user-message-bubble"],
+    [data-testid="composer-input-card"],
+    [data-testid="quest-completion-summary"],
+    [data-testid="topic-lead"],
+    header:has([data-testid="topbar-identity"]),
+    [data-testid="thread-group-bar"],
+    [data-testid="quest-thread-banner"],
+    [data-testid="workboard-main-banner"],
+    :is(.bg-cc-card, .bg-cc-bg):is(.shadow-lg, .shadow-xl, .shadow-2xl)
+  ) {
+  --tex-veil: color-mix(in srgb, var(--tex-surface) calc(100% - var(--tex-k)), transparent);
+  background-color: var(--tex-surface);
+  background-image: var(--tex-sheen, none), linear-gradient(var(--tex-veil), var(--tex-veil)), var(--tex);
+  background-size:
+    auto,
+    auto,
+    var(--tex-size, 384px) auto;
+  background-position: 0 0;
+  background-blend-mode: normal, normal, hard-light;
+}
+
+/* The conversation and Home's thread list: xuan paper. */
+html.scenic-ink [data-feed-content-root="true"] {
+  --tex-surface: color-mix(in srgb, var(--color-cc-bg) 97%, transparent);
+  --tex: var(--tex-xuan);
+  --tex-k: 16%;
+}
+
+html.dark.scenic-ink [data-feed-content-root="true"] {
+  --tex-surface: color-mix(in srgb, var(--color-cc-card) 94%, transparent);
+  --tex-k: 9%;
+}
+
+/* Home's list is short and wide, so its paper is shown larger and softer. */
+html.scenic-ink [data-testid="leader-home-threads"] {
+  --tex-surface: var(--color-cc-card);
+  --tex: var(--tex-xuan);
+  --tex-size: 560px;
+  --tex-k: 12%;
+}
+
+html.dark.scenic-ink [data-testid="leader-home-threads"] {
+  --tex-k: 9%;
+}
+
+/* Your messages: painting silk. */
+html.scenic-ink [data-testid="user-message-bubble"] {
+  --tex-surface: var(--color-cc-user-bubble);
+  --tex: var(--tex-silk);
+  --tex-size: 320px;
+  --tex-sheen: var(--silk-sheen);
+  --tex-k: 30%;
+}
+
+html.dark.scenic-ink [data-testid="user-message-bubble"] {
+  --tex-k: 12%;
+}
+
+/* The composer, menus, popovers and cards: mulberry paper. */
+html.scenic-ink :is(
+    [data-testid="composer-input-card"],
+    [data-testid="quest-completion-summary"],
+    [data-testid="topic-lead"],
+    :is(.bg-cc-card, .bg-cc-bg):is(.shadow-lg, .shadow-xl, .shadow-2xl)
+  ) {
+  --tex-surface: var(--color-cc-card);
+  --tex: var(--tex-mulberry);
+  --tex-k: 18%;
+}
+
+html.dark.scenic-ink :is(
+    [data-testid="composer-input-card"],
+    [data-testid="quest-completion-summary"],
+    [data-testid="topic-lead"],
+    :is(.bg-cc-card, .bg-cc-bg):is(.shadow-lg, .shadow-xl, .shadow-2xl)
+  ) {
+  --tex-k: 9%;
+}
+
+/* The bars: mounting silk, whose tiles are baked at their final strength (no veil). */
+html.scenic-ink :is(
+    header:has([data-testid="topbar-identity"]),
+    [data-testid="thread-group-bar"],
+    [data-testid="quest-thread-banner"],
+    [data-testid="workboard-main-banner"]
+  ) {
+  --tex-surface: var(--ink-bar);
+  --tex: var(--tex-ling);
+  --tex-k: 100%;
+}
+
+/* The side panels: the faded painting, as everywhere scenic, with the mounting silk laid over it. */
+:root.scenic.scenic-ink body :is([data-testid="app-sidebar-shell"] > aside, [data-testid="topic-side-panel"]) {
+  background-color: var(--color-cc-sidebar);
+  background-image:
+    var(--tex-ling), linear-gradient(var(--scenic-panel-veil), var(--scenic-panel-veil)), var(--scenic-plate);
+  background-size:
+    384px auto,
+    auto,
+    cover;
+  background-position:
+    0 0,
+    0 0,
+    center bottom;
+  background-blend-mode: hard-light, normal, normal;
+}
