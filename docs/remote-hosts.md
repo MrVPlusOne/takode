@@ -231,6 +231,13 @@ output shows both ends and names the lines left out. `takode exec logs <id>`
 prints all of it (redirect it to a file when long) or a part with
 `--lines 200-400`, `--bytes 1-50000` or `--tail 50`.
 
+A command carries no session identity, so nothing it does is attributed to
+the calling session. Takode's session-aware CLIs (`quest`, `takode`, `memory`
+and `stream`) therefore refuse to run in it with "takode exec carries no
+session identity; run it from your own session": they see the
+`TAKODE_EXEC_JOB` variable every command gets, and their folder is added to the
+end of the login PATH so a bare `quest` reaches that message.
+
 `takode exec` behaves like a local command: it waits until the command ends,
 however long that takes, and the command stops with its caller. Interrupting
 the call or the agent's tool timeout stops it, and a caller killed outright

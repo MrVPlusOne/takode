@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { HostAgent, type HostAgentOptions } from "./host-agent.js";
 import { HostExec, HostExecError, type HostExecDeps } from "./host-exec.js";
 import { HostLinkManager } from "./host-link-manager.js";
+import { buildInstalledCliWrapper } from "../cli-wrapper-paths.js";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
 import { describeExecOutcome, HOST_EXEC_MESSAGE_TAG } from "../../shared/host-exec.js";
 
@@ -125,6 +126,28 @@ describe("HostExec", () => {
     // The record survives on disk for the audit trail.
     const stored = JSON.parse(await readFile(join(dir, "jobs.json"), "utf-8"));
     expect(stored.jobs[0]).toMatchObject({ id: "x-1", command: "echo out; echo err >&2; exit 3", exitCode: 3 });
+  });
+
+  // An exec'd command carries no session identity, so Takode's session-aware
+  // CLIs must refuse plainly there. Before, a bare `quest` was "command not
+  // found" (its folder was not on the login PATH), the full path failed with
+  // "bun not found", and with Bun present the host port answered a bare 401.
+  it("makes Takode's session CLIs say they have no session identity", async () => {
+    const bin = join(home, ".companion", "bin");
+    await mkdir(bin, { recursive: true });
+    // The script path is never reached: the wrapper stops before starting Bun.
+    for (const name of ["quest", "takode"]) {
+      await writeFile(join(bin, name), buildInstalledCliWrapper(name, join(dir, `${name}.ts`)), { mode: 0o755 });
+    }
+    connectHost();
+    await waitFor(() => manager.status(HOST_ID).online);
+    const exec = createExec();
+    const job = await finished(exec, (await run(exec, "quest feedback add q-1 --text note; takode board show")).id);
+    expect(job.exitCode).toBe(1);
+    expect((await exec.readOutput(job.id))?.output.trim().split("\n")).toEqual([
+      "quest: takode exec carries no session identity; run it from your own session",
+      "takode: takode exec carries no session identity; run it from your own session",
+    ]);
   });
 
   // Commands run in the host user's home unless told otherwise; a leading ~ is

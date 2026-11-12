@@ -30,7 +30,8 @@ that machine's user, as a login shell of their own shell (bash, zsh...), in
 expand it), with no input. Output (stdout and stderr together) and the exit
 code come back as if it ran here; whatever the login profile itself prints is
 left out. Long output shows both ends and names the lines left out, which
-takode exec logs shows.
+takode exec logs shows. The command carries no session identity, so quest,
+takode, memory and stream refuse to run in it: run those from your own session.
 
 It waits until the command ends, however long that takes, like a local
 command, and stopping it (Ctrl-C, a tool timeout) stops the command. Run a

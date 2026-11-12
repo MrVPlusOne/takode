@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { inheritedLaunchEnv } from "../cli-launcher-env.js";
+import { TAKODE_EXEC_JOB_ENV } from "../cli-wrapper-paths.js";
 import { getEnrichedPath } from "../path-resolver.js";
 import { LOCAL_HOST_ID, type HostProcessEvent } from "../../shared/host-protocol.js";
 import { describeExecOutcome, HOST_EXEC_MESSAGE_TAG, middleTruncate, type ExecJob } from "../../shared/host-exec.js";
@@ -113,7 +114,9 @@ export const LOGIN_SHELL_SCRIPT = [
   '[ -x "$sh" ] || sh=/bin/sh',
   "SHELL=$sh; export SHELL",
   "case ${sh##*/} in",
-  '  bash|zsh|sh|dash|ksh|mksh) exec "$sh" -lc \'exec 1>&3 2>&4 3>&- 4>&-; eval "$1"\' "$sh" "$1" 3>&1 4>&2 >/dev/null 2>&1 ;;',
+  // Takode's CLIs go last on PATH, after the profile's, so they explain why
+  // they can't run here (see TAKODE_EXEC_JOB_ENV) instead of "command not found".
+  '  bash|zsh|sh|dash|ksh|mksh) exec "$sh" -lc \'exec 1>&3 2>&4 3>&- 4>&-; PATH=$PATH:$HOME/.companion/bin; eval "$1"\' "$sh" "$1" 3>&1 4>&2 >/dev/null 2>&1 ;;',
   '  *) exec "$sh" -lc "$1" ;;',
   "esac",
 ].join("\n");
@@ -636,7 +639,10 @@ export class HostExec {
     const slotEnv: Record<string, string> = job.slot
       ? { TAKODE_LEASE_RESOURCE: job.slot.resourceKey, TAKODE_LEASE_SLOT: String(job.slot.slot) }
       : {};
-    const proc = this.spawnShell(machine, job.command, job.cwd, job.memoryLimitBytes ?? null, slotEnv);
+    const proc = this.spawnShell(machine, job.command, job.cwd, job.memoryLimitBytes ?? null, {
+      ...slotEnv,
+      [TAKODE_EXEC_JOB_ENV]: job.id,
+    });
     job.procId = proc.procId;
     job.hostId = machine.id;
     job.host = machine.name;
