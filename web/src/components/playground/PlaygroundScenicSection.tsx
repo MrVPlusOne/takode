@@ -1,7 +1,8 @@
 /**
  * Scenic backgrounds: pick a style for this page (not saved), see its painted scene behind a
  * sample conversation, and replay a quest finishing and a change landing through their real
- * components to see that style's fanfare. Ink & Paper's living painting can be asked for its rare
+ * components to see that style's fanfare. The quest's completion card sits in the sample
+ * conversation, a stand-in feed, so Ink & Paper's fireworks play under its messages as in a chat. Ink & Paper's living painting can be asked for its rare
  * moments (cranes, a fish ring) on cue. Off shows today's look.
  */
 import type { ScenicBackground } from "../../../shared/scenic-background.js";
@@ -11,7 +12,13 @@ import { SCENIC_INK_MOMENT_EVENT } from "../../scenic/ink-alive/ink-alive-gl.js"
 import { SCENIC_STYLES } from "../../scenic/scenic-styles.js";
 import { useStore } from "../../store.js";
 import { SegmentedControl } from "../settings-controls.js";
-import { LandingDemo, QuestCompleteDemo } from "./PlaygroundCelebrationsSection.js";
+import { QuestCompletionSummaryCard } from "../QuestCompletionSummaryCard.js";
+import {
+  finishPlaygroundQuest,
+  LandingDemo,
+  PLAYGROUND_BUTTON,
+  PLAYGROUND_QUEST_ID,
+} from "./PlaygroundCelebrationsSection.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const INK_MOMENTS: Array<{ kind: MomentKind; label: string }> = [
@@ -29,7 +36,7 @@ export function PlaygroundScenicSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Scenic Backgrounds"
-        description="The Settings > Appearance choice of a painted landscape behind the conversation, with day and night versions. Picking one here changes this page only and is not saved. A quest finishing lifts the reading veil so the whole painting shows behind its card."
+        description="The Settings > Appearance choice of a painted landscape behind the conversation, with day and night versions. Picking one here changes this page only and is not saved. A quest finishing lifts the reading veil so the whole painting shows behind its card. In Ink & Paper, finishing the quest sets off ink fireworks under the messages and then presses a vermilion seal beside its card, clear of its text."
       >
         <SegmentedControl
           label="Scenic background"
@@ -59,17 +66,28 @@ export function PlaygroundScenicSection() {
           className="relative isolate mt-4 h-[420px] overflow-hidden rounded-xl border border-cc-border bg-cc-bg"
         >
           <ScenicBackdrop />
-          <div className="relative mx-auto max-w-xl space-y-3 px-6 py-10 text-sm leading-relaxed text-cc-fg">
-            <p className="font-medium">The sidebar change has landed.</p>
-            <p>
-              Thread rows now show the quest title as the name, then a short marked update. The setting carries over
-              unchanged and takes effect the next time the server restarts.
-            </p>
-            <p className="text-cc-muted">Wed 2:01 PM</p>
+          {/* A stand-in for the conversation's feed: the celebration finds the card's feed by it. */}
+          <div data-testid="message-feed-scroll-container" className="relative h-full overflow-y-auto px-4 py-8">
+            <div data-feed-content-root="true" className="mx-auto max-w-xl text-sm leading-relaxed text-cc-fg">
+              <div className="turn-container space-y-3">
+                <div className="space-y-2 rounded-xl px-4 py-3">
+                  <p className="font-medium">The sidebar change has landed.</p>
+                  <p>
+                    Thread rows now show the quest title as the name, then a short marked update. The setting carries
+                    over unchanged and takes effect the next time the server restarts.
+                  </p>
+                </div>
+                <div className="px-4 py-3">
+                  <QuestCompletionSummaryCard questId={PLAYGROUND_QUEST_ID} questLinkSurface="legacy" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+        <button type="button" onClick={finishPlaygroundQuest} className={`mt-2 ${PLAYGROUND_BUTTON}`}>
+          Finish the quest now
+        </button>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <QuestCompleteDemo />
           <LandingDemo />
         </div>
         <Card label="Reduced motion">

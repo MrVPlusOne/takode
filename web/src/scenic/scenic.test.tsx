@@ -277,6 +277,11 @@ describe("message sheets", () => {
       const fonts = cssRules(css).flatMap((rule) => [...rule.body.matchAll(/(?:^|[;\s])(font(?:-family)?)\s*:/g)]);
       expect(fonts.map((match) => match[1])).toEqual([]);
     }
+    // The celebrations build their styles in code; their seals are drawn from outlines, not a font.
+    for (const file of ["scenic-moments.ts", "ink-celebration.ts"]) {
+      const code = readFileSync(join(__dirname, file), "utf8");
+      expect(code.match(/fontFamily|font-family|font\s*:|font-style/g) ?? []).toEqual([]);
+    }
   });
 
   it("gives the live-line slip only to status lines, not to pending messages", () => {

@@ -11,8 +11,8 @@ import { MessageBubble } from "../MessageBubble.js";
 import { QuestCompletionSummaryCard } from "../QuestCompletionSummaryCard.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
-const QUEST_ID = "q-9530";
-const BUTTON = "rounded-md border border-cc-border px-2.5 py-1 text-xs text-cc-fg hover:bg-cc-hover";
+export const PLAYGROUND_QUEST_ID = "q-9530";
+export const PLAYGROUND_BUTTON = "rounded-md border border-cc-border px-2.5 py-1 text-xs text-cc-fg hover:bg-cc-hover";
 
 export function PlaygroundCelebrationsSection() {
   return (
@@ -59,27 +59,29 @@ function TodoCompletionDemo() {
   );
 }
 
+/** The Playground's sample quest, finished now: its completion card shows and celebrates. */
+export function finishPlaygroundQuest(): void {
+  const now = Date.now();
+  const record = {
+    id: `${PLAYGROUND_QUEST_ID}-v${now}`,
+    questId: PLAYGROUND_QUEST_ID,
+    version: now,
+    title: "Make informative motion easier to notice",
+    createdAt: now - 3_600_000,
+    updatedAt: now,
+    status: "done",
+    description: "",
+    completedAt: now,
+    debriefTldr: "Tab glides between status groups are slower and easier to follow.",
+  } as unknown as QuestmasterTask;
+  useStore.setState((state) => ({ questDetails: new Map(state.questDetails).set(PLAYGROUND_QUEST_ID, record) }));
+}
+
 export function QuestCompleteDemo() {
-  const finish = () => {
-    const now = Date.now();
-    const record = {
-      id: `${QUEST_ID}-v${now}`,
-      questId: QUEST_ID,
-      version: now,
-      title: "Make informative motion easier to notice",
-      createdAt: now - 3_600_000,
-      updatedAt: now,
-      status: "done",
-      description: "",
-      completedAt: now,
-      debriefTldr: "Tab glides between status groups are slower and easier to follow.",
-    } as unknown as QuestmasterTask;
-    useStore.setState((state) => ({ questDetails: new Map(state.questDetails).set(QUEST_ID, record) }));
-  };
   return (
     <Card label="Quest finishes">
-      <QuestCompletionSummaryCard questId={QUEST_ID} questLinkSurface="legacy" />
-      <button type="button" onClick={finish} className={`mt-2 ${BUTTON}`}>
+      <QuestCompletionSummaryCard questId={PLAYGROUND_QUEST_ID} questLinkSurface="legacy" />
+      <button type="button" onClick={finishPlaygroundQuest} className={`mt-2 ${PLAYGROUND_BUTTON}`}>
         Finish the quest now
       </button>
     </Card>
@@ -104,7 +106,7 @@ export function LandingDemo() {
         // A new key per landing, as each landing is a new message in the feed.
         <MessageBubble key={landed.id} message={landed} sessionId="playground-celebrations" showTimestamp={false} />
       )}
-      <button type="button" onClick={land} className={`mt-2 ${BUTTON}`}>
+      <button type="button" onClick={land} className={`mt-2 ${PLAYGROUND_BUTTON}`}>
         Land a change now
       </button>
     </Card>
@@ -126,7 +128,7 @@ function ScreenEdgesDemo() {
       <p className="text-[11px] text-cc-muted">
         Near an edge the confetti leans away from it; in open space it shoots straight up.
       </p>
-      <button type="button" onClick={play} className={`mt-2 ${BUTTON}`}>
+      <button type="button" onClick={play} className={`mt-2 ${PLAYGROUND_BUTTON}`}>
         Play at the screen edges
       </button>
     </Card>

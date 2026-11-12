@@ -1,11 +1,13 @@
 /**
  * Scenic background fanfares for the two moments worth a show: a quest finishing and a change
- * landing. Each style plays its own, in light or dark colours, drawn in a full-screen layer that
- * takes no taps and is removed on a timer. A quest finishing also lifts the scene's reading veil
- * for a moment. Nothing plays when the setting is Off, with reduced motion, or where the browser
- * cannot animate elements.
+ * landing. Each style plays its own, in light or dark colours, drawn in layers that take no taps
+ * and are removed on a timer. Ink & Paper's quest finishing plays in the completion card's own
+ * pane, under its messages (`ink-celebration.ts`); the other styles play over the conversation.
+ * A quest finishing also lifts the scene's reading veil for a moment. Nothing plays when the
+ * setting is Off, with reduced motion, or where the browser cannot animate elements.
  */
 import { useStore } from "../store.js";
+import { inkSealSvg, playInkCelebration } from "./ink-celebration.js";
 import { SCENIC_REVEAL_EVENT, type ScenicStyle, getScenicStyle, scenicMotionAllowed } from "./scenic-styles.js";
 
 export type ScenicMoment = { kind: "quest-complete"; questId: string; title: string } | { kind: "landed" };
@@ -21,7 +23,8 @@ export function playScenicMoment(moment: ScenicMoment, anchor: Element | null): 
     return;
   }
   window.dispatchEvent(new Event(SCENIC_REVEAL_EVENT));
-  COMPLETIONS[style](moment.title, at, dark);
+  if (style === "ink") playInkCelebration(anchor, dark);
+  else COMPLETIONS[style](moment.title, at, dark);
 }
 
 type Point = { x: number; y: number };
@@ -35,7 +38,7 @@ interface CardLook {
   text: string;
 }
 
-const CARDS: Record<ScenicStyle, [CardLook, CardLook]> = {
+const CARDS: Record<Exclude<ScenicStyle, "ink">, [CardLook, CardLook]> = {
   meadow: [
     { paper: "rgba(255,253,246,0.84)", edge: "rgba(120,160,110,0.35)", heading: "#3f7d4a", text: "#3d4a41" },
     { paper: "rgba(24,34,56,0.82)", edge: "rgba(233,220,154,0.35)", heading: "#efe1a0", text: "#dfe5ef" },
@@ -44,21 +47,14 @@ const CARDS: Record<ScenicStyle, [CardLook, CardLook]> = {
     { paper: "rgba(255,255,255,0.82)", edge: "rgba(80,160,175,0.35)", heading: "#227b88", text: "#2a4450" },
     { paper: "rgba(17,36,52,0.82)", edge: "rgba(143,227,214,0.35)", heading: "#9be7dc", text: "#dbeaf0" },
   ],
-  ink: [
-    { paper: "#fbf9f3", edge: "rgba(40,36,30,0.18)", heading: "#22211f", text: "#45423c" },
-    { paper: "#21201d", edge: "rgba(236,231,219,0.16)", heading: "#ece7db", text: "#cfc9bc" },
-  ],
 };
 
 const LEAVES = ["#8bbd6d", "#a9cf7f", "#6fa860", "#c9dc8a", "#f2d27a", "#f6c3d0"];
 
-// Single-quoted names, so the list also works inside a double-quoted style attribute.
-const SERIF =
-  "'Iowan Old Style','Palatino Linotype',Palatino,Georgia,'Liberation Serif','Hiragino Mincho ProN','Yu Mincho',serif";
-
 // ─── Quest complete ───────────────────────────────────────────────────────────
 
-const COMPLETIONS: Record<ScenicStyle, (title: string, at: Point, dark: boolean) => void> = {
+// Ink & Paper's is its own module (`ink-celebration.ts`): fireworks under the messages and a seal.
+const COMPLETIONS: Record<Exclude<ScenicStyle, "ink">, (title: string, at: Point, dark: boolean) => void> = {
   meadow(title, at, dark) {
     const layer = openLayer(3600);
     const area = stage();
@@ -79,30 +75,6 @@ const COMPLETIONS: Record<ScenicStyle, (title: string, at: Point, dark: boolean)
     sweep(layer, area, dark ? "rgba(170,230,240,0.16)" : "rgba(255,250,232,0.55)");
     for (let index = 0; index < 22; index++) bubble(layer, at, dark, index * 45);
     for (let index = 0; index < 10; index++) glint(layer, around(card, 1.15), dark, 300 + index * 120);
-  },
-  ink(title, _at, dark) {
-    const layer = openLayer(3800);
-    const area = stage();
-    const look = CARDS.ink[dark ? 1 : 0];
-    const card = titleCard(layer, area, look, title, "", 150);
-    const holder = document.createElement("div");
-    holder.style.cssText = "position:relative;width:120px;height:120px;margin:0 auto 6px";
-    card.insertBefore(holder, card.firstChild);
-    holder.innerHTML = enso(dark ? "#ece7db" : "#1f1e1c");
-    const stroke = holder.querySelector("path");
-    if (stroke) {
-      const length = stroke.getTotalLength();
-      stroke.style.strokeDasharray = `${length}`;
-      stroke.animate([{ strokeDashoffset: length }, { strokeDashoffset: length }, { strokeDashoffset: 0 }], {
-        duration: 1300,
-        easing: "cubic-bezier(0.5,0,0.3,1)",
-        fill: "both",
-      });
-    }
-    const seal = sealElement("完", 32);
-    Object.assign(seal.style, { position: "absolute", right: "4px", bottom: "8px" });
-    holder.appendChild(seal);
-    stamp(seal, 1150);
   },
 };
 
@@ -133,9 +105,9 @@ const LANDINGS: Record<ScenicStyle, (at: Point, dark: boolean) => void> = {
       { duration: 700, easing: "ease-in", fill: "both" },
     );
     for (let index = 0; index < 2; index++) ripple(layer, at, ink, 220 + index * 240, 1.2);
-    const seal = sealElement("済", 26);
-    Object.assign(seal.style, { position: "absolute", left: `${at.x + 22}px`, top: `${at.y - 13}px` });
-    layer.appendChild(seal);
+    const seal = add(layer, { width: "26px", height: "26px", opacity: "0" });
+    seal.innerHTML = inkSealSvg(["済"], 26, 26, dark);
+    Object.assign(seal.style, { left: `${at.x + 22}px`, top: `${at.y - 13}px` });
     stamp(seal, 520, 1900);
   },
 };
@@ -157,16 +129,9 @@ const EMBLEMS = {
  * The quest's title on a paper card in the conversation pane's upper part. Returns the card,
  * so pieces can play around it.
  */
-function titleCard(
-  layer: HTMLElement,
-  area: Area,
-  look: CardLook,
-  title: string,
-  emblem: string,
-  extra = 0,
-): HTMLElement {
+function titleCard(layer: HTMLElement, area: Area, look: CardLook, title: string, emblem: string): HTMLElement {
   const width = Math.min(420, area.width * 0.86);
-  const top = Math.max(area.top + 70, window.innerHeight * 0.2 - extra / 2);
+  const top = Math.max(area.top + 70, window.innerHeight * 0.2);
   const card = add(layer, {
     left: `${area.left + (area.width - width) / 2}px`,
     top: `${top}px`,
@@ -183,7 +148,7 @@ function titleCard(
     (emblem
       ? `<div style="display:flex;justify-content:center;margin-bottom:6px;transform:scale(1.25)">${emblem}</div>`
       : "") +
-    `<div style="font-family:${SERIF};font-style:italic;font-size:30px;line-height:1.15;color:${look.heading}">Quest complete</div>` +
+    `<div style="font-size:24px;font-weight:600;line-height:1.2;color:${look.heading}">Quest complete</div>` +
     `<div style="margin:10px auto 8px;width:120px;height:1px;background:linear-gradient(90deg,transparent,${look.heading},transparent);opacity:0.45"></div>` +
     `<div style="font-size:14.5px;line-height:1.45;color:${look.text}">${escapeHtml(title)}</div>`;
   card.animate(
@@ -368,37 +333,6 @@ function ripple(layer: HTMLElement, at: Point, color: string, delay: number, thi
     ],
     { duration: 1400, delay, easing: "ease-out", fill: "both" },
   );
-}
-
-/** A brush circle (ensō), drawn with a ragged ink edge. */
-function enso(ink: string): string {
-  return (
-    `<svg viewBox="0 0 120 120" width="120" height="120"><defs><filter id="brush" x="-10%" y="-10%" width="120%" height="120%">` +
-    `<feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="5"/><feDisplacementMap in="SourceGraphic" scale="3.5"/></filter></defs>` +
-    `<path d="M76 18 C100 26 110 52 102 76 C94 100 66 110 44 102 C20 94 10 68 18 46 C24 30 38 20 54 17" fill="none" stroke="${ink}" stroke-width="9" stroke-linecap="round" filter="url(#brush)" opacity="0.92"/></svg>`
-  );
-}
-
-/** A vermilion seal with one character. */
-function sealElement(character: string, size: number): HTMLElement {
-  const seal = document.createElement("div");
-  Object.assign(seal.style, {
-    width: `${size}px`,
-    height: `${size}px`,
-    borderRadius: "5px",
-    background: "#c0392b",
-    boxShadow: "inset 0 0 0 2px rgba(255,235,225,0.55)",
-    color: "#fff6f0",
-    fontFamily: SERIF,
-    fontWeight: "700",
-    fontSize: `${Math.round(size * 0.62)}px`,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    opacity: "0",
-  });
-  seal.textContent = character;
-  return seal;
 }
 
 function stamp(seal: HTMLElement, delay: number, hold = 2200): void {
