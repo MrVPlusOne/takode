@@ -15,9 +15,11 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
 
 /**
  * Painted layers, back to front: paper and sky with the sun or moon, distant ridges, pale far
- * peaks, tall peaks, a lake mirroring them with a drifting boat, flying cranes, near cliffs with
- * pines. A sea of clouds streams through the valleys and around the peaks, carried by a small
- * fluid simulation, and the light breathes around the sun. The painting itself never moves.
+ * peaks, tall peaks, flying cranes, near cliffs with pines, and a drifting boat. A sea of clouds
+ * streams through the valleys and around the peaks, carried by a small fluid simulation, and lies
+ * on a rippling lake that mirrors the scene and carries a path of light from the sun or moon.
+ * The pines sway in the same breeze; the rest of the painting never moves. It can be pure ink or
+ * washed with light colour.
  */
 export const INK_ALIVE_SHADER = `
 precision highp float;
@@ -49,6 +51,14 @@ uniform vec4 uCranePose[3]; // frame a, frame b, blend, tilt (radians)
 uniform sampler2D uClouds;  // cloud carried by the fluid simulation (density in red), pane-sized
 uniform float uHasClouds;   // 1 when the simulation runs
 uniform vec4 uRing[2];      // fish rings on the lake: x (fraction), depth below the lake line (fraction), start, unused
+// A light-colour painting instead of pure ink (0 or 1), and its washes: distant ridges, rock,
+// the peaks' tops, the pines, and the water.
+uniform float uColour;
+uniform vec3 uTintFar;
+uniform vec3 uTintRock;
+uniform vec3 uTintTop;
+uniform vec3 uTintPine;
+uniform vec3 uTintWater;
 
 
 // Value noise from a tiling texture of random values, smoothstepped between texels.
@@ -117,6 +127,12 @@ void veil(inout vec4 scene, vec3 color, float cover) {
   over(scene, max(color, behind), cover);
 }
 
+// Lays a wash of colour over ink as a painter glazes: the hue changes and the lightness stays, so
+// the brushwork reads exactly as in the ink painting.
+vec3 glaze(vec3 c, vec3 tint, float amount) {
+  return mix(c, c * mix(vec3(1.0), tint / max(dot(tint, vec3(0.3, 0.59, 0.11)), 0.01), 0.45), amount);
+}
+
 // One crane's colour (premultiplied) and coverage at px.
 vec4 crane(vec4 rect, vec4 pose, vec2 px) {
   vec2 d = px - rect.xy;
@@ -130,22 +146,41 @@ vec4 crane(vec4 rect, vec4 pose, vec2 px) {
   return mix(a, b, pose.z);
 }
 
+// The sea of clouds' lumps and gaps at p (0 a gap, 1 a lump), given where its top lies and the
+// slow warp that shapes it. Lumps and wisps travel left with the breeze at a pace you can follow,
+// the far ones (near the top) slower than the near ones; each layer moves as a whole, as a
+// sheared pattern would smear into streaks over time.
+float seaTexture(vec2 p, float topY, vec2 warp) {
+  float h = paneSize().y;
+  vec2 q = p / h;
+  float t = uTime;
+  // A finer warp frays every edge: plain value noise leaves lone lumps shaped like diamonds.
+  vec2 fray = vec2(noise(q * 14.0 + t * 0.05), noise(q * 14.0 + vec2(7.1, 3.3) - t * 0.05)) - 0.5;
+  float far2 = fbm(vec2((q.x + t * 0.009) * 5.0, q.y * 9.0) + warp * 0.8 + fray * 0.45 + 13.0);
+  float near2 = fbm(vec2((q.x + t * 0.018) * 4.0, q.y * 7.5) + warp * 0.8 + fray * 0.45);
+  // fbm stays near its middle; stretch it so lumps and gaps are clearly shaped.
+  return clamp((mix(far2, near2, smoothstep(topY - 0.02 * h, topY + 0.14 * h, p.y)) - 0.5) * 2.4 + 0.5, 0.0, 1.0);
+}
+
 void main() {
   vec2 size = paneSize();
   vec2 px = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y) / uScale;
   float h = size.y;
-  vec2 q = px / h;
   float t = uTime;
   // A slow camera breath; nearer layers move more.
   vec2 drift = vec2(sin(t * 0.014) * 0.008 * size.x, 0.0);
   bool lake = px.y > uHorizon;
+  float depth = max(px.y - uHorizon, 0.0) / h;
 
-  // Where the peaks are sampled from: themselves, or their mirror image in the lake.
-  vec2 at = px;
-  float mirror = 1.0;
-  // Rings where a fish touched the water: they spread, bend the reflection and fade.
+  // The lake mirrors everything above it, so below the lake line the scene is drawn as seen in
+  // the water: from sp, the mirrored point, moved by the ripples.
+  vec2 sp = px;
   float rings = 0.0;
+  float crest = 0.0;
+  float strength = 0.0;
+  float glimmer = 0.0;
   if (lake) {
+    // Rings where a fish touched the water: they spread, bend the reflection and fade.
     for (int i = 0; i < 2; i++) {
       vec4 ring = uRing[i];
       float age = t - ring.z;
@@ -154,113 +189,107 @@ void main() {
       float r = length(d) - age * 0.022;
       rings += sin(r * 180.0) * exp(-r * r / 0.0006) * exp(-age * 0.45);
     }
+    // A point on the water itself, so ripples keep their size on the water and crowd together
+    // toward the far shore. The perspective is softened, or far ripples would shrink below a
+    // pixel and flicker; along the far shore the water lies calm as a mirror.
+    float persp = depth + 0.06;
+    vec2 wp = vec2((px.x - size.x * 0.5) / h, 1.0) / persp;
+    float calm = smoothstep(0.01, 0.07, depth);
+    // Rows of small waves running toward you and drifting left with the breeze; their crests
+    // waver, and they rise and settle in patches, so the rows break up as real ripples do.
+    float swell = noise(vec2(wp.x * 0.7 + t * 0.04, wp.y * 0.6 + t * 0.05));
+    // A second, slanting train crosses the first, so the rows never settle into an even pattern.
+    float phase = wp.y * 9.0 + t * 0.9 + swell * 7.0;
+    float phase2 = wp.y * 13.0 + wp.x * 2.5 + t * 1.2 + swell * 4.0;
+    strength = smoothstep(0.25, 0.75, noise(vec2(wp.x * 1.6 + t * 0.06, wp.y * 0.9 - t * 0.04))) * calm;
+    crest = sin(phase) * 0.65 + sin(phase2) * 0.35;
+    // Each glint lives a second or two, lit and gone at different moments along a row.
+    glimmer = smoothstep(0.35, 0.7, noise(vec2(wp.x * 2.5 + wp.y * 0.7, t * 0.6 + wp.y * 1.3)));
+    // Each row tilts the mirror image up or down, breaking reflections into soft bands.
+    float tilt = (cos(phase) * 0.65 + cos(phase2) * 0.35) * (0.4 + 0.6 * strength) * calm;
+    sp = vec2(px.x + (swell - 0.5) * calm * (2.0 + depth * h * 0.08) + rings * 4.0,
+      uHorizon - (px.y - uHorizon) * 1.1 + tilt * (2.0 + depth * h * 0.12) + rings * 2.0);
   }
-  if (lake) {
-    float depth = (px.y - uHorizon) / h;
-    // Gentle swell: rows of small waves travelling toward you, breaking the reflection into
-    // softly moving bands.
-    // Broad, gentle bands: narrow ones broke every reflected edge into sawtooth zigzags.
-    float swell = sin(px.y * 0.16 - t * 0.9 + noise(vec2(px.x * 0.01, px.y * 0.03)) * 4.0);
-    float wobble = swell * (1.0 + depth * 14.0)
-      + (noise(vec2(px.x * 0.02 + t * 0.05, px.y * 0.08 - t * 0.3)) - 0.5) * (2.0 + depth * 10.0);
-    at = vec2(px.x + wobble + rings * 4.0, uHorizon - (px.y - uHorizon) * 1.15 + rings * 2.0);
-    // Faint by day, fainter at night, where reflected peaks read as wavy stripes on dark water.
-    mirror = mix(0.32, 0.18, uDark) * (1.0 - smoothstep(0.0, 0.24, depth));
-  }
+  vec2 sq = sp / h;
 
   // Back to front, each layer covering what is behind it like ink washes on paper.
   vec3 moon = vec3(0.9, 0.92, 0.97);
   vec3 fog = vec3(0.36, 0.375, 0.4);
   vec4 moonlit = vec4(0.0);
-  vec2 farS = layerInk(uFar, uFarNight, uFarRect, at + drift * 0.25);
+  vec2 farS = layerInk(uFar, uFarNight, uFarRect, sp + drift * 0.25);
   float far = farS.x * 0.7;
   // At night the distant ridges sink toward the sky's tone, so distance reads as it does by day.
   over(moonlit, moon * (0.16 + farS.y * 0.3), smoothstep(0.02, 0.3, farS.x) * 0.7);
-  float hazeFar = cloud(q, 0.006, 1.1, 0.5, 3.0) * band(at.y, uHorizon - 0.24 * h, uHorizon, 0.06 * h);
+  float hazeFar = cloud(sq, 0.006, 1.1, 0.5, 3.0) * band(sp.y, uHorizon - 0.24 * h, uHorizon, 0.06 * h);
   far *= 1.0 - hazeFar * 0.8;
   veil(moonlit, fog, hazeFar * 0.55);
-  vec2 midFarS = layerInk(uMidFar, uMidFarNight, uMidFarRect, at + drift * 0.5);
+  vec2 midFarS = layerInk(uMidFar, uMidFarNight, uMidFarRect, sp + drift * 0.5);
   float midFar = midFarS.x * 0.75;
   over(moonlit, moon * (0.13 + midFarS.y * 0.5), smoothstep(0.02, 0.3, midFarS.x) * 0.85);
   float peaks = 1.0 - (1.0 - far) * (1.0 - midFar);
-  float hazeMid = cloud(q, 0.009, 1.25, 0.48, 9.0) * band(at.y, uHorizon - 0.3 * h, uHorizon + 0.02 * h, 0.07 * h);
+  float hazeMid = cloud(sq, 0.009, 1.25, 0.48, 9.0) * band(sp.y, uHorizon - 0.3 * h, uHorizon + 0.02 * h, 0.07 * h);
   peaks *= 1.0 - hazeMid * 0.85;
   veil(moonlit, fog, hazeMid * 0.6);
-  vec2 midS = layerInk(uMid, uMidNight, uMidRect, at + drift);
+  vec2 midS = layerInk(uMid, uMidNight, uMidRect, sp + drift);
   float mid = midS.x;
-  over(moonlit, moon * midS.y, smoothstep(0.02, 0.28, midS.x));
+  // The brightest moonlit touches, mostly on the pines' crowns, are held back: drawn large they
+  // looked like snow.
+  over(moonlit, moon * (midS.y - max(midS.y - 0.6, 0.0) * 0.5), smoothstep(0.02, 0.28, midS.x));
   peaks = 1.0 - (1.0 - peaks) * (1.0 - mid);
-  peaks *= mirror;
-  moonlit *= mirror;
+  // In colour, each layer's pale washes take its tint and its darkest strokes stay ink: the far
+  // ridges washed blue, the rock warm, the peaks' tops cooler, as a painter lays colour over ink.
+  float upper = smoothstep(uHorizon - 0.22 * h, uHorizon - 0.45 * h, sp.y);
+  vec3 tint = mix(uTintFar, mix(uTintRock, uTintTop, upper), clamp(mid * 2.0, 0.0, 1.0));
 
   // Clouds through the peaks: thin streams high up, and the sea of clouds at their feet.
-  float high = cloud(q, 0.011, 1.3, 0.5, 1.0) * band(px.y, uHorizon - 0.5 * h, uHorizon - 0.26 * h, 0.08 * h);
+  float high = cloud(sq, 0.011, 1.3, 0.5, 1.0) * band(sp.y, uHorizon - 0.5 * h, uHorizon - 0.26 * h, 0.08 * h);
   high *= mix(1.0, 0.5, uHasClouds);
   // The sea of clouds has a body and a top. Its top rests higher in the open valley in the middle
-  // than against the big masses at the sides, and lobes rise and sink along it. Lumps and wisps
-  // inside it travel left with the breeze at a pace you can follow, the far ones (near the top)
-  // slower than the near ones; each layer moves as a whole, as a sheared pattern would smear
-  // into streaks over time. The fluid simulation adds the banks streaming through the valleys
-  // and the slow swells. A painter leaves the cloud as paper and washes a little grey under the
-  // top lobes; at night the moon lights the tops silver and the body thins to show dark rock.
-  float xr = px.x / size.x;
+  // than against the big masses at the sides, and lobes rise and sink along it. The fluid
+  // simulation adds the banks streaming through the valleys and the slow swells. It thins out
+  // before the water, so the lake shows below it. A painter leaves the cloud as paper and washes
+  // a little grey under the top lobes; at night the moon lights the tops silver.
+  float xr = sp.x / size.x;
   float valley = smoothstep(0.08, 0.38, xr) * (1.0 - smoothstep(0.62, 0.92, xr));
-  float lobes = fbm(vec2(q.x * 1.4 + t * 0.012, t * 0.015)) - 0.5;
+  float lobes = fbm(vec2(sq.x * 1.4 + t * 0.012, t * 0.015)) - 0.5;
   float topY = uHorizon - h * (0.13 + 0.07 * valley + lobes * 0.12);
-  vec2 warp = vec2(fbm(q * 1.5 + vec2(t * 0.01, -t * 0.008)), fbm(q * 1.5 + vec2(5.2, 1.3) - t * 0.009)) - 0.5;
-  float far2 = fbm(vec2((q.x + t * 0.009) * 5.0, q.y * 9.0) + warp * 0.8 + 13.0);
-  float near2 = fbm(vec2((q.x + t * 0.018) * 4.0, q.y * 7.5) + warp * 0.8);
-  // fbm stays near its middle; stretch it so lumps and gaps are clearly shaped.
-  float n = clamp((mix(far2, near2, smoothstep(topY - 0.02 * h, topY + 0.14 * h, px.y)) - 0.5) * 2.4 + 0.5, 0.0, 1.0);
-  float below = (px.y - topY) / h;
+  vec2 warp = vec2(fbm(sq * 1.5 + vec2(t * 0.01, -t * 0.008)), fbm(sq * 1.5 + vec2(5.2, 1.3) - t * 0.009)) - 0.5;
+  float n = seaTexture(sp, topY, warp);
+  float below = (sp.y - topY) / h;
   // Inside, the sea is solid; its top breaks into lumps and wisps that travel and change.
   float seaBody = smoothstep(-0.05, 0.06, below + (n - 0.5) * 0.15);
-  // Over the water the sea thins out with a soft, uneven lower edge, not a ruled line.
-  // Its waviness is measured across the pane's width, so a narrow phone pane gets as much as a wide one.
-  float edge = uHorizon + h * (0.035 + (fbm(vec2(xr * 5.0 + t * 0.015, 3.7)) - 0.5) * 0.07 + (n - 0.5) * 0.04);
-  seaBody *= 1.0 - smoothstep(edge - 0.03 * h, edge + 0.08 * h, px.y);
-  float sim = texture2D(uClouds, gl_FragCoord.xy / uRes).r * uHasClouds
-    * (1.0 - smoothstep(uHorizon - 0.03 * h, uHorizon + 0.05 * h, px.y))
+  // It lies on the water, with a soft, uneven lower edge that dips and lifts along the shore. Its
+  // waviness is measured across the pane's width, so a narrow phone pane gets as much as a wide one.
+  float edge = uHorizon + h * (0.045 + (fbm(vec2(xr * 5.0 + t * 0.015, 3.7)) - 0.5) * 0.04 + (n - 0.5) * 0.02);
+  seaBody *= 1.0 - smoothstep(edge - 0.03 * h, edge + 0.01 * h, sp.y);
+  float sim = texture2D(uClouds, vec2(sp.x, size.y - sp.y) * uScale / uRes).r * uHasClouds
+    * (1.0 - smoothstep(uHorizon - 0.02 * h, uHorizon + 0.02 * h, sp.y))
     // The banks it carries cling to the peaks just above the sea, not up in the open sky.
-    * smoothstep(topY - 0.14 * h, topY - 0.02 * h, px.y);
+    * smoothstep(topY - 0.14 * h, topY - 0.02 * h, sp.y);
   float density = seaBody * (0.5 + 0.75 * n) + sim * (0.3 + 0.7 * n);
   float cover = smoothstep(0.2, 0.9, density) * uHasClouds;
-  float mist = max(high * 0.85, cover * 0.96);
-  peaks *= 1.0 - mist;
-  // In the water, peaks hidden by the sea are hidden in their reflection too.
-  float mirrorBody = lake ? smoothstep(-0.02, 0.06, (at.y - topY) / h) * uHasClouds : 0.0;
-  peaks *= 1.0 - mirrorBody * 0.9;
-  moonlit *= 1.0 - mirrorBody * 0.9;
-  // At night the moon lights the lumpy tops silver and they are the most solid part. Lower down,
-  // against the peaks, the cloud thins so the rock shows faintly through, as by day. Over the
-  // water it stays thick: thinning there only revealed the dark lake, as holes in the cloud.
+  // The lumpy tops are the most solid part. Lower down the cloud is thin enough by day and night
+  // to show the peaks behind it faintly, as mist does.
   float tops = 1.0 - smoothstep(0.02, 0.18, below);
-  float onWater = smoothstep(uHorizon - 0.08 * h, uHorizon - 0.01 * h, px.y) * seaBody;
-  float nightCover = max(cover, onWater * 0.9);
-  float nightOpacity = mix(mix(0.72 + 0.18 * n, 0.88, tops), 0.86, onWater);
+  peaks *= 1.0 - max(high * 0.85, cover * mix(0.38 + 0.42 * n, 0.92, tops));
   float lit = 0.45 + tops * 0.35 + n * 0.2;
   // A thin moonlit mist hangs around the sea's top, so the gaps between lumps read as mist over
   // rock rather than dark holes in the cloud.
-  veil(moonlit, mix(fog * 1.35, moon * 0.62, 0.5), exp(-below * below / 0.012) * 0.65 * uHasClouds);
-  veil(moonlit, mix(fog * 1.2, moon * 0.82, lit), max(high * 0.6, nightCover * nightOpacity));
+  veil(moonlit, mix(fog * 1.35, moon * 0.62, 0.5), exp(-below * below / 0.02) * 0.8 * uHasClouds);
+  // Gaps inside the body stay veiled, and where it meets the water it stays whole: at night,
+  // rock seen through a gap, or its reflection, reads as a bruise in the cloud.
+  float shoreline = smoothstep(uHorizon - 0.07 * h, uHorizon - 0.01 * h, sp.y);
+  // A lone puff floating clear of the sea is faded: by moonlight it stood out as a bright blob.
+  float afloat = 1.0 - 0.75 * (1.0 - smoothstep(-0.08, 0.0, below));
+  float nightCover = max(cover * mix(0.62 + 0.22 * n, 0.88, tops) * afloat, seaBody * mix(0.65, 0.85, shoreline) * uHasClouds);
+  veil(moonlit, mix(fog * 1.2, moon * 0.82, lit), max(high * 0.6, nightCover));
   // A painter's wash in the shadow under each lump: where there is more cloud just above than
   // here, as under an overhang.
-  float nAbove = clamp((mix(fbm(vec2((q.x + t * 0.009) * 5.0, (q.y - 0.025) * 9.0) + warp * 0.8 + 13.0),
-    fbm(vec2((q.x + t * 0.018) * 4.0, (q.y - 0.025) * 7.5) + warp * 0.8),
-    smoothstep(topY - 0.02 * h, topY + 0.14 * h, px.y - 0.025 * h)) - 0.5) * 2.4 + 0.5, 0.0, 1.0);
-  float lobeWash = clamp((nAbove - n) * 2.0, 0.0, 1.0) * seaBody * (1.0 - cover * 0.6) * (lake ? 0.0 : 1.0);
-  float underHigh = cloud(q - vec2(0.0, 0.014), 0.011, 1.3, 0.5, 1.0)
-    * band(px.y - 0.014 * h, uHorizon - 0.5 * h, uHorizon - 0.26 * h, 0.08 * h) * mix(1.0, 0.5, uHasClouds);
+  float nAbove = seaTexture(sp - vec2(0.0, 0.025 * h), topY, warp);
+  float lobeWash = clamp((nAbove - n) * 2.0, 0.0, 1.0) * seaBody * (1.0 - cover * 0.6);
+  float underHigh = cloud(sq - vec2(0.0, 0.014), 0.011, 1.3, 0.5, 1.0)
+    * band(sp.y - 0.014 * h, uHorizon - 0.5 * h, uHorizon - 0.26 * h, 0.08 * h) * mix(1.0, 0.5, uHasClouds);
   float shading = max(underHigh - high, 0.0) * 0.22 + lobeWash * 0.14;
-
-  // The lake: faint moving strokes of water.
-  float water = 0.0;
-  if (lake) {
-    // Water painted as thin ink lines that drift and break, as in ink-wash water.
-    float streak = smoothstep(0.62, 0.9, noise(vec2(px.x * 0.005 - t * 0.09, px.y * 0.11 - t * 0.06)))
-      * smoothstep(0.25, 0.75, noise(vec2(px.x * 0.012 + t * 0.04, px.y * 0.02)));
-    water = streak * 0.13 + max(rings, 0.0) * 0.1;
-  }
 
   float boat = inkAt(uBoat, uBoatRect, px);
   float keel = uBoatRect.y + uBoatRect.w * 0.92;
@@ -269,15 +298,36 @@ void main() {
     boat = max(boat, inkAt(uBoat, uBoatRect, m) * 0.28);
   }
 
-  // Near cliffs and pines; the pine tops sway in a slow wind.
+  // Near cliffs and pines. Where things stand is this painting's own geometry, in its uv: a
+  // cliff at each side with pines on top, and mist at their feet.
   vec2 nearAt = px + drift * 1.6;
-  float above = clamp((uNearRect.y + uNearRect.w - px.y) / uNearRect.w, 0.0, 1.0);
-  nearAt.x += (noise(vec2(t * 0.2, px.y * 0.004)) - 0.5) * 7.0 * above * above;
+  vec2 nuv = (nearAt - uNearRect.xy) / uNearRect.zw;
+  // The pines sway in the breeze that carries the clouds left: they lean a little with each gust
+  // and their needles stir, more toward the crowns, while trunks and rock stay rooted. Gusts
+  // reach the right-hand pine a moment before the left one.
+  float pine = nuv.x < 0.5 ? 1.0 - smoothstep(0.06, 0.33, nuv.y) : 1.0 - smoothstep(0.34, 0.52, nuv.y);
+  float gust = noise(vec2(t * 0.35 + nuv.x * 1.5, 7.3));
+  float bob = sin(t * 0.9 + nuv.x * 3.0 + nuv.y * 4.0) * (0.3 + gust);
+  float stir = noise(vec2(px.x * 0.04 + t * 0.9, px.y * 0.05)) - 0.5;
+  nearAt.x += ((0.3 + gust) * 0.006 + bob * 0.0015 + stir * 0.002) * uNearRect.z * pine * pine;
   float near = inkAt(uNear, uNearRect, nearAt);
-  float lowMist = cloud(q, 0.022, 1.1, 0.5, 13.0) * band(px.y, uHorizon - 0.02 * h, size.y + 0.1 * h, 0.06 * h);
-  near *= 1.0 - lowMist * 0.6;
+  // The moon catches the upper edges of the cliffs and the pines' needles at night, so their
+  // silhouettes, and the pines' sway, show against the dark peaks behind them.
+  // Only on the side facing the moon, upper right, and faintly: a full rim made the pines look snowy.
+  float nearRim = clamp(near - inkAt(uNear, uNearRect, nearAt + vec2(1.5, -1.5)), 0.0, 1.0);
+  float lowMist = cloud(sq, 0.022, 1.1, 0.5, 13.0) * band(px.y, uHorizon - 0.02 * h, size.y + 0.1 * h, 0.06 * h);
+  // By day the low mist thins the cliffs' ink. At night it veils them in pale mist instead, since
+  // thinning dark rock left dark scalloped lumps that read as smoke.
+  near *= 1.0 - lowMist * 0.6 * (1.0 - uDark);
   // The boat passes behind the cliffs rather than over them.
   near = 1.0 - (1.0 - near) * (1.0 - boat * (1.0 - smoothstep(0.15, 0.4, near)));
+  // Where the cliffs and the mist at their feet stand in front of the lake, no water shows.
+  // Its edge wavers like mist, and the mist thins toward the far shore of the water.
+  float waver = (noise(vec2(nuv.y * 9.0, 2.0)) - 0.5) * 0.03 + (noise(vec2(nuv.y * 23.0 + t * 0.05, 5.0)) - 0.5) * 0.012;
+  float leftShore = 0.215 + 0.03 * smoothstep(0.6, 0.78, nuv.y) + waver;
+  float rightShore = 0.9 - 0.045 * smoothstep(0.5, 0.95, nuv.y) - waver;
+  float shore = max(1.0 - smoothstep(leftShore - 0.025, leftShore + 0.015, nuv.x), smoothstep(rightShore - 0.015, rightShore + 0.025, nuv.x))
+    * smoothstep(uHorizon - 0.02 * h, uHorizon + 0.1 * h, px.y);
 
   // Paper texture, and ink soaking unevenly into its fibres.
   float paper = texture2D(uPaper, fract(px / vec2(1024.0, 683.0))).r - 0.5;
@@ -285,39 +335,68 @@ void main() {
   near = clamp(near * (0.92 + paper * 0.3), 0.0, 1.0);
 
   // Paper and sky, with warm light around the sun that slowly breathes.
-  float sunDist = length(px - uSun.xy);
+  float sunDist = length(sp - uSun.xy);
   float breath = 0.5 + 0.5 * sin(t * 0.05);
   float glow = exp(-sunDist / (h * (0.35 + 0.15 * breath)));
-  float sky = 1.0 - smoothstep(0.0, uHorizon, px.y) * 0.35;
-  vec3 day = vec3(0.958, 0.944, 0.905) + paper * 0.05 + vec3(0.03, 0.018, -0.01) * glow;
+  float sky = 1.0 - smoothstep(0.0, uHorizon, sp.y) * 0.35;
+  vec3 day = vec3(0.958, 0.944, 0.905) + paper * 0.05;
   // A moonlit night, not a black one: a luminous blue-grey sky that brightens toward the moon.
-  vec3 night = vec3(0.2, 0.21, 0.235) * sky + paper * 0.05 + vec3(0.16, 0.17, 0.19) * glow;
-  vec3 color = mix(day, night, uDark);
-  float rim = uSun.z * (1.0 + (fbm(vec2(atan(px.y - uSun.y, px.x - uSun.x) * 2.0, t * 0.02)) - 0.5) * 0.08);
+  vec3 night = vec3(0.2, 0.21, 0.235) * sky + paper * 0.05;
+  vec3 color = mix(day, night, uDark) + mix(vec3(0.03, 0.018, -0.01), vec3(0.16, 0.17, 0.19), uDark) * glow;
+  float rim = uSun.z * (1.0 + (fbm(vec2(atan(sp.y - uSun.y, sp.x - uSun.x) * 2.0, t * 0.02)) - 0.5) * 0.08);
   float disc = 1.0 - smoothstep(rim * 0.86, rim * 1.04, sunDist);
-  float sunWash = 0.88 + 0.12 * fbm((px - uSun.xy) / uSun.z * 1.6);
+  float sunWash = 0.88 + 0.12 * fbm((sp - uSun.xy) / uSun.z * 1.6);
   vec3 sunColor = mix(vec3(0.83, 0.42, 0.31), vec3(0.9, 0.9, 0.86), uDark);
   float halo = exp(-max(0.0, sunDist - uSun.z) / (uSun.z * 1.6)) * mix(0.1, 0.18, uDark);
-  float open = 1.0 - peaks;
-  color = mix(color, sunColor, (disc * sunWash * mix(0.72, 0.85, uDark) + halo) * open);
-  if (lake) {
-    float column = exp(-abs(px.x - uSun.x + sin(px.y * 0.7 + t * 0.6) * 3.0) / (uSun.z * 1.1));
-    float shimmer = smoothstep(0.45, 0.8, noise(vec2(px.x * 0.05, px.y * 0.35 - t * 0.45)));
-    float fall = 1.0 - smoothstep(0.0, 0.2, (px.y - uHorizon) / h);
-    color = mix(color, sunColor, column * shimmer * fall * mix(0.35, 0.45, uDark));
-  }
+  // The sun or moon stands behind every rock, even pale painted rock.
+  float clear = (1.0 - smoothstep(0.03, 0.2, peaks)) * (1.0 - smoothstep(0.03, 0.2, near));
+  color = mix(color, sunColor, (disc * sunWash * mix(0.72, 0.85, uDark) + halo) * clear);
 
   // By day everything is dark ink on paper. At night the distant peaks are pale ink lit by the
   // moon, the clouds glow, and the near cliffs stand dark in front.
-  float inked = 1.0 - (1.0 - max(peaks, shading)) * (1.0 - water);
   vec3 dayInk = vec3(0.11, 0.105, 0.1);
-  vec3 dayColor = mix(color, dayInk, inked);
+  // Colour is a day painting: by moonlight it read as floodlit stone, so night stays ink.
+  float daylight = uColour * (1.0 - uDark);
+  vec3 dayColor = mix(glaze(mix(color, dayInk, peaks), tint, daylight * smoothstep(0.03, 0.3, peaks) * (1.0 - smoothstep(0.45, 0.85, peaks))), dayInk, shading);
   // The washes under lumps belong to the day painting; at night they made a sooty rim.
   vec3 nightColor = (color * (1.0 - moonlit.a) + moonlit.rgb) * (1.0 - max(underHigh - high, 0.0) * 0.09);
-  nightColor = mix(nightColor, vec3(0.4, 0.41, 0.44), water * 2.0);
-  // Moonlit water, lifted toward the sky's tone so the bottom of the picture is not a black band.
-  // The lift starts under the cloud's uneven lower edge; starting at the lake line drew a ruled line.
-  nightColor += vec3(0.06, 0.063, 0.07) * smoothstep(edge - 0.02 * h, edge + 0.1 * h, px.y);
+
+  // The water: it reflects more of the scene toward the far shore and shows more of itself, a
+  // light ink wash, toward you. Ripples facing the sky catch its light in fine lines that break
+  // the reflections, and their shaded sides read as faint ink strokes.
+  if (lake) {
+    float toward = smoothstep(0.0, 0.12, depth);
+    // At the cliffs' misty feet the mist hides the ripples.
+    float open = 1.0 - shore;
+    float reflectance = mix(1.0, 0.35, toward);
+    float wash = fbm(vec2(px.x / h * 1.6 - t * 0.008, depth * 12.0)) - 0.5;
+    dayColor = mix(mix(vec3(0.7, 0.72, 0.72), uTintWater, uColour) + wash * 0.07, dayColor, reflectance);
+    nightColor = mix(vec3(0.17, 0.18, 0.205) + wash * 0.04, nightColor, reflectance);
+    float facing = (smoothstep(0.8, 0.95, crest) * strength * glimmer + max(rings, 0.0) * 0.6) * open;
+    float shaded = smoothstep(0.8, 0.95, -crest) * strength * toward * open;
+    dayColor = mix(dayColor, vec3(0.975, 0.965, 0.935), facing * 0.6);
+    dayColor = mix(dayColor, dayInk, shaded * 0.1);
+    nightColor = mix(nightColor, vec3(0.5, 0.52, 0.57), facing * 0.35);
+    nightColor *= 1.0 - shaded * 0.15;
+    // The sun or moon is not mirrored whole: it is high above, so the lake shows it as a path
+    // of light toward you, glinting on every wave facing it and widening as it nears.
+    float path = exp(-pow((px.x - uSun.x) / (uSun.z * (1.0 + depth * 16.0)), 2.0)) * open;
+    float sparkle = smoothstep(0.2, 0.95, crest) * (0.3 + 0.7 * strength) * (0.25 + 0.75 * glimmer);
+    float light = path * (0.2 + 0.8 * sparkle) * smoothstep(-0.005, 0.02, depth);
+    // By day it glints white on the water; a red path read as streaks.
+    dayColor = mix(dayColor, vec3(1.0, 0.985, 0.95), light * 0.7);
+    nightColor = mix(nightColor, moon * 0.95, light * 0.6);
+  }
+  // Mist lying on the water along the far shore, joining the sea of clouds to its reflection.
+  float lying = exp(-pow(((px.y - uHorizon) / h - 0.004) / 0.02, 2.0))
+    * (0.55 + 0.45 * fbm(vec2(px.x / h * 3.0 + t * 0.02, px.y / h * 20.0)));
+  vec3 dayMist = day;
+  vec3 nightMist = vec3(0.32, 0.33, 0.365) + paper * 0.04;
+  dayColor = mix(dayColor, dayMist, max(lying * 0.6, shore * 0.85));
+  // At night the mist on the water can only lighten it; a mist darker than the cloud above drew
+  // a dark rule along the shore.
+  nightColor = mix(nightColor, max(nightColor, vec3(0.55, 0.57, 0.62) + paper * 0.04), lying * 0.75);
+  nightColor = mix(nightColor, nightMist, shore * 0.3);
   color = mix(dayColor, nightColor, uDark);
 
   // Cranes fly in front of the peaks and behind the near cliffs; thin cloud can veil them.
@@ -335,6 +414,11 @@ void main() {
 
   vec3 nearInk = mix(dayInk, vec3(0.09, 0.095, 0.11), uDark);
   color = mix(color, nearInk, near * mix(1.0, 0.95, uDark));
+  color = mix(color, moon * 0.45, nearRim * 0.25 * uDark);
+  color = mix(color, max(color, vec3(0.42, 0.44, 0.48)), lowMist * 0.5 * smoothstep(0.1, 0.4, near) * uDark);
+  // In colour the cliffs' pale washes are warm and the pines' needles a muted green.
+  vec3 nearTint = mix(uTintRock, uTintPine, smoothstep(0.2, 0.6, pine));
+  color = glaze(color, nearTint, daylight * smoothstep(0.05, 0.3, near) * (1.0 - smoothstep(0.45, 0.85, near)));
   // A warm lantern on the boat at night.
   vec2 lantern = vec2(uBoatRect.x + uBoatRect.z * 0.62, uBoatRect.y + uBoatRect.w * 0.45);
   color += vec3(1.0, 0.72, 0.38) * exp(-length(px - lantern) / 4.0) * 0.4 * uDark;

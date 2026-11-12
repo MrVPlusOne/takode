@@ -18,6 +18,23 @@ export const SCENIC_INK_MOMENT_EVENT = "scenic-ink-moment";
 /** The texture unit the simulated clouds are read from; the painted layers and noise use 0-11. */
 const CLOUD_UNIT = 12;
 
+/**
+ * The painting's colour: pure ink, or ink glazed by day with light ochre and blue (浅绛山水), the
+ * traditional light-colour style. Night stays ink in both.
+ */
+export type InkPalette = "ink" | "ochre";
+
+/** The hue each layer's pale washes take: distant ridges, rock, the peaks' tops, the pines, the water. */
+const PALETTES: Record<Exclude<InkPalette, "ink">, Record<string, [number, number, number]>> = {
+  ochre: {
+    uTintFar: [0.36, 0.47, 0.56],
+    uTintRock: [0.6, 0.43, 0.27],
+    uTintTop: [0.38, 0.48, 0.5],
+    uTintPine: [0.3, 0.42, 0.36],
+    uTintWater: [0.68, 0.73, 0.74],
+  },
+};
+
 /** A slow breeze from right to left with gentle eddies; cloud lasts about 40 seconds. */
 const WEATHER: FluidWeather = { wind: [-0.9, 0], eddies: 0.12, fade: 40 };
 /** Seconds of weather run before the first frame, so the clouds have already arrived. */
@@ -42,7 +59,7 @@ type TextureName = keyof typeof TEXTURES;
 
 export function startInkAlive(
   canvas: HTMLCanvasElement,
-  options: { dark: boolean; motion: boolean; onFail: () => void },
+  options: { dark: boolean; motion: boolean; palette?: InkPalette; onFail: () => void },
 ): (() => void) | null {
   // WebGL 2 runs the clouds' fluid simulation; plain WebGL still draws the painting without it.
   const attributes: WebGLContextAttributes = { alpha: false, antialias: false, powerPreference: "low-power" };
@@ -149,6 +166,11 @@ export function startInkAlive(
     gl.uniform1f(uniform("uScale"), scale);
     gl.uniform1f(uniform("uTime"), frameState.sceneTime);
     gl.uniform1f(uniform("uDark"), options.dark ? 1 : 0);
+    const palette = options.palette ?? "ink";
+    gl.uniform1f(uniform("uColour"), palette === "ink" ? 0 : 1);
+    if (palette !== "ink")
+      for (const [name, value] of Object.entries(PALETTES[palette as Exclude<InkPalette, "ink">]))
+        gl.uniform3fv(uniform(name), value);
     gl.uniform1f(uniform("uHorizon"), layout.horizon);
     gl.uniform3fv(uniform("uSun"), layout.sun);
     gl.uniform4fv(uniform("uFarRect"), layout.far);
@@ -193,13 +215,14 @@ export function startInkAlive(
     }
   };
 
-  const texture = (unit: number, setup: () => void) => {
+  const texture = (unit: number, setup: () => void, mipmaps = false) => {
     const handle = gl.createTexture()!;
     textures.push(handle);
     gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(gl.TEXTURE_2D, handle);
     setup();
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    if (mipmaps) gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   };
 
@@ -228,15 +251,22 @@ export function startInkAlive(
         image.decoding = "async";
         image.onload = () => {
           if (stopped) return resolve();
-          texture(unit, () => {
-            // The crane is cut out with transparency; premultiplying keeps its edges clean.
-            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, name === "uCrane");
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-            // Non-power-of-two textures need clamping in WebGL 1; the paper repeats in the shader.
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-          });
+          texture(
+            unit,
+            () => {
+              // The crane is cut out with transparency; premultiplying keeps its edges clean.
+              gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, name === "uCrane");
+              gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+              gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+              // Non-power-of-two textures need clamping in WebGL 1; the paper repeats in the shader.
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+              // The boat and cranes are drawn many times smaller than they are painted. Sampled
+              // without mipmaps their fine strokes broke up and shimmered as they moved, which read
+              // as the boat warping. WebGL 1 cannot mipmap these non-power-of-two images.
+            },
+            gl2 !== null && (name === "uBoat" || name === "uCrane"),
+          );
           // A resize may have left the simulation's program in use meanwhile.
           gl.useProgram(program);
           gl.uniform1i(uniform(name), unit);

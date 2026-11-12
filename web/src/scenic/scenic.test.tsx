@@ -19,8 +19,13 @@ import { useStore } from "../store.js";
 import { SettingsScenicBackgroundSection } from "../components/SettingsScenicBackgroundSection.js";
 import { ScenicBackdrop, ScenicPanels, scenicAsset, scenicPainting } from "./ScenicBackdrop.js";
 import { playScenicMoment } from "./scenic-moments.js";
-import { SCENIC_REVEAL_EVENT, applyScenicClass } from "./scenic-styles.js";
-import scenicCss from "./scenic.css?raw";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { SCENIC_REVEAL_EVENT, applyScenicClass, inkPaletteOf } from "./scenic-styles.js";
+
+// Read from disk: Vitest turns a raw stylesheet import into an empty string, so a check on it passed
+// whatever the stylesheet held.
+const scenicCss = readFileSync(join(__dirname, "scenic.css"), "utf8");
 
 /** Pane size the ResizeObserver stub reports to the backdrop. */
 let paneSize = { width: 1000, height: 800 };
@@ -81,6 +86,16 @@ describe("scenic background setting", () => {
     expect(document.documentElement.classList.contains("scenic-ink")).toBe(true);
     applyScenicClass("off");
     expect([...document.documentElement.classList].some((name) => name.startsWith("scenic"))).toBe(false);
+  });
+
+  // Ink & Colour is the Ink & Paper scene washed with colour by day, so it takes the ink scene's
+  // classes (its palette, veil and column) and only the living painting differs.
+  it("shows the Ink & Paper scene for Ink & Colour, coloured by day", () => {
+    applyScenicClass("inkColor");
+    expect(document.documentElement.classList.contains("scenic")).toBe(true);
+    expect(document.documentElement.classList.contains("scenic-ink")).toBe(true);
+    expect(inkPaletteOf("inkColor")).toBe("ochre");
+    expect(inkPaletteOf("ink")).toBe("ink");
   });
 });
 
@@ -181,16 +196,36 @@ describe("playScenicMoment", () => {
 });
 
 describe("SettingsScenicBackgroundSection", () => {
-  it("offers Off and the three styles, marks the saved one and saves a new pick", () => {
+  it("offers Off and each style, marks the saved one and saves a new pick", () => {
     useStore.setState({ scenicBackground: "off" });
     render(<SettingsScenicBackgroundSection />);
     const radios = screen.getAllByRole("radio");
-    expect(radios.map((radio) => radio.textContent)).toEqual(["Off", "Summer Meadow", "Seaside Town", "Ink & Paper"]);
+    expect(radios.map((radio) => radio.textContent)).toEqual([
+      "Off",
+      "Summer Meadow",
+      "Seaside Town",
+      "Ink & Paper",
+      "Ink & Colour",
+    ]);
     expect(screen.getByRole("radio", { name: "Off" })).toHaveAttribute("aria-checked", "true");
 
     fireEvent.click(screen.getByRole("radio", { name: "Seaside Town" }));
     expect(mockUpdateSettings).toHaveBeenCalledWith({ scenicBackground: "seaside" });
     expect(screen.getByRole("radio", { name: "Seaside Town" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  // The colour tile shows the coloured painting by day and the ink one by night, since night is ink.
+  it("pictures Ink & Colour in colour by day and in ink by night", () => {
+    const { unmount } = render(<SettingsScenicBackgroundSection />);
+    const picture = () =>
+      screen.getByRole("radio", { name: "Ink & Colour" }).querySelector("span")!.style.backgroundImage;
+    expect(picture()).toContain(scenicAsset("ink-colour-day-thumb"));
+    unmount();
+    useStore.setState({ darkMode: true });
+    render(<SettingsScenicBackgroundSection />);
+    expect(picture()).toContain(scenicAsset("ink-night-thumb"));
+    fireEvent.click(screen.getByRole("radio", { name: "Ink & Colour" }));
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ scenicBackground: "inkColor" });
   });
 });
 
@@ -200,6 +235,7 @@ describe("layering", () => {
   // did) confines their z-index to that container, and the conversation after it then covers the
   // open menu. The keyframes only animate the backdrop's own layers, so they are left out.
   it("adds no stacking context to the page's own elements", () => {
+    expect(scenicCss).toContain("html.scenic");
     const css = scenicCss
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");

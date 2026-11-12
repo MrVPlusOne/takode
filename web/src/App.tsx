@@ -127,7 +127,7 @@ import { ensureVsCodeEditorPreference } from "./utils/vscode-bridge.js";
 import { startAlertWindowPresence } from "./utils/alert-window-presence.js";
 import { reportInputGlitch, useInputTraceRecorder } from "./utils/input-trace.js";
 import { AppTooltips } from "./components/AppTooltips.js";
-import { ScenicPanels } from "./scenic/ScenicBackdrop.js";
+import { ScenicBackdrop, ScenicPanels } from "./scenic/ScenicBackdrop.js";
 import { applyScenicClass } from "./scenic/scenic-styles.js";
 import { GlossaryPage } from "./glossary/GlossaryPage.js";
 import {
@@ -1052,7 +1052,9 @@ export default function App() {
           sessionId={activeConversation.sessionId}
           entryId={activeConversation.sessionEntryId}
           fallback={
-            <div className="flex h-full items-center justify-center text-sm text-cc-muted">Loading conversation...</div>
+            <div className="relative flex h-full items-center justify-center text-sm text-cc-muted">
+              Loading conversation...
+            </div>
           }
         >
           <ChatView
@@ -1083,7 +1085,9 @@ export default function App() {
           key={`${searchPreviewSessionId}:preview`}
           sessionId={null}
           fallback={
-            <div className="flex h-full items-center justify-center text-sm text-cc-muted">Loading conversation...</div>
+            <div className="relative flex h-full items-center justify-center text-sm text-cc-muted">
+              Loading conversation...
+            </div>
           }
         >
           <ChatView
@@ -1237,6 +1241,9 @@ export default function App() {
                   recently viewed conversations stay mounted, hidden, beside it. */}
               <div className={`absolute inset-0 flex ${primaryHidden ? "invisible" : ""}`} inert={primaryHidden}>
                 <div className="relative min-w-0 flex-1">
+                  {/* One scenic backdrop behind every conversation: every session shows the same
+                      painting, so switching session keeps it, and its living scene, running. */}
+                  {displayedSessionId && !isPendingId(displayedSessionId) && <ScenicBackdrop />}
                   <KeptConversationViews
                     conversations={keptConversationViews}
                     visibleSessionId={visibleConversationSessionId}

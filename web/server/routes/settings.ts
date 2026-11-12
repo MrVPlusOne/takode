@@ -1326,7 +1326,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       return c.json({ error: 'sidebarViewMode must be "spaces", "recent" or "threads"' }, 400);
     }
     if (body.scenicBackground !== undefined && !isScenicBackground(body.scenicBackground)) {
-      return c.json({ error: 'scenicBackground must be "off", "meadow", "seaside" or "ink"' }, 400);
+      return c.json({ error: 'scenicBackground must be "off", "meadow", "seaside", "ink" or "inkColor"' }, 400);
     }
     if (body.questmasterCompactSort !== undefined) {
       if (

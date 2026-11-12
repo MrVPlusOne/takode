@@ -1335,7 +1335,9 @@ describe("PUT /api/settings", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: 'scenicBackground must be "off", "meadow", "seaside" or "ink"' });
+    expect(await res.json()).toEqual({
+      error: 'scenicBackground must be "off", "meadow", "seaside", "ink" or "inkColor"',
+    });
   });
 
   it("updates Questmaster compact sort setting", async () => {

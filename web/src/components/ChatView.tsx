@@ -1,5 +1,4 @@
 import { useMemo, useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
-import { ScenicBackdrop } from "../scenic/ScenicBackdrop.js";
 import { ComposerThreadContext } from "./composer-target.js";
 import { useLeaderNavigation } from "../utils/top-bar-slots.js";
 import { LeaderHomePage, NewThreadComposer } from "./LeaderHomePage.js";
@@ -1090,7 +1089,6 @@ export function ChatView({
         {...chatFocusHandlers(MAIN_CHAT)}
       >
         {mainFocusMarked && <ChatFocusMark />}
-        <ScenicBackdrop />
         {/* The feed's comment marks and question cards use the comments the composer shows in its thread. */}
         <ComposerThreadContext.Provider value={composerThreadKey}>
           <ComposerFeedLayout>

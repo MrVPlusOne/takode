@@ -285,6 +285,21 @@ vi.mock("./components/CodexSubagentInspector.js", () => ({
   ),
 }));
 
+// Counts how often the scenic backdrop mounts: it is one painting shared by every conversation.
+const scenicBackdropMounts = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./scenic/ScenicBackdrop.js", async () => {
+  const { useEffect } = await import("react");
+  return {
+    ScenicPanels: () => null,
+    ScenicBackdrop: () => {
+      useEffect(() => {
+        scenicBackdropMounts.count += 1;
+      }, []);
+      return <div data-testid="scenic-backdrop" />;
+    },
+  };
+});
+
 vi.mock("./components/ChatView.js", () => ({
   ChatView: ({
     sessionId,
@@ -732,6 +747,35 @@ describe("App hidden panels", () => {
     expect(visibleChatView()).not.toBe(firstS1View);
     expect(latestViewportSessionEntryId("s1")).not.toBe(firstS1EntryId);
   });
+  it("keeps one scenic backdrop running behind every conversation across session switches", async () => {
+    // Every session shows the same painting. Remounting it on a switch restarted the living scene,
+    // and its canvas stayed black until the restarted scene drew its first frame.
+    resetStore({
+      sdkSessions: ["s1", "s2", "s3"].map((sessionId, index) => ({
+        sessionId,
+        createdAt: index + 1,
+        archived: false,
+        cwd: `/repo/${sessionId}`,
+        backendType: "claude",
+      })),
+    });
+    scenicBackdropMounts.count = 0;
+    history.replaceState(null, "", "#/session/s1");
+    render(<App />);
+    const visit = (sessionId: string) =>
+      act(() => {
+        history.pushState(null, "", `#/session/${sessionId}`);
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      });
+    await waitFor(() => expect(visibleChatView()).toHaveAttribute("data-session-id", "s1"));
+    for (const sessionId of ["s2", "s3", "s1"]) {
+      visit(sessionId);
+      await waitFor(() => expect(visibleChatView()).toHaveAttribute("data-session-id", sessionId));
+    }
+    expect(screen.getAllByTestId("scenic-backdrop")).toHaveLength(1);
+    expect(scenicBackdropMounts.count).toBe(1);
+  });
+
   it("does not mount the desktop sidebar while it is closed", () => {
     resetStore({ sidebarOpen: false, taskPanelOpen: false });
 

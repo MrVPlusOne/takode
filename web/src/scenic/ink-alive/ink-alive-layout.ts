@@ -62,12 +62,16 @@ export function layoutScene(
   };
 }
 
-/** The sun by day or the moon by night, in the upper right of the pane. */
+/**
+ * The sun by day or the moon by night, in the upper right of the pane. On wider panes it stands
+ * over the open water rather than over the right-hand cliffs, so its reflection shows in the lake.
+ */
 function sunOrMoon(pane: PaneSize, narrow: boolean): [number, number, number] {
   const { width: w, height: h } = pane;
   return [
-    w - Math.min(260, Math.max(70, w * 0.16)),
-    h * (narrow ? 0.11 : 0.14),
+    narrow ? w - Math.max(70, w * 0.16) : w * 0.7,
+    // Clear of the bars across the top of the pane, which cover it in short windows.
+    Math.max(h * (narrow ? 0.11 : 0.14), 110),
     Math.min(34, Math.max(12, Math.min(w, h) * 0.024)),
   ];
 }
@@ -89,7 +93,8 @@ function boatRect(pane: PaneSize, boat: ImageSize, horizon: number, time: number
   const eased = along * along * (3 - 2 * along);
   // Over open water, clear of the cliffs at both sides.
   const x = w * 0.24 + eased * (w * 0.5 - boatWidth);
-  const top = horizon + h * 0.045 - boatHeight;
+  // It rides the swell: a gentle rise and fall, the whole boat at once.
+  const top = horizon + h * 0.045 - boatHeight + Math.sin(time * 0.9) * boatHeight * 0.04;
   return going ? [x, top, boatWidth, boatHeight] : [x + boatWidth, top, -boatWidth, boatHeight];
 }
 

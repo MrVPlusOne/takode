@@ -16,7 +16,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store.js";
 import { InkAliveCanvas } from "./ink-alive/InkAliveCanvas.js";
-import { SCENIC_REVEAL_EVENT, type ScenicStyle, scenicMotionAllowed, useScenicStyle } from "./scenic-styles.js";
+import {
+  SCENIC_REVEAL_EVENT,
+  type ScenicStyle,
+  inkPaletteOf,
+  scenicMotionAllowed,
+  useScenicStyle,
+} from "./scenic-styles.js";
 
 type LightKind = "pollen" | "firefly" | "glint" | "glint-night";
 
@@ -81,9 +87,13 @@ export function ScenicPanels() {
   return null;
 }
 
-/** The painted scene behind the conversation; sits inside the conversation pane. */
+/**
+ * The painted scene behind the conversation. The app shell mounts one for every conversation, so
+ * switching session keeps it, and Ink & Paper's living scene, running.
+ */
 export function ScenicBackdrop() {
   const style = useScenicStyle();
+  const palette = useStore((state) => inkPaletteOf(state.scenicBackground));
   const dark = useStore((state) => state.darkMode);
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -115,7 +125,7 @@ export function ScenicBackdrop() {
       data-scenic-style={style}
       className="pointer-events-none absolute inset-0 overflow-hidden"
     >
-      {alive && <InkAliveCanvas dark={dark} motion={motion} onUnavailable={onAliveUnavailable} />}
+      {alive && <InkAliveCanvas dark={dark} motion={motion} palette={palette} onUnavailable={onAliveUnavailable} />}
       {!alive && (
         <div className="absolute inset-0">
           <div

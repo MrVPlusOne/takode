@@ -555,6 +555,10 @@ describe("settings-manager", () => {
     await _flushForTest();
     _resetForTest(settingsPath);
     expect(getSettings().scenicBackground).toBe("seaside");
+    updateSettings({ scenicBackground: "inkColor" });
+    await _flushForTest();
+    _resetForTest(settingsPath);
+    expect(getSettings().scenicBackground).toBe("inkColor");
 
     writeFileSync(settingsPath, JSON.stringify({ scenicBackground: "sakura" }), "utf-8");
     _resetForTest(settingsPath);

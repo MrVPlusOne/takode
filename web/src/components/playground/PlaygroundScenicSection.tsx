@@ -8,7 +8,7 @@ import type { ScenicBackground } from "../../../shared/scenic-background.js";
 import { ScenicBackdrop } from "../../scenic/ScenicBackdrop.js";
 import type { MomentKind } from "../../scenic/ink-alive/ink-alive-director.js";
 import { SCENIC_INK_MOMENT_EVENT } from "../../scenic/ink-alive/ink-alive-gl.js";
-import { SCENIC_STYLES } from "../../scenic/scenic-styles.js";
+import { SCENIC_STYLES, scenicSceneOf } from "../../scenic/scenic-styles.js";
 import { useStore } from "../../store.js";
 import { SegmentedControl } from "../settings-controls.js";
 import { LandingDemo, QuestCompleteDemo } from "./PlaygroundCelebrationsSection.js";
@@ -37,7 +37,7 @@ export function PlaygroundScenicSection() {
           value={value}
           onChange={(next) => useStore.setState({ scenicBackground: next })}
         />
-        {value === "ink" && (
+        {scenicSceneOf(value) === "ink" && (
           <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="playground-ink-moments">
             <span className="text-[11px] text-cc-muted">
               Ink &amp; Paper moves on its own every few quiet minutes; show a moment now:

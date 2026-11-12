@@ -116,6 +116,21 @@ describe("layoutScene", () => {
       expect(y - r).toBeGreaterThan(0);
     }
   });
+
+  // The lake shows the sun or moon as a path of light straight below it; over the right-hand
+  // cliffs that path was hidden by the mist at their feet.
+  it("stands the sun over the open water on wider panes, so its path of light shows in the lake", () => {
+    for (const pane of [
+      { width: 1280, height: 800 },
+      { width: 1009, height: 763 },
+      { width: 649, height: 763 },
+      { width: 2400, height: 1300 },
+    ]) {
+      const [x] = layoutScene(pane, IMAGES, 0, new InkDirector(1).update(0, pane.width, pane.height)).sun;
+      expect(x).toBeGreaterThan(pane.width * 0.3);
+      expect(x).toBeLessThan(pane.width * 0.78);
+    }
+  });
 });
 
 describe("the boat", () => {
