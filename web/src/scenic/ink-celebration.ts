@@ -5,6 +5,7 @@
  * as the last one fades, a vermilion seal reading 圆满 is pressed beside the card where it covers no
  * writing. Gone within about four and a half seconds; nothing keeps running.
  */
+import { inkNearPlacement } from "./ink-alive/ink-alive-gl.js";
 import { type ImageSize, layoutScene } from "./ink-alive/ink-alive-layout.js";
 import { SEAL_GLYPHS } from "./ink-seal-glyphs.js";
 
@@ -15,10 +16,10 @@ export function playInkCelebration(anchor: Element | null, dark: boolean): void 
   // Where the living painting's cliffs are, so the bursts open in its sky and mist. Its layers are
   // usually cached; a slow load starts the fireworks without it.
   const backdrop = scene.feed?.closest('[data-testid="main-chat"]') ? visible('[data-testid="scenic-backdrop"]') : null;
-  const living = backdrop?.querySelector("canvas") ? backdrop : null;
+  const living = backdrop?.querySelector<HTMLCanvasElement>('[data-testid="scenic-ink-alive"]') ?? null;
   const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 500));
-  void Promise.race([living ? cliffMap(rectOf(living)) : Promise.resolve(null), timeout]).then((cliffs) => {
-    fireworks(scene, dark, cliffs);
+  void Promise.race([living ? readPainting(living) : Promise.resolve(null), timeout]).then((painting) => {
+    fireworks(scene, dark, painting);
     seal(scene, dark, SEAL_DELAY);
   });
 }
@@ -77,9 +78,10 @@ const SEAL_DELAY = 2 * STAGGER_MS + LAUNCH_MS + BLOOM_MS * 0.55;
  * Three chrysanthemum fireworks, vermilion, gold and indigo by day (gold, vermilion and jade at
  * night), each petal a tapered brush stroke over a wash of colour, then sparks falling like a
  * willow. They are drawn under the messages, aimed where the most painting shows: open sky and
- * mist beside a wide column, the gaps and margins around the card in a narrow pane.
+ * mist beside a wide column, the gaps and margins around the card in a narrow pane. In the living
+ * painting they burst in its sky, so its near cliffs and pines stand in front of them.
  */
-function fireworks(scene: Scene, dark: boolean, cliffs: CliffMap | null): void {
+function fireworks(scene: Scene, dark: boolean, painting: Painting | null): void {
   const layer = behindLayer(scene, FIREWORKS_MS + 100);
   if (!layer) return;
   const { element, origin } = layer;
@@ -96,7 +98,7 @@ function fireworks(scene: Scene, dark: boolean, cliffs: CliffMap | null): void {
   const colors = dark ? ["#f4c96a", "#f0705a", "#9fdcc4", "#f3ecdc"] : ["#c8382c", "#c48a24", "#33507a", "#d65a6e"];
   const step = Math.max(10, Math.round(Math.sqrt((scene.region.width * scene.region.height) / 2400)));
   const open = openPoints(scene, step);
-  const bursts = pickBursts({ ...scene, open, step, cliffs }).map((spot, index) =>
+  const bursts = pickBursts({ ...scene, open, step, cliffs: painting?.cliffs ?? null }).map((spot, index) =>
     makeBurst(spot.x - origin.left, spot.y - origin.top, spot.radius, colors, index * STAGGER_MS, index),
   );
   const bottom = scene.region.bottom - origin.top;
@@ -107,6 +109,19 @@ function fireworks(scene: Scene, dark: boolean, cliffs: CliffMap | null): void {
     const now = Number(clock.currentTime ?? 0);
     context.clearRect(0, 0, origin.width, origin.height);
     for (const burst of bursts) drawBurst(context, burst, now, bottom, dark);
+    // The near cliffs and pines stand in front of the fireworks: cut their silhouette out.
+    const near = painting?.near;
+    if (near) {
+      context.globalCompositeOperation = "destination-out";
+      context.drawImage(
+        near.cover,
+        near.rect.left - origin.left,
+        near.rect.top - origin.top,
+        near.rect.width,
+        near.rect.height,
+      );
+      context.globalCompositeOperation = "source-over";
+    }
     if (now < FIREWORKS_MS) requestAnimationFrame(draw);
   };
   requestAnimationFrame(draw);
@@ -169,6 +184,53 @@ export function pickBursts(input: {
   return chosen;
 }
 
+/** What the celebration knows of the living painting behind it. */
+interface Painting {
+  cliffs: CliffMap;
+  /** The near cliffs' and pines' silhouette (opaque where they stand) and where it is on screen. */
+  near: { cover: HTMLCanvasElement; rect: Rect } | null;
+}
+
+/** Reads the living painting on `canvas`: its cliffs, and where its near cliffs and pines stand now. */
+async function readPainting(canvas: HTMLCanvasElement): Promise<Painting | null> {
+  const pane = rectOf(canvas);
+  const placed = inkNearPlacement(canvas);
+  const [cliffs, cover] = await Promise.all([cliffMap(pane, placed), nearCover().catch(() => null)]);
+  if (!cliffs) return null;
+  const near =
+    cover && placed
+      ? { cover, rect: box(pane.left + placed[0]!, pane.top + placed[1]!, placed[2]!, placed[3]!) }
+      : null;
+  return { cliffs, near };
+}
+
+let nearCoverLoad: Promise<HTMLCanvasElement> | null = null;
+
+/** The near cliffs' and pines' silhouette as a canvas whose alpha is their cover. */
+function nearCover(): Promise<HTMLCanvasElement> {
+  nearCoverLoad ??= (async () => {
+    const image = new Image();
+    image.src = "/scenic/ink-near-cover.v1.webp";
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("no 2d canvas");
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    // White marks cover; move it into alpha.
+    for (let index = 0; index < pixels.data.length; index += 4) pixels.data[index + 3] = pixels.data[index]!;
+    context.putImageData(pixels, 0, 0);
+    return canvas;
+  })();
+  nearCoverLoad.catch((error: unknown) => {
+    console.warn("[scenic] could not load the near cliffs' silhouette for the celebration", error);
+    nearCoverLoad = null;
+  });
+  return nearCoverLoad;
+}
+
 /** How much of the painting's cliffs is at a screen point, from 0 (sky, mist or water) to 1. */
 export type CliffMap = (x: number, y: number) => number;
 
@@ -187,10 +249,11 @@ const cliffLayers = new Map<string, Promise<ImageData & { natural: ImageSize }>>
 
 /**
  * The living painting's cliffs in a pane at `pane`: its tall and near peaks laid out the way the
- * scene lays them out (`layoutScene`), read from their painted layers (ink on white). The lower
- * parts of the tall and far peaks sit in the sea of clouds, so they count as mist.
+ * scene lays them out (`layoutScene`; the near ones at `nearPlaced`, where the scene last drew
+ * them), read from their painted layers (ink on white). The lower parts of the tall and far
+ * peaks sit in the sea of clouds, so they count as mist.
  */
-async function cliffMap(pane: Rect): Promise<CliffMap | null> {
+async function cliffMap(pane: Rect, nearPlaced: number[] | null): Promise<CliffMap | null> {
   try {
     const [midFar, mid, nearLayer] = await Promise.all(["ink-midfar", "ink-mid", "ink-near"].map(cliffLayer));
     const size = { width: 1, height: 1 };
@@ -207,7 +270,7 @@ async function cliffMap(pane: Rect): Promise<CliffMap | null> {
     return (x, y) => {
       const px = x - pane.left;
       const py = y - pane.top;
-      const near = rock(inkIn(nearLayer!, layout.near, px, py));
+      const near = rock(inkIn(nearLayer!, nearPlaced ?? layout.near, px, py));
       if (py >= cloudTop) return near;
       return Math.max(near, rock(inkIn(mid!, layout.mid, px, py)), rock(inkIn(midFar!, layout.midFar, px, py)));
     };

@@ -37,6 +37,7 @@ uniform sampler2D uFarNight;    // the same peaks painted moonlit, pale ink on b
 uniform sampler2D uMidFarNight;
 uniform sampler2D uMidNight;
 uniform sampler2D uNear;
+uniform sampler2D uNearCover; // the near cliffs' and pines' silhouette (white), pale washes and highlights included
 uniform sampler2D uBoat;
 uniform sampler2D uCrane;   // six wingbeat frames side by side, premultiplied alpha
 uniform vec4 uFarRect;
@@ -90,6 +91,13 @@ float band(float y, float top, float bottom, float soft) {
 // and cranes then drew a faint, flickering dark box along their edges from a coarse level.
 float insideRect(vec2 uv) {
   return step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+}
+
+// How much of what lies behind the near cliffs and pines they hide at px: their whole silhouette,
+// not their ink, so a pale wash or a white highlight on a trunk hides a crane as well as dark ink.
+float coverAt(sampler2D tex, vec4 rect, vec2 px) {
+  vec2 uv = (px - rect.xy) / rect.zw;
+  return texture2D(tex, uv).r * insideRect(uv);
 }
 
 float inkAt(sampler2D tex, vec4 rect, vec2 px) {
@@ -315,6 +323,7 @@ void main() {
   float stir = noise(vec2(px.x * 0.04 + t * 0.9, px.y * 0.05)) - 0.5;
   nearAt.x += ((0.3 + gust) * 0.006 + bob * 0.0015 + stir * 0.002) * uNearRect.z * pine * pine;
   float near = inkAt(uNear, uNearRect, nearAt);
+  float nearCover = coverAt(uNearCover, uNearRect, nearAt);
   // The moon catches the upper edges of the cliffs and the pines' needles at night, so their
   // silhouettes, and the pines' sway, show against the dark peaks behind them.
   // Only on the side facing the moon, upper right, and faintly: a full rim made the pines look snowy.
@@ -324,7 +333,7 @@ void main() {
   // thinning dark rock left dark scalloped lumps that read as smoke.
   near *= 1.0 - lowMist * 0.6 * (1.0 - uDark);
   // The boat passes behind the cliffs rather than over them.
-  near = 1.0 - (1.0 - near) * (1.0 - boat * (1.0 - smoothstep(0.15, 0.4, near)));
+  near = 1.0 - (1.0 - near) * (1.0 - boat * (1.0 - nearCover));
   // Where the cliffs and the mist at their feet stand in front of the lake, no water shows.
   // Its edge wavers like mist, and the mist thins toward the far shore of the water.
   float waver = (noise(vec2(nuv.y * 9.0, 2.0)) - 0.5) * 0.03 + (noise(vec2(nuv.y * 23.0 + t * 0.05, 5.0)) - 0.5) * 0.012;
@@ -413,7 +422,9 @@ void main() {
     body = mix(body, nightBody, uDark);
     // Far away, so a touch of the sky's haze settles on them; they stay opaque.
     body = mix(body, mix(vec3(0.93, 0.92, 0.88), vec3(0.16, 0.165, 0.175), uDark), 0.18);
-    color = mix(color, body, bird.a * (1.0 - high * 0.45));
+    // Hidden wherever the near cliffs and pines stand: their ink alone let a crane show through
+    // the pale washes and highlights of a trunk.
+    color = mix(color, body, bird.a * (1.0 - high * 0.45) * (1.0 - nearCover));
   }
 
   vec3 nearInk = mix(dayInk, vec3(0.09, 0.095, 0.11), uDark);

@@ -17,7 +17,7 @@ function functionBody(name: string): string {
 
 describe("INK_ALIVE_SHADER sprite reads", () => {
   it("reads every painted layer without returning early, so mipmapped sprites keep their mip level", () => {
-    for (const name of ["inkAt", "lightAt", "crane"]) {
+    for (const name of ["inkAt", "lightAt", "coverAt", "crane"]) {
       const body = functionBody(name);
       expect(body).toContain("texture2D");
       // One return, as the last statement: an earlier one would skip the reads for some pixels.
@@ -30,5 +30,19 @@ describe("INK_ALIVE_SHADER sprite reads", () => {
           .filter((part) => part.trim()),
       ).toHaveLength(1);
     }
+  });
+});
+
+describe("INK_ALIVE_SHADER layering", () => {
+  it("hides the cranes and the boat behind the near cliffs' whole silhouette, not just their ink", () => {
+    // Jiayi saw a crane fly over a near pine's trunk: the near layer is ink on white paper, so
+    // its pale washes and highlights carry little ink, and hiding the crane by ink let it show
+    // through them. The silhouette mask (uNearCover) hides everything behind the cliffs and pines.
+    const shader = INK_ALIVE_SHADER;
+    const craneMix = shader.match(/color = mix\(color, body, bird\.a[^;]*;/)?.[0] ?? "";
+    expect(craneMix).toContain("(1.0 - nearCover)");
+    expect(shader).toMatch(/near = 1\.0 - \(1\.0 - near\) \* \(1\.0 - boat \* \(1\.0 - nearCover\)\);/);
+    // The near cliffs are painted after the cranes, so they also paint over them.
+    expect(shader.indexOf("color = mix(color, nearInk, near")).toBeGreaterThan(shader.indexOf(craneMix));
   });
 });

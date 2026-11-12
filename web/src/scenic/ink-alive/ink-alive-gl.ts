@@ -34,11 +34,25 @@ const TEXTURES = {
   uMidFarNight: alive("ink-midfar-night"),
   uMidNight: alive("ink-mid-night"),
   uNear: alive("ink-near"),
+  uNearCover: alive("ink-near-cover"),
   uBoat: alive("ink-boat"),
   uCrane: alive("ink-crane"),
 };
 
 type TextureName = keyof typeof TEXTURES;
+
+/** Where each living canvas last drew its near cliffs and pines, in pane pixels. */
+const nearPlacements = new WeakMap<HTMLCanvasElement, number[]>();
+
+/**
+ * Where a living scene's near cliffs and pines stand right now: x, y, width and height of the
+ * near layer in the canvas's pixels, following the scene's slow camera breath. Null before its
+ * first frame. Things drawn over the painting use it to pass behind the cliffs (the
+ * celebration's fireworks); `/scenic/ink-near-cover.v1.webp` is their silhouette in that box.
+ */
+export function inkNearPlacement(canvas: HTMLCanvasElement): number[] | null {
+  return nearPlacements.get(canvas) ?? null;
+}
 
 export function startInkAlive(
   canvas: HTMLCanvasElement,
@@ -120,6 +134,9 @@ export function startInkAlive(
       time,
       frameState,
     );
+    // The shader samples the near layer at px + drift * 1.6, so it shows shifted the other way.
+    const drift = Math.sin(frameState.sceneTime * 0.014) * 0.008 * pane.width;
+    nearPlacements.set(canvas, [layout.near[0]! - drift * 1.6, layout.near[1]!, layout.near[2]!, layout.near[3]!]);
     // Move the clouds first: the simulation draws into its own textures.
     if (fluid) {
       const horizon = layout.horizon / pane.height;
@@ -293,6 +310,7 @@ export function startInkAlive(
 
   return () => {
     stopped = true;
+    nearPlacements.delete(canvas);
     window.clearTimeout(timer);
     cancelAnimationFrame(frame);
     observer.disconnect();
