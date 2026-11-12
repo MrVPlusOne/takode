@@ -490,7 +490,7 @@ describe("Takode board Journey metadata route", () => {
     const res = await postWorkerMemory({ questId: "q-9", workFeedbackIndex: 0, noCode: true });
 
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ error: expect.stringContaining("not the current Work phase note") });
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("does not exist or was deleted") });
     expect(session.board.get("q-9")?.status).toBe("WORKING");
   });
 

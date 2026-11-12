@@ -6,7 +6,7 @@ import {
 } from "../../shared/quest-journey.js";
 import { indexedLiveQuestFeedbackEntries } from "../../shared/quest-feedback.js";
 import type { BoardRow } from "../session-types.js";
-import type { QuestmasterTask } from "../quest-types.js";
+import type { QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
 import type { RouteContext } from "./context.js";
 import { DeliveryEvidenceError } from "../published-delivery-target.js";
 import { onMachine, type HostOperationName, type HostOperations } from "../remote-host/host-operations.js";
@@ -123,40 +123,66 @@ export function resolveCurrentWorkFeedback(args: {
   const hasCurrentRunSnapshot = (args.quest.journeyRuns ?? []).some(
     (run) => run.runId === args.activeScope.journeyRunId,
   );
-  const candidateEntries = indexedLiveQuestFeedbackEntries(args.quest.feedback).filter(({ index, ...entry }) => {
-    if (args.requestedIndex !== undefined && index !== args.requestedIndex) return false;
-    const isEligibleWorkNote =
-      entry.author === "agent" &&
-      entry.authorSessionId === args.authorSessionId &&
-      entry.phaseId === "work" &&
-      (entry.kind === "phase_summary" || entry.kind === undefined) &&
-      entry.text.trim().length >= 80;
-    if (!isEligibleWorkNote) return false;
-
-    const matchesActiveScope =
-      entry.journeyRunId === args.activeScope.journeyRunId &&
-      entry.phaseOccurrenceId === args.activeScope.phaseOccurrenceId;
-    if (matchesActiveScope) return true;
-    if (hasCurrentRunSnapshot) return false;
-
-    // Compatibility for phase notes created before board-backed run snapshots existed.
-    return (
-      entry.journeyRunId === undefined &&
-      entry.phaseOccurrenceId === undefined &&
-      entry.phaseIndex === undefined &&
-      entry.phasePosition === undefined &&
-      entry.phaseOccurrence === undefined
-    );
-  });
-  const latest = candidateEntries.at(-1);
-  if (latest) return { index: latest.index };
+  const liveEntries = indexedLiveQuestFeedbackEntries(args.quest.feedback);
   if (args.requestedIndex !== undefined) {
-    return { error: `Feedback #${args.requestedIndex} is not the current Work phase note by this worker.` };
+    const requested = liveEntries.find((entry) => entry.index === args.requestedIndex);
+    const problem = requested
+      ? workNoteProblem(requested, args, hasCurrentRunSnapshot)
+      : "does not exist or was deleted";
+    if (!problem) return { index: args.requestedIndex };
+    return {
+      error:
+        `Feedback #${args.requestedIndex} can't be the Work note: it ${problem}. ` +
+        `Add the Work note from your own session with quest feedback add ${args.quest.questId} --kind phase-summary, then pass its index.`,
+    };
   }
+  const latest = liveEntries.filter((entry) => !workNoteProblem(entry, args, hasCurrentRunSnapshot)).at(-1);
+  if (latest) return { index: latest.index };
   return {
     error:
       "A Work phase note for the active Journey run and phase occurrence is required before Work can transition to Memory. After a User Checkpoint the quest is in a new Work occurrence, so a note written before or during the checkpoint does not count: add the current Work note with quest feedback add --kind phase-summary.",
   };
+}
+
+/**
+ * Why a feedback entry can't be this worker's note for the active Work
+ * occurrence, as a clause completing "it ...", or null when it qualifies.
+ * The reason is spelled out because a bare refusal sent workers looking for the
+ * wrong cause, such as a missing session when the note was a worker-stream report.
+ */
+function workNoteProblem(
+  entry: QuestFeedbackEntry,
+  args: {
+    authorSessionId: string;
+    activeScope: Pick<ActiveWorkPhaseContext, "journeyRunId" | "phaseOccurrenceId">;
+  },
+  hasCurrentRunSnapshot: boolean,
+): string | null {
+  if (entry.author !== "agent") return "is human feedback";
+  if (!entry.authorSessionId) return "has no author session";
+  if (entry.authorSessionId !== args.authorSessionId) return "was written by another session";
+  if (entry.phaseId !== "work") {
+    return entry.phaseId ? `belongs to the ${entry.phaseId} phase, not Work` : "is not attached to the Work phase";
+  }
+  if (entry.kind !== "phase_summary" && entry.kind !== undefined) {
+    const origin = entry.kind === "phase_finding" ? ", as takode worker-stream reports are" : "";
+    return `is a ${entry.kind} note${origin}, and the Work note must be a phase summary (editing a note keeps its kind)`;
+  }
+  if (entry.text.trim().length < 80) return "is shorter than 80 characters";
+
+  const matchesActiveScope =
+    entry.journeyRunId === args.activeScope.journeyRunId &&
+    entry.phaseOccurrenceId === args.activeScope.phaseOccurrenceId;
+  if (matchesActiveScope) return null;
+  // Compatibility for phase notes created before board-backed run snapshots existed.
+  const unscopedLegacyNote =
+    entry.journeyRunId === undefined &&
+    entry.phaseOccurrenceId === undefined &&
+    entry.phaseIndex === undefined &&
+    entry.phasePosition === undefined &&
+    entry.phaseOccurrence === undefined;
+  if (unscopedLegacyNote && !hasCurrentRunSnapshot) return null;
+  return "belongs to an earlier Work occurrence (a User Checkpoint starts a new one) or another Journey run";
 }
 
 export function findAssignedBoardRowsForWorker(args: {
