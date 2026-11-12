@@ -157,4 +157,51 @@ describe("PendingMessages", () => {
     expect(screen.getByText("Delivering…")).toBeTruthy();
     expect(within(status).queryByRole("button")).toBeNull();
   });
+  // A pending message must already look like the delivered one, so nothing moves or reshapes when
+  // it lands; these cover the differences that once made it change on delivery.
+  describe("keeps the shape it will have once delivered", () => {
+    it("keeps your bubble's backing and mutes only what is inside it", () => {
+      // A faded bubble let the scenic painting show through it; the backing must stay as delivered.
+      render(<PendingMessages sessionId={SID} uploads={[]} codexInputs={[codexInput({})]} />);
+      const fade = within(itemFor("Queued request")).getByTestId("user-message-bubble").closest("[class*=opacity]");
+      expect(fade?.className).not.toMatch(/(?:^|\s)opacity-/);
+      expect(fade?.className).toContain("[&_[data-testid=user-message-bubble]>*]:opacity-55");
+    });
+
+    it("names its thread only when that is not the thread on screen, as a delivered message does", () => {
+      const inThread = codexInput({ content: "Thread request", threadKey: "q-7" });
+      const { rerender } = render(
+        <PendingMessages sessionId={SID} uploads={[]} codexInputs={[inThread]} currentThreadKey="q-7" />,
+      );
+      expect(screen.queryByTestId("thread-source-badge")).toBeNull();
+
+      rerender(<PendingMessages sessionId={SID} uploads={[]} codexInputs={[inThread]} currentThreadKey="q-8" />);
+      expect(screen.getByTestId("thread-source-badge").textContent).toBe("thread:q-7");
+    });
+
+    it("shows the day divider a message opening a new day will get", () => {
+      const evening = new Date(2026, 10, 10, 23, 50).getTime();
+      const nextMorning = new Date(2026, 10, 11, 0, 10).getTime();
+      const { rerender } = render(
+        <PendingMessages
+          sessionId={SID}
+          uploads={[]}
+          codexInputs={[codexInput({ timestamp: nextMorning })]}
+          previousTimestamp={evening}
+        />,
+      );
+      expect(screen.getByTestId("minute-boundary-timestamp").getAttribute("data-feed-time")).toBe(String(nextMorning));
+
+      // Same day as the newest message above: no divider, as for the delivered message.
+      rerender(
+        <PendingMessages
+          sessionId={SID}
+          uploads={[]}
+          codexInputs={[codexInput({ timestamp: nextMorning })]}
+          previousTimestamp={nextMorning - 60_000}
+        />,
+      );
+      expect(screen.queryByTestId("minute-boundary-timestamp")).toBeNull();
+    });
+  });
 });

@@ -6,7 +6,8 @@ import type { ChatMessage, PendingCodexInput, PendingUserUpload } from "../types
 import { MessageBubble, rendersAsUserBubble } from "./MessageBubble.js";
 import { isPeerLeaderMessage, useIsLeaderSession } from "./PeerLeaderMessage.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
-import { getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
+import { buildMinuteBoundaryLabelMap, getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
+import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 
 type PendingStatus = "sending" | "queued" | "delivering" | "failed";
 
@@ -27,14 +28,20 @@ interface PendingInputProps {
   sessionId: string;
   uploads: PendingUserUpload[];
   codexInputs: PendingCodexInput[];
+  /** The feed's thread, so the bubble names its thread exactly as the delivered message will. */
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+  /** The newest message shown above, so a pending message opening a new day shows that day's divider. */
+  previousTimestamp?: number | null;
   questLinkSurface?: QuestLinkSurface;
 }
 
 /**
- * Pending messages drawn as the bubbles they will become once delivered, faded,
- * at the end of the feed where the delivered message lands. Their state and
- * actions sit in a pill on the bubble's lower edge, outside the layout, so the
- * feed keeps its shape when a message lands.
+ * Pending messages drawn as the bubbles they will become once delivered, at the
+ * end of the feed where the delivered message lands. Your own bubble keeps its
+ * full backing and only its content is muted; other pending messages are faded
+ * whole. Their state and actions sit in a pill on the bubble's lower edge,
+ * outside the layout, so the feed keeps its shape when a message lands.
  */
 export function PendingMessages(props: PendingInputProps) {
   if (props.uploads.length === 0 && props.codexInputs.length === 0) return null;
@@ -44,30 +51,58 @@ export function PendingMessages(props: PendingInputProps) {
 function PendingMessageList(props: PendingInputProps) {
   const items = usePendingInputItems(props.sessionId, props.uploads, props.codexInputs);
   const feedIsLeader = useIsLeaderSession(props.sessionId);
+  const dayLabels = useMemo(
+    () => pendingDayLabels(items, props.previousTimestamp ?? null),
+    [items, props.previousTimestamp],
+  );
   return (
     <div className="space-y-5" data-feed-block-id={getFooterFeedBlockId("pending-inputs")}>
-      {items.map((item) => (
-        <div key={item.key} className="relative" data-feed-block-id={item.blockId} data-pending-status={item.status}>
-          <div className={item.status === "failed" ? "opacity-80" : "opacity-55"}>
-            <MessageBubble
-              message={item.message}
-              sessionId={props.sessionId}
-              showTimestamp
-              questLinkSurface={props.questLinkSurface}
-            />
+      {items.map((item) => {
+        const ownBubble =
+          rendersAsUserBubble(item.message) && !isPeerLeaderMessage(item.message, props.sessionId, feedIsLeader);
+        return (
+          <div key={item.key} className="relative" data-feed-block-id={item.blockId} data-pending-status={item.status}>
+            {dayLabels.has(item.message.id) && (
+              <MinuteBoundaryTimestamp timestamp={item.message.timestamp} label={dayLabels.get(item.message.id)!} />
+            )}
+            <div className={pendingFadeClass(item.status, ownBubble)}>
+              <MessageBubble
+                message={item.message}
+                sessionId={props.sessionId}
+                showTimestamp
+                currentThreadKey={props.currentThreadKey}
+                onSelectThread={props.onSelectThread}
+                questLinkSurface={props.questLinkSurface}
+              />
+            </div>
+            <PendingStatusPill item={item} side={ownBubble ? "right" : "left"} />
           </div>
-          <PendingStatusPill
-            item={item}
-            side={
-              rendersAsUserBubble(item.message) && !isPeerLeaderMessage(item.message, props.sessionId, feedIsLeader)
-                ? "right"
-                : "left"
-            }
-          />
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
+}
+
+/** The day dividers the pending messages will get once delivered, counted on from the feed's newest message. */
+function pendingDayLabels(items: PendingInputItem[], previousTimestamp: number | null): Map<string, string> {
+  const messages = items.map((item) => item.message);
+  if (previousTimestamp === null) return buildMinuteBoundaryLabelMap(messages);
+  const previous = { id: "", role: "user", content: "", timestamp: previousTimestamp } satisfies ChatMessage;
+  const labels = buildMinuteBoundaryLabelMap([previous, ...messages]);
+  labels.delete(previous.id);
+  return labels;
+}
+
+/**
+ * Your own bubble keeps its backing, so it already has the shape and colour it will have once
+ * delivered (a faded bubble showed the scenic painting through it); only what is inside is muted.
+ */
+function pendingFadeClass(status: PendingStatus, ownBubble: boolean): string {
+  const failed = status === "failed";
+  if (!ownBubble) return failed ? "opacity-80" : "opacity-55";
+  return failed
+    ? "[&_[data-testid=user-message-bubble]>*]:opacity-80"
+    : "[&_[data-testid=user-message-bubble]>*]:opacity-55";
 }
 
 /**

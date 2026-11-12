@@ -50,7 +50,7 @@ export function PlaygroundPendingMessageStates() {
   return (
     <Section
       title="Pending Messages"
-      description="A message not yet delivered shows as the faded bubble it becomes, at the end of the feed, with its status and actions in a pill on its lower edge. The common case is one queued Codex message; a local send awaiting the server says Sending; failures offer Retry and Edit."
+      description="A message not yet delivered shows as the bubble it becomes, at the end of the feed: same backing, size and place, with only its content muted and its status and actions in a pill on its lower edge, so nothing moves when it lands. The common case is one queued Codex message; a local send awaiting the server says Sending; failures offer Retry and Edit; the first message of a new day already shows that day's divider."
     >
       <div className="space-y-4">
         <Card label="One queued Codex message">
@@ -62,6 +62,9 @@ export function PlaygroundPendingMessageStates() {
         <Card label="Local send failed">
           <PendingState uploads={FAILED_LOCAL} />
         </Card>
+        <Card label="First message of a new day">
+          <PendingState codexInputs={SINGLE_QUEUED} previousTimestamp={-24 * 60 * 60 * 1000} />
+        </Card>
       </div>
     </Section>
   );
@@ -70,13 +73,21 @@ export function PlaygroundPendingMessageStates() {
 function PendingState({
   uploads = [],
   codexInputs = [],
+  previousTimestamp,
 }: {
   uploads?: PendingUserUpload[];
   codexInputs?: PendingCodexInput[];
+  /** The newest message above the pending ones; a different day shows a day divider. */
+  previousTimestamp?: number;
 }) {
   return (
     <div className="max-w-3xl rounded-xl border border-cc-border bg-cc-bg px-2 pb-6 pt-4 sm:px-4">
-      <PendingMessages sessionId={SESSION_ID} uploads={uploads} codexInputs={codexInputs} />
+      <PendingMessages
+        sessionId={SESSION_ID}
+        uploads={uploads}
+        codexInputs={codexInputs}
+        previousTimestamp={previousTimestamp}
+      />
     </div>
   );
 }

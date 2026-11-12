@@ -1270,6 +1270,7 @@ export const FeedFooter = memo(function FeedFooter({
         <div
           className="flex items-center gap-2 text-[12px] text-cc-muted font-mono-code pl-9 py-1 animate-[fadeSlideIn_0.2s_ease-out]"
           data-feed-block-id={getFooterFeedBlockId("compacting")}
+          data-feed-status-line
         >
           <ActivityDot className="text-cc-primary" active />
           <span>Compacting conversation...</span>
@@ -1289,6 +1290,7 @@ export const FeedFooter = memo(function FeedFooter({
             <div
               className="flex items-center gap-1.5 text-[11px] text-cc-muted font-mono-code pl-9"
               data-feed-block-id={getFooterFeedBlockId("tool-progress")}
+              data-feed-status-line
             >
               <ActivityDot className="text-cc-primary" active />
               {nonTaskProgress.map((p, i) => (

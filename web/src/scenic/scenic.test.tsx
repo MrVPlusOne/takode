@@ -269,6 +269,14 @@ describe("message sheets", () => {
     expect(sheeted.some((selector) => /\.turn-container > \* > \.rounded-xl$/.test(selector))).toBe(true);
   });
 
+  it("gives the live-line slip only to status lines, not to pending messages", () => {
+    // The slip once matched every block under the feed's footer ids, which pending messages share,
+    // and wrapped a message still sending in a dark oval until it landed.
+    const selectors = rules.flatMap((rule) => rule.selectors);
+    expect(selectors.filter((selector) => selector.includes("data-feed-block-id"))).toEqual([]);
+    expect(selectors.some((selector) => selector.includes("[data-feed-status-line]"))).toBe(true);
+  });
+
   it("makes the sheet from each theme's own paper, by day and by night", () => {
     // Meadow, Seaside and Ink & Paper each set their page and card colours; the sheet is mixed from
     // them rather than from a fixed colour, so every theme keeps its own paper.

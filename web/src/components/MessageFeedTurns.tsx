@@ -3,7 +3,7 @@ import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 import { MainQuestStrip, MainQuestStripsContext, mainQuestStrips } from "./MainQuestStrip.js";
 import { StartedQuestsContext } from "./QuestForkLinks.js";
 import { Fragment, memo, useContext, useMemo, type ComponentProps, type CSSProperties, type ReactNode } from "react";
-import type { ChatMessage } from "../types.js";
+import type { ChatMessage, PendingCodexInput, PendingUserUpload } from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { getEntryId, isUserBoundaryEntry, type FeedEntry, type Turn } from "../hooks/use-feed-model.js";
 import { FeedEntries, isCompactableHerdEventEntry } from "./MessageFeedEntries.js";
@@ -53,6 +53,7 @@ import { useQuestRecord } from "./QuestSummaryCard.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
 import { normalizeThreadKey } from "../../shared/leader-projection.js";
 import { JoinedThreadMarker } from "./ThreadJoinMarker.js";
+import { PendingMessages } from "./PendingMessages.js";
 
 function entryHasModelActivity(entry: FeedEntry): boolean {
   if (entry.kind !== "message") return true;
@@ -294,6 +295,9 @@ function groupTurnActivity(
   return runs;
 }
 
+const NO_PENDING_UPLOADS: PendingUserUpload[] = [];
+const NO_PENDING_CODEX_INPUTS: PendingCodexInput[] = [];
+
 export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   turn,
   threadStatusFooter,
@@ -416,6 +420,9 @@ export const TurnEntries = memo(function TurnEntries({
   onThreadStatusLayoutContributionChange,
   hasOlderSections = false,
   hasNewerSections = false,
+  newerSectionControl = null,
+  pendingUploads = NO_PENDING_UPLOADS,
+  pendingCodexInputs = NO_PENDING_CODEX_INPUTS,
 }: {
   sections: FeedSection[];
   sessionId: string;
@@ -443,6 +450,11 @@ export const TurnEntries = memo(function TurnEntries({
   hasOlderSections?: boolean;
   /** The loaded window ends before the thread's newest section. */
   hasNewerSections?: boolean;
+  /** "Load newer section", shown after the turns and before any pending messages. */
+  newerSectionControl?: ReactNode;
+  /** Messages sent but not yet delivered; they follow the turns where the delivered message lands. */
+  pendingUploads?: PendingUserUpload[];
+  pendingCodexInputs?: PendingCodexInput[];
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
   const sectionStartTurnIds = useMemo(
@@ -474,7 +486,7 @@ export const TurnEntries = memo(function TurnEntries({
     () => (hasThreadStatusFooter ? latestStatusHostTurnId(sections) : null),
     [sections, hasThreadStatusFooter],
   );
-  const { minuteBoundaryLabels, firstTimedMessageIds } = useMemo(() => {
+  const { minuteBoundaryLabels, firstTimedMessageIds, lastTimedTimestamp } = useMemo(() => {
     const visibleTimedMessages: ChatMessage[] = [];
     const firstTimed: Array<string | undefined> = [];
 
@@ -501,6 +513,7 @@ export const TurnEntries = memo(function TurnEntries({
     return {
       minuteBoundaryLabels: buildMinuteBoundaryLabelMap(visibleTimedMessages),
       firstTimedMessageIds: firstTimed,
+      lastTimedTimestamp: visibleTimedMessages.at(-1)?.timestamp ?? null,
     };
   }, [readyThreadResponsePresentation, turns, turnStates]);
   const { entryBoundaryLabels, dividerAboveStrip } = useMemo(
@@ -759,6 +772,18 @@ export const TurnEntries = memo(function TurnEntries({
             </Fragment>
           );
         })}
+        {newerSectionControl}
+        {/* Rendered with the turns' context (thread, time labels, timing), so a pending message
+            already has the shape, times and day divider it will have once delivered. */}
+        <PendingMessages
+          sessionId={sessionId}
+          uploads={pendingUploads}
+          codexInputs={pendingCodexInputs}
+          currentThreadKey={currentThreadKey}
+          onSelectThread={onSelectThread}
+          previousTimestamp={lastTimedTimestamp}
+          questLinkSurface={questLinkSurface}
+        />
       </MainQuestStripsContext.Provider>
     </InlineMessageTimingVisibilityContext.Provider>
   );

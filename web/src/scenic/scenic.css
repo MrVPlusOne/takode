@@ -78,12 +78,14 @@ html.scenic .turn-container > * > .rounded-xl {
 }
 
 /* Small labels on the painting get a slip of paper: the activity summary, the time beside your
-   messages, minute markers, and the live lines under the newest turn. */
+   messages (sent or still pending, so a message keeps its shape when it lands), minute markers,
+   and the live status lines under the newest turn. */
 html.scenic :is(
     [data-turn-toggle],
-    .turn-container > :has([data-testid="user-message-bubble"]) [data-testid="message-time-label"]:not([data-hidden]),
+    :is(.turn-container > :has([data-testid="user-message-bubble"]), [data-pending-status])
+      [data-testid="message-time-label"]:not([data-hidden]),
     [data-testid="minute-boundary-timestamp"],
-    [data-feed-content-root="true"] > [data-feed-block-id^="footer:"]
+    [data-feed-status-line]
   ) {
   background: var(--scenic-sheet);
   box-shadow: 0 0 0 1px var(--scenic-edge);
@@ -91,8 +93,8 @@ html.scenic :is(
   padding-inline: 0.625rem;
 }
 
-/* The live lines keep their text where it was. */
-html.scenic [data-feed-content-root="true"] > [data-feed-block-id^="footer:"] {
+/* The live status lines keep their text where it was. */
+html.scenic [data-feed-status-line] {
   width: fit-content;
   margin-inline-start: 1.625rem;
 }

@@ -6,7 +6,6 @@ import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDurat
 import { MarkdownContent } from "./MarkdownContent.js";
 import { ElapsedTimer, FeedStatusPill } from "./MessageFeedStatus.js";
 import { FeedFooter } from "./MessageFeedEntries.js";
-import { PendingMessages } from "./PendingMessages.js";
 import { TurnEntries } from "./MessageFeedTurns.js";
 import { MessageTimeLabelContext, MessageTimeLabelStore } from "./message-time-labels.js";
 import { useScrollActivity } from "./message-feed-scroll-activity.js";
@@ -1920,22 +1919,20 @@ export function MessageFeed({
                         onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
                         hasOlderSections={hasOlderSections}
                         hasNewerSections={hasNewerSections}
+                        newerSectionControl={
+                          hasNewerSections && (
+                            <SectionBoundaryControl
+                              direction="newer"
+                              loading={isLoadingNewerSection}
+                              onLoad={explicitSectionLoad.newer}
+                            />
+                          )
+                        }
+                        pendingUploads={pendingUserUploads}
+                        pendingCodexInputs={isCodexSession ? pendingCodexInputs : EMPTY_PENDING_CODEX_INPUTS}
                       />
                     </AnswerReferencesContext.Provider>
                   </MessageTimeLabelContext.Provider>
-                  {hasNewerSections && (
-                    <SectionBoundaryControl
-                      direction="newer"
-                      loading={isLoadingNewerSection}
-                      onLoad={explicitSectionLoad.newer}
-                    />
-                  )}
-                  <PendingMessages
-                    sessionId={sessionId}
-                    uploads={pendingUserUploads}
-                    codexInputs={isCodexSession ? pendingCodexInputs : EMPTY_PENDING_CODEX_INPUTS}
-                    questLinkSurface="chat-feed"
-                  />
                   <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} />
                   <MessageFeedEndSlack {...feedEndSlackProps} />
                 </div>
