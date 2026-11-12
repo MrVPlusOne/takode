@@ -26,6 +26,7 @@ import { SCENIC_REVEAL_EVENT, applyScenicClass, inkPaletteOf } from "./scenic-st
 // Read from disk: Vitest turns a raw stylesheet import into an empty string, so a check on it passed
 // whatever the stylesheet held.
 const scenicCss = readFileSync(join(__dirname, "scenic.css"), "utf8");
+const appCss = readFileSync(join(__dirname, "..", "index.css"), "utf8");
 
 /** Pane size the ResizeObserver stub reports to the backdrop. */
 let paneSize = { width: 1000, height: 800 };
@@ -226,6 +227,19 @@ describe("SettingsScenicBackgroundSection", () => {
     expect(picture()).toContain(scenicAsset("ink-night-thumb"));
     fireEvent.click(screen.getByRole("radio", { name: "Ink & Colour" }));
     expect(mockUpdateSettings).toHaveBeenCalledWith({ scenicBackground: "inkColor" });
+  });
+});
+
+describe("message times", () => {
+  // On a wide feed, message times normally sit in the left margin beside the paper column. With
+  // a scenic background that margin shows the painting, where a time was hard to read, so every
+  // margin placement must be limited to feeds without one; times then sit with their messages.
+  it("moves message times into the feed's margin only without a scenic background", () => {
+    const block = appCss.match(/@container feed \(min-width: 59rem\) \{([\s\S]*?)\n\}/)?.[1];
+    expect(block).toBeTruthy();
+    const selectors = [...block!.matchAll(/^\s*([^{}]+?)\s*\{/gm)].map((match) => match[1]);
+    expect(selectors.length).toBeGreaterThan(0);
+    for (const selector of selectors) expect(selector).toMatch(/^html:not\(\.scenic\) /);
   });
 });
 

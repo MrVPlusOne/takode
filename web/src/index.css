@@ -1594,9 +1594,12 @@ select {
  * the column's left edge, each set by what indents it (the message row's paw, a collapsed
  * answer card, an expanded answer's frame, an activity run's rail). An answer's time that
  * starts its reference line sits level with that line.
+ *
+ * Not with a scenic background: the margin then shows the painting, where a time was hard to
+ * read, so times stay with their messages inside the paper column, as on narrow feeds.
  */
 @container feed (min-width: 59rem) {
-  .message-start-time:not([data-side="user"]) {
+  html:not(.scenic) .message-start-time:not([data-side="user"]) {
     position: absolute;
     top: 0.25rem;
     right: calc(
@@ -1608,10 +1611,10 @@ select {
     text-align: right;
     white-space: normal;
   }
-  .message-start-time[data-inline]:not([data-side="user"]) {
+  html:not(.scenic) .message-start-time[data-inline]:not([data-side="user"]) {
     top: calc(50% - 0.5rem);
   }
-  .message-start-time[data-hidden="true"]:not([data-side="user"]) {
+  html:not(.scenic) .message-start-time[data-hidden="true"]:not([data-side="user"]) {
     height: auto;
   }
 }
