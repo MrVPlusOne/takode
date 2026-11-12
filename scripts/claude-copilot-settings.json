@@ -4,11 +4,12 @@
   "env": {
     "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5.5",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-fable-5.2",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5.5",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
   },
   "modelOverrides": {
     "claude-haiku-4-5": "claude-haiku-4.5"
   },
-  "availableModels": ["opus", "sonnet", "haiku"]
+  "availableModels": ["opus", "fable", "sonnet", "haiku"]
 }

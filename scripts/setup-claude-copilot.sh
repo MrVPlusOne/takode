@@ -13,6 +13,7 @@
 # Prerequisites:
 #   - Claude Code (`claude`) on PATH, version MIN_CLAUDE_VERSION or newer
 #   - GitHub CLI (`gh`) on PATH and signed in to an account with Copilot access
+#   - curl, to check whether that account's Copilot offers Fable (gated access)
 #
 # Safe to rerun: an existing file that would change is first copied to
 # <file>.bak-<timestamp>. Nothing else is modified, and the GitHub token is
@@ -86,11 +87,30 @@ version_at_least "$claude_version" "$MIN_CLAUDE_VERSION" ||
 
 "$gh_bin" auth token >/dev/null 2>&1 || fail "GitHub CLI is not signed in. Run: gh auth login"
 
+# Copilot offers Fable only to accounts granted gated access. List it only when
+# this account's Copilot serves the model the template pins, so the model menu
+# never offers a model whose every request fails. The token goes to curl
+# through standard input, never on a command line.
+fable_model="$(sed -n 's/.*"ANTHROPIC_DEFAULT_FABLE_MODEL": "\([^"]*\)".*/\1/p' "$TEMPLATE")"
+copilot_models="$("$gh_bin" auth token | sed 's/^/Authorization: Bearer /' |
+  curl -fsS --max-time 30 -H @- https://api.githubcopilot.com/models 2>/dev/null)" || copilot_models=""
+fable_filter=""
+models="Opus 5.5 (default), Fable 5.2, Sonnet 5.5 and Haiku 4.5"
+if [[ "$copilot_models" != *"\"id\":\"$fable_model\""* ]]; then
+  fable_filter='s/"fable", //'
+  models="Opus 5.5 (default), Sonnet 5.5 and Haiku 4.5"
+  if [[ -z "$copilot_models" ]]; then
+    echo "note: could not read Copilot's model list, so Fable is left out. Rerun this script to check again."
+  else
+    echo "note: your Copilot account doesn't offer $fable_model, so Fable is left out. Rerun this script once you have access."
+  fi
+fi
+
 mkdir -p "$INSTALL_DIR"
 chmod 700 "$INSTALL_DIR"
 
 # Use the absolute gh path: Takode may start Claude with a narrower PATH.
-sed "s|\"gh auth token\"|\"$gh_bin auth token\"|" "$TEMPLATE" >"$SETTINGS.new"
+sed -e "s|\"gh auth token\"|\"$gh_bin auth token\"|" -e "$fable_filter" "$TEMPLATE" >"$SETTINGS.new"
 install_file "$SETTINGS.new" "$SETTINGS" 600
 
 cat >"$LAUNCHER.new" <<EOF
@@ -120,6 +140,6 @@ cat <<EOF
 Done. Next, in Takode open Settings -> Hosts and, for the machine you ran this
 on (This machine, or the remote host), set "Claude Code" to:
   $LAUNCHER
-New Claude sessions then run through GitHub Copilot with Opus 5.5 (default),
-Sonnet 5.5 and Haiku 4.5. Running sessions switch when they relaunch.
+New Claude sessions then run through GitHub Copilot with $models.
+Running sessions switch when they relaunch.
 EOF

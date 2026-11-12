@@ -14,17 +14,26 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
 });
 
+/** Copilot model-list responses the fake `curl` can return; `null` makes the request fail. */
+const MODELS_WITH_FABLE = '{"data":[{"id":"claude-opus-5.5"},{"id":"claude-fable-5.2"},{"id":"claude-sonnet-5.5"}]}';
+const MODELS_WITHOUT_FABLE = '{"data":[{"id":"claude-opus-5.5"},{"id":"claude-sonnet-5.5"}]}';
+
 /**
- * Builds an isolated HOME plus fake `claude` and `gh` binaries so the setup
- * script never touches the real user's files or GitHub account. The fake
- * `claude` records the arguments and credential env it was launched with.
+ * Builds an isolated HOME plus fake `claude`, `gh` and `curl` binaries so the
+ * setup script never touches the real user's files, GitHub account or network.
+ * The fake `claude` records the arguments and credential env it was launched
+ * with; the fake `curl` records its arguments and standard input, then prints
+ * the given Copilot model list.
  */
-async function makeFixture(options: { claudeVersion?: string; ghSignedIn?: boolean } = {}) {
+async function makeFixture(
+  options: { claudeVersion?: string; ghSignedIn?: boolean; copilotModels?: string | null } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "claude-copilot-setup-"));
   tempDirs.push(root);
   const home = join(root, "home");
   const bin = join(root, "bin");
   const launchLog = join(root, "launch.log");
+  const curlLog = join(root, "curl.log");
   await mkdir(home);
   await mkdir(bin);
   await writeFile(
@@ -40,12 +49,24 @@ async function makeFixture(options: { claudeVersion?: string; ghSignedIn?: boole
     join(bin, "gh"),
     options.ghSignedIn === false ? "#!/bin/sh\nexit 1\n" : `#!/bin/sh\necho ${FAKE_TOKEN}\n`,
   );
+  const copilotModels = options.copilotModels === undefined ? MODELS_WITH_FABLE : options.copilotModels;
+  await writeFile(
+    join(bin, "curl"),
+    [
+      "#!/bin/sh",
+      `printf 'arg:%s\\n' "$@" > "${curlLog}"`,
+      `sed 's/^/stdin:/' >> "${curlLog}"`,
+      copilotModels === null ? "exit 7" : `echo '${copilotModels}'`,
+    ].join("\n"),
+  );
   await chmod(join(bin, "claude"), 0o755);
   await chmod(join(bin, "gh"), 0o755);
+  await chmod(join(bin, "curl"), 0o755);
   const installDir = join(home, ".companion", "claude-copilot");
   return {
     bin,
     launchLog,
+    curlLog,
     installDir,
     settings: join(installDir, "settings.json"),
     launcher: join(installDir, "claude-copilot"),
@@ -97,6 +118,43 @@ describe("setup-claude-copilot.sh", () => {
     spawnSync(fixture.launcher, ["--version"], { env: { PATH: "/usr/bin:/bin" } });
     spawnSync(fixture.launcher, ["--output-format", "json"], { env: { PATH: "/usr/bin:/bin" } });
     expect(await readFile(fixture.launchLog, "utf8")).not.toContain("--include-partial-messages");
+  });
+
+  it("lists Fable only when the account's Copilot serves the pinned Fable model", async () => {
+    // Fable is gated on Copilot; offering it to an account without access would
+    // put a model in the menu whose every request fails.
+    const template = JSON.parse(await readFile(TEMPLATE, "utf8"));
+    const fableModel = template.env.ANTHROPIC_DEFAULT_FABLE_MODEL;
+    expect(template.availableModels).toContain("fable");
+
+    const served = await makeFixture({ copilotModels: MODELS_WITH_FABLE });
+    const servedRun = served.run();
+    expect(servedRun.status, servedRun.stderr).toBe(0);
+    expect(JSON.parse(await readFile(served.settings, "utf8")).availableModels).toEqual(template.availableModels);
+    expect(servedRun.stdout).toContain("Fable 5.2");
+    // The token reaches curl only as a header on standard input, never as an argument.
+    const curlLog = await readFile(served.curlLog, "utf8");
+    expect(curlLog).toContain(`stdin:Authorization: Bearer ${FAKE_TOKEN}`);
+    expect(curlLog.split("\n").filter((line) => line.startsWith("arg:"))).not.toContainEqual(
+      expect.stringContaining(FAKE_TOKEN),
+    );
+
+    // Not served, or the list can't be read: everything else matches the template, minus Fable.
+    for (const [copilotModels, note] of [
+      [MODELS_WITHOUT_FABLE, `doesn't offer ${fableModel}`],
+      [null, "could not read Copilot's model list"],
+    ] as const) {
+      const fixture = await makeFixture({ copilotModels });
+      const result = fixture.run();
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(note);
+      expect(result.stdout).not.toContain("Fable 5.2");
+      expect(JSON.parse(await readFile(fixture.settings, "utf8"))).toEqual({
+        ...template,
+        apiKeyHelper: `${fixture.bin}/gh auth token`,
+        availableModels: template.availableModels.filter((alias: string) => alias !== "fable"),
+      });
+    }
   });
 
   it("is idempotent and backs up a file before replacing changed content", async () => {

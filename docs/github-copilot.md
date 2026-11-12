@@ -7,7 +7,9 @@ credentials.
 
 With the settings below, the Claude model menu offers **Opus 5.5 (default),
 Sonnet 5.5 and Haiku 4.5**, and each of them works through Copilot. These
-models were tested with Claude Code 2.1.289 in October 2026.
+models were tested with Claude Code 2.1.289 in October 2026. If your Copilot
+account has access to Fable, the menu also offers **Fable 5.2** (see
+[Fable](#fable)).
 
 ## Requirements
 
@@ -57,13 +59,14 @@ with `gh` replaced by its full path:
   "env": {
     "ANTHROPIC_BASE_URL": "https://api.githubcopilot.com",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5.5",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-fable-5.2",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5.5",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
   },
   "modelOverrides": {
     "claude-haiku-4-5": "claude-haiku-4.5"
   },
-  "availableModels": ["opus", "sonnet", "haiku"]
+  "availableModels": ["opus", "fable", "sonnet", "haiku"]
 }
 ```
 
@@ -72,7 +75,7 @@ with `gh` replaced by its full path:
   contain a token.
 - **Model IDs.** Copilot names models with dots (`claude-sonnet-5.5`), while
   Claude Code uses hyphens (`claude-sonnet-5-5`). The `ANTHROPIC_DEFAULT_*_MODEL`
-  entries point the Opus and Sonnet aliases at Copilot's names.
+  entries point the Opus, Fable and Sonnet aliases at Copilot's names.
 - **Haiku uses `modelOverrides`.** Claude Code doesn't recognize a dotted ID
   such as `claude-haiku-4.5`, so for an env-pinned Haiku it guesses the model's
   features. It then sends a reasoning-effort setting that Haiku 4.5 rejects, and
@@ -81,9 +84,10 @@ with `gh` replaced by its full path:
   Claude Code ignores it for this kind of endpoint. `modelOverrides` keeps
   Claude Code's knowledge of the real Haiku 4.5 while it sends Copilot's ID.
   Opus and Sonnet accept the effort setting, so pinning them through env works.
-- **`availableModels`** removes Fable from the model list, because Copilot
-  doesn't serve any Fable model. Takode builds its Claude model menu from the
-  list Claude Code reports, so the menu shows only the three models.
+- **`availableModels`** limits the model list to these four models. Takode
+  builds its Claude model menu from the list Claude Code reports. The setup
+  script drops `fable` from it when your account can't use Fable (see
+  [Fable](#fable)), so the menu then shows the other three.
 - **`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`** stops Claude Code from
   contacting Anthropic directly for telemetry, error reporting and update
   checks.
@@ -93,6 +97,24 @@ from its environment, because they would override Copilot. When Takode asks
 for streaming output, the launcher adds `--include-partial-messages` so Claude
 Code reports progress while it writes a reply. Takode shows each reply once it
 is complete, but uses this progress to tell a long reply from a stuck turn.
+
+## Fable
+
+Copilot offers Fable only to accounts that were granted access to it, which
+inside Microsoft means joining the "Fable 5.x with justification - Gated
+Access High" group (see [Copilot model guidelines](https://aka.ms/copilot/guidelines/models)).
+Access can take a few days to show up after approval.
+
+The setup script asks Copilot which models your account can use (as in
+[Checking which models Copilot serves](#checking-which-models-copilot-serves))
+and keeps Fable in the model list only when Copilot serves
+`claude-fable-5.2`. Otherwise it prints a note and leaves Fable out, so the
+menu never offers a model whose every request fails. Once you have access,
+run the script again; new sessions then offer Fable 5.2.
+
+Claude Code 2.1.289 doesn't know Fable 5.2 yet, so the Fable alias is pinned
+to Copilot's ID like Opus and Sonnet. Claude Code then sends Fable 5.2 the
+same thinking and reasoning-effort settings it sends Opus 5.5.
 
 ## Web search and WebFetch
 
