@@ -39,7 +39,7 @@ describe("Ink & Paper textures", () => {
     // Off, Summer Meadow and Seaside must look exactly as before, so every selector needs the
     // `scenic-ink` class that only Ink & Paper puts on <html>.
     const selectors = topLevelSelectors(css);
-    expect(selectors.length).toBeGreaterThan(10);
+    expect(selectors.length).toBeGreaterThan(5);
     expect(selectors.filter((selector) => !selector.includes(".scenic-ink"))).toEqual([]);
   });
 

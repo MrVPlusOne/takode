@@ -221,6 +221,64 @@ describe("message times", () => {
   });
 });
 
+/** Every rule of a stylesheet (comments and keyframes removed) as its selector list and body. */
+function cssRules(source: string): { selectors: string[]; body: string }[] {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => {
+    const selectors: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const char of match[1]!) {
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === "," && depth === 0) {
+        selectors.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    selectors.push(current.trim());
+    return { selectors: selectors.filter(Boolean), body: match[2]! };
+  });
+}
+
+describe("message sheets", () => {
+  const rules = cssRules(scenicCss);
+
+  it("styles nothing while the setting is Off", () => {
+    // Off must look exactly as before: every selector needs a scenic class from <html>.
+    const selectors = rules.flatMap((rule) => rule.selectors);
+    expect(selectors.length).toBeGreaterThan(20);
+    expect(selectors.filter((selector) => !/\.scenic\b|\.scenic-/.test(selector))).toEqual([]);
+  });
+
+  it("gives each message its own sheet and leaves the gaps between them clear", () => {
+    // One opaque sheet under the whole conversation hid nearly all of the painting on a phone, so
+    // the conversation column itself must have no backing; turn items and answer cards carry it.
+    const columnRules = rules.filter((rule) =>
+      rule.selectors.some((selector) => /\[data-feed-content-root="true"\]$/.test(selector)),
+    );
+    expect(columnRules.length).toBeGreaterThan(0);
+    for (const rule of columnRules) expect(rule.body).not.toMatch(/background|box-shadow/);
+
+    const sheeted = rules
+      .filter((rule) => /background:\s*var\(--scenic-sheet\)/.test(rule.body))
+      .flatMap((rule) => rule.selectors);
+    expect(sheeted.some((selector) => /\.turn-container > :not\(/.test(selector))).toBe(true);
+    expect(sheeted.some((selector) => /\.turn-container > \* > \.rounded-xl$/.test(selector))).toBe(true);
+  });
+
+  it("makes the sheet from each theme's own paper, by day and by night", () => {
+    // Meadow, Seaside and Ink & Paper each set their page and card colours; the sheet is mixed from
+    // them rather than from a fixed colour, so every theme keeps its own paper.
+    const sheetFor = (selector: string) =>
+      rules.find((rule) => rule.selectors.includes(selector))?.body.match(/--scenic-sheet:\s*([^;]+);/)?.[1];
+    expect(sheetFor("html.scenic")).toContain("var(--color-cc-bg)");
+    expect(sheetFor("html.dark.scenic")).toContain("var(--color-cc-card)");
+  });
+});
+
 describe("layering", () => {
   // Menus, popovers and hover cards rely on their z-index counting across the page. A property
   // that makes a stacking context on a styled container (the status-row bar's backdrop blur once

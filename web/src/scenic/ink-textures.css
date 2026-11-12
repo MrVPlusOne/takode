@@ -1,6 +1,6 @@
 /*
  * Ink & Paper: the UI itself is made of paper and silk, like a painting mounted as a scroll.
- * - The conversation and Home's thread list are a sheet of xuan paper (生宣).
+ * - The conversation itself stays plain paper: textures there read as noise behind the text.
  * - Your messages are painting silk (绢), with a soft diagonal sheen.
  * - The composer, menus, popovers and cards are mulberry paper (皮纸).
  * - The panels and bars are plain mounting silk (素绫); the side panels keep the faded painting under it.
@@ -8,15 +8,13 @@
  * Each material is a seamless grey relief tile laid over the surface's own colour with `hard-light`:
  * mid-grey changes nothing, darker greys darken and lighter greys lighten, so the same tile makes
  * shadows on light paper and pale fibres on dark paper. A veil of the surface's own colour over the
- * tile leaves `--tex-k` of it showing. Night swaps in its own paper and silk tiles, because fine
- * fibres that look right on light paper read as scratches on dark paper.
+ * tile leaves `--tex-k` of it showing. Night swaps in its own, weaker silk tile for the bars.
  *
  * Backgrounds and blend modes create no stacking context (menus stay on top) and cost nothing once
  * painted. The tiles load only while Ink & Paper is on. The `:root ... body` selectors outrank the
  * shared surface rules in scenic.css, whatever the stylesheet order.
  */
 html.scenic-ink {
-  --tex-xuan: url("/scenic/ink-tex-xuan.v1.webp");
   --tex-mulberry: url("/scenic/ink-tex-mulberry.v1.webp");
   --tex-silk: url("/scenic/ink-tex-silk.v1.webp");
   --tex-ling: url("/scenic/ink-tex-ling-day.v1.webp");
@@ -31,8 +29,6 @@ html.scenic-ink {
 }
 
 html.dark.scenic-ink {
-  /* Dark-dyed paper: a broad soft cloudiness with a few faint fibres. */
-  --tex-xuan: url("/scenic/ink-tex-xuan-night.v1.webp");
   --tex-ling: url("/scenic/ink-tex-ling-night.v1.webp");
   --ink-bar: #211f1c;
   --silk-sheen: linear-gradient(
@@ -44,8 +40,6 @@ html.dark.scenic-ink {
 }
 
 :root.scenic.scenic-ink body :where(
-    [data-feed-content-root="true"],
-    [data-testid="leader-home-threads"],
     [data-testid="user-message-bubble"],
     [data-testid="composer-input-card"],
     [data-testid="quest-completion-summary"],
@@ -57,8 +51,6 @@ html.dark.scenic-ink {
     :is(.bg-cc-card, .bg-cc-bg):is(.shadow-lg, .shadow-xl, .shadow-2xl)
   ),
 :root.dark.scenic.scenic-ink body :where(
-    [data-feed-content-root="true"],
-    [data-testid="leader-home-threads"],
     [data-testid="user-message-bubble"],
     [data-testid="composer-input-card"],
     [data-testid="quest-completion-summary"],
@@ -78,30 +70,6 @@ html.dark.scenic-ink {
     var(--tex-size, 384px) auto;
   background-position: 0 0;
   background-blend-mode: normal, normal, hard-light;
-}
-
-/* The conversation and Home's thread list: xuan paper. */
-html.scenic-ink [data-feed-content-root="true"] {
-  --tex-surface: color-mix(in srgb, var(--color-cc-bg) 97%, transparent);
-  --tex: var(--tex-xuan);
-  --tex-k: 16%;
-}
-
-html.dark.scenic-ink [data-feed-content-root="true"] {
-  --tex-surface: color-mix(in srgb, var(--color-cc-card) 94%, transparent);
-  --tex-k: 9%;
-}
-
-/* Home's list is short and wide, so its paper is shown larger and softer. */
-html.scenic-ink [data-testid="leader-home-threads"] {
-  --tex-surface: var(--color-cc-card);
-  --tex: var(--tex-xuan);
-  --tex-size: 560px;
-  --tex-k: 12%;
-}
-
-html.dark.scenic-ink [data-testid="leader-home-threads"] {
-  --tex-k: 9%;
 }
 
 /* Your messages: painting silk. */
@@ -165,3 +133,4 @@ html.scenic-ink :is(
     center bottom;
   background-blend-mode: hard-light, normal, normal;
 }
+

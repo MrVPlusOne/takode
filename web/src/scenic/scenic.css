@@ -50,20 +50,78 @@ html.scenic [data-testid="quest-completion-summary"] .text-cc-success {
 }
 
 /*
- * The conversation sits on a sheet of paper: the feed's column gets a nearly opaque backing with a
- * crisp edge, so text reads cleanly even over the busiest part of the painting, which stays vivid
- * on either side. (A background and a shadow add no stacking context.) A feathered glow around the
- * sheet was dropped: the scrolling feed clipped it in a hard line at either end, and by night it
- * read as a murky halo.
+ * Each message sits on its own sheet of paper, and the painting shows between them: a single sheet
+ * under the whole conversation hid nearly all of the painting on a phone once a conversation filled
+ * up. The sheets are nearly opaque with a crisp edge, so text reads cleanly even over the busiest
+ * part of the painting. (Backgrounds and shadows add no stacking context.)
  */
-html.scenic [data-feed-content-root="true"] {
-  background: color-mix(in srgb, var(--color-cc-bg) 97%, transparent);
-  box-shadow: 0 0 0 1px var(--scenic-edge);
-  border-radius: 16px;
+html.scenic {
+  --scenic-sheet: color-mix(in srgb, var(--color-cc-bg) 97%, transparent);
 }
 
-html.dark.scenic [data-feed-content-root="true"] {
-  background: color-mix(in srgb, var(--color-cc-card) 94%, transparent);
+html.dark.scenic {
+  --scenic-sheet: color-mix(in srgb, var(--color-cc-card) 94%, transparent);
+}
+
+/* Every item of a turn except your own message and the activity summary, which sit on the painting. */
+html.scenic .turn-container > :not(:has([data-testid="user-message-bubble"], > [data-turn-toggle], > .rounded-xl)):not(:empty) {
+  background: var(--scenic-sheet);
+  box-shadow: 0 0 0 1px var(--scenic-edge);
+  border-radius: 12px;
+  padding: 0.5rem 0.75rem;
+}
+
+/* An answer's own card becomes the sheet. */
+html.scenic .turn-container > * > .rounded-xl {
+  background: var(--scenic-sheet);
+  border-color: var(--scenic-edge);
+}
+
+/* Small labels on the painting get a slip of paper: the activity summary, the time beside your
+   messages, minute markers, and the live lines under the newest turn. */
+html.scenic :is(
+    [data-turn-toggle],
+    .turn-container > :has([data-testid="user-message-bubble"]) [data-testid="message-time-label"]:not([data-hidden]),
+    [data-testid="minute-boundary-timestamp"],
+    [data-feed-content-root="true"] > [data-feed-block-id^="footer:"]
+  ) {
+  background: var(--scenic-sheet);
+  box-shadow: 0 0 0 1px var(--scenic-edge);
+  border-radius: 999px;
+  padding-inline: 0.625rem;
+}
+
+/* The live lines keep their text where it was. */
+html.scenic [data-feed-content-root="true"] > [data-feed-block-id^="footer:"] {
+  width: fit-content;
+  margin-inline-start: 1.625rem;
+}
+
+/* The time beside your message is capped at a width that fits it on one line; the slip adds to it. */
+html.scenic [data-testid="message-time-label"][data-side="user"] {
+  box-sizing: content-box;
+}
+
+/* At night a ringed capsule reads as a button among dark sheets: the summary is a plain slip. */
+html.dark.scenic [data-turn-toggle] {
+  box-shadow: none;
+  border-radius: 6px;
+}
+
+/* On a phone the sheets would otherwise fill the screen: inset them so the painting frames every
+   answer down its length, and open the space before each sheet and between turns. */
+@media (max-width: 639.98px) {
+  html.scenic [data-feed-content-root="true"] {
+    padding-inline: 0.5rem;
+  }
+
+  html.scenic [data-feed-content-root="true"] > :not(:last-child) {
+    margin-block-end: 1.25rem;
+  }
+
+  html.scenic .turn-container > :not(:first-child):not(:has([data-testid="user-message-bubble"], > [data-turn-toggle])) {
+    margin-top: 1.25rem;
+  }
 }
 
 /* The sessions panel and the side column show the same painting, faded behind the page colour. */
