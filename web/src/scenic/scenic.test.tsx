@@ -269,6 +269,16 @@ describe("message sheets", () => {
     expect(sheeted.some((selector) => /\.turn-container > \* > \.rounded-xl$/.test(selector))).toBe(true);
   });
 
+  it("never changes the app's fonts", () => {
+    // Jiayi found a serif on Ink & Paper's quest strip and on headings maddening: the messages with
+    // headings looked foreign beside the rest. The scenic stylesheets keep every font as it is.
+    const inkCss = readFileSync(join(__dirname, "ink-textures.css"), "utf8");
+    for (const css of [scenicCss, inkCss]) {
+      const fonts = cssRules(css).flatMap((rule) => [...rule.body.matchAll(/(?:^|[;\s])(font(?:-family)?)\s*:/g)]);
+      expect(fonts.map((match) => match[1])).toEqual([]);
+    }
+  });
+
   it("gives the live-line slip only to status lines, not to pending messages", () => {
     // The slip once matched every block under the feed's footer ids, which pending messages share,
     // and wrapped a message still sending in a dark oval until it landed.

@@ -3,7 +3,8 @@
  * `html.dark.scenic-<style>` (dark); with the setting Off none of these selectors match, so
  * today's UI is untouched. Styles only re-tint the theme variables and soften a few stable
  * surfaces with static CSS. The painting and everything that moves live in ScenicBackdrop and the
- * fanfares, never on feed content, so scrolling costs the same as today.
+ * fanfares, never on feed content, so scrolling costs the same as today. Styles never change fonts:
+ * a serif on the quest strip and on headings made a few messages look foreign beside the rest.
  */
 
 /*
@@ -258,7 +259,6 @@ html.dark.scenic-seaside {
 
 /* ─── Ink & Paper ───────────────────────────────────────────────────────── */
 html.scenic-ink {
-  --scenic-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Liberation Serif", "Hiragino Mincho ProN", "Yu Mincho", serif;
   --color-cc-bg: #f6f3ea;
   --color-cc-fg: #22211f;
   --color-cc-card: #fbf9f3;
@@ -316,14 +316,6 @@ html.dark.scenic-ink {
   --scenic-quest-label: #e0705a;
   --scenic-veil: rgba(26, 26, 24, 0.8);
   --scenic-panel-veil: rgba(21, 21, 19, 0.86);
-}
-
-html.scenic-ink :is(
-    [data-testid="topic-page"] :is(h1, h2, h3),
-    [data-testid="message-feed-scroll-container"] :is(h1, h2, h3),
-    [data-testid="quest-thread-banner"]
-  ) {
-  font-family: var(--scenic-serif);
 }
 
 /* ─── Motion ────────────────────────────────────────────────────────────── */
