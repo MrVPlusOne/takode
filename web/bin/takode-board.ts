@@ -15,7 +15,7 @@ import {
 import { formatHandoffResult, type ThreadHandoffResult } from "./thread-handoff-format.js";
 import { handleRecordDelivery } from "./takode-record-delivery.js";
 import { handleStaleBoardRowRemoval } from "./takode-board-stale-rows.js";
-import { handleDeliveryTarget, deliveryTargetFlag, DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
+import { handleDeliveryTarget, deliveryTargetFlags, DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
 import type { QuestDeliveryView } from "../shared/quest-delivery.js";
 import { parseCommitShas } from "./quest-commit-flags.js";
 import {
@@ -161,11 +161,19 @@ Advance a quest through non-Work Quest Journey boundaries. Advancing from the fi
 Use --skip-optional-checkpoint only when the next phase is a User Checkpoint with an approved optional phase note, the concrete skip condition has been satisfied, and the resulting transition is not Work -> Memory. The reason is recorded on the board row.
 `;
 
-export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --landing-entry <entry-id> | --no-code) [--preparation <id> | --delivery-target <approval-id>] [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
+export const BOARD_WORK_TO_MEMORY_HELP = `Usage: takode board work-to-memory <quest-id> [--work-note <feedback-index>] (--commit <sha> | --commits <sha1,sha2> | --landing-entry <entry-id> | --no-code) [--preparation <id>] [--delivery-target <approval-id>[,<approval-id>...]] [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
 
 Independent publication: the assigned leader first uses approve-delivery-target;
 the worker supplies --delivery-target with its exact approved commits. This is
 read-only publication verification, not a push retry or session-target mutation.
+
+Work spanning repositories (for example a code repo plus a skills or config repo):
+name every approval with --delivery-target and list all commits in --commits. Each
+approval's commits must all be listed, in its approved order, and become that
+repository's delivery; the remaining commits are the inherited target's delivery,
+verified as usual (with --preparation, if any). Nothing is recorded unless every
+repository verifies. With --landing-entry, --commits lists only the approvals'
+commits; the entry carries the inherited target's.
 
 Authenticated worker-owned transition from Work to Memory. The caller must be the assigned worker, must have claimed the quest, must have a current Work phase note, and the board row must have no unresolved User Checkpoint. Provide synchronized target-repository code SHAs with --commit/--commits; or, for a change submitted to the landing queue, its entry with --landing-entry (Takode records the landed commits and completes the quest after Memory, without the worker waiting); or use --no-code only when this Work occurrence made no tracked project changes. When one planned optional User Checkpoint sits directly between the current Work occurrence and Memory, use --skip-optional-checkpoint only after its approved optional condition is satisfied. Required or taken checkpoints must continue into a later Work occurrence before the guarded transition.
 `;
@@ -578,7 +586,7 @@ function formatBoardOutput(
     queueWarnings?: BoardQueueWarning[];
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
     proposalReview?: BoardProposalReviewPayload;
-    delivery?: { id: string; commitShas: string[] };
+    deliveries?: Array<{ id: string; commitShas: string[] }>;
     workerSlotUsage?: { used: number; limit: number };
   },
 ): string {
@@ -590,7 +598,7 @@ function formatBoardOutput(
     queueWarnings,
     phaseNoteRebaseWarnings,
     proposalReview,
-    delivery,
+    deliveries,
     workerSlotUsage,
   } = opts ?? {};
   return JSON.stringify(
@@ -601,7 +609,8 @@ function formatBoardOutput(
       ...(queueWarnings ? { queueWarnings } : {}),
       ...(phaseNoteRebaseWarnings ? { phaseNoteRebaseWarnings } : {}),
       ...(proposalReview ? { proposalReview } : {}),
-      ...(delivery ? { delivery } : {}),
+      // One delivery keeps the single-repository shape; Work spanning repositories lists each.
+      ...(deliveries?.length === 1 ? { delivery: deliveries[0] } : deliveries?.length ? { deliveries } : {}),
       ...(workerSlotUsage ? { workerSlotUsage } : {}),
       ...(operation ? { operation } : {}),
       ...(completedCount != null ? { completedCount } : {}),
@@ -694,7 +703,7 @@ function outputBoard(
     queueWarnings?: BoardQueueWarning[];
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
     proposalReview?: BoardProposalReviewPayload;
-    delivery?: { id: string; commitShas: string[] };
+    deliveries?: Array<{ id: string; commitShas: string[] }>;
     workerSlotUsage?: { used: number; limit: number };
     includeDetails?: boolean;
     includeCompletedSummary?: boolean;
@@ -709,7 +718,7 @@ function outputBoard(
     queueWarnings,
     phaseNoteRebaseWarnings,
     proposalReview,
-    delivery,
+    deliveries,
     workerSlotUsage,
     includeDetails,
     includeCompletedSummary,
@@ -724,7 +733,7 @@ function outputBoard(
         queueWarnings,
         phaseNoteRebaseWarnings,
         proposalReview,
-        delivery,
+        deliveries,
         workerSlotUsage,
       }),
     );
@@ -769,7 +778,7 @@ function outputBoardMutation(
     queueWarnings?: BoardQueueWarning[];
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
     proposalReview?: BoardProposalReviewPayload;
-    delivery?: { id: string; commitShas: string[] };
+    deliveries?: Array<{ id: string; commitShas: string[] }>;
     workerSlotUsage?: { used: number; limit: number };
   },
 ): void {
@@ -782,7 +791,7 @@ function outputBoardMutation(
       queueWarnings: opts.queueWarnings,
       phaseNoteRebaseWarnings: opts.phaseNoteRebaseWarnings,
       proposalReview: opts.proposalReview,
-      delivery: opts.delivery,
+      deliveries: opts.deliveries,
       workerSlotUsage: opts.workerSlotUsage,
       includeDetails: true,
     });
@@ -1164,7 +1173,6 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       queueWarnings?: BoardQueueWarning[];
       phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
       proposalReview?: BoardProposalReviewPayload;
-      delivery?: { id: string; commitShas: string[] };
       workerSlotUsage?: { used: number; limit: number };
       /** The handoff asked for when the quest was filed (`quest create --handoff`), done now. */
       handoff?: ThreadHandoffResult;
@@ -1355,7 +1363,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     if (!questId) err(usage);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
-    const deliveryTargetId = deliveryTargetFlag(flags);
+    const deliveryTargetIds = deliveryTargetFlags(args, flags);
     const workFeedbackIndex = parseIntegerFlag(flags, "work-note", "Work feedback index");
     if (workFeedbackIndex !== undefined && workFeedbackIndex < 0) err("--work-note must be a non-negative integer.");
     if (flags.preparation === true) err("--preparation requires an exact preparation ID.");
@@ -1375,13 +1383,18 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     }
     if (flags["landing-entry"] === true) err("--landing-entry requires the entry ID `takode land submit` printed.");
     const landingEntryId = typeof flags["landing-entry"] === "string" ? flags["landing-entry"].trim() : undefined;
-    if ([noCode, commitShas.length > 0, landingEntryId !== undefined].filter(Boolean).length !== 1) {
+    // A landing entry may come with approved delivery targets' commits (another repository's part of the Work).
+    const landingWithTargets = landingEntryId !== undefined && commitShas.length > 0 && deliveryTargetIds.length > 0;
+    if (
+      [noCode, commitShas.length > 0, landingEntryId !== undefined].filter(Boolean).length !== 1 &&
+      !landingWithTargets
+    ) {
       err(
-        "Use exactly one Work evidence mode: --commit/--commits for synchronized target SHAs, --landing-entry for a change submitted to the landing queue, or --no-code for genuine zero-tracked-change Work.",
+        "Use exactly one Work evidence mode: --commit/--commits for synchronized target SHAs, --landing-entry for a change submitted to the landing queue, or --no-code for genuine zero-tracked-change Work. With --landing-entry, --commits may list only --delivery-target commits.",
       );
     }
-    if (landingEntryId && (flags.preparation || deliveryTargetId))
-      err("--landing-entry carries the entry's own preparation; do not pass --preparation or --delivery-target.");
+    if (landingEntryId && flags.preparation)
+      err("--landing-entry carries the entry's own preparation; do not pass --preparation.");
     if (flags["skip-optional-checkpoint"] === true) {
       err("--skip-optional-checkpoint requires a reason explaining why the approved skip condition is satisfied.");
     }
@@ -1390,33 +1403,35 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const result = (await apiPost(base, "/takode/board/work-to-memory", {
       questId,
       ...(workFeedbackIndex !== undefined ? { workFeedbackIndex } : {}),
-      ...(commitShas.length > 0 ? { commitShas } : landingEntryId ? { landingEntryId } : { noCode: true }),
+      ...(commitShas.length > 0 ? { commitShas } : {}),
+      ...(landingEntryId ? { landingEntryId } : {}),
+      ...(noCode ? { noCode: true } : {}),
       ...(skipOptionalUserCheckpointReason ? { skipOptionalUserCheckpointReason } : {}),
       ...(typeof flags.preparation === "string" ? { preparationId: flags.preparation } : {}),
-      ...(deliveryTargetId ? { deliveryTargetId } : {}),
+      ...(deliveryTargetIds.length > 0 ? { deliveryTargetIds } : {}),
     })) as {
       ok: true;
       questId: string;
       previousState?: string;
       newState: string;
       workFeedbackIndex: number;
-      delivery?: QuestDeliveryView;
+      deliveries: QuestDeliveryView[];
       board: BoardRow[];
       resolvedSessionDeps?: string[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       queueWarnings?: BoardQueueWarning[];
       workerSlotUsage?: { used: number; limit: number };
     };
-    if (result.delivery && flags.json !== true)
-      console.log(
-        `Delivery ${result.delivery.id}. Author links: quest commit-links ${questId} --delivery ${result.delivery.id}`,
-      );
-    const evidence =
-      commitShas.length > 0
-        ? `${commitShas.length} code commit${commitShas.length === 1 ? "" : "s"}`
-        : landingEntryId
-          ? `landing entry ${landingEntryId}; the quest lands after Memory`
-          : "no code changes";
+    if (flags.json !== true)
+      for (const delivery of result.deliveries)
+        console.log(
+          `Delivery ${delivery.id} (${delivery.branch}). Author links: quest commit-links ${questId} --delivery ${delivery.id}`,
+        );
+    const evidence = [
+      ...(commitShas.length > 0 ? [`${commitShas.length} code commit${commitShas.length === 1 ? "" : "s"}`] : []),
+      ...(landingEntryId ? [`landing entry ${landingEntryId}; the quest lands after Memory`] : []),
+      ...(noCode ? ["no code changes"] : []),
+    ].join(", ");
     const operation = `${result.questId}: ${result.previousState ?? "WORKING"} -> ${result.newState} (Work note #${result.workFeedbackIndex}, ${evidence})`;
     outputBoardMutation(result.board, flags.json === true, {
       affectedQuestIds: [result.questId],
@@ -1426,9 +1441,10 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       rowSessionStatuses: result.rowSessionStatuses,
       queueWarnings: result.queueWarnings,
       workerSlotUsage: result.workerSlotUsage,
-      delivery: result.delivery
-        ? { id: result.delivery.id, commitShas: result.delivery.commits.map((commit) => commit.sha) }
-        : undefined,
+      deliveries: result.deliveries.map((delivery) => ({
+        id: delivery.id,
+        commitShas: delivery.commits.map((commit) => commit.sha),
+      })),
     });
     return;
   }

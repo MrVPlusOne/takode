@@ -11,14 +11,18 @@ Target JSON: { "checkoutPath": "/absolute/independent-checkout", "remote": "orig
   "repositoryUrl": "https://example.com/team/project.git",
   "refs": [{ "ref": "refs/heads/user/change", "sha": "<published head SHA>" }],
   "commitShas": ["<first final Work commit SHA>", "<last final Work commit SHA>"] }
+For Work published to several repositories, the file may hold a JSON list of
+targets, one per repository: each is verified and gets its own approval ID, and
+none is recorded unless all verify.
 checkoutPath is on the machine holding the worker's port target (its remote host,
 if any), where Takode verifies it.
 List all relevant final target commits in delivery order, separately from ref heads.
 Both lists require full lowercase SHAs. Each commit must be reachable from an exact
 published head. Use Work/publication receipts to establish the complete set; exclude
 unrelated ancestors and discarded pre-squash increments. Git does not infer ownership.
-The worker supplies --delivery-target <approval-id> alongside that exact --commits
-on record-work-delivery or work-to-memory, without --preparation or --no-code.
+The worker names the approvals with --delivery-target <id>[,<id>...] on
+record-work-delivery or work-to-memory, and lists every approved commit in --commits
+(plus any inherited-target commits), without --no-code.
 Use delivery-targets --target for the full persisted approval, including paths/refs.
 `;
 
@@ -34,25 +38,26 @@ export async function handleDeliveryTarget(base: string, action: string, args: s
   );
   if (action === "approve-delivery-target") {
     if (typeof flags["target-file"] !== "string") err("--target-file requires the approved target JSON file.");
-    const target = JSON.parse(await readOptionTextFile(flags["target-file"], "--target-file"));
-    const result = (await apiPost(base, "/takode/board/approve-delivery-target", { questId, target })) as {
-      approvalId: string;
-      refCount: number;
-      commitCount: number;
-    };
+    const spec = JSON.parse(await readOptionTextFile(flags["target-file"], "--target-file"));
+    const result = (await apiPost(
+      base,
+      "/takode/board/approve-delivery-target",
+      Array.isArray(spec) ? { questId, targets: spec } : { questId, target: spec },
+    )) as { approvals: Array<{ approvalId: string; refCount: number; commitCount: number }> };
+    const ids = result.approvals.map((item) => item.approvalId).join(",");
     if (flags.json)
       console.log(
-        JSON.stringify({
-          questId,
-          approvalId: result.approvalId,
-          refCount: result.refCount,
-          commitCount: result.commitCount,
-        }),
+        JSON.stringify(
+          Array.isArray(spec) ? { questId, approvals: result.approvals } : { questId, ...result.approvals[0] },
+        ),
       );
-    else
-      console.log(
-        `${questId}: approved delivery target ${result.approvalId} (${result.refCount} refs; ${result.commitCount} commits). Worker: use --delivery-target ${result.approvalId} with the complete approved commit list.`,
-      );
+    else {
+      for (const item of result.approvals)
+        console.log(
+          `${questId}: approved delivery target ${item.approvalId} (${item.refCount} refs; ${item.commitCount} commits).`,
+        );
+      console.log(`Worker: use --delivery-target ${ids} with the complete approved commit list.`);
+    }
     return;
   }
   if (flags.target !== undefined && (typeof flags.target !== "string" || !/^[a-f0-9]{32}$/.test(flags.target)))
@@ -96,13 +101,18 @@ export async function handleDeliveryTarget(base: string, action: string, args: s
   }
 }
 
-/** Shared flag guard for both worker-owned delivery paths. */
-export function deliveryTargetFlag(flags: Record<string, string | boolean>): string | undefined {
-  const id = flags["delivery-target"];
-  if (id === undefined) return undefined;
-  if (typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id))
-    err("--delivery-target requires an exact leader-approved target ID.");
-  if (flags.preparation || flags["no-code"])
-    err("--delivery-target uses published evidence and cannot combine with --preparation or --no-code.");
-  return id;
+/**
+ * The approvals named with --delivery-target, for both worker-owned delivery paths.
+ * The flag takes a comma-separated list and may repeat; parseFlags keeps only its
+ * last value, so the raw arguments are read.
+ */
+export function deliveryTargetFlags(args: string[], flags: Record<string, string | boolean>): string[] {
+  const ids = args.flatMap((arg, index) =>
+    arg === "--delivery-target" ? (args[index + 1] ?? "").split(",").map((id) => id.trim()) : [],
+  );
+  if (ids.some((id) => !/^[a-f0-9]{32}$/.test(id)) || new Set(ids).size !== ids.length)
+    err("--delivery-target requires distinct exact leader-approved target IDs.");
+  if (ids.length > 0 && flags["no-code"])
+    err("--delivery-target uses published commits and cannot combine with --no-code.");
+  return ids;
 }

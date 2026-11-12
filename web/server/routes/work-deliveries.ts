@@ -5,11 +5,16 @@ import * as questStore from "../quest-store.js";
 import { getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
 import { normalizeCommitShas } from "../quest-store-helpers.js";
 import type { PortCommand } from "../quest-code-deliveries.js";
-import { workEvidenceCaller, workEvidenceHost } from "../work-evidence-replacement.js";
-import { projectQuestDelivery } from "../../shared/quest-delivery.js";
+import type { QuestmasterTask } from "../quest-types.js";
+import { workEvidenceCaller, workEvidenceHost, type WorkEvidenceTargetCaller } from "../work-evidence-replacement.js";
+import { projectQuestDelivery, type QuestCodeDelivery, type QuestDeliveryView } from "../../shared/quest-delivery.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import { registerWorkDeliveryTargetRoutes } from "./work-delivery-targets.js";
-import { DeliveryEvidenceError } from "../published-delivery-target.js";
+import {
+  DeliveryEvidenceError,
+  resolveDeliveryTargetApproval,
+  splitDeliveryCommits,
+} from "../published-delivery-target.js";
 import {
   deliveryEvidenceOf,
   findAssignedBoardRowsForWorker,
@@ -25,6 +30,107 @@ export interface WorkDeliveryRoutesDeps {
   wsBridge: RouteContext["wsBridge"];
   authenticateTakodeCaller: RouteContext["authenticateTakodeCaller"];
   acquireWorkEvidenceMutationLock: (leaderId: string, questId: string) => (() => void) | null;
+}
+
+/** The leader-approved delivery targets a Work evidence request names; none means the inherited target only. */
+export function parseDeliveryTargetIds(body: { deliveryTargetIds?: unknown; deliveryTargetId?: unknown }): string[] {
+  if (body.deliveryTargetId !== undefined)
+    throw new DeliveryEvidenceError("Name approved targets with deliveryTargetIds (a list).", 400);
+  const ids = body.deliveryTargetIds;
+  if (ids === undefined) return [];
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    ids.some((id) => typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id)) ||
+    new Set(ids).size !== ids.length
+  )
+    throw new DeliveryEvidenceError("deliveryTargetIds requires unique exact approved target IDs.", 400);
+  return ids as string[];
+}
+
+/**
+ * Verify and build every delivery one Work evidence request carries. Each named
+ * approval takes its approved commits out of `commitShas` and is verified against
+ * its own published repository; the remaining commits are the inherited target's
+ * delivery, verified as before (with its port preparation, if any). Nothing is
+ * recorded here, so a failure in any repository records none of them.
+ */
+export async function buildWorkDeliveries(input: {
+  questId: string;
+  actorSessionId: string;
+  phaseOccurrenceId: string;
+  caller: WorkEvidenceTargetCaller;
+  leaderSessionId: string;
+  quest: QuestmasterTask;
+  commitShas: string[];
+  deliveryTargetIds: string[];
+  preparationId?: string;
+  /** False when a landing-queue entry carries the inherited target's commits instead. */
+  inheritedAllowed?: boolean;
+}): Promise<QuestCodeDelivery[]> {
+  const existing = deliveryEvidenceOf(input.quest);
+  const split = splitDeliveryCommits(input.commitShas, input.deliveryTargetIds, existing.deliveryTargetApprovals);
+  // Check every approval and its exact commit set before any Git work, so the specific reason is reported.
+  for (const part of split.targets) resolveDeliveryTargetApproval({ ...input, ...part, existing });
+  if (split.inherited.length > 0 && input.inheritedAllowed === false)
+    throw new DeliveryEvidenceError(
+      "With a landing entry, list only the named delivery targets' commits; the entry carries the inherited target's.",
+      400,
+    );
+  if (input.preparationId && split.inherited.length === 0)
+    throw new DeliveryEvidenceError(
+      "A port preparation belongs to inherited-target commits, and every listed commit belongs to a delivery target.",
+      400,
+    );
+  const caller = await resolveWorkEvidenceCaller(input.caller);
+  const scope = {
+    questId: input.questId,
+    actorSessionId: input.actorSessionId,
+    phaseOccurrenceId: input.phaseOccurrenceId,
+    caller,
+    existing,
+    leaderSessionId: input.leaderSessionId,
+  };
+  const parts = [
+    ...(split.inherited.length > 0
+      ? [{ commitShas: split.inherited, ...(input.preparationId ? { preparationId: input.preparationId } : {}) }]
+      : []),
+    ...split.targets,
+  ];
+  const deliveries: QuestCodeDelivery[] = [];
+  for (const part of parts)
+    deliveries.push(await onCheckoutMachine(workEvidenceHost(caller), "buildCodeDelivery", { ...scope, ...part }));
+  return deliveries;
+}
+
+/**
+ * A request that names an already recorded delivery must also name every delivery
+ * recorded after it in this Work occurrence: a later recording supersedes an earlier
+ * one unless both are part of the same multi-repository delivery.
+ */
+export function laterRecordedDeliveryError(
+  quest: QuestmasterTask,
+  actorSessionId: string,
+  phaseOccurrenceId: string,
+  deliveries: QuestCodeDelivery[],
+): string | undefined {
+  const requested = new Set(deliveries.map((delivery) => delivery.id));
+  const recorded = (quest.codeDeliveries ?? []).filter(
+    (item) => item.actorSessionId === actorSessionId && item.phaseOccurrenceId === phaseOccurrenceId,
+  );
+  const first = recorded.findIndex((item) => requested.has(item.id));
+  if (first < 0 || recorded.slice(first).every((item) => requested.has(item.id))) return undefined;
+  return "This Work occurrence has a later recorded delivery; use its current commits and approved targets (or name them too) before entering Memory.";
+}
+
+/** The stored views of the deliveries one request recorded or re-confirmed, in request order. */
+export function projectRecordedDeliveries(
+  quest: QuestmasterTask,
+  deliveries: QuestCodeDelivery[],
+): QuestDeliveryView[] {
+  return deliveries.map((delivery) =>
+    projectQuestDelivery(quest.questId, quest.codeDeliveries?.find((item) => item.id === delivery.id) ?? delivery),
+  );
 }
 
 /** Tracking changes refs/receipts only; recording uses the same lock as Work -> Memory. */
@@ -143,30 +249,27 @@ export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDe
       const body = await c.req.json();
       const questId = typeof body.questId === "string" ? body.questId : "";
       const workNote = body.workFeedbackIndex;
-      if (
-        body.deliveryTargetId !== undefined &&
-        (typeof body.deliveryTargetId !== "string" || !/^[a-f0-9]{32}$/.test(body.deliveryTargetId))
-      )
-        throw new WorkRouteError("deliveryTargetId requires an exact approved target ID.", 400);
+      const deliveryTargetIds = parseDeliveryTargetIds(body);
       if (body.target !== undefined)
-        throw new WorkRouteError("Use a leader-approved deliveryTargetId, not a target override.", 400);
+        throw new WorkRouteError("Use leader-approved deliveryTargetIds, not a target override.", 400);
       if (workNote !== undefined && (!Number.isInteger(workNote) || workNote < 0))
         throw new WorkRouteError("Invalid Work note index.", 400);
       const worker = await resolveWorker(c, questId, true, workNote);
       release = deps.acquireWorkEvidenceMutationLock(worker.match.leaderSessionId, questId);
       if (!release) throw new WorkRouteError("Another Work evidence operation is active.", 409);
-      const delivery = await onCheckoutMachine(workEvidenceHost(worker.auth.caller), "buildCodeDelivery", {
+      const deliveries = await buildWorkDeliveries({
         questId,
         actorSessionId: worker.auth.callerId,
         phaseOccurrenceId: worker.scope.phaseOccurrenceId,
-        caller: await resolveWorkEvidenceCaller(worker.auth.caller),
-        existing: deliveryEvidenceOf(worker.quest),
+        caller: worker.auth.caller,
+        quest: worker.quest,
         leaderSessionId: worker.match.leaderSessionId,
-        deliveryTargetId: body.deliveryTargetId,
+        deliveryTargetIds,
         commitShas: normalizeCommitShas(body.commitShas),
         preparationId: typeof body.preparationId === "string" ? body.preparationId : undefined,
       });
-      if (delivery.commits.length === 0) throw new WorkRouteError("A delivery requires at least one commit.", 400);
+      if (deliveries.length === 0 || deliveries.some((delivery) => delivery.commits.length === 0))
+        throw new WorkRouteError("A delivery requires at least one commit.", 400);
       const refreshed = await resolveWorker(c, questId, true, workNote);
       if (
         refreshed.match.leaderSessionId !== worker.match.leaderSessionId ||
@@ -174,18 +277,14 @@ export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDe
       ) {
         throw new WorkRouteError("Work assignment changed while verifying delivery.", 409);
       }
-      const updated = await questStore.appendQuestCodeCommitEvidenceForOwner(
+      const updated = await questStore.appendQuestCodeDeliveriesForOwner(
         questId,
         { kind: "takode", sessionId: worker.auth.callerId },
-        delivery.commits.map((commit) => commit.sha),
-        delivery,
+        deliveries,
       );
       if (!updated) throw new WorkRouteError("Quest no longer exists.", 409);
       broadcastQuestUpdate(deps.wsBridge, updated);
-      return c.json({
-        questId,
-        delivery: projectQuestDelivery(questId, updated.codeDeliveries!.find((item) => item.id === delivery.id)!),
-      });
+      return c.json({ questId, deliveries: projectRecordedDeliveries(updated, deliveries) });
     } catch (error) {
       return workError(c, error);
     } finally {

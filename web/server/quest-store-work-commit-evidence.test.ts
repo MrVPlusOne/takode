@@ -126,11 +126,11 @@ describe("appendQuestCodeCommitEvidenceForOwner", () => {
         refs: [{ ref: "refs/heads/user/change", sha: "a".repeat(40) }],
       },
     };
-    await questStore.appendQuestDeliveryTargetApproval("q-1", approval);
-    await questStore.appendQuestDeliveryTargetApproval("q-1", { ...approval, approvedAt: 2 });
+    await questStore.appendQuestDeliveryTargetApprovals("q-1", [approval]);
+    await questStore.appendQuestDeliveryTargetApprovals("q-1", [{ ...approval, approvedAt: 2 }]);
     await questStore.patchQuest("q-1", { deliveryTargetApprovals: [] } as never);
     await expect(
-      questStore.appendQuestDeliveryTargetApproval("q-1", { ...approval, leaderSessionId: "other" }),
+      questStore.appendQuestDeliveryTargetApprovals("q-1", [{ ...approval, leaderSessionId: "other" }]),
     ).rejects.toThrow("cannot be changed");
     vi.resetModules();
     questStore = await import("./quest-store.js");

@@ -17,7 +17,7 @@ beforeEach(() => {
 it("uses real flag validation to submit an exact preparation and emits only compact delivery evidence", async () => {
   vi.mocked(apiPost).mockResolvedValue({
     questId: "q-9904",
-    delivery: projectQuestDelivery("q-9904", deliveryFixture),
+    deliveries: [projectQuestDelivery("q-9904", deliveryFixture)],
     injectedSystemPrompt: "not default output".repeat(5000),
   });
   await handleRecordDelivery("http://fixture", [

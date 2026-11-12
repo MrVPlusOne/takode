@@ -46,9 +46,7 @@ it("routes the leader command, reads exact target JSON and emits only operationa
   const path = join(root, "target.json");
   writeFileSync(path, JSON.stringify(target));
   vi.mocked(apiPost).mockResolvedValue({
-    approvalId: id,
-    refCount: 1,
-    commitCount: 3,
+    approvals: [{ approvalId: id, refCount: 1, commitCount: 3 }],
     injectedSystemPrompt: "hidden".repeat(10000),
     target,
   });
@@ -105,20 +103,92 @@ it.each([
     board: [],
     newState: "MEMORY",
     workFeedbackIndex: 0,
-    delivery: projectQuestDelivery("q-1", deliveryFixture),
+    deliveries: [projectQuestDelivery("q-1", deliveryFixture)],
   });
   await handleBoard("http://fixture", [action, "q-1", "--commits", sha, "--delivery-target", id, "--json"]);
   expect(apiPost).toHaveBeenCalledWith(
     "http://fixture",
     `/takode/board/${action}`,
-    expect.objectContaining({ deliveryTargetId: id, commitShas: [sha] }),
+    expect.objectContaining({ deliveryTargetIds: [id], commitShas: [sha] }),
+  );
+  // A single delivery keeps the single-repository JSON shape scripts already read.
+  const output = JSON.parse(vi.mocked(console.log).mock.calls.at(-1)![0] as string);
+  expect(output.delivery?.id ?? output.deliveryId).toBe(deliveryFixture.id);
+  expect(output.deliveries).toBeUndefined();
+});
+
+it.each([
+  ["a comma-separated list", ["--delivery-target", `${id},${"d".repeat(32)}`]],
+  ["a repeated flag", ["--delivery-target", id, "--delivery-target", "d".repeat(32)]],
+])("names several approvals with %s and lists each recorded delivery", async (_label, targetArgs) => {
+  // Work spanning repositories: every approval must reach the server, not only the last flag value.
+  const second = { ...deliveryFixture, id: "e".repeat(32) };
+  vi.mocked(apiPost).mockResolvedValue({
+    questId: "q-1",
+    board: [],
+    newState: "MEMORY",
+    workFeedbackIndex: 0,
+    deliveries: [projectQuestDelivery("q-1", deliveryFixture), projectQuestDelivery("q-1", second)],
+  });
+  await handleBoard("http://fixture", ["work-to-memory", "q-1", "--commits", sha, ...targetArgs, "--json"]);
+  expect(apiPost).toHaveBeenCalledWith(
+    "http://fixture",
+    "/takode/board/work-to-memory",
+    expect.objectContaining({ deliveryTargetIds: [id, "d".repeat(32)] }),
+  );
+  const output = JSON.parse(vi.mocked(console.log).mock.calls.at(-1)![0] as string);
+  expect(output.deliveries.map((item: { id: string }) => item.id)).toEqual([deliveryFixture.id, second.id]);
+});
+
+it("sends a landing entry together with approved targets' commits", async () => {
+  vi.mocked(apiPost).mockResolvedValue({
+    questId: "q-1",
+    board: [],
+    newState: "MEMORY",
+    workFeedbackIndex: 0,
+    deliveries: [],
+  });
+  await handleBoard("http://fixture", [
+    "work-to-memory",
+    "q-1",
+    "--landing-entry",
+    "le-0000abcd",
+    "--commits",
+    sha,
+    "--delivery-target",
+    id,
+    "--json",
+  ]);
+  expect(apiPost).toHaveBeenCalledWith(
+    "http://fixture",
+    "/takode/board/work-to-memory",
+    expect.objectContaining({ landingEntryId: "le-0000abcd", commitShas: [sha], deliveryTargetIds: [id] }),
   );
 });
 
-it.each(["--preparation", "--no-code"])("rejects incompatible %s before a request", async (flag) => {
-  const extra = flag === "--preparation" ? [flag, id] : [flag];
+it("approves a list of targets in one request and prints every approval", async () => {
+  const targets = ["/fixture/code", "/fixture/skills"].map((checkoutPath) => ({
+    checkoutPath,
+    remote: "origin",
+    repositoryUrl: `https://example.com${checkoutPath}.git`,
+    refs: [{ ref: "refs/heads/main", sha }],
+    commitShas: [sha],
+  }));
+  const path = join(root, "targets.json");
+  writeFileSync(path, JSON.stringify(targets));
+  const approvals = [id, "d".repeat(32)].map((approvalId) => ({ approvalId, refCount: 1, commitCount: 1 }));
+  vi.mocked(apiPost).mockResolvedValue({ approvals });
+  await handleBoard("http://fixture", ["approve-delivery-target", "q-1", "--target-file", path, "--json"]);
+  expect(apiPost).toHaveBeenCalledWith("http://fixture", "/takode/board/approve-delivery-target", {
+    questId: "q-1",
+    targets,
+  });
+  expect(JSON.parse(vi.mocked(console.log).mock.calls[0]![0] as string)).toEqual({ questId: "q-1", approvals });
+});
+
+it("rejects --no-code with a delivery target before a request", async () => {
   await expect(
-    handleBoard("http://fixture", ["work-to-memory", "q-1", "--commits", sha, "--delivery-target", id, ...extra]),
+    handleBoard("http://fixture", ["work-to-memory", "q-1", "--commits", sha, "--delivery-target", id, "--no-code"]),
   ).rejects.toThrow("cannot combine");
   expect(apiPost).not.toHaveBeenCalled();
 });

@@ -138,7 +138,23 @@ The worker supplies the returned approval ID and exactly `commitShas` in its app
 takode board work-to-memory q-N --work-note <index> --commits <implementation-sha>,<follow-up-sha>,<final-correction-sha> --delivery-target <approval-id>
 ```
 
-A specifically authorized earlier delivery can use the same flags with `record-work-delivery`. Do not combine `--delivery-target` with `--preparation` or `--no-code`. Worker ownership, current Work note, checkpoint, feedback and transition guards still apply; published refs and commit reachability are reverified before evidence is recorded. Newly recorded batches contain only selected commits not already recorded; earlier delivery links remain fixed, and retries do not republish old batches as new. The descriptor preserves the approved commit set and every ref/head, with the final listed branch as the delivery's primary branch. An existing session can use this path without rebinding its inherited target.
+A specifically authorized earlier delivery can use the same flags with `record-work-delivery`. Do not combine `--delivery-target` with `--no-code`. Worker ownership, current Work note, checkpoint, feedback and transition guards still apply; published refs and commit reachability are reverified before evidence is recorded. Newly recorded batches contain only selected commits not already recorded; earlier delivery links remain fixed, and retries do not republish old batches as new. The descriptor preserves the approved commit set and every ref/head, with the final listed branch as the delivery's primary branch. An existing session can use this path without rebinding its inherited target.
+
+### Work spanning several repositories
+
+When one quest's Work lands in more than one repository (for example code on the inherited target plus a skill in a personal skills repo, or two published repos), record it all in one call. The leader approves one target per published repository; a target file holding a JSON list approves them together, each with its own approval ID, and records none unless all verify:
+
+```bash
+takode board approve-delivery-target q-N --target-file /tmp/delivery-targets.json   # [ {...code repo...}, {...skills repo...} ]
+```
+
+The worker names every approval and lists all of the Work's commits:
+
+```bash
+takode board work-to-memory q-N --work-note <index> --commits <code-sha-1>,<code-sha-2>,<skill-sha> --delivery-target <skills-approval-id>
+```
+
+Each approval takes its own commits out of `--commits`; they must be its complete approved set in order, exactly as with a single target. The commits left over are the inherited target's delivery, verified as an ordinary port (with `--preparation` when port tracking was used). Every repository is verified before anything is recorded, and each becomes its own delivery with its own commit links (`quest commit-links q-N --delivery <id>` per delivery). A commit claimed by two approvals is rejected. With `--landing-entry`, `--commits` lists only the approvals' commits; the entry carries the inherited target's. `--delivery-target` takes a comma-separated list or may repeat.
 
 Recover approval IDs with `takode board delivery-targets q-N`; the compact view distinguishes ref and commit counts, and `--target <approval-id>` reveals the complete persisted descriptor. Approvals are immutable and scoped to their leader, worker and Work occurrence. A changed assignment, new Work occurrence, different repository, changed refs or changed commit set requires a fresh leader approval within the existing authorized scope. Preserved head-only approvals have no complete-set authority for new recording: obtain a fresh approval instead of rewriting them. Historical deliveries and their fixed links remain unchanged. Read-only range browsing is historical inspection, not a recording substitute or backfill. This path does not repair terminal Journey routing or old live quest records automatically.
 

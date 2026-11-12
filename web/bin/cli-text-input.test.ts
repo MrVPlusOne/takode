@@ -34,8 +34,7 @@ beforeEach(async () => {
       JSON.stringify({
         ok: true,
         board: [],
-        approvalId: "a".repeat(32),
-        refCount: 1,
+        approvals: [{ approvalId: "a".repeat(32), refCount: 1, commitCount: 1 }],
         timer: { id: "t1", title: body.title, type: "delay", nextFireAt: 1 },
       }),
     );

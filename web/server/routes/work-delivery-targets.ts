@@ -44,27 +44,37 @@ export function registerWorkDeliveryTargetRoutes(api: Hono, deps: WorkDeliveryRo
       const body = await c.req.json();
       const questId = typeof body.questId === "string" ? body.questId : "";
       const scope = await leaderScope(c, questId);
-      const target = parsePublishedDeliveryTarget(body.target);
+      // One target per repository; several approve together, and all must verify before any is recorded.
+      if ((body.target === undefined) === (body.targets === undefined))
+        throw new DeliveryEvidenceError("Supply one target or a list of targets.", 400);
+      const specs: unknown[] = body.targets === undefined ? [body.target] : body.targets;
+      if (!Array.isArray(specs) || specs.length === 0 || specs.length > 20)
+        throw new DeliveryEvidenceError("targets must list 1-20 targets.", 400);
+      const targets = specs.map(parsePublishedDeliveryTarget);
       release = deps.acquireWorkEvidenceMutationLock(scope.leaderSessionId, questId);
       if (!release) throw new DeliveryEvidenceError("Another Work evidence operation is active.");
       // Verify where the worker's evidence is checked, so recording sees the same checkout.
       const worker = deps.launcher.getSession(scope.workerSessionId);
-      await onCheckoutMachine(worker && workEvidenceHost(worker), "verifyPublishedDeliveryTarget", target);
+      for (const target of targets)
+        await onCheckoutMachine(worker && workEvidenceHost(worker), "verifyPublishedDeliveryTarget", target);
       if (JSON.stringify(await leaderScope(c, questId)) !== JSON.stringify(scope))
         throw new DeliveryEvidenceError("Work assignment changed during target approval; refresh before approving.");
-      const approval: QuestDeliveryTargetApproval = {
+      const approvedAt = Date.now();
+      const approvals: QuestDeliveryTargetApproval[] = targets.map((target) => ({
         id: deliveryTargetApprovalId(questId, { ...scope, target }),
-        approvedAt: Date.now(),
+        approvedAt,
         ...scope,
         target,
-      };
-      const updated = await questStore.appendQuestDeliveryTargetApproval(questId, approval);
+      }));
+      const updated = await questStore.appendQuestDeliveryTargetApprovals(questId, approvals);
       if (!updated) throw new DeliveryEvidenceError("Quest no longer exists.");
       return c.json({
         questId,
-        approvalId: approval.id,
-        refCount: target.refs.length,
-        commitCount: target.commitShas.length,
+        approvals: targets.map((target, index) => ({
+          approvalId: approvals[index]!.id,
+          refCount: target.refs.length,
+          commitCount: target.commitShas.length,
+        })),
       });
     } catch (error) {
       if (error instanceof DeliveryEvidenceError) return c.json({ error: error.message }, error.status);

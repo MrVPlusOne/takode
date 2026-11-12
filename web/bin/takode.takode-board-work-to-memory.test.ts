@@ -70,6 +70,7 @@ describe("takode board work-to-memory commit evidence", () => {
             newState: "MEMORY",
             workFeedbackIndex: body.workFeedbackIndex ?? 0,
             board: [],
+            deliveries: [],
             resolvedSessionDeps: [],
           }),
         );

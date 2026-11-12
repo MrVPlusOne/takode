@@ -53,7 +53,6 @@ import { normalizeCommitShas } from "../quest-store-helpers.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import { getQuestDisplayOwner, getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
 import {
-  deliveryEvidenceOf,
   hasUnaddressedHumanFeedback,
   onCheckoutMachine,
   resolveActiveWorkPhaseContext,
@@ -62,7 +61,13 @@ import {
   findAssignedBoardRowsForWorker,
   type ActiveWorkPhaseContext,
 } from "./work-evidence-context.js";
-import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
+import {
+  buildWorkDeliveries,
+  laterRecordedDeliveryError,
+  parseDeliveryTargetIds,
+  projectRecordedDeliveries,
+  registerWorkDeliveryRoutes,
+} from "./work-deliveries.js";
 import { registerStaleBoardRowRoutes } from "./takode-board-stale-rows.js";
 import { otherLeaderQuestGuard } from "../bridge/board-other-leader-quests.js";
 import { resolveBoardWorker, unusableWaitForSessionError } from "./board-session-refs.js";
@@ -72,7 +77,7 @@ import {
   resolveSubmittedLandingEntry,
   withLandingAfterMemory,
 } from "./work-to-memory-landing.js";
-import { projectQuestDelivery } from "../../shared/quest-delivery.js";
+import type { QuestCodeDelivery } from "../../shared/quest-delivery.js";
 import { DeliveryEvidenceError } from "../published-delivery-target.js";
 
 interface PhaseNoteEdit {
@@ -416,12 +421,15 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
     const hasNoCodeMode = body.noCode === true;
     if (body.target !== undefined)
-      return c.json({ error: "Use a leader-approved deliveryTargetId, not a target override." }, 400);
-    if (
-      body.deliveryTargetId !== undefined &&
-      (typeof body.deliveryTargetId !== "string" || !/^[a-f0-9]{32}$/.test(body.deliveryTargetId) || hasNoCodeMode)
-    )
-      return c.json({ error: "deliveryTargetId requires an exact approved target ID and code commit evidence." }, 400);
+      return c.json({ error: "Use leader-approved deliveryTargetIds, not a target override." }, 400);
+    let deliveryTargetIds: string[];
+    try {
+      deliveryTargetIds = parseDeliveryTargetIds(body);
+    } catch (error) {
+      return c.json({ error: (error as Error).message }, 400);
+    }
+    if (deliveryTargetIds.length > 0 && hasNoCodeMode)
+      return c.json({ error: "deliveryTargetIds require code commit evidence." }, 400);
     if (
       body.preparationId !== undefined &&
       (typeof body.preparationId !== "string" || !/^[a-f0-9]{32}$/.test(body.preparationId) || hasNoCodeMode)
@@ -431,13 +439,18 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     const landingEntryId = typeof body.landingEntryId === "string" ? body.landingEntryId.trim() : undefined;
     if (body.landingEntryId !== undefined && !/^le-[0-9a-f]{8}$/.test(landingEntryId ?? ""))
       return c.json({ error: "landingEntryId must name a landing-queue entry (le-...)." }, 400);
-    if ([hasCommitMode, hasNoCodeMode, landingEntryId !== undefined].filter(Boolean).length !== 1) {
+    // A landing entry carries the inherited target's commits; it may come with approved targets' commits.
+    const landingWithTargets = landingEntryId !== undefined && hasCommitMode && deliveryTargetIds.length > 0;
+    if (
+      [hasCommitMode, hasNoCodeMode, landingEntryId !== undefined].filter(Boolean).length !== 1 &&
+      !landingWithTargets
+    ) {
       return c.json(
         { error: "Work -> Memory requires exactly one code evidence mode: commitShas, noCode or landingEntryId." },
         400,
       );
     }
-    if (landingEntryId && (body.preparationId !== undefined || body.deliveryTargetId !== undefined))
+    if (landingEntryId && body.preparationId !== undefined)
       return c.json({ error: "A landing entry carries its own preparation; do not pass preparationId." }, 400);
 
     let commitShas: string[] | undefined;
@@ -535,39 +548,29 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         );
       }
 
+      let deliveries: QuestCodeDelivery[] = [];
       if (commitShas) {
         try {
-          const delivery = await onCheckoutMachine(workEvidenceHost(auth.caller), "buildCodeDelivery", {
+          deliveries = await buildWorkDeliveries({
             questId,
             actorSessionId: auth.callerId,
             phaseOccurrenceId: initialWorkContext.phaseOccurrenceId,
-            caller: await resolveWorkEvidenceCaller(auth.caller),
-            commitShas,
-            existing: deliveryEvidenceOf(quest),
+            caller: auth.caller,
+            quest,
             leaderSessionId: initialMatch.leaderSessionId,
-            deliveryTargetId: body.deliveryTargetId,
+            commitShas,
+            deliveryTargetIds,
+            inheritedAllowed: landingEntryId === undefined,
             ...(typeof body.preparationId === "string" ? { preparationId: body.preparationId } : {}),
           });
-          const latestRecorded = quest.codeDeliveries
-            ?.filter(
-              (item) =>
-                item.actorSessionId === auth.callerId &&
-                item.phaseOccurrenceId === initialWorkContext.phaseOccurrenceId,
-            )
-            .at(-1);
-          if (
-            latestRecorded &&
-            latestRecorded.id !== delivery.id &&
-            quest.codeDeliveries?.some((item) => item.id === delivery.id)
-          )
-            return c.json(
-              {
-                error:
-                  "This Work occurrence has a later recorded delivery; use its current commits and approved target before entering Memory.",
-              },
-              409,
-            );
-          commitShas = delivery.commits.map((commit) => commit.sha);
+          const superseded = laterRecordedDeliveryError(
+            quest,
+            auth.callerId,
+            initialWorkContext.phaseOccurrenceId,
+            deliveries,
+          );
+          if (superseded) return c.json({ error: superseded }, 409);
+          commitShas = deliveries.flatMap((delivery) => delivery.commits.map((commit) => commit.sha));
           // Remote verification may yield while the leader changes Work. Do not attach
           // evidence to a reassigned or later occurrence, even if the old owner remains claimed.
           const currentQuest = await questStore.getQuest(questId);
@@ -608,11 +611,10 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
             requestedIndex: initialWorkNote.index,
           });
           if ("error" in currentNote) return c.json({ error: currentNote.error }, 409);
-          const updated = await questStore.appendQuestCodeCommitEvidenceForOwner(
+          const updated = await questStore.appendQuestCodeDeliveriesForOwner(
             questId,
             { kind: "takode", sessionId: auth.callerId },
-            commitShas,
-            delivery,
+            deliveries,
           );
           if (!updated) return c.json({ error: `Quest not found: ${questId}` }, 404);
         } catch (error) {
@@ -733,16 +735,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         previousState: row.status,
         newState: "MEMORY",
         workFeedbackIndex: workNote.index,
-        delivery: evidenceQuest.codeDeliveries
-          ?.filter((item) => item.phaseOccurrenceId === activeWorkContext.phaseOccurrenceId)
-          .at(-1)
-          ? projectQuestDelivery(
-              questId,
-              evidenceQuest
-                .codeDeliveries!.filter((item) => item.phaseOccurrenceId === activeWorkContext.phaseOccurrenceId)
-                .at(-1)!,
-            )
-          : undefined,
+        deliveries: projectRecordedDeliveries(evidenceQuest, deliveries),
         board,
         rowSessionStatuses: await buildBoardRowSessionStatuses(board),
         queueWarnings: getBoardQueueWarningsController(leaderSession, boardWatchdogDeps),

@@ -11,7 +11,7 @@ import { readGit } from "../git-commit-reader.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { deliveryFixture, FIRST_DELIVERY_SHA } from "../../src/test-fixtures/commit-delivery-fixture.js";
 
-vi.mock("../quest-store.js", () => ({ getQuest: vi.fn(), appendQuestCodeCommitEvidenceForOwner: vi.fn() }));
+vi.mock("../quest-store.js", () => ({ getQuest: vi.fn(), appendQuestCodeDeliveriesForOwner: vi.fn() }));
 vi.mock("../quest-code-deliveries.js", () => ({ buildCodeDelivery: vi.fn(), runPortCommand: vi.fn() }));
 
 let app: Hono;
@@ -87,8 +87,14 @@ beforeEach(() => {
   } as QuestmasterTask;
   vi.mocked(store.getQuest).mockImplementation(async () => quest);
   vi.mocked(buildCodeDelivery).mockResolvedValue(delivery);
-  vi.mocked(store.appendQuestCodeCommitEvidenceForOwner).mockImplementation(async (_id, owner, shas, record) => {
-    quest = appendCodeEvidence(quest, owner, shas as string[], record);
+  vi.mocked(store.appendQuestCodeDeliveriesForOwner).mockImplementation(async (_id, owner, records) => {
+    for (const record of records)
+      quest = appendCodeEvidence(
+        quest,
+        owner,
+        record.commits.map((commit) => commit.sha),
+        record,
+      );
     return quest;
   });
   app = new Hono();
@@ -178,7 +184,7 @@ describe("guarded delivery recording before Memory", () => {
       id: delivery.id,
     });
     expect((await recordDelivery()).status).toBe(409);
-    expect(store.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(store.appendQuestCodeDeliveriesForOwner).not.toHaveBeenCalled();
   });
 
   it("runs a remote worker's port tracking on its host, never on this machine", async () => {
@@ -214,7 +220,7 @@ describe("guarded delivery recording before Memory", () => {
     if (kind === "old-note") quest.feedback![0]!.phaseOccurrenceId = "board-leader-100:p2";
     expect((await recordDelivery()).status).toBeGreaterThanOrEqual(400);
     expect(buildCodeDelivery).not.toHaveBeenCalled();
-    expect(store.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(store.appendQuestCodeDeliveriesForOwner).not.toHaveBeenCalled();
   });
 
   it("reads a direct checkout's branch from Git when the session records none", async () => {
@@ -261,7 +267,7 @@ describe("guarded delivery recording before Memory", () => {
       return delivery;
     });
     expect((await recordDelivery()).status).toBe(409);
-    expect(store.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(store.appendQuestCodeDeliveriesForOwner).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledOnce();
   });
 });

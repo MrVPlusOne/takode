@@ -135,6 +135,31 @@ export function resolveDeliveryTargetApproval(input: {
   return { ...approval, target };
 }
 
+/**
+ * Split one ordered Work commit list across repositories: each named approval takes
+ * the commits it approved, and the rest belong to the inherited target. Each part
+ * is then verified on its own, so the checks per repository stay as strict as with
+ * a single target (an approval's part must still equal its complete commit set).
+ */
+export function splitDeliveryCommits(
+  commitShas: string[],
+  deliveryTargetIds: string[],
+  approvals: QuestDeliveryTargetApproval[] = [],
+): { targets: Array<{ deliveryTargetId: string; commitShas: string[] }>; inherited: string[] } {
+  const claimed = new Set<string>();
+  const targets = deliveryTargetIds.map((deliveryTargetId) => {
+    const approved = new Set(approvals.find((item) => item.id === deliveryTargetId)?.target.commitShas);
+    const part = commitShas.filter((sha) => approved.has(sha));
+    for (const sha of part) {
+      if (claimed.has(sha))
+        throw new DeliveryEvidenceError(`Commit ${sha} belongs to more than one named delivery target.`, 400);
+      claimed.add(sha);
+    }
+    return { deliveryTargetId, commitShas: part };
+  });
+  return { targets, inherited: commitShas.filter((sha) => !claimed.has(sha)) };
+}
+
 /** Read-only verification: exact remote heads plus local commit objects, without fetching or moving any ref. */
 export async function verifyPublishedDeliveryTarget(target: CompletePublishedDeliveryTarget): Promise<void> {
   const label = `${target.checkoutPath} (${target.remote})`;

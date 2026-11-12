@@ -26,7 +26,7 @@ it("forwards the preparation and returns a compact delivery hint at the guarded 
     newState: "MEMORY",
     workFeedbackIndex: 4,
     board: [],
-    delivery: projectQuestDelivery("q-9904", delivery),
+    deliveries: [projectQuestDelivery("q-9904", delivery)],
   });
   await handleBoard("http://fixture", [
     "work-to-memory",

@@ -141,7 +141,7 @@ describe("Takode board Journey metadata route", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(questStore, "getQuest").mockResolvedValue(null);
-    vi.spyOn(questStore, "appendQuestCodeCommitEvidenceForOwner").mockResolvedValue(null);
+    vi.spyOn(questStore, "appendQuestCodeDeliveriesForOwner").mockResolvedValue(null);
     vi.spyOn(questStore, "replaceQuestCodeCommitEvidenceForOwner").mockResolvedValue(null);
     vi.spyOn(gitUtils, "getRepoInfoAsync").mockResolvedValue(null);
     vi.spyOn(gitUtils, "gitAsync").mockRejectedValue(new Error("unexpected git command"));
@@ -331,7 +331,7 @@ describe("Takode board Journey metadata route", () => {
       ],
     } as any;
     vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
-    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+    vi.mocked(questStore.appendQuestCodeDeliveriesForOwner).mockImplementationOnce(async () => {
       // Tie changed reads to persistence, not to a fragile number of preflight reads.
       expect(session.board.get("q-9")?.status).toBe("WORKING");
       vi.mocked(questStore.getQuest).mockResolvedValue({ ...claimedQuest, commitShas: ["abc1234", "deadbeef"] });
@@ -345,11 +345,15 @@ describe("Takode board Journey metadata route", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(questStore.appendQuestCodeCommitEvidenceForOwner).toHaveBeenCalledWith(
+    expect(questStore.appendQuestCodeDeliveriesForOwner).toHaveBeenCalledWith(
       "q-9",
       { kind: "takode", sessionId: "worker-1" },
-      ["abc1234", "deadbeef"],
-      expect.objectContaining({ actorSessionId: "worker-1" }),
+      [
+        expect.objectContaining({
+          actorSessionId: "worker-1",
+          commits: [expect.objectContaining({ sha: "abc1234" }), expect.objectContaining({ sha: "deadbeef" })],
+        }),
+      ],
     );
     expect(broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "quest_list_updated" }));
     expect(broadcastGlobal.mock.invocationCallOrder[0]).toBeLessThan(broadcastBoard.mock.invocationCallOrder[0]);
@@ -532,7 +536,7 @@ describe("Takode board Journey metadata route", () => {
 
     expect(res.status).toBe(400);
     expect(session.board.has("q-9")).toBe(false);
-    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(questStore.appendQuestCodeDeliveriesForOwner).not.toHaveBeenCalled();
   });
 
   it("allows explicit zero-code Work to enter Memory without attaching commits", async () => {
@@ -567,7 +571,7 @@ describe("Takode board Journey metadata route", () => {
     const res = await postWorkerMemory({ questId: "q-9", noCode: true });
 
     expect(res.status).toBe(200);
-    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(questStore.appendQuestCodeDeliveriesForOwner).not.toHaveBeenCalled();
     expect(broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "quest_list_updated" }));
     expect(broadcastGlobal.mock.invocationCallOrder[0]).toBeLessThan(broadcastBoard.mock.invocationCallOrder[0]);
     expect(session.board.get("q-9")?.status).toBe("MEMORY");
@@ -605,7 +609,7 @@ describe("Takode board Journey metadata route", () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: expect.stringContaining("human feedback") });
-    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(questStore.appendQuestCodeDeliveriesForOwner).not.toHaveBeenCalled();
     expect(broadcastGlobal).not.toHaveBeenCalled();
     expect(session.board.get("q-9")?.status).toBe("WORKING");
   });
@@ -677,7 +681,7 @@ describe("Takode board Journey metadata route", () => {
         },
       ],
     } as any);
-    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockRejectedValueOnce(new Error("disk unavailable"));
+    vi.mocked(questStore.appendQuestCodeDeliveriesForOwner).mockRejectedValueOnce(new Error("disk unavailable"));
 
     const res = await postWorkerMemory({ questId: "q-9", commitShas: ["abc1234"] });
 
@@ -713,7 +717,7 @@ describe("Takode board Journey metadata route", () => {
       ],
     } as any;
     vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
-    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+    vi.mocked(questStore.appendQuestCodeDeliveriesForOwner).mockImplementationOnce(async () => {
       // Ownership changes at the asynchronous write boundary, after all preflight reads.
       vi.mocked(questStore.getQuest).mockResolvedValue({
         ...claimedQuest,
@@ -758,7 +762,7 @@ describe("Takode board Journey metadata route", () => {
       ],
     } as any;
     vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
-    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+    vi.mocked(questStore.appendQuestCodeDeliveriesForOwner).mockImplementationOnce(async () => {
       // Pending feedback arrives during persistence, not on an arbitrary read count.
       vi.mocked(questStore.getQuest).mockResolvedValue({
         ...claimedQuest,
@@ -775,7 +779,7 @@ describe("Takode board Journey metadata route", () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: expect.stringContaining("human feedback") });
-    expect(questStore.appendQuestCodeCommitEvidenceForOwner).toHaveBeenCalledOnce();
+    expect(questStore.appendQuestCodeDeliveriesForOwner).toHaveBeenCalledOnce();
     expect(broadcastGlobal).not.toHaveBeenCalled();
     expect(session.board.get("q-9")?.status).toBe("WORKING");
   });
@@ -807,7 +811,7 @@ describe("Takode board Journey metadata route", () => {
       ],
     } as any;
     vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
-    vi.mocked(questStore.appendQuestCodeCommitEvidenceForOwner).mockImplementationOnce(async () => {
+    vi.mocked(questStore.appendQuestCodeDeliveriesForOwner).mockImplementationOnce(async () => {
       // The board changes exactly at persistence, independently of preflight read count.
       session.board.get("q-9")!.waitForInput = ["n-7"];
       vi.mocked(questStore.getQuest).mockResolvedValue({ ...claimedQuest, commitShas: ["abc1234"] });
@@ -913,7 +917,7 @@ describe("Takode board Journey metadata route", () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: expect.stringContaining(errorText) });
-    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(questStore.appendQuestCodeDeliveriesForOwner).not.toHaveBeenCalled();
     expect(broadcastGlobal).not.toHaveBeenCalled();
     expect(session.board.get("q-9")?.status).toBe("WORKING");
   });
@@ -926,7 +930,7 @@ describe("Takode board Journey metadata route", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(questStore.appendQuestCodeDeliveriesForOwner).not.toHaveBeenCalled();
   });
 
   it("resumes a taken checkpoint into later Work before the ordinary Memory transition", async () => {
@@ -1011,7 +1015,7 @@ describe("Takode board Journey metadata route", () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: expect.stringContaining("no Memory phase") });
-    expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+    expect(questStore.appendQuestCodeDeliveriesForOwner).not.toHaveBeenCalled();
     expect(broadcastGlobal).not.toHaveBeenCalled();
     expect(session.board.get("q-9")?.status).toBe("WORKING");
   });

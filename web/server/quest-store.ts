@@ -770,12 +770,35 @@ export async function appendQuestCodeCommitEvidenceForOwner(
   );
 }
 
-/** Called only by the authenticated assigned-leader target approval route. */
-export async function appendQuestDeliveryTargetApproval(
+/** Attach several verified deliveries (one per repository) in one atomic quest update. */
+export async function appendQuestCodeDeliveriesForOwner(
   questId: string,
-  approval: QuestDeliveryTargetApproval,
+  owner: QuestOwnerRef,
+  deliveries: QuestCodeDelivery[],
 ): Promise<QuestmasterTask | null> {
-  return mutateQuestWorkEvidence(questId, (current) => appendDeliveryTargetApproval(current, approval));
+  const normalizedOwner = normalizeQuestOwnerRef(owner);
+  if (!normalizedOwner) throw new Error("A valid quest owner is required");
+  if (deliveries.length === 0) throw new Error("At least one delivery is required");
+  return mutateQuestWorkEvidence(questId, (current) =>
+    deliveries.reduce(
+      (quest, delivery) =>
+        appendCodeEvidence(
+          quest,
+          normalizedOwner,
+          delivery.commits.map((commit) => commit.sha),
+          delivery,
+        ),
+      current,
+    ),
+  );
+}
+
+/** Called only by the authenticated assigned-leader target approval route; records all or none. */
+export async function appendQuestDeliveryTargetApprovals(
+  questId: string,
+  approvals: QuestDeliveryTargetApproval[],
+): Promise<QuestmasterTask | null> {
+  return mutateQuestWorkEvidence(questId, (current) => approvals.reduce(appendDeliveryTargetApproval, current));
 }
 
 async function mutateQuestWorkEvidence(

@@ -33,6 +33,9 @@ let workerTarget: {
 };
 let questId: string;
 let broadcast: ReturnType<typeof vi.fn>;
+let landingEntry:
+  | { id: string; sessionId: string; questId: string; state: string; target: object; tip: string }
+  | undefined;
 let createApp: () => Promise<void>;
 
 function git(cwd: string, ...args: string[]): string {
@@ -60,13 +63,13 @@ async function approve(spec = target): Promise<string> {
   const body = await response.json();
   expect(response.status, JSON.stringify(body)).toBe(200);
   caller = "worker";
-  return body.approvalId;
+  return body.approvals[0].approvalId;
 }
 function evidence(id?: string) {
   return {
     commitShas: [...target.commitShas],
     workFeedbackIndex: 0,
-    ...(id ? { deliveryTargetId: id } : {}),
+    ...(id ? { deliveryTargetIds: [id] } : {}),
   };
 }
 
@@ -136,6 +139,7 @@ beforeEach(async () => {
     journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
   };
   caller = "worker";
+  landingEntry = undefined;
   workerTarget = {
     isWorktree: true,
     cwd: inherited,
@@ -164,6 +168,7 @@ beforeEach(async () => {
         findAssignedBoardRowsForWorker: (worker: string) =>
           worker === row.worker ? [{ leaderSessionId: "leader", row }] : [],
         broadcastGlobal: broadcast,
+        landingQueue: { getEntry: async (id: string) => (landingEntry?.id === id ? landingEntry : null) },
       } as never,
       authenticateTakodeCaller: (() => ({
         callerId: caller,
@@ -289,7 +294,7 @@ describe("independent published delivery through real guarded routes", () => {
     };
     const id = deliveryTargetApprovalId(questId, scope);
     const approval = { ...scope, id, approvedAt: 100 };
-    await store.appendQuestDeliveryTargetApproval(questId, approval);
+    await store.appendQuestDeliveryTargetApprovals(questId, [approval]);
     const head = legacyTarget.refs[0]!.sha;
     const delivery = {
       id: "d".repeat(32),
@@ -337,8 +342,8 @@ describe("independent published delivery through real guarded routes", () => {
     expect((await incomplete.json()).error).toContain("complete approved commitShas");
     expect((await store.getQuest(questId))?.codeDeliveries).toBeUndefined();
     const recorded = await (await post("record-work-delivery", evidence(id))).json();
-    expect(recorded.delivery.commits.map((item: { sha: string }) => item.sha)).toEqual(relevant);
-    expect(recorded.delivery.commits.map((item: { sha: string }) => item.sha)).not.toContain(base);
+    expect(recorded.deliveries[0].commits.map((item: { sha: string }) => item.sha)).toEqual(relevant);
+    expect(recorded.deliveries[0].commits.map((item: { sha: string }) => item.sha)).not.toContain(base);
     expect((await post("work-to-memory", evidence(id))).status).toBe(200);
     const saved = (await store.getQuest(questId))!;
     expect(saved.commitShas).toEqual(relevant);
@@ -369,7 +374,7 @@ describe("independent published delivery through real guarded routes", () => {
     const result = await recorded.json();
     expect(recorded.status, JSON.stringify(result)).toBe(200);
     expect(row.status).toBe("WORKING");
-    const href = `/quests/${questId}/deliveries/${result.delivery.id}/commits/${target.refs[0]!.sha}`;
+    const href = `/quests/${questId}/deliveries/${result.deliveries[0].id}/commits/${target.refs[0]!.sha}`;
     const before = await (await app.request(href)).json();
     expect(before.diff).toContain("runtime");
     // Reload real persisted storage and recreate route closures; no in-memory approval cache can authorize this.
@@ -395,7 +400,7 @@ describe("independent published delivery through real guarded routes", () => {
   it("keeps earlier delivery links fixed when a second approved target batch is added", async () => {
     const id = await approve();
     const first = await (await post("record-work-delivery", evidence(id))).json();
-    const href = `/quests/${questId}/deliveries/${first.delivery.id}`;
+    const href = `/quests/${questId}/deliveries/${first.deliveries[0].id}`;
     const before = await (await app.request(href)).json();
     const oldShas = target.refs.map((item) => item.sha);
     const sha = commit(source, "followup");
@@ -408,7 +413,7 @@ describe("independent published delivery through real guarded routes", () => {
     // The approved complete current Work set may include an earlier recorded prefix; only the new suffix is new.
     expect((await store.getQuest(questId))?.codeDeliveries?.at(-1)?.commits.map((item) => item.sha)).toEqual([sha]);
     expect(
-      (await post("work-to-memory", { commitShas: oldShas, workFeedbackIndex: 0, deliveryTargetId: id })).status,
+      (await post("work-to-memory", { commitShas: oldShas, workFeedbackIndex: 0, deliveryTargetIds: [id] })).status,
     ).toBe(409);
     expect((await post("work-to-memory", evidence(second))).status).toBe(200);
     expect((await store.getQuest(questId))?.commitShas).toEqual([...oldShas, sha]);
@@ -570,6 +575,144 @@ describe("independent published delivery through real guarded routes", () => {
     expect(response.status, JSON.stringify(await response.json())).toBe(200);
     expect((await store.getQuest(questId))?.codeDeliveries?.[0]?.target.mode).toBe(mode);
     // The same real target resolver still enforces each original operational checkout mode.
+  });
+});
+
+describe("Work delivered to several repositories", () => {
+  // A second published repository, like a skills or config repo changed alongside the code.
+  function publishSkillsRepo(): CompletePublishedDeliveryTarget {
+    const checkoutPath = join(root, "skills-source");
+    initRepo(checkoutPath);
+    const repositoryUrl = join(root, "skills.git");
+    git(root, "init", "--bare", repositoryUrl);
+    git(checkoutPath, "remote", "add", "origin", repositoryUrl);
+    const sha = commit(checkoutPath, "skill");
+    git(checkoutPath, "push", "origin", `${sha}:refs/heads/main`);
+    return {
+      checkoutPath,
+      remote: "origin",
+      repositoryUrl,
+      refs: [{ ref: "refs/heads/main", sha }],
+      commitShas: [sha],
+    };
+  }
+  async function approveAll(targets: CompletePublishedDeliveryTarget[]): Promise<string[]> {
+    caller = "leader";
+    const response = await post("approve-delivery-target", { targets });
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    caller = "worker";
+    return body.approvals.map((item: { approvalId: string }) => item.approvalId);
+  }
+
+  it("records the inherited target and two published repositories in one Work -> Memory call", async () => {
+    // The inherited code commit plus two approved repositories become three deliveries,
+    // each verified against its own repository and each with working commit links.
+    const skills = publishSkillsRepo();
+    const ids = await approveAll([target, skills]);
+    expect(new Set(ids).size).toBe(2);
+    const inheritedSha = git(inherited, "rev-parse", "HEAD");
+    const commitShas = [inheritedSha, ...target.commitShas, ...skills.commitShas];
+    const response = await post("work-to-memory", { commitShas, deliveryTargetIds: ids, workFeedbackIndex: 0 });
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    expect(body.deliveries.map((item: { branch: string }) => item.branch)).toEqual([
+      "integration",
+      "user/training",
+      "main",
+    ]);
+    expect(row.status).toBe("MEMORY");
+    const saved = (await store.getQuest(questId))!;
+    expect(saved.commitShas).toEqual(commitShas);
+    expect(saved.codeDeliveries?.map((item) => item.target.repoRoot)).toEqual([inherited, source, skills.checkoutPath]);
+    for (const delivery of saved.codeDeliveries!) {
+      const sha = delivery.commits[0]!.sha;
+      const view = await (await app.request(`/quests/${questId}/deliveries/${delivery.id}/commits/${sha}`)).json();
+      expect(view).toMatchObject({ sha, available: true });
+    }
+  });
+
+  it("records nothing when any one repository fails verification", async () => {
+    const skills = publishSkillsRepo();
+    const ids = await approveAll([target, skills]);
+    // The skills branch disappears after approval: its delivery fails, so the code delivery must not land alone.
+    git(skills.repositoryUrl, "update-ref", "-d", "refs/heads/main");
+    const response = await post("work-to-memory", {
+      commitShas: [...target.commitShas, ...skills.commitShas],
+      deliveryTargetIds: ids,
+      workFeedbackIndex: 0,
+    });
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    const saved = (await store.getQuest(questId))!;
+    expect(saved.codeDeliveries).toBeUndefined();
+    expect(saved.commitShas).toBeUndefined();
+    expect(row.status).toBe("WORKING");
+  });
+
+  it("keeps each approval's complete commit set strict and rejects ambiguous splits", async () => {
+    const skills = publishSkillsRepo();
+    const ids = await approveAll([target, skills]);
+    const inheritedSha = git(inherited, "rev-parse", "HEAD");
+    // Leaving out one approved commit no longer matches that approval's complete set.
+    const partial = await post("work-to-memory", {
+      commitShas: [inheritedSha, ...target.commitShas.slice(1), ...skills.commitShas],
+      deliveryTargetIds: ids,
+      workFeedbackIndex: 0,
+    });
+    expect(partial.status).toBe(409);
+    expect((await partial.json()).error).toContain("complete approved commitShas");
+    // Two approvals that claim the same commit cannot say which repository delivered it.
+    const overlap = await approve({ ...target, refs: [target.refs.at(-1)!], commitShas: [target.commitShas[2]!] });
+    const claimedTwice = await post("work-to-memory", {
+      commitShas: [...target.commitShas],
+      deliveryTargetIds: [ids[0], overlap],
+      workFeedbackIndex: 0,
+    });
+    expect(claimedTwice.status).toBe(400);
+    expect((await claimedTwice.json()).error).toContain("more than one");
+    // A port preparation belongs to inherited-target commits; here every commit is a target's.
+    const preparation = await post("record-work-delivery", {
+      commitShas: [...skills.commitShas],
+      deliveryTargetIds: [ids[1]],
+      preparationId: "a".repeat(32),
+      workFeedbackIndex: 0,
+    });
+    expect(preparation.status).toBe(400);
+    expect((await store.getQuest(questId))?.codeDeliveries).toBeUndefined();
+    expect(row.status).toBe("WORKING");
+  });
+
+  it("enters Memory with a landing entry plus another repository's approved commits", async () => {
+    const skills = publishSkillsRepo();
+    const [skillsId] = await approveAll([skills]);
+    const inheritedSha = git(inherited, "rev-parse", "HEAD");
+    landingEntry = {
+      id: "le-0000abcd",
+      sessionId: "worker",
+      questId,
+      state: "queued",
+      target: { branch: "integration" },
+      tip: inheritedSha,
+    };
+    // The landing entry carries the inherited target's commits, so they may not be listed here too.
+    const mixed = await post("work-to-memory", {
+      landingEntryId: landingEntry.id,
+      commitShas: [inheritedSha, ...skills.commitShas],
+      deliveryTargetIds: [skillsId],
+      workFeedbackIndex: 0,
+    });
+    expect(mixed.status).toBe(400);
+    expect((await mixed.json()).error).toContain("landing entry");
+    const response = await post("work-to-memory", {
+      landingEntryId: landingEntry.id,
+      commitShas: [...skills.commitShas],
+      deliveryTargetIds: [skillsId],
+      workFeedbackIndex: 0,
+    });
+    expect(response.status, JSON.stringify(await response.json())).toBe(200);
+    expect(row.status).toBe("MEMORY");
+    expect(row.landing).toMatchObject({ entryId: "le-0000abcd" });
+    expect((await store.getQuest(questId))?.codeDeliveries?.map((item) => item.target.branch)).toEqual(["main"]);
   });
 });
 
