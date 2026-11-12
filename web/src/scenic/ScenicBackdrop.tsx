@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store.js";
 import { InkAliveCanvas } from "./ink-alive/InkAliveCanvas.js";
+import { startInkMotion } from "./ink-motion.js";
 import { SCENIC_REVEAL_EVENT, type ScenicStyle, scenicMotionAllowed, useScenicStyle } from "./scenic-styles.js";
 
 type LightKind = "pollen" | "firefly" | "glint" | "glint-night";
@@ -96,6 +97,12 @@ export function ScenicBackdrop() {
     const observer = new ResizeObserver(() => setSize({ width: element.clientWidth, height: element.clientHeight }));
     observer.observe(element);
     return () => observer.disconnect();
+  }, [style]);
+  // New answers arrive like ink soaking into paper.
+  useEffect(() => {
+    const pane = ref.current?.parentElement;
+    if (!style || !pane) return;
+    return startInkMotion(pane);
   }, [style]);
   const [aliveFailed, setAliveFailed] = useState(false);
   const onAliveUnavailable = useCallback(() => setAliveFailed(true), []);

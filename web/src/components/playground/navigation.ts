@@ -104,6 +104,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Thread Tab Groups",
     "Celebrations",
     "Scenic Backgrounds",
+    "Typing Feel",
     "Diff Access from the Quest Banner",
     "Quest Status Panel",
     "Questmaster List",
