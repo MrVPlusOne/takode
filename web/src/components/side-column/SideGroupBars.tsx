@@ -3,10 +3,10 @@ import { BellIcon } from "../AttentionKind.js";
 import { THREAD_GROUP_DOT, type ThreadGroupId } from "../ThreadTabGroups.js";
 
 /**
- * Folds and unfolds the side column's chats, from the column's top row, beside the
- * chats-one-at-a-time toggle. It always reads the same ("Chats", how many, the chevron), so nothing
- * on the row moves when it folds (Jiayi, Nov 6: the old one grew a summary when folded and pushed
- * the toggle aside). Folded, the chats show as `FoldedChatsBar` under the row.
+ * Folds and unfolds the side column's chats, from the column's top row, beside Collapse. It always
+ * reads the same ("Chats", how many, the chevron), so nothing on the row moves when it folds (Jiayi,
+ * Nov 6: the old one grew a summary when folded and pushed the buttons beside it aside). Folded,
+ * the chats show as `FoldedChatsBar` under the row.
  */
 export function ChatsGroupToggle({
   folded,

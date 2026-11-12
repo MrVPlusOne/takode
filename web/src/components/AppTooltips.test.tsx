@@ -52,7 +52,7 @@ describe("AppTooltips", () => {
     render(
       <>
         <AppTooltips />
-        <button type="button" title="Chats one at a time">
+        <button type="button" title="Start a new thread">
           {icon}
         </button>
       </>,
@@ -64,10 +64,10 @@ describe("AppTooltips", () => {
     act(() => {
       vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
     });
-    expect(screen.getByRole("tooltip").textContent).toBe("Chats one at a time");
+    expect(screen.getByRole("tooltip").textContent).toBe("Start a new thread");
     pointer("pointerdown", button);
     expect(screen.queryByRole("tooltip")).toBeNull();
-    expect(button.getAttribute("title")).toBe("Chats one at a time");
+    expect(button.getAttribute("title")).toBe("Start a new thread");
   });
 
   it("leaves touch alone", () => {

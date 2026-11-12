@@ -19,8 +19,9 @@ import { noteClickedPaneFeed, type ClickedPaneFeed } from "./pane-jump.js";
  * beside the main conversation (Logseq's right sidebar). One column for the whole app: what the
  * user put there stays when the main view switches to another leader or a worker's session (Jiayi,
  * Nov 1, 2026), and each conversation in it names its own leader. Newest first; each folds and
- * unfolds on its own (remembered folds, `sideFoldId`), and the column scrolls when the open ones
- * don't fit. Remembered in this browser: local UI state, like the column's width.
+ * unfolds on its own (remembered folds, `sideFoldId`), except that the chats open one at a time
+ * (`isChatItem`), and the column scrolls when the open ones don't fit. Remembered in this browser:
+ * local UI state, like the column's width.
  */
 export type SideItem =
   /** A topic's page, of its leader. */
@@ -59,23 +60,16 @@ export const HOME_ITEM = "home";
 export interface SideColumnState {
   items: SideItem[];
   /**
-   * Conversation items by when they were last opened or used, most recent first: the one folded
-   * when a fourth would be open (`MAX_OPEN_CONVERSATIONS`).
+   * Conversation items by when they were last opened or used, most recent first: the order of the
+   * folded chats' bar, after the ones asking or with news.
    */
   used?: string[];
   /** The item opened last (an item's ID or HOME_ITEM), which the column scrolls into view. */
   focus?: string;
   /** When it was opened, so opening it again scrolls to it again. */
   focusAt?: number;
-  /** The height the user last dragged a side conversation to: a new thread starts at it. */
+  /** The height the user last dragged a side chat to, which every chat shares. */
   chatHeight?: number;
-  /**
-   * Chats one at a time: the column's chats act as one tab group stacked as an accordion, opening
-   * one folds the other chats, and they share one height. Other sections and the column's scrolling
-   * stay as they are (Jiayi, Nov 2: browsing side chats one click at a time, each as tall however
-   * many there are).
-   */
-  oneAtATime?: boolean;
 }
 
 const STORAGE_KEY = "cc-side-column";
@@ -90,7 +84,8 @@ function stored(): SideColumnState {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     try {
-      const parsed = JSON.parse(raw) as SideColumnState;
+      // Chats open one at a time always since Nov 11; the switch that turned it on is gone.
+      const { oneAtATime: _retired, ...parsed } = JSON.parse(raw) as SideColumnState & { oneAtATime?: boolean };
       return { ...parsed, items: Array.isArray(parsed.items) ? parsed.items.map(asSideTarget) : [] };
     } catch (error) {
       console.warn("[side-column] Ignoring unreadable side column state:", error);
@@ -212,45 +207,28 @@ export function sideFoldId(itemId: string): string {
   return `side:${itemId}`;
 }
 
-/**
- * How many conversations the column keeps open (unfolded) at once. Each open one keeps its feed
- * mounted and its leader sending its live messages, so more open would cost memory and traffic for
- * conversations the user isn't reading (Jiayi, Nov 1: like the main view keeping at most three
- * recent conversations mounted). Opening a fourth folds the one least recently opened or used.
- */
-export const MAX_OPEN_CONVERSATIONS = 3;
-
-/** Items with a live feed of their own: what counts toward `MAX_OPEN_CONVERSATIONS`. */
+/** Items with a live feed of their own, which unmounts while folded. */
 export function isConversationItem(item: Pick<SideItem, "kind">): boolean {
   return item.kind === "conversation" || item.kind === "session";
 }
 
-/** Items that are a chat: a conversation, a thread being started, or another session's conversation. */
+/**
+ * Items that are a chat: a conversation, a thread being started, or another session's conversation.
+ * The column's chats act as one tab group stacked as an accordion: opening one folds the others,
+ * and they share one height (Jiayi, Nov 2: browsing side chats one click at a time, each as tall
+ * however many there are). At most one is open, possibly none. Other sections open and fold on
+ * their own. This was a switch until Nov 11, when it became the only way (Jiayi: few knew to turn
+ * it on, and their columns filled up with open chats).
+ */
 export function isChatItem(item: Pick<SideItem, "kind">): boolean {
   return item.kind === "conversation" || item.kind === "new-chat" || item.kind === "session";
 }
 
-/**
- * Unfolds an item, or marks it used (`noteSideItemUsed`); a conversation beyond the open limit
- * folds the least recently used other one.
- */
+/** Unfolds an item and marks it used (`noteSideItemUsed`); a chat folds the other chats. */
 export function unfoldSideItem(id: string): void {
-  if (useSideColumnStore.getState().oneAtATime) foldOtherChats(id);
+  foldOtherChats(id);
   setRememberedFolded(sideFoldId(id), false);
   noteSideItemUsed(id);
-}
-
-/**
- * Turns chats-one-at-a-time on or off. Turning it on keeps one chat open: the one opened last if it
- * is an open chat, else the first open chat. Other sections stay as they are.
- */
-export function setSideOneAtATime(on: boolean): void {
-  update((column) => ({ ...column, oneAtATime: on }));
-  if (!on) return;
-  const { items, focus } = useSideColumnStore.getState();
-  const open = items.filter((item) => isChatItem(item) && !isRememberedFolded(sideFoldId(item.id)));
-  const kept = open.find((item) => item.id === focus) ?? open[0];
-  if (kept) foldOtherChats(kept.id);
 }
 
 /** Opening a chat folds the column's other open chats; opening anything else folds nothing. */
@@ -263,27 +241,24 @@ function foldOtherChats(id: string): void {
   }
 }
 
-/** A conversation item was opened, unfolded or used (its pane focused): it is the last folded. */
+/**
+ * A column saved with several chats open (from before chats always opened one at a time) keeps one
+ * open: the one opened last if it is open, else the first open one.
+ */
+function keepOneChatOpen(): void {
+  const { items, focus } = useSideColumnStore.getState();
+  const open = items.filter((item) => isChatItem(item) && !isRememberedFolded(sideFoldId(item.id)));
+  const kept = open.find((item) => item.id === focus) ?? open[0];
+  if (kept) foldOtherChats(kept.id);
+}
+
+/** A conversation item was opened, unfolded or used (its pane focused): it goes first in `used`. */
 export function noteSideItemUsed(id: string): void {
   const { items, used = [] } = useSideColumnStore.getState();
   const item = items.find((candidate) => candidate.id === id);
   if (!item || !isConversationItem(item)) return;
   const order = [id, ...used.filter((other) => other !== id && items.some((candidate) => candidate.id === other))];
   if (order.join() !== used.join()) update((column) => ({ ...column, used: order }));
-  foldBeyondOpenLimit();
-}
-
-/**
- * Folds the open conversations past `MAX_OPEN_CONVERSATIONS`, least recently used first. One never
- * used here (opened before the limit existed) counts as older than any used one.
- */
-function foldBeyondOpenLimit(): void {
-  const { items, used = [] } = useSideColumnStore.getState();
-  const rank = (id: string) => (used.includes(id) ? used.indexOf(id) : used.length);
-  const open = items
-    .filter((item) => isConversationItem(item) && !isRememberedFolded(sideFoldId(item.id)))
-    .sort((a, b) => rank(a.id) - rank(b.id));
-  for (const extra of open.slice(MAX_OPEN_CONVERSATIONS)) setRememberedFolded(sideFoldId(extra.id), true);
 }
 
 /** Unfolds an item (and its group) and scrolls the column to it. */
@@ -336,8 +311,7 @@ export function openTopicsInSide(): void {
 }
 
 /**
- * Takes an item out of the column. With chats one at a time, taking out the open chat opens another
- * chat in its place, so a column of chats doesn't fold to nothing (Jiayi, Nov 3): the chat below it,
+ * Takes an item out of the column. Taking out the open chat opens another chat in its place, so a column of chats doesn't fold to nothing (Jiayi, Nov 3): the chat below it,
  * else the one above, so closing chats one by one reads them top to bottom (Jiayi, Nov 10).
  */
 export function closeSideItem(id: string): void {
@@ -345,7 +319,7 @@ export function closeSideItem(id: string): void {
   const index = before.items.findIndex((item) => item.id === id);
   const closed = before.items[index];
   const reopen =
-    before.oneAtATime && closed && isChatItem(closed) && !isRememberedFolded(sideFoldId(id))
+    closed && isChatItem(closed) && !isRememberedFolded(sideFoldId(id))
       ? nextChatAfterClosing(before, index)
       : undefined;
   update((column) => ({
@@ -379,7 +353,7 @@ export function replaceSideItem(id: string, replacement: SideItemInput): void {
       ...(twin && column.focus === twin.id ? { focus: id } : {}),
     };
   });
-  // A new thread that became its conversation now counts toward the open limit.
+  // A new thread that became its conversation now has a place in the use order.
   if (!isRememberedFolded(sideFoldId(id))) noteSideItemUsed(id);
 }
 
@@ -684,5 +658,4 @@ export function openConversationInSide(leaderId: string, threadKey: string): boo
   return openInSideOnScreen({ kind: "conversation", threadKey: threadKey.toLowerCase(), leaderId });
 }
 
-// A column saved with more conversations open (from before the limit) starts within it.
-foldBeyondOpenLimit();
+keepOneChatOpen();

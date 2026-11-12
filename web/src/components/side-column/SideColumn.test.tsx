@@ -95,7 +95,7 @@ import { useTopicPanel } from "../../utils/topic-panel.js";
 import { useStore } from "../../store.js";
 import { isRememberedFolded, setRememberedFolded } from "../../utils/remembered-folds.js";
 import { SideColumn } from "./SideColumn.js";
-import { focusedChat, MAIN_CHAT, sideChatId, useChatFocusStore } from "../../utils/chat-focus.js";
+import { focusChat, focusedChat, MAIN_CHAT, sideChatId, useChatFocusStore } from "../../utils/chat-focus.js";
 
 afterEach(() => {
   cleanup();
@@ -107,7 +107,6 @@ afterEach(() => {
     focusAt: undefined,
     used: undefined,
     chatHeight: undefined,
-    oneAtATime: undefined,
   });
   useChatFocusStore.setState({ focused: MAIN_CHAT, sideChats: [] });
   useTopicPanel.setState({ open: true, sheet: false, focus: null });
@@ -431,26 +430,32 @@ describe("SideColumn", () => {
     useStore.setState({ sdkSessions: [] } as never);
   });
 
-  it("keeps at most three conversations open, and a folded one unmounted, unsubscribed and disconnected", () => {
+  it("keeps one chat open, and a folded one unmounted, unsubscribed and disconnected", () => {
     // Jiayi (Nov 1): every open conversation costs a mounted feed, live messages and its leader's
-    // connection. A fourth folds the oldest, which then costs nothing until it is opened again.
+    // connection. Chats open one at a time, so a folded one costs nothing until it opens again.
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
       openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
-      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
-      openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
       openInSide({ kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" });
     });
     const mounted = () => screen.queryAllByTestId("mock-conversation").map((element) => element.textContent);
-    expect(mounted().sort()).toEqual(["q-2", "q-3", "topic:bbbb0001"]);
+    expect(mounted()).toEqual(["topic:bbbb0001"]);
     expect(held.count.get("l2")).toBe(1);
+    expect(held.count.get("l1") ?? 0).toBe(0);
     // Folding l2's conversation unmounts it (dropping its live messages) and its leader's connection.
-    const holdsBefore = held.holds;
-    const l2Row = rows().find((row) => row.textContent?.includes("topic:bbbb0001"))!;
-    fireEvent.click(within(l2Row).getByRole("button", { expanded: true }));
-    expect(mounted().sort()).toEqual(["q-2", "q-3"]);
+    const rowOf = (key: string) => rows().find((row) => row.textContent?.includes(key))!;
+    fireEvent.click(within(rowOf("topic:bbbb0001")).getByRole("button", { expanded: true }));
+    expect(mounted()).toEqual([]);
     expect(held.count.get("l2")).toBe(0);
-    // l1 keeps the hold it had: taking it again would have reconnected it.
+    fireEvent.click(within(rowOf("q-1")).getByRole("button", { expanded: false }));
+    expect(mounted()).toEqual(["q-1"]);
+    expect(held.count.get("l1")).toBe(1);
+    // Another chat of l1 in its place keeps l1's hold: taking it again would have reconnected it.
+    const holdsBefore = held.holds;
+    act(() => {
+      openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    });
+    expect(mounted()).toEqual(["q-2"]);
     expect(held.holds).toBe(holdsBefore);
     expect(held.count.get("l1")).toBe(1);
   });
@@ -540,21 +545,22 @@ describe("SideColumn", () => {
       expect(chat.dataset.leader).toBe("l2");
       expect(chat.textContent).toBe("q-7");
       expect(rows()[0]!.textContent).toContain("New thread with Takode");
-      // A new chat with this page's leader is a separate item, as before.
-      fireEvent.click(screen.getByTestId("side-new-chat"));
-      expect(within(openBodies()[0]!).getByTestId("mock-new-chat").dataset.leader).toBe("l1");
-      expect(useSideColumnStore.getState().items).toEqual([
-        expect.objectContaining({ kind: "new-chat", startedFrom: "q-7", leaderId: "l1" }),
-        expect.objectContaining({ kind: "new-chat", startedFrom: "q-7", leaderId: "l2", startedIn: "l1" }),
-      ]);
       // The chat with l2 keeps l2's connection open, through the same hold once it starts: dropping
       // it in between lost the live messages of the chat's first turn.
       expect(held.count.get("l2")).toBe(1);
       const holds = held.holds;
-      const chatId = useSideColumnStore.getState().items[1]!.id;
+      const chatId = useSideColumnStore.getState().items[0]!.id;
       act(() => replaceSideItem(chatId, { kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" }));
       expect(held.holds).toBe(holds);
       expect(held.count.get("l2")).toBe(1);
+      // A new chat with this page's leader is a separate item, as before; it opens in the l2 chat's place.
+      fireEvent.click(screen.getByTestId("side-new-chat"));
+      expect(within(openBodies()[0]!).getByTestId("mock-new-chat").dataset.leader).toBe("l1");
+      expect(useSideColumnStore.getState().items).toEqual([
+        expect.objectContaining({ kind: "new-chat", startedFrom: "q-7", leaderId: "l1" }),
+        expect.objectContaining({ kind: "conversation", threadKey: "topic:bbbb0001", leaderId: "l2" }),
+      ]);
+      expect(held.count.get("l2")).toBe(0);
     } finally {
       shown();
       mainView();
@@ -893,19 +899,16 @@ describe("SideColumn", () => {
     expect(within(rowOf("q-5")).getByTestId("side-quest-icon")).toBeTruthy();
   });
 
-  it("shows chats one at a time when switched on: one click opens a chat, at one shared height", () => {
+  it("shows chats one at a time: one click opens a chat, at one shared height", () => {
     // Jiayi (Nov 2): the side chats act as a tab group stacked as an accordion and share one height,
     // so more chats don't make each shorter; pages, Topics and the column's scrolling are as before.
+    // Since Nov 11 it is the only way the column works, with no switch on its top row.
     render(<SideColumn leaderId="l1" threadKey="q-1" variant="docked" />);
     act(() => {
       openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
       openInSide({ kind: "topic", topicId: "t9", leaderId: "l1" });
       openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     });
-    const toggle = screen.getByTestId("side-one-at-a-time");
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
     const open = () => rows().map((row) => row.dataset.open);
     // The chats q-2 and q-3, then the page and Topics, which stay open.
     expect(open()).toEqual(["true", "false", "true", "true"]);
@@ -925,11 +928,6 @@ describe("SideColumn", () => {
     // The open chat folds with a click on its title bar: none need be open (Jiayi, Nov 3).
     fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
     expect(open()).toEqual(["false", "false", "true", "true"]);
-    // Off, chats open side by side again.
-    fireEvent.click(toggle);
-    fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: false }));
-    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: false }));
-    expect(open()).toEqual(["true", "true", "true", "true"]);
   });
 
   it("scrolls the whole column from the strip beside each section's content, on desktop only", () => {
@@ -964,18 +962,19 @@ describe("SideColumn", () => {
       openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
       openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
     });
-    const [newer, older] = useSideColumnStore.getState().items;
+    const [newer] = useSideColumnStore.getState().items;
     expect(focusedChat()).toBe(sideChatId(newer!.id));
     const chats = () =>
       screen.getAllByTestId("side-section").map((section) => section.querySelector("[data-chat-focused]"));
     expect(chats().map((chat) => chat?.getAttribute("data-chat-focused"))).toEqual(["true", "false", undefined]);
 
-    fireEvent.wheel(within(openBodies()[1]!).getByTestId("mock-conversation"));
+    act(() => focusChat(MAIN_CHAT));
+    fireEvent.wheel(within(openBodies()[0]!).getByTestId("mock-conversation"));
+    expect(focusedChat()).toBe(MAIN_CHAT);
+    fireEvent.pointerDown(within(openBodies()[0]!).getByTestId("mock-conversation"));
     expect(focusedChat()).toBe(sideChatId(newer!.id));
-    fireEvent.pointerDown(within(openBodies()[1]!).getByTestId("mock-conversation"));
-    expect(focusedChat()).toBe(sideChatId(older!.id));
 
-    fireEvent.click(within(rows()[1]!).getByRole("button", { expanded: true }));
+    fireEvent.click(within(rows()[0]!).getByRole("button", { expanded: true }));
     expect(focusedChat()).toBe(MAIN_CHAT);
   });
 
@@ -1029,11 +1028,13 @@ describe("SideColumn", () => {
       expect(groupOrder()).toEqual(["chats", "quests", "pages"]);
       const inGroup = (group: string) =>
         within(screen.getAllByTestId("side-group").find((element) => element.dataset.group === group)!);
+      // Both chats have their rows; the one opened last is open.
+      expect(inGroup("chats").getAllByTestId("side-item-row")).toHaveLength(2);
       expect(
         inGroup("chats")
           .getAllByTestId("mock-conversation")
           .map((chat) => chat.textContent),
-      ).toEqual(["q-1", "q-2"]);
+      ).toEqual(["q-1"]);
       expect(inGroup("quests").getByTestId("mock-quest")).toBeTruthy();
       expect(inGroup("pages").getByTestId("mock-home")).toBeTruthy();
       expect(inGroup("pages").getByTestId("mock-artifact")).toBeTruthy();
@@ -1051,7 +1052,7 @@ describe("SideColumn", () => {
         openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
         openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
       });
-      expect(screen.getAllByTestId("mock-conversation")).toHaveLength(2);
+      expect(screen.getAllByTestId("mock-conversation")).toHaveLength(1);
       const toggle = screen.getByTestId("side-chats-toggle");
       const topRow = () => [...toggle.parentElement!.children].map((child) => child.getAttribute("data-testid"));
       const before = { text: toggle.textContent, row: topRow() };
@@ -1062,12 +1063,12 @@ describe("SideColumn", () => {
       expect(screen.getByTestId("mock-topic-page").textContent).toBe("followed");
       expect(isRememberedFolded(sideGroupFold("chats"))).toBe(true);
       // The toggle reads the same folded and open, and the row keeps its buttons in place (Jiayi:
-      // the old one grew a summary and pushed the one-at-a-time toggle aside).
+      // the old one grew a summary and pushed the buttons beside it aside).
       expect(toggle.textContent).toBe(before.text);
       expect(topRow()).toEqual(before.row);
       // Each chat keeps its own fold for when the chats open again.
       fireEvent.click(toggle);
-      expect(screen.getAllByTestId("mock-conversation")).toHaveLength(2);
+      expect(screen.getAllByTestId("mock-conversation").map((chat) => chat.textContent)).toEqual(["q-1"]);
     });
 
     it("names each folded chat with its status, the ones asking and with news first, after the cues", () => {
@@ -1101,7 +1102,6 @@ describe("SideColumn", () => {
         openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
       });
       render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
-      fireEvent.click(screen.getByTestId("side-one-at-a-time"));
       fireEvent.click(screen.getByTestId("side-chats-toggle"));
       const q1 = screen.getAllByTestId("side-chats-folded-chat").find((chat) => chat.textContent?.includes("q-1"))!;
       fireEvent.click(q1);
@@ -1114,14 +1114,13 @@ describe("SideColumn", () => {
     });
 
     it("keeps one chat open at a time when chats are added to folded chats", () => {
-      // Jiayi (Nov 6): with the mode on, folding the chats and then Shift-clicking things into the
+      // Jiayi (Nov 6): folding the chats and then Shift-clicking things into the
       // column left a chat and a quest's page open, which read as two chats. Opening a chat still
       // folds the others, and a quest's page goes to its own group.
       render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
       act(() => {
         openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
       });
-      fireEvent.click(screen.getByTestId("side-one-at-a-time"));
       fireEvent.click(screen.getByTestId("side-chats-toggle"));
       act(() => {
         openInSide({ kind: "quest", questId: "q-2" });

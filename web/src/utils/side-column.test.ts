@@ -10,7 +10,6 @@ import {
   mergeLeaderColumns,
   newSideChat,
   notePaneClick,
-  noteSideItemUsed,
   openConversationInSide,
   otherColumnClickLabel,
   openQuestInSide,
@@ -18,7 +17,6 @@ import {
   openSessionMessageInSide,
   openInSide,
   replaceSideItem,
-  setSideOneAtATime,
   showMainView,
   sideFoldId,
   unfoldSideItem,
@@ -41,7 +39,6 @@ afterEach(() => {
     focusAt: undefined,
     used: undefined,
     chatHeight: undefined,
-    oneAtATime: undefined,
   });
   useTopicPanel.setState({ open: true, sheet: false, focus: null });
   useStore.setState({ currentSessionId: null, sdkSessions: [] } as never);
@@ -110,15 +107,14 @@ describe("side column items", () => {
 describe("chats one at a time", () => {
   it("keeps one chat open, like a tab group stacked as an accordion; other sections stay as they are", () => {
     // Jiayi (Nov 2): only the side chats are mutually exclusive; Topics, pages and a Home open and
-    // fold on their own as before.
+    // fold on their own. Since Nov 11 this is how the column always works: a switch turned it on
+    // before, and few knew to, so their columns filled up with open chats.
     const open = () =>
       [...items().map((item) => item.id), HOME_ITEM].filter((id) => !isRememberedFolded(sideFoldId(id)));
     const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
     const page = openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
     const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
-    expect(open()).toEqual([b, page, a, HOME_ITEM]);
-    // Turning it on keeps the chat opened last; the page and Topics stay open.
-    setSideOneAtATime(true);
+    // Opening b folded a; the page and Topics stay open.
     expect(open()).toEqual([b, page, HOME_ITEM]);
     unfoldSideItem(a);
     expect(open()).toEqual([page, a, HOME_ITEM]);
@@ -129,17 +125,40 @@ describe("chats one at a time", () => {
     expect(open()).toEqual([home, chat, page, HOME_ITEM]);
     const session = openInSide({ kind: "session", sessionId: "worker-1" });
     expect(open()).toEqual([session, home, page, HOME_ITEM]);
-    // Off, chats open side by side again.
-    setSideOneAtATime(false);
-    unfoldSideItem(a);
-    expect(open()).toEqual([session, home, page, a, HOME_ITEM]);
-    expect(useSideColumnStore.getState().oneAtATime).toBe(false);
+    // Unfolding a page folds no chat.
+    setRememberedFolded(sideFoldId(page), true);
+    unfoldSideItem(page);
+    expect(open()).toEqual([session, home, page, HOME_ITEM]);
+  });
+
+  it("starts a column saved with several chats open with one open: the one opened last, else the first", async () => {
+    // A column saved while chats could open side by side (before Nov 11), with the old switch's
+    // setting, which goes. Pages keep their folds.
+    const saved = [
+      { id: "a", kind: "conversation", threadKey: "q-1", leaderId: "l1" },
+      { id: "p", kind: "topic", topicId: "t1", leaderId: "l1" },
+      { id: "b", kind: "session", sessionId: "worker-1" },
+      { id: "c", kind: "new-chat", leaderId: "l1", startedFrom: null },
+    ];
+    const load = async (state: object) => {
+      localStorage.clear();
+      localStorage.setItem("cc-side-column", JSON.stringify(state));
+      vi.resetModules();
+      const fresh = await import("./side-column.js");
+      const folds = await import("./remembered-folds.js");
+      const open = saved.map((item) => item.id).filter((id) => !folds.isRememberedFolded(fresh.sideFoldId(id)));
+      return { open, state: fresh.useSideColumnStore.getState() };
+    };
+    const focused = await load({ items: saved, focus: "b", oneAtATime: false });
+    expect(focused.open).toEqual(["p", "b"]);
+    expect(focused.state).not.toHaveProperty("oneAtATime");
+    expect((await load({ items: saved, focus: "p" })).open).toEqual(["a", "p"]);
   });
 });
 
 describe("closing chats one at a time", () => {
-  // Jiayi (Nov 3): with chats one at a time, removing the open chat opens another; removing a
-  // folded one leaves the open chat; and the open chat can be folded, so none may be open.
+  // Jiayi (Nov 3): removing the open chat opens another; removing a folded one leaves the open
+  // chat; and the open chat can be folded, so none may be open.
   const openChats = () =>
     items()
       .filter((item) => !isRememberedFolded(sideFoldId(item.id)))
@@ -151,7 +170,6 @@ describe("closing chats one at a time", () => {
     const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
     const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
     const c = openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
-    setSideOneAtATime(true);
     // Listed top to bottom: c, b, a. Used order: c, then a (opened again), then b.
     expect(items().map((item) => item.id)).toEqual([c, b, a]);
     unfoldSideItem(a);
@@ -170,7 +188,6 @@ describe("closing chats one at a time", () => {
     const page = openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
     const chat = openInSide({ kind: "new-chat", leaderId: "l1", startedFrom: null });
     const other = openInSide({ kind: "new-chat", leaderId: "l2", startedFrom: null });
-    setSideOneAtATime(true);
     expect(openChats()).toEqual([other, page]);
     // New threads aren't in the used order: the neighbour below opens.
     closeSideItem(other);
@@ -179,15 +196,14 @@ describe("closing chats one at a time", () => {
     expect(openChats()).toEqual([page]);
   });
 
-  it("leaves the open chat when a folded one is removed, and doesn't open one when the mode is off", () => {
+  it("leaves the open chat when a folded one is removed, and opens none when the open one was folded", () => {
     const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
     const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
-    setSideOneAtATime(true);
     expect(openChats()).toEqual([b]);
     closeSideItem(a);
     expect(openChats()).toEqual([b]);
     const c = openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
-    setSideOneAtATime(false);
+    setRememberedFolded(sideFoldId(c), true);
     closeSideItem(c);
     expect(openChats()).toEqual([]);
   });
@@ -218,59 +234,6 @@ describe("a leader's Home in the side column", () => {
     for (const key of ["q-1", "main", "all"]) showMainView("l1", key)();
     expect(lastThreadShownOf("l1")).toBe("q-1");
     expect(lastThreadShownOf("l2")).toBeNull();
-  });
-});
-
-describe("at most three open conversations", () => {
-  it("folds the least recently opened or used conversation when a fourth opens", () => {
-    // Jiayi (Nov 1): each open conversation keeps its feed and live messages; three at most.
-    const open = () =>
-      items()
-        .filter((item) => !isRememberedFolded(sideFoldId(item.id)))
-        .map((item) => item.id);
-    const a = openInSide({ kind: "conversation", threadKey: "q-1", leaderId: "l1" });
-    const b = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
-    const c = openInSide({ kind: "session", sessionId: "worker-1" });
-    // Pages and quest details don't count.
-    const page = openInSide({ kind: "topic", topicId: "t1", leaderId: "l1" });
-    const details = openInSide({ kind: "quest", questId: "q-9" });
-    expect(open()).toEqual(expect.arrayContaining([a, b, c, page, details]));
-    // Using the oldest makes it the last to fold.
-    noteSideItemUsed(a);
-    const d = openInSide({ kind: "conversation", threadKey: "q-4", leaderId: "l2" });
-    expect(isRememberedFolded(sideFoldId(b))).toBe(true);
-    expect(open()).toEqual(expect.arrayContaining([a, c, d, page, details]));
-    // Unfolding a folded one folds the next oldest.
-    unfoldSideItem(b);
-    expect(isRememberedFolded(sideFoldId(c))).toBe(true);
-    expect(
-      open()
-        .filter((id) => [a, b, c, d].includes(id))
-        .sort(),
-    ).toEqual([a, b, d].sort());
-  });
-
-  it("counts a new thread once it becomes its conversation", () => {
-    const convs = ["q-1", "q-2", "q-3"].map((threadKey) =>
-      openInSide({ kind: "conversation", threadKey, leaderId: "l1" }),
-    );
-    const chat = openInSide({ kind: "new-chat", leaderId: "l1", startedFrom: null });
-    expect(convs.every((id) => !isRememberedFolded(sideFoldId(id)))).toBe(true);
-    replaceSideItem(chat, { kind: "conversation", threadKey: "topic:aaaa0001", leaderId: "l1" });
-    expect(isRememberedFolded(sideFoldId(convs[0]!))).toBe(true);
-    expect(isRememberedFolded(sideFoldId(chat))).toBe(false);
-  });
-
-  it("starts a column saved with more open within the limit, keeping the most recently used", async () => {
-    // A column from before the limit has five open and no use order beyond the last one used.
-    const saved = ["a", "b", "c", "d", "e"].map((id) => ({ id, kind: "conversation", threadKey: id, leaderId: "l1" }));
-    localStorage.setItem("cc-side-column", JSON.stringify({ items: saved, used: ["e"] }));
-    vi.resetModules();
-    const fresh = await import("./side-column.js");
-    const folds = await import("./remembered-folds.js");
-    const open = saved.map((item) => item.id).filter((id) => !folds.isRememberedFolded(fresh.sideFoldId(id)));
-    // The used one stays; the others never used keep the column's order.
-    expect(open).toEqual(["a", "b", "e"]);
   });
 });
 

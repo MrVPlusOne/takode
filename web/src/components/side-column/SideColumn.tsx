@@ -13,7 +13,6 @@ import {
   isChatItem,
   isConversationItem,
   rememberSideChatHeight,
-  setSideOneAtATime,
   newSideChat,
   noteSideItemUsed,
   replaceSideItem,
@@ -108,7 +107,7 @@ export function SideColumn({
   threadKey: string;
   variant: "docked" | "sheet";
 }) {
-  const { items, focus, focusAt, chatHeight, used = [], oneAtATime = false } = useSideColumn();
+  const { items, focus, focusAt, chatHeight, used = [] } = useSideColumn();
   const folds = useRememberedFolds();
   const groups = SIDE_GROUPS.map((group) => ({
     group,
@@ -122,7 +121,7 @@ export function SideColumn({
     const group = groupOfId.get(id);
     return (!group || !groupFolded(group)) && !folds.isFolded(sideFoldId(id));
   };
-  // Unfolding goes through the column's open limit: a fourth open conversation folds the oldest.
+  // Unfolding a chat folds the other chats (`unfoldSideItem`).
   const toggle = (id: string) => (isOpen(id) ? folds.toggle(sideFoldId(id)) : unfoldSideItem(id));
   const heights = useSectionHeights(SIDE_HEIGHTS_STACK);
   const allIds = [...items.map((item) => item.id), ...(leaderId ? [HOME_ITEM] : [])];
@@ -137,16 +136,6 @@ export function SideColumn({
   ).length;
   const idsKey = allIds.join(",");
   useEffect(() => heights.keepOnly(idsKey.split(",")), [idsKey]);
-  // A new thread starts as tall as the side conversation last resized (Jiayi, Nov 1): one height
-  // doesn't suit everyone, and their last drag says what suits them.
-  const seenIds = useRef(new Set(allIds));
-  useEffect(() => {
-    for (const item of items) {
-      if (seenIds.current.has(item.id)) continue;
-      seenIds.current.add(item.id);
-      if (item.kind === "new-chat" && chatHeight !== undefined) heights.set(item.id, chatHeight);
-    }
-  }, [idsKey]);
   // The scrolling area's height: one open section fits it beside every header row by default.
   const scrollRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState(0);
@@ -174,7 +163,7 @@ export function SideColumn({
     if (variant === "docked" && opened && isChatItem(opened)) focusChat(sideChatId(focus));
   }, [focus, focusAt]);
   // Open sections stay mounted, and so do the last few folded pages. A folded conversation unmounts:
-  // its feed and live messages are what the open limit saves, and it reopens where it was left.
+  // its feed and live messages are what folding saves, and it reopens where it was left.
   const conversationIds = new Set(items.filter(isConversationItem).map((item) => item.id));
   const keptRef = useRef<string[]>([]);
   const openIds = sectionIds.filter(isOpen);
@@ -182,7 +171,7 @@ export function SideColumn({
     .filter((id) => sectionIds.includes(id))
     .slice(0, openIds.length + KEPT_MOUNTED);
   const kept = keptRef.current;
-  // Using a pane (focusing it) makes it the last conversation the open limit folds.
+  // Using a pane (focusing it) puts it first in the use order.
   const focusedChat = useChatFocusStore((state) => state.focused);
   useEffect(() => {
     if (focusedChat.startsWith("side:")) noteSideItemUsed(focusedChat.slice("side:".length));
@@ -228,24 +217,23 @@ export function SideColumn({
 
   /**
    * One section: its header row (sticky while its body scrolls past), then, while open, its body at
-   * its height and the edge that sets it. A conversation keeps a fixed height (its feed scrolls
-   * inside); a page is as tall as its content, up to that height.
+   * its height and the edge that sets it. A chat keeps a fixed height, which every chat shares (its
+   * feed scrolls inside); a page is as tall as its content, up to its own height.
    */
   const section = (
     id: string,
     row: ReactNode,
     body: ReactNode,
-    fixed: boolean,
+    chat: boolean,
     defaultHeight: number,
     /** A chat's focus id: a conversation's section can be the focused chat (chat-focus.ts). */
     chatId?: string,
   ) => {
     const open = isOpen(id);
-    // Chats one at a time share one height: the last a chat was dragged to, else the column's less
-    // one header row, so it doesn't shrink as more go in. Others keep their own heights.
-    const shared = oneAtATime && fixed;
-    const dragged = shared ? chatHeight : heights.heightOf(id);
-    const size = dragged ?? (shared ? sharedChatFill : defaultHeight);
+    // Chats share one height: the last a chat was dragged to, else the column's less one header
+    // row, so it doesn't shrink as more go in. Others keep their own heights.
+    const dragged = chat ? chatHeight : heights.heightOf(id);
+    const size = dragged ?? (chat ? sharedChatFill : defaultHeight);
     const content = (
       <>
         <div className="sticky top-0 z-10 bg-cc-bg">
@@ -263,7 +251,7 @@ export function SideColumn({
                 else bodyElements.current.delete(id);
               }}
               className="isolate flex min-h-0 overflow-hidden"
-              style={fixed || dragged !== undefined ? { height: size } : { maxHeight: size }}
+              style={chat || dragged !== undefined ? { height: size } : { maxHeight: size }}
               data-testid="side-section-body"
             >
               {variant === "docked" && <ColumnScrollStrip scrollRef={scrollRef} />}
@@ -273,12 +261,12 @@ export function SideColumn({
               measure={() => bodyElements.current.get(id)?.getBoundingClientRect().height || size}
               onResize={(start, delta) => {
                 const height = heights.resize(id, start, delta);
-                if (fixed) rememberSideChatHeight(height);
+                if (chat) rememberSideChatHeight(height);
               }}
               onReset={() => {
                 heights.reset(id);
                 // A shared chat height goes back to its default for every chat.
-                if (shared) rememberSideChatHeight(undefined);
+                if (chat) rememberSideChatHeight(undefined);
               }}
             />
           </Activity>
@@ -366,7 +354,6 @@ export function SideColumn({
             chats={chats.items.length}
           />
         )}
-        <OneAtATimeToggle on={oneAtATime} />
         <button
           type="button"
           onClick={close}
@@ -539,33 +526,6 @@ function useChatsAttention(items: SideItem[]) {
     (summary.groups ? summary.groups.split("\n") : []).map((line) => line.split("\t") as [string, ThreadGroupId]),
   );
   return { ...summary, groups };
-}
-
-/**
- * Switches chats-one-at-a-time on and off: opening a chat folds the other chats, which share one
- * height. Its icon shows a stack with one open section; it is highlighted while on.
- */
-function OneAtATimeToggle({ on }: { on: boolean }) {
-  const label = on ? "Chats one at a time: on" : "Chats one at a time";
-  return (
-    <button
-      type="button"
-      onClick={() => setSideOneAtATime(!on)}
-      aria-pressed={on}
-      aria-label="Chats one at a time"
-      title={`${label}. When on, opening a chat folds the other chats, and they share one height`}
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
-        on ? "bg-cc-primary/15 text-cc-primary" : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-      }`}
-      data-testid="side-one-at-a-time"
-    >
-      <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" aria-hidden="true">
-        <rect x="2.5" y="2" width="11" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.2" />
-        <rect x="2.5" y="5.75" width="11" height="6" rx="0.8" stroke="currentColor" strokeWidth="1.2" />
-        <rect x="2.5" y="13" width="11" height="1.5" rx="0.6" fill="currentColor" />
-      </svg>
-    </button>
-  );
 }
 
 /** Lines one wheel "line" step moves, in pixels, for wheel events counted in lines. */

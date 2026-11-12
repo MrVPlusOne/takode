@@ -67,7 +67,7 @@ export function SideConversation({ leaderId, threadKey }: { leaderId: string; th
     wantsSideClick()
       ? openInSide({ kind: "conversation", threadKey: next, leaderId })
       : navigateToSessionThread(leaderId, next);
-  // A folded conversation got no live messages (the column's open limit unmounts it): opening it
+  // A folded conversation got no live messages (folding unmounts it): opening it
   // again catches its held newest window up, in a delta the server sends against its hash.
   useEffect(() => {
     const held = useStore.getState().threadWindows.get(leaderId)?.get(key);

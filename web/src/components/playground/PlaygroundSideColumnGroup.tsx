@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NewThreadIcon } from "../library/library-icons.js";
+import { CollapseIcon, NewThreadIcon } from "../library/library-icons.js";
 import { ChatsGroupToggle, FoldedChatButton, FoldedChatsBar, PageGroupBar } from "../side-column/SideGroupBars.js";
 import type { ThreadGroupId } from "../ThreadTabGroups.js";
 import { Card, Section } from "./shared.js";
@@ -20,7 +20,7 @@ export function PlaygroundSideColumnGroup() {
   return (
     <Section
       title="Side column groups"
-      description="The side column groups what was put in it by kind: Chats (folding from the top row, beside New thread and the one-at-a-time toggle), Quests and Pages, then the topic page. Folded, the chats show as one bar: the amber bell for a question, the unread count, then each chat with its status dot, the ones asking or with news first. Click a button or bar to fold or open it."
+      description="The side column groups what was put in it by kind: Chats (folding from the top row, beside New thread and Collapse; one chat opens at a time), Quests and Pages, then the topic page. Folded, the chats show as one bar: the amber bell for a question, the unread count, then each chat with its status dot, the ones asking or with news first. Click a button or bar to fold or open it."
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Card label="Chats, top row and folded bar">
@@ -53,7 +53,9 @@ function ChatsGroup() {
         </span>
         <span className="flex-1" />
         <ChatsGroupToggle folded={folded} onToggle={() => setFolded(!folded)} chats={CHATS.length} />
-        <span className="h-7 w-7 shrink-0 rounded-md bg-cc-primary/15" aria-hidden="true" />
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center text-cc-muted" aria-hidden="true">
+          <CollapseIcon className="h-4 w-4" />
+        </span>
       </div>
       {folded ? (
         <FoldedChatsBar questions={1} unread={2} onOpen={() => setFolded(false)}>
