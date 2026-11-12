@@ -23,6 +23,7 @@ import { setTopicSheetOpen, useTopicPanel } from "../../utils/topic-panel.js";
 
 import { MAIN_VIEW_MIN_WIDTH, SideColumnDock, SideColumnPhoneSheet, TopicSidePanel } from "./TopicSidePanel.js";
 import { showMainView } from "../../utils/side-column.js";
+import { useLibraryNav } from "../../utils/library-nav.js";
 
 /**
  * A leader's topic panel against a mocked API: a leader past about 20 quests gets the hint to
@@ -506,6 +507,30 @@ describe("TopicSidePanel", () => {
     await waitFor(() => expect(rail).toHaveTextContent("T7 run"));
     fireEvent.click(within(rail).getByRole("button", { name: "Show the topic T7 run" }));
     expect(await screen.findByTestId("topic-side-panel")).toBeInTheDocument();
+    shown();
+  });
+
+  it("opens the Library in one click whether the side column is open or collapsed", async () => {
+    // Jiayi (Nov 12): the collapsed rail's gallery button made the Library easy to reach, but with
+    // the column open it was hard to find. The open column's top row has the same button.
+    mockApi();
+    useStore.setState({
+      sdkSessions: [{ sessionId: "l1", isOrchestrator: true, state: "connected", cwd: "/", createdAt: 1 }],
+    } as never);
+    const shown = showMainView("l1", "q-2713");
+    render(<SideColumnDock />);
+    const column = await screen.findByTestId("topic-side-panel");
+    // One gallery button in the open column: the home topic page drops its own Artifacts link.
+    expect(within(column).getAllByRole("button", { name: /artifact gallery|Artifacts/ })).toHaveLength(1);
+    fireEvent.click(within(column).getByRole("button", { name: "Open the artifact gallery" }));
+    expect(useLibraryNav.getState().leaderId).toBe("l1");
+    expect(window.location.hash).toContain("library");
+
+    useLibraryNav.setState({ leaderId: null });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse the side column" }));
+    const rail = await screen.findByTestId("topic-rail");
+    fireEvent.click(within(rail).getByRole("button", { name: "Open the artifact gallery" }));
+    expect(useLibraryNav.getState().leaderId).toBe("l1");
     shown();
   });
 

@@ -157,6 +157,15 @@ describe("SideColumn", () => {
     expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining("q-1")]);
   });
 
+  it("has the Library's gallery button in its top row on the phone too, and none without a leader", () => {
+    // The open column's way to the Library matches the collapsed rail's; a session with no leader
+    // has no leader gallery, as on the rail.
+    const view = render(<SideColumn leaderId="l1" threadKey="main" variant="sheet" />);
+    expect(screen.getByTestId("side-library-button").getAttribute("aria-label")).toBe("Open the artifact gallery");
+    view.rerender(<SideColumn leaderId={null} threadKey="main" variant="sheet" />);
+    expect(screen.queryByTestId("side-library-button")).toBeNull();
+  });
+
   it("shows a side chat that became a quest's thread as that quest", () => {
     // Jiayi (Oct 31): once the chat's whole request is a quest's work, the chat and the quest are
     // one conversation; the column shows the quest instead of the chat.

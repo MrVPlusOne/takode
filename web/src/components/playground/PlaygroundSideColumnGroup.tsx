@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CollapseIcon, NewThreadIcon } from "../library/library-icons.js";
+import { CollapseIcon, GalleryIcon, NewThreadIcon } from "../library/library-icons.js";
 import { ChatsGroupToggle, FoldedChatButton, FoldedChatsBar, PageGroupBar } from "../side-column/SideGroupBars.js";
 import type { ThreadGroupId } from "../ThreadTabGroups.js";
 import { Card, Section } from "./shared.js";
@@ -53,6 +53,10 @@ function ChatsGroup() {
         </span>
         <span className="flex-1" />
         <ChatsGroupToggle folded={folded} onToggle={() => setFolded(!folded)} chats={CHATS.length} />
+        {/* The Library's gallery button, as on the collapsed rail. */}
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center text-cc-muted" aria-hidden="true">
+          <GalleryIcon className="h-4 w-4" />
+        </span>
         <span className="flex h-7 w-7 shrink-0 items-center justify-center text-cc-muted" aria-hidden="true">
           <CollapseIcon className="h-4 w-4" />
         </span>

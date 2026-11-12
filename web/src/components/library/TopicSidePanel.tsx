@@ -168,14 +168,17 @@ export function TopicSidePanel({
             <SettingsIcon className="h-4 w-4" />
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => openLeaderLibrary(leaderId)}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-cc-primary hover:bg-cc-hover"
-          title="Open the gallery of what this leader and its workers made"
-        >
-          <GalleryIcon className="h-3.5 w-3.5" /> Artifacts
-        </button>
+        {/* The side column's top row has the gallery button for its leader's topics. */}
+        {!(inColumn && !pinnedTopicId) && (
+          <button
+            type="button"
+            onClick={() => openLeaderLibrary(leaderId)}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-cc-primary hover:bg-cc-hover"
+            title="Open the gallery of what this leader and its workers made"
+          >
+            <GalleryIcon className="h-3.5 w-3.5" /> Artifacts
+          </button>
+        )}
         {!inColumn && (
           <button
             type="button"

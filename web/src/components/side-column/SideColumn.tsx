@@ -39,7 +39,7 @@ import { isLeaderThreadRunning } from "../../utils/leader-thread-tabs-resolver.j
 import { isTopicViewKey } from "../../../shared/topic-thread-key.js";
 import { noteThreadMerged } from "../../utils/thread-viewport.js";
 import { useKnownTopicBrief } from "../../utils/leader-topics.js";
-import { CollapseIcon, NewThreadIcon, TopicIcon } from "../library/library-icons.js";
+import { CollapseIcon, GalleryIcon, NewThreadIcon, TopicIcon } from "../library/library-icons.js";
 import { TopicSidePanel } from "../library/TopicSidePanel.js";
 import { ThreadOriginName, useThreadPlace } from "./thread-names.js";
 import { useQuestRecord } from "../QuestSummaryCard.js";
@@ -59,7 +59,7 @@ import { SideQuestIcon, useSideQuestOf } from "../SideQuestCue.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { BellIcon } from "../AttentionKind.js";
-import { openLibraryArtifact } from "../../utils/library-nav.js";
+import { openLeaderLibrary, openLibraryArtifact } from "../../utils/library-nav.js";
 import {
   ChatFocusContext,
   chatFocusHandlers,
@@ -353,6 +353,19 @@ export function SideColumn({
             onToggle={() => folds.toggle(sideGroupFold("chats"))}
             chats={chats.items.length}
           />
+        )}
+        {/* The same gallery button as the collapsed rail's, so the Library is one click away either way. */}
+        {leaderId && (
+          <button
+            type="button"
+            onClick={() => openLeaderLibrary(leaderId)}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+            aria-label="Open the artifact gallery"
+            title="Artifacts"
+            data-testid="side-library-button"
+          >
+            <GalleryIcon className="h-4 w-4" />
+          </button>
         )}
         <button
           type="button"
