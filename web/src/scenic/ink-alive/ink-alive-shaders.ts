@@ -18,8 +18,8 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
  * peaks, tall peaks, flying cranes, near cliffs with pines, and a drifting boat. A sea of clouds
  * streams through the valleys and around the peaks, carried by a small fluid simulation, and lies
  * on a rippling lake that mirrors the scene and carries a path of light from the sun or moon.
- * The pines sway in the same breeze; the rest of the painting never moves. It can be pure ink or
- * washed with light colour.
+ * The pines sway in the same breeze; the rest of the painting never moves. By day the ink is
+ * washed with light colour; by moonlight it is ink alone.
  */
 export const INK_ALIVE_SHADER = `
 precision highp float;
@@ -51,14 +51,13 @@ uniform vec4 uCranePose[3]; // frame a, frame b, blend, tilt (radians)
 uniform sampler2D uClouds;  // cloud carried by the fluid simulation (density in red), pane-sized
 uniform float uHasClouds;   // 1 when the simulation runs
 uniform vec4 uRing[2];      // fish rings on the lake: x (fraction), depth below the lake line (fraction), start, unused
-// A light-colour painting instead of pure ink (0 or 1), and its washes: distant ridges, rock,
-// the peaks' tops, the pines, and the water.
-uniform float uColour;
-uniform vec3 uTintFar;
-uniform vec3 uTintRock;
-uniform vec3 uTintTop;
-uniform vec3 uTintPine;
-uniform vec3 uTintWater;
+// By day the ink is glazed with light ochre and blue (浅绛山水): the hue each layer's pale washes
+// take. Distant ridges, rock, the peaks' tops, the pines, and the water.
+const vec3 TINT_FAR = vec3(0.36, 0.47, 0.56);
+const vec3 TINT_ROCK = vec3(0.6, 0.43, 0.27);
+const vec3 TINT_TOP = vec3(0.38, 0.48, 0.5);
+const vec3 TINT_PINE = vec3(0.3, 0.42, 0.36);
+const vec3 WATER_TONE = vec3(0.68, 0.73, 0.74);
 
 
 // Value noise from a tiling texture of random values, smoothstepped between texels.
@@ -130,7 +129,7 @@ void veil(inout vec4 scene, vec3 color, float cover) {
 // Lays a wash of colour over ink as a painter glazes: the hue changes and the lightness stays, so
 // the brushwork reads exactly as in the ink painting.
 vec3 glaze(vec3 c, vec3 tint, float amount) {
-  return mix(c, c * mix(vec3(1.0), tint / max(dot(tint, vec3(0.3, 0.59, 0.11)), 0.01), 0.45), amount);
+  return mix(c, c * mix(vec3(1.0), tint / dot(tint, vec3(0.3, 0.59, 0.11)), 0.45), amount);
 }
 
 // One crane's colour (premultiplied) and coverage at px.
@@ -236,10 +235,10 @@ void main() {
   // looked like snow.
   over(moonlit, moon * (midS.y - max(midS.y - 0.6, 0.0) * 0.5), smoothstep(0.02, 0.28, midS.x));
   peaks = 1.0 - (1.0 - peaks) * (1.0 - mid);
-  // In colour, each layer's pale washes take its tint and its darkest strokes stay ink: the far
+  // By day each layer's pale washes take its tint and its darkest strokes stay ink: the far
   // ridges washed blue, the rock warm, the peaks' tops cooler, as a painter lays colour over ink.
   float upper = smoothstep(uHorizon - 0.22 * h, uHorizon - 0.45 * h, sp.y);
-  vec3 tint = mix(uTintFar, mix(uTintRock, uTintTop, upper), clamp(mid * 2.0, 0.0, 1.0));
+  vec3 tint = mix(TINT_FAR, mix(TINT_ROCK, TINT_TOP, upper), clamp(mid * 2.0, 0.0, 1.0));
 
   // Clouds through the peaks: thin streams high up, and the sea of clouds at their feet.
   float high = cloud(sq, 0.011, 1.3, 0.5, 1.0) * band(sp.y, uHorizon - 0.5 * h, uHorizon - 0.26 * h, 0.08 * h);
@@ -356,7 +355,7 @@ void main() {
   // moon, the clouds glow, and the near cliffs stand dark in front.
   vec3 dayInk = vec3(0.11, 0.105, 0.1);
   // Colour is a day painting: by moonlight it read as floodlit stone, so night stays ink.
-  float daylight = uColour * (1.0 - uDark);
+  float daylight = 1.0 - uDark;
   vec3 dayColor = mix(glaze(mix(color, dayInk, peaks), tint, daylight * smoothstep(0.03, 0.3, peaks) * (1.0 - smoothstep(0.45, 0.85, peaks))), dayInk, shading);
   // The washes under lumps belong to the day painting; at night they made a sooty rim.
   vec3 nightColor = (color * (1.0 - moonlit.a) + moonlit.rgb) * (1.0 - max(underHigh - high, 0.0) * 0.09);
@@ -370,7 +369,7 @@ void main() {
     float open = 1.0 - shore;
     float reflectance = mix(1.0, 0.35, toward);
     float wash = fbm(vec2(px.x / h * 1.6 - t * 0.008, depth * 12.0)) - 0.5;
-    dayColor = mix(mix(vec3(0.7, 0.72, 0.72), uTintWater, uColour) + wash * 0.07, dayColor, reflectance);
+    dayColor = mix(WATER_TONE + wash * 0.07, dayColor, reflectance);
     nightColor = mix(vec3(0.17, 0.18, 0.205) + wash * 0.04, nightColor, reflectance);
     float facing = (smoothstep(0.8, 0.95, crest) * strength * glimmer + max(rings, 0.0) * 0.6) * open;
     float shaded = smoothstep(0.8, 0.95, -crest) * strength * toward * open;
@@ -416,8 +415,8 @@ void main() {
   color = mix(color, nearInk, near * mix(1.0, 0.95, uDark));
   color = mix(color, moon * 0.45, nearRim * 0.25 * uDark);
   color = mix(color, max(color, vec3(0.42, 0.44, 0.48)), lowMist * 0.5 * smoothstep(0.1, 0.4, near) * uDark);
-  // In colour the cliffs' pale washes are warm and the pines' needles a muted green.
-  vec3 nearTint = mix(uTintRock, uTintPine, smoothstep(0.2, 0.6, pine));
+  // By day the cliffs' pale washes are warm and the pines' needles a muted green.
+  vec3 nearTint = mix(TINT_ROCK, TINT_PINE, smoothstep(0.2, 0.6, pine));
   color = glaze(color, nearTint, daylight * smoothstep(0.05, 0.3, near) * (1.0 - smoothstep(0.45, 0.85, near)));
   // A warm lantern on the boat at night.
   vec2 lantern = vec2(uBoatRect.x + uBoatRect.z * 0.62, uBoatRect.y + uBoatRect.w * 0.45);

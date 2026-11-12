@@ -21,7 +21,8 @@ import { ScenicBackdrop, ScenicPanels, scenicAsset, scenicPainting } from "./Sce
 import { playScenicMoment } from "./scenic-moments.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { SCENIC_REVEAL_EVENT, applyScenicClass, inkPaletteOf } from "./scenic-styles.js";
+import { normalizeScenicBackground } from "../../shared/scenic-background.js";
+import { SCENIC_REVEAL_EVENT, applyScenicClass } from "./scenic-styles.js";
 
 // Read from disk: Vitest turns a raw stylesheet import into an empty string, so a check on it passed
 // whatever the stylesheet held.
@@ -89,14 +90,11 @@ describe("scenic background setting", () => {
     expect([...document.documentElement.classList].some((name) => name.startsWith("scenic"))).toBe(false);
   });
 
-  // Ink & Colour is the Ink & Paper scene washed with colour by day, so it takes the ink scene's
-  // classes (its palette, veil and column) and only the living painting differs.
-  it("shows the Ink & Paper scene for Ink & Colour, coloured by day", () => {
-    applyScenicClass("inkColor");
-    expect(document.documentElement.classList.contains("scenic")).toBe(true);
-    expect(document.documentElement.classList.contains("scenic-ink")).toBe(true);
-    expect(inkPaletteOf("inkColor")).toBe("ochre");
-    expect(inkPaletteOf("ink")).toBe("ink");
+  // Ink & Colour was merged into Ink & Paper, which is now the colour version, so a saved
+  // Ink & Colour choice keeps showing that painting.
+  it("reads a saved Ink & Colour choice as Ink & Paper", () => {
+    expect(normalizeScenicBackground("inkColor")).toBe("ink");
+    expect(normalizeScenicBackground("sakura")).toBe("off");
   });
 });
 
@@ -138,7 +136,7 @@ describe("ScenicBackdrop", () => {
 
   it("asks for the repainted Ink & Paper thumbnails by their new version", () => {
     // Scenic files are cached for good, so a repainted file must change its name.
-    expect(scenicAsset("ink-day-thumb")).toBe("/scenic/ink-day-thumb.v2.webp");
+    expect(scenicAsset("ink-day-thumb")).toBe("/scenic/ink-day-thumb.v3.webp");
     expect(scenicAsset("meadow-day-thumb")).toBe("/scenic/meadow-day-thumb.v1.webp");
   });
 
@@ -201,32 +199,12 @@ describe("SettingsScenicBackgroundSection", () => {
     useStore.setState({ scenicBackground: "off" });
     render(<SettingsScenicBackgroundSection />);
     const radios = screen.getAllByRole("radio");
-    expect(radios.map((radio) => radio.textContent)).toEqual([
-      "Off",
-      "Summer Meadow",
-      "Seaside Town",
-      "Ink & Paper",
-      "Ink & Colour",
-    ]);
+    expect(radios.map((radio) => radio.textContent)).toEqual(["Off", "Summer Meadow", "Seaside Town", "Ink & Paper"]);
     expect(screen.getByRole("radio", { name: "Off" })).toHaveAttribute("aria-checked", "true");
 
     fireEvent.click(screen.getByRole("radio", { name: "Seaside Town" }));
     expect(mockUpdateSettings).toHaveBeenCalledWith({ scenicBackground: "seaside" });
     expect(screen.getByRole("radio", { name: "Seaside Town" })).toHaveAttribute("aria-checked", "true");
-  });
-
-  // The colour tile shows the coloured painting by day and the ink one by night, since night is ink.
-  it("pictures Ink & Colour in colour by day and in ink by night", () => {
-    const { unmount } = render(<SettingsScenicBackgroundSection />);
-    const picture = () =>
-      screen.getByRole("radio", { name: "Ink & Colour" }).querySelector("span")!.style.backgroundImage;
-    expect(picture()).toContain(scenicAsset("ink-colour-day-thumb"));
-    unmount();
-    useStore.setState({ darkMode: true });
-    render(<SettingsScenicBackgroundSection />);
-    expect(picture()).toContain(scenicAsset("ink-night-thumb"));
-    fireEvent.click(screen.getByRole("radio", { name: "Ink & Colour" }));
-    expect(mockUpdateSettings).toHaveBeenCalledWith({ scenicBackground: "inkColor" });
   });
 });
 

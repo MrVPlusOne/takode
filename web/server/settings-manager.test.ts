@@ -555,10 +555,11 @@ describe("settings-manager", () => {
     await _flushForTest();
     _resetForTest(settingsPath);
     expect(getSettings().scenicBackground).toBe("seaside");
-    updateSettings({ scenicBackground: "inkColor" });
-    await _flushForTest();
+
+    // Ink & Colour was merged into Ink & Paper, which is now the colour version.
+    writeFileSync(settingsPath, JSON.stringify({ scenicBackground: "inkColor" }), "utf-8");
     _resetForTest(settingsPath);
-    expect(getSettings().scenicBackground).toBe("inkColor");
+    expect(getSettings().scenicBackground).toBe("ink");
 
     writeFileSync(settingsPath, JSON.stringify({ scenicBackground: "sakura" }), "utf-8");
     _resetForTest(settingsPath);

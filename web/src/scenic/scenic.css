@@ -51,19 +51,19 @@ html.scenic [data-testid="quest-completion-summary"] .text-cc-success {
 
 /*
  * The conversation sits on a sheet of paper: the feed's column gets a nearly opaque backing with a
- * soft, feathered edge, so text reads cleanly even over the busiest part of the painting, which
- * stays vivid on either side. (A background and a shadow add no stacking context.)
+ * crisp edge, so text reads cleanly even over the busiest part of the painting, which stays vivid
+ * on either side. (A background and a shadow add no stacking context.) A feathered glow around the
+ * sheet was dropped: the scrolling feed clipped it in a hard line at either end, and by night it
+ * read as a murky halo.
  */
 html.scenic [data-feed-content-root="true"] {
   background: color-mix(in srgb, var(--color-cc-bg) 97%, transparent);
-  box-shadow: 0 0 48px 28px color-mix(in srgb, var(--color-cc-bg) 90%, transparent);
+  box-shadow: 0 0 0 1px var(--scenic-edge);
   border-radius: 16px;
 }
 
-/* At night a feathered dark edge reads as a murky halo, so the sheet gets a crisp edge instead. */
 html.dark.scenic [data-feed-content-root="true"] {
   background: color-mix(in srgb, var(--color-cc-card) 94%, transparent);
-  box-shadow: 0 0 0 1px var(--scenic-edge);
 }
 
 /* The sessions panel and the side column show the same painting, faded behind the page colour. */

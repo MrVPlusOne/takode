@@ -16,13 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store.js";
 import { InkAliveCanvas } from "./ink-alive/InkAliveCanvas.js";
-import {
-  SCENIC_REVEAL_EVENT,
-  type ScenicStyle,
-  inkPaletteOf,
-  scenicMotionAllowed,
-  useScenicStyle,
-} from "./scenic-styles.js";
+import { SCENIC_REVEAL_EVENT, type ScenicStyle, scenicMotionAllowed, useScenicStyle } from "./scenic-styles.js";
 
 type LightKind = "pollen" | "firefly" | "glint" | "glint-night";
 
@@ -42,7 +36,7 @@ export function scenicAsset(name: string): string {
 }
 
 /** Files repainted since they first shipped; a new version makes browsers fetch the new image. */
-const ASSET_VERSIONS: Record<string, number> = { "ink-day-thumb": 2, "ink-night-thumb": 2 };
+const ASSET_VERSIONS: Record<string, number> = { "ink-day-thumb": 3, "ink-night-thumb": 2 };
 
 const SCENES: Record<ScenicStyle, SceneArt> = {
   meadow: {
@@ -93,7 +87,6 @@ export function ScenicPanels() {
  */
 export function ScenicBackdrop() {
   const style = useScenicStyle();
-  const palette = useStore((state) => inkPaletteOf(state.scenicBackground));
   const dark = useStore((state) => state.darkMode);
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -125,7 +118,7 @@ export function ScenicBackdrop() {
       data-scenic-style={style}
       className="pointer-events-none absolute inset-0 overflow-hidden"
     >
-      {alive && <InkAliveCanvas dark={dark} motion={motion} palette={palette} onUnavailable={onAliveUnavailable} />}
+      {alive && <InkAliveCanvas dark={dark} motion={motion} onUnavailable={onAliveUnavailable} />}
       {!alive && (
         <div className="absolute inset-0">
           <div

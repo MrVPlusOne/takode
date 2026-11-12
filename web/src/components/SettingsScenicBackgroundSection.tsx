@@ -12,10 +12,7 @@ export function SettingsScenicBackgroundSection({ hidden = false }: { hidden?: b
   const value = useStore((state) => state.scenicBackground);
   const setValue = useStore((state) => state.setScenicBackground);
   const dark = useStore((state) => state.darkMode);
-  const options: Array<{ id: ScenicBackground; label: string; thumbs?: [string, string] }> = [
-    { id: "off", label: "Off" },
-    ...SCENIC_STYLES,
-  ];
+  const options: Array<{ id: ScenicBackground; label: string }> = [{ id: "off", label: "Off" }, ...SCENIC_STYLES];
   return (
     <div
       hidden={hidden}
@@ -29,7 +26,7 @@ export function SettingsScenicBackgroundSection({ hidden = false }: { hidden?: b
           dark theme. It moves very gently, and stays still when your device asks for reduced motion.
         </p>
       </div>
-      <div role="radiogroup" aria-label="Scenic Background" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <div role="radiogroup" aria-label="Scenic Background" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {options.map((option) => {
           const selected = option.id === value;
           return (
@@ -47,7 +44,9 @@ export function SettingsScenicBackgroundSection({ hidden = false }: { hidden?: b
                 aria-hidden="true"
                 className="block aspect-[16/10] w-full bg-cc-bg bg-cover bg-center"
                 style={
-                  option.thumbs ? { backgroundImage: `url("${scenicAsset(option.thumbs[dark ? 1 : 0])}")` } : undefined
+                  option.id === "off"
+                    ? undefined
+                    : { backgroundImage: `url("${scenicAsset(`${option.id}-${dark ? "night" : "day"}-thumb`)}")` }
                 }
               />
               <span
