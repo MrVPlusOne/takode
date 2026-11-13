@@ -73,7 +73,7 @@ describe("typing feel", () => {
   it("settles in steps, never with an animation that would keep the page drawing frames", () => {
     // (The forge's sparks are the one exception, and only at speed; see below.)
     const area = box();
-    for (const feel of ["embers", "streaks", "shower", "flare"] as const) {
+    for (const feel of ["embers", "streaks", "shower"] as const) {
       handle = attachTypingFeel(area, feel);
       input(area, "a");
       paint();
@@ -88,7 +88,7 @@ describe("typing feel", () => {
 
   it("throws sparks only at speed, to the right of the caret, in short bursts no more often than every 240 ms", () => {
     const area = box();
-    for (const feel of ["embers", "streaks", "shower", "flare"] as const) {
+    for (const feel of ["embers", "streaks", "shower"] as const) {
       animate.mockClear();
       handle = attachTypingFeel(area, feel);
       // Slow typing never sparks.
@@ -143,7 +143,7 @@ describe("typing feel", () => {
 
   it("never touches the text: its colour and weight stay the box's own and its caret stays visible", () => {
     const area = box();
-    for (const feel of ["embers", "streaks", "shower", "flare"] as const) {
+    for (const feel of ["embers", "streaks", "shower"] as const) {
       handle = attachTypingFeel(area, feel);
       input(area, "字");
       paint();

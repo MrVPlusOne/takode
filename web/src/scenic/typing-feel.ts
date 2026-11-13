@@ -19,7 +19,7 @@
 import { ballisticPath } from "../components/completion-celebration.js";
 import { scenicMotionAllowed } from "./scenic-styles.js";
 
-export type TypingFeel = "embers" | "streaks" | "shower" | "flare";
+export type TypingFeel = "embers" | "streaks" | "shower";
 
 /**
  * The styles, in the order to offer them, with a short description of each. Every one is the
@@ -39,12 +39,7 @@ export const TYPING_FEELS: ReadonlyArray<{ id: TypingFeel; label: string; descri
   {
     id: "shower",
     label: "Forge: shower",
-    description: "A small shower of fine sparks sprays right and drops, the heaviest fall of the four.",
-  },
-  {
-    id: "flare",
-    label: "Forge: flare",
-    description: "One or two bright, glowing sparks fly right on a low arc, with a hotter glow on the caret.",
+    description: "A small shower of fine sparks sprays right and drops, the heaviest fall of the three.",
   },
 ];
 
@@ -285,7 +280,11 @@ function glowingCaret(
   const light = (heat: number) => {
     const lit = colour(heat);
     line.style.background = lit;
-    line.style.boxShadow = `1px 0 2px 0.5px ${lit}, 1.5px 0 ${spread}px 1px color-mix(in srgb, ${halo(heat)} 45%, transparent)`;
+    // By day a wide halo reads as a smudged caret, so it is narrower there.
+    const dark = document.documentElement.classList.contains("dark");
+    line.style.boxShadow = dark
+      ? `1px 0 2px 0.5px ${lit}, 1.5px 0 ${spread}px 1px color-mix(in srgb, ${halo(heat)} 45%, transparent)`
+      : `0.5px 0 1.5px 0 ${lit}, 1px 0 ${spread - 2}px 0.5px color-mix(in srgb, ${halo(heat)} 40%, transparent)`;
   };
   let brighten: ReturnType<typeof setTimeout> | undefined;
   box.later(() => clearTimeout(brighten));
@@ -398,18 +397,6 @@ const LOOKS: Record<TypingFeel, Look> = {
       gravity: 22,
     },
   },
-  flare: {
-    halo: 7,
-    sparks: {
-      count: [1, 2],
-      size: [3, 3],
-      glow: 6,
-      life: [90, 110],
-      angle: [-0.45, -0.1],
-      speed: [16, 22],
-      gravity: 8,
-    },
-  },
 };
 
 /**
@@ -440,20 +427,22 @@ function sparks(box: TypingBox, style: SparkStyle): Part {
     burstAt = now;
     const { x, y } = box.caret();
     const dark = document.documentElement.classList.contains("dark");
-    // Hot orange, brightened toward white-gold at launch and dimmed toward red as it cools; on
-    // light paper white wouldn't show, so it starts at gold.
-    const base = dark ? "#ff7a26" : "#f06a10";
+    // At night: amber brightened to a warm white-gold at launch, cooling toward red. By day white
+    // wouldn't show and a darkened spark looks like soot on paper, so it stays orange-gold and
+    // only fades.
+    const base = dark ? "#ffa640" : "#f06a10";
     const filters = dark
-      ? ["brightness(1.9) saturate(0.6)", "brightness(1.3)", "brightness(0.75) saturate(1.3)"]
-      : ["brightness(1.15)", "brightness(1)", "brightness(0.7) saturate(1.2)"];
+      ? ["brightness(1.35) saturate(0.85)", "brightness(1.1)", "brightness(0.8) saturate(1.3)"]
+      : ["brightness(1.1)", "brightness(1)", "brightness(1)"];
     const count = Math.round(style.count[0] + (style.count[1] - style.count[0]) * warmth);
-    const start = { x: x + 2, y: y + lineHeight * 0.45 - width / 2 };
+    // A few px clear of the caret, so even at launch a spark never sits where the next character goes.
+    const start = { x: x + 4, y: y + lineHeight * 0.45 - width / 2 };
     for (let i = 0; i < count; i++) {
       const spark = pool[next]!;
       next = (next + 1) % pool.length;
       Object.assign(spark.style, {
         background: base,
-        boxShadow: style.glow ? `0 0 ${style.glow}px ${style.glow / 3}px ${forgeColour(0.85)}` : "none",
+        boxShadow: style.glow ? `0 0 ${style.glow}px ${style.glow / 3}px ${forgeColour(0.65)}` : "none",
       });
       const angle = between(...style.angle);
       const speed = between(...style.speed);
