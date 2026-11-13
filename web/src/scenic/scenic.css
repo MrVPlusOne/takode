@@ -78,10 +78,66 @@ html.scenic .turn-container > * > .rounded-xl {
   border-color: var(--scenic-edge);
 }
 
-/* Small labels on the painting get a slip of paper: the activity summary, the time beside your
-   messages (sent or still pending, so a message keeps its shape when it lands), minute markers,
-   and the live status lines under the newest turn. */
-html.scenic :is(
+/*
+ * The activity summary heads the turn below it, as it does without a painting: it sits on the top
+ * of the sheet that follows, and that sheet's top corners square off to join it. A slip of its own
+ * made it read as a chip hiding something rather than the header of that turn. The edge follows
+ * the sheet below: a ring outside a plain sheet, a border inside an answer's card. Beside the paw
+ * the header starts where the card does.
+ */
+html.scenic .turn-container > :has(> [data-turn-toggle]):has(+ :not(:empty)) {
+  background: var(--scenic-sheet);
+  box-shadow:
+    0 -1px 0 0 var(--scenic-edge),
+    -1px 0 0 0 var(--scenic-edge),
+    1px 0 0 0 var(--scenic-edge);
+  border-radius: 12px 12px 0 0;
+  padding: 0.25rem 0.8125rem 0;
+  /* Overlaps the sheet by a pixel, so no hairline of painting shows at a fractional boundary. */
+  margin-block-end: -1px;
+}
+
+html.scenic .turn-container > :has(> [data-turn-toggle]):has(+ * > .rounded-xl) {
+  box-shadow:
+    inset 0 1px 0 0 var(--scenic-edge),
+    inset 1px 0 0 0 var(--scenic-edge),
+    inset -1px 0 0 0 var(--scenic-edge);
+}
+
+html.scenic .turn-container > :has(> [data-turn-toggle]):has(+ * > .paw-trail) {
+  margin-inline-start: 1.375rem;
+}
+
+html.scenic .turn-container > :has(> [data-turn-toggle]) + :not(:empty) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  box-shadow:
+    0 1px 0 0 var(--scenic-edge),
+    -1px 0 0 0 var(--scenic-edge),
+    1px 0 0 0 var(--scenic-edge);
+}
+
+html.scenic .turn-container > :has(> [data-turn-toggle]) + * > .rounded-xl {
+  border-top-color: transparent;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+html.scenic .turn-container > :has(> [data-turn-toggle]) + :has(> .rounded-xl) {
+  box-shadow: none;
+}
+
+@media (min-width: 640px) {
+  html.scenic .turn-container > :has(> [data-turn-toggle]):has(+ * > .paw-trail) {
+    margin-inline-start: 1.625rem;
+  }
+}
+
+/* Small labels on the painting get a slip of paper: the activity summary when nothing follows it,
+   the time beside your messages (sent or still pending, so a message keeps its shape when it
+   lands), minute markers, and the live status lines under the newest turn. `:where` keeps these
+   rules light, so the night summary rule and the header above still apply. */
+html.scenic :where(
     [data-turn-toggle],
     :is(.turn-container > :has([data-testid="user-message-bubble"]), [data-pending-status])
       [data-testid="message-time-label"]:not([data-hidden]),
@@ -131,6 +187,13 @@ html.dark.scenic [data-turn-toggle] {
   border-radius: 6px;
 }
 
+/* On the header it lies on the sheet itself. */
+html.scenic .turn-container > :has(+ :not(:empty)) > [data-turn-toggle] {
+  background: none;
+  box-shadow: none;
+  padding-inline: 0;
+}
+
 /* On a phone the sheets would otherwise fill the screen: inset them so the painting frames every
    answer down its length, and open the space before each sheet and between turns. */
 @media (max-width: 639.98px) {
@@ -144,6 +207,11 @@ html.dark.scenic [data-turn-toggle] {
 
   html.scenic .turn-container > :not(:first-child):not(:has([data-testid="user-message-bubble"], > [data-turn-toggle])) {
     margin-top: 1.25rem;
+  }
+
+  /* The sheet under a turn's header stays joined to it. */
+  html.scenic .turn-container > :has(> [data-turn-toggle]) + :not(:empty) {
+    margin-top: 0;
   }
 }
 

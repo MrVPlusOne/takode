@@ -292,6 +292,38 @@ describe("message sheets", () => {
     expect(selectors.some((selector) => selector.includes("[data-feed-status-line]"))).toBe(true);
   });
 
+  it("puts the activity summary on top of the turn's sheet, as its header", () => {
+    // On a slip of its own the summary floated above the sheet and read as a chip hiding something
+    // of its own (Jiayi), not as the header of the turn below it, as it reads without a painting.
+    const bodyFor = (selector: string) => rules.find((rule) => rule.selectors.includes(selector))?.body ?? "";
+    const header = "html.scenic .turn-container > :has(> [data-turn-toggle]):has(+ :not(:empty))";
+    expect(bodyFor(header)).toMatch(/background:\s*var\(--scenic-sheet\)/);
+    expect(bodyFor(header)).toMatch(/border-radius:\s*12px 12px 0 0/);
+    // The sheet below squares its top corners to join it, whether it is a plain sheet or a card.
+    expect(bodyFor("html.scenic .turn-container > :has(> [data-turn-toggle]) + :not(:empty)")).toMatch(
+      /border-top-left-radius:\s*0/,
+    );
+    expect(bodyFor("html.scenic .turn-container > :has(> [data-turn-toggle]) + * > .rounded-xl")).toMatch(
+      /border-top-left-radius:\s*0/,
+    );
+    expect(bodyFor("html.scenic .turn-container > :has(+ :not(:empty)) > [data-turn-toggle]")).toMatch(
+      /background:\s*none/,
+    );
+  });
+
+  it("keeps the label slips light enough for the summary's own rules to apply", () => {
+    // The slips once shared an `:is()` with the message-time selector, which lent the summary that
+    // selector's weight: the night rule meant to drop the summary's ring never applied, and a rule
+    // for the summary as a header would not have either. `:where()` adds no weight.
+    const slip = rules.find((rule) =>
+      rule.selectors.some((selector) => selector.includes("minute-boundary-timestamp")),
+    );
+    expect(slip?.body).toMatch(/background:\s*var\(--scenic-sheet\)/);
+    expect(slip?.selectors.find((selector) => selector.includes("[data-turn-toggle]"))).toMatch(
+      /^html\.scenic :where\(/,
+    );
+  });
+
   it("gives your messages in the side column a deeper tone of the bubble", () => {
     // The side column's paper is nearly the bubble's colour (Jiayi: they blended in Ink & Paper), so
     // there the bubble and the time beside it take the deeper tone, by day and by night.
