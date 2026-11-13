@@ -36,4 +36,8 @@ Phones, reduced motion, data saver and low-power devices get the still painting;
 
 To preview, build the demo app, then open `index.html` from disk or serve the folder with any static server.
 
+## Publishing
+
+The [Landing page workflow](../.github/workflows/pages.yml) publishes the page to GitHub Pages whenever main changes `site/` or `web/`: it builds the demo app from that commit and deploys `site/` as it is then.
+
 The repo's format check (`cd web && bun --no-install run format:check`) and the pre-commit hook cover the page's scripts too, all but the generated `demo/ink-alive.js` bundle and the built `demo/app/`. CSS and HTML are not formatted, as in `web/`. The 2000-line file limit applies here as everywhere.
