@@ -148,12 +148,12 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
       ? FLOATING_STATUS_MOBILE_BOTTOM_PX + floatingStatusHeight + MOBILE_NAV_STATUS_CLEARANCE_GAP_PX
       : 0,
   );
+  // The room the floating status stacks take at the feed's bottom edge. The feed's bottom keeps it
+  // clear, so a feed at the bottom ends above the stacks instead of under them.
+  const floatingStatusBottomRoom =
+    floatingStatusRunwayHeight > 0 ? floatingStatusRunwayHeight + FLOATING_STATUS_SPACER_MARGIN_PX : 0;
   // The floating status stacks ride above an expanded desktop composer, so their runway adds to its space.
-  const overlayRunwayHeight = Math.max(
-    FEED_EXTRA_SCROLL_SLACK_PX,
-    composerScrollSpace +
-      (floatingStatusRunwayHeight > 0 ? floatingStatusRunwayHeight + FLOATING_STATUS_SPACER_MARGIN_PX : 0),
-  );
+  const overlayRunwayHeight = Math.max(FEED_EXTRA_SCROLL_SLACK_PX, composerScrollSpace + floatingStatusBottomRoom);
   const centeredFeedStatusClearancePx =
     floatingStatusHeight > 0 ? floatingStatusHeight + CENTERED_FEED_STATUS_CLEARANCE_GAP_PX : 0;
   const feedEndScrollSlack = overlayRunwayHeight + threadStatusCompensation + targetScrollSpace;
@@ -172,6 +172,7 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
     reserveTargetScrollSpace,
     centeredFeedStatusClearancePx,
     floatingStatusHeight,
+    floatingStatusBottomRoom,
     mobileNavBottomOffsetPx,
     overlayRunwayHeight,
     currentThreadStatusHeight,

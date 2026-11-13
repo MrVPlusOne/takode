@@ -67,6 +67,18 @@ example after Go to bottom replaces an older window with the newest one); treati
 them as the reader scrolling up silently turned following off while the view sat
 at the bottom.
 
+A feed at the bottom ends its content above the floating status chips at its
+bottom edge (a leader's "Active in" pill, timers, Next), not under them: every
+landing at the bottom (following, Go to bottom, restore, send) keeps their
+measured height clear, and a following feed moves up by it when the chips first
+appear. Without chips the content ends at the feed's edge.
+
+While the feed follows, the browser's own scroll anchoring is off: the feed keeps
+itself at the bottom. When the feed narrows and its text reflows (opening the side
+column), anchoring scrolled it, and that scroll read as the reader leaving the
+bottom, which ended following some way above it. A reader scrolled up keeps
+anchoring, which holds their place through such reflows.
+
 On desktop, the expanded composer overlays a fixed compact dock. Its measured
 overlap adds manual scroll range so the last passage can be read above it;
 expanding or collapsing never requests a feed scroll. Retain the greatest measured
@@ -92,7 +104,8 @@ The existing jump-to-bottom button remains the manual way to return to the end
 of the conversation.
 
 Clicking it should scroll to the real bottom of the feed so the last rendered
-message aligns naturally at the bottom of the viewport.
+message aligns naturally at the bottom of the viewport, above the floating status
+chips there.
 
 The feed may also show a passive "New content below" indicator when:
 

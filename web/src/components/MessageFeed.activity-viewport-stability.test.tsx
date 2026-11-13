@@ -7,9 +7,11 @@ const mockSendToSession = vi.hoisted(() => vi.fn(() => true));
 beforeAll(() => {
   Element.prototype.scrollTo = mockScrollTo;
   Element.prototype.scrollIntoView = vi.fn();
+  // Frames run at once. No frame stays pending, so the stub returns no id: code that clears its
+  // pending-frame id inside the callback must not keep a stale id that blocks its next frame.
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     callback(0);
-    return 1;
+    return undefined;
   });
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
   Object.defineProperty(window, "matchMedia", {
@@ -741,7 +743,13 @@ describe("MessageFeed activity viewport stability", () => {
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
       await waitFor(() => expect(screen.getByText("Active here")).toBeTruthy());
-      geometry.setRealContentBottom();
+      // At the feed's bottom the last row ends above the floating status stacks, which take the
+      // whole runway here (no composer overlay).
+      const room = Number(
+        document.querySelector<HTMLElement>("[data-feed-end-slack]")!.dataset.feedOverlayRunwayHeight,
+      );
+      expect(room).toBeGreaterThan(0);
+      geometry.setScrollTop(geometry.contentBottom + room - 400);
       const scrollContainer = screen.getByTestId("message-feed-scroll-container");
       fireEvent.scroll(scrollContainer);
       const baselineSlack = geometry.slack;
@@ -759,8 +767,74 @@ describe("MessageFeed activity viewport stability", () => {
       });
 
       expect(geometry.scrollTop).toBe(baselineTop + 48);
-      expect(geometry.contentBottom - geometry.scrollTop - scrollContainer.clientHeight).toBe(0);
+      expect(geometry.contentBottom + room - geometry.scrollTop - scrollContainer.clientHeight).toBe(0);
       expect(geometry.slack).toBe(baselineSlack);
+    } finally {
+      geometry.restore();
+      resize.restore();
+    }
+  });
+
+  it("turns the browser's scroll anchoring off only while the feed follows its bottom", async () => {
+    // Opening the side column narrows the feed, so its text reflows. Chrome's scroll anchoring then
+    // moved a feed at its bottom, and that scroll, read as the reader leaving the bottom, ended
+    // following about 70 px above it. A reader scrolled up keeps anchoring, which holds their place.
+    const sid = "follow-scroll-anchoring";
+    const selected = setProducerWindow(sid, "main");
+    setConnectedLeaderSession(sid);
+    const resize = installControlledResizeObserver();
+    const geometry = installActivityViewportGeometry(selected.messages, 400, 0);
+
+    try {
+      render(<MessageFeed sessionId={sid} threadKey="main" />);
+      const container = screen.getByTestId("message-feed-scroll-container");
+      geometry.setRealContentBottom();
+      fireEvent.scroll(container);
+      await waitFor(() => expect(container.style.overflowAnchor).toBe("none"));
+
+      fireEvent.wheel(container, { deltaY: -300 });
+      geometry.setScrollTop(geometry.scrollTop - 300);
+      fireEvent.scroll(container);
+      await waitFor(() => expect(container.style.overflowAnchor).toBe(""));
+    } finally {
+      geometry.restore();
+      resize.restore();
+    }
+  });
+
+  it("leaves room for the floating activity pill at the bottom when it first appears", async () => {
+    // A leader's "Active in q-N" pill floats over the feed's bottom edge. A feed following at its
+    // bottom must move up by the pill's room when the pill first appears, so the last row (here
+    // the thread status) ends above the pill instead of under it.
+    const sid = "activity-pill-room";
+    const selected = setProducerWindow(sid, "main");
+    const last = selected.messages.at(-1)!;
+    setConnectedLeaderSession(sid);
+    setProducerThreadStatus(sid, makeThreadStatus("main", last.id));
+    setProducerActivity(sid, "main", false);
+    const resize = installControlledResizeObserver();
+    const geometry = installActivityViewportGeometry(selected.messages, 400, 0);
+
+    try {
+      const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
+      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      const slack = document.querySelector<HTMLElement>("[data-feed-end-slack]")!;
+      // No pill yet: the bottom is the content's end.
+      geometry.setRealContentBottom();
+      fireEvent.scroll(screen.getByTestId("message-feed-scroll-container"));
+      const before = geometry.scrollTop;
+
+      setProducerActivity(sid, "q-4091", true);
+      view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+      await waitFor(() => expect(screen.getByText("Active in q-4091")).toBeTruthy());
+      const room = Number(slack.dataset.feedOverlayRunwayHeight);
+      expect(room).toBe(27 + 4);
+
+      await waitFor(() => expect(geometry.scrollTop).toBe(before + room));
+      const footer = screen.getByTestId("turn-thread-status-footer");
+      expect(footer).toBeTruthy();
+      // The content now ends `room` above the feed's bottom edge, clear of the pill's row.
+      expect(geometry.contentBottom - geometry.scrollTop).toBe(400 - room);
     } finally {
       geometry.restore();
       resize.restore();

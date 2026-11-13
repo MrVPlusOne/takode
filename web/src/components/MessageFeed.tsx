@@ -195,6 +195,7 @@ export function MessageFeed({
     reserveTargetScrollSpace,
     centeredFeedStatusClearancePx,
     floatingStatusHeight,
+    floatingStatusBottomRoom,
     mobileNavBottomOffsetPx,
     setFloatingStatusHeight,
     setFloatingStatusRunwayHeight,
@@ -271,6 +272,11 @@ export function MessageFeed({
   const contentRootRef = useRef<HTMLDivElement>(null);
   const feedEndScrollSlackRef = useRef(feedEndScrollSlack);
   feedEndScrollSlackRef.current = feedEndScrollSlack;
+  const bottomRoomRef = useRef(floatingStatusBottomRoom);
+  bottomRoomRef.current = floatingStatusBottomRoom;
+  // Reads only the ref, so callbacks may keep an earlier render's copy.
+  const bottomAlignedTop = (container: HTMLElement, bottom: number) =>
+    viewportAnchor.getBottomAlignedScrollTop(container, bottom, bottomRoomRef.current);
   const { autoFollowEnabledRef, followRevision, setAutoFollowEnabled } = useMessageFeedFollowState(
     savedScrollPos ? savedScrollPos.isAtBottom : true,
   );
@@ -517,12 +523,11 @@ export function MessageFeed({
       if (maxBottom != null || !fallbackToLatestBlock) {
         return maxBottom;
       }
-
-      const blocks = contentRoot.querySelectorAll<HTMLElement>("[data-feed-block-id]");
-      const lastBlock = blocks[blocks.length - 1];
-      return lastBlock ? getFeedBlockBottom(container, lastBlock, scale) : null;
+      // The whole content's end: the last block in document order can be a message nested in a
+      // turn, above that turn's thread status rows.
+      return getRealContentBottom();
     },
-    [getFeedBlockBottom],
+    [getFeedBlockBottom, getRealContentBottom],
   );
 
   useMessageFeedViewportPersistence({
@@ -907,35 +912,32 @@ export function MessageFeed({
     [activeThreadWindow?.partial, handleLoadNewerSection, handleLoadOlderSection, hasNewerSections, hasOlderSections],
   );
 
+  /** Asks the server for the newest window when this one has newer sections; true when it did. */
+  const requestLatestWindow = useCallback(() => {
+    if (!hasNewerSections) return false;
+    if (activeThreadWindow) {
+      requestThreadWindow(-1);
+      return true;
+    }
+    if (!activeHistoryWindow) return false;
+    const { turn_count, section_turn_count, visible_section_count } = activeHistoryWindow;
+    const turnCount = turn_count || getHistoryWindowTurnCount(visible_section_count, section_turn_count);
+    requestHistoryWindow(-1, turnCount, section_turn_count, visible_section_count);
+    return true;
+  }, [activeHistoryWindow, activeThreadWindow, hasNewerSections, requestHistoryWindow, requestThreadWindow]);
+
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
       setAutoFollowEnabled(true);
       isNearBottom.current = true;
       // Window replacement must follow this destination, not the previous reading anchor.
       if (containerRef.current) snapshotViewportAnchor(containerRef.current);
-      if (activeThreadWindow && hasNewerSections) {
-        requestThreadWindow(-1);
-        return;
-      }
-      if (activeHistoryWindow && hasNewerSections) {
-        const turnCount =
-          activeHistoryWindow.turn_count ||
-          getHistoryWindowTurnCount(activeHistoryWindow.visible_section_count, activeHistoryWindow.section_turn_count);
-        requestHistoryWindow(
-          -1,
-          turnCount,
-          activeHistoryWindow.section_turn_count,
-          activeHistoryWindow.visible_section_count,
-        );
-        return;
-      }
+      if (requestLatestWindow()) return;
       const performScroll = () => {
         const container = containerRef.current;
         if (!container) return;
         const realContentBottom = getRealContentBottom() ?? container.scrollHeight;
-        const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-        const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(realContentBottom - container.clientHeight)));
-        scrollContainerTo(targetTop, behavior);
+        scrollContainerTo(bottomAlignedTop(container, realContentBottom), behavior);
         isNearBottom.current = true;
         lastSeenContentBottomRef.current = realContentBottom;
         lastObservedContentBottomRef.current = lastSeenContentBottomRef.current;
@@ -951,11 +953,7 @@ export function MessageFeed({
     },
     [
       getRealContentBottom,
-      activeThreadWindow,
-      hasNewerSections,
-      activeHistoryWindow,
-      requestThreadWindow,
-      requestHistoryWindow,
+      requestLatestWindow,
       scrollContainerTo,
       snapshotViewportAnchor,
       setAutoFollowEnabled,
@@ -998,22 +996,9 @@ export function MessageFeed({
   const navFabStackClassName = isTouch ? "gap-2" : "gap-4";
   const resetVisibleSectionsToLatest = useCallback(
     (behavior: ScrollBehavior = "auto") => {
-      if (activeThreadWindow && hasNewerSections) {
+      if (hasNewerSections && (activeThreadWindow || activeHistoryWindow)) {
         setAutoFollowEnabled(true);
-        requestThreadWindow(-1);
-        return;
-      }
-      if (activeHistoryWindow && hasNewerSections) {
-        const turnCount =
-          activeHistoryWindow.turn_count ||
-          getHistoryWindowTurnCount(activeHistoryWindow.visible_section_count, activeHistoryWindow.section_turn_count);
-        setAutoFollowEnabled(true);
-        requestHistoryWindow(
-          -1,
-          turnCount,
-          activeHistoryWindow.section_turn_count,
-          activeHistoryWindow.visible_section_count,
-        );
+        requestLatestWindow();
         return;
       }
       if (sectionWindowStart == null || totalSections <= DEFAULT_VISIBLE_SECTION_COUNT) return;
@@ -1023,9 +1008,7 @@ export function MessageFeed({
         const container = containerRef.current;
         if (!container) return;
         const realContentBottom = getRealContentBottom() ?? container.scrollHeight;
-        const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-        const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(realContentBottom - container.clientHeight)));
-        scrollContainerTo(targetTop, behavior);
+        scrollContainerTo(bottomAlignedTop(container, realContentBottom), behavior);
       });
     },
     [
@@ -1033,8 +1016,7 @@ export function MessageFeed({
       getRealContentBottom,
       hasNewerSections,
       activeHistoryWindow,
-      requestThreadWindow,
-      requestHistoryWindow,
+      requestLatestWindow,
       scrollContainerTo,
       setAutoFollowEnabled,
       sectionWindowStart,
@@ -1080,7 +1062,7 @@ export function MessageFeed({
     const targetBottom = bottomAlignTarget ? getFeedBlockBottom(container, bottomAlignTarget) : lowestBottom;
 
     const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(targetBottom - container.clientHeight)));
+    const targetTop = bottomAlignedTop(container, targetBottom);
     const currentTop = Math.max(0, Math.min(maxScrollTop, container.scrollTop));
     const nextTargetTop = Math.max(currentTop, targetTop);
     if (Math.abs(container.scrollTop - nextTargetTop) > 1) {
@@ -1381,8 +1363,7 @@ export function MessageFeed({
       );
       if (!target) return;
       const messageBottom = getFeedBlockBottom(container, target);
-      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-      const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(messageBottom - container.clientHeight)));
+      const targetTop = bottomAlignedTop(container, messageBottom);
       setAutoFollowEnabled(true);
       isNearBottom.current = true;
       setContainerScrollTop(targetTop);
@@ -1480,6 +1461,14 @@ export function MessageFeed({
     };
   }, [getRealContentBottom, scheduleAutoFollowFlush, showConversationLoading, updateLatestPillForContentBottom]);
 
+  // The floating status's room can appear or grow after the feed reached its bottom (its first activity).
+  const followedBottomRoomRef = useRef(floatingStatusBottomRoom);
+  useEffect(() => {
+    if (followedBottomRoomRef.current === floatingStatusBottomRoom) return;
+    followedBottomRoomRef.current = floatingStatusBottomRoom;
+    if (!showConversationLoading && autoFollowEnabledRef.current) scheduleAutoFollowFlush(true);
+  }, [autoFollowEnabledRef, floatingStatusBottomRoom, scheduleAutoFollowFlush, showConversationLoading]);
+
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -1488,9 +1477,7 @@ export function MessageFeed({
     if (previous && previous.viewportKey === viewportKey && previous.signature !== viewportLayoutSignature) {
       if (previous.wasAutoFollowing) {
         const realContentBottom = getRealContentBottom() ?? container.scrollHeight;
-        const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-        const targetTop = Math.max(0, Math.min(maxScrollTop, Math.ceil(realContentBottom - container.clientHeight)));
-        setContainerScrollTop(targetTop);
+        setContainerScrollTop(bottomAlignedTop(container, realContentBottom));
         isNearBottom.current = true;
         lastSeenContentBottomRef.current = realContentBottom;
         lastObservedContentBottomRef.current = lastSeenContentBottomRef.current;
@@ -1872,7 +1859,7 @@ export function MessageFeed({
           // A stable gutter: a slide deck sizes itself to this width, which a scrollbar must not change.
           className="@container/feed message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6 [scrollbar-gutter:stable]"
           // Quest chips float at the top: the feed starts below them, so its first line stays clear.
-          style={feedScrollStyle(topRoom)}
+          style={feedScrollStyle(topRoom, autoFollowEnabledRef.current)}
         >
           <FeedNotificationProvider sessionId={sessionId} notifications={feedMessageModel.displayNotifications}>
             <PawTrailProvider scopeKey={`${sessionId}:${normalizedThreadKey}`} showNewestPaw={!hasNewerSections}>

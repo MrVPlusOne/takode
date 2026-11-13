@@ -33,10 +33,15 @@ export function useFeedPinnedTop(
  * The feed scroller's style: with `topRoom` (px) kept above its first content for the quest chips,
  * that is its top padding, and `--feed-top-pad` tells sticky bars (a report's collapse bar, Main's
  * quest strip), which cancel the padding to pin flush with the feed's top edge.
+ *
+ * While the feed follows its bottom (`following`), the browser's scroll anchoring is off: the feed
+ * keeps itself at the bottom, and an anchoring scroll when the feed reflows (opening the side column
+ * narrows it) read as the reader scrolling away, which ended following above the bottom.
  */
-export function feedScrollStyle(topRoom: number): CSSProperties {
+export function feedScrollStyle(topRoom: number, following = false): CSSProperties {
   return {
     overscrollBehavior: "contain",
+    ...(following ? { overflowAnchor: "none" } : {}),
     ...(topRoom > 0 ? ({ paddingTop: topRoom, "--feed-top-pad": `${topRoom}px` } as CSSProperties) : {}),
   };
 }

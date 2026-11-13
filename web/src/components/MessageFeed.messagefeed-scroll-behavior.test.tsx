@@ -1066,7 +1066,8 @@ describe("MessageFeed - scroll behavior", () => {
     rerender(<MessageFeed sessionId={sid} />);
     await flushFeedObservers();
 
-    expect(scrollTopValue).toBe(520);
+    // The new real bottom: scrollHeight - 12px end slack - clientHeight.
+    expect(scrollTopValue).toBe(508);
   });
 
   it("does not jump upward to an older subagent when newer bottom activity is still active", async () => {

@@ -62,6 +62,15 @@ export function getRealContentBottom(
   return Math.max(0, Math.min(fallbackBottom, Math.round(maxBottom)));
 }
 
+/**
+ * The scroll position at which content ending at `bottom` (scroll coordinates) sits at the feed's
+ * bottom, `bottomRoom` above its edge: the room the floating status stacks there take.
+ */
+export function getBottomAlignedScrollTop(container: HTMLElement, bottom: number, bottomRoom: number): number {
+  const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+  return Math.max(0, Math.min(maxScrollTop, Math.ceil(bottom + bottomRoom - container.clientHeight)));
+}
+
 function escapeSelectorValue(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');

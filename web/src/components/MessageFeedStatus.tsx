@@ -10,6 +10,7 @@ import { useSecondaryFeed } from "./secondary-feed.js";
 import { WaitingChip } from "./WaitingChip.js";
 import { useComposerOverlayLift } from "./ComposerFeedLayout.js";
 import { formatElapsed, formatTokens } from "./message-feed-utils.js";
+import { getFeedViewportScale } from "./message-feed-viewport-anchor.js";
 import { normalizeThreadKey, threadViewShows } from "../utils/thread-projection.js";
 import { useTopicKeyNamer } from "../utils/leader-topics.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
@@ -598,7 +599,13 @@ export function FeedStatusPill({
         ? Math.max(0, leftHeight - reservationHeight - (leftHeight > reservationHeight ? rowGap : 0))
         : leftHeight;
       onVisibleHeightChange?.(Math.ceil(Math.max(visibleLeftHeight, rightHeight)));
-      onRunwayHeightChange?.(Math.ceil(Math.max(leftHeight, rightHeight)));
+      // The runway reaches from the feed's bottom edge to the stacks' top, so it includes the
+      // stacks' own distance from that edge. It is in layout pixels, as the feed's scroll range is:
+      // the app zoom makes on-screen heights smaller.
+      const overlay = leftStack?.parentElement;
+      const runwayHeight = Math.max(leftHeight, rightHeight) / (overlay ? getFeedViewportScale(overlay) : 1);
+      const edgeOffset = leftStack ? Number.parseFloat(getComputedStyle(leftStack).bottom) || 0 : 0;
+      onRunwayHeightChange?.(Math.ceil(runwayHeight > 0 ? runwayHeight + edgeOffset : 0));
     };
 
     reportHeight();
