@@ -170,7 +170,8 @@ export class CliLauncher {
   onBackgroundTasksStopped: ((sessionId: string, notice: string) => void) | null = null;
 
   // ─── Integer session ID tracking ───────────────────────────────────────────
-  private nextSessionNum = 0;
+  /** New installs start at #1; older installs may still have a #0, which stays valid. */
+  private nextSessionNum = 1;
   /** UUID → integer session number */
   private sessionNumMap = new Map<string, number>();
   /** Integer session number → UUID */
@@ -586,7 +587,7 @@ export class CliLauncher {
         if (info.sessionNum > maxNum) maxNum = info.sessionNum;
       }
     }
-    this.nextSessionNum = Math.max(maxNum + 1, sessionNumberFloor);
+    this.nextSessionNum = Math.max(maxNum + 1, sessionNumberFloor, 1);
 
     // Phase 2: Assign new numbers to sessions that don't have one yet (legacy/pre-migration).
     // Hidden delegate children can intentionally opt out so they keep UUID/Codex runtime identity

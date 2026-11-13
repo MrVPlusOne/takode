@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { INSTALLED_CLI_WRAPPER_MARKER } from "../server/cli-wrapper-paths.js";
 
 let tempDir: string;
 let fakeBinDir: string;
@@ -230,6 +231,23 @@ describe("agent-browser shim", () => {
       expect(result.stderr).toContain("could not look up your agent-browser lease slot");
       expect(readFileSync(delegateSessionPath, "utf-8").trim()).toBe("");
     });
+  });
+
+  it("skips every Takode wrapper on PATH, not just its own home's", async () => {
+    // A validation slot's sessions have the live and the slot's ~/.companion/bin
+    // on PATH. Each wrapper used to skip only its own folder, so the two called
+    // each other forever. Here the other home's wrapper comes first and would
+    // exit 99 if it were chosen.
+    const otherTakodeBin = join(tempDir, "other-home", ".companion", "bin");
+    await mkdir(otherTakodeBin, { recursive: true });
+    const otherWrapper = join(otherTakodeBin, "agent-browser");
+    writeFileSync(otherWrapper, `#!/bin/bash\n${INSTALLED_CLI_WRAPPER_MARKER}\nexit 99\n`, "utf-8");
+    chmodSync(otherWrapper, 0o755);
+
+    const result = runShim(["status"], { PATH: `${otherTakodeBin}:${fakeBinDir}:/usr/bin:/bin` });
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(delegateArgsPath, "utf-8").trim()).toBe("status");
   });
 
   it("fails clearly when no external delegate is available", () => {

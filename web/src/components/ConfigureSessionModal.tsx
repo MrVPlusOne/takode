@@ -416,7 +416,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
             <h2 className="text-sm font-semibold text-cc-fg">Configure Session</h2>
             <p className="mt-0.5 text-xs text-cc-muted">
               {backendLabel} session settings for{" "}
-              {sdkSession?.sessionNum ? `#${sdkSession.sessionNum}` : sessionId.slice(0, 8)}
+              {sdkSession?.sessionNum != null ? `#${sdkSession.sessionNum}` : sessionId.slice(0, 8)}
             </p>
           </div>
           <button

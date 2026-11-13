@@ -57,8 +57,9 @@ function nonNegativeNullableNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-function positiveNullableInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 ? value : null;
+/** Session numbers start at 0 on installs created before numbering began at 1. */
+function sessionNumberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function backendTypeFor(
@@ -173,7 +174,7 @@ export function buildSessionNavigationProjectionValue<TSubscriber>(
     backendType,
     permissionMode,
     askPermission,
-    sessionNum: positiveNullableInteger(launcherInfo?.sessionNum),
+    sessionNum: sessionNumberOrNull(launcherInfo?.sessionNum),
     createdAt: nonNegativeNumber(launcherInfo?.createdAt),
     treeGroupId: boundedNullableText(state.treeGroupId ?? launcherInfo?.treeGroupId, SESSION_NAVIGATION_ID_MAX_LENGTH),
     memorySessionSpaceSlug: boundedNullableText(state.memorySessionSpaceSlug ?? launcherInfo?.memorySessionSpaceSlug),
@@ -184,7 +185,7 @@ export function buildSessionNavigationProjectionValue<TSubscriber>(
     isAssistant: launcherInfo?.isAssistant === true,
     isOrchestrator,
     herdedBy: boundedNullableText(launcherInfo?.herdedBy, SESSION_NAVIGATION_ID_MAX_LENGTH),
-    reviewerOf: positiveNullableInteger(launcherInfo?.reviewerOf),
+    reviewerOf: sessionNumberOrNull(launcherInfo?.reviewerOf),
     cronJobId: boundedNullableText(state.cronJobId ?? launcherInfo?.cronJobId, SESSION_NAVIGATION_ID_MAX_LENGTH),
     cronJobName: boundedNullableText(state.cronJobName ?? launcherInfo?.cronJobName),
     state: sdkStateFor(session, launcherInfo, cliConnected),

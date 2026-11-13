@@ -35,6 +35,12 @@ describe("reply context formatting", () => {
       "[reply] Continue this",
     );
     expect(formatReplyContentForPreview("", { previewText: "Original answer" })).toBe("[reply] Original answer");
+    // Previews are one plain line: Takode links such as a leader's quest link show their label.
+    expect(formatReplyContentForPreview("Work on [q-9](quest:q-9) in `web/`")).toBe("Work on q-9 in web/");
+    expect(formatReplyContentForPreview("See [#5](session:5)", { previewText: "**Original** answer" })).toBe(
+      "[reply] See #5",
+    );
+    expect(formatReplyContentForPreview("", { previewText: "**Original** answer" })).toBe("[reply] Original answer");
   });
 
   it("sanitizes legacy marker messages for context and preview callers", () => {

@@ -1924,13 +1924,13 @@ function formatDuration(ms: number): string {
 }
 
 function formatSessionLink(evt: TakodeEvent): string {
-  return typeof evt.sessionNum === "number" && evt.sessionNum > 0
+  return typeof evt.sessionNum === "number" && evt.sessionNum >= 0
     ? `[#${evt.sessionNum}](session:${evt.sessionNum})`
     : evt.sessionName;
 }
 
 function formatSessionNumLink(session: { sessionId: string; sessionNum?: number }): string {
-  return typeof session.sessionNum === "number" && session.sessionNum > 0
+  return typeof session.sessionNum === "number" && session.sessionNum >= 0
     ? `[#${session.sessionNum}](session:${session.sessionNum})`
     : session.sessionId.slice(0, 8);
 }

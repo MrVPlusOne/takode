@@ -167,7 +167,9 @@ export function SessionInfoPopover({
     return sdkSessions.flatMap((sdk) => {
       const resolved = resolveSessionNavigation({ sdkSessions }, sdk.sessionId);
       if (resolved?.sidebarItem.herdedBy !== sessionId || resolved.sidebarItem.archived) return [];
-      return [{ sessionId: sdk.sessionId, role: resolved.sidebarItem.reviewerOf ? "Reviewer" : "Worker" } as const];
+      return [
+        { sessionId: sdk.sessionId, role: resolved.sidebarItem.reviewerOf != null ? "Reviewer" : "Worker" } as const,
+      ];
     });
   }, [isOrchestrator, sdkSessions, sessionId]);
   const claimedQuestId = resolvedNavigation?.sidebarItem.claimedQuestId ?? null;

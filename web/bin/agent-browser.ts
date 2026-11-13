@@ -3,9 +3,9 @@
 import "./caller-cwd.js";
 import { type ChildProcess, spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, realpath } from "node:fs/promises";
+import { access, open } from "node:fs/promises";
 import { delimiter, resolve } from "node:path";
-import { COMPANION_BIN_DIR } from "../server/cli-wrapper-paths.js";
+import { INSTALLED_CLI_WRAPPER_MARKER } from "../server/cli-wrapper-paths.js";
 import { optimizeAgentImageFile } from "../server/image-optimizer.js";
 import { AGENT_BROWSER_LEASE, agentBrowserSession, findHeldSlot } from "./validation-slots.js";
 
@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const delegate = await findDelegate();
   if (!delegate) {
-    console.error("agent-browser: real agent-browser binary not found outside ~/.companion/bin");
+    console.error("agent-browser: real agent-browser binary not found on PATH (only Takode wrappers)");
     process.exit(127);
   }
   const env = await slotSessionEnv(args);
@@ -110,21 +110,35 @@ interface AgentBrowserScreenshotPayload {
   [key: string]: unknown;
 }
 
+/**
+ * Find the real agent-browser on PATH, skipping every Takode wrapper rather than
+ * only this home's: a validation slot's sessions have both the live and the
+ * slot's `~/.companion/bin` on PATH, and two wrappers that each skip only
+ * themselves call each other forever.
+ */
 async function findDelegate(): Promise<string | null> {
   const entries = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-  const companionBin = await realpath(COMPANION_BIN_DIR).catch(() => resolve(COMPANION_BIN_DIR));
   for (const entry of entries) {
-    const resolvedEntry = await realpath(entry).catch(() => resolve(entry));
-    if (resolvedEntry === companionBin) continue;
     const candidate = resolve(entry, "agent-browser");
     try {
       await access(candidate, constants.X_OK);
-      return candidate;
     } catch {
-      // Try the next PATH entry.
+      continue;
     }
+    if (!(await isTakodeWrapper(candidate))) return candidate;
   }
   return null;
+}
+
+async function isTakodeWrapper(path: string): Promise<boolean> {
+  const file = await open(path, "r");
+  try {
+    const head = Buffer.alloc(256);
+    const { bytesRead } = await file.read(head, 0, head.length, 0);
+    return head.subarray(0, bytesRead).toString("utf-8").includes(INSTALLED_CLI_WRAPPER_MARKER);
+  } finally {
+    await file.close();
+  }
 }
 
 /**

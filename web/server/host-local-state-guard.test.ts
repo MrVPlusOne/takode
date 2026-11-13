@@ -52,8 +52,8 @@ const LANDING_RUNNERS =
 
 /** Every allowed direct reach into `~/.companion`, keyed `<file>: <entry>` or `<file> -> <module>`. */
 const INVENTORY: Record<string, string> = {
-  "bin/agent-browser.ts: bin": "Skips Takode's own wrapper directory to find the real agent-browser on this machine",
-  "bin/agent-browser.ts -> server/cli-wrapper-paths.ts": "Location of Takode's wrapper directory on this machine",
+  "bin/agent-browser.ts -> server/cli-wrapper-paths.ts":
+    "Header line of Takode's generated wrappers, so the real agent-browser is found past every Takode wrapper on PATH",
   "bin/cli.ts: logs": SERVER_LAUNCHER,
   "bin/cli.ts -> server/migration.ts": SERVER_LAUNCHER,
   "bin/cli.ts -> server/service.ts": SERVER_LAUNCHER,

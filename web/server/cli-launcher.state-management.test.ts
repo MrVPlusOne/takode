@@ -402,6 +402,30 @@ describe("state management", () => {
     expect(launcher.resolveSessionId(`#${sessionNum}`)).toBe("test-session-id");
   });
 
+  it("numbers the first session on a new install #1", async () => {
+    // Session #0 used to be the first number, and code that treats 0 as "no
+    // number" showed it as "#?". New installs start at #1 instead.
+    const restored = new CliLauncher(3456, { serverId: "test-server-id" });
+    restored.setStore(store);
+    await restored.restoreFromDisk();
+
+    await restored.launch({ cwd: "/tmp" });
+    expect(restored.getSessionNum("test-session-id")).toBe(1);
+  });
+
+  it("keeps an existing session #0 and numbers new sessions after it", async () => {
+    store.saveLauncher([{ sessionId: "first", state: "exited", cwd: "/tmp", createdAt: 1, sessionNum: 0 }]);
+    await store.flushAll();
+    const restored = new CliLauncher(3456, { serverId: "test-server-id" });
+    restored.setStore(store);
+    await restored.restoreFromDisk();
+
+    await restored.launch({ cwd: "/tmp" });
+    expect(restored.getSessionNum("first")).toBe(0);
+    expect(restored.resolveSessionId("0")).toBe("first");
+    expect(restored.getSessionNum("test-session-id")).toBe(1);
+  });
+
   it("numbers new sessions above the floor a coordinator handoff leaves", async () => {
     // A handoff moves only unarchived sessions, so their highest number (5) is
     // below archived ones left behind; the floor keeps those numbers from being reused.

@@ -98,6 +98,14 @@ describe("session navigation projection contract", () => {
     expect(isSessionNavigationProjectionValue({ ...value(), lastMessagePreviewAt: -1 })).toBe(false);
   });
 
+  it("accepts session #0 as a real session number", () => {
+    // The first session on installs created before numbering began at 1 is #0;
+    // rejecting it made that session show as "#?" everywhere.
+    expect(isSessionNavigationProjectionValue({ ...value(), sessionNum: 0, reviewerOf: 0 })).toBe(true);
+    expect(isSessionNavigationProjectionValue({ ...value(), sessionNum: -1 })).toBe(false);
+    expect(isSessionNavigationProjectionValue({ ...value(), sessionNum: 1.5 })).toBe(false);
+  });
+
   it("compares every projected field", () => {
     const first = value();
     expect(sessionNavigationProjectionEqual(first, structuredClone(first))).toBe(true);

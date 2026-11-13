@@ -165,7 +165,7 @@ export function NavigationHistoryPanel({
             const key = viewedTabKey(entry);
             const current = key === currentKey;
             const session = sessionById.get(entry.sessionId);
-            const tag = session?.sessionNum ? `#${session.sessionNum}` : "";
+            const tag = session?.sessionNum != null ? `#${session.sessionNum}` : "";
             const row = describeViewedTab(entry, session?.name, tag, threads);
             return (
               <li key={key}>

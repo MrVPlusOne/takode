@@ -307,4 +307,34 @@ describe("session navigation projection", () => {
     expect(value.contextUsedPercent).toBe(0);
     expect(isSessionNavigationProjectionValue(value)).toBe(true);
   });
+
+  it("keeps session #0's number", () => {
+    // Installs created before numbering began at 1 have a session #0; dropping it
+    // left that session's leader column empty and its links as "#?".
+    const session = makeSession();
+    const value = buildSessionNavigationProjectionValue(session, {
+      getSession: () => session,
+      getLauncherSessionInfo: () => ({
+        sessionId: session.id,
+        state: "connected",
+        cwd: session.state.cwd,
+        createdAt: 5,
+        sessionNum: 0,
+        reviewerOf: 0,
+      }),
+      getSessionName: () => undefined,
+      getPendingTimerCount: () => 0,
+      getWaits: () => [],
+      getBackendConnected: () => false,
+      getSessionStatus: () => null,
+      getLastActivityAt: () => undefined,
+      getLastUserMessageAt: () => undefined,
+      getLastMessagePreviewAt: () => undefined,
+      authorizeSubscription: () => true,
+    });
+
+    expect(value.sessionNum).toBe(0);
+    expect(value.reviewerOf).toBe(0);
+    expect(isSessionNavigationProjectionValue(value)).toBe(true);
+  });
 });

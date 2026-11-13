@@ -40,7 +40,7 @@ function createDelegateId(): string {
 }
 
 function buildDelegatePrompt(args: { parentSessionNum?: number | null; delegateId: string; task: string }): string {
-  const parentLabel = args.parentSessionNum ? "#" + args.parentSessionNum : "the parent leader session";
+  const parentLabel = args.parentSessionNum != null ? "#" + args.parentSessionNum : "the parent leader session";
   return [
     "You are a forked task-delegate copy of the parent leader session.",
     "",
@@ -97,20 +97,21 @@ function formatParentResult(args: {
   summary: string;
   isError?: boolean;
 }): string {
-  const link = args.childSessionNum
-    ? "[#" + args.childSessionNum + "](session:" + args.childSessionNum + ")"
-    : "delegate " + args.delegateId;
+  const link =
+    args.childSessionNum != null
+      ? "[#" + args.childSessionNum + "](session:" + args.childSessionNum + ")"
+      : "delegate " + args.delegateId;
   return [
     args.isError ? "Delegate task failed." : "Delegate task completed.",
     "",
-    args.childSessionNum ? "Delegate: " + args.delegateId + " (" + link + ")" : "Delegate: " + args.delegateId,
+    args.childSessionNum != null ? "Delegate: " + args.delegateId + " (" + link + ")" : "Delegate: " + args.delegateId,
     "Task: " + args.task,
     "",
     "Summary:",
     args.summary.trim(),
     "",
     "Inspect:",
-    args.childSessionNum
+    args.childSessionNum != null
       ? "- Delegate transcript/raw output: " + link
       : "- Expand the Delegate task card to inspect the delegate trace/raw-output link for " + link + ".",
   ].join("\n");
@@ -257,11 +258,12 @@ function delegateTraceResponse(args: {
   childSession: any;
   pending: boolean;
 }) {
-  const rawOutputLink = args.childSessionNum
-    ? { kind: "session" as const, label: "#" + args.childSessionNum, sessionNum: args.childSessionNum }
-    : args.childSessionId
-      ? { kind: "delegate" as const, label: args.delegateId, sessionId: args.childSessionId }
-      : null;
+  const rawOutputLink =
+    args.childSessionNum != null
+      ? { kind: "session" as const, label: "#" + args.childSessionNum, sessionNum: args.childSessionNum }
+      : args.childSessionId
+        ? { kind: "delegate" as const, label: args.delegateId, sessionId: args.childSessionId }
+        : null;
   const baseTrace = traceEventsFromChildSession(args.childSession);
   const liveActivity = args.pending ? args.childSession?.delegateLiveActivity : null;
   const hasLiveActivityInTrace =

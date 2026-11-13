@@ -145,6 +145,14 @@ describe("Side Chat branch helpers", () => {
     expect(updated.updatedAt).toBeGreaterThanOrEqual(record.updatedAt);
   });
 
+  it("previews Markdown messages as plain text", () => {
+    // Side-chat names and last-message lines are one plain line, so Takode links
+    // show their label instead of [q-9](quest:q-9).
+    expect(findRootAssistantAnchor([assistant("a1", "**Fixed** [q-9](quest:q-9) in `app.ts`")], "a1")?.preview).toBe(
+      "Fixed q-9 in app.ts",
+    );
+  });
+
   it("counts only browser-visible user and assistant Side Chat messages, not result bookkeeping", () => {
     // Successful result records are backend turn bookkeeping. The root thread
     // summary should stay aligned with messages visible in the Side Chat panel.

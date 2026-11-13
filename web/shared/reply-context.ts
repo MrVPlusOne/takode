@@ -1,3 +1,5 @@
+import { markdownToPlainText } from "./markdown-plain-text.js";
+
 export interface ReplyContext {
   previewText: string;
   messageId?: string;
@@ -53,12 +55,13 @@ export function formatReplyContentForAssistant(content: string, replyContext?: R
   return "[reply]";
 }
 
+/** One-line preview text, such as a session's last-message line: inline Markdown reads as plain text. */
 export function formatReplyContentForPreview(content: string, replyContext?: ReplyContext): string {
   const reply = resolveReplyContent(content, replyContext);
-  if (!reply) return content;
+  if (!reply) return markdownToPlainText(content);
 
-  const body = normalizeInlineText(reply.userMessage);
-  const preview = normalizeInlineText(reply.previewText);
+  const body = normalizeInlineText(markdownToPlainText(reply.userMessage));
+  const preview = normalizeInlineText(markdownToPlainText(reply.previewText));
   return `[reply] ${body || preview}`.trim();
 }
 

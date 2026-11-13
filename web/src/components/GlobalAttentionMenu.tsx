@@ -270,7 +270,7 @@ export function AttentionListPanel({
     const info = new Map<string, { tag?: string; label?: string; portrait?: LeaderProfilePortrait }>();
     for (const session of sessionsOverride ?? sdkSessions) {
       const { sessionId, sessionNum, name, leaderProfilePortrait } = session;
-      const tag = sessionNum ? `#${sessionNum}` : undefined;
+      const tag = sessionNum != null ? `#${sessionNum}` : undefined;
       info.set(sessionId, {
         tag,
         label: [tag, name].filter(Boolean).join(" ") || undefined,

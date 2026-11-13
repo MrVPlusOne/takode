@@ -303,7 +303,7 @@ export function threadMenuItems(input: {
   }
   if (workerId) {
     items.push({
-      label: workerNum ? `Open worker #${workerNum}` : "Open worker",
+      label: workerNum != null ? `Open worker #${workerNum}` : "Open worker",
       onClick: () => {
         navigateToSession(workerId);
         onLeave?.();

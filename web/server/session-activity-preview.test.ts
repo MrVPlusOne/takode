@@ -84,6 +84,28 @@ describe("buildSessionActivityPreview", () => {
       { historyIndex: 1, kind: "quiet", text: "1 PM check: no reply yet", timestamp: 2 },
     ]);
   });
+
+  it("shows message and quiet lines as plain text, not Markdown source", () => {
+    // Worker reports link quests like [q-9](quest:q-9); the one-line preview showed
+    // that syntax literally instead of the label.
+    const history: BrowserIncomingMessage[] = [
+      assistant(
+        "a1",
+        [
+          {
+            type: "text",
+            text: "## [q-9](quest:q-9) is **done**: landed as `d01c104`.\n\n{[(Quiet: checked [#5](session:5))]}",
+          },
+        ],
+        1,
+      ),
+    ];
+
+    expect(buildSessionActivityPreview(history).lines).toEqual([
+      { historyIndex: 0, kind: "message", text: "q-9 is done: landed as d01c104.", timestamp: 1 },
+      { historyIndex: 0, kind: "quiet", text: "checked #5", timestamp: 1 },
+    ]);
+  });
 });
 
 describe("GET /sessions/:id/activity-preview", () => {

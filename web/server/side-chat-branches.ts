@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage, ContentBlock, SideChatRecord } from "./session-types.js";
+import { markdownToPlainText } from "../shared/markdown-plain-text.js";
 
 const THREAD_ID_RANDOM_BYTES = 6;
 const PREVIEW_LIMIT = 140;
@@ -18,8 +19,9 @@ export function extractMessageText(message: BrowserIncomingMessage): string {
   return "";
 }
 
+/** One plain-text line of a message, for side-chat names and last-message lines. */
 export function previewText(text: string, limit = PREVIEW_LIMIT): string {
-  const compact = text.replace(/\s+/g, " ").trim();
+  const compact = markdownToPlainText(text).replace(/\s+/g, " ").trim();
   if (compact.length <= limit) return compact;
   return `${compact.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
 }

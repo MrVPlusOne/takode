@@ -1,3 +1,4 @@
+import { markdownToPlainText } from "../shared/markdown-plain-text.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { buildToolSummary } from "./takode-messages.js";
 import { extractQuietMarkerFromText } from "../shared/quiet-turn-marker.js";
@@ -63,12 +64,18 @@ export function buildSessionActivityPreview(
         });
       } else if (block.type === "text") {
         const quiet = extractQuietMarkerFromText(block.text);
-        const text = oneLine(firstNonEmptyLine(quiet.text));
+        const text = oneLine(markdownToPlainText(firstNonEmptyLine(quiet.text)));
         const key = `${message.message.id}\u0000${text}`;
         if (seenTexts.has(key)) continue;
         seenTexts.add(key);
         // The marker ends the text, so its line is the newer of the two.
-        if (quiet.summary) lines.push({ historyIndex: index, kind: "quiet", text: oneLine(quiet.summary), timestamp });
+        if (quiet.summary)
+          lines.push({
+            historyIndex: index,
+            kind: "quiet",
+            text: oneLine(markdownToPlainText(quiet.summary)),
+            timestamp,
+          });
         if (text && lines.length < limit) lines.push({ historyIndex: index, kind: "message", text, timestamp });
       }
     }

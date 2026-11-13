@@ -15,7 +15,8 @@ const RULES = {
   backendType: ["codex", "claude-sdk"],
   permissionMode: ["string", SESSION_NAVIGATION_TEXT_MAX_LENGTH],
   askPermission: "boolean",
-  sessionNum: "positive-nullable-integer",
+  /** Session numbers can be 0: installs created before numbering began at 1 have a #0. */
+  sessionNum: "nullable-session-number",
   createdAt: "nonnegative-number",
   treeGroupId: ["nullable-string", SESSION_NAVIGATION_ID_MAX_LENGTH],
   memorySessionSpaceSlug: ["nullable-string", SESSION_NAVIGATION_TEXT_MAX_LENGTH],
@@ -27,7 +28,7 @@ const RULES = {
   isAssistant: "boolean",
   isOrchestrator: "boolean",
   herdedBy: ["nullable-string", SESSION_NAVIGATION_ID_MAX_LENGTH],
-  reviewerOf: "positive-nullable-integer",
+  reviewerOf: "nullable-session-number",
   cronJobId: ["nullable-string", SESSION_NAVIGATION_ID_MAX_LENGTH],
   cronJobName: ["nullable-string", SESSION_NAVIGATION_TEXT_MAX_LENGTH],
   state: ["starting", "connected", "running", "exited"],
@@ -85,7 +86,7 @@ type FieldValue<Rule extends FieldRule> = Rule extends "session-waits"
       ? boolean | null
       : Rule extends "nonnegative-integer" | "nonnegative-number"
         ? number
-        : Rule extends "nonnegative-nullable-number" | "positive-nullable-integer"
+        : Rule extends "nonnegative-nullable-number" | "nullable-session-number"
           ? number | null
           : Rule extends readonly ["string", number]
             ? string
@@ -109,8 +110,8 @@ function fieldMatches(rule: FieldRule, value: unknown): boolean {
   if (rule === "boolean") return typeof value === "boolean";
   if (rule === "nullable-boolean") return value === null || typeof value === "boolean";
   if (rule === "nonnegative-integer") return Number.isSafeInteger(value) && (value as number) >= 0;
-  if (rule === "positive-nullable-integer")
-    return value === null || (Number.isSafeInteger(value) && (value as number) >= 1);
+  if (rule === "nullable-session-number")
+    return value === null || (Number.isSafeInteger(value) && (value as number) >= 0);
   if (rule === "nonnegative-number") return typeof value === "number" && Number.isFinite(value) && value >= 0;
   if (rule === "nonnegative-nullable-number") {
     return value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0);
