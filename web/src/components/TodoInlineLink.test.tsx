@@ -79,6 +79,13 @@ const statusButton = (name: string) =>
   within(screen.getByRole("group", { name: "Status" })).getByRole("button", { name });
 /** The check circle beside the to-do's title, tapped to complete it or take it back. */
 const checkCircle = () => screen.getByTestId("todo-preview-check");
+/**
+ * Waits until the preview's running action has settled. The sheet shows the server's new state a
+ * moment before the action stops counting as running, and until then other controls stay disabled
+ * and a second tap is ignored, which a busy CI runner exposed. The Todo status button is disabled
+ * exactly while another control's action runs.
+ */
+const actionSettled = () => waitFor(() => expect(statusButton("Todo").hasAttribute("disabled")).toBe(false));
 
 // Each test supplies only the to-do changes it exercises. Link markers read the default list unless
 // a test supplies its own summaries.
@@ -377,6 +384,7 @@ describe("to-do links", () => {
     celebrate.mockClear();
     fingerTap(statusButton("Done"));
     await waitFor(() => expect(statusButton("Done").getAttribute("aria-pressed")).toBe("true"));
+    await actionSettled();
     expect(setItemStatus).toHaveBeenCalledWith("td-1", "done");
     // Done checks the circle beside the title and celebrates, once the server confirms it.
     expect(checkCircle().getAttribute("aria-pressed")).toBe("true");
@@ -392,6 +400,7 @@ describe("to-do links", () => {
     // The Undo link restores Doing.
     fingerTap(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true"));
+    await actionSettled();
     expect(undoCompletion).toHaveBeenCalledWith("td-1", "undo-token");
     expect(checkCircle().getAttribute("aria-pressed")).toBe("false");
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Today" }).disabled).toBe(false);
@@ -400,6 +409,7 @@ describe("to-do links", () => {
     // The circle completes it the same way, and a second tap while the receipt lasts undoes it.
     fingerTap(checkCircle());
     await waitFor(() => expect(statusButton("Done").getAttribute("aria-pressed")).toBe("true"));
+    await actionSettled();
     expect(celebrate).toHaveBeenCalledTimes(2);
     fingerTap(checkCircle());
     await waitFor(() => expect(statusButton("Doing").getAttribute("aria-pressed")).toBe("true"));

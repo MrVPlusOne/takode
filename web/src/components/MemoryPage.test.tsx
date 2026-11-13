@@ -715,7 +715,9 @@ describe("MemoryPage", () => {
 
     const mobileDetail = screen.getByTestId("memory-mobile-detail");
     expect(within(mobileDetail).getByText("Memory record")).toBeInTheDocument();
-    fireEvent.click(within(mobileDetail).getByRole("button", { name: "Next" }));
+    // The record loads after the click; Next appears once it has (a busy CI runner still showed the
+    // loading rows here).
+    fireEvent.click(await within(mobileDetail).findByRole("button", { name: "Next" }));
 
     expect(await within(mobileDetail).findByText("bun run dev")).toBeInTheDocument();
     // Next landed in the collapsed procedures folder, which opens so the selected row stays visible.
