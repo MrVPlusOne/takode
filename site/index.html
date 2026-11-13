@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Takode · Lead a team of coding agents</title>
+<meta name="description" content="Takode is an open-source workspace where leader sessions run teams of Claude Code and Codex agents for you.">
+<link rel="icon" href="./assets/img/favicon.png">
+<!-- Images the scripts load by computed path -->
+<link rel="preload" as="image" href="./assets/img/app-logo.png">
+<link rel="preload" as="image" href="./assets/img/app-logo-night.png">
+<link rel="preload" as="image" href="./assets/img/favicon-night.png">
+<link rel="preload" as="image" href="./assets/img/ink-paper.v1.webp">
+<link rel="preload" as="image" href="./assets/img/ink-far.v1.webp">
+<link rel="preload" as="image" href="./assets/img/ink-midfar.v1.webp">
+<link rel="preload" as="image" href="./assets/img/ink-mid.v1.webp">
+<link rel="preload" as="image" href="./assets/img/ink-far-night.v1.webp">
+<link rel="preload" as="image" href="./assets/img/ink-midfar-night.v1.webp">
+<link rel="preload" as="image" href="./assets/img/ink-mid-night.v1.webp">
+<link rel="preload" as="image" href="./assets/img/ink-near.v1.webp">
+<link rel="preload" as="image" href="./assets/img/ink-boat.v1.webp">
+<link rel="preload" as="image" href="./assets/img/ink-crane.v1.webp">
+<link rel="stylesheet" href="./demo/landing-queue.css">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<section class="hero">
+  <canvas id="ink"></canvas>
+  <img class="hero-fallback day" src="./assets/img/ink-day.v1.webp" alt="">
+  <img class="hero-fallback night" src="./assets/img/ink-night.v2.webp" alt="">
+  <header class="nav">
+    <a class="logo" href="#"><img class="day-only" src="./assets/img/app-logo.png" alt=""><img class="night-only" src="./assets/img/app-logo-night.png" alt="">Takode</a>
+    <div class="nav-r">
+      <button id="night" class="pill" title="Switch to night"><span class="ic">☾</span><span class="lbl">Night</span></button>
+      <a class="pill" href="https://github.com/MrVPlusOne/takode"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.67.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg><span class="lbl">GitHub</span></a>
+    </div>
+  </header>
+  <div class="hero-text">
+    <p class="eyebrow">Takode · open source · for Claude Code and Codex</p>
+    <h1>Lead a team of coding agents, <br><span>not a wall of chats.</span></h1>
+    <p class="lede">Talk to a few leader sessions. They turn your requests into quests, run workers in parallel, land the changes, and come back only with decisions and results.</p>
+    <div class="ctas"><a class="btn ink" href="#start">Get started</a><a class="btn" href="#how">Watch a leader work ↓</a></div>
+  </div>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="seal-edge" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="2" seed="7" result="grain"/><feDisplacementMap in="SourceGraphic" in2="grain" scale="1.4" xChannelSelector="R" yChannelSelector="G" result="rough"/><feTurbulence type="fractalNoise" baseFrequency="0.11" numOctaves="2" seed="3" result="blot"/><feColorMatrix in="blot" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -3 0 0 0 2.3" result="gaps"/><feComposite in="rough" in2="gaps" operator="in"/></filter></svg>
+  <figure class="seal" title="Tako, the cat Takode is named after"><img class="day-only" src="./assets/img/app-logo.png" alt=""><img class="night-only" src="./assets/img/app-logo-night.png" alt=""></figure>
+</section>
+
+<section class="watch" id="how">
+  <ol class="beats" id="beats"></ol>
+  <p class="caption" id="caption">&nbsp;</p>
+  <div class="scroll-frame">
+    <div class="demo-host" id="demo"></div>
+    <div class="stamp" id="stamp"></div>
+  </div>
+</section>
+
+<section class="why" id="features">
+  <h2>What a team of agents needs <br>to keep working for weeks</h2>
+  <p class="sub">Parallel sessions, worktrees, diffs and your phone are table stakes, and Takode has them. This is what it adds.</p>
+  <div class="grid6">
+    <article><span class="num">01</span><h3>Leaders run the work</h3><p>A leader files each request as a quest, picks or starts a worker, queues a batch with its dependencies and reviews what comes back.</p></article>
+    <article><span class="num">02</span><h3>Every piece of work leaves a record</h3><p>Each quest keeps what was asked, what was decided, its commits and a final summary, so "why did we do it this way?" has an answer months later.</p></article>
+    <article><span class="num">03</span><h3>Memory that grows with the project</h3><p>Lessons go into Git-tracked Markdown notes that later sessions read before related work. No hidden model memory.</p></article>
+    <article><span class="num">04</span><h3>Many agents, one codebase</h3><p>A landing queue tests waiting changes together, and leases make agents take turns on dev servers, browsers and build machines.</p></article>
+    <article><span class="num">05</span><h3>Only the decisions reach you</h3><p>Questions arrive with context and suggested replies, in the thread they are about. One bell collects them across every leader.</p></article>
+    <article><span class="num">06</span><h3>One workspace, many machines</h3><p>Sessions run wherever the code or the GPU is, and one Takode keeps every session, quest and note.</p></article>
+  </div>
+</section>
+
+<section class="team">
+  <div class="team-text">
+    <p class="kicker">Work Board</p>
+    <h2>Hand over a list, not one task at a time</h2>
+    <p>A leader queues the whole batch, holds each quest until a worker is free or the quests it depends on are done, and starts it. When a worker finishes, asks or stalls, its leader hears about it and moves the quest on.</p>
+    <p>Workers keep their context, so a follow-up goes to the one that already knows the code. Every worker is an ordinary session you can open and talk to.</p>
+  </div>
+  <div class="team-art">
+    <svg class="strokes" aria-hidden="true"><path /><path /><path /><path class="dash" /><path class="dash" /></svg>
+    <figure class="leader"><img src="./assets/img/tako1-04.v2.320.webp" alt="The Pocket Ledger leader"><figcaption>Pocket Ledger · leader</figcaption></figure>
+    <div class="slips">
+      <div class="slip"><b>q-22</b> OFX import freezes on big files<span data-live="0"></span></div>
+      <div class="slip"><b>q-23</b> Faint text in the dark theme<span data-live="1"></span></div>
+      <div class="slip"><b>q-24</b> Monthly totals off by a cent<span data-live="2"></span></div>
+      <div class="slip wait"><b>q-25</b> Search ignores accents<span>waits for a free worker</span></div>
+      <div class="slip wait"><b>q-26</b> Flaky import test<span>waits for q-22</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="feature">
+  <div class="text">
+    <p class="kicker">Quests and memory</p>
+    <h2>A record of every piece of work</h2>
+    <p>A quest follows a short Journey: Work, a User Checkpoint whenever it waits for you, and Memory, where it records what future sessions should know. Each phase leaves a summary for you and fuller notes for later agents.</p>
+    <p>Lessons that matter beyond one quest become plain Markdown notes in a Git repo you can browse, edit and diff.</p>
+  </div>
+  <figure class="shot"><a class="day-shot" href="./assets/shots/readme-quest-journey.jpg"><img src="./assets/shots/readme-quest-journey.jpg" alt="A quest's Journey: Work, a User Checkpoint, a second round of Work and Memory, with short notes" loading="lazy"></a><a class="night-shot" href="./assets/shots/readme-quest-journey-dark.jpg"><img src="./assets/shots/readme-quest-journey-dark.jpg" alt="A quest's Journey: Work, a User Checkpoint, a second round of Work and Memory, with short notes" loading="lazy"></a></figure>
+</section>
+
+<section class="lq-sec">
+  <p class="kicker">Landing queue</p>
+  <h2>Many agents on one branch, without the pile&#8209;ups</h2>
+  <p class="sub">Workers submit and move on. The queue tests waiting changes together, finds the one that broke a batch, and lands the rest.</p>
+  <div id="lq"></div>
+</section>
+
+<section class="feature flip">
+  <div class="text">
+    <p class="kicker">Attention</p>
+    <h2>Only the decisions reach you</h2>
+    <p>A question comes as a short explanation and a card with suggested replies, in the thread of the quest it is about. Only that quest waits; everything else keeps moving.</p>
+    <p>One bell gathers every leader's questions and unread results. Phone alerts and read-aloud answers follow you away from the desk.</p>
+  </div>
+  <figure class="shot narrow"><a class="day-shot" href="./assets/shots/readme-decision-card.jpg"><img src="./assets/shots/readme-decision-card.jpg" alt="A question card with three suggested replies" loading="lazy"></a><a class="night-shot" href="./assets/shots/readme-decision-card-dark.jpg"><img src="./assets/shots/readme-decision-card-dark.jpg" alt="A question card with three suggested replies" loading="lazy"></a></figure>
+</section>
+
+<section class="feature">
+  <div class="text">
+    <p class="kicker">Results</p>
+    <h2>Results you can read</h2>
+    <p>Each finished quest links its exact commits, and each commit opens in a compact diff. Reports, slide decks and figures land in a Library where you can comment on any passage. Ask for a code review and you get a guided walkthrough that puts the questions needing your call first.</p>
+  </div>
+  <figure class="shot narrow"><a class="day-shot" href="./assets/shots/readme-guided-review.jpg"><img src="./assets/shots/readme-guided-review.jpg" alt="A guided code review with a question for the reader" loading="lazy"></a><a class="night-shot" href="./assets/shots/readme-guided-review-dark.jpg"><img src="./assets/shots/readme-guided-review-dark.jpg" alt="A guided code review with a question for the reader" loading="lazy"></a></figure>
+</section>
+
+<section class="machines">
+  <p class="kicker">Machines</p>
+  <h2>One workspace across your machines</h2>
+  <div class="mgrid">
+    <div class="node hub"><b>Takode</b><span>sessions · quests · boards · memory</span></div>
+    <div class="node"><b>Laptop</b><span>leaders, quick fixes</span></div>
+    <div class="node"><b>Cloud workspace</b><span>the big repo</span></div>
+    <div class="node"><b>GPU box</b><span>next to the data</span></div>
+  </div>
+  <p class="sub">Each machine runs <code>takode node</code> and dials out with its own token. Git, diffs and terminals run where the files are, and sessions ride out network drops and restarts.</p>
+</section>
+
+<section class="start" id="start">
+  <h2>Run it on your machine</h2>
+  <p class="sub">Needs <a href="https://bun.sh">Bun</a> and an authenticated Claude Code or Codex CLI. MIT licensed.</p>
+  <div class="code"><pre>git clone https://github.com/MrVPlusOne/takode.git
+cd takode &amp;&amp; bun install --cwd web --frozen-lockfile
+make serve</pre><button id="copy">Copy</button></div>
+  <p class="sub">Then open <code>localhost:3456</code>, start a leader and hand it something.</p>
+  <div class="water"><img class="boat" src="./assets/img/ink-boat-cutout.webp" alt=""></div>
+  <p class="foot"><img src="./assets/img/sleeping-tako.v1.320.webp" alt="">Named after Tako, who naps while the agents work.</p>
+</section>
+
+<script>window.TAKODE_INK_ASSETS = "assets/img";</script>
+<script src="./demo/ink-alive.js"></script>
+<script src="./demo/landing-queue.js"></script>
+<script src="./demo/takode-demo.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

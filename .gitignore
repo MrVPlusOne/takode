@@ -26,3 +26,5 @@ e2e_tests/screenshots/
 .codex/session-auth.json
 .companion/session-auth.json
 *.vsix
+# The landing page demo, built from web/src/site-demo (bun run build:site-demo).
+site/demo/app/

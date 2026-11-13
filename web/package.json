@@ -36,6 +36,7 @@
     "dev:api": "bun --no-install --watch server/index.ts",
     "dev:vite": "./node_modules/.bin/vite",
     "build": "./node_modules/.bin/vite build",
+    "build:site-demo": "./node_modules/.bin/vite build -c vite.site-demo.config.ts",
     "start": "NODE_ENV=production bun --no-install server/production-entry.ts",
     "serve": "bun --no-install serve.ts",
     "prepublishOnly": "bun --no-install run build",
@@ -44,8 +45,8 @@
     "test:watch": "./scripts/run-local-tool.sh vitest",
     "test:codex-contract": "./scripts/run-local-tool.sh vitest run server/codex-protocol-*.test.ts",
     "check:staged-file-line-limit": "bun --no-install ./scripts/check-staged-file-line-limit.ts",
-    "format": "./node_modules/.bin/biome format --write .",
-    "format:check": "./node_modules/.bin/biome format ."
+    "format": "./node_modules/.bin/biome format --write . ../site",
+    "format:check": "./node_modules/.bin/biome format . ../site"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.287",

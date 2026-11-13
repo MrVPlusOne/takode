@@ -1,0 +1,36 @@
+/* Landing queue animation. Inherits colors from the page through --lq-* vars. */
+.lq {
+  --lq-fg: currentColor;
+  --lq-line: rgba(127, 127, 127, 0.25);
+  --lq-surface: rgba(127, 127, 127, 0.08);
+  --lq-green: #48bb78;
+  --lq-red: #f56565;
+  --lq-blue: #63b3ed;
+  display: grid;
+  grid-template-columns: 1fr 1.25fr 1fr;
+  gap: 14px;
+  font: 13px/1.4 system-ui, -apple-system, sans-serif;
+}
+.lq-lane { border: 1px dashed var(--lq-line); border-radius: 12px; padding: 10px; min-height: 196px; background: var(--lq-surface); }
+.lq-test { border-style: solid; }
+.lq-main { border-style: solid; border-color: color-mix(in srgb, var(--lq-green) 45%, transparent); }
+.lq-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.6; margin-bottom: 8px; }
+.lq-slots { display: flex; flex-direction: column; gap: 6px; }
+.lq-pill { border: 1px solid var(--lq-line); border-radius: 8px; padding: 6px 10px; animation: lq-in 0.4s cubic-bezier(0.2, 0.7, 0.2, 1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: border-color 0.3s, background 0.3s, opacity 0.3s; }
+.lq-pill b { font-family: ui-monospace, Menlo, monospace; font-weight: 500; font-size: 11.5px; color: var(--lq-blue); margin-right: 4px; }
+.lq-pill.testing { border-color: var(--lq-blue); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--lq-blue) 18%, transparent), transparent) 0 0 / 200% 100%; animation: lq-in 0.4s, lq-scan 1.2s linear infinite; }
+.lq-pill.failed { border-color: var(--lq-red); background: color-mix(in srgb, var(--lq-red) 14%, transparent); }
+.lq-pill.ok, .lq-pill.landed { border-color: var(--lq-green); }
+.lq-pill.landed { background: color-mix(in srgb, var(--lq-green) 12%, transparent); }
+.lq-pill.landed::after { content: " ✓"; color: var(--lq-green); }
+.lq-pill.fixing { border-style: dashed; border-color: var(--lq-red); }
+.lq-pill.bounced { opacity: 0.75; }
+.lq-note { grid-column: 1 / -1; min-height: 1.4em; opacity: 0.8; text-align: center; transition: opacity 0.3s; }
+@keyframes lq-in { from { opacity: 0; transform: translateX(-14px); } }
+@keyframes lq-scan { to { background-position: -200% 0; } }
+@media (max-width: 640px) {
+  .lq { grid-template-columns: 1fr; }
+  .lq-lane { min-height: 0; }
+  .lq-slots { flex-direction: row; flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { .lq * { animation: none !important; } }

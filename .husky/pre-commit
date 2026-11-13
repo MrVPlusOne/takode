@@ -1,7 +1,8 @@
 cd web
 
-# Format-check only staged files (skip deleted files)
-STAGED_FILES=$(git --no-optional-locks diff --cached --name-only --diff-filter=d -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' | sed 's|^web/||')
+# Format-check only staged files (skip deleted files) in web/ and the site/ landing page,
+# with paths made relative to web/, where Biome runs
+STAGED_FILES=$(git --no-optional-locks diff --cached --name-only --diff-filter=d -- ':/*.ts' ':/*.tsx' ':/*.js' ':/*.jsx' ':/*.json' | grep -E '^(web|site)/' | sed -e 's|^web/||' -e 's|^site/|../site/|')
 if [ -n "$STAGED_FILES" ]; then
   echo "$STAGED_FILES" | xargs ./node_modules/.bin/biome format --no-errors-on-unmatched
 fi
