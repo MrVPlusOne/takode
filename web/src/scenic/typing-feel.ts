@@ -1,45 +1,54 @@
 /**
  * Typing feel: the caret is iron in the forge. The faster you type, the hotter it glows, from dark
- * red through orange to white-gold, throwing sparks off to its right at speed, while the composer's
- * edge glows warm. The variants differ in their sparks and glow. The text box draws its text and
- * caret itself, exactly as without a feel: nothing here renders text, hides the caret or touches
- * the text's position or weight. Each part only colours the native caret or draws light around it.
+ * red through orange to white-gold, while the composer's edge glows warm and small things drift out
+ * right of the caret: fireflies at night, and by day ink motes, petals or ash. The text box draws
+ * its text and caret itself, exactly as without a feel: nothing here renders text, hides the caret
+ * or touches the text's position or weight. Each part only colours the native caret or draws
+ * around it.
  *
- * No added latency beyond the sparks: the work for a key runs after the frame showing that key has
- * been painted (only the caret light is dimmed as the key lands, so it doesn't glow a frame over the
- * new character, and comes back in two steps after it), and the settling, which waits for a pause
- * in typing, is a few discrete steps rather than an animation. An animation keeps the page drawing a
- * frame on every display tick, so a key typed meanwhile waits for the next tick (about 8 ms on
- * average, measured); between steps the page draws nothing, so a key is drawn at once, as with no
- * feel. The sparks are the one real motion: a burst lasts at most 110 ms and comes at most every
- * 240 ms, so at speed some keys wait a frame (measured per variant). Every input counts the same,
- * IME composition (pinyin) included, so it works the same for Chinese. Everything settles 1.2 s
- * after the last key, so an idle box draws nothing, and nothing plays with reduced motion.
+ * No added latency beyond the drifting: the work for a key runs after the frame showing that key
+ * has been painted (only the caret light is dimmed as the key lands, so it doesn't glow a frame
+ * over the new character, and comes back in two steps after it), and the settling, which waits for
+ * a pause in typing, is a few discrete steps rather than an animation. An animation keeps the page
+ * drawing a frame on every display tick, so a key typed meanwhile waits for the next tick (about
+ * 8 ms on average, measured); between steps the page draws nothing, so a key is drawn at once, as
+ * with no feel. The drifters are the one real motion, so while one is in the air a key waits for
+ * the next tick (measured per variant); the "rest" variant only lets them drift while you pause.
+ * Every input counts the same, IME composition (pinyin) included, so it works the same for Chinese.
+ * Everything settles soon after the last key, so an idle box draws nothing, and nothing plays with
+ * reduced motion.
  */
-import { ballisticPath } from "../components/completion-celebration.js";
 import { scenicMotionAllowed } from "./scenic-styles.js";
 
-export type TypingFeel = "embers" | "streaks" | "shower";
+export type TypingFeel = "ink" | "petals" | "ash" | "rest";
 
 /**
  * The styles, in the order to offer them, with a short description of each. Every one is the
- * forged caret with sparks and the warm edge; they differ in their sparks and glow.
+ * forged caret and the warm edge, with fireflies drifting out right of the caret at night; they
+ * differ in what drifts out by day, and in when.
  */
 export const TYPING_FEELS: ReadonlyArray<{ id: TypingFeel; label: string; description: string }> = [
   {
-    id: "embers",
-    label: "Forge: embers",
-    description: "A few round embers hop right off the caret on short falling arcs, white-gold cooling to red.",
+    id: "ink",
+    label: "Fireflies / ink motes",
+    description:
+      "As you type, fireflies drift out at night; by day, tiny ink motes drift out and dissolve into the paper.",
   },
   {
-    id: "streaks",
-    label: "Forge: streaks",
-    description: "Two or three thin streaks shoot right along flat arcs, drawn along their flight, crisp and quick.",
+    id: "petals",
+    label: "Fireflies / petals",
+    description: "As you type, fireflies drift out at night; by day, small plum petals float out and settle.",
   },
   {
-    id: "shower",
-    label: "Forge: shower",
-    description: "A small shower of fine sparks sprays right and drops, the heaviest fall of the three.",
+    id: "ash",
+    label: "Fireflies / ash",
+    description: "As you type, fireflies drift out at night; by day, pale flecks of ash curl up from the forge.",
+  },
+  {
+    id: "rest",
+    label: "Fireflies when you pause",
+    description:
+      "Nothing drifts while you type; when you pause, a few fireflies (by day, ink motes) drift out, and typing again sends them away.",
   },
 ];
 
@@ -57,10 +66,9 @@ export interface TypingFeelHandle {
 export function attachTypingFeel(area: HTMLTextAreaElement, feel: TypingFeel): TypingFeelHandle {
   if (!scenicMotionAllowed() || !area.parentElement) return { stop() {} };
   const box = new TypingBox(area, area.parentElement);
-  const look = LOOKS[feel];
   const parts: Part[] = [
-    glowingCaret(box, forgeColour, (warmth) => forgeColour(warmth * 0.75), look.halo),
-    sparks(box, look.sparks),
+    glowingCaret(box, forgeColour, (warmth) => forgeColour(warmth * 0.75), 6),
+    drift(box, feel),
     warmEdge(box),
   ];
   box.onType((warmth) => {
@@ -91,6 +99,8 @@ class TypingBox {
   private heat = 0;
   private typedAt = 0;
   private lastGap = Number.POSITIVE_INFINITY;
+  /** Whether an IME (pinyin) is composing text that isn't committed yet. */
+  composing = false;
   private readonly mirror = document.createElement("div");
   private readonly cleanups: Array<() => void> = [];
   /** The box width the mirror's style was copied at; copied again when it changes. */
@@ -112,6 +122,13 @@ class TypingBox {
     this.mirror.setAttribute("aria-hidden", "true");
     document.body.append(this.mirror);
     this.cleanups.push(() => this.mirror.remove());
+    const composing = (event: Event) => {
+      this.composing = event.type !== "compositionend";
+    };
+    for (const type of ["compositionstart", "compositionend"]) area.addEventListener(type, composing);
+    this.cleanups.push(() => {
+      for (const type of ["compositionstart", "compositionend"]) area.removeEventListener(type, composing);
+    });
   }
 
   /** The vermilion and gold of the scenic fireworks and seal, by day or by night. */
@@ -299,7 +316,9 @@ function glowingCaret(
       const heat = warmth * (1 - cooled);
       area.style.caretColor = cooled < 1 ? colour(heat) : native;
       light(heat);
-      const opacity = (0.55 + 0.45 * warmth) * (1 - cooled);
+      // While pinyin is being composed, the browser may highlight it; the caret's light would add to
+      // that highlight right where the pinyin ends, so it stays off until the text is committed.
+      const opacity = box.composing ? 0 : (0.55 + 0.45 * warmth) * (1 - cooled);
       // After a key the light comes back in two steps, a soft pulse rather than a flicker. Steps,
       // not an animation, so the page draws just those two frames.
       clearTimeout(brighten);
@@ -332,135 +351,169 @@ function forgeColour(warmth: number): string {
   return `color-mix(in srgb, ${stops[from + 1]} ${mix}%, ${stops[from]})`;
 }
 
-/** Sparks only when typing this warm, and a burst at most this often. */
-const SPARK_WARMTH = 0.45;
-const SPARK_EVERY_MS = 240;
+/** Drifting starts when typing is this warm, and one more drifts out at most this often. */
+const DRIFT_WARMTH = 0.25;
+const DRIFT_EVERY_MS = 320;
 
-/** How one variant's sparks fly and how its caret glows. */
-interface Look {
-  /** How far the caret's halo blurs, in px. */
-  halo: number;
-  sparks: SparkStyle;
-}
-
-/** A variant's sparks. Ranges are [least, most]; each spark picks its own within them. */
-interface SparkStyle {
-  /** Sparks in a burst, warm and at full heat. */
-  count: [number, number];
-  /** Width and length in px: longer than wide is a streak, drawn along its flight. */
+/** How a kind of drifter looks and moves. Ranges are [least, most]; each one picks within them. */
+interface Drifter {
+  /** Width and height in px, and how it is drawn. */
   size: [number, number];
-  /** How much glow a spark has, in px of blur. */
-  glow: number;
-  /** Flight time in ms: short, since a spark is the one motion and must be over before most keys. */
+  style: (box: TypingBox) => Partial<CSSStyleDeclaration>;
+  /** Flight time in ms, and how far it goes right and down (negative is up), in px. */
   life: [number, number];
-  /** Launch angle in radians, 0 straight right and negative up: always to the right, away from the next character. */
-  angle: [number, number];
-  /** Distance thrown and pull down over a whole flight, in px (see `ballisticPath`). */
-  speed: [number, number];
-  gravity: number;
+  right: [number, number];
+  down: [number, number];
+  /** Side-to-side wander, in px, and how many times it wanders over its flight. */
+  sway: number;
+  waves: number;
+  /** Opacity, scale, blur (px) and turn (degrees) at six even points of its flight. */
+  opacity: number[];
+  scale: number[];
+  blur?: number[];
+  turn?: [number, number];
 }
 
-const LOOKS: Record<TypingFeel, Look> = {
-  embers: {
-    halo: 6,
-    sparks: {
-      count: [2, 4],
-      size: [2, 2],
-      glow: 3,
-      life: [80, 100],
-      angle: [-0.9, -0.15],
-      speed: [14, 20],
-      gravity: 14,
-    },
-  },
-  streaks: {
-    halo: 5,
-    sparks: {
-      count: [2, 3],
-      size: [1.3, 6],
-      glow: 2,
-      life: [70, 90],
-      angle: [-0.6, 0.05],
-      speed: [18, 26],
-      gravity: 10,
-    },
-  },
-  shower: {
-    halo: 6,
-    sparks: {
-      count: [4, 6],
-      size: [1.5, 1.5],
-      glow: 2,
-      life: [80, 100],
-      angle: [-1.1, 0.2],
-      speed: [10, 18],
-      gravity: 22,
-    },
-  },
+/** Fireflies at night: soft glowing points that rise up and right, clear of the line, pulsing as they go. */
+const FIREFLY: Drifter = {
+  size: [5, 5],
+  style: () => ({
+    borderRadius: "50%",
+    background: "radial-gradient(circle, #fffbe0 0%, #f2ee8a 40%, rgba(225, 235, 110, 0) 72%)",
+    boxShadow: "0 0 6px 2px rgba(232, 240, 130, 0.35)",
+  }),
+  life: [1100, 1600],
+  right: [18, 34],
+  down: [-26, -14],
+  sway: 3,
+  waves: 1.5,
+  opacity: [0, 0.95, 0.55, 1, 0.6, 0],
+  scale: [0.7, 1, 0.9, 1, 0.9, 0.7],
 };
 
+/** Ink motes by day: tiny drops of ink that drift out and down below the line, spreading a little into the paper as they fade. */
+const INK_MOTE: Drifter = {
+  size: [2.4, 2.4],
+  style: (box) => ({ borderRadius: "50%", background: box.ink }),
+  life: [1000, 1400],
+  right: [12, 22],
+  down: [9, 15],
+  sway: 1.5,
+  waves: 1,
+  opacity: [0, 0.7, 0.55, 0.35, 0.15, 0],
+  scale: [1, 1.2, 1.4, 1.6, 1.7, 1.8],
+  blur: [0, 0.2, 0.35, 0.5, 0.65, 0.8],
+};
+
+/** Plum petals by day: small pink petals that float out, turning, and settle below the line. */
+const PETAL: Drifter = {
+  size: [5, 3.4],
+  style: () => ({
+    borderRadius: "60% 40% 60% 40%",
+    background: "linear-gradient(135deg, #f7cbd4, #e696a9)",
+  }),
+  life: [1200, 1700],
+  right: [20, 34],
+  down: [10, 18],
+  sway: 3,
+  waves: 1.2,
+  opacity: [0, 0.95, 0.9, 0.8, 0.5, 0],
+  scale: [0.8, 1, 1, 1, 0.95, 0.9],
+  turn: [-160, 160],
+};
+
+/** Ash by day: pale flecks that curl up and right from the forge, flickering out. */
+const ASH: Drifter = {
+  size: [2.6, 1.8],
+  style: () => ({ borderRadius: "40%", background: "#b6a587" }),
+  life: [1000, 1400],
+  right: [10, 20],
+  down: [-26, -14],
+  sway: 3,
+  waves: 1.4,
+  opacity: [0, 0.85, 0.6, 0.75, 0.35, 0],
+  scale: [1, 1, 0.9, 0.85, 0.8, 0.7],
+  turn: [-90, 90],
+};
+
+const DAY_DRIFTERS: Record<TypingFeel, Drifter> = { ink: INK_MOTE, petals: PETAL, ash: ASH, rest: INK_MOTE };
+
 /**
- * At speed the forged caret throws off sparks to its right, so they never cover the next character:
- * each flies a short falling arc with its own speed, angle and life (the flight the completion
- * celebration's sparks use), white-gold cooling to red as it goes. A burst starts after the key's
- * frame and comes at most every 240 ms. Sparks are drawn once and reused on their own layers, and
- * fly by transform, opacity and filter alone, which the compositor runs.
+ * What drifts out right of the caret, so it never covers the next character, and quickly up or
+ * down out of the line, so it doesn't drift over the text the caret leaves behind: fireflies at night,
+ * and by day the variant's ink motes, petals or ash. While typing, one more drifts out at most every
+ * 320 ms once typing is warm; "rest" instead waits for a pause and sends a few, which typing again
+ * sends away. Drifters are drawn once and reused on their own layers, and move by transform,
+ * opacity and filter alone, which the compositor runs.
  */
-function sparks(box: TypingBox, style: SparkStyle): Part {
+function drift(box: TypingBox, feel: TypingFeel): Part {
   const { lineHeight } = box;
-  const [width, length] = style.size;
-  const pool = Array.from({ length: 8 }, () =>
-    box.mark({
-      left: "0",
-      top: "0",
-      width: `${length}px`,
-      height: `${width}px`,
-      borderRadius: `${width / 2}px`,
-      opacity: "0",
-    }),
-  );
+  const pool = Array.from({ length: 8 }, () => box.mark({ left: "0", top: "0", opacity: "0" }));
+  const flying = new Set<Animation>();
   let next = 0;
-  let burstAt = Number.NEGATIVE_INFINITY;
-  return (warmth) => {
-    const now = performance.now();
-    if (warmth < SPARK_WARMTH || now - burstAt < SPARK_EVERY_MS) return () => {};
-    burstAt = now;
+  let driftAt = Number.NEGATIVE_INFINITY;
+  let resting: ReturnType<typeof setTimeout> | undefined;
+  box.later(() => clearTimeout(resting));
+  const release = (count: number) => {
     const { x, y } = box.caret();
     const dark = document.documentElement.classList.contains("dark");
-    // At night: amber brightened to a warm white-gold at launch, cooling toward red. By day white
-    // wouldn't show and a darkened spark looks like soot on paper, so it stays orange-gold and
-    // only fades.
-    const base = dark ? "#ffa640" : "#f06a10";
-    const filters = dark
-      ? ["brightness(1.35) saturate(0.85)", "brightness(1.1)", "brightness(0.8) saturate(1.3)"]
-      : ["brightness(1.1)", "brightness(1)", "brightness(1)"];
-    const count = Math.round(style.count[0] + (style.count[1] - style.count[0]) * warmth);
-    // A few px clear of the caret, so even at launch a spark never sits where the next character goes.
-    const start = { x: x + 4, y: y + lineHeight * 0.45 - width / 2 };
+    const kind = dark ? FIREFLY : DAY_DRIFTERS[feel];
     for (let i = 0; i < count; i++) {
-      const spark = pool[next]!;
+      const mark = pool[next]!;
       next = (next + 1) % pool.length;
-      Object.assign(spark.style, {
-        background: base,
-        boxShadow: style.glow ? `0 0 ${style.glow}px ${style.glow / 3}px ${forgeColour(0.65)}` : "none",
+      const [width, height] = kind.size;
+      Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style(box) });
+      const flight = mark.animate(path(kind, x + 5, y + lineHeight / 2 - height / 2), {
+        duration: between(...kind.life),
+        easing: "linear",
       });
-      const angle = between(...style.angle);
-      const speed = between(...style.speed);
-      const path = ballisticPath(angle, speed, style.gravity);
-      const keyframes = path.map(([dx, dy], step) => {
-        const t = step / (path.length - 1);
-        // Drawn along its flight: the direction it is moving at this point of the arc.
-        const heading = Math.atan2(Math.sin(angle) * speed + style.gravity * t, Math.cos(angle) * speed);
-        return {
-          transform: `translate(${start.x + dx}px, ${start.y + dy}px) rotate(${heading}rad) scale(${1 - 0.4 * t})`,
-          opacity: t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4,
-          filter: filters[Math.min(filters.length - 1, Math.floor(t * filters.length))],
-        };
-      });
-      spark.animate(keyframes, { duration: between(...style.life), easing: "linear" });
+      flying.add(flight);
+      flight.onfinish = flight.oncancel = () => flying.delete(flight);
+    }
+  };
+  if (feel === "rest") {
+    // Typing again sends them away at once, so nothing moves while you type.
+    box.onKey(() => {
+      clearTimeout(resting);
+      for (const flight of flying) flight.cancel();
+    });
+  }
+  return (warmth) => {
+    if (warmth < DRIFT_WARMTH) return () => {};
+    if (feel === "rest") {
+      clearTimeout(resting);
+      resting = setTimeout(() => release(2 + Math.round(warmth * 2)), REST_MS);
+      return () => {};
+    }
+    const now = performance.now();
+    if (now - driftAt >= DRIFT_EVERY_MS) {
+      driftAt = now;
+      release(1);
     }
     return () => {};
   };
+}
+
+/** "rest" sends its drifters once typing has paused this long. */
+const REST_MS = 350;
+
+/** A drifter's flight from (x, y) as keyframes: out to the right, wandering side to side. */
+function path(kind: Drifter, x: number, y: number): Keyframe[] {
+  const right = between(...kind.right);
+  const down = between(...kind.down);
+  const phase = Math.random() * Math.PI * 2;
+  const turn = kind.turn ? between(...kind.turn) : 0;
+  return kind.opacity.map((opacity, step) => {
+    const t = step / (kind.opacity.length - 1);
+    // Fast at first, then drifting: an ease-out along the way.
+    const along = t * (2 - t);
+    const wander = kind.sway * Math.sin(phase + t * kind.waves * Math.PI * 2);
+    return {
+      transform: `translate(${x + right * along}px, ${y + down * along + wander}px) rotate(${turn * t}deg) scale(${kind.scale[step]})`,
+      opacity,
+      filter: kind.blur ? `blur(${kind.blur[step]}px)` : "none",
+    };
+  });
 }
 
 function between(least: number, most: number): number {

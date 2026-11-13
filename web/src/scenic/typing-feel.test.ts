@@ -14,7 +14,10 @@ const animate = vi.fn();
 
 beforeEach(() => {
   vi.useFakeTimers();
-  animate.mockClear();
+  animate.mockReset();
+  animate.mockImplementation(
+    () => ({ onfinish: null, oncancel: null, cancel() {}, pause() {}, play() {} }) as unknown as Animation,
+  );
   Element.prototype.animate = animate as unknown as Element["animate"];
   window.matchMedia = ((query: string) => ({ matches: false, media: query })) as unknown as typeof window.matchMedia;
   document.body.innerHTML =
@@ -60,7 +63,7 @@ const marks = () => document.querySelectorAll("#host > div[aria-hidden], #frame 
 describe("typing feel", () => {
   it("warms the native caret only after the typed text has been painted, then settles back", () => {
     const area = box();
-    handle = attachTypingFeel(area, "embers");
+    handle = attachTypingFeel(area, "ink");
     input(area, "a");
     // Nothing changes while the key is handled, so the text paints as fast as without a feel.
     expect(area.style.caretColor).toBe("");
@@ -73,7 +76,7 @@ describe("typing feel", () => {
   it("settles in steps, never with an animation that would keep the page drawing frames", () => {
     // (The forge's sparks are the one exception, and only at speed; see below.)
     const area = box();
-    for (const feel of ["embers", "streaks", "shower"] as const) {
+    for (const feel of ["ink", "petals", "ash", "rest"] as const) {
       handle = attachTypingFeel(area, feel);
       input(area, "a");
       paint();
@@ -86,19 +89,19 @@ describe("typing feel", () => {
     expect(animate).not.toHaveBeenCalled();
   });
 
-  it("throws sparks only at speed, to the right of the caret, in short bursts no more often than every 240 ms", () => {
+  it("sends drifters out right of the caret while typing warm, at most one every 320 ms", () => {
     const area = box();
-    for (const feel of ["embers", "streaks", "shower"] as const) {
+    for (const feel of ["ink", "petals", "ash"] as const) {
       animate.mockClear();
       handle = attachTypingFeel(area, feel);
-      // Slow typing never sparks.
-      for (let i = 0; i < 4; i++) {
+      // Slow typing sends nothing.
+      for (let i = 0; i < 3; i++) {
         input(area, "a");
         paint();
         vi.advanceTimersByTime(1500);
       }
       expect(animate).not.toHaveBeenCalled();
-      // Fast typing (a key every 60 ms for 1.2 s) does.
+      // Typing a key every 60 ms for 1.2 s does, a few at a time.
       for (let i = 0; i < 20; i++) {
         input(area, "a");
         paint();
@@ -106,11 +109,9 @@ describe("typing feel", () => {
       }
       const flights = animate.mock.calls.map((call) => call as [Keyframe[], KeyframeAnimationOptions]);
       expect(flights.length).toBeGreaterThan(0);
-      // At most one burst of up to six sparks every 240 ms: 1.2 s allows no more than 6 bursts.
-      expect(flights.length).toBeLessThanOrEqual(6 * 6);
-      for (const [keyframes, options] of flights) {
-        expect(options.duration).toBeLessThanOrEqual(110);
-        // Every spark ends up right of where it started, away from the next character.
+      expect(flights.length).toBeLessThanOrEqual(5);
+      for (const [keyframes] of flights) {
+        // Every drifter ends up right of where it started, away from the next character.
         const x = (frame: Keyframe) => Number(/translate\(([-\d.]+)px/.exec(String(frame.transform))![1]);
         expect(x(keyframes.at(-1)!)).toBeGreaterThan(x(keyframes[0]!));
       }
@@ -119,9 +120,26 @@ describe("typing feel", () => {
     }
   });
 
+  it("sends nothing while typing for the pause variant, a few when typing pauses, and sends them away on the next key", () => {
+    const area = box();
+    const cancelled = vi.fn();
+    animate.mockImplementation(() => ({ onfinish: null, oncancel: null, cancel: cancelled }) as unknown as Animation);
+    handle = attachTypingFeel(area, "rest");
+    for (let i = 0; i < 20; i++) {
+      input(area, "a");
+      paint();
+      vi.advanceTimersByTime(20);
+    }
+    expect(animate).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(400);
+    expect(animate.mock.calls.length).toBeGreaterThanOrEqual(2);
+    input(area, "b");
+    expect(cancelled).toHaveBeenCalled();
+  });
+
   it("counts Chinese typed through an IME, while composing and on commit", () => {
     const area = box();
-    handle = attachTypingFeel(area, "embers");
+    handle = attachTypingFeel(area, "ink");
     input(area, "ni", true);
     paint();
     expect(area.style.caretColor).not.toBe("");
@@ -133,7 +151,7 @@ describe("typing feel", () => {
 
   it("does the work once a frame however many keys land in it", () => {
     const area = box();
-    handle = attachTypingFeel(area, "embers");
+    handle = attachTypingFeel(area, "ink");
     const frames = vi.spyOn(window, "requestAnimationFrame");
     input(area, "a");
     input(area, "b");
@@ -143,7 +161,7 @@ describe("typing feel", () => {
 
   it("never touches the text: its colour and weight stay the box's own and its caret stays visible", () => {
     const area = box();
-    for (const feel of ["embers", "streaks", "shower"] as const) {
+    for (const feel of ["ink", "petals", "ash", "rest"] as const) {
       handle = attachTypingFeel(area, feel);
       input(area, "字");
       paint();
@@ -157,7 +175,7 @@ describe("typing feel", () => {
 
   it("lights the caret and the composer's edge, and cleans up", () => {
     const area = box();
-    handle = attachTypingFeel(area, "embers");
+    handle = attachTypingFeel(area, "ink");
     input(area, "a");
     paint();
     const light = document.querySelector<HTMLElement>("#host > div[aria-hidden]")!;
@@ -170,7 +188,7 @@ describe("typing feel", () => {
   it("does nothing with reduced motion", () => {
     window.matchMedia = ((query: string) => ({ matches: true, media: query })) as unknown as typeof window.matchMedia;
     const area = box();
-    handle = attachTypingFeel(area, "embers");
+    handle = attachTypingFeel(area, "ink");
     input(area, "a");
     paint();
     expect(area.style.caretColor).toBe("");

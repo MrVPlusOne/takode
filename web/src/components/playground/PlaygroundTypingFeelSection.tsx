@@ -18,7 +18,7 @@ const ANSWERS = [
 
 export function PlaygroundTypingFeelSection() {
   const style = useScenicStyle();
-  const [feel, setFeel] = useState<TypingFeel | "today">("embers");
+  const [feel, setFeel] = useState<TypingFeel | "today">("ink");
   const [answers, setAnswers] = useState([0]);
   const area = useRef<HTMLTextAreaElement>(null);
   const newest = useRef<HTMLDivElement>(null);
@@ -43,7 +43,7 @@ export function PlaygroundTypingFeelSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Typing Feel"
-        description="Feedback while typing, with a scenic background on: the caret glows like forged iron, hotter the faster you type, throws sparks to its right at speed, and the composer's edge glows warm. The text box draws the text as always. Pick a variant and type in the box, in English or Chinese; Today has none. A new answer arriving spreads in like ink on xuan paper."
+        description="Feedback while typing, with a scenic background on: the caret glows like forged iron, hotter the faster you type, the composer's edge glows warm, and fireflies (by day ink motes, petals or ash) drift out right of the caret. The text box draws the text as always. Pick a variant and type in the box, in English or Chinese; Today has none. A new answer arriving spreads in like ink on xuan paper."
       >
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-cc-muted">
