@@ -162,7 +162,8 @@ export function ElapsedTimer({
         <span className="truncate text-cc-fg/90" title={retryDetail}>
           {label}
         </span>
-        <span className="text-cc-muted/75">{formatElapsed(elapsed)}</span>
+        {/* The title truncates first: a wrapped timer doubled the chip and the room kept for it. */}
+        <span className="shrink-0 whitespace-nowrap text-cc-muted/75">{formatElapsed(elapsed)}</span>
         {(streamingOutputTokens ?? 0) > 0 && (
           <span className="hidden truncate text-cc-muted/70 sm:inline">
             ↓ {formatTokens(streamingOutputTokens ?? 0)}

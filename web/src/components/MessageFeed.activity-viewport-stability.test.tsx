@@ -817,7 +817,7 @@ describe("MessageFeed activity viewport stability", () => {
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByTestId("turn-thread-status-footer")).toBeTruthy());
       const slack = document.querySelector<HTMLElement>("[data-feed-end-slack]")!;
       // No pill yet: the bottom is the content's end.
       geometry.setRealContentBottom();
@@ -828,11 +828,9 @@ describe("MessageFeed activity viewport stability", () => {
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
       await waitFor(() => expect(screen.getByText("Active in q-4091")).toBeTruthy());
       const room = Number(slack.dataset.feedOverlayRunwayHeight);
-      expect(room).toBe(27 + 4);
+      expect(room).toBe(27 + 8);
 
       await waitFor(() => expect(geometry.scrollTop).toBe(before + room));
-      const footer = screen.getByTestId("turn-thread-status-footer");
-      expect(footer).toBeTruthy();
       // The content now ends `room` above the feed's bottom edge, clear of the pill's row.
       expect(geometry.contentBottom - geometry.scrollTop).toBe(400 - room);
     } finally {
@@ -1668,7 +1666,7 @@ describe("composer overlay scroll reachability", () => {
       expect(right.style.transform).toBe("translateY(-240px)");
       expect(left.style.transform).toBe("translateY(-240px)");
       // The lifted chip row stacks on the composer, so the scroll runway covers both.
-      await waitFor(() => expect(geometry.slack).toBe(240 + 27 + 4));
+      await waitFor(() => expect(geometry.slack).toBe(240 + 27 + 8));
 
       composerHeight = 70;
       view.rerender(fixture(false));

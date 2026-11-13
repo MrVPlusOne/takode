@@ -9,7 +9,8 @@ import { useComposerScrollSpace } from "./ComposerFeedLayout.js";
 import { useWaitingWorkerPreviewTarget } from "./WaitingWorkerPreview.js";
 
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
-const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
+// The gap kept between the feed's content at its bottom and the floating status stacks.
+const FLOATING_STATUS_SPACER_MARGIN_PX = 8;
 const FLOATING_STATUS_MOBILE_BOTTOM_PX = 8;
 const MOBILE_NAV_BASE_BOTTOM_PX = 12;
 const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
