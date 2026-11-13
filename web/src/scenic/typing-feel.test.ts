@@ -71,15 +71,43 @@ describe("typing feel", () => {
   });
 
   it("settles in steps, never with an animation that would keep the page drawing frames", () => {
+    // (The forge's sparks are the one exception, and only at speed; see below.)
     const area = box();
-    for (const feel of ["vermilion", "glow", "dot", "dot-edge", "edge"] as const) {
+    for (const feel of ["vermilion", "glow", "forge", "forge-quiet", "edge"] as const) {
       handle = attachTypingFeel(area, feel);
       input(area, "a");
       paint();
+      const afterKey = animate.mock.calls.length;
       pause();
+      // Nothing animates while it cools.
+      expect(animate.mock.calls.length).toBe(afterKey);
       handle.stop();
     }
     expect(animate).not.toHaveBeenCalled();
+  });
+
+  it("throws forge sparks only at speed, as short bursts no more often than every 180 ms", () => {
+    const area = box();
+    handle = attachTypingFeel(area, "forge");
+    const sparkCalls = () =>
+      animate.mock.calls.filter((_, i) => (animate.mock.contexts[i] as HTMLElement).style.height === "5px");
+    // Slow typing never sparks.
+    for (let i = 0; i < 4; i++) {
+      input(area, "a");
+      paint();
+      vi.advanceTimersByTime(1500);
+    }
+    expect(sparkCalls()).toHaveLength(0);
+    // Fast typing (a key every 60 ms for 1.2 s) does, in short bursts.
+    for (let i = 0; i < 20; i++) {
+      input(area, "a");
+      paint();
+      vi.advanceTimersByTime(20);
+    }
+    expect(sparkCalls().length).toBeGreaterThan(0);
+    for (const call of sparkCalls()) expect((call[1] as KeyframeAnimationOptions).duration).toBeLessThanOrEqual(80);
+    // At most one burst (two or three sparks) every 180 ms: 1.2 s allows no more than 7 bursts.
+    expect(sparkCalls().length).toBeLessThanOrEqual(7 * 3);
   });
 
   it("counts Chinese typed through an IME, while composing and on commit", () => {
@@ -106,7 +134,7 @@ describe("typing feel", () => {
 
   it("never touches the text: its colour and weight stay the box's own and its caret stays visible", () => {
     const area = box();
-    for (const feel of ["vermilion", "glow", "dot", "dot-edge", "edge"] as const) {
+    for (const feel of ["vermilion", "glow", "forge", "forge-quiet", "edge"] as const) {
       handle = attachTypingFeel(area, feel);
       input(area, "字");
       paint();

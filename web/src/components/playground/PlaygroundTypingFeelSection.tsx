@@ -18,7 +18,7 @@ const ANSWERS = [
 
 export function PlaygroundTypingFeelSection() {
   const style = useScenicStyle();
-  const [feel, setFeel] = useState<TypingFeel | "today">("dot");
+  const [feel, setFeel] = useState<TypingFeel | "today">("forge");
   const [answers, setAnswers] = useState([0]);
   const area = useRef<HTMLTextAreaElement>(null);
   const newest = useRef<HTMLDivElement>(null);

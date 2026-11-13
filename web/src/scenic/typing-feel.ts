@@ -1,19 +1,24 @@
 /**
  * Typing feel: the caret comes alive while you type. The text box draws its text and caret itself,
  * exactly as without a feel: nothing here renders text, hides the caret or touches the text's
- * position or weight. Each style only colours the native caret or draws a mark beside it.
+ * position or weight. Each style only colours the native caret or draws light around it.
  *
- * No added latency: the work for a key runs after the frame showing that key has been painted, and
- * the settling, which waits for a pause in typing, is a few discrete steps rather than an
- * animation. An animation keeps the page drawing a frame on every display tick, so a key typed
- * meanwhile waits for the next tick (about 8 ms on average, measured); between steps the page draws
- * nothing, so a key is drawn at once, as with no feel. Every input counts the same, IME composition (pinyin) included, so it works
- * the same for Chinese. Everything settles 1.2 s after the last key, so an idle box draws nothing,
- * and nothing plays with reduced motion.
+ * No added latency: the work for a key runs after the frame showing that key has been painted
+ * (only a caret light is dimmed as the key lands, so it doesn't glow a frame over the new
+ * character, and comes back in two steps after it), and the settling, which waits for a pause
+ * in typing, is a few discrete steps rather than an animation. An animation keeps the page drawing
+ * a frame on every display tick, so a key typed meanwhile waits for the next tick (about 8 ms on
+ * average, measured); between steps the page draws nothing, so a key is drawn at once, as with no
+ * feel. The forge's sparks are the one longer motion: a burst lasts 80 ms, starts after the key's
+ * frame and comes at most every 180 ms, so it is over before the next key at ordinary typing speed
+ * (very fast typing pays about a frame on some keys).
+ * Every input counts the same, IME composition (pinyin) included, so it works the same for
+ * Chinese. Everything settles 1.2 s after the last key, so an idle box draws nothing, and nothing
+ * plays with reduced motion.
  */
 import { scenicMotionAllowed } from "./scenic-styles.js";
 
-export type TypingFeel = "vermilion" | "glow" | "dot" | "dot-edge" | "edge";
+export type TypingFeel = "vermilion" | "glow" | "forge" | "forge-quiet" | "edge";
 
 /** The styles, in the order to offer them, with a short description of each. */
 export const TYPING_FEELS: ReadonlyArray<{ id: TypingFeel; label: string; description: string }> = [
@@ -24,19 +29,19 @@ export const TYPING_FEELS: ReadonlyArray<{ id: TypingFeel; label: string; descri
   },
   {
     id: "glow",
-    label: "Glowing caret",
+    label: "Glowing vermilion caret",
+    description: "The vermilion caret line itself glows while you type, and cools when you pause.",
+  },
+  {
+    id: "forge",
+    label: "Forged caret",
     description:
-      "The vermilion caret has a small warm glow just ahead of it that brightens with each key and fades when you pause.",
+      "The caret is iron in the forge: the faster you type, the hotter it glows, from dark red through orange to white-gold, throwing off a few sparks at speed.",
   },
   {
-    id: "dot",
-    label: "Ink dot",
-    description: "Each key re-inks a small vermilion dot at the foot of the caret; it fades when you pause.",
-  },
-  {
-    id: "dot-edge",
-    label: "Ink dot and warm edge",
-    description: "The ink dot at the caret, and the composer's edge glows softly while you type.",
+    id: "forge-quiet",
+    label: "Forged caret, no sparks",
+    description: "The forged caret's heat without the sparks, the only motion in these styles, to compare.",
   },
   {
     id: "edge",
@@ -61,10 +66,13 @@ export function attachTypingFeel(area: HTMLTextAreaElement, feel: TypingFeel): T
   if (!scenicMotionAllowed() || !area.parentElement) return { stop() {} };
   const box = new TypingBox(area, area.parentElement);
   const parts: Part[] = [];
-  if (feel === "vermilion" || feel === "glow") parts.push(vermilionCaret(box));
-  if (feel === "glow") parts.push(glow(box));
-  if (feel === "dot" || feel === "dot-edge") parts.push(inkDot(box));
-  if (feel === "dot-edge" || feel === "edge") parts.push(warmEdge(box));
+  if (feel === "vermilion") parts.push(vermilionCaret(box));
+  if (feel === "glow") parts.push(glowingCaret(box, () => box.vermilion));
+  if (feel === "forge" || feel === "forge-quiet") {
+    parts.push(glowingCaret(box, forgeColour, (warmth) => forgeColour(warmth * 0.75)));
+  }
+  if (feel === "forge") parts.push(sparks(box));
+  if (feel === "edge") parts.push(warmEdge(box));
   box.onType((warmth) => {
     const steps = parts.map((part) => part(warmth));
     box.settle((cooled) => {
@@ -92,6 +100,7 @@ class TypingBox {
   readonly lineHeight: number;
   private heat = 0;
   private typedAt = 0;
+  private lastGap = Number.POSITIVE_INFINITY;
   private readonly mirror = document.createElement("div");
   private readonly cleanups: Array<() => void> = [];
   /** The box width the mirror's style was copied at; copied again when it changes. */
@@ -135,6 +144,7 @@ class TypingBox {
     const typed = () => {
       const now = performance.now();
       this.heat = this.heat * 0.5 ** ((now - this.typedAt) / COOL_MS) + 1;
+      this.lastGap = now - this.typedAt;
       this.typedAt = now;
       if (scheduled) return;
       scheduled = true;
@@ -151,6 +161,26 @@ class TypingBox {
       cancelAnimationFrame(frame);
       clearTimeout(timer);
     });
+  }
+
+  /**
+   * Runs `hide` the moment a key lands, before its frame: only for a light that would otherwise
+   * stay one frame at the caret's old place. Keep it to a single opacity change on a mark's own
+   * layer, which costs the frame nothing measurable.
+   */
+  onKey(hide: () => void): void {
+    this.area.addEventListener("input", hide);
+    this.cleanups.push(() => this.area.removeEventListener("input", hide));
+  }
+
+  /** How long before the last key the one before it landed, in ms. */
+  gap(): number {
+    return this.lastGap;
+  }
+
+  /** Runs `cleanup` when the feel stops. */
+  later(cleanup: () => void): void {
+    this.cleanups.push(cleanup);
   }
 
   /** Sets styles until the feel stops. */
@@ -244,59 +274,129 @@ function vermilionCaret(box: TypingBox): Part {
 }
 
 /**
- * A small warm glow just ahead of the caret, so it never tints the last character: vermilion by day,
- * with a bright gold core at night so it reads as light on dark paper.
+ * The caret line itself glows: the native caret takes the colour, and a soft light the caret's
+ * height hugs the line behind it, brighter the faster you type, cooling when you pause. `colour`
+ * gives the colour for a warmth.
  */
-function glow(box: TypingBox): Part {
-  const { lineHeight } = box;
-  const size = 16;
+function glowingCaret(
+  box: TypingBox,
+  colour: (warmth: number) => string,
+  halo: (warmth: number) => string = colour,
+): Part {
+  const { area } = box;
+  const native = area.style.caretColor;
+  box.restyle(area, { caretColor: native });
   box.raise();
-  const mark = box.mark({
+  const height = Number.parseFloat(getComputedStyle(area).fontSize) * 1.25;
+  const line = box.mark({
     left: "0",
     top: "0",
-    width: `${size}px`,
-    height: `${size}px`,
-    borderRadius: "50%",
+    width: "2px",
+    height: `${height}px`,
+    borderRadius: "1px",
     opacity: "0",
+  });
+  // The light at a heat: a core the caret's colour and a halo around it, both cooling together.
+  // Heat changes only the colour, never the size, and the halo leans a little right so it stays
+  // off the last letter.
+  const light = (heat: number) => {
+    const lit = colour(heat);
+    line.style.background = lit;
+    line.style.boxShadow = `1px 0 2px 0.5px ${lit}, 1.5px 0 6px 1px color-mix(in srgb, ${halo(heat)} 45%, transparent)`;
+  };
+  let brighten: ReturnType<typeof setTimeout> | undefined;
+  box.later(() => clearTimeout(brighten));
+  // The light is placed after the key's frame; until then it would glow over the new character.
+  box.onKey(() => {
+    line.style.opacity = "0";
   });
   return (warmth) => {
     const { x, y } = box.caret();
-    const dark = document.documentElement.classList.contains("dark");
-    Object.assign(mark.style, {
-      transform: `translate(${x + 1}px, ${y + lineHeight / 2 - size / 2}px)`,
-      background: dark
-        ? `radial-gradient(closest-side, #fff4cf, ${box.gold} 35%, color-mix(in srgb, ${box.vermilion} 55%, transparent) 70%, transparent)`
-        : `radial-gradient(closest-side, ${box.vermilion}, color-mix(in srgb, ${box.vermilion} 45%, transparent) 55%, transparent)`,
-    });
-    const peak = (dark ? 0.6 : 0.45) + 0.35 * warmth;
+    line.style.transform = `translate(${x - 0.5}px, ${y + (box.lineHeight - height) / 2}px)`;
     return (cooled) => {
-      mark.style.opacity = String(peak * (1 - cooled));
+      const heat = warmth * (1 - cooled);
+      area.style.caretColor = cooled < 1 ? colour(heat) : native;
+      light(heat);
+      const opacity = (0.55 + 0.45 * warmth) * (1 - cooled);
+      // After a key the light comes back in two steps, a soft pulse rather than a flicker. Steps,
+      // not an animation, so the page draws just those two frames.
+      clearTimeout(brighten);
+      // Typing fast leaves no time for the extra step before the next key; the light then comes
+      // straight back, and the brief dim reads as a beat.
+      if (cooled === 0 && box.gap() > FAST_GAP_MS) {
+        line.style.opacity = String(opacity * 0.45);
+        brighten = setTimeout(() => {
+          line.style.opacity = String(opacity);
+        }, FADE_IN_MS);
+      } else {
+        line.style.opacity = String(opacity);
+      }
     };
   };
 }
 
-/** A small vermilion ink dot at the foot of the caret, just under the baseline, re-inked by each key. */
-function inkDot(box: TypingBox): Part {
+/** A caret light comes back after a key at half strength, then in full this much later. */
+const FADE_IN_MS = 30;
+/** Keys closer together than this are fast typing, too fast for that extra step. */
+const FAST_GAP_MS = 150;
+
+/** Iron in the forge, by warmth: dark red, red, orange, then white-gold (gold on light paper). */
+function forgeColour(warmth: number): string {
+  const dark = document.documentElement.classList.contains("dark");
+  const stops = dark ? ["#7a2414", "#d2441e", "#ff8a26", "#fff1c2"] : ["#6e1c10", "#c23a1e", "#e8721c", "#f0aa22"];
+  const at = Math.min(1, Math.max(0, warmth)) * (stops.length - 1);
+  const from = Math.min(stops.length - 2, Math.floor(at));
+  const mix = Math.round((at - from) * 100);
+  return `color-mix(in srgb, ${stops[from + 1]} ${mix}%, ${stops[from]})`;
+}
+
+/** Sparks only when typing this warm, a burst at most this often, and how long a burst lasts. */
+const SPARK_WARMTH = 0.45;
+const SPARK_EVERY_MS = 180;
+const SPARK_MS = 80;
+
+/**
+ * At speed the forged caret throws off a few small sparks. They are the one motion in these
+ * styles, so a burst is kept short enough to be over before the next key at typing speed: it starts
+ * after the key's frame, lasts 80 ms and comes at most every 180 ms. Sparks are drawn once and
+ * reused, on their own layers, so a burst changes nothing but their position and opacity.
+ */
+function sparks(box: TypingBox): Part {
   const { lineHeight } = box;
-  const size = 4;
-  box.raise();
-  const dot = box.mark({
-    left: "0",
-    top: "0",
-    width: `${size}px`,
-    height: `${size}px`,
-    borderRadius: "50%",
-    opacity: "0",
-  });
-  return () => {
-    const { x, y } = box.caret();
-    Object.assign(dot.style, {
-      transform: `translate(${x - size / 2}px, ${y + lineHeight * 0.84}px)`,
-      background: box.vermilion,
-    });
-    return (cooled) => {
-      dot.style.opacity = String(1 - cooled);
-    };
+  const pool = Array.from({ length: 6 }, () =>
+    box.mark({ left: "0", top: "0", width: "1.5px", height: "5px", borderRadius: "1px", opacity: "0" }),
+  );
+  let next = 0;
+  let burstAt = Number.NEGATIVE_INFINITY;
+  return (warmth) => {
+    const now = performance.now();
+    if (warmth >= SPARK_WARMTH && now - burstAt >= SPARK_EVERY_MS) {
+      burstAt = now;
+      const { x, y } = box.caret();
+      const dark = document.documentElement.classList.contains("dark");
+      const core = dark ? "#fff6d8" : "#ff7a10";
+      const count = warmth > 0.8 ? 3 : 2;
+      for (let i = 0; i < count; i++) {
+        const spark = pool[next]!;
+        next = (next + 1) % pool.length;
+        Object.assign(spark.style, { background: core, boxShadow: `0 0 2px 1px ${forgeColour(dark ? 0.85 : 0.7)}` });
+        // A short streak flying out from the caret's top, drawn along its path.
+        const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+        const reach = 9 + 8 * Math.random();
+        const turn = `rotate(${angle + Math.PI / 2}rad)`;
+        const start = { x: x - 0.75, y: y + lineHeight * 0.25 };
+        const from = `translate(${start.x}px, ${start.y}px) ${turn}`;
+        const to = `translate(${start.x + Math.cos(angle) * reach}px, ${start.y + Math.sin(angle) * reach}px) ${turn}`;
+        spark.animate(
+          [
+            { transform: `${from} scale(1, 1)`, opacity: 1 },
+            { transform: `${to} scale(0.7, 0.4)`, opacity: 0 },
+          ],
+          { duration: SPARK_MS, easing: "cubic-bezier(0.2, 0.7, 0.4, 1)" },
+        );
+      }
+    }
+    return () => {};
   };
 }
 
