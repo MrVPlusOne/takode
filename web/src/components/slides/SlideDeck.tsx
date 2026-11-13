@@ -93,8 +93,9 @@ function FittedSlide({ markdown, render }: { markdown: string; render: RenderSli
     const box = boxRef.current;
     const content = contentRef.current;
     if (!box || !content) return;
+    const zooms = new SettledSize();
     const measure = () => {
-      const next = fitContent(box, content);
+      const next = fitContent(box, content, zooms);
       if (next !== null) setFit(next);
     };
     measure();
@@ -138,22 +139,52 @@ function FittedSlide({ markdown, render }: { markdown: string; render: RenderSli
 const FIT_STEPS = Math.round((1 - MIN_FIT) * 100);
 
 /**
- * The largest zoom (in hundredths, down to `MIN_FIT`) at which the content's height fits the box,
- * found by trying zooms on the content, which is left at the result. Each fit is searched afresh,
- * so the same content in the same box always gets the same zoom. Refitting from the zoom it had
- * swung between two sizes for ever when one size rewrapped a line or gave a code block a
- * scrollbar and the other did not. Null while the slide is not laid out (a hidden view).
+ * A size the deck measures from its own layout, kept from flickering. Each such size feeds back
+ * into what it measures: the stage's width sets the slide's height, which can bring up its
+ * column's scrollbar and narrow that width; the slide's zoom rewraps its content, whose visuals
+ * report their new height a moment later. Each time, two sizes ended up flipping back and forth
+ * for ever. So every measured size goes through one of these: it may always shrink (the slide
+ * must fit), but within one `context` (what the size is measured against, which the size can't
+ * change) it may grow only to a value it hasn't already settled on. Each value can be grown to
+ * once, so any feedback loop ends after one round; a new context starts afresh.
  */
-function fitContent(box: HTMLElement, content: HTMLElement): number | null {
+class SettledSize {
+  private context = "";
+  private readonly settled = new Set<number>();
+
+  /** The size to use, given the one in use and the one just measured. */
+  next(context: string, current: number, measured: number): number {
+    if (context !== this.context) {
+      this.context = context;
+      this.settled.clear();
+    }
+    const size = measured > current && this.settled.has(measured) ? current : measured;
+    this.settled.add(size);
+    return size;
+  }
+}
+
+/**
+ * The largest zoom (in hundredths, down to `MIN_FIT`) at which the content's height fits the box,
+ * found by trying zooms on the content, which is left at the result, then settled by `zooms` in the
+ * box's size. Each fit is searched afresh: refitting from the zoom it had swung between two sizes
+ * when one size rewrapped a line or gave a code block a scrollbar and the other did not. Settling
+ * covers content that reports its height late: a visual's frame lays out again after the zoom
+ * changes, so a fit measures it at the zoom just left and could point straight back there (a kit
+ * table that wrapped at one zoom and not the other flipped a slide between the two). Null while
+ * the slide is not laid out (a hidden view).
+ */
+function fitContent(box: HTMLElement, content: HTMLElement, zooms: SettledSize): number | null {
   // Drawn sizes: both include the stage's scale and the content's zoom. The box's height doesn't
   // depend on the content's.
   const available = box.getBoundingClientRect().height;
   if (!available) return null;
+  const current = Number(content.style.zoom || 1);
   const fits = (zoom: number) => {
     content.style.zoom = String(zoom);
     return content.getBoundingClientRect().height <= available + 1;
   };
-  const zoom = largestFitting(fits);
+  const zoom = zooms.next(`${box.clientWidth}x${available}`, current, largestFitting(fits));
   content.style.zoom = String(zoom);
   return zoom;
 }
@@ -173,19 +204,38 @@ function largestFitting(fits: (zoom: number) => boolean): number {
   return zoomAt(low);
 }
 
-/** The width an element gets, kept current as it resizes. */
+/**
+ * The width an element gets, kept current as it resizes and settled (`SettledSize`) against the
+ * width of the box it scrolls in, which its own scrollbar doesn't change: a deck sized from a
+ * column's inner width brought up the column's scrollbar exactly when it fit, and flickered.
+ */
 export function useElementWidth<T extends HTMLElement>(): [(node: T | null) => void, number] {
   const [node, setNode] = useState<T | null>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
     if (!node) return;
-    setWidth(node.clientWidth);
+    const widths = new SettledSize();
+    const scroller = scrollParent(node);
+    let current = 0;
+    const measure = () => {
+      current = widths.next(String(scroller ? scroller.offsetWidth : window.innerWidth), current, node.clientWidth);
+      setWidth(current);
+    };
+    measure();
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => setWidth(node.clientWidth));
+    const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
   }, [node]);
   return [setNode, width];
+}
+
+/** The nearest ancestor that scrolls vertically, or null for the window. */
+function scrollParent(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node;
+  }
+  return null;
 }
 
 /**

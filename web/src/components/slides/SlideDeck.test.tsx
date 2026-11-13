@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeMarkdownReportFixture } from "../../../shared/test-fixtures/markdown-report.js";
 import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
 import { ArtifactVersionContentView } from "../ArtifactInline.js";
-import { SlideView } from "./SlideDeck.js";
+import { SlideView, useElementWidth } from "./SlideDeck.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { MessageBubble } from "../MessageBubble.js";
 import { useStore } from "../../store.js";
@@ -461,5 +461,109 @@ describe("fitting a slide to the stage", () => {
       expect(content).toHaveAttribute("data-slide-fit", "0.8");
       expect(content.style.zoom).toBe("0.8");
     }
+  });
+
+  // A visual's frame lays out again after the zoom changes and reports its new height later, so
+  // each fit measures it at the zoom just left. Jiayi's "Open questions" slide (a kit table) flipped
+  // between two sizes for ever: at zoom 1 the table wrapped and the slide was too tall, so it zoomed
+  // out; there the table unwrapped and got shorter, so the next fit grew back to 1, and so on. Here
+  // the visual is 400 tall when laid out at zooms above 0.85 and 250 at or below, above 300 of text,
+  // in a 600 box. The slide must settle on 0.85 (where everything fits) and stay there.
+  it("settles when a visual reports its height for the zoom the slide just left", () => {
+    let observerCallback: () => void = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observerCallback = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    let visualLaidOutAt = 1;
+    const visualHeight = () => (visualLaidOutAt > 0.85 ? 400 : 250);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid === "slide-stage-box") return { height: 600 } as DOMRect;
+      const zoom = Number(this.style.zoom || 1);
+      return { height: zoom * (300 + visualHeight()) } as DOMRect;
+    });
+
+    render(
+      <SlideView
+        slide={{ markdown: "## Open questions", notes: "", title: "Open questions" }}
+        layout="stage"
+        width={1280}
+        render={(markdown) => <p>{markdown}</p>}
+      />,
+    );
+    const content = screen.getByText("## Open questions").closest("[data-slide-fit]") as HTMLElement;
+    const zooms: string[] = [];
+    for (let i = 0; i < 8; i += 1) {
+      // The frame lays out at the zoom now applied and reports its height: a resize, then a fit.
+      visualLaidOutAt = Number(content.style.zoom);
+      act(() => observerCallback());
+      zooms.push(content.style.zoom);
+    }
+    // At most one trip back up to try the full size, then the same zoom on every later report.
+    expect(zooms.slice(2)).toEqual(Array(6).fill("0.85"));
+    expect(content).toHaveAttribute("data-slide-fit", "0.85");
+  });
+});
+
+describe("sizing a deck to its column", () => {
+  // The stage takes the width of the deck's box, and its height follows. In a column that
+  // scrolls, a slide (with its notes) that just fits brings up the column's scrollbar, which
+  // narrows the box; the narrower slide then fits, the scrollbar goes and the box widens again,
+  // every frame (the Nov 9 flicker). Here the box is 800 wide without the scrollbar and 785 with
+  // it, and the scrollbar shows whenever the deck was sized 800 or wider. The width must settle on
+  // 785 and stay there, while a change of the column's own width still resizes the deck.
+  it("settles when its own size brings up the column's scrollbar, and follows the column", () => {
+    let observerCallback: () => void = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observerCallback = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    let columnWidth = 815;
+    let sizedTo = 0;
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => columnWidth);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.testid !== "deck-box") return 0;
+      return sizedTo >= columnWidth - 15 ? columnWidth - 30 : columnWidth - 15;
+    });
+    function Deck() {
+      const [ref, width] = useElementWidth<HTMLDivElement>();
+      sizedTo = width;
+      return <div ref={ref} data-testid="deck-box" data-width={width} />;
+    }
+
+    render(
+      <div style={{ overflowY: "auto" }}>
+        <Deck />
+      </div>,
+    );
+    const box = screen.getByTestId("deck-box");
+    const widths: string[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      act(() => observerCallback());
+      widths.push(box.dataset.width!);
+    }
+    expect(widths.slice(1)).toEqual(Array(5).fill("785"));
+
+    // Closing a side chat widens the column itself: the deck follows.
+    columnWidth = 1015;
+    act(() => observerCallback());
+    expect(box).toHaveAttribute("data-width", "1000");
   });
 });
