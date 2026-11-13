@@ -1,10 +1,9 @@
 /**
  * Typing feel: the caret is iron in the forge. The faster you type, the hotter it glows, from dark
  * red through orange to white-gold, while the composer's edge glows warm and small things drift out
- * right of the caret: fireflies at night, and by day ink motes, petals or ash. The text box draws
- * its text and caret itself, exactly as without a feel: nothing here renders text, hides the caret
- * or touches the text's position or weight. Each part only colours the native caret or draws
- * around it.
+ * right of the caret: fireflies at night, plum petals by day. The text box draws its text and caret
+ * itself, exactly as without a feel: nothing here renders text, hides the caret or touches the
+ * text's position or weight. Each part only colours the native caret or draws around it.
  *
  * No added latency beyond the drifting: the work for a key runs after the frame showing that key
  * has been painted (only the caret light is dimmed as the key lands, so it doesn't glow a frame
@@ -20,35 +19,24 @@
  */
 import { scenicMotionAllowed } from "./scenic-styles.js";
 
-export type TypingFeel = "ink" | "petals" | "ash" | "rest";
+export type TypingFeel = "petals" | "rest";
 
 /**
- * The styles, in the order to offer them, with a short description of each. Every one is the
- * forged caret and the warm edge, with fireflies drifting out right of the caret at night; they
- * differ in what drifts out by day, and in when.
+ * The styles, in the order to offer them, with a short description of each. Both are the forged
+ * caret and the warm edge, with fireflies drifting out right of the caret at night and plum petals
+ * by day; they differ in when.
  */
 export const TYPING_FEELS: ReadonlyArray<{ id: TypingFeel; label: string; description: string }> = [
-  {
-    id: "ink",
-    label: "Fireflies / ink motes",
-    description:
-      "As you type, fireflies drift out at night; by day, tiny ink motes drift out and dissolve into the paper.",
-  },
   {
     id: "petals",
     label: "Fireflies / petals",
     description: "As you type, fireflies drift out at night; by day, small plum petals float out and settle.",
   },
   {
-    id: "ash",
-    label: "Fireflies / ash",
-    description: "As you type, fireflies drift out at night; by day, pale flecks of ash curl up from the forge.",
-  },
-  {
     id: "rest",
     label: "Fireflies when you pause",
     description:
-      "Nothing drifts while you type; when you pause, a few fireflies (by day, ink motes) drift out, and typing again sends them away.",
+      "Nothing drifts while you type; when you pause, a few fireflies (by day, petals) drift out one after another, and typing again sends them away.",
   },
 ];
 
@@ -236,10 +224,11 @@ class TypingBox {
   }
 
   /**
-   * Where the caret is drawn, relative to the host: a hidden copy of the box with the same box and
-   * font, holding the text up to the caret, measures it (the usual way to find a caret).
+   * Where the caret is drawn, relative to the host, and on which line of the text (0 the first): a
+   * hidden copy of the box with the same box and font, holding the text up to the caret, measures
+   * it (the usual way to find a caret).
    */
-  caret(): { x: number; y: number } {
+  caret(): { x: number; y: number; line: number } {
     if (this.area.offsetWidth !== this.mirrorWidth) {
       this.mirrorWidth = this.area.offsetWidth;
       copyTextStyle(this.area, this.mirror);
@@ -250,9 +239,13 @@ class TypingBox {
     this.mirror.append(end);
     const x = end.offsetLeft - this.area.scrollLeft;
     // An inline box's offsetTop is the top of its glyphs, not of its line; centre it on the line.
-    const y = end.offsetTop + end.offsetHeight / 2 - this.lineHeight / 2 - this.area.scrollTop;
+    const top = end.offsetTop + end.offsetHeight / 2 - this.lineHeight / 2;
+    const line = Math.max(
+      0,
+      Math.round((top - Number.parseFloat(this.mirror.style.paddingTop || "0")) / this.lineHeight),
+    );
     const field = offsetIn(this.area, this.host);
-    return { x: field.x + x, y: field.y + y };
+    return { x: field.x + x, y: field.y + top - this.area.scrollTop, line };
   }
 
   stop(): void {
@@ -374,7 +367,11 @@ interface Drifter {
   turn?: [number, number];
 }
 
-/** Fireflies at night: soft glowing points that rise up and right, clear of the line, pulsing as they go. */
+/**
+ * Fireflies at night: soft glowing points that rise up and right, clear of the line, pulsing as they
+ * go. On a later line of a message they keep low instead, to the right of the caret, so they never
+ * drift over the line above.
+ */
 const FIREFLY: Drifter = {
   size: [5, 5],
   style: () => ({
@@ -391,23 +388,12 @@ const FIREFLY: Drifter = {
   scale: [0.7, 1, 0.9, 1, 0.9, 0.7],
 };
 
-/** Ink motes by day: tiny drops of ink that drift out and down below the line, spreading a little into the paper as they fade. */
-const INK_MOTE: Drifter = {
-  size: [2.4, 2.4],
-  style: (box) => ({ borderRadius: "50%", background: box.ink }),
-  life: [1000, 1400],
-  right: [12, 22],
-  down: [9, 15],
-  sway: 1.5,
-  waves: 1,
-  opacity: [0, 0.7, 0.55, 0.35, 0.15, 0],
-  scale: [1, 1.2, 1.4, 1.6, 1.7, 1.8],
-  blur: [0, 0.2, 0.35, 0.5, 0.65, 0.8],
-};
+/** Fireflies on a later line of a message: they drift right and barely rise, staying on their line. */
+const LOW_FIREFLY: Drifter = { ...FIREFLY, right: [24, 44], down: [-5, -1], sway: 1.5 };
 
 /** Plum petals by day: small pink petals that float out, turning, and settle below the line. */
 const PETAL: Drifter = {
-  size: [5, 3.4],
+  size: [7, 4.6],
   style: () => ({
     borderRadius: "60% 40% 60% 40%",
     background: "linear-gradient(135deg, #f7cbd4, #e696a9)",
@@ -422,28 +408,12 @@ const PETAL: Drifter = {
   turn: [-160, 160],
 };
 
-/** Ash by day: pale flecks that curl up and right from the forge, flickering out. */
-const ASH: Drifter = {
-  size: [2.6, 1.8],
-  style: () => ({ borderRadius: "40%", background: "#b6a587" }),
-  life: [1000, 1400],
-  right: [10, 20],
-  down: [-26, -14],
-  sway: 3,
-  waves: 1.4,
-  opacity: [0, 0.85, 0.6, 0.75, 0.35, 0],
-  scale: [1, 1, 0.9, 0.85, 0.8, 0.7],
-  turn: [-90, 90],
-};
-
-const DAY_DRIFTERS: Record<TypingFeel, Drifter> = { ink: INK_MOTE, petals: PETAL, ash: ASH, rest: INK_MOTE };
-
 /**
  * What drifts out right of the caret, so it never covers the next character, and quickly up or
  * down out of the line, so it doesn't drift over the text the caret leaves behind: fireflies at night,
- * and by day the variant's ink motes, petals or ash. While typing, one more drifts out at most every
- * 320 ms once typing is warm; "rest" instead waits for a pause and sends a few, which typing again
- * sends away. Drifters are drawn once and reused on their own layers, and move by transform,
+ * plum petals by day. While typing, one more drifts out at most every 320 ms once typing is warm;
+ * "rest" instead waits for a pause and sends a few, one after another, which typing again sends
+ * away. Drifters are drawn once and reused on their own layers, and move by transform,
  * opacity and filter alone, which the compositor runs.
  */
 function drift(box: TypingBox, feel: TypingFeel): Part {
@@ -454,10 +424,11 @@ function drift(box: TypingBox, feel: TypingFeel): Part {
   let driftAt = Number.NEGATIVE_INFINITY;
   let resting: ReturnType<typeof setTimeout> | undefined;
   box.later(() => clearTimeout(resting));
-  const release = (count: number) => {
-    const { x, y } = box.caret();
+  const release = (count: number, stagger: number) => {
+    const { x, y, line } = box.caret();
     const dark = document.documentElement.classList.contains("dark");
-    const kind = dark ? FIREFLY : DAY_DRIFTERS[feel];
+    // Rising fireflies would cross the line above unless the caret is on the first line.
+    const kind = !dark ? PETAL : line > 0 ? LOW_FIREFLY : FIREFLY;
     for (let i = 0; i < count; i++) {
       const mark = pool[next]!;
       next = (next + 1) % pool.length;
@@ -465,7 +436,9 @@ function drift(box: TypingBox, feel: TypingFeel): Part {
       Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style(box) });
       const flight = mark.animate(path(kind, x + 5, y + lineHeight / 2 - height / 2), {
         duration: between(...kind.life),
+        delay: i * stagger * between(0.7, 1.3),
         easing: "linear",
+        fill: "backwards",
       });
       flying.add(flight);
       flight.onfinish = flight.oncancel = () => flying.delete(flight);
@@ -482,20 +455,21 @@ function drift(box: TypingBox, feel: TypingFeel): Part {
     if (warmth < DRIFT_WARMTH) return () => {};
     if (feel === "rest") {
       clearTimeout(resting);
-      resting = setTimeout(() => release(2 + Math.round(warmth * 2)), REST_MS);
+      resting = setTimeout(() => release(2 + Math.round(warmth * 2), REST_STAGGER_MS), REST_MS);
       return () => {};
     }
     const now = performance.now();
     if (now - driftAt >= DRIFT_EVERY_MS) {
       driftAt = now;
-      release(1);
+      release(1, 0);
     }
     return () => {};
   };
 }
 
-/** "rest" sends its drifters once typing has paused this long. */
+/** "rest" sends its drifters once typing has paused this long, about this far apart. */
 const REST_MS = 350;
+const REST_STAGGER_MS = 220;
 
 /** A drifter's flight from (x, y) as keyframes: out to the right, wandering side to side. */
 function path(kind: Drifter, x: number, y: number): Keyframe[] {
