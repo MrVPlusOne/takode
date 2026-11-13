@@ -1,8 +1,10 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir, userInfo } from "node:os";
+import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { HostAgent, type HostAgentOptions } from "./host-agent.js";
 import { HostExec, HostExecError, type HostExecDeps } from "./host-exec.js";
 import { HostLinkManager } from "./host-link-manager.js";
@@ -11,6 +13,18 @@ import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
 import { describeExecOutcome, HOST_EXEC_MESSAGE_TAG } from "../../shared/host-exec.js";
 
 const HOST_ID = "host-1";
+
+/**
+ * The user's shell from their passwd entry (getent on Linux, dscl on macOS),
+ * which the exec script uses. Bun's `userInfo().shell` reports `$SHELL`
+ * instead, and an agent session's `$SHELL` can differ from the passwd entry.
+ */
+async function passwdShell(): Promise<string> {
+  const lookup =
+    'u=$(id -un); getent passwd "$u" 2>/dev/null | cut -d: -f7; dscl . -read "/Users/$u" UserShell 2>/dev/null | sed "s/^UserShell: *//"';
+  const { stdout } = await promisify(execFile)("/bin/sh", ["-c", lookup]);
+  return stdout.split("\n").find(Boolean) ?? process.env.SHELL ?? "/bin/sh";
+}
 
 async function waitFor(condition: () => boolean | Promise<boolean>, timeoutMs = 8_000): Promise<void> {
   const started = Date.now();
@@ -178,7 +192,7 @@ describe("HostExec", () => {
     const exec = createExec();
     const job = await finished(exec, (await run(exec, 'echo "$SHELL $PROFILE_VAR"; echo err >&2')).id);
     const output = (await exec.readOutput(job.id))?.output;
-    expect(output?.split("\n").sort()).toEqual(["", `${userInfo().shell} from-profile`, "err"]);
+    expect(output?.split("\n").sort()).toEqual(["", `${await passwdShell()} from-profile`, "err"]);
   });
 
   // Long output shows both ends and names the lines left out, and the log
