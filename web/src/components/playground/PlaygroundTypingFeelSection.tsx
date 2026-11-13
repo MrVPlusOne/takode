@@ -1,13 +1,13 @@
 /**
- * Typing feel: try each ink typing style by typing in a composer-like box over the scenic painting,
- * and replay a new answer arriving in ink. The styles are tried here before one goes into the real
+ * Typing feel: try each typing style (mostly a caret that comes alive) by typing in a composer-like
+ * box over the scenic painting, and replay a new answer arriving in ink. The styles are tried here before one goes into the real
  * composer; with no scenic background on, the section asks for one, as the effects are scenic-only.
  */
 import { useEffect, useRef, useState } from "react";
 import { ScenicBackdrop } from "../../scenic/ScenicBackdrop.js";
 import { arrive } from "../../scenic/ink-motion.js";
 import { useScenicStyle } from "../../scenic/scenic-styles.js";
-import { attachTypingFeel, TYPING_FEELS, type TypingFeel, type TypingFeelHandle } from "../../scenic/typing-feel.js";
+import { attachTypingFeel, TYPING_FEELS, type TypingFeel } from "../../scenic/typing-feel.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const ANSWERS = [
@@ -18,21 +18,16 @@ const ANSWERS = [
 
 export function PlaygroundTypingFeelSection() {
   const style = useScenicStyle();
-  const [feel, setFeel] = useState<TypingFeel | "today">("flick");
+  const [feel, setFeel] = useState<TypingFeel | "today">("dot");
   const [answers, setAnswers] = useState([0]);
   const area = useRef<HTMLTextAreaElement>(null);
-  const handle = useRef<TypingFeelHandle | null>(null);
   const newest = useRef<HTMLDivElement>(null);
   const arrived = useRef(0);
 
   useEffect(() => {
     if (!style || feel === "today" || !area.current) return;
     const running = attachTypingFeel(area.current, feel);
-    handle.current = running;
-    return () => {
-      running.stop();
-      handle.current = null;
-    };
+    return () => running.stop();
   }, [style, feel]);
 
   // Each added answer arrives in ink, as a new answer does in a conversation.
@@ -48,7 +43,7 @@ export function PlaygroundTypingFeelSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Typing Feel"
-        description="Ink feedback while typing, with a scenic background on. Pick a style and type in the box to try it; Today has none. A new answer arriving spreads in like ink on xuan paper."
+        description="Feedback while typing, with a scenic background on: the text box draws the text as always, and the caret or the composer's edge comes alive around it. Pick a style and type in the box, in English or Chinese; Today has none. A new answer arriving spreads in like ink on xuan paper."
       >
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-cc-muted">
@@ -96,6 +91,7 @@ export function PlaygroundTypingFeelSection() {
           </div>
           <div className="relative mx-auto w-full max-w-xl px-4 py-4 sm:px-0">
             <div
+              data-typing-frame
               className="rounded-[14px] border border-cc-border bg-cc-input-bg"
               style={{ borderColor: "var(--scenic-edge)", boxShadow: "var(--scenic-shadow)" }}
             >
@@ -114,7 +110,6 @@ export function PlaygroundTypingFeelSection() {
                   type="button"
                   onClick={() => {
                     if (area.current) area.current.value = "";
-                    handle.current?.sync();
                     area.current?.focus();
                   }}
                   className="rounded-md px-2 py-1 text-[11px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg cursor-pointer"

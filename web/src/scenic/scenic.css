@@ -368,11 +368,3 @@ html.dark.scenic-ink {
     transform: rotate(1.5deg);
   }
 }
-
-/*
- * Typing feels that draw the text in a layer behind the text box make the box's own text
- * transparent; its selection must stay transparent too, or selected text would be drawn twice.
- */
-html.scenic textarea[data-typing-feel-layer]::selection {
-  color: transparent;
-}

@@ -1,546 +1,316 @@
 /**
- * Typing feel: ink-like feedback while typing in a text box, in a few clearly different styles to
- * try side by side. Typed text always appears at once and nothing changes layout: each style draws
- * short-lived marks around the text, or (brush flick and wet ink) draws the text itself in a layer
- * behind the box, which stays in place with its own text made transparent. Everything settles
- * within about a second of the last key, so an idle box draws nothing, and nothing plays with
- * reduced motion.
+ * Typing feel: the caret comes alive while you type. The text box draws its text and caret itself,
+ * exactly as without a feel: nothing here renders text, hides the caret or touches the text's
+ * position or weight. Each style only colours the native caret or draws a mark beside it.
+ *
+ * No added latency: the work for a key runs after the frame showing that key has been painted, and
+ * the settling, which waits for a pause in typing, is a few discrete steps rather than an
+ * animation. An animation keeps the page drawing a frame on every display tick, so a key typed
+ * meanwhile waits for the next tick (about 8 ms on average, measured); between steps the page draws
+ * nothing, so a key is drawn at once, as with no feel. Every input counts the same, IME composition (pinyin) included, so it works
+ * the same for Chinese. Everything settles 1.2 s after the last key, so an idle box draws nothing,
+ * and nothing plays with reduced motion.
  */
-import { inkBlot } from "./ink-motion.js";
 import { scenicMotionAllowed } from "./scenic-styles.js";
 
-export type TypingFeel = "flick" | "wet" | "wash" | "flourish" | "brush";
+export type TypingFeel = "vermilion" | "glow" | "dot" | "dot-edge" | "edge";
 
 /** The styles, in the order to offer them, with a short description of each. */
 export const TYPING_FEELS: ReadonlyArray<{ id: TypingFeel; label: string; description: string }> = [
   {
-    id: "flick",
-    label: "Brush flick",
-    description: "Each character lands with a small drop and leaves a tiny brush flick at its foot.",
+    id: "vermilion",
+    label: "Vermilion caret",
+    description: "The caret turns seal vermilion while you type and goes back to ink when you pause.",
   },
   {
-    id: "wet",
-    label: "Wet ink",
-    description: "The word you're writing is wet, heavier ink, and dries to normal once you finish it or pause.",
+    id: "glow",
+    label: "Glowing caret",
+    description:
+      "The vermilion caret has a small warm glow just ahead of it that brightens with each key and fades when you pause.",
   },
   {
-    id: "wash",
-    label: "Ink wash",
-    description: "A soft wash of ink builds behind the line while you type fast and fades when you pause.",
+    id: "dot",
+    label: "Ink dot",
+    description: "Each key re-inks a small vermilion dot at the foot of the caret; it fades when you pause.",
   },
   {
-    id: "flourish",
-    label: "Word flourish",
-    description: "Finishing a word sweeps a tapered brush stroke under it.",
+    id: "dot-edge",
+    label: "Ink dot and warm edge",
+    description: "The ink dot at the caret, and the composer's edge glows softly while you type.",
   },
   {
-    id: "brush",
-    label: "Brush caret",
-    description: "The caret is a brush tip that leans as it writes and trails a little ink.",
+    id: "edge",
+    label: "Warm edge",
+    description:
+      "The caret stays as it is; the composer's edge glows softly while you type and settles when you pause.",
   },
 ];
 
 /** A running typing feel. */
 export interface TypingFeelHandle {
-  /** Call after changing the box's text in code (not by typing), so the feel keeps up. */
-  sync(): void;
   /** Stops the feel and puts the box back as it was. */
   stop(): void;
 }
 
 /**
- * Gives `area` a typing feel. Its parent element must be positioned: the feel draws there. Returns
- * a handle; with reduced motion it does nothing.
+ * Gives `area` a typing feel. Marks are drawn in its parent element, which must be positioned; the
+ * warm edge glows around the closest `[data-typing-frame]` (or the parent). Does nothing with
+ * reduced motion.
  */
 export function attachTypingFeel(area: HTMLTextAreaElement, feel: TypingFeel): TypingFeelHandle {
-  if (!scenicMotionAllowed() || !area.parentElement) return { sync() {}, stop() {} };
+  if (!scenicMotionAllowed() || !area.parentElement) return { stop() {} };
   const box = new TypingBox(area, area.parentElement);
-  if (feel === "flick") return withTextLayer(box, { decorate: flickDecorations });
-  if (feel === "wet") return withTextLayer(box, { decorate: wetDecorations, pause: dryAll });
-  if (feel === "wash") return washFeel(box);
-  if (feel === "flourish") return flourishFeel(box);
-  return brushCaretFeel(box);
+  const parts: Part[] = [];
+  if (feel === "vermilion" || feel === "glow") parts.push(vermilionCaret(box));
+  if (feel === "glow") parts.push(glow(box));
+  if (feel === "dot" || feel === "dot-edge") parts.push(inkDot(box));
+  if (feel === "dot-edge" || feel === "edge") parts.push(warmEdge(box));
+  box.onType((warmth) => {
+    const steps = parts.map((part) => part(warmth));
+    box.settle((cooled) => {
+      for (const step of steps) step(cooled);
+    });
+  });
+  return { stop: () => box.stop() };
 }
 
-/** A change to the text: `inserted` characters replaced `removed` ones at `at`. */
-export interface Edit {
-  at: number;
-  removed: number;
-  inserted: number;
-}
+/** How warm the typing is: each key adds one, and it cools by half every this many ms. */
+const COOL_MS = 700;
+/** Warmth that counts as fully warm. */
+const FULL_HEAT = 6;
+/** How long a feel takes to settle after the last key, and in how many steps after the hold. */
+const SETTLE_MS = 1200;
+const SETTLE_STEPS = 8;
+/** Typing faster than this keeps a style hot without any frames of its own between keys. */
+const HOLD_MS = 300;
 
-/** A span of text drawn specially by the text layer, from `at` (ms) on. */
-export interface Decoration {
-  start: number;
-  end: number;
-  kind: "land" | "wet" | "dry";
-  at: number;
-}
-
-const LAND_MS = 200;
-/** How long a landed character keeps its flick. */
-const FLICK_MS = 300;
-const DRY_MS = 900;
-/** Wet ink dries this long after the last key. */
-const PAUSE_MS = 1000;
-const WORD_CHAR = /[\p{L}\p{N}_'’-]/u;
-
-/** The box being typed in, with what every style needs: its edits, caret positions and marks. */
+/** The text box being typed in: when keys land, where its caret is, its colours and its marks. */
 class TypingBox {
-  /** The text's colour: the ink every mark is drawn in. */
-  ink: string;
+  ink = "";
+  vermilion = "";
+  gold = "";
   readonly lineHeight: number;
-  private value: string;
+  private heat = 0;
+  private typedAt = 0;
+  private readonly mirror = document.createElement("div");
   private readonly cleanups: Array<() => void> = [];
-  private readonly inkListeners: Array<() => void> = [];
+  /** The box width the mirror's style was copied at; copied again when it changes. */
+  private mirrorWidth = -1;
+  private settling: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     readonly area: HTMLTextAreaElement,
     readonly host: HTMLElement,
   ) {
     const style = getComputedStyle(area);
-    this.ink = style.color;
-    // The theme can change while typing (night falls on "colour by day, ink at night"); the ink
-    // follows it, read with any colour the feel set on the box put aside.
-    const theme = new MutationObserver(() => {
-      const set = area.style.color;
-      area.style.color = "";
-      this.ink = getComputedStyle(area).color;
-      area.style.color = set;
-      for (const listener of this.inkListeners) listener();
-    });
+    this.lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.4;
+    this.readColours();
+    // The theme can change while typing (night falls on "colour by day, ink at night").
+    const theme = new MutationObserver(() => this.readColours());
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     this.cleanups.push(() => theme.disconnect());
-    this.lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.4;
-    this.value = area.value;
+    Object.assign(this.mirror.style, { position: "absolute", visibility: "hidden", top: "0", left: "-9999px" });
+    this.mirror.setAttribute("aria-hidden", "true");
+    document.body.append(this.mirror);
+    this.cleanups.push(() => this.mirror.remove());
   }
 
-  /** Runs `onEdit` for each change to the text, typed or (through `sync`) made in code. */
-  watch(onEdit: (edit: Edit, typed: boolean) => void): () => void {
-    const changed = (typed: boolean) => {
-      const edit = editBetween(this.value, this.area.value, this.area.selectionEnd);
-      this.value = this.area.value;
-      if (edit.removed || edit.inserted) onEdit(edit, typed);
+  /** The vermilion and gold of the scenic fireworks and seal, by day or by night. */
+  private readColours(): void {
+    const dark = document.documentElement.classList.contains("dark");
+    this.ink = getComputedStyle(this.area).color;
+    this.vermilion = dark ? "#ef6a4f" : "#c8382c";
+    this.gold = dark ? "#f4c96a" : "#c48a24";
+  }
+
+  /**
+   * Runs `play` with the warmth (0 to 1) after keys land: every input counts, IME composition
+   * included. It runs at most once a frame, after that frame (the one showing the typed text) has
+   * been painted, so it never delays the text.
+   */
+  onType(play: (warmth: number) => void): void {
+    let frame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let scheduled = false;
+    const typed = () => {
+      const now = performance.now();
+      this.heat = this.heat * 0.5 ** ((now - this.typedAt) / COOL_MS) + 1;
+      this.typedAt = now;
+      if (scheduled) return;
+      scheduled = true;
+      frame = requestAnimationFrame(() => {
+        timer = setTimeout(() => {
+          scheduled = false;
+          play(Math.min(1, this.heat / FULL_HEAT));
+        });
+      });
     };
-    const onInput = (event: Event) => {
-      // An IME is still composing; react to the text it commits.
-      if (!(event as InputEvent).isComposing) changed(true);
-    };
-    this.listen(this.area, "input", onInput);
-    return () => changed(false);
+    this.area.addEventListener("input", typed);
+    this.cleanups.push(() => {
+      this.area.removeEventListener("input", typed);
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    });
   }
 
-  /** Runs `listener` whenever the ink changes with the theme. */
-  onInk(listener: () => void): void {
-    this.inkListeners.push(listener);
-  }
-
-  listen(target: EventTarget, type: string, handler: (event: Event) => void): void {
-    target.addEventListener(type, handler);
-    this.cleanups.push(() => target.removeEventListener(type, handler));
-  }
-
-  /** Sets styles on the box until the feel stops. */
+  /** Sets styles until the feel stops. */
   restyle(element: HTMLElement, style: Partial<CSSStyleDeclaration>): void {
     const before = Object.fromEntries(Object.keys(style).map((key) => [key, element.style[key as never]]));
     Object.assign(element.style, style);
     this.cleanups.push(() => Object.assign(element.style, before));
   }
 
-  /** A mark drawn in the host, removed when its animation ends (or when the feel stops). */
-  mark(style: Partial<CSSStyleDeclaration>, keyframes?: Keyframe[], options?: KeyframeAnimationOptions): HTMLElement {
-    const element = document.createElement("div");
-    element.setAttribute("aria-hidden", "true");
-    Object.assign(element.style, { position: "absolute", pointerEvents: "none", zIndex: "0" }, style);
-    this.host.append(element);
-    if (keyframes) {
-      const animation = element.animate(keyframes, options);
-      animation.onfinish = animation.oncancel = () => element.remove();
-    } else {
-      this.cleanups.push(() => element.remove());
-    }
-    return element;
-  }
-
-  /** Puts the box above the marks so they sit behind its text. */
+  /** Puts the box above its parent's other contents, so marks drawn there sit behind the text. */
   raise(): void {
     if (getComputedStyle(this.area).position === "static") this.restyle(this.area, { position: "relative" });
     this.restyle(this.area, { zIndex: "1" });
   }
 
+  /** A mark drawn in `parent` (the host by default), removed when the feel stops. */
+  mark(style: Partial<CSSStyleDeclaration>, parent: HTMLElement = this.host): HTMLElement {
+    const element = document.createElement("div");
+    element.setAttribute("aria-hidden", "true");
+    // Its own layer: a mark only ever changes its opacity and position, which then need no repaint.
+    Object.assign(
+      element.style,
+      { position: "absolute", pointerEvents: "none", zIndex: "0", willChange: "opacity, transform" },
+      style,
+    );
+    parent.append(element);
+    this.cleanups.push(() => element.remove());
+    return element;
+  }
+
   /**
-   * Where the text at `index` is drawn, relative to the host: a hidden copy of the box with the
-   * same box and font measures it, the usual way to find a caret.
+   * Settles in discrete steps: `apply` gets how far it has cooled (0 hot, 1 settled), now and then
+   * at each of a few steps, a single style change each time. Cooling waits for a pause in typing,
+   * so while you type the only extra frame is the one after each key. A new key restarts it.
    */
-  pointAt(index: number): { x: number; y: number } {
-    const mirror = document.createElement("div");
-    copyTextStyle(this.area, mirror);
-    Object.assign(mirror.style, { position: "absolute", visibility: "hidden", top: "0", left: "-9999px" });
-    mirror.textContent = this.area.value.slice(0, index);
-    const caret = document.createElement("span");
-    caret.textContent = "\u200b";
-    mirror.append(caret);
-    document.body.append(mirror);
-    const x = caret.offsetLeft - this.area.scrollLeft;
+  settle(apply: (cooled: number) => void): void {
+    clearTimeout(this.settling);
+    apply(0);
+    let step = 1;
+    const next = () => {
+      apply(step / SETTLE_STEPS);
+      step += 1;
+      if (step <= SETTLE_STEPS) this.settling = setTimeout(next, (SETTLE_MS - HOLD_MS) / SETTLE_STEPS);
+    };
+    this.settling = setTimeout(next, HOLD_MS);
+  }
+
+  /**
+   * Where the caret is drawn, relative to the host: a hidden copy of the box with the same box and
+   * font, holding the text up to the caret, measures it (the usual way to find a caret).
+   */
+  caret(): { x: number; y: number } {
+    if (this.area.offsetWidth !== this.mirrorWidth) {
+      this.mirrorWidth = this.area.offsetWidth;
+      copyTextStyle(this.area, this.mirror);
+    }
+    this.mirror.textContent = this.area.value.slice(0, this.area.selectionEnd);
+    const end = document.createElement("span");
+    end.textContent = "\u200b";
+    this.mirror.append(end);
+    const x = end.offsetLeft - this.area.scrollLeft;
     // An inline box's offsetTop is the top of its glyphs, not of its line; centre it on the line.
-    const y = caret.offsetTop + caret.offsetHeight / 2 - this.lineHeight / 2 - this.area.scrollTop;
-    mirror.remove();
+    const y = end.offsetTop + end.offsetHeight / 2 - this.lineHeight / 2 - this.area.scrollTop;
     const field = offsetIn(this.area, this.host);
     return { x: field.x + x, y: field.y + y };
   }
 
   stop(): void {
+    clearTimeout(this.settling);
     for (const cleanup of this.cleanups.splice(0).reverse()) cleanup();
   }
 }
 
-/** How a text-layer feel decorates the text. */
-interface LayerStyle {
-  /** The decorations after an edit, given those still showing (already moved with the text). */
-  decorate(decorations: Decoration[], edit: Edit, typed: boolean, text: string): Decoration[];
-  /** The decorations once the box has been quiet for a moment. */
-  pause?(decorations: Decoration[]): Decoration[];
-}
+/**
+ * One part of a style: given the warmth of a key, it sets itself up and returns how to draw itself
+ * at each settling step, from 0 (just typed) to 1 (settled, as without a feel).
+ */
+type Part = (warmth: number) => (cooled: number) => void;
 
 /**
- * The feels that draw the text themselves: the box's own text turns transparent (its caret and
- * selection stay) and a layer behind it draws the same text, with `style` choosing the spans drawn
- * specially after each edit.
+ * The native caret turns full seal vermilion while you type: a 1 px caret can't carry a subtle
+ * colour shift, so it is the full colour or its own.
  */
-function withTextLayer(box: TypingBox, style: LayerStyle): TypingFeelHandle {
-  const { area, host } = box;
-  const layer = document.createElement("div");
-  layer.setAttribute("aria-hidden", "true");
-  copyTextStyle(area, layer);
-  Object.assign(layer.style, { position: "absolute", pointerEvents: "none", overflow: "hidden", color: box.ink });
-  host.insertBefore(layer, area);
-  box.raise();
-  box.restyle(area, { color: "transparent", caretColor: box.ink });
-  area.setAttribute("data-typing-feel-layer", "");
-
-  const place = () => {
-    const at = offsetIn(area, host);
-    Object.assign(layer.style, {
-      left: `${at.x}px`,
-      top: `${at.y}px`,
-      width: `${area.offsetWidth}px`,
-      height: `${area.offsetHeight}px`,
-    });
-    layer.scrollTop = area.scrollTop;
-  };
-  let decorations: Decoration[] = [];
-  const draw = () => {
-    const now = performance.now();
-    decorations = decorations.filter((d) => d.kind === "wet" || now - d.at < (d.kind === "land" ? FLICK_MS : DRY_MS));
-    layer.replaceChildren(...textWithDecorations(area.value, decorations, box.ink, now), "\u200b");
-    place();
-  };
-  // The only thing that runs between keys: one timer for the pause, when a style has one.
-  let pause: ReturnType<typeof setTimeout> | undefined;
-  const sync = box.watch((edit, typed) => {
-    decorations = style.decorate(shiftDecorations(decorations, edit), edit, typed, area.value);
-    draw();
-    clearTimeout(pause);
-    const settle = style.pause;
-    if (settle) {
-      pause = setTimeout(() => {
-        decorations = settle(decorations);
-        draw();
-      }, PAUSE_MS);
-    }
-  });
-  box.listen(area, "scroll", () => {
-    layer.scrollTop = area.scrollTop;
-  });
-  box.onInk(() => {
-    Object.assign(layer.style, { color: box.ink });
-    area.style.caretColor = box.ink;
-    draw();
-  });
-  const resize = new ResizeObserver(place);
-  resize.observe(area);
-  draw();
-  return {
-    sync,
-    stop() {
-      clearTimeout(pause);
-      resize.disconnect();
-      layer.remove();
-      area.removeAttribute("data-typing-feel-layer");
-      box.stop();
-    },
-  };
-}
-
-/** Brush flick: each typed character lands from a little above and leaves a flick at its foot. */
-function flickDecorations(decorations: Decoration[], edit: Edit, typed: boolean): Decoration[] {
-  if (!typed || edit.removed || edit.inserted > 2) return decorations;
-  return [...decorations, { start: edit.at, end: edit.at + edit.inserted, kind: "land", at: performance.now() }];
-}
-
-/** Wet ink: the word being written stays wet (heavier) and dries once the caret leaves it. */
-function wetDecorations(decorations: Decoration[], edit: Edit, typed: boolean, text: string): Decoration[] {
-  const end = edit.at + edit.inserted;
-  if (!typed || edit.removed || !WORD_CHAR.test(text[end - 1] ?? "")) return dryAll(decorations);
-  let start = end - 1;
-  while (start > 0 && WORD_CHAR.test(text[start - 1]!)) start -= 1;
-  const wet = decorations.find((d) => d.kind === "wet" && d.start === start);
-  const others = dryAll(decorations.filter((d) => d !== wet));
-  return [...others, { start, end, kind: "wet", at: wet?.at ?? performance.now() }];
-}
-
-/** Wet words start drying now. */
-function dryAll(decorations: Decoration[]): Decoration[] {
-  const now = performance.now();
-  return decorations.map((d) => (d.kind === "wet" ? { ...d, kind: "dry" as const, at: now } : d));
-}
-
-/** The text as nodes, with each decoration as a span drawn and animated by its kind. */
-function textWithDecorations(text: string, decorations: Decoration[], ink: string, now: number): Node[] {
-  const nodes: Node[] = [];
-  let cursor = 0;
-  for (const d of [...decorations].sort((a, b) => a.start - b.start)) {
-    if (d.start < cursor || d.end > text.length || d.start >= d.end) continue;
-    nodes.push(document.createTextNode(text.slice(cursor, d.start)));
-    const span = document.createElement("span");
-    span.textContent = text.slice(d.start, d.end);
-    const heavy = `0.35px 0 0 ${ink}, -0.35px 0 0 ${ink}`;
-    if (d.kind === "wet") span.style.textShadow = heavy;
-    if (d.kind === "land") {
-      span.style.position = "relative";
-      seek(span.animate(LAND, { duration: LAND_MS, easing: "ease-out" }), now - d.at);
-      flick(span, ink, now - d.at);
-    }
-    if (d.kind === "dry") {
-      seek(span.animate([{ textShadow: heavy }, { textShadow: `0 0 0 ${ink}, 0 0 0 ${ink}` }], DRY_MS), now - d.at);
-    }
-    nodes.push(span);
-    cursor = d.end;
-  }
-  nodes.push(document.createTextNode(text.slice(cursor)));
-  return nodes;
-}
-
-const LAND: Keyframe[] = [
-  { top: "-0.32em", opacity: 0.3 },
-  { top: "0.06em", opacity: 1, offset: 0.65 },
-  { top: "0", opacity: 1 },
-];
-
-/** A tiny tapered brush flick at the foot of a character that just landed. */
-function flick(span: HTMLElement, ink: string, elapsed: number): void {
-  const mark = document.createElement("span");
-  Object.assign(mark.style, {
-    position: "absolute",
-    right: "-4px",
-    bottom: "0.12em",
-    width: "8px",
-    height: "1.6px",
-    borderRadius: "1px 50% 50% 1px",
-    background: `linear-gradient(90deg, ${ink}, transparent)`,
-    transformOrigin: "0 50%",
-    opacity: "0",
-  });
-  span.append(mark);
-  seek(
-    mark.animate(
-      [
-        { transform: "rotate(-30deg) scaleX(0)", opacity: 0.9, offset: 0.25 },
-        { transform: "rotate(-30deg) scaleX(1)", opacity: 0.75, offset: 0.55 },
-        { transform: "rotate(-30deg) scaleX(1)", opacity: 0 },
-      ],
-      { duration: FLICK_MS, fill: "backwards" },
-    ),
-    elapsed,
-  );
-}
-
-/** Restarts an animation that was already running before its element was redrawn. */
-function seek(animation: Animation, elapsed: number): void {
-  animation.currentTime = Math.max(0, elapsed);
-}
-
-/** How much of its box the ink blot fills across. */
-const BLOT_FILL = 0.64;
-
-/** Ink wash: momentum from fast typing builds a soft wash behind the line, fading when you pause. */
-function washFeel(box: TypingBox): TypingFeelHandle {
-  box.raise();
-  const tint = () => `linear-gradient(90deg, transparent, ${box.ink} 30%, ${box.ink})`;
-  const wash = box.mark({
-    background: tint(),
-    maskImage: inkBlot(),
-    maskSize: "100% 100%",
-    opacity: "0",
-    transition: "width 90ms ease-out, left 90ms ease-out",
-  });
-  box.onInk(() => {
-    wash.style.background = tint();
-  });
-  let momentum = 0;
-  let last = 0;
-  let fade: Animation | undefined;
-  const sync = box.watch((edit, typed) => {
-    if (!typed || !edit.inserted) return;
-    const now = performance.now();
-    momentum = momentum * Math.exp(-(now - last) / 600) + 1;
-    last = now;
-    const caret = box.pointAt(edit.at + edit.inserted);
-    // The wash covers the line from its start to just past the caret. The blot fills about 64% of
-    // its box, so the box is that much larger around the line.
-    const start = offsetIn(box.area, box.host).x + Number.parseFloat(getComputedStyle(box.area).paddingLeft) - 8;
-    const width = Math.max(24, caret.x - start + 14) / BLOT_FILL;
-    const height = (box.lineHeight + 8) / BLOT_FILL;
-    const middle = (start + caret.x + 14) / 2;
-    const left = middle - width / 2;
-    // Its fibres must not reach past the composer's sides.
-    const right = left + width - box.host.clientWidth;
-    Object.assign(wash.style, {
-      left: `${left}px`,
-      top: `${caret.y + box.lineHeight / 2 - height / 2}px`,
-      width: `${width}px`,
-      height: `${height}px`,
-      clipPath: `inset(0 ${Math.max(0, right)}px 0 ${Math.max(0, -left)}px)`,
-    });
-    const from = Number(getComputedStyle(wash).opacity) || 0;
-    const peak = Math.min(0.18, 0.035 * momentum);
-    fade?.cancel();
-    fade = wash.animate(
-      [{ opacity: from }, { opacity: peak, offset: 0.06 }, { opacity: peak * 0.8, offset: 0.3 }, { opacity: 0 }],
-      { duration: 1300, easing: "ease-out" },
-    );
-  });
-  return { sync, stop: () => box.stop() };
-}
-
-/** Word flourish: a finished word gets a tapered brush stroke swept under it. */
-function flourishFeel(box: TypingBox): TypingFeelHandle {
-  box.raise();
-  const sync = box.watch((edit, typed) => {
-    if (!typed || edit.removed || edit.inserted !== 1) return;
-    const text = box.area.value;
-    if (WORD_CHAR.test(text[edit.at]!) || !WORD_CHAR.test(text[edit.at - 1] ?? "")) return;
-    let start = edit.at - 1;
-    while (start > 0 && WORD_CHAR.test(text[start - 1]!)) start -= 1;
-    if (edit.at - start < 2) return;
-    const from = box.pointAt(start);
-    const to = box.pointAt(edit.at);
-    // A word broken over two lines gets no stroke.
-    if (Math.abs(from.y - to.y) > 1) return;
-    box.mark(
-      {
-        left: `${from.x}px`,
-        top: `${from.y + box.lineHeight * 0.86}px`,
-        width: `${to.x - from.x + 4}px`,
-        height: "3px",
-        borderRadius: "1.5px 50% 50% 1.5px",
-        background: `linear-gradient(90deg, ${box.ink}, ${box.ink} 55%, transparent)`,
-        transform: "rotate(-0.6deg)",
-      },
-      [
-        { clipPath: "inset(0 100% 0 0)", opacity: 0.5 },
-        { clipPath: "inset(0 0 0 0)", opacity: 0.5, offset: 0.3 },
-        { clipPath: "inset(0 0 0 0)", opacity: 0 },
-      ],
-      { duration: 750, easing: "ease-out" },
-    );
-  });
-  return { sync, stop: () => box.stop() };
-}
-
-/** Brush caret: the caret is a brush tip that leans as it writes and leaves a short ink trail. */
-function brushCaretFeel(box: TypingBox): TypingFeelHandle {
+function vermilionCaret(box: TypingBox): Part {
   const { area } = box;
-  box.raise();
-  box.restyle(area, { caretColor: "transparent" });
-  const height = box.lineHeight * 0.8;
-  const tint = () => `linear-gradient(${box.ink} 70%, color-mix(in srgb, ${box.ink} 45%, transparent))`;
-  const tip = box.mark({
-    width: "3px",
-    height: `${height}px`,
-    borderRadius: "1.5px 1.5px 50% 50% / 1.5px 1.5px 4px 4px",
-    background: tint(),
-    transformOrigin: "50% 100%",
-    zIndex: "2",
-    display: "none",
-  });
-  box.onInk(() => {
-    tip.style.background = tint();
-  });
-  let at = { x: 0, y: 0 };
-  const place = () => {
-    const shown = document.activeElement === area && area.selectionStart === area.selectionEnd;
-    tip.style.display = shown ? "block" : "none";
-    if (!shown) return;
-    at = box.pointAt(area.selectionEnd);
-    Object.assign(tip.style, { left: `${at.x - 1}px`, top: `${at.y + (box.lineHeight - height) / 2}px` });
+  const native = area.style.caretColor;
+  box.restyle(area, { caretColor: native });
+  return () => (cooled) => {
+    area.style.caretColor = cooled < 0.6 ? box.vermilion : native;
   };
-  const sync = box.watch((edit, typed) => {
-    const from = at;
-    place();
-    if (!typed || !edit.inserted || edit.removed || Math.abs(from.y - at.y) > 1 || at.x <= from.x) return;
-    tip.animate([{ transform: "skewX(-16deg) scaleY(1.05)" }, { transform: "none" }], {
-      duration: 200,
-      easing: "ease-out",
+}
+
+/**
+ * A small warm glow just ahead of the caret, so it never tints the last character: vermilion by day,
+ * with a bright gold core at night so it reads as light on dark paper.
+ */
+function glow(box: TypingBox): Part {
+  const { lineHeight } = box;
+  const size = 16;
+  box.raise();
+  const mark = box.mark({
+    left: "0",
+    top: "0",
+    width: `${size}px`,
+    height: `${size}px`,
+    borderRadius: "50%",
+    opacity: "0",
+  });
+  return (warmth) => {
+    const { x, y } = box.caret();
+    const dark = document.documentElement.classList.contains("dark");
+    Object.assign(mark.style, {
+      transform: `translate(${x + 1}px, ${y + lineHeight / 2 - size / 2}px)`,
+      background: dark
+        ? `radial-gradient(closest-side, #fff4cf, ${box.gold} 35%, color-mix(in srgb, ${box.vermilion} 55%, transparent) 70%, transparent)`
+        : `radial-gradient(closest-side, ${box.vermilion}, color-mix(in srgb, ${box.vermilion} 45%, transparent) 55%, transparent)`,
     });
-    box.mark(
-      {
-        left: `${from.x}px`,
-        top: `${at.y + box.lineHeight * 0.84}px`,
-        width: `${at.x - from.x}px`,
-        height: "1.5px",
-        borderRadius: "1px",
-        background: `linear-gradient(90deg, transparent, ${box.ink})`,
-      },
-      [{ opacity: 0.45 }, { opacity: 0 }],
-      { duration: 320, easing: "ease-out" },
-    );
-  });
-  for (const type of ["focus", "blur", "keyup", "mouseup", "select", "scroll"]) box.listen(area, type, place);
-  box.listen(document, "selectionchange", place);
-  place();
-  return { sync, stop: () => box.stop() };
+    const peak = (dark ? 0.6 : 0.45) + 0.35 * warmth;
+    return (cooled) => {
+      mark.style.opacity = String(peak * (1 - cooled));
+    };
+  };
 }
 
-/**
- * The change from `before` to `after`. Typing puts the caret at the end of what it inserted, which
- * places an insertion exactly even in a run of the same letter; anything else falls back to the
- * longest common start and end.
- */
-export function editBetween(before: string, after: string, caret: number): Edit {
-  const grown = after.length - before.length;
-  const at = caret - grown;
-  if (grown > 0 && at >= 0 && after.slice(0, at) === before.slice(0, at) && after.slice(caret) === before.slice(at)) {
-    return { at, removed: 0, inserted: grown };
-  }
-  let start = 0;
-  while (start < before.length && start < after.length && before[start] === after[start]) start += 1;
-  let tail = 0;
-  while (
-    tail < before.length - start &&
-    tail < after.length - start &&
-    before[before.length - 1 - tail] === after[after.length - 1 - tail]
-  ) {
-    tail += 1;
-  }
-  return { at: start, removed: before.length - start - tail, inserted: after.length - start - tail };
+/** A small vermilion ink dot at the foot of the caret, just under the baseline, re-inked by each key. */
+function inkDot(box: TypingBox): Part {
+  const { lineHeight } = box;
+  const size = 4;
+  box.raise();
+  const dot = box.mark({
+    left: "0",
+    top: "0",
+    width: `${size}px`,
+    height: `${size}px`,
+    borderRadius: "50%",
+    opacity: "0",
+  });
+  return () => {
+    const { x, y } = box.caret();
+    Object.assign(dot.style, {
+      transform: `translate(${x - size / 2}px, ${y + lineHeight * 0.84}px)`,
+      background: box.vermilion,
+    });
+    return (cooled) => {
+      dot.style.opacity = String(1 - cooled);
+    };
+  };
 }
 
-/**
- * Decorations after an edit: those before it stay, those after it move with the text, a pure
- * insertion inside one grows it, and any that lost text are dropped.
- */
-export function shiftDecorations(decorations: Decoration[], edit: Edit): Decoration[] {
-  const delta = edit.inserted - edit.removed;
-  const removedEnd = edit.at + edit.removed;
-  return decorations.flatMap((d) => {
-    if (d.end <= edit.at) return [d];
-    if (d.start >= removedEnd && (edit.removed || d.start > edit.at)) {
-      return [{ ...d, start: d.start + delta, end: d.end + delta }];
-    }
-    if (!edit.removed && d.start < edit.at) return [{ ...d, end: d.end + delta }];
-    return [];
-  });
+/** Warm edge: the composer's edge glows softly while you type, brighter the faster, then settles. */
+function warmEdge(box: TypingBox): Part {
+  const frame = box.area.closest<HTMLElement>("[data-typing-frame]") ?? box.host;
+  if (getComputedStyle(frame).position === "static") box.restyle(frame, { position: "relative" });
+  const edge = box.mark({ inset: "-1px", borderRadius: getComputedStyle(frame).borderRadius, opacity: "0" }, frame);
+  return (warmth) => {
+    edge.style.boxShadow = `0 0 0 1px color-mix(in srgb, ${box.vermilion} 55%, transparent), 0 0 14px color-mix(in srgb, ${box.vermilion} 35%, transparent)`;
+    return (cooled) => {
+      edge.style.opacity = String((0.35 + 0.6 * warmth) * (1 - cooled));
+    };
+  };
 }
 
 const TEXT_STYLE = [
@@ -573,11 +343,7 @@ const TEXT_STYLE = [
 function copyTextStyle(area: HTMLTextAreaElement, copy: HTMLElement): void {
   const style = getComputedStyle(area);
   for (const property of TEXT_STYLE) copy.style[property] = style[property];
-  Object.assign(copy.style, {
-    borderColor: "transparent",
-    whiteSpace: area.wrap === "off" ? "pre" : "pre-wrap",
-    overflowWrap: "break-word",
-  });
+  Object.assign(copy.style, { whiteSpace: area.wrap === "off" ? "pre" : "pre-wrap", overflowWrap: "break-word" });
 }
 
 /**
