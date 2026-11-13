@@ -3,28 +3,32 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
+import { BrowserLogin, LOGIN_REQUIRED_HEADER, loginGate } from "./browser-login.js";
+import { hostPortGate } from "./remote-host/host-port.js";
+import { createBrowserLoginRoutes } from "./routes/browser-login.js";
 import { createFileLinkBrowserRoutes } from "./routes/file-link-browser.js";
+
+function makePreview(root: string, options?: Parameters<typeof createFileLinkBrowserRoutes>[1]) {
+  return createFileLinkBrowserRoutes(
+    {
+      getSession: (sessionId: string) =>
+        sessionId === "s1"
+          ? {
+              state: {
+                cwd: root,
+                repo_root: root,
+                is_worktree: false,
+              },
+            }
+          : null,
+    } as never,
+    options,
+  );
+}
 
 function makeApp(root: string, options?: Parameters<typeof createFileLinkBrowserRoutes>[1]) {
   const app = new Hono();
-  app.route(
-    "/",
-    createFileLinkBrowserRoutes(
-      {
-        getSession: (sessionId: string) =>
-          sessionId === "s1"
-            ? {
-                state: {
-                  cwd: root,
-                  repo_root: root,
-                  is_worktree: false,
-                },
-              }
-            : null,
-      } as never,
-      options,
-    ),
-  );
+  app.route("/", makePreview(root, options).routes);
   return app;
 }
 
@@ -466,5 +470,150 @@ describe("HTML file-link browser routes", () => {
     const miss = await app.request("/file-preview/content/stale-token/not-root/index.html");
     expect(miss.status).toBe(404);
     expect(await miss.text()).toBe("Unknown HTML preview route");
+  });
+});
+
+describe("HTML file preview behind browser login", () => {
+  const ORIGIN = "http://takode.test";
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "file-link-browser-login-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  /**
+   * The gates in front of the preview and login routes, wired as the server
+   * does: requests a gate refuses never reach the routes, the host port's gate
+   * runs first there, and revoking logins ends preview links.
+   */
+  async function loginProtectedPreview(options?: Parameters<typeof createFileLinkBrowserRoutes>[1]) {
+    const login = await BrowserLogin.open({ path: join(tempDir, "login.json"), serverId: "server-1" });
+    const result = await login.setPassword("correct horse", undefined, new Request(`${ORIGIN}/api/auth/password`));
+    if ("error" in result) throw new Error(result.error);
+    const preview = makePreview(join(tempDir, "repo"), options);
+    const app = new Hono();
+    app.route("/", preview.routes);
+    app.route("/api", createBrowserLoginRoutes(login, { onLoginsRevoked: preview.revokeAll }));
+    const fetch = async (path: string, init?: RequestInit & { listener?: "main" | "hosts" }) => {
+      const request = new Request(`${ORIGIN}${path}`, init);
+      const tokens = { hasSessionToken: () => false };
+      const refused =
+        (init?.listener === "hosts" ? hostPortGate(request, { ...tokens, isHostLink: false }) : null) ??
+        loginGate(request, { ...tokens, login, hasPreviewToken: preview.hasPreviewToken, selfAuthenticatedPaths: [] });
+      return refused ?? app.fetch(request);
+    };
+    return { fetch, cookie: result.setCookie.split(";")[0]! };
+  }
+
+  /** Opens `site/index.html` with a login and returns its document path and token root. */
+  async function openPage(fetch: Awaited<ReturnType<typeof loginProtectedPreview>>["fetch"], cookie: string) {
+    const opened = await fetch("/file-preview/open?path=site/index.html&isRelative=1&sessionId=s1", {
+      headers: { cookie },
+    });
+    expect(opened.status).toBe(302);
+    const documentPath = redirectedPath(opened);
+    return { documentPath, tokenRoot: documentPath.slice(0, documentPath.indexOf("/root/") + "/root/".length) };
+  }
+
+  async function writePage() {
+    const site = join(tempDir, "repo", "site");
+    await mkdir(site, { recursive: true });
+    await writeFile(join(site, "index.html"), '<link rel="stylesheet" href="style.css">');
+    await writeFile(join(site, "style.css"), "body { color: red; }");
+  }
+
+  // The reported bug: a sandboxed page's asset requests carry no login cookie
+  // (its origin is opaque), so with login on every stylesheet, script and image
+  // failed with 401. The page's token now lets them through, but only for the
+  // files the page declares, and only while the token is live.
+  it("serves a page's declared assets on its token alone, and nothing else without a login", async () => {
+    let now = 1_000;
+    const repo = join(tempDir, "repo");
+    await mkdir(join(repo, "site", "img"), { recursive: true });
+    await writeFile(
+      join(repo, "site", "index.html"),
+      '<link rel="stylesheet" href="style.css"><script src="app.js"></script><img src="img/logo.svg">',
+    );
+    await writeFile(join(repo, "site", "style.css"), "body { color: red; }");
+    await writeFile(join(repo, "site", "app.js"), "console.log(1);");
+    await writeFile(join(repo, "site", "img", "logo.svg"), '<svg xmlns="http://www.w3.org/2000/svg" />');
+    await writeFile(join(repo, "site", "undeclared.txt"), "not named by the page");
+    const { fetch, cookie } = await loginProtectedPreview({ capabilityTtlMs: 100, now: () => now });
+
+    // Issuing a token still needs a login.
+    expect((await fetch("/file-preview/open?path=site/index.html&isRelative=1&sessionId=s1")).status).toBe(401);
+    const { documentPath, tokenRoot } = await openPage(fetch, cookie);
+
+    // The page and its assets, requested as the sandboxed page does: no cookie, Origin: null.
+    const pageRequest = { headers: { Origin: "null" } };
+    for (const path of [documentPath, `${tokenRoot}site/style.css`, `${tokenRoot}site/app.js`]) {
+      expect((await fetch(path, pageRequest)).status, path).toBe(200);
+    }
+    const logo = await fetch(`${tokenRoot}site/img/logo.svg`, pageRequest);
+    expect(logo.status).toBe(200);
+    expect(await logo.text()).toContain("<svg");
+    const preflight = await fetch(`${tokenRoot}site/app.js`, {
+      method: "OPTIONS",
+      headers: { Origin: "null", "Access-Control-Request-Method": "GET" },
+    });
+    expect(preflight.status).toBe(204);
+
+    // The token reaches only what the page declared: the route's own scope check.
+    expect((await fetch(`${tokenRoot}site/undeclared.txt`, pageRequest)).status).toBe(403);
+
+    // Without a live token for the requested content, the gate asks for a login.
+    const refusedPaths = [
+      // A well-formed token that was never issued.
+      `/file-preview/content/00000000-0000-4000-8000-000000000000/root/site/index.html`,
+      // Encoded dot segments leaving the token's content for another token's...
+      `${tokenRoot}..%2F..%2F00000000-0000-4000-8000-000000000000/root/site/index.html`,
+      // ...or for the API, also double-encoded, which the URL parser leaves alone
+      // (it resolves single-encoded %2e%2e itself) and the gate decodes fully.
+      `${tokenRoot}%2e%2e/%2e%2e/%2e%2e/%2e%2e/api/sessions`,
+      `${tokenRoot}%252e%252e%252f%252e%252e%252f00000000-0000-4000-8000-000000000000/root/site/index.html`,
+      `${tokenRoot}%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fapi/sessions`,
+      // The token outside the content routes.
+      `/api${documentPath}`,
+      `${tokenRoot.replace("/root/", "/other/")}site/index.html`,
+    ];
+    for (const path of refusedPaths) {
+      const response = await fetch(path, pageRequest);
+      expect(response.status, path).toBe(401);
+      expect(response.headers.get(LOGIN_REQUIRED_HEADER), path).toBe("1");
+    }
+
+    // An expired token no longer stands in for a login.
+    now = 1_101;
+    expect((await fetch(`${tokenRoot}site/style.css`, pageRequest)).status).toBe(401);
+    expect((await fetch(`${tokenRoot}site/style.css`, { headers: { cookie } })).status).toBe(410);
+  });
+
+  // Changing the password or signing out other devices is how the user cuts off
+  // a lost or shared device, so preview links it opened must stop working too:
+  // their tokens stand in for a login.
+  it("ends preview links when logins are revoked", async () => {
+    await writePage();
+    const { fetch, cookie } = await loginProtectedPreview();
+    const { tokenRoot } = await openPage(fetch, cookie);
+    expect((await fetch(`${tokenRoot}site/style.css`)).status).toBe(200);
+
+    const signedOut = await fetch("/api/auth/sign-out-others", { method: "POST", headers: { cookie } });
+    expect(signedOut.status).toBe(200);
+    const refused = await fetch(`${tokenRoot}site/style.css`);
+    expect(refused.status).toBe(401);
+    expect(refused.headers.get(LOGIN_REQUIRED_HEADER)).toBe("1");
+  });
+
+  // The host port serves only hosts and agents, so a preview token alone opens nothing there.
+  it("refuses a request carrying only a preview token on the host port", async () => {
+    await writePage();
+    const { fetch, cookie } = await loginProtectedPreview();
+    const { tokenRoot } = await openPage(fetch, cookie);
+    expect((await fetch(`${tokenRoot}site/style.css`)).status).toBe(200);
+    expect((await fetch(`${tokenRoot}site/style.css`, { listener: "hosts" })).status).toBe(401);
   });
 });

@@ -13,6 +13,7 @@ Login is off by default. While it is off, anyone who can reach the server can us
 - **Protected:** every `/api`, `/ws` and `/file-preview` request.
 - **Public:** the static frontend, so it can show the login screen, and `/api/auth/status`, `/api/auth/login`, `/api/auth/logout`, `/api/health` and `/api/ready`.
 - **Their own credentials:** agent CLIs (`takode`, `quest`, `memory`) send their per-session token, including through a remote host's `takode node` proxy. Hosts connect with their host token, and the Codex sidecar routes accept only loopback callers that hold the sidecar capability.
+- **HTML pages in the file viewer:** opening a page (`/file-preview/open`) needs a login, and gives the page an expiring link, `/file-preview/content/<token>/...`. The page runs sandboxed without an origin of its own, so the browser sends its stylesheet, script, image and data requests without the login cookie; the token stands in for it. A token reaches only the files its page names, inside the page's folder or session, and stops working after 12 hours, or as soon as the password is changed or other devices are signed out, so anyone given a page's link can read those files until then without logging in.
 
 Connections from `127.0.0.1` are not exempt. Tunnels, reverse proxies, `tailscale serve` and the Vite dev proxy all deliver outside traffic from loopback, so trusting it would leave exactly the exposed paths open. A browser on the same machine logs in once like any other.
 
@@ -20,7 +21,7 @@ Connections from `127.0.0.1` are not exempt. Tunnels, reverse proxies, `tailscal
 
 - The server keeps a scrypt hash of the password and a cookie-signing secret in `~/.companion/browser-login/<server ID>.json` (mode 0600), not in `settings.json`.
 - A login sets an HttpOnly, `SameSite=Lax` cookie, marked Secure over HTTPS (directly or through a proxy that sends `X-Forwarded-Proto: https`). The cookie holds its issue time and an HMAC of it, lasts 30 days and is renewed when the app loads after a day. The cookie name includes the server ID because browsers share cookies across ports on one host.
-- Changing the password or signing out other devices replaces the secret, which invalidates every existing cookie, and closes open browser and terminal WebSockets so those browsers must log in again.
+- Changing the password or signing out other devices replaces the secret, which invalidates every existing cookie, closes open browser and terminal WebSockets so those browsers must log in again, and ends every file viewer page link, so open pages must be reopened.
 - Ten wrong passwords within 15 minutes pause login attempts until the oldest failure is 15 minutes old. Browsers that are already logged in keep working.
 
 ## Forgotten password

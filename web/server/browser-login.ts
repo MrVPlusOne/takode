@@ -203,8 +203,9 @@ const PUBLIC_API_PREFIX = "/api/integrations/codex/";
  * The 401 response for a request that needs a browser login, or null to let it
  * through. Only the application surface is protected (`/api`, `/ws`, and the
  * HTML file preview); the static frontend stays public so it can show the login
- * screen. Loopback requests are not exempt: tunnels and reverse proxies make
- * outside traffic arrive from 127.0.0.1.
+ * screen. Besides the login cookie, agent session tokens and a preview page's
+ * own token for its content let requests through. Loopback requests are not
+ * exempt: tunnels and reverse proxies make outside traffic arrive from 127.0.0.1.
  */
 export function loginGate(
   request: Request,
@@ -212,6 +213,11 @@ export function loginGate(
     login: BrowserLogin;
     /** Whether the request is an agent CLI carrying a valid session token. */
     hasSessionToken: (request: Request) => boolean;
+    /**
+     * Whether the request is for a file preview's content under its live token.
+     * The previewed page has an opaque origin, so its asset requests carry no cookie.
+     */
+    hasPreviewToken: (request: Request) => boolean;
     /** Paths that authenticate themselves, such as the host link. */
     selfAuthenticatedPaths: string[];
   },
@@ -225,7 +231,7 @@ export function loginGate(
   const normalized = decodeAndNormalizePathname(request.url);
   if (normalized !== null && !isProtectedPath(routed) && !isProtectedPath(normalized)) return null;
   if (routed === normalized && isPublicPath(routed, options.selfAuthenticatedPaths)) return null;
-  if (login.isLoggedIn(request) || options.hasSessionToken(request)) return null;
+  if (login.isLoggedIn(request) || options.hasSessionToken(request) || options.hasPreviewToken(request)) return null;
   return new Response(
     JSON.stringify({ error: "Login required. Log in from a browser, or use a valid Takode session token." }),
     {

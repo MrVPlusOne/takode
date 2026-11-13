@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { WEB_PUSH_PRESENCE_TTL_MS, type WebPushAlert, WebPushChannel } from "./web-push.js";
+import { WEB_PUSH_PRESENCE_TTL_MS, type WebPushAlert, WebPushChannel, webPushSubject } from "./web-push.js";
 
 /**
  * Tests for the Web Push delivery channel: VAPID key persistence, subscription
@@ -281,5 +281,16 @@ describe("WebPushChannel", () => {
       ok: false,
       error: 'Push service rejected the test notification: 403 {"reason":"BadJwtToken"}',
     });
+  });
+});
+
+// Apple's push service rejects localhost and non-https VAPID subjects, so only a
+// public https base URL becomes the subject; anything else uses a contact address.
+describe("webPushSubject", () => {
+  it("uses a public https origin and falls back to a contact address", () => {
+    expect(webPushSubject("https://takode.example.com/app")).toBe("https://takode.example.com");
+    for (const baseUrl of ["http://takode.example.com", "https://localhost:3456", "", "not a url"]) {
+      expect(webPushSubject(baseUrl), baseUrl).toBe("mailto:takode-web-push@example.com");
+    }
   });
 });

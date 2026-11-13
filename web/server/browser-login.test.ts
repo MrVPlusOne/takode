@@ -32,7 +32,12 @@ describe("BrowserLogin", () => {
   }
 
   function gate(login: BrowserLogin, request: Request, hasSessionToken = false) {
-    return loginGate(request, { login, hasSessionToken: () => hasSessionToken, selfAuthenticatedPaths: ["/ws/host"] });
+    return loginGate(request, {
+      login,
+      hasSessionToken: () => hasSessionToken,
+      hasPreviewToken: () => false,
+      selfAuthenticatedPaths: ["/ws/host"],
+    });
   }
 
   async function enabledLogin(password = "correct horse") {

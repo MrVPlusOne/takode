@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { getMimeType } from "hono/utils/mime";
 import { onMachine } from "../remote-host/host-operations.js";
 import { hostIsOnline, machineFor } from "../remote-host/session-machine.js";
+import { decodeAndNormalizePathname } from "../opaque-origin-guard.js";
 import type { RouteContext } from "./context.js";
 import { getFileLinkRootForSession, resolveFileLinkPath, type FileLinkResolveRequest } from "./filesystem.js";
 
@@ -17,6 +18,9 @@ const FILE_LINK_BROWSER_REFERENCE_LENGTH_LIMIT = 4096;
 /** Largest file served from a remote host, which arrives whole over the host link rather than streamed. */
 const FILE_LINK_BROWSER_REMOTE_FILE_BYTE_LIMIT = 100 * 1024 * 1024;
 const FILE_LINK_BROWSER_PREFIX = "/file-preview";
+/** A page's content path, `/file-preview/content/<token>/root/...`; tokens are lowercase UUIDs. */
+const FILE_LINK_BROWSER_CONTENT_PATH_RE =
+  /^\/file-preview\/content\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/root\//;
 const FILE_LINK_BROWSER_SANDBOX = [
   "sandbox",
   "allow-downloads",
@@ -509,7 +513,21 @@ async function scanLiteralReferences(
   }
 }
 
-export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], options?: FileLinkBrowserRouteOptions) {
+/**
+ * The HTML file preview: `/file-preview/open` turns a user's file link into an
+ * expiring capability token and redirects to the page under it, and the content
+ * routes serve that page and only the files it declares.
+ *
+ * `hasPreviewToken` tells the login gate which requests carry a live token for
+ * the content they ask for. The page runs sandboxed with an opaque origin, so
+ * the browser sends its own asset requests without the login cookie; the token
+ * is their credential. Opening a page, which issues tokens, still needs a login.
+ * `revokeAll` ends every preview link, for when logins are revoked.
+ */
+export function createFileLinkBrowserRoutes(
+  wsBridge: RouteContext["wsBridge"],
+  options?: FileLinkBrowserRouteOptions,
+): { routes: Hono; hasPreviewToken: (request: Request) => boolean; revokeAll: () => void } {
   const routes = new Hono();
   const capabilities = new Map<string, FileLinkBrowserCapability>();
   const now = options?.now ?? Date.now;
@@ -721,5 +739,15 @@ export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], 
   routes.all(FILE_LINK_BROWSER_PREFIX, () => errorResponse("Unknown HTML preview route", 404));
   routes.all(`${FILE_LINK_BROWSER_PREFIX}/*`, () => errorResponse("Unknown HTML preview route", 404));
 
-  return routes;
+  const hasPreviewToken = (request: Request) => {
+    const token = FILE_LINK_BROWSER_CONTENT_PATH_RE.exec(new URL(request.url).pathname)?.[1];
+    if (!token) return false;
+    // Encoded dot segments must not carry the request out of the token's own content.
+    const normalized = decodeAndNormalizePathname(request.url);
+    if (!normalized?.startsWith(`${FILE_LINK_BROWSER_PREFIX}/content/${token}/root/`)) return false;
+    const capability = capabilities.get(token);
+    return capability !== undefined && capability.expiresAt > now();
+  };
+
+  return { routes, hasPreviewToken, revokeAll: () => capabilities.clear() };
 }

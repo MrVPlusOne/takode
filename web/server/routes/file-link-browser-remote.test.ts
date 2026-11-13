@@ -60,7 +60,7 @@ describe("HTML file links from a session on a remote host", () => {
       "/",
       createFileLinkBrowserRoutes({ getSession: (id: string) => sessions[id] ?? null } as never, {
         hostName: async (id) => (id === hostId ? "gpu-box" : undefined),
-      }),
+      }).routes,
     );
   });
 

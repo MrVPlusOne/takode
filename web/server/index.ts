@@ -78,7 +78,7 @@ import { overdueTodosIn, TodoOverdueAlerts } from "./todo-overdue-alerts.js";
 import { normalizeNeedsInputReminderSettings } from "../shared/needs-input-reminder-settings.js";
 import { listWaitingUserQuestions } from "./bridge/session-notification-controller.js";
 import { createUserActivityRoutes } from "./routes/user-activity.js";
-import { WebPushChannel } from "./web-push.js";
+import { WebPushChannel, webPushSubject } from "./web-push.js";
 import { isPhoneAlertOutdated } from "./phone-alert-status.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
@@ -581,17 +581,6 @@ const webPushAvailable = await webPush.load().then(
     return false;
   },
 );
-
-/** Apple rejects localhost VAPID subjects, so only a public https base URL is used. */
-function webPushSubject(baseUrl: string): string {
-  try {
-    const url = new URL(baseUrl);
-    if (url.protocol === "https:" && url.hostname !== "localhost") return url.origin;
-  } catch {
-    // Fall through to the generic contact address.
-  }
-  return "mailto:takode-web-push@example.com";
-}
 
 const pushoverNotifier = new PushoverNotifier({
   getSettings: () => {
@@ -1457,17 +1446,22 @@ const sleepInhibitor = new SleepInhibitor({
 
 const app = new Hono();
 
-app.route("/", createFileLinkBrowserRoutes(wsBridge, { hostName: async (id) => (await hostRegistry.get(id))?.name }));
+const filePreview = createFileLinkBrowserRoutes(wsBridge, {
+  hostName: async (id) => (await hostRegistry.get(id))?.name,
+});
+app.route("/", filePreview.routes);
 app.use("/api/*", cors());
 app.use("/api/*", compressApiJson);
 // Browser and terminal sockets authenticate only at upgrade, so revoking logins closes them;
-// browsers that still have a valid login reconnect at once.
+// browsers that still have a valid login reconnect at once. Preview links end too: their
+// tokens stand in for a login, so a revoked device must not keep reading through them.
 const appSockets = new Set<ServerWebSocket<SocketData>>();
 app.route(
   "/api",
   createBrowserLoginRoutes(browserLogin, {
     onLoginsRevoked: () => {
       for (const ws of appSockets) ws.close(4401, "Login changed");
+      filePreview.revokeAll();
     },
   }),
 );
@@ -1563,6 +1557,10 @@ if (process.env.NODE_ENV === "production") {
   );
 }
 
+/** Agent CLIs, landing runners and backup fetches send their own tokens instead of a login cookie. */
+const hasAgentToken = (request: Request) =>
+  hasValidSessionToken(request, launcher) || isLandingRunnerRequest(request) || backupService.isFetchRequest(request);
+
 /**
  * Requests on either listener. The main port serves browsers (behind the
  * optional login) and this machine's own node; the host port serves only
@@ -1586,20 +1584,15 @@ function handleRequest(listener: "main" | "hosts") {
     if (listener === "hosts") {
       const refused = hostPortGate(req, {
         isHostLink: wsRoute?.kind === "host",
-        hasSessionToken: (request) =>
-          hasValidSessionToken(request, launcher) ||
-          isLandingRunnerRequest(request) ||
-          backupService.isFetchRequest(request),
+        hasSessionToken: hasAgentToken,
       });
       if (refused) return refused;
     }
 
     const loginRequired = loginGate(req, {
       login: browserLogin,
-      hasSessionToken: (request) =>
-        hasValidSessionToken(request, launcher) ||
-        isLandingRunnerRequest(request) ||
-        backupService.isFetchRequest(request),
+      hasSessionToken: hasAgentToken,
+      hasPreviewToken: filePreview.hasPreviewToken,
       selfAuthenticatedPaths: [HOST_LINK_PATH],
     });
     if (loginRequired) return loginRequired;

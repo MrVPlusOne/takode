@@ -61,6 +61,17 @@ const VAPID_JWT_LIFETIME_SECONDS = 12 * 60 * 60;
 /** Push services accept about 4 KB of encrypted payload; past this, subjects are left out. */
 const MAX_PAYLOAD_BYTES = 3_000;
 
+/** The VAPID subject for a base URL. Apple rejects localhost subjects, so only a public https base URL is used. */
+export function webPushSubject(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl);
+    if (url.protocol === "https:" && url.hostname !== "localhost") return url.origin;
+  } catch {
+    // Fall through to the generic contact address.
+  }
+  return "mailto:takode-web-push@example.com";
+}
+
 export class WebPushChannel implements WebPushDelivery {
   private store: WebPushStoreFile | null = null;
   private presence = new Map<string, { visible: boolean; at: number }>();
