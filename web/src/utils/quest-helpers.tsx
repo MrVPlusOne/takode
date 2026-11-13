@@ -42,6 +42,11 @@ export function timeAgo(ts: number): string {
   return `${days}d ago`;
 }
 
+/** Who wrote a quest feedback entry, in plain words, for when its session isn't shown: "user" or "agent". */
+export function feedbackAuthorLabel(entry: { author: "human" | "agent" }): string {
+  return entry.author === "human" ? "user" : "agent";
+}
+
 /** Count checked vs total verification items. */
 export function verificationProgress(items: QuestVerificationItem[]): { checked: number; total: number } {
   return { checked: items.filter((i) => i.checked).length, total: items.length };

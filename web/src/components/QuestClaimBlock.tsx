@@ -4,6 +4,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
+import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import type { QuestImage, QuestVerificationItem } from "../types.js";
 import { useStore } from "../store.js";
@@ -78,14 +79,11 @@ export function QuestClaimBlock({
         </span>
         <QuestTopicOrTags quest={quest} onNavigate={() => setDetailsOpen(false)} />
         {quest.leaderSessionId && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
-            <span>Leader</span>
-            <CompactSessionLink
-              sessionId={quest.leaderSessionId}
-              threadKey={quest.questId}
-              onNavigate={() => setDetailsOpen(false)}
-            />
-          </span>
+          <QuestLeaderRef
+            leaderSessionId={quest.leaderSessionId}
+            questId={quest.questId}
+            onNavigate={() => setDetailsOpen(false)}
+          />
         )}
       </div>
 
@@ -266,4 +264,23 @@ function QuestTopicOrTags({ quest, onNavigate }: { quest: QuestClaimData; onNavi
       {tag}
     </span>
   ));
+}
+
+/** "Leader #N", left out when the browser no longer knows the leader session (archived long ago). */
+function QuestLeaderRef({
+  leaderSessionId,
+  questId,
+  onNavigate,
+}: {
+  leaderSessionId: string;
+  questId: string;
+  onNavigate: () => void;
+}) {
+  if (useSdkSessionRow(leaderSessionId)?.sessionNum == null) return null;
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
+      <span>Leader</span>
+      <CompactSessionLink sessionId={leaderSessionId} threadKey={questId} onNavigate={onNavigate} />
+    </span>
+  );
 }

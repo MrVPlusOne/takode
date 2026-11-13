@@ -179,6 +179,8 @@ function lastActivityAt(tab: PrimaryThreadChip): number {
 }
 
 export interface RowContext {
+  /** The leader whose threads these are. */
+  leaderId: string;
   currentThreadKey: string;
   activeOutputThreadKey: string | null;
   monitors?: ThreadMonitoringProjectionValue["threads"];
@@ -496,7 +498,7 @@ export function ThreadTabListRow({ tab, context }: { tab: PrimaryThreadChip; con
             {tab.sideQuestOf && (
               // A side quest's answer is given where it was asked, so its thread can usually be skipped.
               <span className="inline-flex shrink-0 text-cc-muted">
-                <SideQuestIcon sideQuestOf={tab.sideQuestOf} />
+                <SideQuestIcon sideQuestOf={{ leaderId: context.leaderId, threadKey: tab.sideQuestOf }} />
               </span>
             )}
             <span className="truncate">{tab.title}</span>

@@ -345,13 +345,13 @@ function VerticalJourney({
   });
   const totalElapsedMs = items.reduce((total, item) => total + (item.durationMs ?? 0), 0);
   const unavailableDurationCount = items.filter((item) => item.durationUnavailable).length;
+  // A total that misses untimed phases would understate the Journey, so the header then gives the
+  // phase count alone; each timed phase still shows its own duration.
   const totalElapsedLabel = durationSummaryOmitted
     ? "Duration not loaded"
-    : totalElapsedMs > 0
-      ? `${unavailableDurationCount > 0 ? "Partial " : "Total "}${formatQuestJourneyDuration(totalElapsedMs)}`
-      : unavailableDurationCount > 0
-        ? "Duration unavailable"
-        : undefined;
+    : totalElapsedMs > 0 && unavailableDurationCount === 0
+      ? `Total ${formatQuestJourneyDuration(totalElapsedMs)}`
+      : undefined;
   return (
     <div
       className={`min-w-0 max-w-full overflow-hidden rounded-md border border-cc-border bg-cc-hover/20 p-2 ${className ?? ""}`.trim()}

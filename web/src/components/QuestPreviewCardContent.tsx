@@ -31,7 +31,7 @@ import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { HoverCardSuppressionProvider } from "./hover-card-suppression-context.js";
 import { QuestSessionActions } from "./QuestSessionActions.js";
 import { descriptionExcerpt } from "./QuestDescriptionSummaryCard.js";
-import { sideQuestOfText, useSideQuestOf } from "./SideQuestCue.js";
+import { useSideQuestOf, useSideQuestOfText, type SideQuestOf } from "./SideQuestCue.js";
 import { QuestTopicLink, useLeaderQuestTopic } from "./library/QuestTopicLink.js";
 
 export interface QuestPreviewCardContentProps {
@@ -245,7 +245,7 @@ export function QuestPreviewCardContent({
             </span>
             {sideQuestOf && (
               <span data-testid="quest-hover-side-quest" className="min-w-0 truncate text-xs text-cc-muted">
-                {sideQuestOfText(sideQuestOf)}
+                <SideQuestOfText sideQuestOf={sideQuestOf} />
               </span>
             )}
             {queuedWaitForReason && (
@@ -465,4 +465,8 @@ function QuestHoverSessionChip({
       {sessionName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{sessionName}</span>}
     </SessionInlineLink>
   );
+}
+
+function SideQuestOfText({ sideQuestOf }: { sideQuestOf: SideQuestOf }) {
+  return <>{useSideQuestOfText(sideQuestOf)}</>;
 }

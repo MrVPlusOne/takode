@@ -14,6 +14,7 @@ import {
 } from "../test-fixtures/leader-thread-tabs-projection.js";
 import { QuestThreadBanner } from "./QuestThreadBanner.js";
 import { useSideQuestOf } from "./SideQuestCue.js";
+import { rememberThreads, resetLeaderTopicsForTest } from "../utils/leader-topics.js";
 
 /** The header as ChatView wires it for the leader's selected quest tab. */
 function LeaderQuestHeader({ questId }: { questId: string }) {
@@ -37,12 +38,17 @@ beforeEach(() => {
           // q-12 was filed from a request asked in q-7, which is still answered there.
           createLeaderThreadTabsProjectionTab("q-12", { sideQuestOf: "q-7" }),
           createLeaderThreadTabsProjectionTab("q-13"),
+          // q-14 was filed from a request asked in a thread the user started.
+          createLeaderThreadTabsProjectionTab("q-14", { sideQuestOf: "topic:c9dfc30b" }),
         ],
       }),
     }),
   );
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  resetLeaderTopicsForTest();
+});
 
 describe("side quest mark in the quest header", () => {
   it("shows the branch icon, naming the thread the answer goes to, for a side quest", () => {
@@ -54,5 +60,20 @@ describe("side quest mark in the quest header", () => {
   it("shows nothing for an ordinary quest", () => {
     render(<LeaderQuestHeader questId="q-13" />);
     expect(screen.queryByTestId("side-quest-icon")).not.toBeInTheDocument();
+  });
+
+  it("names a thread by its name, never by its topic key", () => {
+    rememberThreads("leader", [
+      {
+        id: "c9dfc30b-1111",
+        key: "topic:c9dfc30b",
+        name: "Pocket Ledger 0.8 batch",
+        leaderId: "leader",
+        createdAt: 1,
+        activityAt: 1,
+      },
+    ]);
+    render(<LeaderQuestHeader questId="q-14" />);
+    expect(screen.getByRole("img", { name: "Side quest of Pocket Ledger 0.8 batch" })).toBeInTheDocument();
   });
 });

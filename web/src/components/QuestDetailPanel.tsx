@@ -1,4 +1,5 @@
 import { usePendingAction } from "../hooks/usePendingAction.js";
+import { useSdkSessionRow } from "../hooks/useSdkSessionRow.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -26,6 +27,7 @@ import {
   getQuestDisplayOwner,
   getQuestOwnerSessionId,
   CopyableQuestId,
+  feedbackAuthorLabel as plainFeedbackAuthorLabel,
 } from "../utils/quest-helpers.js";
 import { findQuestJourneyContext, resolveQuestSessionTargets } from "../utils/quest-journey-context.js";
 import { getQuestStatusPresentation } from "../utils/quest-status-presentation.js";
@@ -748,10 +750,7 @@ export function QuestDetailPanel() {
     const isEntryEditing = editingFeedback?.questId === quest.questId && editingFeedback?.index === entryIndex;
     const isConfirmingDelete =
       confirmDeleteFeedback?.questId === quest.questId && confirmDeleteFeedback?.index === entryIndex;
-    const isUserFeedback = entry.author === "human";
-    const feedbackSessionId = entry.authorSessionId;
-    const feedbackAuthorLabel = isUserFeedback ? "user" : entry.author;
-    const feedbackAuthorSuffix = isUserFeedback && feedbackSessionId ? "on behalf of user" : undefined;
+    const feedbackAuthorLabel = plainFeedbackAuthorLabel(entry);
     const isNavigationTarget = activeFeedbackTarget?.index === entryIndex;
     const isHighlighted = highlightedFeedbackIndex === entryIndex;
     return (
@@ -775,22 +774,7 @@ export function QuestDetailPanel() {
       >
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mb-0.5 whitespace-nowrap">
           {collapseControl}
-          {feedbackSessionId ? (
-            <>
-              <CompactSessionLink
-                sessionId={feedbackSessionId}
-                className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
-                onNavigate={closePanel}
-              />
-              {feedbackAuthorSuffix && (
-                <span className="text-[11px] font-medium text-amber-400/70">{feedbackAuthorSuffix}</span>
-              )}
-            </>
-          ) : (
-            <span className={`text-xs font-medium ${isUserFeedback ? "text-amber-400/70" : "text-cc-muted"}`}>
-              {feedbackAuthorLabel}
-            </span>
-          )}
+          <QuestFeedbackAuthor entry={entry} onNavigate={closePanel} />
           <QuestMachineStamp machine={entry.machine} className="text-[11px] text-cc-muted/60" />
           <span className="font-mono-code text-[10px] text-cc-muted/50">#{entryIndex}</span>
           <span className="text-[11px] text-cc-muted/40">{timeAgo(entry.ts)}</span>
@@ -1592,6 +1576,34 @@ export function QuestDetailPanel() {
       {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
     </div>,
     portalTarget,
+  );
+}
+
+// ─── QuestFeedbackAuthor ───────────────────────────────────────────────────
+
+/**
+ * Who wrote a feedback entry: the session that wrote it (adding "on behalf of user" for the user's
+ * own feedback), or plain "user" / "agent" when there is no session or the browser doesn't know it.
+ */
+function QuestFeedbackAuthor({ entry, onNavigate }: { entry: IndexedQuestFeedbackEntry; onNavigate: () => void }) {
+  const isUser = entry.author === "human";
+  const sessionKnown = useSdkSessionRow(entry.authorSessionId)?.sessionNum != null;
+  if (!entry.authorSessionId || !sessionKnown) {
+    return (
+      <span className={`text-xs font-medium ${isUser ? "text-amber-400/70" : "text-cc-muted"}`}>
+        {plainFeedbackAuthorLabel(entry)}
+      </span>
+    );
+  }
+  return (
+    <>
+      <CompactSessionLink
+        sessionId={entry.authorSessionId}
+        className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
+        onNavigate={onNavigate}
+      />
+      {isUser && <span className="text-[11px] font-medium text-amber-400/70">on behalf of user</span>}
+    </>
   );
 }
 

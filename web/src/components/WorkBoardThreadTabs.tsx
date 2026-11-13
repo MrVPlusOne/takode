@@ -351,6 +351,7 @@ export function ThreadTabRail({
         // Desktop is short on height, so its row is slimmer (Jiayi, Nov 1); phones keep theirs.
         slim={desktop}
         threads={threads}
+        leaderId={sessionId}
         currentThreadKey={currentThreadKey}
         activeOutputThreadKey={runningRoute?.threadKey ?? null}
         monitors={monitors}

@@ -33,7 +33,7 @@ import {
 } from "./quest-participant-chip-style.js";
 import { SessionRoleLabel } from "./SessionRoleLabel.js";
 import { DiffChip, QuestDiffChips } from "./DiffChip.js";
-import { SideQuestIcon } from "./SideQuestCue.js";
+import { SideQuestIcon, type SideQuestOf } from "./SideQuestCue.js";
 import { MoveToSideButton, type MoveToSide } from "./ThreadStrip.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
@@ -577,7 +577,7 @@ export function QuestThreadBanner({
   row?: QuestThreadBannerRow;
   threadKey: string;
   /** Set when this quest is a side quest: the thread ("main" or a quest ID) where its answer is given. */
-  sideQuestOf?: string;
+  sideQuestOf?: SideQuestOf;
   variant?: QuestBannerVariant;
   currentSessionId?: string;
   monitorSessionId?: string;

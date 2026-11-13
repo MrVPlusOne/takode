@@ -130,6 +130,7 @@ export function HomeThreadList({
   };
   const row = (thread: HomeThread) => (
     <HomeThreadRow
+      leaderId={leaderId}
       onOpenMenu={(x, y) => setMenu({ items: menuItemsOf(thread.tab), x, y })}
       key={thread.tab.threadKey}
       thread={thread}
@@ -319,6 +320,7 @@ function useLatestSteps(sessionIds: readonly string[]): Record<string, string> {
  * worker at work, the commits delivered). A row without a news line moves that last line up.
  */
 function HomeThreadRow({
+  leaderId,
   thread: { tab, at, activityAt },
   line,
   detail,
@@ -326,6 +328,7 @@ function HomeThreadRow({
   onOpen,
   onOpenMenu,
 }: {
+  leaderId: string;
   thread: HomeThread;
   line?: string;
   detail: RowDetail;
@@ -364,7 +367,7 @@ function HomeThreadRow({
           )}
           {tab.sideQuestOf && (
             <span className="inline-flex shrink-0 text-cc-muted">
-              <SideQuestIcon sideQuestOf={tab.sideQuestOf} />
+              <SideQuestIcon sideQuestOf={{ leaderId, threadKey: tab.sideQuestOf }} />
             </span>
           )}
           {questLabel && <span className="shrink-0 font-mono-code text-[12px] text-cc-muted">{questLabel}</span>}

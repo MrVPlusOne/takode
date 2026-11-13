@@ -855,7 +855,7 @@ describe("MessageFeed activity viewport stability", () => {
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusHeight),
@@ -876,7 +876,7 @@ describe("MessageFeed activity viewport stability", () => {
 
       setProducerThreadStatus(sid, null);
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.queryByText("Thread Waiting")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("Waiting")).toBeNull());
       const slack = document.querySelector<HTMLElement>("[data-feed-end-slack]")!;
 
       expect(geometry.threadStatusFooterHeight).toBe(0);
@@ -915,7 +915,7 @@ describe("MessageFeed activity viewport stability", () => {
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey={threadKey} />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusHeight),
@@ -933,7 +933,7 @@ describe("MessageFeed activity viewport stability", () => {
 
       setProducerThreadStatus(sid, null);
       view.rerender(<MessageFeed sessionId={sid} threadKey={threadKey} />);
-      await waitFor(() => expect(screen.queryByText("Thread Waiting")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("Waiting")).toBeNull());
 
       expect(geometry.scrollHeight).toBe(before.scrollHeight);
       expect(geometry.scrollTop).toBe(before.scrollTop);
@@ -959,7 +959,7 @@ describe("MessageFeed activity viewport stability", () => {
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
       await waitFor(() => expect(screen.getByText("Active here")).toBeTruthy());
-      expect(screen.getByText("Thread Waiting")).toBeTruthy();
+      expect(screen.getByText("Waiting")).toBeTruthy();
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusHeight),
@@ -976,7 +976,7 @@ describe("MessageFeed activity viewport stability", () => {
 
       setProducerThreadStatus(sid, null);
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.queryByText("Thread Waiting")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("Waiting")).toBeNull());
       const slack = document.querySelector<HTMLElement>("[data-feed-end-slack]")!;
 
       expect(screen.getByText("Active here")).toBeTruthy();
@@ -1007,7 +1007,7 @@ describe("MessageFeed activity viewport stability", () => {
         }),
       );
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       await waitFor(() => expect(Number(slack.dataset.feedThreadStatusCompensation)).toBe(0));
 
       expect(geometry.scrollHeight).toBe(before.scrollHeight);
@@ -1044,7 +1044,7 @@ describe("MessageFeed activity viewport stability", () => {
 
       setProducerThreadStatus(sid, makeThreadStatus("main", last.id));
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
 
       expect(geometry.scrollHeight).toBe(before.scrollHeight + 27);
       expect(geometry.scrollTop).toBe(before.scrollTop + 27);
@@ -1077,7 +1077,7 @@ describe("MessageFeed activity viewport stability", () => {
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusHeight),
@@ -1102,7 +1102,7 @@ describe("MessageFeed activity viewport stability", () => {
         }),
       );
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusCompensation),
@@ -1197,7 +1197,7 @@ describe("MessageFeed activity viewport stability", () => {
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusHeight),
@@ -1208,7 +1208,7 @@ describe("MessageFeed activity viewport stability", () => {
 
       setProducerThreadStatus(sid, null);
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.queryByText("Thread Waiting")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("Waiting")).toBeNull());
       const hidden = {
         scrollHeight: geometry.scrollHeight,
         scrollTop: geometry.scrollTop,
@@ -1218,7 +1218,7 @@ describe("MessageFeed activity viewport stability", () => {
       geometry.setThreadStatusFooterHeight(27);
       setProducerThreadStatus(sid, status);
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusCompensation),
@@ -1245,7 +1245,7 @@ describe("MessageFeed activity viewport stability", () => {
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       const scrollContainer = screen.getByTestId("message-feed-scroll-container");
       geometry.setScrollTop(400);
       fireEvent.scroll(scrollContainer);
@@ -1293,7 +1293,7 @@ describe("MessageFeed activity viewport stability", () => {
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusHeight),
@@ -1311,12 +1311,12 @@ describe("MessageFeed activity viewport stability", () => {
 
       setProducerWindow(sid, "q-4091");
       view.rerender(<MessageFeed sessionId={sid} threadKey="q-4091" />);
-      await waitFor(() => expect(screen.queryByText("Thread Waiting")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("Waiting")).toBeNull());
 
       geometry.setThreadStatusFooterHeight(27);
       setProducerWindow(sid, "main");
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusCompensation),
@@ -1354,10 +1354,10 @@ describe("MessageFeed activity viewport stability", () => {
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Waiting")).toBeTruthy());
       setProducerThreadStatus(sid, null);
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.queryByText("Thread Waiting")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("Waiting")).toBeNull());
 
       geometry.growLastMessage(20);
       const contentRoot = document.querySelector<HTMLElement>("[data-feed-content-root]")!;

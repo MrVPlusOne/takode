@@ -47,6 +47,7 @@ function renderBar(props: Partial<Parameters<typeof ThreadGroupBar>[0]> = {}) {
     <ThreadGroupBar
       home={HOME}
       threads={TABS}
+      leaderId="leader"
       currentThreadKey="q-10"
       activeOutputThreadKey={null}
       onSelect={onSelect}
@@ -417,6 +418,7 @@ describe("ThreadGroupBar group move animation", () => {
   const props = (threads: PrimaryThreadChip[], currentThreadKey: string) => ({
     home: HOME,
     threads,
+    leaderId: "leader",
     currentThreadKey,
     activeOutputThreadKey: null,
     onSelect: vi.fn(),

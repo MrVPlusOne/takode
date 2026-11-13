@@ -105,7 +105,9 @@ describe("QuestJourneyTimeline vertical clamping", () => {
     const timeline = screen.getByTestId("quest-journey-timeline");
     expect(visiblePhaseIndexes(timeline)).toEqual(Array.from({ length: 16 }, (_, index) => index + 17));
     expect(timeline.querySelector('li[data-phase-index="22"]')).toHaveAttribute("data-phase-current", "true");
-    expect(timeline).toHaveTextContent("38 phases · Partial 1m");
+    // Some phases have no timing, so no total is given: it would understate the Journey.
+    expect(timeline).toHaveTextContent("38 phases");
+    expect(timeline).not.toHaveTextContent(/38 phases · /);
     expect(within(timeline).getByTestId("quest-journey-phase-duration")).toHaveTextContent("1m");
     expect(within(timeline).queryByText("duration unavailable")).toBeNull();
     expect(within(timeline).getByRole("button", { name: "Show 17 earlier phases" })).toBeInTheDocument();
@@ -310,7 +312,9 @@ describe("QuestJourneyTimeline projected duration summaries", () => {
     );
 
     const timeline = screen.getByTestId("quest-journey-timeline");
-    expect(timeline).toHaveTextContent("3 phases · Partial 3m");
+    // Some phases have no timing, so no total is given: it would understate the Journey.
+    expect(timeline).toHaveTextContent("3 phases");
+    expect(timeline).not.toHaveTextContent(/3 phases · /);
     expect(
       within(timeline)
         .getAllByTestId("quest-journey-phase-duration")

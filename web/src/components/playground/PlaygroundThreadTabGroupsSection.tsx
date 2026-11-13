@@ -138,6 +138,7 @@ function LeaderFrame({ width }: { width: number }) {
       <ThreadGroupBar
         slim={width > 600}
         threads={MEMBERS}
+        leaderId="playground-leader"
         currentThreadKey={current}
         activeOutputThreadKey={WRITING_THREAD}
         onSelect={setCurrent}

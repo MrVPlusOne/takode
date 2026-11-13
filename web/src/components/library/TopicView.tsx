@@ -162,7 +162,7 @@ export function TopicView({
             detail.pendingEvents > 0 && (
               // The Scribe picks new events up by itself; the time says when, so a click is never needed.
               <span data-testid="topic-update-state">
-                · {detail.pendingEvents} new event{detail.pendingEvents === 1 ? "" : "s"}
+                · {detail.pendingEvents} new update{detail.pendingEvents === 1 ? "" : "s"}
                 {dueText(detail.scribeUpdate?.dueAt)} ·{" "}
                 <button
                   type="button"
@@ -688,10 +688,10 @@ function TopicFrame({
   );
 }
 
-/** When waiting events go to the Scribe, after the count: "" when no update is scheduled. */
+/** When waiting updates go onto the page, after the count: "" when none is scheduled. */
 function dueText(dueAt: number | null | undefined): string {
   if (dueAt === null || dueAt === undefined) return "";
-  return dueAt <= Date.now() ? " · updating shortly" : ` · updates by ${clock(dueAt)}`;
+  return dueAt <= Date.now() ? " · on the page shortly" : ` · on the page by ${clock(dueAt)}`;
 }
 
 function clock(at: number): string {

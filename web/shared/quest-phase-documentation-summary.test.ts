@@ -131,7 +131,7 @@ describe("summarizeQuestPhaseDocumentation", () => {
 
     const repeatedGroup = summary.groups.find((group) => group.phasePosition === 4);
     expect(repeatedGroup).toMatchObject({
-      displayLabel: "Implement #2",
+      displayLabel: "Implement (2nd time)",
       phaseOccurrence: 2,
       phaseOccurrenceId: "run-1:p4",
     });
@@ -264,7 +264,7 @@ describe("selectQuestPreviewProgressTldr", () => {
     expect(preview).toEqual({
       kind: "phase",
       label: "Latest Phase",
-      phaseLabel: "Implement #2",
+      phaseLabel: "Implement (2nd time)",
       metaLabel: "phase 4",
       text: "Second implementation TLDR.",
     });

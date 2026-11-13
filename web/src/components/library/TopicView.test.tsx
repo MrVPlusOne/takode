@@ -72,7 +72,7 @@ describe("TopicView header", () => {
     shown = { ...detail, pendingEvents: 2, scribeUpdate: { updating: false, dueAt } };
     render(<TopicView id="t1" topics={[]} onBack={() => {}} onChanged={() => {}} leaderId="leader" />);
     const state = await screen.findByTestId("topic-update-state");
-    expect(state.textContent).toMatch(/2 new events · updates by 3:07\sPM · Update now/);
+    expect(state.textContent).toMatch(/2 new updates · on the page by 3:07\sPM · Update now/);
     cleanup();
 
     shown = { ...detail, pendingEvents: 2, scribeUpdate: { updating: true, dueAt: null } };

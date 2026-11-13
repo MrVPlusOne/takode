@@ -55,7 +55,7 @@ import { SideQuest } from "./SideQuest.js";
 import { SideSession } from "./SideSession.js";
 import { SideHome } from "./SideHome.js";
 import { useAttentionCue } from "../../utils/attention-cue.js";
-import { SideQuestIcon, useSideQuestOf } from "../SideQuestCue.js";
+import { SideQuestIcon, useSideQuestOf, type SideQuestOf } from "../SideQuestCue.js";
 import { ArtifactViewer } from "../library/ArtifactViewer.js";
 import { LibraryIcon } from "../ArtifactInline.js";
 import { BellIcon } from "../AttentionKind.js";
@@ -988,7 +988,7 @@ function SideQuestThreadTitle({ leaderId, questId }: { leaderId: string; questId
 }
 
 /** The side-quest mark inline in a title bar's text, muted as on the main view's strip. */
-function SideQuestMark({ sideQuestOf }: { sideQuestOf: string }) {
+function SideQuestMark({ sideQuestOf }: { sideQuestOf: SideQuestOf }) {
   return (
     <span className="mr-1 inline-flex align-[-2px] text-cc-muted">
       <SideQuestIcon sideQuestOf={sideQuestOf} />

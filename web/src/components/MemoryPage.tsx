@@ -127,15 +127,23 @@ function sourceHref(source: string): string | undefined {
 
 function issueTone(issue: MemoryLintIssue): string {
   return issue.severity === "error"
-    ? "border-red-500/25 bg-red-500/10 text-red-200"
-    : "border-amber-500/25 bg-amber-500/10 text-amber-200";
+    ? "border-cc-error/30 bg-cc-error/10 text-cc-error"
+    : "border-cc-warning/30 bg-cc-warning/10 text-cc-warning";
 }
 
 function healthTone(catalog: MemoryCatalogResponse | null): string {
   if (!catalog) return "border-cc-border bg-cc-hover text-cc-muted";
-  if (catalog.issueCounts.errors > 0) return "border-red-500/25 bg-red-500/10 text-red-200";
-  if (catalog.issueCounts.warnings > 0) return "border-amber-500/25 bg-amber-500/10 text-amber-200";
-  return "border-emerald-500/25 bg-emerald-500/10 text-emerald-200";
+  if (catalog.issueCounts.errors > 0) return "border-cc-error/30 bg-cc-error/10 text-cc-error";
+  if (catalog.issueCounts.warnings > 0) return "border-cc-warning/30 bg-cc-warning/10 text-cc-warning";
+  return "border-cc-success/30 bg-cc-success/10 text-cc-success";
+}
+
+/** The catalog's health in plain words: its errors, else its warnings, else "No issues". */
+function healthLabel(catalog: MemoryCatalogResponse): string {
+  const { errors, warnings } = catalog.issueCounts;
+  if (errors) return `${errors} error${errors === 1 ? "" : "s"}`;
+  if (warnings) return `${warnings} warning${warnings === 1 ? "" : "s"}`;
+  return "No issues";
 }
 
 function sourceLabel(source: string): ReactNode {
@@ -324,7 +332,7 @@ function RecordTreeRow({
         </span>
       </span>
       {issueCount ? (
-        <span className="shrink-0 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200">
+        <span className="shrink-0 rounded border border-cc-warning/30 bg-cc-warning/10 px-1.5 py-0.5 text-[10px] text-cc-warning">
           {issueCount}
         </span>
       ) : null}
@@ -376,7 +384,7 @@ function RecordDetail({
 
   if (recordState.status === "error") {
     return (
-      <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+      <div className="rounded-md border border-cc-error/30 bg-cc-error/10 p-4 text-sm text-cc-error">
         Failed to load record: {recordState.error}
       </div>
     );
@@ -525,8 +533,8 @@ function MemoryFileDetail({
                   </div>
                 ))
               ) : (
-                <div className="rounded-md border border-emerald-500/25 bg-emerald-500/10 p-2 text-xs text-emerald-200">
-                  Lint clean for this record.
+                <div className="rounded-md border border-cc-success/30 bg-cc-success/10 p-2 text-xs text-cc-success">
+                  No issues in this record.
                 </div>
               )}
             </div>
@@ -587,9 +595,9 @@ function RecentTimeline({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {catalog?.git.statusEntries.length ? (
-          <div className="mb-2 rounded-md border border-amber-500/25 bg-amber-500/10 p-2 text-xs text-amber-100">
+          <div className="mb-2 rounded-md border border-cc-warning/30 bg-cc-warning/10 p-2 text-xs text-cc-warning">
             <div className="font-semibold">Uncommitted memory changes</div>
-            <div className="mt-1 space-y-1 font-mono text-[11px] text-amber-100/80">
+            <div className="mt-1 space-y-1 font-mono text-[11px] text-cc-warning/80">
               {catalog.git.statusEntries.slice(0, 4).map((entry) => (
                 <div key={entry.raw} className="break-all">
                   {entry.code} {entry.path}
@@ -708,7 +716,7 @@ function UpdateDiffDetail({
 
   if (updateState.status === "error") {
     return (
-      <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+      <div className="rounded-md border border-cc-error/30 bg-cc-error/10 p-4 text-sm text-cc-error">
         Failed to load update diff: {updateState.error}
       </div>
     );
@@ -1177,21 +1185,15 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <h1 className="text-lg font-semibold leading-tight text-cc-fg">Memory</h1>
                 <span className={`rounded border px-2 py-0.5 text-[11px] ${healthTone(catalog)}`}>
-                  {catalog
-                    ? catalog.issueCounts.errors
-                      ? `${catalog.issueCounts.errors} errors`
-                      : catalog.issueCounts.warnings
-                        ? `${catalog.issueCounts.warnings} warnings`
-                        : "lint clean"
-                    : "health"}
+                  {catalog ? healthLabel(catalog) : "Checking"}
                 </span>
                 {catalog ? (
                   <span className="rounded border border-cc-border bg-cc-hover px-2 py-0.5 text-[11px] text-cc-muted">
-                    {catalog.git.dirty ? "dirty" : "clean"}
+                    {catalog.git.dirty ? "Uncommitted changes" : "All committed"}
                   </span>
                 ) : null}
                 {catalog?.lock.locked ? (
-                  <span className="rounded border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200">
+                  <span className="rounded border border-cc-warning/30 bg-cc-warning/10 px-2 py-0.5 text-[11px] text-cc-warning">
                     locked{catalog.lock.owner ? ` by ${catalog.lock.owner}` : ""}
                   </span>
                 ) : null}
@@ -1295,13 +1297,13 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
                   <div className="min-h-0 flex-1 overflow-y-auto p-2">
                     {spacesState.status === "loading" ? <SkeletonRows count={2} /> : null}
                     {spacesState.status === "error" ? (
-                      <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+                      <div className="rounded-md border border-cc-error/30 bg-cc-error/10 p-4 text-sm text-cc-error">
                         Failed to load memory spaces: {spacesState.error}
                       </div>
                     ) : null}
                     {catalogState.status === "loading" ? <SkeletonRows count={5} /> : null}
                     {catalogState.status === "error" ? (
-                      <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+                      <div className="rounded-md border border-cc-error/30 bg-cc-error/10 p-4 text-sm text-cc-error">
                         Failed to load catalog: {catalogState.error}
                       </div>
                     ) : null}

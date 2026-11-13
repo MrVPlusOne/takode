@@ -112,6 +112,26 @@ describe("QuestClaimBlock", () => {
     expect(window.location.hash).toBe("#/session/42?thread=q-78");
   });
 
+  it("leaves the leader out when the browser no longer knows its session", () => {
+    // A leader archived long ago isn't in the session list; the card once showed "Leader #?".
+    vi.spyOn(topicApi, "questMap").mockResolvedValue({ enabled: true, map: {}, topics: {} });
+    render(
+      <QuestClaimBlock
+        quest={{
+          questId: "q-79",
+          title: "Old leader",
+          status: "in_progress",
+          description: "Details are open.",
+          leaderSessionId: "archived-leader",
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Quest Claimed/i }));
+    expect(screen.getByText("Details are open.")).toBeInTheDocument();
+    expect(screen.queryByText("Leader")).toBeNull();
+    expect(screen.queryByText("#?")).toBeNull();
+  });
+
   it("closes the local details modal when the leader chip navigates", () => {
     useStore.getState().setSdkSessions([
       {

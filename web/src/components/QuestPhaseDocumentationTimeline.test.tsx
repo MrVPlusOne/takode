@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import { afterEach } from "vitest";
+import { useStore } from "../store.js";
 import { QuestDetailTextSections } from "./QuestDetailTextSections.js";
 import { QuestPhaseDocumentationTimeline } from "./QuestPhaseDocumentationTimeline.js";
 import type { QuestmasterTask } from "../types.js";
@@ -398,5 +400,49 @@ describe("quest machine stamps", () => {
       "on laptop",
       "on devbox",
     ]);
+  });
+});
+
+describe("phase note header in plain words", () => {
+  afterEach(() => {
+    cleanup();
+    useStore.getState().reset();
+  });
+
+  // The header once showed internal labels: the note's "#index", the raw kind `phase_summary`, "#?"
+  // for an author session the browser no longer lists (archived long ago), "duration unavailable"
+  // for an untimed phase and a "run N / phase N" label repeating the row's place.
+  it("names authors and kinds plainly and leaves an unknown duration out", () => {
+    useStore.setState({ sdkSessions: [{ sessionId: "known-worker", sessionNum: 7 } as never] });
+    const notes: IndexedQuestFeedbackEntry[] = [
+      { ...entry(0, "Summary by a listed worker"), kind: "phase_summary", authorSessionId: "known-worker" },
+      { ...entry(1, "Finding by an archived worker"), kind: "phase_finding", authorSessionId: "archived-worker" },
+      { ...entry(2, "Review on the user's behalf"), author: "human", kind: "review", authorSessionId: "gone" },
+    ];
+    // A completed phase with no recorded start: producer-shaped like an older quest's summary.
+    const untimed = { ...group({ runId: "run-1", runOrdinal: 1, position: 1, text: "" }), entries: notes };
+    const summary: QuestPhaseDocumentationSummary = {
+      hasJourneyRuns: true,
+      hasPhaseDocumentation: true,
+      primaryRun: run("run-1", 1, 1),
+      groups: [untimed],
+      scopedEntries: notes,
+      unscopedFeedback: [],
+    };
+
+    render(<QuestPhaseDocumentationTimeline summary={summary} />);
+
+    const headers = screen
+      .getAllByTestId("quest-phase-documentation-entry")
+      .map((note) => note.firstElementChild?.textContent ?? "");
+    // No leading "#index" either: in Takode "#N" names a session, so only the author's session does.
+    expect(headers[0]).toMatch(/^#7\d+d ago$/);
+    expect(headers[1]).toMatch(/^agentfinding/);
+    expect(headers[2]).toMatch(/^userreview/);
+    const timeline = screen.getByTestId("quest-phase-documentation-timeline");
+    expect(timeline).not.toHaveTextContent("#?");
+    expect(timeline).not.toHaveTextContent("phase_");
+    expect(timeline).not.toHaveTextContent("run 1 / phase 1");
+    expect(screen.queryByTestId("quest-phase-documentation-duration")).toBeNull();
   });
 });

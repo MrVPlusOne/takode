@@ -256,7 +256,7 @@ describe("quest formatting", () => {
     );
 
     expect(detail).toContain("  Implement [phase 1]");
-    expect(detail).toContain("  Implement #2 [phase 2]");
+    expect(detail).toContain("  Implement (2nd time) [phase 2]");
     expect(detail).toContain("TLDR: First implementation TLDR.");
     expect(detail).toContain("TLDR: Repeated implementation TLDR.");
     expect(detail).not.toContain("First implementation body should stay hidden");

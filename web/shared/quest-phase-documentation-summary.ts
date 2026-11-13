@@ -294,7 +294,15 @@ function phaseLabel(phaseId: QuestJourneyPhaseId): string {
 
 function phaseDisplayLabel(phaseId: QuestJourneyPhaseId, occurrence?: number): string {
   const label = phaseLabel(phaseId);
-  return occurrence && occurrence > 1 ? `${label} #${occurrence}` : label;
+  // Not "#2": in Takode "#N" names a session.
+  return occurrence && occurrence > 1 ? `${label} (${ordinal(occurrence)} time)` : label;
+}
+
+/** 2 -> "2nd", 3 -> "3rd", 11 -> "11th". */
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
 function metaLabel(args: {

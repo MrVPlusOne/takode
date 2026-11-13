@@ -44,6 +44,8 @@ function ThreadStatusMetadata({
           !!onSelectThread && !isAllThreadsKey(normalizedCurrentThread) && status.threadKey !== normalizedCurrentThread;
         const destinationLabel = status.threadKey === "main" ? "Main" : threadAddress(status.threadKey);
         const accessibleDestinationLabel = status.threadKey === "main" ? "Main" : `thread:${destinationLabel}`;
+        // The chip says how its thread stands in plain words: "Waiting" or "Ready" and the leader's
+        // note, without the marker's "Thread" prefix or the thread's key. The accessible label keeps both.
         const content = (
           <>
             <span
@@ -52,10 +54,7 @@ function ThreadStatusMetadata({
               }`}
               aria-hidden="true"
             />
-            <span className="shrink-0 font-medium text-cc-fg/75">{status.label}</span>
-            <span className="shrink-0 text-cc-muted/60" data-testid="thread-status-destination">
-              {destinationLabel}
-            </span>
+            <span className="shrink-0 font-medium text-cc-fg/75">{status.kind === "ready" ? "Ready" : "Waiting"}</span>
             <span
               className="min-w-0 basis-full whitespace-normal break-words text-cc-muted/80 sm:basis-auto"
               data-testid="thread-status-summary"

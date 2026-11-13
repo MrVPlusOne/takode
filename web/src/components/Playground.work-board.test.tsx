@@ -254,7 +254,9 @@ describe("Playground", { timeout: 60_000 }, () => {
     const completedPreview = within(screen.getAllByTestId("quest-thread-journey-hover-card").at(-1)!).getByTestId(
       "quest-journey-preview-card",
     );
-    expect(completedPreview).toHaveTextContent("3 phases · Partial 3m");
+    // Some phases have no timing, so no total is given: it would understate the Journey.
+    expect(completedPreview).toHaveTextContent("3 phases");
+    expect(completedPreview).not.toHaveTextContent(/3 phases · /);
     expect(
       within(completedPreview)
         .getAllByTestId("quest-journey-phase-duration")

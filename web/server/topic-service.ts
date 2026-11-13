@@ -1442,10 +1442,14 @@ export class TopicService {
       return { state: "waiting", text: "Stopped before finishing; your leader was told", ...base };
     }
     if (this.store.isScribePaused(leaderId)) {
-      return { state: "paused", text: pending ? `Paused · ${pending} events not on pages` : "Paused", ...base };
+      return {
+        state: "paused",
+        text: pending ? `Paused · ${pending} update${pending === 1 ? "" : "s"} not on pages` : "Paused",
+        ...base,
+      };
     }
     if (pending) {
-      return { state: "waiting", text: `${pending} event${pending === 1 ? "" : "s"} not on pages yet`, ...base };
+      return { state: "waiting", text: `${pending} update${pending === 1 ? "" : "s"} not on pages yet`, ...base };
     }
     return { state: "idle", text: "Up to date", ...base };
   }

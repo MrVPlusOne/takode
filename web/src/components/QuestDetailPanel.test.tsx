@@ -802,7 +802,7 @@ describe("QuestDetailPanel", () => {
     const timeline = screen.getByTestId("quest-phase-documentation-timeline");
     const phaseGroups = within(timeline).getAllByTestId("quest-phase-documentation-group");
     expect(phaseGroups).toHaveLength(4);
-    expect(within(timeline).getByText("Implement #2")).toBeTruthy();
+    expect(within(timeline).getByText("Implement (2nd time)")).toBeTruthy();
     expect(within(timeline).getByText("Second implementation TLDR.")).toBeTruthy();
     expect(within(phaseGroups[2]!).getByText("Code Review")).toBeTruthy();
     expect(within(phaseGroups[2]!).getByTestId("quest-phase-documentation-duration")).toHaveTextContent("30s");
@@ -955,9 +955,8 @@ describe("QuestDetailPanel", () => {
     render(<QuestDetailPanel />);
 
     const timeline = screen.getByTestId("quest-phase-documentation-timeline");
-    expect(within(timeline).getByTestId("quest-phase-documentation-duration")).toHaveTextContent(
-      "duration unavailable",
-    );
+    // No start time was recorded, so the phase shows no duration rather than a placeholder.
+    expect(within(timeline).queryByTestId("quest-phase-documentation-duration")).toBeNull();
     expect(within(timeline).queryByTestId("phase-note-image-thumbnails")).toBeNull();
     const preloadImages = screen.getAllByTestId("image-preview-preload");
     fireEvent.load(preloadImages[0]!);
@@ -1031,9 +1030,8 @@ describe("QuestDetailPanel", () => {
     const phaseGroups = within(timeline).getAllByTestId("quest-phase-documentation-group");
     const finalPhase = phaseGroups[1]!;
     expect(within(finalPhase).getByText("Implement")).toBeTruthy();
-    expect(within(finalPhase).getByTestId("quest-phase-documentation-duration")).toHaveTextContent(
-      "duration unavailable",
-    );
+    // The stale occurrence never finished, so its time is unknown: no duration, and no running clock.
+    expect(within(finalPhase).queryByTestId("quest-phase-documentation-duration")).toBeNull();
     expect(within(finalPhase).queryByText("10m")).toBeNull();
   });
 

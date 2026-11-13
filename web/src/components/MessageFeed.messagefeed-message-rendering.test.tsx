@@ -786,12 +786,12 @@ describe("MessageFeed - message rendering", () => {
     const chip = screen.getByLabelText(
       "Thread Waiting for thread:q-1409: waiting on collapsed composer safe-area quest, reviewer availability, and the mobile add-to-home-screen screenshot follow-up",
     );
-    const destination = within(chip).getByTestId("thread-status-destination");
     const summary = within(chip).getByTestId("thread-status-summary");
 
-    // Mobile status chips should show the short destination while preserving full accessible thread metadata.
-    expect(destination.textContent).toBe("q-1409");
-    expect(destination.textContent).not.toContain("thread:");
+    // The chip is about the thread on screen, so it shows plain "Waiting" without the thread's key,
+    // while the accessible label keeps the full thread metadata.
+    expect(within(chip).queryByTestId("thread-status-destination")).toBeNull();
+    expect(chip.textContent?.startsWith("Waiting")).toBe(true);
     // The wait note owns a full mobile row and wraps instead of using the old truncation treatment.
     expect(summary.className).toContain("basis-full");
     expect(summary.className).toContain("whitespace-normal");
@@ -940,7 +940,8 @@ describe("MessageFeed - message rendering", () => {
 
     expect(screen.getByText("Main is clear; the notification-bell bug is now tracked as q-1307.")).toBeTruthy();
     expect(laterItem.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(statusFooter.textContent).toContain("Thread Ready");
+    expect(statusFooter.textContent).toContain("Ready");
+    expect(statusFooter.textContent).not.toContain("Thread Ready");
     expect(statusFooter.textContent?.startsWith("Status")).toBe(false);
     expect(statusFooter.closest("[data-turn-id]")).toBe(laterItem.closest("[data-turn-id]"));
     expect(document.querySelector('[data-feed-block-id^="current-thread-status:"]')).toBeNull();

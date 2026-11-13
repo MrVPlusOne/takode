@@ -317,7 +317,7 @@ export function PlaygroundQuestBannerExamples() {
           row={compactQuestThreadBannerRows[5].row}
           threadKey={compactQuestThreadBannerRows[5].threadKey}
           diffSessionId={PLAYGROUND_HANDOFF_LEADER_SESSION_ID}
-          sideQuestOf="main"
+          sideQuestOf={{ leaderId: PLAYGROUND_HANDOFF_LEADER_SESSION_ID, threadKey: "main" }}
         />
         <QuestThreadBanner
           row={compactQuestThreadBannerRows[7].row}

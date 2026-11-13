@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { QuestFeedbackKind } from "../../server/quest-types.js";
 import type { QuestRoundView, QuestRoundsView } from "../../shared/quest-rounds.js";
 import { QuestMachineStamp } from "./QuestMachineStamp.js";
 import { formatQuestJourneyDuration, getQuestJourneyPhase } from "../../shared/quest-journey.js";
@@ -13,7 +14,7 @@ import {
   placeUnscopedFeedback,
   type UnscopedFeedbackPlacement,
 } from "../utils/quest-journey-feedback-placement.js";
-import { timeAgo } from "../utils/quest-helpers.js";
+import { feedbackAuthorLabel, timeAgo } from "../utils/quest-helpers.js";
 import { getQuestPhaseAccentValue, getQuestPhaseBorderStyle } from "../utils/quest-phase-theme.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -496,8 +497,8 @@ function PhaseDocumentationGroupRow({
           <span className="w-4 shrink-0 text-right text-[10px] text-cc-muted">
             {group.phasePosition ?? groupIndex + 1}
           </span>
+          {/* The row's number and its run section already place the phase, so its meta label isn't shown. */}
           <span className="min-w-0 truncate text-xs font-semibold text-cc-fg">{group.displayLabel}</span>
-          {group.metaLabel && <span className="shrink-0 text-[10px] text-cc-muted">{group.metaLabel}</span>}
           {durationLabel && (
             <span className="shrink-0 text-[10px] text-cc-muted" data-testid="quest-phase-documentation-duration">
               {durationLabel}
@@ -543,22 +544,33 @@ function PhaseDocumentationGroupRow({
   );
 }
 
+/** How long the phase took or has run; nothing when that wasn't recorded. */
 function phaseDocumentationDurationLabel(
   group: QuestPhaseDocumentationSummary["groups"][number],
   now: number,
 ): string | null {
-  if (!group.startedAt) {
-    return group.phaseStatus === "active" || group.phaseStatus === "completed" ? "duration unavailable" : null;
-  }
+  if (!group.startedAt) return null;
   if (group.completedAt && group.completedAt >= group.startedAt) {
     return formatQuestJourneyDuration(group.completedAt - group.startedAt);
   }
   if (group.phaseStatus === "active") {
     return formatQuestJourneyDuration(now - group.startedAt);
   }
-  if (group.phaseStatus === "completed") return "duration unavailable";
   return null;
 }
+
+/**
+ * A phase note's kind in plain words. Summaries and comments are what phase notes usually are, so
+ * they go unlabeled.
+ */
+const PHASE_NOTE_KIND_LABELS: Record<QuestFeedbackKind, string | null> = {
+  comment: null,
+  phase_summary: null,
+  phase_finding: "finding",
+  review: "review",
+  artifact: "artifact",
+  system: "system note",
+};
 
 function PhaseDocumentationEntry({
   entry,
@@ -582,7 +594,8 @@ function PhaseDocumentationEntry({
   const highlight = searchHighlight ? { query: searchHighlight, mode: "fuzzy" as const, isCurrent: false } : null;
   const isTarget = feedbackTarget?.index === entry.index;
   const isHighlighted = highlightedFeedbackIndex === entry.index;
-
+  const kindLabel = entry.kind ? PHASE_NOTE_KIND_LABELS[entry.kind] : null;
+  const authorLabel = <span className="text-[10px] font-medium text-cc-muted">{feedbackAuthorLabel(entry)}</span>;
   return (
     <div
       ref={isTarget ? onFeedbackTargetReady : undefined}
@@ -597,18 +610,19 @@ function PhaseDocumentationEntry({
       tabIndex={-1}
     >
       <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5">
-        <span className="shrink-0 font-mono-code text-[10px] text-cc-muted">#{entry.index}</span>
+        {/* No "#index": in Takode "#N" names a session. Links to the note still use its index. */}
         {entry.authorSessionId ? (
           <CompactSessionLink
             sessionId={entry.authorSessionId}
             className="text-[10px] font-medium font-mono text-cc-primary hover:text-cc-primary-hover"
             onNavigate={onSessionNavigate}
+            fallback={authorLabel}
           />
         ) : (
-          <span className="text-[10px] font-medium text-cc-muted">{entry.author}</span>
+          authorLabel
         )}
         <QuestMachineStamp machine={entry.machine} />
-        {entry.kind && <span className="text-[10px] text-cc-muted">{entry.kind}</span>}
+        {kindLabel && <span className="text-[10px] text-cc-muted">{kindLabel}</span>}
         <span className="text-[10px] text-cc-muted/60">{timeAgo(entry.ts)}</span>
       </div>
       <div className="min-w-0 max-w-full overflow-hidden text-xs text-cc-fg">
@@ -661,7 +675,7 @@ function JourneyFeedbackItem({
 }) {
   const expanded = display.isExpanded(entry.index);
   const isHuman = entry.author === "human";
-  const authorLabel = isHuman ? "user" : entry.author;
+  const authorLabel = feedbackAuthorLabel(entry);
   const toggle = () => display.onToggle(entry.index);
 
   if (!expanded) {
