@@ -265,7 +265,7 @@ describe("message sheets", () => {
     const sheeted = rules
       .filter((rule) => /background:\s*var\(--scenic-sheet\)/.test(rule.body))
       .flatMap((rule) => rule.selectors);
-    expect(sheeted.some((selector) => /\.turn-container > :not\(/.test(selector))).toBe(true);
+    expect(sheeted.some((selector) => /\.turn-container > :where\(:not\(/.test(selector))).toBe(true);
     expect(sheeted.some((selector) => /\.turn-container > \* > \.rounded-xl$/.test(selector))).toBe(true);
   });
 
@@ -324,19 +324,41 @@ describe("message sheets", () => {
     );
   });
 
-  it("gives your messages in the side column a deeper tone of the bubble", () => {
-    // The side column's paper is nearly the bubble's colour (Jiayi: they blended in Ink & Paper), so
-    // there the bubble and the time beside it take the deeper tone, by day and by night.
-    const bodyFor = (pattern: RegExp) =>
-      rules.find((rule) => rule.selectors.some((selector) => pattern.test(selector)))?.body ?? "";
-    expect(bodyFor(/^html\.scenic \[data-testid="topic-side-panel"\]$/)).toMatch(
-      /--scenic-side-bubble:\s*color-mix\(in oklab, var\(--color-cc-user-bubble\)/,
+  it("gives activity holding messages from mid-turn its sheet", () => {
+    // A worker's turn can hold its leader's messages, which arrive while it works. Excluding every
+    // turn item with a message bubble from the sheet left that whole activity, answers included,
+    // on the bare painting; only the message that opens the turn (its first item) sits on it.
+    const sheet = rules.find((rule) =>
+      rule.selectors.some((selector) => /^html\.scenic \.turn-container > :where\(:not\(/.test(selector)),
     );
-    expect(bodyFor(/^html\.dark\.scenic \[data-testid="topic-side-panel"\]$/)).toContain("--scenic-side-bubble");
-    expect(bodyFor(/topic-side-panel"\] \[data-testid="user-message-bubble"\]$/)).toContain(
-      "--color-cc-user-bubble: var(--scenic-side-bubble)",
+    expect(sheet?.body).toMatch(/background:\s*var\(--scenic-sheet\)/);
+    const selector = sheet!.selectors[0]!;
+    expect(selector).toContain(':first-child:has([data-testid="user-message-bubble"])');
+    expect(selector.match(/user-message-bubble/g)).toHaveLength(1);
+  });
+
+  it("gives your messages on paper a deeper tone of the bubble", () => {
+    // The side column's paper, and a turn's sheet, are nearly the bubble's colour (Jiayi: they
+    // blended in Ink & Paper), so there the bubble and the time beside it take the deeper tone, by
+    // day and by night.
+    const bodiesFor = (pattern: RegExp) =>
+      rules
+        .filter((rule) => rule.selectors.some((selector) => pattern.test(selector)))
+        .map((rule) => rule.body)
+        .join("\n");
+    expect(bodiesFor(/^html\.scenic$/)).toMatch(
+      /--scenic-deep-bubble:\s*color-mix\(in oklab, var\(--color-cc-user-bubble\)/,
     );
-    expect(bodyFor(/topic-side-panel"\][\s\S]*message-time-label/)).toContain("var(--scenic-side-bubble)");
+    expect(bodiesFor(/^html\.dark\.scenic$/)).toContain("--scenic-deep-bubble");
+    const bubbles = rules.find((rule) =>
+      rule.selectors.some(
+        (selector) => /\[data-testid="user-message-bubble"\]$/.test(selector) && selector.includes(":is("),
+      ),
+    );
+    expect(bubbles?.body).toContain("--color-cc-user-bubble: var(--scenic-deep-bubble)");
+    expect(bubbles?.selectors[0]).toContain('[data-testid="topic-side-panel"]');
+    expect(bubbles?.selectors[0]).toContain(".turn-container > :not(:first-child)");
+    expect(bodiesFor(/topic-side-panel"\][\s\S]*message-time-label/)).toContain("var(--scenic-deep-bubble)");
   });
 
   it("makes the sheet from each theme's own paper, by day and by night", () => {

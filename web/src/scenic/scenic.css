@@ -64,8 +64,11 @@ html.dark.scenic {
   --scenic-sheet: color-mix(in srgb, var(--color-cc-card) 94%, transparent);
 }
 
-/* Every item of a turn except your own message and the activity summary, which sit on the painting. */
-html.scenic .turn-container > :not(:has([data-testid="user-message-bubble"], > [data-turn-toggle], > .rounded-xl)):not(:empty) {
+/* Every item of a turn except the message that opens it and the activity summary, which sit on the
+   painting. Only the turn's first item is that message: messages that arrive during a turn, such as
+   a leader's to its worker, sit inside the activity below, and that activity still needs its sheet.
+   `:where` keeps the rule light, so the header rules below can reshape the sheet under a summary. */
+html.scenic .turn-container > :where(:not(:first-child:has([data-testid="user-message-bubble"]), :has(> [data-turn-toggle], > .rounded-xl))):not(:empty) {
   background: var(--scenic-sheet);
   box-shadow: 0 0 0 1px var(--scenic-edge);
   border-radius: 12px;
@@ -139,7 +142,7 @@ html.scenic .turn-container > :has(> [data-turn-toggle]) + :has(> .rounded-xl) {
    rules light, so the night summary rule and the header above still apply. */
 html.scenic :where(
     [data-turn-toggle],
-    :is(.turn-container > :has([data-testid="user-message-bubble"]), [data-pending-status])
+    :is(.turn-container > :first-child:has([data-testid="user-message-bubble"]), [data-pending-status])
       [data-testid="message-time-label"]:not([data-hidden]),
     [data-testid="minute-boundary-timestamp"],
     [data-feed-status-line]
@@ -161,24 +164,25 @@ html.scenic [data-testid="message-time-label"][data-side="user"] {
   box-sizing: content-box;
 }
 
-/* The side column's paper is nearly the user bubble's colour, so there your messages and the times
-   beside them take a deeper tone of the bubble (mixed in OKLab, so it keeps its hue), to stand out
-   as they do over the painting in the main chat. */
-html.scenic [data-testid="topic-side-panel"] {
-  --scenic-side-bubble: color-mix(in oklab, var(--color-cc-user-bubble) 95%, black);
+/* The side column's paper is nearly the user bubble's colour, and so is a turn's sheet, where messages
+   that arrive during a turn (a leader's to its worker) sit. There your messages and the times beside
+   them take a deeper tone of the bubble (mixed in OKLab, so it keeps its hue), to stand out as they
+   do over the painting in the main chat. */
+html.scenic {
+  --scenic-deep-bubble: color-mix(in oklab, var(--color-cc-user-bubble) 95%, black);
 }
 
-html.dark.scenic [data-testid="topic-side-panel"] {
-  --scenic-side-bubble: color-mix(in oklab, var(--color-cc-user-bubble) 96%, white);
+html.dark.scenic {
+  --scenic-deep-bubble: color-mix(in oklab, var(--color-cc-user-bubble) 96%, white);
 }
 
-html.scenic [data-testid="topic-side-panel"] [data-testid="user-message-bubble"] {
-  --color-cc-user-bubble: var(--scenic-side-bubble);
+html.scenic :is([data-testid="topic-side-panel"], .turn-container > :not(:first-child)) [data-testid="user-message-bubble"] {
+  --color-cc-user-bubble: var(--scenic-deep-bubble);
 }
 
-html.scenic [data-testid="topic-side-panel"] :is(.turn-container > :has([data-testid="user-message-bubble"]), [data-pending-status])
+html.scenic [data-testid="topic-side-panel"] :is(.turn-container > :first-child:has([data-testid="user-message-bubble"]), [data-pending-status])
   [data-testid="message-time-label"]:not([data-hidden]) {
-  background: var(--scenic-side-bubble);
+  background: var(--scenic-deep-bubble);
 }
 
 /* At night a ringed capsule reads as a button among dark sheets: the summary is a plain slip. */
@@ -205,7 +209,7 @@ html.scenic .turn-container > :has(+ :not(:empty)) > [data-turn-toggle] {
     margin-block-end: 1.25rem;
   }
 
-  html.scenic .turn-container > :not(:first-child):not(:has([data-testid="user-message-bubble"], > [data-turn-toggle])) {
+  html.scenic .turn-container > :not(:first-child):not(:has(> [data-turn-toggle])) {
     margin-top: 1.25rem;
   }
 
