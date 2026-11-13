@@ -1,10 +1,14 @@
 <p align="center">
-  <img src="docs/screenshots/readme-hero.jpg" alt="A Takode leader's quest tab showing the user's request, the leader's dispatch summary and a live card of the worker's latest steps, with the leader's five running workers grouped under it in the sidebar" width="100%" />
+  <img src="docs/screenshots/readme-hero.jpg" alt="A leader's thread: the user asks for six features in one message, and the leader files six quests, starts five workers on Claude Code and Codex, and queues the sixth behind the one it depends on, with the running workers listed in the sidebar" width="100%" />
 </p>
 
 <h1 align="center">Takode</h1>
-<p align="center"><strong>Run a team of Claude Code and Codex agents from a few leader sessions.</strong></p>
-<p align="center">Tell a leader what you want. It turns the request into a quest, starts workers in isolated git worktrees, keeps an eye on them, and reports back when there is something to decide or review. You steer the work instead of babysitting sessions.</p>
+<p align="center"><strong>Lead a team of Claude Code and Codex agents, not a wall of chats.</strong></p>
+<p align="center">
+  <a href="#quick-start"><strong>Quick Start</strong></a> ·
+  <a href="docs/remote-hosts.md">Other machines</a> ·
+  <a href="web/src/glossary/glossary.md">Glossary</a>
+</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" /></a>
@@ -12,110 +16,118 @@
 
 ## Why Takode
 
-One agent in one terminal is easy to follow. Ten agents across five tabs is not: you end up checking each one, re-explaining context, and wondering which of them is waiting on you. Takode moves that bookkeeping to leader sessions so you only deal with what needs a human.
+In Takode you talk to a few leader sessions. They turn your requests into quests, run workers in parallel, decide what waits for what, land the changes, and come back only with decisions and results. Every quest leaves a record, and what the agents learn goes into a memory they read next time.
 
-- **Talk to a few leaders, not dozens of sessions.** Leaders create quests, pick or spawn workers, send follow-ups, and collect results. Hand one a batch of quests and it sorts out the order and dependencies.
-- **See everything at a glance.** Workers sit under their leader in the sidebar, each quest gets its own tab, and a live card shows what a worker is doing right now.
-- **Only get pulled in for decisions.** Questions from every session land in one inbox, with reply buttons, and can ping your phone.
-- **Work leaves a record.** Every quest keeps its scope, phase notes, review results, commits, and a final summary you can search later.
-- **Claude Code and Codex, side by side.** Choose the backend per session and manage both from the same UI, on desktop or phone.
-- **One team across several machines.** Run some sessions on a cloud workspace or a GPU box, and keep them under the same leaders, quests, and inbox as the rest.
-- **Runs on your own hardware.** No Takode-hosted backend; your code, sessions, and quest history stay on machines you control.
+Running several coding agents side by side is no longer rare: plenty of apps give you parallel sessions, git worktrees, a diff view and your phone. Takode has all of that, and it runs the real Claude Code and Codex CLIs, so you keep their models, tools and behavior. What it adds is what a team of agents needs to keep working on one project for weeks without you holding it together:
+
+- **Leaders run the work.** A leader files each request as a quest, picks or starts a worker, queues a batch with its dependencies, reviews what comes back, and asks you only when the call is yours.
+- **Every piece of work leaves a record.** Each quest keeps what was asked, what was decided, its commits and a final summary, so "why did we do it this way?" has an answer months later.
+- **Memory that grows with the project.** Lessons go into Git-tracked Markdown notes that later sessions read before related work.
+- **Built for many agents on one codebase.** A landing queue tests waiting changes together before they land, and leases make agents take turns on dev servers, browsers and build machines.
+- **Only the decisions reach you.** Questions come with their context and suggested replies, in the thread they are about, and a bell collects them across all your leaders.
+- **One workspace across your machines.** One Takode keeps every session, quest and note, while sessions run on whichever machine holds the code or the GPU.
 
 ---
 
-## How a Leader Runs Your Work
+## A Leader at Work
 
-**1. Ask.** Describe a bug, paste a screenshot, or point at an existing quest. The leader writes it up as a quest, dispatches a worker in its own worktree, and keeps your conversation in a tab for that quest. A live card shows the worker's latest steps without opening its session.
+Say you hand a leader five bug reports before lunch. It files five quests, starts three workers, and holds the two that touch the same code until the first is done. Halfway through it asks you to choose between two fixes. After lunch you read five short summaries, each linking its commits.
 
-<p align="center">
-  <img src="docs/screenshots/readme-live-worker.jpg" alt="A leader's quest tab: the user's request with a screenshot, the leader's dispatch note, and a live card showing the worker's latest steps" width="100%" />
-</p>
-
-**2. Decide when asked.** If the work needs your call (a design choice, an approval, a missing detail), the leader asks with suggested replies. Everything else, such as follow-ups, reviews, and retries, happens between agents.
+**1. Ask.** Describe a bug, paste a screenshot, or point at an existing quest. The leader writes it up as a quest, starts a worker in its own worktree, and keeps your conversation in a thread for that quest. A live card shows the worker's latest steps without opening its session.
 
 <p align="center">
-  <img src="docs/screenshots/readme-decision.jpg" alt="A leader asking the user to test a fix on their phone, with numbered steps and a question card offering two suggested replies or a free-text answer" width="90%" />
+  <img src="docs/screenshots/readme-live-worker.jpg" alt="A leader's quest thread: the user's request, the leader adding it to a quest and handing it to a worker, and a live card of the worker's latest steps" width="100%" />
 </p>
 
-**3. Review the result.** The leader reports what changed and why, and links the exact commits. When you asked for an explanation or research, or ask to be quizzed, it can add a short quiz so you can check what you learned. Each commit opens in a compact diff view.
+**2. Decide when asked.** When the work needs your call (a design choice, an approval, a missing detail), the leader explains the situation and asks with suggested replies. Only that quest waits; everything else keeps moving. Follow-ups, reviews and retries happen between agents.
 
 <p align="center">
-  <img src="docs/screenshots/readme-commit-diff.jpg" alt="Takode commit view with code and test line totals, a file picker, and a syntax-highlighted diff" width="90%" />
+  <img src="docs/screenshots/readme-decision.jpg" alt="A leader explaining three ways budget alerts could work, with a recommendation, followed by a question card with suggested replies and room for a free-text answer" width="90%" />
 </p>
 
-## Sessions You Don't Have to Babysit
-
-Takode's main job is keeping many sessions manageable:
-
-- **Leaders and their workers.** Leaders herd workers, receive their events, and can message, interrupt, or archive them. The sidebar groups each team together.
-- **Batches of quests.** Hand a leader a whole list of tasks. It queues them on its Work Board, holds each one until a worker is free or the quests it depends on are done, then starts it.
+**3. Review the result.** The leader reports what changed and why, and links the exact commits. Each commit opens in a compact diff view.
 
 <p align="center">
-  <img src="docs/screenshots/readme-work-board.jpg" alt="A leader's Work Board with one quest in progress and three queued quests waiting for it to finish" width="90%" />
+  <img src="docs/screenshots/readme-commit-diff.jpg" alt="Takode commit view with code and test line totals, a file picker and a syntax-highlighted diff" width="90%" />
 </p>
 
-- **Jump in or delegate.** Every worker is still an ordinary session you can open and talk to directly. Or tell the leader, and it passes your instructions along with the context the worker needs.
-- **Session spaces.** Keep separate areas of your life or work apart, each with its own sessions and memory.
-- **Worktree isolation.** Workers get their own git worktree and branch, so parallel changes do not collide; finished worktrees are cleaned up safely.
-- **One inbox for questions.** Needs-input prompts from every session are collected in one place and can be answered from there.
-- **Coordination for shared resources.** Agents take turns on shared dev servers and browsers through leases instead of fighting over them.
-- **Search.** Find any session, quest, or message across the workspace.
+## Leaders Run the Work
 
-## Sessions on Other Machines
+A leader does more than hand out tasks: it manages a team over time.
 
-Some work belongs somewhere else: the cloud workspace where a big repo lives, or the GPU box next to the data. Takode can run sessions there without splitting your workspace in two.
+- **A Work Board for batches.** Hand a leader a list of tasks. It queues them, holds each one until a worker is free or the quests it depends on are done, then starts it.
+- **It hears everything its workers do.** When a worker finishes a turn, asks a question or stalls, its leader is told. It checks the result, sends the worker back when something is missing, and moves the quest on.
+- **Workers keep their context.** A leader can give a follow-up to the worker that already knows the code instead of starting from scratch.
+- **Jump in any time.** Every worker is an ordinary Claude Code or Codex session you can open to inspect what it is doing and steer it directly. Or reply in the quest's thread and the leader passes it on with the context the worker needs.
 
-- **One place for everything.** The Takode server you open in the browser keeps all sessions, quests, Work Boards, and memory. Each other machine runs `takode node`, which only runs session processes for it.
-- **Leaders work across machines.** A leader can start a worker on any registered machine and coordinate it like any other: same quests, same inbox, same reviews. Every remote session shows which machine it runs on, and commits travel between machines as Git bundles when they need to land elsewhere.
-- **Work happens where the files are.** Worktrees, Git status, diffs, terminals, and the new-session folder picker all run on the session's own machine.
-- **Nothing to open up.** The node dials out to the server over HTTPS or an SSH tunnel, with a revocable token per machine. Each machine signs in to its own agent CLIs; credentials are never copied around.
-- **Steady over flaky links.** Remote sessions keep running through network drops, host sleep, and server restarts, and their output catches up when the link returns. Hosts can update themselves to the server's version once their sessions are idle. Sessions on the server's own machine run under a local node too, so restarting the server does not interrupt them.
+<p align="center">
+  <img src="docs/screenshots/readme-work-board.jpg" alt="A leader's Work Board: one quest in Memory and two in Work with their workers, and four queued quests that each wait for another quest" width="90%" />
+</p>
+
+## A Record of Every Piece of Work
+
+A quest is a durable task: who owns it, what was decided, and what shipped. Each one follows a short Journey: **Work** (investigate, build, test and publish), a **User Checkpoint** whenever it waits for your answer, and **Memory** (record what future sessions should know). Every phase leaves a short summary for you and fuller notes for later agents. When a quest needs another pass, it reopens for a new round in the same thread.
+
+<p align="center">
+  <img src="docs/screenshots/readme-quest-journey.jpg" alt="Quest detail with its final summary and its Journey: Work, Memory, more Work, a User Checkpoint, Work again and Memory, with short notes" width="90%" />
+</p>
+
+Questmaster lists every quest, and search finds them by what they say, so you, or a leader you ask, can trace a decision back to the quest that made it.
+
+<p align="center">
+  <img src="docs/screenshots/readme-questmaster.jpg" alt="Questmaster list of quests with their status, owner and last update" width="90%" />
+</p>
+
+## Memory That Grows with the Project
+
+Lessons that matter beyond one quest go into a Git-tracked repo of plain Markdown notes, filed in topic folders. Before related work, sessions read the matching folder, so the fix for a tricky build step or the reason behind a design choice is not rediscovered every week. There is no hidden model memory: just notes you can browse, edit and diff. Separate session spaces (groups of sessions, such as work and personal) keep separate memories.
+
+<p align="center">
+  <img src="docs/screenshots/readme-memory.jpg" alt="The Memory page with notes in topic folders and a selected note" width="90%" />
+</p>
+
+Corrections can stick too. When you correct an agent and the lesson is general, it can propose a change to its instructions or skills so the mistake does not come back. Takode keeps your own instructions and skills in one place and puts them on every machine your sessions run on.
+
+## Many Agents, One Codebase
+
+Parallel agents are easy to start and hard to keep from tripping over each other. Takode has the plumbing for that:
+
+- **Landing queue.** On a shared branch, finished changes wait in a queue, are tested together, and land. When a batch fails, Takode narrows it down to the change that broke it and lands the rest. Workers are free as soon as they submit.
+- **Worktree isolation.** Each worker gets its own git worktree and branch, and finished worktrees are cleaned up safely.
+- **Leases for shared resources.** Agents take turns on dev servers and browsers, and share a machine's capacity for builds and test runs, instead of fighting over them.
+- **Waiting that costs nothing.** An agent waiting on a long job sets a timer with a check command. Takode runs the check on schedule and wakes the agent only when the job is done.
+
+## Only the Decisions Reach You
+
+- **Questions with context.** A question arrives as a normal explanation followed by a short card with suggested replies, in the thread of the quest it is about.
+- **Threads and Home.** Every conversation with a leader is a thread. A leader opens on Home, which lists its threads with a line of news each and pins anything waiting for you on top. A background helper, the Scribe, names threads and files them under topics.
+- **One bell for everything.** The bell at the top gathers every leader's questions and unread results, and its Next button steps through them in order. You can also ask to be told when one particular quest finishes.
+- **Away from the screen.** Phone alerts come through Web Push or Pushover, and Takode can read new answers aloud as they arrive.
+
+## Results You Can Read
+
+Not everything an agent produces is a diff. Reports, slide decks, figures and drafts land in the Library, and you can comment on any passage to send feedback to the agent that wrote it. Ask for a code review and you get a guided walkthrough of the change that puts the questions needing your call first. A Slack message or PR comment an agent drafts for you shows as a card with a Copy button, ready to paste.
+
+<p align="center">
+  <img src="docs/screenshots/readme-guided-review.jpg" alt="A guided review stop: new code on the left, and on the right a decision about which category names should count as the same, with suggested answers" width="90%" />
+</p>
+
+## One Workspace Across Your Machines
+
+Some work belongs somewhere else: the cloud workspace where a big repo lives, or the GPU box next to the data. One Takode server keeps every session, quest, Work Board and note, and each other machine runs `takode node` to host sessions near its files.
+
+- **Leaders work across machines.** A leader can start a worker on any registered machine and coordinate it like any other: same quests, same inbox, same reviews.
+- **Work happens where the files are.** Worktrees, Git status, diffs and terminals run on the session's own machine.
+- **Nothing to open up.** The node dials out to the server over HTTPS or an SSH tunnel, with a revocable token per machine. Each machine keeps its own agent logins.
+- **Steady over flaky links.** Sessions keep running through network drops, host sleep and server restarts, and turns that lose the model API pause and continue once the network is back.
 
 Setup takes a Takode checkout on each machine and a few commands; see [Running sessions on another machine](docs/remote-hosts.md).
 
-## Quests Keep the Story
+---
 
-A quest is a durable task: who owns it, which phase it is in, what was decided, and what shipped. Questmaster lists them all.
+## Starting a Session
 
-<p align="center">
-  <img src="docs/screenshots/readme-questmaster.jpg" alt="Questmaster list with quest titles, tags, owners, leaders, status, and feedback" width="90%" />
-</p>
-
-Each quest follows a Journey of phases. Most work goes straight from **Work** (investigate, implement, verify, and publish) to **Memory** (wrap up and record what future sessions should know), with a **User Checkpoint** whenever the quest waits for your answer: planned ones, and ones Takode adds while the leader's question about the quest is open. Every phase leaves a short summary for you and fuller notes for future agents.
-
-<p align="center">
-  <img src="docs/screenshots/readme-quest-journey.jpg" alt="Quest detail showing the Work and Memory phases with summary notes and a user review check" width="90%" />
-</p>
-
-Lessons that matter beyond one quest go into a Git-tracked memory repo of plain Markdown notes, which later sessions read before related work. There is no hidden model memory: just notes you can browse, edit, and diff.
-
-<p align="center">
-  <img src="docs/screenshots/readme-memory.jpg" alt="Takode Memory page with topic folders and a selected note" width="90%" />
-</p>
-
-## What Takode Adds on Top of Claude Code and Codex
-
-Takode runs the real Claude Code and Codex CLIs, so you keep their models, tools, and behavior. What it adds is the layer around them:
-
-- leader sessions that orchestrate other sessions and whole batches of quests, with worktree isolation for each worker
-- durable quests with phases, reviews, commits, and searchable summaries
-- one inbox for questions across all sessions, plus phone alerts
-- Claude Code and Codex sessions in the same workspace
-- sessions on several machines, managed from one place
-- file-based project memory shared by future sessions
-- a mobile-friendly UI you can install on your phone's Home Screen
-- local control, with no Takode-hosted service in between
-
-## Direct Sessions Still Welcome
-
-You don't need a leader to get value from Takode. A single session gets a readable chat with grouped tool activity, permission modes, voice input, comments on specific passages, and a persistent history.
-
-<p align="center">
-  <img src="docs/screenshots/readme-worker.jpg" alt="A worker session showing grouped tool activity, a quest status header, and the final summary" width="90%" />
-</p>
-
-Starting one takes a few clicks: pick Claude Code or Codex, a folder, a base branch, and whether the session should be a leader or work in its own worktree.
+Starting a session takes a few clicks: pick Claude Code or Codex, a folder, a base branch, and whether the session should be a leader or work in its own worktree.
 
 <p align="center">
   <img src="docs/screenshots/readme-new-session.jpg" alt="New Session dialog with backend, permission mode, folder, base branch, session role, worktree isolation, and model" width="45%" />
@@ -123,23 +135,20 @@ Starting one takes a few clicks: pick Claude Code or Codex, a folder, a base bra
 
 ## On Your Phone
 
-Add Takode to your phone's Home Screen over a trusted HTTPS link (for example [Tailscale](docs/tailscale-serve.md)) and follow your leaders from anywhere. Push alerts (Web Push or Pushover) tell you when a decision is waiting, and you can reply or dictate an answer right there.
+Add Takode to your phone's Home Screen over a trusted HTTPS link (for example [Tailscale](docs/tailscale-serve.md)) and follow your leaders from anywhere. Unsent drafts follow you between devices, and you can reply or dictate an answer right where the alert lands.
 
 <p align="center">
-  <img src="docs/screenshots/readme-mobile.jpg" alt="Takode on a phone showing a leader's quest tab with a finished fix and its commit" width="38%" />
+  <img src="docs/screenshots/readme-mobile.jpg" alt="Takode on a phone: the leader's answer after a fix landed, followed by the quest's summary card" width="38%" />
 </p>
 
 ## Local Control and Integrations
 
-Takode runs on your own machines and works with their local project directories. Your sessions, quest state, memory, and history stay under your control, and there is no Takode-hosted backend to trust with your code. The model provider behind the CLI you choose remains the external service.
+Takode runs on your own machines and works with their local project directories. Your sessions, quest state, memory and history stay under your control, and there is no Takode-hosted backend to trust with your code. The model provider behind the CLI you choose remains the external service.
 
 - **Permission controls**: agent or plan mode, with optional per-tool approvals
+- **Backups**: quests, memory, settings and the Library copied to a private Git repository or another of your machines
 - **VS Code integration**: Takode can install its VS Code extension, and editor selections stream into Takode while the app is open
 - **GitHub Copilot**: use Copilot-served models, see [Using Takode with GitHub Copilot](docs/github-copilot.md)
-
-<p align="center">
-  <img src="docs/screenshots/readme-vscode.jpeg" alt="Takode running alongside VS Code with editor context" width="100%" />
-</p>
 
 ---
 
@@ -153,8 +162,6 @@ cd takode && bun install --cwd web --frozen-lockfile
 make serve
 ```
 
-Production starts serve a validated, isolated frontend snapshot rather than the checkout's mutable `web/dist`. `make serve` builds that snapshot and reuses the last validated one if a restart build fails; direct CLI, package-script, and service starts copy the packaged or explicitly configured build before starting. Later development builds or cleanup cannot remove the UI from an already-running server.
-
 Then:
 
 1. Open <http://localhost:3456>
@@ -163,7 +170,7 @@ Then:
 4. Select the local project directory you want the session to work in
 5. Start chatting, or start a leader session when you want orchestration
 
-Takode runs locally. The only required third-party service is the model provider behind the CLI you choose.
+Takode runs locally. The only required third-party service is the model provider behind the CLI you choose. The [glossary](web/src/glossary/glossary.md) explains Takode's terms in a sentence or two each.
 
 ---
 
@@ -189,18 +196,16 @@ clone or after dependency changes, run `bun install --cwd web --frozen-lockfile`
 first. See [Dependency and Install Policy](docs/dependency-policy.md) for lockfile
 review, exact-version, and package update expectations.
 
-### Optional raw protocol debugging
-
-Takode does not record raw Claude Code, Codex, or browser protocol traffic by default. For a temporary bounded diagnostic, start or restart the server with exactly `COMPANION_RECORD=1` or `COMPANION_RECORD=true`. Automatic capture can use substantial memory and disk with many active sessions, so remove the variable (or set it to `0`/`false`) and restart when finished; any other value also keeps capture off.
-
-Recordings are ephemeral debugging artifacts under `$TMPDIR/companion-recordings/` by default. Existing files remain available when capture is disabled. For one current-process session only, use `POST /api/sessions/:id/recording/start`, inspect `GET /api/sessions/:id/recording/status`, and finish with `POST /api/sessions/:id/recording/stop`. See the [Architecture & Contributor Guide](CLAUDE.md#raw-protocol-recordings) for the JSONL format, listing endpoint, and storage override.
+The [Architecture & Contributor Guide](CLAUDE.md) covers how the server, frontend and backends fit together, how production builds are served, and raw protocol recording for debugging.
 
 ## Documentation
 
 - [Changelog](CHANGELOG.md)
+- [Glossary](web/src/glossary/glossary.md)
 - [Using Takode with GitHub Copilot](docs/github-copilot.md)
 - [Running sessions on another machine](docs/remote-hosts.md)
 - [Moving the coordinator to another machine](docs/moving-the-coordinator.md)
+- [Backups](docs/backups.md)
 - [WebSocket Protocol Reference](WEBSOCKET_PROTOCOL_REVERSED.md)
 - [Architecture & Contributor Guide](CLAUDE.md)
 - [Dependency and Install Policy](docs/dependency-policy.md)
@@ -211,7 +216,7 @@ Recordings are ephemeral debugging artifacts under `$TMPDIR/companion-recordings
 Takode is named after my cat Tako. The cat portraits for leader sessions are a small nod to him, and a reminder that orchestration can still have a bit of personality.
 
 <p align="center">
-  <img src="docs/screenshots/readme-tako-portraits.jpeg" alt="Takode leader portrait picker showing cat portraits inspired by Tako" width="42%" />
+  <img src="docs/screenshots/readme-tako-portraits.jpg" alt="Takode leader portrait picker showing cat portraits inspired by Tako" width="42%" />
 </p>
 
 ## Origin
