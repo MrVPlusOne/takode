@@ -8,6 +8,8 @@ import { apiGet, getBase } from "./takode-core.js";
 
 export const DEV_SERVER_LEASE = "dev-server:companion";
 export const AGENT_BROWSER_LEASE = "agent-browser";
+/** Address a slot's backend and Vite listen on (see `validationServerEnv`). */
+export const VALIDATION_LISTEN_HOST = "127.0.0.1";
 
 export interface DevServerSlot {
   slot: number;
@@ -33,7 +35,10 @@ export function devServerSlot(slot: number): DevServerSlot {
  * server's identity (server ID, frontend snapshot, supervision, session
  * credentials), which a validation server must not adopt. Its OpenAI calls use
  * the user's test key; an inherited OPENAI_API_KEY may be the live key, so it
- * is dropped, and without a test key the slot has none.
+ * is dropped, and without a test key the slot has none. The backend listens on
+ * loopback only: a validation server has no login, so on a machine other people
+ * can reach, such as a shared cluster node, an open port would hand them
+ * sessions and terminals.
  */
 export function validationServerEnv(
   inherited: NodeJS.ProcessEnv,
@@ -46,7 +51,13 @@ export function validationServerEnv(
     ),
   );
   if (openAITestKey) env.OPENAI_API_KEY = openAITestKey;
-  return { ...env, HOME: res.home, PORT: String(res.backendPort), NODE_ENV: "development" };
+  return {
+    ...env,
+    HOME: res.home,
+    PORT: String(res.backendPort),
+    COMPANION_HOST: VALIDATION_LISTEN_HOST,
+    NODE_ENV: "development",
+  };
 }
 
 /** agent-browser session name of an `agent-browser` slot. */

@@ -23,6 +23,7 @@ import {
   type DevServerSlot,
   devServerSlot,
   findHeldSlot,
+  VALIDATION_LISTEN_HOST,
   validationServerEnv,
 } from "../bin/validation-slots.js";
 import { homedir } from "node:os";
@@ -170,7 +171,7 @@ async function start(fresh: boolean): Promise<void> {
     ),
     vitePid: await launch(
       "./node_modules/.bin/vite",
-      ["--port", String(res.vitePort), "--strictPort"],
+      ["--host", VALIDATION_LISTEN_HOST, "--port", String(res.vitePort), "--strictPort"],
       env,
       join(res.stateDir, "vite.log"),
     ),

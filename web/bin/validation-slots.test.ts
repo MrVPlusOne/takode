@@ -36,7 +36,8 @@ describe("validation server environment", () => {
   };
 
   // Slots must never spend the user's live OpenAI key: an inherited key is
-  // replaced by the test key, and the live server's identity is dropped.
+  // replaced by the test key, and the live server's identity is dropped. The
+  // backend listens on loopback only, since a validation server has no login.
   it("uses the test key in place of any inherited OpenAI key", () => {
     const env = validationServerEnv(inherited, devServerSlot(2), "test-key");
     expect(env).toEqual({
@@ -44,6 +45,7 @@ describe("validation server environment", () => {
       OPENAI_API_KEY: "test-key",
       HOME: "/tmp/takode-validation/dev-server-2/home",
       PORT: "3472",
+      COMPANION_HOST: "127.0.0.1",
       NODE_ENV: "development",
     });
   });
