@@ -3,6 +3,7 @@
 import { closeAllThreadTabs, listedThreadTab, listedThreadTabs } from "../test-fixtures/thread-tab-rows.js";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import { onTestFinished } from "vitest";
 
 // Mock markdown renderer used by MessageBubble/PermissionBanner
 
@@ -178,6 +179,13 @@ describe("Playground", { timeout: 60_000 }, () => {
   });
 
   it("documents compact quest-thread banners without chip note counts and with tap previews", () => {
+    // The sample Work phase started three minutes before render, and the card shows its time from the
+    // live clock. Rendering this Playground took over a minute on a busy macOS CI runner, so the card
+    // read "Total 5m"; a frozen clock keeps it at the fixture's three minutes.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     render(<Playground />);
 
     expect(screen.getAllByText(/long Quest Journey preview clamped around the current phase/).length).toBeGreaterThan(
