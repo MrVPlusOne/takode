@@ -290,17 +290,27 @@ function launchFountain(layer: HTMLElement, anchor: CelebrationAnchor, fountain:
   for (let index = 0; index < count; index++) {
     const angle = jets[index % jets.length]! + between(-0.35, 0.35);
     const velocity = speed * between(0.65, 1.1);
-    const path: Array<[number, number]> = [];
-    for (let step = 0; step <= 5; step++) {
-      const t = step / 5;
-      path.push([Math.cos(angle) * velocity * t, Math.sin(angle) * velocity * t + 0.5 * fountain.gravity * t * t]);
-    }
+    const path = ballisticPath(angle, velocity, fountain.gravity);
     flyPiece(layer, pick(fountain.shapes), pick(colors), keepOnScreen(anchor, path), fountain.scales, {
       spin: between(-360, 360),
       duration: duration - between(40, 160),
       delay: between(0, 60),
     });
   }
+}
+
+/**
+ * A thrown piece's flight, sampled at six even points from launch to landing: launched at `angle`
+ * (radians, 0 to the right, negative up) with `speed`, pulled down by `gravity`. Speed and gravity
+ * are in pixels per whole flight, so a piece peaks at speed² / (2 × gravity) above its start.
+ */
+export function ballisticPath(angle: number, speed: number, gravity: number): Array<[number, number]> {
+  const path: Array<[number, number]> = [];
+  for (let step = 0; step <= 5; step++) {
+    const t = step / 5;
+    path.push([Math.cos(angle) * speed * t, Math.sin(angle) * speed * t + 0.5 * gravity * t * t]);
+  }
+  return path;
 }
 
 /**

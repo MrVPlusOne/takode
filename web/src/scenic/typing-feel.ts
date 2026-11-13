@@ -1,53 +1,50 @@
 /**
- * Typing feel: the caret comes alive while you type. The text box draws its text and caret itself,
- * exactly as without a feel: nothing here renders text, hides the caret or touches the text's
- * position or weight. Each style only colours the native caret or draws light around it.
+ * Typing feel: the caret is iron in the forge. The faster you type, the hotter it glows, from dark
+ * red through orange to white-gold, throwing sparks off to its right at speed, while the composer's
+ * edge glows warm. The variants differ in their sparks and glow. The text box draws its text and
+ * caret itself, exactly as without a feel: nothing here renders text, hides the caret or touches
+ * the text's position or weight. Each part only colours the native caret or draws light around it.
  *
- * No added latency: the work for a key runs after the frame showing that key has been painted
- * (only a caret light is dimmed as the key lands, so it doesn't glow a frame over the new
- * character, and comes back in two steps after it), and the settling, which waits for a pause
- * in typing, is a few discrete steps rather than an animation. An animation keeps the page drawing
- * a frame on every display tick, so a key typed meanwhile waits for the next tick (about 8 ms on
+ * No added latency beyond the sparks: the work for a key runs after the frame showing that key has
+ * been painted (only the caret light is dimmed as the key lands, so it doesn't glow a frame over the
+ * new character, and comes back in two steps after it), and the settling, which waits for a pause
+ * in typing, is a few discrete steps rather than an animation. An animation keeps the page drawing a
+ * frame on every display tick, so a key typed meanwhile waits for the next tick (about 8 ms on
  * average, measured); between steps the page draws nothing, so a key is drawn at once, as with no
- * feel. The forge's sparks are the one longer motion: a burst lasts 80 ms, starts after the key's
- * frame and comes at most every 180 ms, so it is over before the next key at ordinary typing speed
- * (very fast typing pays about a frame on some keys).
- * Every input counts the same, IME composition (pinyin) included, so it works the same for
- * Chinese. Everything settles 1.2 s after the last key, so an idle box draws nothing, and nothing
- * plays with reduced motion.
+ * feel. The sparks are the one real motion: a burst lasts at most 110 ms and comes at most every
+ * 240 ms, so at speed some keys wait a frame (measured per variant). Every input counts the same,
+ * IME composition (pinyin) included, so it works the same for Chinese. Everything settles 1.2 s
+ * after the last key, so an idle box draws nothing, and nothing plays with reduced motion.
  */
+import { ballisticPath } from "../components/completion-celebration.js";
 import { scenicMotionAllowed } from "./scenic-styles.js";
 
-export type TypingFeel = "vermilion" | "glow" | "forge" | "forge-quiet" | "edge";
+export type TypingFeel = "embers" | "streaks" | "shower" | "flare";
 
-/** The styles, in the order to offer them, with a short description of each. */
+/**
+ * The styles, in the order to offer them, with a short description of each. Every one is the
+ * forged caret with sparks and the warm edge; they differ in their sparks and glow.
+ */
 export const TYPING_FEELS: ReadonlyArray<{ id: TypingFeel; label: string; description: string }> = [
   {
-    id: "vermilion",
-    label: "Vermilion caret",
-    description: "The caret turns seal vermilion while you type and goes back to ink when you pause.",
+    id: "embers",
+    label: "Forge: embers",
+    description: "A few round embers hop right off the caret on short falling arcs, white-gold cooling to red.",
   },
   {
-    id: "glow",
-    label: "Glowing vermilion caret",
-    description: "The vermilion caret line itself glows while you type, and cools when you pause.",
+    id: "streaks",
+    label: "Forge: streaks",
+    description: "Two or three thin streaks shoot right along flat arcs, drawn along their flight, crisp and quick.",
   },
   {
-    id: "forge",
-    label: "Forged caret",
-    description:
-      "The caret is iron in the forge: the faster you type, the hotter it glows, from dark red through orange to white-gold, throwing off a few sparks at speed.",
+    id: "shower",
+    label: "Forge: shower",
+    description: "A small shower of fine sparks sprays right and drops, the heaviest fall of the four.",
   },
   {
-    id: "forge-quiet",
-    label: "Forged caret, no sparks",
-    description: "The forged caret's heat without the sparks, the only motion in these styles, to compare.",
-  },
-  {
-    id: "edge",
-    label: "Warm edge",
-    description:
-      "The caret stays as it is; the composer's edge glows softly while you type and settles when you pause.",
+    id: "flare",
+    label: "Forge: flare",
+    description: "One or two bright, glowing sparks fly right on a low arc, with a hotter glow on the caret.",
   },
 ];
 
@@ -65,14 +62,12 @@ export interface TypingFeelHandle {
 export function attachTypingFeel(area: HTMLTextAreaElement, feel: TypingFeel): TypingFeelHandle {
   if (!scenicMotionAllowed() || !area.parentElement) return { stop() {} };
   const box = new TypingBox(area, area.parentElement);
-  const parts: Part[] = [];
-  if (feel === "vermilion") parts.push(vermilionCaret(box));
-  if (feel === "glow") parts.push(glowingCaret(box, () => box.vermilion));
-  if (feel === "forge" || feel === "forge-quiet") {
-    parts.push(glowingCaret(box, forgeColour, (warmth) => forgeColour(warmth * 0.75)));
-  }
-  if (feel === "forge") parts.push(sparks(box));
-  if (feel === "edge") parts.push(warmEdge(box));
+  const look = LOOKS[feel];
+  const parts: Part[] = [
+    glowingCaret(box, forgeColour, (warmth) => forgeColour(warmth * 0.75), look.halo),
+    sparks(box, look.sparks),
+    warmEdge(box),
+  ];
   box.onType((warmth) => {
     const steps = parts.map((part) => part(warmth));
     box.settle((cooled) => {
@@ -261,19 +256,6 @@ class TypingBox {
 type Part = (warmth: number) => (cooled: number) => void;
 
 /**
- * The native caret turns full seal vermilion while you type: a 1 px caret can't carry a subtle
- * colour shift, so it is the full colour or its own.
- */
-function vermilionCaret(box: TypingBox): Part {
-  const { area } = box;
-  const native = area.style.caretColor;
-  box.restyle(area, { caretColor: native });
-  return () => (cooled) => {
-    area.style.caretColor = cooled < 0.6 ? box.vermilion : native;
-  };
-}
-
-/**
  * The caret line itself glows: the native caret takes the colour, and a soft light the caret's
  * height hugs the line behind it, brighter the faster you type, cooling when you pause. `colour`
  * gives the colour for a warmth.
@@ -281,7 +263,8 @@ function vermilionCaret(box: TypingBox): Part {
 function glowingCaret(
   box: TypingBox,
   colour: (warmth: number) => string,
-  halo: (warmth: number) => string = colour,
+  halo: (warmth: number) => string,
+  spread: number,
 ): Part {
   const { area } = box;
   const native = area.style.caretColor;
@@ -302,7 +285,7 @@ function glowingCaret(
   const light = (heat: number) => {
     const lit = colour(heat);
     line.style.background = lit;
-    line.style.boxShadow = `1px 0 2px 0.5px ${lit}, 1.5px 0 6px 1px color-mix(in srgb, ${halo(heat)} 45%, transparent)`;
+    line.style.boxShadow = `1px 0 2px 0.5px ${lit}, 1.5px 0 ${spread}px 1px color-mix(in srgb, ${halo(heat)} 45%, transparent)`;
   };
   let brighten: ReturnType<typeof setTimeout> | undefined;
   box.later(() => clearTimeout(brighten));
@@ -350,54 +333,149 @@ function forgeColour(warmth: number): string {
   return `color-mix(in srgb, ${stops[from + 1]} ${mix}%, ${stops[from]})`;
 }
 
-/** Sparks only when typing this warm, a burst at most this often, and how long a burst lasts. */
+/** Sparks only when typing this warm, and a burst at most this often. */
 const SPARK_WARMTH = 0.45;
-const SPARK_EVERY_MS = 180;
-const SPARK_MS = 80;
+const SPARK_EVERY_MS = 240;
+
+/** How one variant's sparks fly and how its caret glows. */
+interface Look {
+  /** How far the caret's halo blurs, in px. */
+  halo: number;
+  sparks: SparkStyle;
+}
+
+/** A variant's sparks. Ranges are [least, most]; each spark picks its own within them. */
+interface SparkStyle {
+  /** Sparks in a burst, warm and at full heat. */
+  count: [number, number];
+  /** Width and length in px: longer than wide is a streak, drawn along its flight. */
+  size: [number, number];
+  /** How much glow a spark has, in px of blur. */
+  glow: number;
+  /** Flight time in ms: short, since a spark is the one motion and must be over before most keys. */
+  life: [number, number];
+  /** Launch angle in radians, 0 straight right and negative up: always to the right, away from the next character. */
+  angle: [number, number];
+  /** Distance thrown and pull down over a whole flight, in px (see `ballisticPath`). */
+  speed: [number, number];
+  gravity: number;
+}
+
+const LOOKS: Record<TypingFeel, Look> = {
+  embers: {
+    halo: 6,
+    sparks: {
+      count: [2, 4],
+      size: [2, 2],
+      glow: 3,
+      life: [80, 100],
+      angle: [-0.9, -0.15],
+      speed: [14, 20],
+      gravity: 14,
+    },
+  },
+  streaks: {
+    halo: 5,
+    sparks: {
+      count: [2, 3],
+      size: [1.3, 6],
+      glow: 2,
+      life: [70, 90],
+      angle: [-0.6, 0.05],
+      speed: [18, 26],
+      gravity: 10,
+    },
+  },
+  shower: {
+    halo: 6,
+    sparks: {
+      count: [4, 6],
+      size: [1.5, 1.5],
+      glow: 2,
+      life: [80, 100],
+      angle: [-1.1, 0.2],
+      speed: [10, 18],
+      gravity: 22,
+    },
+  },
+  flare: {
+    halo: 7,
+    sparks: {
+      count: [1, 2],
+      size: [3, 3],
+      glow: 6,
+      life: [90, 110],
+      angle: [-0.45, -0.1],
+      speed: [16, 22],
+      gravity: 8,
+    },
+  },
+};
 
 /**
- * At speed the forged caret throws off a few small sparks. They are the one motion in these
- * styles, so a burst is kept short enough to be over before the next key at typing speed: it starts
- * after the key's frame, lasts 80 ms and comes at most every 180 ms. Sparks are drawn once and
- * reused, on their own layers, so a burst changes nothing but their position and opacity.
+ * At speed the forged caret throws off sparks to its right, so they never cover the next character:
+ * each flies a short falling arc with its own speed, angle and life (the flight the completion
+ * celebration's sparks use), white-gold cooling to red as it goes. A burst starts after the key's
+ * frame and comes at most every 240 ms. Sparks are drawn once and reused on their own layers, and
+ * fly by transform, opacity and filter alone, which the compositor runs.
  */
-function sparks(box: TypingBox): Part {
+function sparks(box: TypingBox, style: SparkStyle): Part {
   const { lineHeight } = box;
-  const pool = Array.from({ length: 6 }, () =>
-    box.mark({ left: "0", top: "0", width: "1.5px", height: "5px", borderRadius: "1px", opacity: "0" }),
+  const [width, length] = style.size;
+  const pool = Array.from({ length: 8 }, () =>
+    box.mark({
+      left: "0",
+      top: "0",
+      width: `${length}px`,
+      height: `${width}px`,
+      borderRadius: `${width / 2}px`,
+      opacity: "0",
+    }),
   );
   let next = 0;
   let burstAt = Number.NEGATIVE_INFINITY;
   return (warmth) => {
     const now = performance.now();
-    if (warmth >= SPARK_WARMTH && now - burstAt >= SPARK_EVERY_MS) {
-      burstAt = now;
-      const { x, y } = box.caret();
-      const dark = document.documentElement.classList.contains("dark");
-      const core = dark ? "#fff6d8" : "#ff7a10";
-      const count = warmth > 0.8 ? 3 : 2;
-      for (let i = 0; i < count; i++) {
-        const spark = pool[next]!;
-        next = (next + 1) % pool.length;
-        Object.assign(spark.style, { background: core, boxShadow: `0 0 2px 1px ${forgeColour(dark ? 0.85 : 0.7)}` });
-        // A short streak flying out from the caret's top, drawn along its path.
-        const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
-        const reach = 9 + 8 * Math.random();
-        const turn = `rotate(${angle + Math.PI / 2}rad)`;
-        const start = { x: x - 0.75, y: y + lineHeight * 0.25 };
-        const from = `translate(${start.x}px, ${start.y}px) ${turn}`;
-        const to = `translate(${start.x + Math.cos(angle) * reach}px, ${start.y + Math.sin(angle) * reach}px) ${turn}`;
-        spark.animate(
-          [
-            { transform: `${from} scale(1, 1)`, opacity: 1 },
-            { transform: `${to} scale(0.7, 0.4)`, opacity: 0 },
-          ],
-          { duration: SPARK_MS, easing: "cubic-bezier(0.2, 0.7, 0.4, 1)" },
-        );
-      }
+    if (warmth < SPARK_WARMTH || now - burstAt < SPARK_EVERY_MS) return () => {};
+    burstAt = now;
+    const { x, y } = box.caret();
+    const dark = document.documentElement.classList.contains("dark");
+    // Hot orange, brightened toward white-gold at launch and dimmed toward red as it cools; on
+    // light paper white wouldn't show, so it starts at gold.
+    const base = dark ? "#ff7a26" : "#f06a10";
+    const filters = dark
+      ? ["brightness(1.9) saturate(0.6)", "brightness(1.3)", "brightness(0.75) saturate(1.3)"]
+      : ["brightness(1.15)", "brightness(1)", "brightness(0.7) saturate(1.2)"];
+    const count = Math.round(style.count[0] + (style.count[1] - style.count[0]) * warmth);
+    const start = { x: x + 2, y: y + lineHeight * 0.45 - width / 2 };
+    for (let i = 0; i < count; i++) {
+      const spark = pool[next]!;
+      next = (next + 1) % pool.length;
+      Object.assign(spark.style, {
+        background: base,
+        boxShadow: style.glow ? `0 0 ${style.glow}px ${style.glow / 3}px ${forgeColour(0.85)}` : "none",
+      });
+      const angle = between(...style.angle);
+      const speed = between(...style.speed);
+      const path = ballisticPath(angle, speed, style.gravity);
+      const keyframes = path.map(([dx, dy], step) => {
+        const t = step / (path.length - 1);
+        // Drawn along its flight: the direction it is moving at this point of the arc.
+        const heading = Math.atan2(Math.sin(angle) * speed + style.gravity * t, Math.cos(angle) * speed);
+        return {
+          transform: `translate(${start.x + dx}px, ${start.y + dy}px) rotate(${heading}rad) scale(${1 - 0.4 * t})`,
+          opacity: t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4,
+          filter: filters[Math.min(filters.length - 1, Math.floor(t * filters.length))],
+        };
+      });
+      spark.animate(keyframes, { duration: between(...style.life), easing: "linear" });
     }
     return () => {};
   };
+}
+
+function between(least: number, most: number): number {
+  return least + Math.random() * (most - least);
 }
 
 /** Warm edge: the composer's edge glows softly while you type, brighter the faster, then settles. */
