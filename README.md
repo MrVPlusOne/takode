@@ -31,7 +31,7 @@ Running several coding agents side by side is no longer rare: plenty of apps giv
 
 ## A Leader at Work
 
-Say you hand a leader five bug reports before lunch. It files five quests, starts three workers, and holds the two that touch the same code until the first is done. Halfway through it asks you to choose between two fixes. After lunch you read five short summaries, each linking its commits.
+Say you hand a leader five bug reports before lunch. It files five quests, starts three workers, and holds the two that touch the same code until the first is done. Halfway through it asks you to choose between two fixes. After lunch you read five short summaries, each linking its commits, and walk through the biggest change in a guided review.
 
 **1. Ask.** Describe a bug, paste a screenshot, or point at an existing quest. The leader writes it up as a quest, starts a worker in its own worktree, and keeps your conversation in a thread for that quest. A live card shows the worker's latest steps without opening its session.
 
@@ -45,10 +45,10 @@ Say you hand a leader five bug reports before lunch. It files five quests, start
   <img src="docs/screenshots/readme-decision.jpg" alt="A leader explaining three ways budget alerts could work, with a recommendation, followed by a question card with suggested replies and room for a free-text answer" width="90%" />
 </p>
 
-**3. Review the result.** The leader reports what changed and why, and links the exact commits. Each commit opens in a compact diff view.
+**3. Review the result.** Ask for a guided review and the agent reviews every changed line, then walks you through the change one stop at a time, with its explanation beside the exact code. Decisions that need you come first, with suggested answers, and you can comment on any line. Your answers go back to the agent in one message.
 
 <p align="center">
-  <img src="docs/screenshots/readme-commit-diff.jpg" alt="Takode commit view with code and test line totals, a file picker and a syntax-highlighted diff" width="90%" />
+  <img src="docs/screenshots/readme-guided-review.jpg" alt="A guided review stop: the new category-matching rule and the budget code that uses it on the left, and on the right a decision about which category names should count as the same, with suggested answers" width="100%" />
 </p>
 
 ## Leaders Run the Work
@@ -106,11 +106,7 @@ Parallel agents are easy to start and hard to keep from tripping over each other
 
 ## Results You Can Read
 
-Not everything an agent produces is a diff. Reports, slide decks, figures and drafts land in the Library, and you can comment on any passage to send feedback to the agent that wrote it. Ask for a code review and you get a guided walkthrough of the change that puts the questions needing your call first. A Slack message or PR comment an agent drafts for you shows as a card with a Copy button, ready to paste.
-
-<p align="center">
-  <img src="docs/screenshots/readme-guided-review.jpg" alt="A guided review stop: new code on the left, and on the right a decision about which category names should count as the same, with suggested answers" width="90%" />
-</p>
+Not everything an agent produces is a diff. Reports, slide decks, figures and drafts land in the Library, and you can comment on any passage to send feedback to the agent that wrote it. A Slack message or PR comment an agent drafts for you shows as a card with a Copy button, ready to paste.
 
 ## One Workspace Across Your Machines
 
