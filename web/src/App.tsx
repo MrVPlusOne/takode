@@ -129,6 +129,7 @@ import { reportInputGlitch, useInputTraceRecorder } from "./utils/input-trace.js
 import { AppTooltips } from "./components/AppTooltips.js";
 import { ScenicBackdrop, ScenicPanels } from "./scenic/ScenicBackdrop.js";
 import { applyScenicClass } from "./scenic/scenic-styles.js";
+import { applyThemeToDocument } from "./app-logo.js";
 import { GlossaryPage } from "./glossary/GlossaryPage.js";
 import {
   SHORTCUT_DOUBLE_TAP_WINDOW_MS,
@@ -590,10 +591,7 @@ export default function App() {
   // their status marker instead of gaining it a moment later.
   useEffect(() => watchTodoItemSummaries(SERVER_TODO_ITEM_SUMMARIES), []);
 
-  useEffect(() => {
-    const el = document.documentElement;
-    el.classList.toggle("dark", darkMode);
-  }, [darkMode]);
+  useEffect(() => applyThemeToDocument(darkMode), [darkMode]);
 
   useEffect(() => applyScenicClass(scenicBackground), [scenicBackground]);
 

@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
+import { appLogoSrc } from "../app-logo.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import { useStore } from "../store.js";
 import { NavigationButtons } from "./NavigationButtons.js";
-
-const LOGO_SRC = "/app-logo.png";
 
 /**
  * The sessions panel's top row: the app logo, the server name (click to rename this server), and
@@ -13,6 +12,7 @@ const LOGO_SRC = "/app-logo.png";
  */
 export function SidebarTitleRow({ compact = false }: { compact?: boolean }) {
   const serverName = useStore((s) => s.serverName);
+  const darkMode = useStore((s) => s.darkMode);
   const isDesktopLayout = useDesktopShellLayout();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -34,7 +34,7 @@ export function SidebarTitleRow({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex w-full min-w-0 items-center gap-2">
       <img
-        src={LOGO_SRC}
+        src={appLogoSrc(darkMode)}
         alt=""
         className={`shrink-0 object-contain ${compact ? "h-8 w-8 rounded-lg" : "h-12 w-12 rounded-xl"}`}
       />

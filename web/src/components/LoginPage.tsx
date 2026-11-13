@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { appLogoSrc, applyThemeToDocument } from "../app-logo.js";
 import { logIn, useLoginGate } from "../browser-login.js";
 import { getInitialDarkMode } from "../store-initial.js";
 
@@ -20,7 +21,7 @@ export function LoginPage() {
 
   // The app applies the saved theme once it mounts; the login screen runs before it.
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", getInitialDarkMode());
+    applyThemeToDocument(getInitialDarkMode());
   }, []);
 
   async function onSubmit(event: FormEvent) {
@@ -39,7 +40,7 @@ export function LoginPage() {
     <div className="flex min-h-[100dvh] items-center justify-center bg-cc-bg px-6 font-sans-ui text-cc-fg antialiased">
       <form onSubmit={onSubmit} className="w-full max-w-xs space-y-4" aria-label="Log in to Takode">
         <div className="flex flex-col items-center gap-3">
-          <img src="/app-logo.png" alt="" className="h-12 w-12" />
+          <img src={appLogoSrc(getInitialDarkMode())} alt="" className="h-12 w-12" />
           <h1 className="text-lg font-semibold">Takode</h1>
         </div>
         <input
