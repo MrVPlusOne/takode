@@ -249,6 +249,15 @@ export function expectExactForwardContract(renderedArguments: string[]): void {
   expect(effective.stdout).toContain("clearallforwardings no\n");
 }
 
+/**
+ * Masks the SHA-256 hex values in supervisor metadata (owner tokens, config fingerprints) before a
+ * test checks that a port or other secret never appears in it. Those hashes are random per run, and
+ * one held the digits of a forbidden port by chance on CI ("...401543234..." contains 15432).
+ */
+export function maskHashes(text: string): string {
+  return text.replace(/\b[0-9a-f]{64}\b/g, "<sha256>");
+}
+
 export function expectEventMetadataLine(line: string): void {
   const allowedKeys = new Set([
     "component",
@@ -279,7 +288,7 @@ export function expectEventMetadataLine(line: string): void {
     "credential",
     "payload",
   ]) {
-    expect(line).not.toContain(forbidden);
+    expect(maskHashes(line)).not.toContain(forbidden);
   }
 }
 

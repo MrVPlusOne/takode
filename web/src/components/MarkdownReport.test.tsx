@@ -271,8 +271,10 @@ describe("saved Markdown reports", () => {
 
   it("names a report by its Library title, else by its first heading", () => {
     // The pinned bar of an expanded report and its full-screen view carry this title. The
-    // Library's name is the agent's or the user's choice, so it wins over the heading.
+    // Library's name is the agent's or the user's choice, so it wins over the heading. A short
+    // report keeps this fast: the full fixture rendered four times took over 10s on a busy CI runner.
     const report = makeMarkdownReportFixture();
+    report.content = "# Daily engineering report\n\nThe cache expires after **one hour**.";
     const [message] = normalizeHistoryMessageToChatMessages(report, 0);
     const view = render(<MessageBubble message={message} sessionId={report.source.sessionId} />);
     fireEvent.click(screen.getByRole("button", { name: "Full screen" }));

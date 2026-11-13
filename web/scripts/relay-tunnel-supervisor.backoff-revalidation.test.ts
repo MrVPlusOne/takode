@@ -5,6 +5,7 @@ import {
   createFixture,
   expectExactForwardContract,
   findFixtureProcesses,
+  maskHashes,
   pathExists,
   readStatus,
   releaseBackoffGate,
@@ -35,7 +36,7 @@ describe("relay tunnel supervisor tracked artifacts", () => {
     expect(await pathExists(join(fixture.fakeState, "args.2"))).toBe(false);
     expect(findFixtureProcesses(fixture.root)).toEqual([]);
 
-    const metadata = `${JSON.stringify(status)}\n${await readFile(fixture.log, "utf8")}`;
+    const metadata = maskHashes(`${JSON.stringify(status)}\n${await readFile(fixture.log, "utf8")}`);
     for (const forbidden of [
       "private-relay.example",
       "RemoteForward",

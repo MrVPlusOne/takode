@@ -25,6 +25,7 @@ import {
   delay,
   expectExactForwardContract,
   expectPausedFatal,
+  maskHashes,
   pathExists,
   readStatus,
   replaceConfigValue,
@@ -446,7 +447,7 @@ esac
     await waitForExit(supervisor);
     const statusText = await readFile(join(fixture.state, "status.json"), "utf8");
     const logText = await readFile(fixture.log, "utf8");
-    const combined = `${statusText}\n${logText}`;
+    const combined = maskHashes(`${statusText}\n${logText}`);
     expect(parsedSnapshots.length).toBeGreaterThan(0);
     for (const snapshot of parsedSnapshots) {
       expect(snapshot.schemaVersion).toBe(1);
