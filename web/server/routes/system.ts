@@ -33,7 +33,7 @@ import {
 import type { VsCodeSelectionState, VsCodeWindowState } from "../session-types.js";
 import { trafficStats } from "../traffic-stats.js";
 import { loadCodexModelCatalog } from "../codex-model-catalog.js";
-import { getClaudeModelCatalog } from "../claude-model-catalog.js";
+import { resolveClaudeModelCatalog } from "../claude-model-catalog.js";
 import type { FrontendAvailability } from "../frontend-availability.js";
 import { hostIsOnline, machineFor, machineProgram } from "../remote-host/session-machine.js";
 import { onMachine } from "../remote-host/host-operations.js";
@@ -636,9 +636,9 @@ export function createSystemRoutes(ctx: RouteContext) {
           .map((id) => ({ value: id, label: modelIdToLabel(id), description: "" }));
         if (models.length > 0) return c.json(models);
       }
-      const cliCatalog = getClaudeModelCatalog();
+      const cliCatalog = await resolveClaudeModelCatalog();
       if (cliCatalog) return c.json(cliCatalog);
-      // No proxy and no Claude session has reported its catalog yet — frontend uses static fallbacks
+      // No proxy, and Claude Code could not report its catalog: the frontend uses static fallbacks
       return c.json({ error: "Use frontend defaults for this backend" }, 404);
     }
 

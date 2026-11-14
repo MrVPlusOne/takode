@@ -41,6 +41,14 @@ vi.mock("./path-resolver.js", () => ({
   resolveBinary: mockResolveBinary,
   expandTilde: mockExpandTilde,
   captureUserShellEnv: mockCaptureUserShellEnv,
+  getEnrichedPath: () => "/usr/bin:/bin",
+}));
+
+// The Claude models route asks Claude Code for its catalog when none is known;
+// these tests never start a real Claude process.
+const mockClaudeSupportedModels = vi.hoisted(() => vi.fn(() => Promise.reject(new Error("no Claude Code in tests"))));
+vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+  query: () => ({ supportedModels: mockClaudeSupportedModels, close: () => {} }),
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -669,9 +677,10 @@ describe("GET /api/backends/:id/models", () => {
     expect(json.error).toContain("Failed to parse");
   });
 
-  it("returns 404 for claude backend (uses frontend defaults)", async () => {
+  it("returns 404 for claude backend when Claude Code cannot report a catalog (uses frontend defaults)", async () => {
     const res = await app.request("/api/backends/claude/models", { method: "GET" });
 
+    expect(mockClaudeSupportedModels).toHaveBeenCalled();
     expect(res.status).toBe(404);
   });
 

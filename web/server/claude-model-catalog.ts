@@ -1,6 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { inheritedLaunchEnv } from "./cli-launcher-env.js";
+import { getEnrichedPath } from "./path-resolver.js";
+import { machineSettingsFor } from "./remote-host/machine-settings.js";
 
 /**
  * Claude model catalog as reported by the Claude Code CLI itself.
@@ -10,8 +13,8 @@ import { dirname, join } from "node:path";
  * overrides such as a Copilot-routed Opus model. Takode cannot reproduce that
  * resolution statically, so it records the catalog each Claude SDK session
  * reports at initialization and serves the latest one to model menus. The
- * latest report is also saved, so menus keep it across server restarts
- * instead of falling back to generic aliases until a session initializes.
+ * latest report is also saved, so menus keep it across server restarts. When
+ * none is known yet, Takode starts Claude Code just long enough to read it.
  */
 
 export interface ClaudeBackendModelInfo {
@@ -25,12 +28,15 @@ export interface ClaudeBackendModelInfo {
 }
 
 const DEFAULT_PATH = join(homedir(), ".companion", "claude-model-catalog.json");
+/** Claude Code answers its initialize request within a few seconds; a probe that takes longer is stopped. */
+const PROBE_TIMEOUT_MS = 20_000;
 
 let latestCatalog: ClaudeBackendModelInfo[] | null = null;
 /** Where reports are saved; null until the server loads the store, so other callers (tests) never write. */
 let savePath: string | null = null;
 let savedJson: string | null = null;
 let pendingWrite: Promise<void> = Promise.resolve();
+let probing: Promise<void> | null = null;
 
 /**
  * Load the catalog saved by an earlier server run and save later reports to
@@ -72,6 +78,26 @@ export function getClaudeModelCatalog(): ClaudeBackendModelInfo[] | null {
   return latestCatalog;
 }
 
+/**
+ * The known catalog, or, when none is known yet, the one Claude Code reports
+ * when `probe` starts it; null when that fails too. Callers share one probe at a
+ * time, and its result is recorded like a session's report.
+ */
+export async function resolveClaudeModelCatalog(
+  probe: () => Promise<unknown> = probeClaudeCodeCatalog,
+): Promise<ClaudeBackendModelInfo[] | null> {
+  if (latestCatalog) return latestCatalog;
+  probing ??= probe()
+    .then(recordClaudeModelCatalog, (err: unknown) =>
+      console.warn("[claude-model-catalog] Could not read the model catalog from Claude Code:", err),
+    )
+    .finally(() => {
+      probing = null;
+    });
+  await probing;
+  return latestCatalog;
+}
+
 /** Resolves once every queued save has finished. */
 export function _flushClaudeModelCatalogForTest(): Promise<void> {
   return pendingWrite;
@@ -110,6 +136,42 @@ export function mapClaudeCatalogModels(raw: unknown): ClaudeBackendModelInfo[] {
     });
   }
   return models;
+}
+
+/**
+ * Start this machine's Claude Code as a session would, read the catalog it
+ * reports at initialize, and stop it. No prompt is sent, so no model request
+ * is made.
+ */
+async function probeClaudeCodeCatalog(): Promise<unknown> {
+  const { query } = await import("@anthropic-ai/claude-agent-sdk");
+  const claudeBinary = machineSettingsFor(null).claudeBinary;
+  const sdkQuery = query({
+    // A prompt stream that never yields keeps Claude Code waiting for input.
+    prompt: (async function* () {
+      await new Promise(() => {});
+    })(),
+    options: {
+      cwd: tmpdir(),
+      env: { ...inheritedLaunchEnv(process.env), PATH: getEnrichedPath() },
+      settingSources: ["user", "project", "local"],
+      // Without a configured binary the SDK runs the Claude Code bundled with it, as sessions do.
+      ...(claudeBinary ? { pathToClaudeCodeExecutable: claudeBinary } : {}),
+    },
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      sdkQuery.supportedModels(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`no answer within ${PROBE_TIMEOUT_MS / 1000}s`)), PROBE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    // Ends the process, escalating to SIGKILL if it doesn't exit.
+    sdkQuery.close();
+  }
 }
 
 /** "claude-opus-5.5" -> "Opus 5.5", "claude-sonnet-4-5-20250929" -> "Sonnet 4.5", "claude-opus-4-6[1m]" -> "Opus 4.6 [1M]". */

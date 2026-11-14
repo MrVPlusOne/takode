@@ -163,3 +163,80 @@ describe("saved catalog across restarts", () => {
     expect(server.catalog.getClaudeModelCatalog()).toBeNull();
   });
 });
+
+describe("resolveClaudeModelCatalog", () => {
+  afterEach(() => {
+    vi.doUnmock("@anthropic-ai/claude-agent-sdk");
+    vi.useRealTimers();
+  });
+
+  /** A fresh module with nothing recorded, as a new install has. */
+  async function freshCatalog() {
+    vi.resetModules();
+    return import("./claude-model-catalog.js");
+  }
+
+  it("asks Claude Code once for every caller waiting while nothing is known, then records the answer", async () => {
+    // A new user's first New Session menu would otherwise show generic aliases
+    // until some Claude session started.
+    const catalog = await freshCatalog();
+    let answer!: (models: unknown) => void;
+    const probe = vi.fn(() => new Promise<unknown>((resolve) => (answer = resolve)));
+    const first = catalog.resolveClaudeModelCatalog(probe);
+    const second = catalog.resolveClaudeModelCatalog(probe);
+    answer(CLI_CATALOG);
+    expect(await first).toEqual(mapClaudeCatalogModels(CLI_CATALOG));
+    expect(await second).toEqual(mapClaudeCatalogModels(CLI_CATALOG));
+    expect(probe).toHaveBeenCalledTimes(1);
+    // Known now, so later callers don't start Claude Code again.
+    expect(await catalog.resolveClaudeModelCatalog(probe)).toEqual(mapClaudeCatalogModels(CLI_CATALOG));
+    expect(probe).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers null when the probe fails, and tries again on the next call", async () => {
+    // The route then answers 404 and menus keep their static aliases.
+    const catalog = await freshCatalog();
+    const failing = vi.fn(() => Promise.reject(new Error("spawn ENOENT")));
+    expect(await catalog.resolveClaudeModelCatalog(failing)).toBeNull();
+    expect(await catalog.resolveClaudeModelCatalog(() => Promise.resolve(CLI_CATALOG))).toEqual(
+      mapClaudeCatalogModels(CLI_CATALOG),
+    );
+  });
+
+  it("starts this machine's Claude program, reads its catalog and stops it", async () => {
+    // The probe must launch the same Claude Code sessions use, or the menu would
+    // list another CLI's models, and must never leave the process running.
+    const close = vi.fn();
+    const query = vi.fn(() => ({ supportedModels: () => Promise.resolve(CLI_CATALOG), close }));
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({ query }));
+    const catalog = await freshCatalog();
+    const machines = await import("./remote-host/machine-settings.js");
+    machines.configureMachineSettings({
+      machineSettings: () => ({ claudeBinary: "/opt/claude-launcher", codexBinary: "", worktreeRoot: "" }),
+    });
+    try {
+      expect(await catalog.resolveClaudeModelCatalog()).toEqual(mapClaudeCatalogModels(CLI_CATALOG));
+    } finally {
+      machines.configureMachineSettings(null);
+    }
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ pathToClaudeCodeExecutable: "/opt/claude-launcher" }),
+      }),
+    );
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops a Claude process that never answers", async () => {
+    vi.useFakeTimers();
+    const close = vi.fn();
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({
+      query: () => ({ supportedModels: () => new Promise(() => {}), close }),
+    }));
+    const catalog = await freshCatalog();
+    const result = catalog.resolveClaudeModelCatalog();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await result).toBeNull();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
