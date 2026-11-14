@@ -1,7 +1,7 @@
 /**
  * Typing feel: the caret is iron in the forge. The faster you type, the hotter it glows, from dark
- * red through orange to white-gold, while the composer's edge glows warm and small things drift out
- * right of the caret: fireflies at night, plum petals by day. The text box draws its text and caret
+ * red through orange to white-gold, while the composer's edge glows warm and things fly out right
+ * of the caret: sparks from the forge at night, plum petals by day. The text box draws its text and caret
  * itself, exactly as without a feel: nothing here renders text, hides the caret or touches the
  * text's position or weight. Each part only colours the native caret or draws around it.
  *
@@ -17,6 +17,7 @@
  * Everything settles soon after the last key, so an idle box draws nothing, and nothing plays with
  * reduced motion.
  */
+import { ballisticPath } from "../components/completion-celebration.js";
 import { scenicMotionAllowed } from "./scenic-styles.js";
 
 /** Marks a text box as a chat input, which gets the typing feel and the composing-text fix. */
@@ -79,11 +80,7 @@ export function attachTypingFeel(area: HTMLTextAreaElement): TypingFeelHandle {
   if (!scenicMotionAllowed() || !host) return { stop() {} };
   const box = new TypingBox(area, host);
   const frame = area.closest<HTMLElement>("[data-typing-frame]");
-  const parts: Part[] = [
-    glowingCaret(box, forgeColour, (warmth) => forgeColour(warmth * 0.75), 6),
-    drift(box),
-    ...(frame ? [warmEdge(box, frame)] : []),
-  ];
+  const parts: Part[] = [glowingCaret(box, forgeColour), drift(box), ...(frame ? [warmEdge(box, frame)] : [])];
   box.onType((warmth) => {
     const steps = parts.map((part) => part(warmth));
     box.settle((cooled) => {
@@ -302,21 +299,17 @@ class TypingBox {
 type Part = (warmth: number) => (cooled: number) => void;
 
 /**
- * The caret line itself glows: the native caret takes the colour, and a soft light the caret's
- * height hugs the line behind it, brighter the faster you type, cooling when you pause. `colour`
- * gives the colour for a warmth.
+ * The caret line itself glows: the native caret takes the colour, and a light behind it hugs the
+ * line, reaching a little above and below it but hardly sideways, so it never covers the letters
+ * on either side, mid-paragraph included. Brighter the faster you type, cooling when you pause.
+ * `colour` gives the colour for a warmth.
  */
-function glowingCaret(
-  box: TypingBox,
-  colour: (warmth: number) => string,
-  halo: (warmth: number) => string,
-  spread: number,
-): Part {
+function glowingCaret(box: TypingBox, colour: (warmth: number) => string): Part {
   const { area } = box;
   const native = area.style.caretColor;
   box.restyle(area, { caretColor: native });
   box.raise();
-  const height = Number.parseFloat(getComputedStyle(area).fontSize) * 1.25;
+  const height = Number.parseFloat(getComputedStyle(area).fontSize) * 1.25 + 2 * GLOW_REACH;
   const line = box.mark({
     left: "0",
     top: "0",
@@ -325,17 +318,12 @@ function glowingCaret(
     borderRadius: "1px",
     opacity: "0",
   });
-  // The light at a heat: a core the caret's colour and a halo around it, both cooling together.
-  // Heat changes only the colour, never the size, and the halo leans a little right so it stays
-  // off the last letter.
+  // The light at a heat: the caret's colour along the line, fading out above and below it, with
+  // only a hairline of glow at its sides.
   const light = (heat: number) => {
     const lit = colour(heat);
-    line.style.background = lit;
-    // By day a wide halo reads as a smudged caret, so it is narrower there.
-    const dark = document.documentElement.classList.contains("dark");
-    line.style.boxShadow = dark
-      ? `1px 0 2px 0.5px ${lit}, 1.5px 0 ${spread}px 1px color-mix(in srgb, ${halo(heat)} 45%, transparent)`
-      : `0.5px 0 1.5px 0 ${lit}, 1px 0 ${spread - 2}px 0.5px color-mix(in srgb, ${halo(heat)} 40%, transparent)`;
+    line.style.background = `linear-gradient(to bottom, transparent, ${lit} 25%, ${lit} 75%, transparent)`;
+    line.style.boxShadow = `0 0 1px 0 ${lit}`;
   };
   let brighten: ReturnType<typeof setTimeout> | undefined;
   box.later(() => clearTimeout(brighten));
@@ -369,6 +357,9 @@ function glowingCaret(
     };
   };
 }
+
+/** How far the caret's light reaches above and below the caret, in px. */
+const GLOW_REACH = 4;
 
 /** A caret light comes back after a key at half strength, then in full this much later. */
 const FADE_IN_MS = 30;
@@ -409,81 +400,131 @@ interface Drifter {
 }
 
 /**
- * Fireflies at night: soft glowing points that rise up and right, clear of the line, pulsing as they
- * go. On a later line of a message they keep low instead, to the right of the caret, so they never
- * drift over the line above.
+ * Plum petals by day: small pink petals blown out to the right, fast at first so they stay ahead of
+ * fast typing, turning as they settle below the line.
  */
-const FIREFLY: Drifter = {
-  size: [5, 5],
-  style: () => ({
-    borderRadius: "50%",
-    background: "radial-gradient(circle, #fffbe0 0%, #f2ee8a 40%, rgba(225, 235, 110, 0) 72%)",
-    boxShadow: "0 0 6px 2px rgba(232, 240, 130, 0.35)",
-  }),
-  life: [1100, 1600],
-  right: [18, 34],
-  down: [-26, -14],
-  sway: 3,
-  waves: 1.5,
-  opacity: [0, 0.95, 0.55, 1, 0.6, 0],
-  scale: [0.7, 1, 0.9, 1, 0.9, 0.7],
-};
-
-/** Fireflies on a later line of a message: they drift right and barely rise, staying on their line. */
-const LOW_FIREFLY: Drifter = { ...FIREFLY, right: [24, 44], down: [-5, -1], sway: 1.5 };
-
-/** Plum petals by day: small pink petals that float out, turning, and settle below the line. */
 const PETAL: Drifter = {
   size: [8.5, 5.6],
   style: () => ({
     borderRadius: "60% 40% 60% 40%",
     background: "linear-gradient(135deg, #f7cbd4, #e696a9)",
   }),
-  life: [1200, 1700],
-  right: [20, 34],
-  down: [10, 18],
-  sway: 3,
-  waves: 1.2,
+  life: [700, 950],
+  right: [44, 70],
+  down: [8, 16],
+  sway: 2,
+  waves: 1,
   opacity: [0, 0.95, 0.9, 0.8, 0.5, 0],
   scale: [0.8, 1, 1, 1, 0.95, 0.9],
   turn: [-160, 160],
 };
 
+/** How the night's forge sparks fly. Ranges are [least, most]; each spark picks within them. */
+const SPARKS = {
+  /** Sparks in a burst, warm and at full heat. */
+  count: [2, 4],
+  /** Flight time in ms: long enough to see the arc, short of a slow drift. */
+  life: [320, 460],
+  /** Launch angle in radians, 0 straight right, negative up; flatter on a later line of a message. */
+  angle: [-1.0, -0.35],
+  lowAngle: [-0.3, 0.1],
+  /** Distance thrown and pull down over a whole flight, in px (see `ballisticPath`). */
+  speed: [42, 70],
+  gravity: 60,
+} as const;
+
 /**
- * What drifts out right of the caret, so it never covers the next character, and quickly up or
- * down out of the line, so it doesn't drift over the text the caret leaves behind: fireflies at night,
- * plum petals by day. While typing, one more drifts out at most every 320 ms once typing is warm.
- * Drifters are drawn once and reused on their own layers, and move by transform,
+ * What flies out right of the caret, so it never covers the next character: at night sparks from
+ * the forge on falling arcs (round embers and a thin streak, white-gold cooling to red), by day plum
+ * petals blown out to the right. Once typing is warm, one more flight starts at most every 320 ms.
+ * When there is text after the caret (typing mid-paragraph) nothing flies, since it would cross
+ * that text; the caret's glow and the edge still answer each key. On a later line of a message the
+ * sparks fly flat or fall, so they never cross the line above, and everything fades out before the
+ * top of the text box. Marks are drawn once and reused on their own layers, and move by transform,
  * opacity and filter alone, which the compositor runs.
  */
 function drift(box: TypingBox): Part {
   const { lineHeight } = box;
-  const pool = Array.from({ length: 8 }, () => box.mark({ left: "0", top: "0", opacity: "0" }));
+  const pool = Array.from({ length: 10 }, () => box.mark({ left: "0", top: "0", opacity: "0" }));
   let next = 0;
   let driftAt = Number.NEGATIVE_INFINITY;
-  const release = () => {
-    const { x, y, line } = box.caret();
-    const dark = document.documentElement.classList.contains("dark");
-    // Rising fireflies would cross the line above unless the caret is on the first line.
-    const kind = !dark ? PETAL : line > 0 ? LOW_FIREFLY : FIREFLY;
+  const take = () => {
     const mark = pool[next]!;
     next = (next + 1) % pool.length;
-    const [width, height] = kind.size;
-    Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style(box) });
-    mark.animate(path(kind, x + 5, y + lineHeight / 2 - height / 2, box.top()), {
-      duration: between(...kind.life),
-      easing: "linear",
-    });
+    return mark;
+  };
+  const release = (warmth: number) => {
+    const { area } = box;
+    if (/\S/.test(area.value.slice(area.selectionEnd))) return;
+    const { x, y, line } = box.caret();
+    const ceiling = box.top();
+    if (!document.documentElement.classList.contains("dark")) {
+      const mark = take();
+      const [width, height] = PETAL.size;
+      Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...PETAL.style(box) });
+      mark.animate(path(PETAL, x + 5, y + lineHeight / 2 - height / 2, ceiling), {
+        duration: between(...PETAL.life),
+        easing: "linear",
+      });
+      return;
+    }
+    const count = Math.round(SPARKS.count[0] + (SPARKS.count[1] - SPARKS.count[0]) * warmth);
+    const start = { x: x + 4, y: y + lineHeight * 0.45 };
+    for (let i = 0; i < count; i++) {
+      // The first spark of a burst is a thin streak drawn along its flight; the rest are embers.
+      const streak = i === 0;
+      const mark = take();
+      Object.assign(mark.style, {
+        width: streak ? "6px" : "2.5px",
+        height: streak ? "1.4px" : "2.5px",
+        borderRadius: streak ? "1px" : "50%",
+        background: "#ffa640",
+        boxShadow: `0 0 3px 1px ${forgeColour(0.65)}`,
+      });
+      const [low, high] = line > 0 ? SPARKS.lowAngle : SPARKS.angle;
+      const angle = between(low, high);
+      const speed = between(...SPARKS.speed);
+      mark.animate(sparkPath(start, angle, speed, ceiling), {
+        duration: between(...SPARKS.life),
+        easing: "linear",
+      });
+    }
   };
   return (warmth) => {
     if (warmth < DRIFT_WARMTH) return () => {};
     const now = performance.now();
     if (now - driftAt >= DRIFT_EVERY_MS) {
       driftAt = now;
-      release();
+      release(warmth);
     }
     return () => {};
   };
+}
+
+/**
+ * A spark's flight from `start` as keyframes, on the arc the completion celebration's sparks fly:
+ * drawn along its path, white-gold cooling through orange to red, fading out at the end and before
+ * `ceiling` (the top of the text box).
+ */
+function sparkPath(start: { x: number; y: number }, angle: number, speed: number, ceiling: number): Keyframe[] {
+  const cooling = [
+    "brightness(1.35) saturate(0.85)",
+    "brightness(1.2)",
+    "brightness(1)",
+    "brightness(0.85) saturate(1.3)",
+  ];
+  const flight = ballisticPath(angle, speed, SPARKS.gravity);
+  return flight.map(([dx, dy], step) => {
+    const t = step / (flight.length - 1);
+    const heading = Math.atan2(Math.sin(angle) * speed + SPARKS.gravity * t, Math.cos(angle) * speed);
+    const at = start.y + dy;
+    const fade = t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45;
+    return {
+      transform: `translate(${start.x + dx}px, ${at}px) rotate(${heading}rad) scale(${1 - 0.35 * t})`,
+      opacity: fade * Math.min(1, Math.max(0, (at - ceiling) / CEILING_FADE)),
+      filter: cooling[Math.min(cooling.length - 1, Math.floor(t * cooling.length))],
+    };
+  });
 }
 
 /** Drifters fade out over this many px before the top of the text box. */

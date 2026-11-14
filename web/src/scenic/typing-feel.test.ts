@@ -88,7 +88,7 @@ describe("typing feel", () => {
     expect(animate).not.toHaveBeenCalled();
   });
 
-  it("sends petals or fireflies out right of the caret while typing warm, at most one every 320 ms", () => {
+  it("sends petals out right of the caret by day while typing warm, at most one every 320 ms", () => {
     const area = box();
     animate.mockClear();
     handle = attachTypingFeel(area);
@@ -172,6 +172,40 @@ describe("typing feel", () => {
     expect(area.style.caretColor).toBe("");
     expect(marks()).toHaveLength(0);
   });
+  it("sends nothing out while typing mid-paragraph, where it would cross the text after the caret", () => {
+    const area = box();
+    handle = attachTypingFeel(area);
+    area.value = " and the rest of the line";
+    for (let i = 0; i < 20; i++) {
+      // Type at the start, so the text stays after the caret.
+      area.value = `a${area.value}`;
+      area.selectionStart = area.selectionEnd = i + 1;
+      area.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "a" }));
+      paint();
+      vi.advanceTimersByTime(20);
+    }
+    expect(animate).not.toHaveBeenCalled();
+  });
+
+  it("throws forge sparks right of the caret at night", () => {
+    document.documentElement.classList.add("dark");
+    const area = box();
+    handle = attachTypingFeel(area);
+    for (let i = 0; i < 20; i++) {
+      input(area, "a");
+      paint();
+      vi.advanceTimersByTime(20);
+    }
+    const flights = animate.mock.calls.map((call) => call as [Keyframe[], KeyframeAnimationOptions]);
+    // Bursts of two to four sparks.
+    expect(flights.length).toBeGreaterThanOrEqual(2);
+    for (const [keyframes] of flights) {
+      const x = (frame: Keyframe) => Number(/translate\(([-\d.]+)px/.exec(String(frame.transform))![1]);
+      expect(x(keyframes.at(-1)!)).toBeGreaterThan(x(keyframes[0]!));
+    }
+    document.documentElement.classList.remove("dark");
+  });
+
   it("gives chat inputs the feel while they have focus and a scenic background is on", () => {
     let scenic = true;
     const uninstall = installTypingFeel(() => scenic);
