@@ -348,8 +348,9 @@ export function SideChatPanel({
           )}
         </div>
         <div className="border-t border-cc-border p-3">
-          <div className="rounded-lg border border-cc-border bg-cc-bg">
+          <div data-typing-frame className="rounded-lg border border-cc-border bg-cc-bg">
             <textarea
+              data-chat-input
               value={text}
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {

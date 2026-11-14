@@ -150,6 +150,7 @@ export function ComposerInputSurface({
 
       <div
         data-testid="composer-input-card"
+        data-typing-frame
         onDragEnter={handleComposerDragEnter}
         onDragOver={handleComposerDragOver}
         onDragLeave={handleComposerDragLeave}
@@ -180,6 +181,7 @@ export function ComposerInputSurface({
         >
           <textarea
             ref={textareaRef}
+            data-chat-input
             value={text}
             onChange={handleInput}
             onSelect={handleSelectionChange}

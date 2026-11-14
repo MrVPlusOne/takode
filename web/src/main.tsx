@@ -13,6 +13,8 @@ import { resumeWebPushOnThisDevice } from "./utils/web-push.js";
 import { installUserActivityReporter } from "./utils/user-activity.js";
 import { installPortableSelectionCopy } from "./utils/copy-utils.js";
 import { purgeStoredDataThumbnails } from "./utils/image-thumbnail-load-memory.js";
+import { installTypingFeel } from "./scenic/typing-feel.js";
+import { getScenicStyle } from "./scenic/scenic-styles.js";
 import "./index.css";
 import "./scenic/scenic.css";
 import "./scenic/ink-textures.css";
@@ -24,6 +26,7 @@ installPressFeedback();
 installScrollbarVisibility();
 installUserActivityReporter();
 installPortableSelectionCopy();
+installTypingFeel(() => getScenicStyle() !== null);
 if (import.meta.env.DEV) {
   installBrowserPerfDebugHooks();
 }

@@ -383,6 +383,7 @@ export function VoiceAnswerField({
       <div className="flex min-w-0 items-end gap-1">
         <textarea
           ref={textareaRef}
+          data-chat-input
           value={value}
           rows={1}
           autoFocus={autoFocus}

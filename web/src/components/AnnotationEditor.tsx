@@ -284,6 +284,7 @@ export function AnnotationEditor({
         )}
         <textarea
           ref={textarea}
+          data-chat-input
           aria-label="Comment"
           value={text}
           disabled={busy || !!proposal}

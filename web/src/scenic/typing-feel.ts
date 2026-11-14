@@ -12,33 +12,56 @@
  * drawing a frame on every display tick, so a key typed meanwhile waits for the next tick (about
  * 8 ms on average, measured); between steps the page draws nothing, so a key is drawn at once, as
  * with no feel. The drifters are the one real motion, so while one is in the air a key waits for
- * the next tick (measured per variant); the "rest" variant only lets them drift while you pause.
+ * the next tick (measured: about half a frame on the median).
  * Every input counts the same, IME composition (pinyin) included, so it works the same for Chinese.
  * Everything settles soon after the last key, so an idle box draws nothing, and nothing plays with
  * reduced motion.
  */
 import { scenicMotionAllowed } from "./scenic-styles.js";
 
-export type TypingFeel = "petals" | "rest";
+/** Marks a text box as a chat input, which gets the typing feel and the composing-text fix. */
+export const CHAT_INPUT_ATTRIBUTE = "data-chat-input";
+/** On a chat input while an input method (pinyin) is composing text not yet committed. */
+export const COMPOSING_ATTRIBUTE = "data-composing";
 
 /**
- * The styles, in the order to offer them, with a short description of each. Both are the forged
- * caret and the warm edge, with fireflies drifting out right of the caret at night and plum petals
- * by day; they differ in when.
+ * Gives every chat input (a text box marked with `data-chat-input`) its typing feel while it has
+ * focus and a scenic background is on, and marks it `data-composing` while an input method is
+ * composing, whatever the background (the stylesheet keeps composing pinyin readable at night).
+ * One place for every chat input: the composers, side chats, comments and answers. Returns a stop
+ * function.
  */
-export const TYPING_FEELS: ReadonlyArray<{ id: TypingFeel; label: string; description: string }> = [
-  {
-    id: "petals",
-    label: "Fireflies / petals",
-    description: "As you type, fireflies drift out at night; by day, small plum petals float out and settle.",
-  },
-  {
-    id: "rest",
-    label: "Fireflies when you pause",
-    description:
-      "Nothing drifts while you type; when you pause, a few fireflies (by day, petals) drift out one after another, and typing again sends them away.",
-  },
-];
+export function installTypingFeel(scenicOn: () => boolean): () => void {
+  let running: { area: HTMLTextAreaElement; handle: TypingFeelHandle } | null = null;
+  const chatInput = (target: EventTarget | null) =>
+    target instanceof HTMLTextAreaElement && target.hasAttribute(CHAT_INPUT_ATTRIBUTE) ? target : null;
+  const focused = (event: Event) => {
+    const area = chatInput(event.target);
+    if (!area || running?.area === area) return;
+    running?.handle.stop();
+    running = scenicOn() ? { area, handle: attachTypingFeel(area) } : null;
+  };
+  const left = (event: Event) => {
+    if (!running || event.target !== running.area) return;
+    running.handle.stop();
+    running = null;
+  };
+  const composing = (event: Event) => {
+    chatInput(event.target)?.toggleAttribute(COMPOSING_ATTRIBUTE, event.type !== "compositionend");
+  };
+  const listeners: Array<[string, (event: Event) => void]> = [
+    ["focusin", focused],
+    ["focusout", left],
+    ["compositionstart", composing],
+    ["compositionend", composing],
+  ];
+  for (const [type, listener] of listeners) document.addEventListener(type, listener, true);
+  return () => {
+    for (const [type, listener] of listeners) document.removeEventListener(type, listener, true);
+    running?.handle.stop();
+    running = null;
+  };
+}
 
 /** A running typing feel. */
 export interface TypingFeelHandle {
@@ -47,17 +70,19 @@ export interface TypingFeelHandle {
 }
 
 /**
- * Gives `area` a typing feel. Marks are drawn in its parent element, which must be positioned; the
- * warm edge glows around the closest `[data-typing-frame]` (or the parent). Does nothing with
- * reduced motion.
+ * Gives `area` the typing feel. Marks are drawn in its containing block (where its absolutely
+ * positioned children would sit); the warm edge glows around the closest `[data-typing-frame]`,
+ * and without one there is no edge. Does nothing with reduced motion.
  */
-export function attachTypingFeel(area: HTMLTextAreaElement, feel: TypingFeel): TypingFeelHandle {
-  if (!scenicMotionAllowed() || !area.parentElement) return { stop() {} };
-  const box = new TypingBox(area, area.parentElement);
+export function attachTypingFeel(area: HTMLTextAreaElement): TypingFeelHandle {
+  const host = area.offsetParent instanceof HTMLElement ? area.offsetParent : area.parentElement;
+  if (!scenicMotionAllowed() || !host) return { stop() {} };
+  const box = new TypingBox(area, host);
+  const frame = area.closest<HTMLElement>("[data-typing-frame]");
   const parts: Part[] = [
     glowingCaret(box, forgeColour, (warmth) => forgeColour(warmth * 0.75), 6),
-    drift(box, feel),
-    warmEdge(box),
+    drift(box),
+    ...(frame ? [warmEdge(box, frame)] : []),
   ];
   box.onType((warmth) => {
     const steps = parts.map((part) => part(warmth));
@@ -91,6 +116,8 @@ class TypingBox {
   composing = false;
   private readonly mirror = document.createElement("div");
   private readonly cleanups: Array<() => void> = [];
+  /** Whether marks are drawn behind the box's text (it has no background of its own). */
+  private readonly behind: boolean;
   /** The box width the mirror's style was copied at; copied again when it changes. */
   private mirrorWidth = -1;
   private settling: ReturnType<typeof setTimeout> | undefined;
@@ -101,6 +128,9 @@ class TypingBox {
   ) {
     const style = getComputedStyle(area);
     this.lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.4;
+    // Marks sit behind the text when the box is see-through; a box with its own background would
+    // hide them, so then they sit just above it.
+    this.behind = /^(transparent|rgba\(.*,\s*0\))$/.test(style.backgroundColor);
     this.readColours();
     // The theme can change while typing (night falls on "colour by day, ink at night").
     const theme = new MutationObserver(() => this.readColours());
@@ -187,6 +217,7 @@ class TypingBox {
 
   /** Puts the box above its parent's other contents, so marks drawn there sit behind the text. */
   raise(): void {
+    if (!this.behind) return;
     if (getComputedStyle(this.area).position === "static") this.restyle(this.area, { position: "relative" });
     this.restyle(this.area, { zIndex: "1" });
   }
@@ -198,7 +229,12 @@ class TypingBox {
     // Its own layer: a mark only ever changes its opacity and position, which then need no repaint.
     Object.assign(
       element.style,
-      { position: "absolute", pointerEvents: "none", zIndex: "0", willChange: "opacity, transform" },
+      {
+        position: "absolute",
+        pointerEvents: "none",
+        zIndex: this.behind ? "0" : "2",
+        willChange: "opacity, transform",
+      },
       style,
     );
     parent.append(element);
@@ -411,65 +447,39 @@ const PETAL: Drifter = {
 /**
  * What drifts out right of the caret, so it never covers the next character, and quickly up or
  * down out of the line, so it doesn't drift over the text the caret leaves behind: fireflies at night,
- * plum petals by day. While typing, one more drifts out at most every 320 ms once typing is warm;
- * "rest" instead waits for a pause and sends a few, one after another, which typing again sends
- * away. Drifters are drawn once and reused on their own layers, and move by transform,
+ * plum petals by day. While typing, one more drifts out at most every 320 ms once typing is warm.
+ * Drifters are drawn once and reused on their own layers, and move by transform,
  * opacity and filter alone, which the compositor runs.
  */
-function drift(box: TypingBox, feel: TypingFeel): Part {
+function drift(box: TypingBox): Part {
   const { lineHeight } = box;
   const pool = Array.from({ length: 8 }, () => box.mark({ left: "0", top: "0", opacity: "0" }));
-  const flying = new Set<Animation>();
   let next = 0;
   let driftAt = Number.NEGATIVE_INFINITY;
-  let resting: ReturnType<typeof setTimeout> | undefined;
-  box.later(() => clearTimeout(resting));
-  const release = (count: number, stagger: number) => {
+  const release = () => {
     const { x, y, line } = box.caret();
     const dark = document.documentElement.classList.contains("dark");
     // Rising fireflies would cross the line above unless the caret is on the first line.
     const kind = !dark ? PETAL : line > 0 ? LOW_FIREFLY : FIREFLY;
-    for (let i = 0; i < count; i++) {
-      const mark = pool[next]!;
-      next = (next + 1) % pool.length;
-      const [width, height] = kind.size;
-      Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style(box) });
-      const flight = mark.animate(path(kind, x + 5, y + lineHeight / 2 - height / 2), {
-        duration: between(...kind.life),
-        delay: i * stagger * between(0.7, 1.3),
-        easing: "linear",
-        fill: "backwards",
-      });
-      flying.add(flight);
-      flight.onfinish = flight.oncancel = () => flying.delete(flight);
-    }
-  };
-  if (feel === "rest") {
-    // Typing again sends them away at once, so nothing moves while you type.
-    box.onKey(() => {
-      clearTimeout(resting);
-      for (const flight of flying) flight.cancel();
+    const mark = pool[next]!;
+    next = (next + 1) % pool.length;
+    const [width, height] = kind.size;
+    Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style(box) });
+    mark.animate(path(kind, x + 5, y + lineHeight / 2 - height / 2), {
+      duration: between(...kind.life),
+      easing: "linear",
     });
-  }
+  };
   return (warmth) => {
     if (warmth < DRIFT_WARMTH) return () => {};
-    if (feel === "rest") {
-      clearTimeout(resting);
-      resting = setTimeout(() => release(2 + Math.round(warmth * 2), REST_STAGGER_MS), REST_MS);
-      return () => {};
-    }
     const now = performance.now();
     if (now - driftAt >= DRIFT_EVERY_MS) {
       driftAt = now;
-      release(1, 0);
+      release();
     }
     return () => {};
   };
 }
-
-/** "rest" sends its drifters once typing has paused this long, about this far apart. */
-const REST_MS = 350;
-const REST_STAGGER_MS = 220;
 
 /** A drifter's flight from (x, y) as keyframes: out to the right, wandering side to side. */
 function path(kind: Drifter, x: number, y: number): Keyframe[] {
@@ -495,8 +505,7 @@ function between(least: number, most: number): number {
 }
 
 /** Warm edge: the composer's edge glows softly while you type, brighter the faster, then settles. */
-function warmEdge(box: TypingBox): Part {
-  const frame = box.area.closest<HTMLElement>("[data-typing-frame]") ?? box.host;
+function warmEdge(box: TypingBox, frame: HTMLElement): Part {
   if (getComputedStyle(frame).position === "static") box.restyle(frame, { position: "relative" });
   const edge = box.mark({ inset: "-1px", borderRadius: getComputedStyle(frame).borderRadius, opacity: "0" }, frame);
   return (warmth) => {

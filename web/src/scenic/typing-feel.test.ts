@@ -3,11 +3,12 @@
  * Typing feel: the text box is never touched (its text, colour and weight stay its own, and its
  * caret stays the native one), the work for each key waits until after the frame that shows the
  * key, settling happens in discrete steps rather than animations (an animation would keep the page
- * drawing frames, delaying keys), and every input counts, IME composition (Chinese) included.
- * jsdom has no layout, and time is faked.
+ * drawing frames, delaying keys), every input counts, IME composition (Chinese) included, and
+ * one installer gives every chat input the feel and marks it while composing. jsdom has no layout,
+ * and time is faked.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { attachTypingFeel, type TypingFeelHandle } from "./typing-feel.js";
+import { attachTypingFeel, installTypingFeel, type TypingFeelHandle } from "./typing-feel.js";
 
 let handle: TypingFeelHandle = { stop() {} };
 const animate = vi.fn();
@@ -63,7 +64,7 @@ const marks = () => document.querySelectorAll("#host > div[aria-hidden], #frame 
 describe("typing feel", () => {
   it("warms the native caret only after the typed text has been painted, then settles back", () => {
     const area = box();
-    handle = attachTypingFeel(area, "petals");
+    handle = attachTypingFeel(area);
     input(area, "a");
     // Nothing changes while the key is handled, so the text paints as fast as without a feel.
     expect(area.style.caretColor).toBe("");
@@ -76,74 +77,49 @@ describe("typing feel", () => {
   it("settles in steps, never with an animation that would keep the page drawing frames", () => {
     // (The forge's sparks are the one exception, and only at speed; see below.)
     const area = box();
-    for (const feel of ["petals", "rest"] as const) {
-      handle = attachTypingFeel(area, feel);
-      input(area, "a");
-      paint();
-      const afterKey = animate.mock.calls.length;
-      pause();
-      // Nothing animates while it cools.
-      expect(animate.mock.calls.length).toBe(afterKey);
-      handle.stop();
-    }
+    handle = attachTypingFeel(area);
+    input(area, "a");
+    paint();
+    const afterKey = animate.mock.calls.length;
+    pause();
+    // Nothing animates while it cools.
+    expect(animate.mock.calls.length).toBe(afterKey);
+    handle.stop();
     expect(animate).not.toHaveBeenCalled();
   });
 
   it("sends petals or fireflies out right of the caret while typing warm, at most one every 320 ms", () => {
     const area = box();
-    for (const feel of ["petals"] as const) {
-      animate.mockClear();
-      handle = attachTypingFeel(area, feel);
-      // Slow typing sends nothing.
-      for (let i = 0; i < 3; i++) {
-        input(area, "a");
-        paint();
-        vi.advanceTimersByTime(1500);
-      }
-      expect(animate).not.toHaveBeenCalled();
-      // Typing a key every 60 ms for 1.2 s does, a few at a time.
-      for (let i = 0; i < 20; i++) {
-        input(area, "a");
-        paint();
-        vi.advanceTimersByTime(20);
-      }
-      const flights = animate.mock.calls.map((call) => call as [Keyframe[], KeyframeAnimationOptions]);
-      expect(flights.length).toBeGreaterThan(0);
-      expect(flights.length).toBeLessThanOrEqual(5);
-      for (const [keyframes] of flights) {
-        // Every drifter ends up right of where it started, away from the next character.
-        const x = (frame: Keyframe) => Number(/translate\(([-\d.]+)px/.exec(String(frame.transform))![1]);
-        expect(x(keyframes.at(-1)!)).toBeGreaterThan(x(keyframes[0]!));
-      }
-      handle.stop();
-      pause();
+    animate.mockClear();
+    handle = attachTypingFeel(area);
+    // Slow typing sends nothing.
+    for (let i = 0; i < 3; i++) {
+      input(area, "a");
+      paint();
+      vi.advanceTimersByTime(1500);
     }
-  });
-
-  it("sends nothing while typing for the pause variant, a few when typing pauses, and sends them away on the next key", () => {
-    const area = box();
-    const cancelled = vi.fn();
-    animate.mockImplementation(() => ({ onfinish: null, oncancel: null, cancel: cancelled }) as unknown as Animation);
-    handle = attachTypingFeel(area, "rest");
+    expect(animate).not.toHaveBeenCalled();
+    // Typing a key every 60 ms for 1.2 s does, a few at a time.
     for (let i = 0; i < 20; i++) {
       input(area, "a");
       paint();
       vi.advanceTimersByTime(20);
     }
-    expect(animate).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(400);
-    expect(animate.mock.calls.length).toBeGreaterThanOrEqual(2);
-    // They leave one after another rather than in a clump.
-    const delays = animate.mock.calls.map((call) => (call[1] as KeyframeAnimationOptions).delay as number);
-    expect(delays[0]).toBe(0);
-    expect(delays[1]).toBeGreaterThan(100);
-    input(area, "b");
-    expect(cancelled).toHaveBeenCalled();
+    const flights = animate.mock.calls.map((call) => call as [Keyframe[], KeyframeAnimationOptions]);
+    expect(flights.length).toBeGreaterThan(0);
+    expect(flights.length).toBeLessThanOrEqual(5);
+    for (const [keyframes] of flights) {
+      // Every drifter ends up right of where it started, away from the next character.
+      const x = (frame: Keyframe) => Number(/translate\(([-\d.]+)px/.exec(String(frame.transform))![1]);
+      expect(x(keyframes.at(-1)!)).toBeGreaterThan(x(keyframes[0]!));
+    }
+    handle.stop();
+    pause();
   });
 
   it("counts Chinese typed through an IME, while composing and on commit", () => {
     const area = box();
-    handle = attachTypingFeel(area, "petals");
+    handle = attachTypingFeel(area);
     input(area, "ni", true);
     paint();
     expect(area.style.caretColor).not.toBe("");
@@ -155,7 +131,7 @@ describe("typing feel", () => {
 
   it("does the work once a frame however many keys land in it", () => {
     const area = box();
-    handle = attachTypingFeel(area, "petals");
+    handle = attachTypingFeel(area);
     const frames = vi.spyOn(window, "requestAnimationFrame");
     input(area, "a");
     input(area, "b");
@@ -165,21 +141,19 @@ describe("typing feel", () => {
 
   it("never touches the text: its colour and weight stay the box's own and its caret stays visible", () => {
     const area = box();
-    for (const feel of ["petals", "rest"] as const) {
-      handle = attachTypingFeel(area, feel);
-      input(area, "字");
-      paint();
-      expect(area.style.color).toBe("");
-      expect(area.style.fontWeight).toBe("");
-      expect(area.style.caretColor).not.toBe("transparent");
-      handle.stop();
-      expect(area.style.caretColor).toBe("");
-    }
+    handle = attachTypingFeel(area);
+    input(area, "字");
+    paint();
+    expect(area.style.color).toBe("");
+    expect(area.style.fontWeight).toBe("");
+    expect(area.style.caretColor).not.toBe("transparent");
+    handle.stop();
+    expect(area.style.caretColor).toBe("");
   });
 
   it("lights the caret and the composer's edge, and cleans up", () => {
     const area = box();
-    handle = attachTypingFeel(area, "petals");
+    handle = attachTypingFeel(area);
     input(area, "a");
     paint();
     const light = document.querySelector<HTMLElement>("#host > div[aria-hidden]")!;
@@ -192,10 +166,51 @@ describe("typing feel", () => {
   it("does nothing with reduced motion", () => {
     window.matchMedia = ((query: string) => ({ matches: true, media: query })) as unknown as typeof window.matchMedia;
     const area = box();
-    handle = attachTypingFeel(area, "petals");
+    handle = attachTypingFeel(area);
     input(area, "a");
     paint();
     expect(area.style.caretColor).toBe("");
     expect(marks()).toHaveLength(0);
+  });
+  it("gives chat inputs the feel while they have focus and a scenic background is on", () => {
+    let scenic = true;
+    const uninstall = installTypingFeel(() => scenic);
+    const area = box();
+    area.setAttribute("data-chat-input", "");
+    area.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input(area, "a");
+    paint();
+    expect(area.style.caretColor).not.toBe("");
+    // Leaving the box stops it and puts the box back.
+    area.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    expect(area.style.caretColor).toBe("");
+    // With no scenic background, focus brings no feel.
+    scenic = false;
+    area.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input(area, "b");
+    paint();
+    expect(area.style.caretColor).toBe("");
+    uninstall();
+  });
+
+  it("leaves other text boxes alone", () => {
+    const uninstall = installTypingFeel(() => true);
+    const area = box();
+    area.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input(area, "a");
+    paint();
+    expect(area.style.caretColor).toBe("");
+    uninstall();
+  });
+
+  it("marks a chat input while an input method is composing, whatever the background", () => {
+    const uninstall = installTypingFeel(() => false);
+    const area = box();
+    area.setAttribute("data-chat-input", "");
+    area.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    expect(area.hasAttribute("data-composing")).toBe(true);
+    area.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    expect(area.hasAttribute("data-composing")).toBe(false);
+    uninstall();
   });
 });
