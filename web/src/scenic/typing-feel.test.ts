@@ -8,7 +8,13 @@
  * and time is faked.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { attachTypingFeel, installTypingFeel, type TypingFeelHandle } from "./typing-feel.js";
+import {
+  attachTypingFeel,
+  DAY_THROW_ATTRIBUTE,
+  DAY_THROWS,
+  installTypingFeel,
+  type TypingFeelHandle,
+} from "./typing-feel.js";
 
 let handle: TypingFeelHandle = { stop() {} };
 const animate = vi.fn();
@@ -75,7 +81,7 @@ describe("typing feel", () => {
   });
 
   it("settles in steps, never with an animation that would keep the page drawing frames", () => {
-    // (The forge's sparks are the one exception, and only at speed; see below.)
+    // (Each key's thrown burst is the one motion; see below.)
     const area = box();
     handle = attachTypingFeel(area);
     input(area, "a");
@@ -85,36 +91,63 @@ describe("typing feel", () => {
     // Nothing animates while it cools.
     expect(animate.mock.calls.length).toBe(afterKey);
     handle.stop();
-    expect(animate).not.toHaveBeenCalled();
   });
 
-  it("sends petals out right of the caret by day while typing warm, at most one every 320 ms", () => {
+  it("throws one small burst right of the caret for every typed key, and keeps the air uncrowded", () => {
     const area = box();
-    animate.mockClear();
     handle = attachTypingFeel(area);
-    // Slow typing sends nothing.
+    // Each key, typed slowly, throws its own burst; a deletion throws nothing.
     for (let i = 0; i < 3; i++) {
+      const before = animate.mock.calls.length;
       input(area, "a");
       paint();
+      expect(animate.mock.calls.length - before).toBeGreaterThanOrEqual(1);
+      expect(animate.mock.calls.length - before).toBeLessThanOrEqual(3);
       vi.advanceTimersByTime(1500);
     }
-    expect(animate).not.toHaveBeenCalled();
-    // Typing a key every 60 ms for 1.2 s does, a few at a time.
-    for (let i = 0; i < 20; i++) {
-      input(area, "a");
-      paint();
-      vi.advanceTimersByTime(20);
-    }
-    const flights = animate.mock.calls.map((call) => call as [Keyframe[], KeyframeAnimationOptions]);
-    expect(flights.length).toBeGreaterThan(0);
-    expect(flights.length).toBeLessThanOrEqual(5);
-    for (const [keyframes] of flights) {
-      // Every drifter ends up right of where it started, away from the next character.
+    const thrown = animate.mock.calls.length;
+    area.value = area.value.slice(0, -1);
+    area.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
+    paint();
+    expect(animate.mock.calls.length).toBe(thrown);
+    for (const call of animate.mock.calls) {
+      // Every thrown thing ends up right of where it started, away from the next character.
+      const keyframes = call[0] as Keyframe[];
       const x = (frame: Keyframe) => Number(/translate\(([-\d.]+)px/.exec(String(frame.transform))![1]);
       expect(x(keyframes.at(-1)!)).toBeGreaterThan(x(keyframes[0]!));
     }
-    handle.stop();
-    pause();
+    // Fast typing: these flights never end in jsdom, so the cap of twelve in the air holds them.
+    for (let i = 0; i < 20; i++) {
+      input(area, "a");
+      paint();
+    }
+    expect(animate.mock.calls.length).toBeLessThanOrEqual(12);
+  });
+
+  it("throws the day choice a chat input names, flung down below the line so fast typing never catches it", () => {
+    for (const { id } of DAY_THROWS) {
+      animate.mockClear();
+      const area = box();
+      area.setAttribute(DAY_THROW_ATTRIBUTE, id);
+      area.value = "";
+      // jsdom has no "normal" line height to measure, so give the box a real one.
+      Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
+      handle = attachTypingFeel(area);
+      input(area, "a");
+      paint();
+      expect(animate.mock.calls.length).toBeGreaterThanOrEqual(1);
+      for (const [keyframes, options] of animate.mock.calls as Array<[Keyframe[], KeyframeAnimationOptions]>) {
+        const at = (frame: Keyframe) =>
+          /translate\(([-\d.]+)px, ([-\d.]+)px/.exec(String(frame.transform))!.slice(1).map(Number);
+        const [startX, startY] = at(keyframes[0]!);
+        const [endX, endY] = at(keyframes.at(-1)!);
+        expect(endX).toBeGreaterThan(startX!);
+        expect(endY).toBeGreaterThan(startY!);
+        // Flung, not thrown at an even pace: it leaves the line quickly, then drifts.
+        expect(options.easing).toMatch(/^cubic-bezier/);
+      }
+      handle.stop();
+    }
   });
 
   it("counts Chinese typed through an IME, while composing and on commit", () => {

@@ -1,21 +1,22 @@
 /**
  * Typing feel: the caret is iron in the forge. The faster you type, the hotter it glows, from dark
- * red through orange to white-gold, while the composer's edge glows warm and things fly out right
- * of the caret: sparks from the forge at night, plum petals by day. The text box draws its text and caret
- * itself, exactly as without a feel: nothing here renders text, hides the caret or touches the
- * text's position or weight. Each part only colours the native caret or draws around it.
+ * red through orange to white-gold, while the composer's edge glows warm and every key throws a
+ * small burst out right of the caret: sparks from the forge at night, and by day plum petals, ink
+ * drops, gold leaf, ginkgo leaves or paper scraps (the day choice is still open). The text box
+ * draws its text and caret itself, exactly as without a feel: nothing here renders text, hides the
+ * caret or touches the text's position or weight. Each part only colours the native caret or draws
+ * around it.
  *
- * No added latency beyond the drifting: the work for a key runs after the frame showing that key
- * has been painted (only the caret light is dimmed as the key lands, so it doesn't glow a frame
- * over the new character, and comes back in two steps after it), and the settling, which waits for
- * a pause in typing, is a few discrete steps rather than an animation. An animation keeps the page
+ * No added latency beyond the bursts: the work for a key runs after the frame showing that key has
+ * been painted (only the caret light is dimmed as the key lands, so it doesn't glow a frame over
+ * the new character, and comes back in two steps after it), and the settling, which waits for a
+ * pause in typing, is a few discrete steps rather than an animation. An animation keeps the page
  * drawing a frame on every display tick, so a key typed meanwhile waits for the next tick (about
  * 8 ms on average, measured); between steps the page draws nothing, so a key is drawn at once, as
- * with no feel. The drifters are the one real motion, so while one is in the air a key waits for
- * the next tick (measured: about half a frame on the median).
- * Every input counts the same, IME composition (pinyin) included, so it works the same for Chinese.
- * Everything settles soon after the last key, so an idle box draws nothing, and nothing plays with
- * reduced motion.
+ * with no feel. The thrown bursts are the one real motion, so while one is in the air a key waits
+ * for the next tick. Every input counts the same, IME composition (pinyin) included, so it works
+ * the same for Chinese. Everything settles soon after the last key, so an idle box draws nothing,
+ * and nothing plays with reduced motion.
  */
 import { ballisticPath } from "../components/completion-celebration.js";
 import { scenicMotionAllowed } from "./scenic-styles.js";
@@ -64,6 +65,21 @@ export function installTypingFeel(scenicOn: () => boolean): () => void {
   };
 }
 
+/** What a key throws out by day; at night it is always a spark from the forge. */
+export type DayThrow = "petals" | "ink" | "gold" | "ginkgo" | "scraps";
+
+/** The day choices, to compare in the Playground; chat inputs use the first. */
+export const DAY_THROWS: ReadonlyArray<{ id: DayThrow; label: string }> = [
+  { id: "petals", label: "Plum petals" },
+  { id: "ink", label: "Ink drops" },
+  { id: "gold", label: "Gold leaf" },
+  { id: "ginkgo", label: "Ginkgo leaves" },
+  { id: "scraps", label: "Paper scraps" },
+];
+
+/** On a chat input, picks its day throw (one of `DAY_THROWS`); without it, plum petals. */
+export const DAY_THROW_ATTRIBUTE = "data-typing-day";
+
 /** A running typing feel. */
 export interface TypingFeelHandle {
   /** Stops the feel and puts the box back as it was. */
@@ -80,7 +96,12 @@ export function attachTypingFeel(area: HTMLTextAreaElement): TypingFeelHandle {
   if (!scenicMotionAllowed() || !host) return { stop() {} };
   const box = new TypingBox(area, host);
   const frame = area.closest<HTMLElement>("[data-typing-frame]");
-  const parts: Part[] = [glowingCaret(box, forgeColour), drift(box), ...(frame ? [warmEdge(box, frame)] : [])];
+  const day = DAY_THROWS.find((option) => option.id === area.getAttribute(DAY_THROW_ATTRIBUTE))?.id ?? "petals";
+  const parts: Part[] = [
+    glowingCaret(box, forgeColour),
+    throwing(box, DAY_KINDS[day]),
+    ...(frame ? [warmEdge(box, frame)] : []),
+  ];
   box.onType((warmth) => {
     const steps = parts.map((part) => part(warmth));
     box.settle((cooled) => {
@@ -109,6 +130,8 @@ class TypingBox {
   private heat = 0;
   private typedAt = 0;
   private lastGap = Number.POSITIVE_INFINITY;
+  /** Keys that typed something since the last time a feel took them. */
+  private keys = 0;
   /** Whether an IME (pinyin) is composing text that isn't committed yet. */
   composing = false;
   private readonly mirror = document.createElement("div");
@@ -163,7 +186,8 @@ class TypingBox {
     let frame = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let scheduled = false;
-    const typed = () => {
+    const typed = (event: Event) => {
+      if ((event as InputEvent).inputType?.startsWith("insert")) this.keys += 1;
       const now = performance.now();
       this.heat = this.heat * 0.5 ** ((now - this.typedAt) / COOL_MS) + 1;
       this.lastGap = now - this.typedAt;
@@ -193,6 +217,13 @@ class TypingBox {
   onKey(hide: () => void): void {
     this.area.addEventListener("input", hide);
     this.cleanups.push(() => this.area.removeEventListener("input", hide));
+  }
+
+  /** How many keys typed something since the last call: each one gets its own throw. */
+  takeKeys(): number {
+    const keys = this.keys;
+    this.keys = 0;
+    return keys;
   }
 
   /** Where the box's top edge is, relative to the host. */
@@ -376,186 +407,247 @@ function forgeColour(warmth: number): string {
   return `color-mix(in srgb, ${stops[from + 1]} ${mix}%, ${stops[from]})`;
 }
 
-/** Drifting starts when typing is this warm, and one more drifts out at most this often. */
-const DRIFT_WARMTH = 0.25;
-const DRIFT_EVERY_MS = 320;
+/** At most this many thrown things are in the air at once, so fast typing doesn't make a cloud. */
+const MAX_IN_AIR = 12;
 
-/** How a kind of drifter looks and moves. Ranges are [least, most]; each one picks within them. */
-interface Drifter {
-  /** Width and height in px, and how it is drawn. */
+/**
+ * How a kind of thrown thing looks and flies. Ranges are [least, most]; each throw picks within
+ * them. It flies the arc the completion celebration's sparks fly (`ballisticPath`).
+ */
+interface Kind {
+  /** How many leave together in one key's burst. */
+  burst: [number, number];
+  /** Width and height in px, and how the mark at `index` of the pool is drawn. */
   size: [number, number];
-  style: (box: TypingBox) => Partial<CSSStyleDeclaration>;
-  /** Flight time in ms, and how far it goes right and down (negative is up), in px. */
+  style: (box: TypingBox, index: number) => Partial<CSSStyleDeclaration>;
+  /** Flight time in ms. */
   life: [number, number];
-  right: [number, number];
-  down: [number, number];
-  /** Side-to-side wander, in px, and how many times it wanders over its flight. */
-  sway: number;
-  waves: number;
-  /** Opacity, scale, blur (px) and turn (degrees) at six even points of its flight. */
+  /** Launch angle in radians, 0 straight right and negative up, and flatter on a later line. */
+  angle: [number, number];
+  lowAngle?: [number, number];
+  /** Distance thrown and pull down over a whole flight, in px. */
+  speed: [number, number];
+  gravity: number;
+  /** Opacity and scale at six even points of the flight. */
   opacity: number[];
   scale: number[];
-  blur?: number[];
-  turn?: [number, number];
+  /** Turning over the flight, in degrees; how many times it flips like a leaf; drawn along its path. */
+  spin?: [number, number];
+  flips?: number;
+  along?: boolean;
+  /** Flattens as it lands, like a drop of ink beading on paper. */
+  beads?: boolean;
+  /** Flung fast and slowed by the air, rather than flying at an even pace. */
+  flung?: boolean;
+  /** Filters at even points of the flight (sparks cool from white-gold to red). */
+  filter?: string[];
 }
 
-/**
- * Plum petals by day: small pink petals blown out to the right, fast at first so they stay ahead of
- * fast typing, turning as they settle below the line.
- */
-const PETAL: Drifter = {
-  size: [8.5, 5.6],
-  style: () => ({
-    borderRadius: "60% 40% 60% 40%",
-    background: "linear-gradient(135deg, #f7cbd4, #e696a9)",
-  }),
-  life: [700, 950],
-  right: [44, 70],
-  down: [8, 16],
-  sway: 2,
-  waves: 1,
-  opacity: [0, 0.95, 0.9, 0.8, 0.5, 0],
-  scale: [0.8, 1, 1, 1, 0.95, 0.9],
-  turn: [-160, 160],
+const ARC_OPACITY = [0, 1, 1, 0.95, 0.6, 0];
+
+/** At night: a spark from the forge, an ember or now and then a thin streak, cooling as it flies. */
+function spark(streak: boolean): Kind {
+  return {
+    burst: [2, 3],
+    size: streak ? [6, 1.4] : [2.5, 2.5],
+    style: () => ({
+      borderRadius: streak ? "1px" : "50%",
+      background: "#ffa640",
+      boxShadow: `0 0 2px 0.5px ${forgeColour(0.65)}`,
+    }),
+    life: [260, 380],
+    angle: [-1.0, -0.35],
+    lowAngle: [-0.3, 0.1],
+    speed: [42, 70],
+    gravity: 60,
+    opacity: ARC_OPACITY,
+    scale: [1, 1, 0.9, 0.85, 0.75, 0.65],
+    along: streak,
+    filter: ["brightness(1.35) saturate(0.85)", "brightness(1.2)", "brightness(1)", "brightness(0.85) saturate(1.3)"],
+  };
+}
+
+/** By day, the variant's thing: flung out right and down below the line, where it drifts and settles. */
+const DAY_KINDS: Record<DayThrow, Kind> = {
+  petals: {
+    burst: [1, 2],
+    size: [8.5, 5.6],
+    style: () => ({ borderRadius: "60% 40% 60% 40%", background: "linear-gradient(135deg, #f7cbd4, #e696a9)" }),
+    life: [500, 700],
+    angle: [0.35, 0.8],
+    speed: [46, 66],
+    gravity: 30,
+    flung: true,
+    opacity: ARC_OPACITY,
+    scale: [0.8, 1, 1, 1, 0.95, 0.9],
+    spin: [-160, 160],
+  },
+  ink: {
+    burst: [2, 3],
+    size: [4.5, 4.5],
+    // A glossy bead of ink, with a small highlight.
+    style: (box) => ({
+      borderRadius: "50%",
+      background: `radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.45), color-mix(in srgb, ${box.ink} 85%, transparent) 45%)`,
+    }),
+    life: [420, 560],
+    angle: [0.45, 0.95],
+    speed: [34, 50],
+    gravity: 40,
+    flung: true,
+    opacity: [0, 1, 1, 1, 0.75, 0],
+    scale: [0.7, 1, 1, 1, 1.5, 1.8],
+    beads: true,
+  },
+  gold: {
+    burst: [1, 2],
+    size: [7, 5.4],
+    style: () => ({
+      clipPath: "polygon(8% 30%, 40% 0%, 92% 12%, 100% 62%, 62% 100%, 0% 78%)",
+      background: "linear-gradient(135deg, #f8e391, #cf9a2e 55%, #f4d77a)",
+    }),
+    life: [520, 720],
+    angle: [0.35, 0.85],
+    speed: [44, 64],
+    gravity: 30,
+    flung: true,
+    opacity: ARC_OPACITY,
+    scale: [0.8, 1, 1, 1, 1, 0.9],
+    spin: [-200, 200],
+    flips: 1.5,
+  },
+  ginkgo: {
+    burst: [1, 2],
+    size: [8, 7],
+    // A ginkgo fan: a short stem, the fan's rounded edge, and the notch in its middle.
+    style: () => ({
+      clipPath:
+        "polygon(50% 100%, 44% 70%, 6% 40%, 0% 22%, 10% 8%, 28% 2%, 46% 10%, 50% 4%, 54% 10%, 72% 2%, 90% 8%, 100% 22%, 94% 40%, 56% 70%)",
+      background: "linear-gradient(180deg, #f3cf55, #d9a21c)",
+    }),
+    life: [520, 740],
+    angle: [0.35, 0.8],
+    speed: [44, 64],
+    gravity: 30,
+    flung: true,
+    opacity: ARC_OPACITY,
+    scale: [0.8, 1, 1, 1, 1, 0.95],
+    spin: [-140, 140],
+    flips: 1,
+  },
+  scraps: {
+    burst: [2, 3],
+    size: [5.6, 3.8],
+    style: (_box, index) => ({
+      borderRadius: "0.5px",
+      background: SCRAP_COLOURS[index % SCRAP_COLOURS.length],
+    }),
+    life: [460, 640],
+    angle: [0.4, 0.95],
+    speed: [40, 60],
+    gravity: 40,
+    flung: true,
+    opacity: ARC_OPACITY,
+    scale: [0.8, 1, 1, 1, 1, 0.9],
+    spin: [-300, 300],
+    flips: 2,
+  },
 };
 
-/** At night a burst of sparks comes at most this often, so each strike of the hammer stays distinct. */
-const STRIKE_EVERY_MS = 400;
-
-/** How the night's forge sparks fly. Ranges are [least, most]; each spark picks within them. */
-const SPARKS = {
-  /** Sparks in a burst, warm and at full heat. */
-  count: [2, 4],
-  /** Flight time in ms: long enough to see the arc, short of a slow drift. */
-  life: [320, 460],
-  /** Launch angle in radians, 0 straight right, negative up; flatter on a later line of a message. */
-  angle: [-1.0, -0.35],
-  lowAngle: [-0.3, 0.1],
-  /** Distance thrown and pull down over a whole flight, in px (see `ballisticPath`). */
-  speed: [42, 70],
-  gravity: 60,
-} as const;
+/** Paper scraps in the Ink & Paper colours: seal vermilion, indigo, ochre and rice paper. */
+const SCRAP_COLOURS = ["#c8382c", "#33507a", "#c48a24", "#efe6d2"];
 
 /**
- * What flies out right of the caret, so it never covers the next character: at night sparks from
- * the forge on falling arcs (round embers and a thin streak, white-gold cooling to red), by day plum
- * petals blown out to the right. Once typing is warm, one more flight starts at most every 320 ms
- * by day, and a burst at most every 400 ms at night.
- * When there is text after the caret (typing mid-paragraph) nothing flies, since it would cross
- * that text; the caret's glow and the edge still answer each key. On a later line of a message the
- * sparks fly flat or fall, so they never cross the line above, and everything fades out before the
- * top of the text box. Marks are drawn once and reused on their own layers, and move by transform,
- * opacity and filter alone, which the compositor runs.
+ * Every key that types something throws one small burst out right of the caret, so typing and
+ * effect match one to one: two or three sparks from the forge at night, the variant's petals, drops,
+ * leaves or scraps by day, all of a burst leaving together. It never covers the next character, and nothing is thrown when there is text after the
+ * caret (typing mid-paragraph), since it would cross that text; the caret's glow and the edge still
+ * answer each key. On a later line of a message sparks fly flat or fall, so they never cross the
+ * line above, and everything fades out before the top of the text box. At most twelve are in the
+ * air; past that a burst is cut short. Marks are drawn once and reused on their own layers, and fly by
+ * transform, opacity and filter alone, which the compositor runs.
  */
-function drift(box: TypingBox): Part {
+function throwing(box: TypingBox, day: Kind): Part {
   const { lineHeight } = box;
-  const pool = Array.from({ length: 10 }, () => box.mark({ left: "0", top: "0", opacity: "0" }));
-  let next = 0;
-  let driftAt = Number.NEGATIVE_INFINITY;
-  const take = () => {
-    const mark = pool[next]!;
-    next = (next + 1) % pool.length;
-    return mark;
-  };
-  const release = (warmth: number) => {
+  const pool = Array.from({ length: MAX_IN_AIR }, () => box.mark({ left: "0", top: "0", opacity: "0" }));
+  const flying = new Set<HTMLElement>();
+  // Each mark is drawn once for the time of day (a third of the sparks are streaks) and after that
+  // only moves, so a throw paints nothing new.
+  let drawnFor: boolean | undefined;
+  let kinds: Kind[] = [];
+  return () => {
+    const keys = box.takeKeys();
     const { area } = box;
-    if (/\S/.test(area.value.slice(area.selectionEnd))) return;
+    if (!keys || /\S/.test(area.value.slice(area.selectionEnd))) return () => {};
     const { x, y, line } = box.caret();
     const ceiling = box.top();
-    if (!document.documentElement.classList.contains("dark")) {
-      const mark = take();
-      const [width, height] = PETAL.size;
-      Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...PETAL.style(box) });
-      mark.animate(path(PETAL, x + 5, y + lineHeight / 2 - height / 2, ceiling), {
-        duration: between(...PETAL.life),
-        easing: "linear",
-      });
-      return;
-    }
-    const count = Math.round(SPARKS.count[0] + (SPARKS.count[1] - SPARKS.count[0]) * warmth);
-    const start = { x: x + 6, y: y + lineHeight * 0.45 };
-    for (let i = 0; i < count; i++) {
-      // The first spark of a burst is a thin streak drawn along its flight; the rest are embers.
-      const streak = i === 0;
-      const mark = take();
-      Object.assign(mark.style, {
-        width: streak ? "6px" : "2.5px",
-        height: streak ? "1.4px" : "2.5px",
-        borderRadius: streak ? "1px" : "50%",
-        background: "#ffa640",
-        boxShadow: `0 0 2px 0.5px ${forgeColour(0.65)}`,
-      });
-      const [low, high] = line > 0 ? SPARKS.lowAngle : SPARKS.angle;
-      const angle = between(low, high);
-      const speed = between(...SPARKS.speed);
-      mark.animate(sparkPath(start, angle, speed, ceiling), {
-        duration: between(...SPARKS.life),
-        easing: "linear",
+    const dark = document.documentElement.classList.contains("dark");
+    if (dark !== drawnFor) {
+      drawnFor = dark;
+      kinds = pool.map((mark, index) => {
+        const kind = dark ? spark(index % 3 === 0) : day;
+        const [width, height] = kind.size;
+        Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style(box, index) });
+        return kind;
       });
     }
-  };
-  return (warmth) => {
-    if (warmth < DRIFT_WARMTH) return () => {};
-    const now = performance.now();
-    const every = document.documentElement.classList.contains("dark") ? STRIKE_EVERY_MS : DRIFT_EVERY_MS;
-    if (now - driftAt >= every) {
-      driftAt = now;
-      release(warmth);
+    for (let key = 0; key < keys; key++) {
+      // Each key throws one small burst, all of it leaving together; keys that landed in the same
+      // frame leave a beat apart.
+      const size = Math.round(between(kinds[0]!.burst[0], kinds[0]!.burst[1] + 0.49));
+      for (let i = 0; i < size; i++) {
+        const free = pool.filter((candidate) => !flying.has(candidate));
+        if (!free.length) return () => {};
+        const mark = free[Math.floor(Math.random() * free.length)]!;
+        const kind = kinds[pool.indexOf(mark)]!;
+        const start = { x: x + 6, y: y + lineHeight * 0.45 - kind.size[1] / 2 };
+        const flight = mark.animate(arc(kind, start, line > 0, ceiling), {
+          duration: between(...kind.life),
+          delay: key * 40,
+          easing: kind.flung ? FLUNG : "linear",
+          fill: "backwards",
+        });
+        flying.add(mark);
+        flight.onfinish = flight.oncancel = () => flying.delete(mark);
+      }
     }
     return () => {};
   };
 }
 
 /**
- * A spark's flight from `start` as keyframes, on the arc the completion celebration's sparks fly:
- * drawn along its path, white-gold cooling through orange to red, fading out at the end and before
- * `ceiling` (the top of the text box).
+ * A day throw's pace: it covers over half its path in the first fifth of its life, so it is below the
+ * line before the next characters reach it even in fast typing, then drifts.
  */
-function sparkPath(start: { x: number; y: number }, angle: number, speed: number, ceiling: number): Keyframe[] {
-  const cooling = [
-    "brightness(1.35) saturate(0.85)",
-    "brightness(1.2)",
-    "brightness(1)",
-    "brightness(0.85) saturate(1.3)",
-  ];
-  const flight = ballisticPath(angle, speed, SPARKS.gravity);
-  return flight.map(([dx, dy], step) => {
-    const t = step / (flight.length - 1);
-    const heading = Math.atan2(Math.sin(angle) * speed + SPARKS.gravity * t, Math.cos(angle) * speed);
-    const at = start.y + dy;
-    // Sparks show up already flying, a little out from the caret, rather than as a flash at it.
-    const fade = t === 0 ? 0 : t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45;
-    return {
-      transform: `translate(${start.x + dx}px, ${at}px) rotate(${heading}rad) scale(${1 - 0.35 * t})`,
-      opacity: fade * Math.min(1, Math.max(0, (at - ceiling) / CEILING_FADE)),
-      filter: cooling[Math.min(cooling.length - 1, Math.floor(t * cooling.length))],
-    };
-  });
-}
+const FLUNG = "cubic-bezier(0.2, 0.8, 0.4, 1)";
 
-/** Drifters fade out over this many px before the top of the text box. */
+/** Things fade out over this many px before the top of the text box. */
 const CEILING_FADE = 6;
 
 /**
- * A drifter's flight from (x, y) as keyframes: out to the right, wandering side to side, faded out
- * above `ceiling` (the top of the text box).
+ * A thrown thing's flight from `start` as keyframes, on a falling arc: turning, flipping or drawn
+ * along its path by kind, and faded out above `ceiling` (the top of the text box).
  */
-function path(kind: Drifter, x: number, y: number, ceiling: number): Keyframe[] {
-  const right = between(...kind.right);
-  const down = between(...kind.down);
-  const phase = Math.random() * Math.PI * 2;
-  const turn = kind.turn ? between(...kind.turn) : 0;
-  return kind.opacity.map((opacity, step) => {
-    const t = step / (kind.opacity.length - 1);
-    // Fast at first, then drifting: an ease-out along the way.
-    const along = t * (2 - t);
-    const wander = kind.sway * Math.sin(phase + t * kind.waves * Math.PI * 2);
-    const at = y + down * along + wander;
+function arc(kind: Kind, start: { x: number; y: number }, low: boolean, ceiling: number): Keyframe[] {
+  const [least, most] = low && kind.lowAngle ? kind.lowAngle : kind.angle;
+  const angle = between(least, most);
+  const speed = between(...kind.speed);
+  const spin = kind.spin ? between(...kind.spin) : 0;
+  const flight = ballisticPath(angle, speed, kind.gravity);
+  return flight.map(([dx, dy], step) => {
+    const t = step / (flight.length - 1);
+    const at = start.y + dy;
+    const turn = kind.along
+      ? `${Math.atan2(Math.sin(angle) * speed + kind.gravity * t, Math.cos(angle) * speed)}rad`
+      : `${spin * t}deg`;
+    // A leaf or flake flips by narrowing and widening; a drop beads flat as it lands.
+    const flip = kind.flips ? Math.cos(t * kind.flips * Math.PI * 2) : 1;
+    const bead = kind.beads && t > 0.7 ? 0.45 : 1;
+    const scale = kind.scale[step]!;
     return {
-      transform: `translate(${x + right * along}px, ${at}px) rotate(${turn * t}deg) scale(${kind.scale[step]})`,
-      // Fades out as it nears the top of the text box, so it never drifts over what is above it.
-      opacity: opacity * Math.min(1, Math.max(0, (at - ceiling) / CEILING_FADE)),
-      filter: kind.blur ? `blur(${kind.blur[step]}px)` : "none",
+      transform: `translate(${start.x + dx}px, ${at}px) rotate(${turn}) scale(${scale * flip}, ${scale * bead})`,
+      opacity: kind.opacity[step]! * Math.min(1, Math.max(0, (at - ceiling) / CEILING_FADE)),
+      filter: kind.filter ? kind.filter[Math.min(kind.filter.length - 1, Math.floor(t * kind.filter.length))] : "none",
     };
   });
 }
