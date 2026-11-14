@@ -8,7 +8,6 @@ import { useEffect, useRef, useState } from "react";
 import { ScenicBackdrop } from "../../scenic/ScenicBackdrop.js";
 import { arrive } from "../../scenic/ink-motion.js";
 import { useScenicStyle } from "../../scenic/scenic-styles.js";
-import { DAY_THROW_ATTRIBUTE, DAY_THROWS, type DayThrow } from "../../scenic/typing-feel.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const ANSWERS = [
@@ -20,7 +19,6 @@ const ANSWERS = [
 export function PlaygroundTypingFeelSection() {
   const style = useScenicStyle();
   const [answers, setAnswers] = useState([0]);
-  const [day, setDay] = useState<DayThrow>("gold");
   const area = useRef<HTMLTextAreaElement>(null);
   const newest = useRef<HTMLDivElement>(null);
   const arrived = useRef(0);
@@ -37,29 +35,9 @@ export function PlaygroundTypingFeelSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Typing Feel"
-        description="What every chat input (composers, side chats, comments and answers) does while you type with a scenic background on: the caret glows like forged iron, hotter the faster you type, the composer's edge glows warm, and every key throws a small burst out right of the caret: sparks at night, and by day a flake of gold leaf drifting out on the air (chat inputs use gold leaf; the golden ink splash is there to compare). The text box draws the text as always. A new answer arriving spreads in like ink on xuan paper."
+        description="What every chat input (composers, side chats, comments and answers) does while you type with a scenic background on: the caret glows like forged iron, hotter the faster you type, the composer's edge glows warm, and every key throws a small burst out right of the caret: sparks at night, and by day a flake of gold leaf drifting out on the air and falling. The text box draws the text as always. A new answer arriving spreads in like ink on xuan paper."
       >
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-cc-muted">
-            By day
-            <select
-              value={day}
-              onChange={(event) => {
-                setDay(event.target.value as DayThrow);
-                // The feel reads its day throw when the box gets focus.
-                area.current?.blur();
-                requestAnimationFrame(() => area.current?.focus());
-              }}
-              data-testid="playground-typing-day-select"
-              className="rounded-md border border-cc-border bg-cc-input-bg px-2 py-1 text-xs text-cc-fg cursor-pointer"
-            >
-              {DAY_THROWS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
           <button
             type="button"
             onClick={() => setAnswers((list) => [...list.slice(-1), (list.at(-1) ?? 0) + 1])}
@@ -97,7 +75,6 @@ export function PlaygroundTypingFeelSection() {
                 <textarea
                   ref={area}
                   data-chat-input
-                  {...{ [DAY_THROW_ATTRIBUTE]: day }}
                   rows={3}
                   spellCheck={false}
                   placeholder="Type here to try it..."

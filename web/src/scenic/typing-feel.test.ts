@@ -8,13 +8,7 @@
  * and time is faked.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  attachTypingFeel,
-  DAY_THROW_ATTRIBUTE,
-  DAY_THROWS,
-  installTypingFeel,
-  type TypingFeelHandle,
-} from "./typing-feel.js";
+import { attachTypingFeel, installTypingFeel, type TypingFeelHandle } from "./typing-feel.js";
 
 let handle: TypingFeelHandle = { stop() {} };
 const animate = vi.fn();
@@ -147,42 +141,30 @@ describe("typing feel", () => {
     }
   });
 
-  it("throws the day choice a chat input names, out to the right where fast typing doesn't reach it", () => {
+  it("drifts gold leaf out by day like a falling leaf, where fast typing doesn't reach it", () => {
     const at = (frame: Keyframe) =>
       /translate\(([-\d.]+)px, ([-\d.]+)px/.exec(String(frame.transform))!.slice(1).map(Number) as [number, number];
-    for (const { id } of DAY_THROWS) {
-      animate.mockClear();
-      const area = box();
-      area.setAttribute(DAY_THROW_ATTRIBUTE, id);
-      area.value = "";
-      // jsdom has no layout: give the box a line height, and its card room below the line.
-      Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
-      Object.defineProperty(document.getElementById("frame")!, "offsetHeight", { configurable: true, value: 64 });
-      Object.defineProperty(document.getElementById("frame")!, "offsetWidth", { configurable: true, value: 400 });
-      handle = attachTypingFeel(area);
-      input(area, "a");
-      paint();
-      expect(animate.mock.calls.length).toBeGreaterThanOrEqual(1);
-      for (const [frames, options] of animate.mock.calls as Array<[Keyframe[], KeyframeAnimationOptions]>) {
-        const [startX, startY] = at(frames[0]!);
-        const [endX, endY] = at(frames.at(-1)!);
-        expect(endX).toBeGreaterThan(startX + 20);
-        if (id === "splash") {
-          // Sprayed: flung fast and slowed by the air.
-          expect(options.easing).toMatch(/^cubic-bezier/);
-          continue;
-        }
-        // Gold leaf drifts like a leaf: carried out sideways fast, sinking from the start but mostly
-        // as it slows, and never past the bottom of its card (64 px tall, less a margin).
-        const [quarterX, quarterY] = at(frames[Math.round((frames.length - 1) / 4)]!);
-        expect(quarterX - startX).toBeGreaterThan((endX - startX) / 2);
-        expect(quarterY).toBeGreaterThan(startY);
-        expect(quarterY - startY).toBeLessThan((endY - startY) / 2);
-        expect(endY).toBeGreaterThan(startY + 5);
-        expect(endY).toBeLessThan(60);
-      }
-      handle.stop();
-    }
+    const area = box();
+    // jsdom has no layout: give the box a line height, and its card room below the line.
+    Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
+    Object.defineProperty(document.getElementById("frame")!, "offsetHeight", { configurable: true, value: 64 });
+    Object.defineProperty(document.getElementById("frame")!, "offsetWidth", { configurable: true, value: 400 });
+    handle = attachTypingFeel(area);
+    input(area, "a");
+    paint();
+    expect(animate.mock.calls.length).toBe(1);
+    const frames = animate.mock.calls[0]![0] as Keyframe[];
+    const [startX, startY] = at(frames[0]!);
+    const [endX, endY] = at(frames.at(-1)!);
+    // Carried out sideways fast, sinking from the start but mostly as it slows, and never past the
+    // bottom of its card (64 px tall, less a margin).
+    const [quarterX, quarterY] = at(frames[Math.round((frames.length - 1) / 4)]!);
+    expect(endX).toBeGreaterThan(startX + 20);
+    expect(quarterX - startX).toBeGreaterThan((endX - startX) / 2);
+    expect(quarterY).toBeGreaterThan(startY);
+    expect(quarterY - startY).toBeLessThan((endY - startY) / 2);
+    expect(endY).toBeGreaterThan(startY + 5);
+    expect(endY).toBeLessThan(60);
   });
 
   it("keeps only the newest few leaves drifting calmly and hurries the older ones to settle", () => {

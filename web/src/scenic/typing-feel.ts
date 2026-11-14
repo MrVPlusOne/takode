@@ -2,10 +2,9 @@
  * Typing feel: the caret is iron in the forge. The faster you type, the hotter it glows, from dark
  * red through orange to white-gold, while the composer's edge glows warm and every key throws a
  * small burst out right of the caret: sparks from the forge at night, and by day a flake of gold
- * leaf drifting out on the air (or, to compare, a splash of gold ink). The text box draws its text
- * and caret itself, exactly as without a feel: nothing here renders text, hides the caret or
- * touches the text's position or weight. Each part only colours the native caret or draws around
- * it.
+ * leaf drifting out on the air and falling. The text box draws its text and caret itself, exactly
+ * as without a feel: nothing here renders text, hides the caret or touches the text's position or
+ * weight. Each part only colours the native caret or draws around it.
  *
  * No added latency beyond the bursts: the work for a key runs after the frame showing that key has
  * been painted (only the caret light is dimmed as the key lands, so it doesn't glow a frame over
@@ -65,18 +64,6 @@ export function installTypingFeel(scenicOn: () => boolean): () => void {
   };
 }
 
-/** What a key throws out by day; at night it is always a spark from the forge. */
-export type DayThrow = "gold" | "splash";
-
-/** The day choices, to compare in the Playground; chat inputs use the first. */
-export const DAY_THROWS: ReadonlyArray<{ id: DayThrow; label: string }> = [
-  { id: "gold", label: "Gold leaf" },
-  { id: "splash", label: "Golden ink splash" },
-];
-
-/** On a chat input, picks its day throw (one of `DAY_THROWS`); without it, gold leaf. */
-export const DAY_THROW_ATTRIBUTE = "data-typing-day";
-
 /** A running typing feel. */
 export interface TypingFeelHandle {
   /** Stops the feel and puts the box back as it was. */
@@ -93,10 +80,9 @@ export function attachTypingFeel(area: HTMLTextAreaElement): TypingFeelHandle {
   if (!scenicMotionAllowed() || !host) return { stop() {} };
   const box = new TypingBox(area, host);
   const frame = area.closest<HTMLElement>("[data-typing-frame]");
-  const day = DAY_THROWS.find((option) => option.id === area.getAttribute(DAY_THROW_ATTRIBUTE))?.id ?? "gold";
   const parts: Part[] = [
     glowingCaret(box, forgeColour),
-    throwing(box, DAY_KINDS[day], frame),
+    throwing(box, frame),
     ...(frame ? [warmEdge(box, frame)] : []),
   ];
   box.onType((warmth) => {
@@ -505,45 +491,26 @@ function spark(index: number): Kind {
   };
 }
 
-/** The day choices, each a kind for the mark at `index` of the pool. */
-const DAY_KINDS: Record<DayThrow, (index: number) => Kind> = {
-  // One flake of gold leaf a key, drifting out on the air and settling under the line.
-  gold: () => ({
-    burst: [1, 1],
-    size: [8.5, 6.5],
-    style: {
-      clipPath: "polygon(8% 30%, 40% 0%, 92% 12%, 100% 62%, 62% 100%, 0% 78%)",
-      background: "linear-gradient(135deg, #f8e391, #cf9a2e 55%, #f4d77a)",
-    },
-    life: [1500, 2000],
-    path: { reach: [60, 120], sink: [28, 40], sway: 6, swings: 1.5 },
-    opacity: [0, 1, 1, 0.95, 0.8, 0],
-    scale: [0.8, 1, 1, 1, 1, 0.9],
-    spin: [-40, 40],
-    flips: 1,
-  }),
-  // A splash of gold ink sprayed out right: round drops of two sizes and thin streaks.
-  splash: (index) => {
-    const shape = index % 3;
-    return {
-      burst: [3, 4],
-      size: shape === 0 ? [8, 2.2] : shape === 1 ? [4.6, 4.6] : [3, 3],
-      style: {
-        borderRadius: shape === 0 ? "1px" : "50%",
-        background: "radial-gradient(circle at 35% 35%, #f6d47a, #c08a1e 60%, #8f6114)",
-      },
-      life: [280, 400],
-      path: { angle: [-0.55, 0.3], speed: [30, 70], gravity: 50, flung: true, along: shape === 0 },
-      opacity: ARC_OPACITY,
-      scale: [0.6, 1, 1, 0.9, 0.8, 0.7],
-    };
+/** By day, one flake of gold leaf a key, drifting out on the air and settling under the line. */
+const GOLD_LEAF: Kind = {
+  burst: [1, 1],
+  size: [8.5, 6.5],
+  style: {
+    clipPath: "polygon(8% 30%, 40% 0%, 92% 12%, 100% 62%, 62% 100%, 0% 78%)",
+    background: "linear-gradient(135deg, #f8e391, #cf9a2e 55%, #f4d77a)",
   },
+  life: [1500, 2000],
+  path: { reach: [60, 120], sink: [28, 40], sway: 6, swings: 1.5 },
+  opacity: [0, 1, 1, 0.95, 0.8, 0],
+  scale: [0.8, 1, 1, 1, 1, 0.9],
+  spin: [-40, 40],
+  flips: 1,
 };
 
 /**
  * Every key that types something throws one small burst out right of the caret, so typing and
- * effect match one to one: sparks from the forge at night, the day choice's gold leaf or ink by
- * day, all of a burst leaving together. It never covers the next character, and nothing is thrown
+ * effect match one to one: sparks from the forge at night, a flake of gold leaf by day, all of a
+ * burst leaving together. It never covers the next character, and nothing is thrown
  * when there is text after the caret (typing mid-paragraph), since it would cross that text; the
  * caret's glow and the edge still answer each key. On a later line of a message sparks fly flat or
  * fall, so they never cross the line above. Everything fades out before the edges of its room:
@@ -552,7 +519,7 @@ const DAY_KINDS: Record<DayThrow, (index: number) => Kind> = {
  * the oldest is retired, so every key still throws. Marks are drawn once and reused on their own layers, and fly by transform, opacity and
  * filter alone, which the compositor runs.
  */
-function throwing(box: TypingBox, day: (index: number) => Kind, frame: HTMLElement | null): Part {
+function throwing(box: TypingBox, frame: HTMLElement | null): Part {
   const { lineHeight } = box;
   const pool = Array.from({ length: MAX_IN_AIR }, () => box.mark({ left: "0", top: "0", opacity: "0" }));
   // Marks in the air, oldest first, and those of them told to hurry.
@@ -572,7 +539,7 @@ function throwing(box: TypingBox, day: (index: number) => Kind, frame: HTMLEleme
     if (dark !== drawnFor) {
       drawnFor = dark;
       kinds = pool.map((mark, index) => {
-        const kind = dark ? spark(index) : day(index);
+        const kind = dark ? spark(index) : GOLD_LEAF;
         const [width, height] = kind.size;
         Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style });
         return kind;
