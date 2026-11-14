@@ -2,6 +2,7 @@ import {
   GENERATED_FALLBACK_LEADER_PROFILE_PORTRAIT,
   GENERATED_LEADER_PROFILE_PORTRAITS,
 } from "./leader-profile-portraits.generated.js";
+import { RETIRED_LEADER_PROFILE_PORTRAIT_REPLACEMENTS } from "./leader-profile-portrait-retirements.js";
 
 export const LEADER_PROFILE_POOL_IDS = ["tako", "shmi", "animals"] as const;
 
@@ -46,15 +47,6 @@ export const LEADER_PROFILE_PORTRAITS: LeaderProfilePortrait[] = GENERATED_LEADE
 
 export const FALLBACK_LEADER_PROFILE_PORTRAIT: LeaderProfilePortrait = GENERATED_FALLBACK_LEADER_PROFILE_PORTRAIT;
 
-const LEGACY_SHEET_PORTRAIT_ID_ALIASES: Record<string, string> = {
-  tako1: "tako1-01",
-  tako2: "tako2-01",
-  tako3: "tako3-01",
-  shmi1: "shmi1-01",
-  shmi2: "shmi2-01",
-  shmi3: "shmi3-01",
-};
-
 export function normalizeLeaderProfilePoolSettings(raw: unknown): LeaderProfilePoolSettings {
   const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   return Object.fromEntries(
@@ -80,8 +72,23 @@ export function getLeaderProfilePortrait(id: string | null | undefined): LeaderP
   return LEADER_PROFILE_PORTRAITS.find((portrait) => portrait.id === normalizedId) ?? null;
 }
 
+/** The id a saved portrait id stands for today: a retired portrait's replacement, or the id itself. */
 export function normalizeLeaderProfilePortraitId(id: string): string {
-  return LEGACY_SHEET_PORTRAIT_ID_ALIASES[id] ?? id;
+  return RETIRED_LEADER_PROFILE_PORTRAIT_REPLACEMENTS[id] ?? id;
+}
+
+/**
+ * The portrait's ink-wash painting for the Ink & Paper background, in the same two sizes as its
+ * painting. Every pooled portrait has one (`public/leader-profile-portraits/ink/`); the fallback
+ * doesn't, so it keeps its own picture.
+ */
+export function leaderProfilePortraitInkUrl(
+  portrait: LeaderProfilePortrait,
+  variant: "small" | "large",
+): string | null {
+  if (portrait.poolId === "fallback") return null;
+  const size = variant === "small" ? portrait.smallSize : portrait.largeSize;
+  return `/leader-profile-portraits/ink/${portrait.id}.v1.${size}.webp`;
 }
 
 export function isLeaderProfilePortraitId(id: string): boolean {

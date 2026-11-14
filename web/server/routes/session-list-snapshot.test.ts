@@ -342,17 +342,21 @@ describe("buildEnrichedSessionsSnapshot", () => {
     expect((snapshot[0] as any).leaderProfilePortrait).toMatchObject({ id: "tako1-01", poolId: "tako" });
   });
 
-  it("normalizes obsolete sheet-level portrait ids in active leader snapshots", async () => {
-    const launcherSession = makeLauncherSession({ isOrchestrator: true, leaderProfilePortraitId: "shmi3" });
+  it.each([
+    // An obsolete sheet-level id, and a cat dropped when the cat sets were cut down.
+    { saved: "shmi3", replacement: "shmi2-11", poolId: "shmi" },
+    { saved: "tako1-02", replacement: "tako1-01", poolId: "tako" },
+  ])("replaces retired portrait id $saved in active leader snapshots and saves the replacement", async (row) => {
+    const launcherSession = makeLauncherSession({ isOrchestrator: true, leaderProfilePortraitId: row.saved });
     const deps = makeDeps(launcherSession, makeBridgeSession([]));
 
     const snapshot = await buildEnrichedSessionsSnapshot(deps);
 
-    expect(snapshot[0].leaderProfilePortraitId).toBe("shmi3-01");
-    expect((snapshot[0] as any).leaderProfilePortrait).toMatchObject({ id: "shmi3-01", poolId: "shmi" });
+    expect(snapshot[0].leaderProfilePortraitId).toBe(row.replacement);
+    expect((snapshot[0] as any).leaderProfilePortrait).toMatchObject({ id: row.replacement, poolId: row.poolId });
     expect((deps as any).launcher.setLeaderProfilePortraitId).toHaveBeenCalledWith(
       launcherSession.sessionId,
-      "shmi3-01",
+      row.replacement,
     );
   });
 

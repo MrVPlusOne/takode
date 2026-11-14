@@ -6,6 +6,7 @@ import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
 import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
 import { LEADER_PROFILE_POOLS, LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
+import { LeaderPortraitPicture } from "./LeaderPortraitPicture.js";
 
 const PANEL_MARGIN = 12;
 const PANEL_GAP = 8;
@@ -56,11 +57,9 @@ export function LeaderProfilePortraitImage({
       data-status={statusRing?.status}
       style={statusRing?.style}
     >
-      <img
-        src={portrait.smallUrl}
+      <LeaderPortraitPicture
+        portrait={portrait}
         alt=""
-        width={portrait.smallSize}
-        height={portrait.smallSize}
         loading="eager"
         decoding="async"
         className="h-full w-full rounded-full object-cover"
@@ -196,11 +195,10 @@ export function LeaderProfilePortraitButton({
                 onClick={(event) => event.stopPropagation()}
               >
                 <div className="flex shrink-0 items-start gap-3">
-                  <img
-                    src={portrait.largeUrl}
+                  <LeaderPortraitPicture
+                    portrait={portrait}
+                    variant="large"
                     alt={portrait.label}
-                    width={portrait.largeSize}
-                    height={portrait.largeSize}
                     loading="eager"
                     decoding="async"
                     className="h-20 w-20 rounded-full object-cover ring-1 ring-cc-border/80"
@@ -251,11 +249,9 @@ export function LeaderProfilePortraitButton({
                                   } ${savingId === option.id ? "opacity-60" : ""}`}
                                   title={option.label}
                                 >
-                                  <img
-                                    src={option.smallUrl}
+                                  <LeaderPortraitPicture
+                                    portrait={option}
                                     alt={option.label}
-                                    width={option.smallSize}
-                                    height={option.smallSize}
                                     loading="lazy"
                                     decoding="async"
                                     className={`${sizes.thumbClass} rounded-full object-cover`}

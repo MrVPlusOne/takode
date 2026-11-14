@@ -24,6 +24,7 @@ import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHostBadge } from "./HostBadge.js";
 import { GlobalAttentionMenu } from "./GlobalAttentionMenu.js";
 import { useDesktopShellLayout } from "../hooks/useDesktopShellLayout.js";
+import { LeaderPortraitPicture } from "./LeaderPortraitPicture.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 
@@ -401,11 +402,9 @@ export function TopBar({
                       <span className="relative shrink-0">
                         {leaderProfilePortrait ? (
                           <>
-                            <img
-                              src={leaderProfilePortrait.smallUrl}
+                            <LeaderPortraitPicture
+                              portrait={leaderProfilePortrait}
                               alt=""
-                              width={leaderProfilePortrait.smallSize}
-                              height={leaderProfilePortrait.smallSize}
                               loading="eager"
                               decoding="async"
                               data-testid="topbar-leader-profile-portrait"
@@ -468,11 +467,9 @@ export function TopBar({
                         </span>
                       )}
                       {leaderProfilePortrait && (
-                        <img
-                          src={leaderProfilePortrait.smallUrl}
+                        <LeaderPortraitPicture
+                          portrait={leaderProfilePortrait}
                           alt=""
-                          width={leaderProfilePortrait.smallSize}
-                          height={leaderProfilePortrait.smallSize}
                           loading="eager"
                           decoding="async"
                           data-testid="topbar-leader-profile-portrait"

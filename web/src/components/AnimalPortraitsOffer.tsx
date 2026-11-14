@@ -6,6 +6,7 @@ import {
 } from "../api/animal-portraits-offer.js";
 import { refreshActiveSessionMetadata } from "../session-list-hydration.js";
 import { LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
+import { LeaderPortraitPicture } from "./LeaderPortraitPicture.js";
 
 const SAMPLE_PORTRAITS = LEADER_PROFILE_PORTRAITS.filter((portrait) => portrait.poolId === "animals").slice(1, 4);
 
@@ -59,12 +60,10 @@ export function AnimalPortraitsOffer() {
     >
       <span className="flex shrink-0 -space-x-1.5" aria-hidden="true">
         {SAMPLE_PORTRAITS.map((portrait) => (
-          <img
+          <LeaderPortraitPicture
             key={portrait.id}
-            src={portrait.smallUrl}
+            portrait={portrait}
             alt=""
-            width={portrait.smallSize}
-            height={portrait.smallSize}
             className="h-6 w-6 rounded-full object-cover ring-2 ring-cc-bg"
           />
         ))}

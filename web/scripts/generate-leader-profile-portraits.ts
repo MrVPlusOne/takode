@@ -8,6 +8,7 @@ import {
   type LeaderProfilePortrait,
 } from "../shared/leader-profile-portraits.js";
 import { detectPortraitCircles, type DetectedPortraitCircle } from "./leader-profile-circle-detection.js";
+import { RETIRED_LEADER_PROFILE_PORTRAIT_REPLACEMENTS } from "../shared/leader-profile-portrait-retirements.js";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ASSET_ROOT = join(PROJECT_ROOT, "public", "leader-profile-portraits");
@@ -234,6 +235,8 @@ export async function generateLeaderProfilePortraitAssets(): Promise<GenerationR
   for (const sheet of PORTRAIT_SHEETS) {
     const prepared = sheet.layout === "grid" ? await prepareGridSheet(sheet) : await prepareCircleSheet(sheet);
     for (const portrait of prepared) {
+      // Retired portraits stay on the source sheets but are no longer offered.
+      if (RETIRED_LEADER_PROFILE_PORTRAIT_REPLACEMENTS[portrait.id]) continue;
       const small = await writePortraitVariant(sheet.poolId, portrait.id, portrait.square, VARIANTS[0].size);
       const large = await writePortraitVariant(sheet.poolId, portrait.id, portrait.square, VARIANTS[1].size);
       portraits.push({
@@ -293,7 +296,10 @@ export async function validateLeaderProfilePortraitAssets(
 }
 
 async function prepareOutputDirectories(): Promise<void> {
-  await rm(ASSET_ROOT, { recursive: true, force: true });
+  // Only the folders this script writes: `ink/` holds the Ink & Paper paintings, made separately.
+  for (const folder of [...new Set(PORTRAIT_SHEETS.map((sheet) => sheet.poolId)), "fallback"]) {
+    await rm(join(ASSET_ROOT, folder), { recursive: true, force: true });
+  }
   await rm(VALIDATION_ROOT, { recursive: true, force: true });
   await mkdir(ASSET_ROOT, { recursive: true });
   await mkdir(VALIDATION_ROOT, { recursive: true });

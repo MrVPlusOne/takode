@@ -55,7 +55,7 @@ export function PlaygroundVisualDecisionNotification() {
       "Two header layouts are ready. Both keep the same controls; they differ only in how the title fits.",
       "",
       `- **A: one line**, truncates long titles. \`${assetRoot}/tako1-01.v2.320.webp\``,
-      `- **B: wrapped**, shows the full title but is taller. \`${assetRoot}/tako1-02.v2.320.webp\``,
+      `- **B: wrapped**, shows the full title but is taller. \`${assetRoot}/tako1-03.v2.320.webp\``,
       "",
       "I recommend **A** because the header stays compact on phones.",
     ].join("\n"),

@@ -112,7 +112,7 @@ describe("LeaderProfilePortraitButton", () => {
       const dialog = screen.getByRole("dialog", { name: "Leader profile" });
       expect(dialog).toHaveStyle({ top: "108px", width: "300px", maxHeight: "520px" });
       expect(screen.getByTestId("leader-profile-portrait-grid-scroll")).toHaveClass("min-h-0", "overflow-y-auto");
-      expect(LEADER_PROFILE_PORTRAITS).toHaveLength(160);
+      expect(LEADER_PROFILE_PORTRAITS).toHaveLength(96);
 
       const lastPortrait = LEADER_PROFILE_PORTRAITS[LEADER_PROFILE_PORTRAITS.length - 1];
       fireEvent.click(screen.getByRole("button", { name: lastPortrait.label }));

@@ -82,9 +82,9 @@ describe("Animals portraits offer", () => {
     updateSettings({ leaderProfilePools: { tako: true, shmi: true, animals: false } });
     const sessions: FakeSession[] = [
       { sessionId: "leader-1", isOrchestrator: true, leaderProfilePortraitId: "tako1-01" },
-      { sessionId: "leader-2", isOrchestrator: true, leaderProfilePortraitId: "shmi1-01" },
+      { sessionId: "leader-2", isOrchestrator: true, leaderProfilePortraitId: "shmi1-02" },
       // Archived leaders and workers keep what they have.
-      { sessionId: "leader-archived", isOrchestrator: true, archived: true, leaderProfilePortraitId: "tako1-02" },
+      { sessionId: "leader-archived", isOrchestrator: true, archived: true, leaderProfilePortraitId: "tako1-03" },
       { sessionId: "worker-1", isOrchestrator: false },
     ];
     const { api } = createApp(sessions);
@@ -99,7 +99,7 @@ describe("Animals portraits offer", () => {
     expect(first.leaderProfilePortraitId).toMatch(/^animals/);
     expect(second.leaderProfilePortraitId).toMatch(/^animals/);
     expect(first.leaderProfilePortraitId).not.toBe(second.leaderProfilePortraitId);
-    expect(archived.leaderProfilePortraitId).toBe("tako1-02");
+    expect(archived.leaderProfilePortraitId).toBe("tako1-03");
     expect(worker.leaderProfilePortraitId).toBeUndefined();
   });
 });
