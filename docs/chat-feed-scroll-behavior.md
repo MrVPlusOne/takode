@@ -73,6 +73,15 @@ landing at the bottom (following, Go to bottom, restore, send) keeps their
 measured height clear, and a following feed moves up by it when the chips first
 appear. Without chips the content ends at the feed's edge.
 
+The top works the same way: every feed keeps one row of floating chips' room
+above its first content (a quest thread's chips, the Codex subagent control,
+live terminal and subagent chips), or the chips' height when they are taller,
+so scrolled to the top no chip covers the first line. The room is there even
+without chips, so chips that come and go during a turn never move a short
+conversation. Mid-scroll the chips float over whatever is under them; scrolling
+a little uncovers it. A feed with a pinned quest strip keeps no extra room: its
+controls start below the strip.
+
 While the feed follows, the browser's own scroll anchoring is off: the feed keeps
 itself at the bottom. When the feed narrows and its text reflows (opening the side
 column), anchoring scrolled it, and that scroll read as the reader leaving the

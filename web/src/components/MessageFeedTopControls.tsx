@@ -13,8 +13,14 @@ import { LiveActivityRail, type CodexTerminalEntry, type LiveSubagentEntry } fro
  * a phone the Codex subagent control leaves little room beside the pill, so then the pill takes
  * its own line under the row; otherwise it sits centered on the row.
  */
-/** Space between the quest chips and the feed's first content. */
+/** Space between the chips and the feed's first content. */
 const TOP_ROOM_GAP_PX = 8;
+/**
+ * The room every feed keeps at its top, one row of chips (the row's offset, a chip and the gap), even
+ * without chips: chips that come and go during a turn would otherwise move a short conversation down
+ * and back each time (Jiayi, Nov 14: one extra line of overscroll).
+ */
+export const ONE_ROW_TOP_ROOM_PX = 44;
 
 export function MessageFeedTopControls({
   sessionId,
@@ -46,8 +52,9 @@ export function MessageFeedTopControls({
    */
   questChips?: ReactNode;
   /**
-   * The room the quest chips need above the feed's earliest content (px, 0 without them): the feed
-   * leaves it at its top, so scrolled to the top, the chips never cover its first line.
+   * The room the feed keeps above its earliest content (px): one row of chips, or the chips' height
+   * when they are taller, so scrolled to the top no chip covers the first line. 0 below a pinned
+   * strip, where the controls start under the strip instead.
    */
   onTopRoomChange?: (px: number) => void;
   /**
@@ -66,29 +73,28 @@ export function MessageFeedTopControls({
   const desktop = useDesktopShellLayout();
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const rowRef = useRef<HTMLDivElement | null>(null);
-  const measured = !!questChips && !belowPinnedStrip;
+  const hasRow = hasCodexSubagents || hasLiveActivity || !!questChips;
   useLayoutEffect(() => {
     if (!onTopRoomChange) return;
     const overlay = overlayRef.current;
     const row = rowRef.current;
-    if (!measured || !overlay || !row) {
-      onTopRoomChange(0);
+    if (belowPinnedStrip || !hasRow || !overlay || !row) {
+      onTopRoomChange(belowPinnedStrip ? 0 : ONE_ROW_TOP_ROOM_PX);
       return;
     }
     // Measured without a pinned report bar the controls moved below: that is room while scrolling
     // through a report, not at the feed's top.
     const report = () => {
       const bar = Number.parseFloat(getComputedStyle(overlay).getPropertyValue("--feed-pinned-bar")) || 0;
-      onTopRoomChange(overlay.offsetTop - bar + row.offsetHeight + TOP_ROOM_GAP_PX);
+      onTopRoomChange(Math.max(ONE_ROW_TOP_ROOM_PX, overlay.offsetTop - bar + row.offsetHeight + TOP_ROOM_GAP_PX));
     };
     report();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(report);
     observer.observe(row);
     return () => observer.disconnect();
-  }, [measured, onTopRoomChange]);
+  }, [belowPinnedStrip, hasRow, onTopRoomChange]);
 
-  const hasRow = hasCodexSubagents || hasLiveActivity || !!questChips;
   if (!hasRow && !dayPill) return null;
   // Desktop has room for the pill beside the Codex subagent control; a phone does not. Quest chips
   // can be as wide as the pill's place, so the pill goes under them.

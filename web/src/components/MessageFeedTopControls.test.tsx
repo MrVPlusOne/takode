@@ -5,7 +5,7 @@ import "@testing-library/jest-dom";
 import type { SessionState } from "../types.js";
 import { useStore } from "../store.js";
 import type { CodexTerminalEntry } from "./MessageFeedLiveActivity.js";
-import { MessageFeedTopControls } from "./MessageFeedTopControls.js";
+import { MessageFeedTopControls, ONE_ROW_TOP_ROOM_PX } from "./MessageFeedTopControls.js";
 
 const terminal: CodexTerminalEntry = {
   toolUseId: "terminal-1",
@@ -222,7 +222,8 @@ describe("MessageFeedTopControls", () => {
     // at the right, where they cover less, and the feed leaves their height (plus a gap) above its
     // earliest content, so scrolled to the top nothing is under them.
     installSession(false);
-    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(30);
+    // A chip row taller than one row (two lines of chips), so the measured height wins.
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(60);
     vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockReturnValue(4);
     const onTopRoomChange = vi.fn();
     const props = {
@@ -237,11 +238,55 @@ describe("MessageFeedTopControls", () => {
     };
     const view = render(<MessageFeedTopControls {...props} questChips={<span data-testid="chips">Work</span>} />);
     expect(screen.getByTestId("chips").parentElement).toHaveClass("ml-auto", "justify-end");
-    expect(onTopRoomChange).toHaveBeenLastCalledWith(4 + 30 + 8);
-    // Without chips the feed keeps its usual top padding.
+    expect(onTopRoomChange).toHaveBeenLastCalledWith(4 + 60 + 8);
+    // Without chips the feed still keeps one row of room (Jiayi, Nov 14: one extra line of
+    // overscroll), so chips appearing during a turn never move a short conversation down.
     view.rerender(<MessageFeedTopControls {...props} />);
-    expect(onTopRoomChange).toHaveBeenLastCalledWith(0);
+    expect(onTopRoomChange).toHaveBeenLastCalledWith(ONE_ROW_TOP_ROOM_PX);
     vi.restoreAllMocks();
+  });
+
+  it("keeps one row of room under chips no taller than a row, such as the live terminal chips", () => {
+    // Only a quest thread's chips used to get room: the Codex subagent control and the live chips
+    // of a running turn covered the feed's first line at its top.
+    installSession(false);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(30);
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockReturnValue(4);
+    const onTopRoomChange = vi.fn();
+    render(
+      <MessageFeedTopControls
+        sessionId="session-1"
+        terminals={[terminal]}
+        subagents={[]}
+        selectedToolUseId={null}
+        onSelect={vi.fn()}
+        onSelectSubagent={vi.fn()}
+        onDismissSubagent={vi.fn()}
+        onTopRoomChange={onTopRoomChange}
+      />,
+    );
+    expect(onTopRoomChange).toHaveBeenLastCalledWith(ONE_ROW_TOP_ROOM_PX);
+    vi.restoreAllMocks();
+  });
+
+  it("asks for no room below a pinned strip, where the controls start under the strip", () => {
+    installSession(false);
+    const onTopRoomChange = vi.fn();
+    render(
+      <MessageFeedTopControls
+        sessionId="session-1"
+        terminals={[]}
+        subagents={[]}
+        selectedToolUseId={null}
+        onSelect={vi.fn()}
+        onSelectSubagent={vi.fn()}
+        onDismissSubagent={vi.fn()}
+        onTopRoomChange={onTopRoomChange}
+        questChips={<span>Work</span>}
+        belowPinnedStrip
+      />,
+    );
+    expect(onTopRoomChange).toHaveBeenLastCalledWith(0);
   });
 
   it("leaves a pinned report bar out of the room it asks for", () => {
@@ -274,7 +319,7 @@ describe("MessageFeedTopControls", () => {
         />
       </div>,
     );
-    expect(onTopRoomChange).toHaveBeenLastCalledWith(4 + 30 + 8);
+    expect(onTopRoomChange).toHaveBeenLastCalledWith(Math.max(ONE_ROW_TOP_ROOM_PX, 4 + 30 + 8));
     vi.restoreAllMocks();
   });
 

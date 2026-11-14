@@ -30,7 +30,7 @@ export function useFeedPinnedTop(
 }
 
 /**
- * The feed scroller's style: with `topRoom` (px) kept above its first content for the quest chips,
+ * The feed scroller's style: with `topRoom` (px) kept above its first content for the chips there,
  * that is its top padding, and `--feed-top-pad` tells sticky bars (a report's collapse bar, Main's
  * quest strip), which cancel the padding to pin flush with the feed's top edge.
  *
