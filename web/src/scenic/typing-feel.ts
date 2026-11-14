@@ -333,7 +333,7 @@ function glowingCaret(box: TypingBox, colour: (warmth: number) => string): Part 
   });
   return (warmth) => {
     const { x, y } = box.caret();
-    line.style.transform = `translate(${x - 0.5}px, ${y + (box.lineHeight - height) / 2}px)`;
+    line.style.transform = `translate(${x - 1}px, ${y + (box.lineHeight - height) / 2}px)`;
     return (cooled) => {
       const heat = warmth * (1 - cooled);
       area.style.caretColor = cooled < 1 ? colour(heat) : native;
@@ -419,6 +419,9 @@ const PETAL: Drifter = {
   turn: [-160, 160],
 };
 
+/** At night a burst of sparks comes at most this often, so each strike of the hammer stays distinct. */
+const STRIKE_EVERY_MS = 400;
+
 /** How the night's forge sparks fly. Ranges are [least, most]; each spark picks within them. */
 const SPARKS = {
   /** Sparks in a burst, warm and at full heat. */
@@ -436,7 +439,8 @@ const SPARKS = {
 /**
  * What flies out right of the caret, so it never covers the next character: at night sparks from
  * the forge on falling arcs (round embers and a thin streak, white-gold cooling to red), by day plum
- * petals blown out to the right. Once typing is warm, one more flight starts at most every 320 ms.
+ * petals blown out to the right. Once typing is warm, one more flight starts at most every 320 ms
+ * by day, and a burst at most every 400 ms at night.
  * When there is text after the caret (typing mid-paragraph) nothing flies, since it would cross
  * that text; the caret's glow and the edge still answer each key. On a later line of a message the
  * sparks fly flat or fall, so they never cross the line above, and everything fades out before the
@@ -469,7 +473,7 @@ function drift(box: TypingBox): Part {
       return;
     }
     const count = Math.round(SPARKS.count[0] + (SPARKS.count[1] - SPARKS.count[0]) * warmth);
-    const start = { x: x + 4, y: y + lineHeight * 0.45 };
+    const start = { x: x + 6, y: y + lineHeight * 0.45 };
     for (let i = 0; i < count; i++) {
       // The first spark of a burst is a thin streak drawn along its flight; the rest are embers.
       const streak = i === 0;
@@ -479,7 +483,7 @@ function drift(box: TypingBox): Part {
         height: streak ? "1.4px" : "2.5px",
         borderRadius: streak ? "1px" : "50%",
         background: "#ffa640",
-        boxShadow: `0 0 3px 1px ${forgeColour(0.65)}`,
+        boxShadow: `0 0 2px 0.5px ${forgeColour(0.65)}`,
       });
       const [low, high] = line > 0 ? SPARKS.lowAngle : SPARKS.angle;
       const angle = between(low, high);
@@ -493,7 +497,8 @@ function drift(box: TypingBox): Part {
   return (warmth) => {
     if (warmth < DRIFT_WARMTH) return () => {};
     const now = performance.now();
-    if (now - driftAt >= DRIFT_EVERY_MS) {
+    const every = document.documentElement.classList.contains("dark") ? STRIKE_EVERY_MS : DRIFT_EVERY_MS;
+    if (now - driftAt >= every) {
       driftAt = now;
       release(warmth);
     }
@@ -518,7 +523,8 @@ function sparkPath(start: { x: number; y: number }, angle: number, speed: number
     const t = step / (flight.length - 1);
     const heading = Math.atan2(Math.sin(angle) * speed + SPARKS.gravity * t, Math.cos(angle) * speed);
     const at = start.y + dy;
-    const fade = t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45;
+    // Sparks show up already flying, a little out from the caret, rather than as a flash at it.
+    const fade = t === 0 ? 0 : t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45;
     return {
       transform: `translate(${start.x + dx}px, ${at}px) rotate(${heading}rad) scale(${1 - 0.35 * t})`,
       opacity: fade * Math.min(1, Math.max(0, (at - ceiling) / CEILING_FADE)),
