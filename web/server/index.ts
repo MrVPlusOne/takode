@@ -38,6 +38,7 @@ import {
 import { BrowserLogin, loginGate } from "./browser-login.js";
 import { createBrowserLoginRoutes } from "./routes/browser-login.js";
 import { HOST_LINK_PATH } from "../shared/host-protocol.js";
+import { loadClaudeModelCatalog } from "./claude-model-catalog.js";
 import { CliLauncher } from "./cli-launcher.js";
 import { parentClaudeSessionWarning } from "./cli-launcher-env.js";
 import { WsBridge } from "./ws-bridge.js";
@@ -308,6 +309,8 @@ const modelProvenanceMigrationAcknowledgementStore = new ModelProvenanceMigratio
   join(sessionStore.directory, MODEL_PROVENANCE_MIGRATION_ACKNOWLEDGEMENTS_FILENAME),
 );
 await modelProvenanceMigrationAcknowledgementStore.load();
+// Model menus show the Claude catalog saved before this restart until a session reports a fresh one.
+await loadClaudeModelCatalog();
 const wsBridge = new WsBridge();
 installLeaderThreadStatusBroadcast(wsBridge);
 const launcher = new CliLauncher(port, { serverId, serverSlug });

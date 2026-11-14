@@ -1,3 +1,7 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
 /**
  * Claude model catalog as reported by the Claude Code CLI itself.
  *
@@ -5,7 +9,9 @@
  * its own release catalog plus the user's settings, including gateway
  * overrides such as a Copilot-routed Opus model. Takode cannot reproduce that
  * resolution statically, so it records the catalog each Claude SDK session
- * reports at initialization and serves the latest one to model menus.
+ * reports at initialization and serves the latest one to model menus. The
+ * latest report is also saved, so menus keep it across server restarts
+ * instead of falling back to generic aliases until a session initializes.
  */
 
 export interface ClaudeBackendModelInfo {
@@ -18,17 +24,57 @@ export interface ClaudeBackendModelInfo {
   supportedReasoningLevels: Array<{ effort: string }>;
 }
 
+const DEFAULT_PATH = join(homedir(), ".companion", "claude-model-catalog.json");
+
 let latestCatalog: ClaudeBackendModelInfo[] | null = null;
+/** Where reports are saved; null until the server loads the store, so other callers (tests) never write. */
+let savePath: string | null = null;
+let savedJson: string | null = null;
+let pendingWrite: Promise<void> = Promise.resolve();
+
+/**
+ * Load the catalog saved by an earlier server run and save later reports to
+ * `path`. A report recorded while the file is read is newer and wins.
+ */
+export async function loadClaudeModelCatalog(path = DEFAULT_PATH): Promise<void> {
+  savePath = path;
+  let saved: unknown;
+  try {
+    saved = JSON.parse(await readFile(path, "utf-8"))?.models;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn(`[claude-model-catalog] Ignoring unreadable saved catalog ${path}:`, err);
+    }
+    return;
+  }
+  const models = mapClaudeCatalogModels(saved);
+  if (models.length > 0 && !latestCatalog) latestCatalog = models;
+}
 
 /** Record the raw `supportedModels()` result from a Claude SDK session. Empty or malformed input is ignored. */
 export function recordClaudeModelCatalog(raw: unknown): void {
   const models = mapClaudeCatalogModels(raw);
-  if (models.length > 0) latestCatalog = models;
+  if (models.length === 0) return;
+  latestCatalog = models;
+  // The raw list is saved so a later mapping change applies to it on load.
+  const json = `${JSON.stringify({ models: raw }, null, 2)}\n`;
+  const path = savePath;
+  if (!path || json === savedJson) return;
+  savedJson = json;
+  pendingWrite = pendingWrite
+    .then(() => mkdir(dirname(path), { recursive: true }))
+    .then(() => writeFile(path, json))
+    .catch((err: unknown) => console.warn(`[claude-model-catalog] Could not save the catalog to ${path}:`, err));
 }
 
-/** Latest CLI-reported catalog since server start, or null before any Claude session has initialized. */
+/** Latest CLI-reported catalog (from this run or saved by an earlier one), or null when none is known. */
 export function getClaudeModelCatalog(): ClaudeBackendModelInfo[] | null {
   return latestCatalog;
+}
+
+/** Resolves once every queued save has finished. */
+export function _flushClaudeModelCatalogForTest(): Promise<void> {
+  return pendingWrite;
 }
 
 /**

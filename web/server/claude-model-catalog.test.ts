@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getClaudeModelCatalog, mapClaudeCatalogModels, recordClaudeModelCatalog } from "./claude-model-catalog.js";
 
 // Shape reported by Claude Code 2.1.289's `supportedModels()` for a Copilot
@@ -101,5 +104,62 @@ describe("recordClaudeModelCatalog", () => {
       "claude-sonnet-5-5",
       "claude-haiku-4.5",
     ]);
+  });
+});
+
+describe("saved catalog across restarts", () => {
+  const tempDirs: string[] = [];
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
+  });
+
+  /** A fresh copy of the module, as a restarted server has, plus a disposable save path. */
+  async function freshServer(dir?: string) {
+    vi.resetModules();
+    const catalog = await import("./claude-model-catalog.js");
+    const root = dir ?? (await mkdtemp(join(tmpdir(), "claude-model-catalog-")));
+    if (!dir) tempDirs.push(root);
+    return { catalog, root, path: join(root, "nested", "claude-model-catalog.json") };
+  }
+
+  it("serves the catalog reported before a restart until a session reports a new one", async () => {
+    // The bug: after a restart the model menu fell back to generic aliases,
+    // hiding gateway models such as Fable 5.2, until some Claude session initialized.
+    const before = await freshServer();
+    await before.catalog.loadClaudeModelCatalog(before.path);
+    before.catalog.recordClaudeModelCatalog(CLI_CATALOG);
+    await before.catalog._flushClaudeModelCatalogForTest();
+
+    const after = await freshServer(before.root);
+    expect(after.catalog.getClaudeModelCatalog()).toBeNull();
+    await after.catalog.loadClaudeModelCatalog(before.path);
+    expect(after.catalog.getClaudeModelCatalog()).toEqual(mapClaudeCatalogModels(CLI_CATALOG));
+
+    // A fresh report replaces the saved one and is saved in turn.
+    const fresh = [{ value: "default", resolvedModel: "claude-fable-5.2", ...EFFORT }];
+    after.catalog.recordClaudeModelCatalog(fresh);
+    await after.catalog._flushClaudeModelCatalogForTest();
+    expect(after.catalog.getClaudeModelCatalog()?.map((model) => model.value)).toEqual(["claude-fable-5.2"]);
+    expect(JSON.parse(await readFile(before.path, "utf-8"))).toEqual({ models: fresh });
+  });
+
+  it("keeps a report recorded while the saved file is being read", async () => {
+    // A session can initialize during startup; its catalog is newer than the file.
+    const server = await freshServer();
+    await writeFile(join(server.root, "saved.json"), JSON.stringify({ models: CLI_CATALOG }));
+    const loading = server.catalog.loadClaudeModelCatalog(join(server.root, "saved.json"));
+    server.catalog.recordClaudeModelCatalog([{ value: "default", resolvedModel: "claude-opus-5.5" }]);
+    await loading;
+    expect(server.catalog.getClaudeModelCatalog()?.map((model) => model.value)).toEqual(["claude-opus-5.5"]);
+  });
+
+  it("starts without a catalog when nothing usable was saved", async () => {
+    // The route then answers 404 and menus use their static aliases.
+    const server = await freshServer();
+    await server.catalog.loadClaudeModelCatalog(join(server.root, "missing.json"));
+    expect(server.catalog.getClaudeModelCatalog()).toBeNull();
+    await writeFile(join(server.root, "broken.json"), "{not json");
+    await server.catalog.loadClaudeModelCatalog(join(server.root, "broken.json"));
+    expect(server.catalog.getClaudeModelCatalog()).toBeNull();
   });
 });
