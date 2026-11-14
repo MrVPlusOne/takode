@@ -285,6 +285,7 @@ export interface BuildFeedWindowModelInput {
   historyWindow: HistoryWindowState | null;
   selectedFeedWindow: ThreadWindowState | null;
   historyLoading: boolean;
+  /** Conversation messages loaded, not counting attention rows drawn from notifications. */
   messageCount: number;
 }
 

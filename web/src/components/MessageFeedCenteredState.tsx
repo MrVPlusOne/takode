@@ -4,6 +4,9 @@ import { Spinner } from "./LoadingIndicators.js";
 import { FeedStatusPill } from "./MessageFeedStatus.js";
 import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
 
+/** How long a jump waits for its target before the feed says it is loading. */
+export const JUMP_LOADING_DELAY_MS = 250;
+
 export function MessageFeedCenteredState({
   variant,
   topControls,
@@ -14,7 +17,8 @@ export function MessageFeedCenteredState({
   onVisibleHeightChange,
   questId,
 }: {
-  variant: "loading" | "empty";
+  /** `jump-loading`: a jump waits for the messages around its target. */
+  variant: "loading" | "jump-loading" | "empty";
   topControls: ReactNode;
   clearancePx: number;
   sessionId: string;
@@ -24,12 +28,16 @@ export function MessageFeedCenteredState({
   /** Leader quest thread whose description card replaces the empty placeholder. */
   questId?: string;
 }) {
-  const loading = variant === "loading";
+  const loading = variant !== "empty";
   const placeholder = (
     <div
       data-testid="message-feed-centered-state"
       className="flex h-full flex-col items-center justify-center gap-4 select-none px-6"
-      style={clearancePx > 0 ? { paddingBottom: clearancePx } : undefined}
+      style={{
+        ...(clearancePx > 0 ? { paddingBottom: clearancePx } : {}),
+        // Most jumps land within half a second: the feed stays blank briefly before saying it loads.
+        ...(variant === "jump-loading" ? { animation: `fadeIn 150ms ease-out ${JUMP_LOADING_DELAY_MS}ms both` } : {}),
+      }}
     >
       {loading ? <Spinner className="w-5 h-5 text-cc-primary" /> : <SleepingTako className="h-24 w-24" />}
       <div className="text-center">
@@ -37,7 +45,11 @@ export function MessageFeedCenteredState({
           {loading ? "Loading conversation..." : "Start a conversation"}
         </p>
         <p className="text-xs text-cc-muted leading-relaxed">
-          {loading ? "Restoring recent history for this session." : "Send a message to begin."}
+          {variant === "jump-loading"
+            ? "Fetching the messages around the one you opened."
+            : loading
+              ? "Restoring recent history for this session."
+              : "Send a message to begin."}
         </p>
       </div>
     </div>

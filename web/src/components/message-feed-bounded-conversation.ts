@@ -34,7 +34,6 @@ export function useMessageFeedBoundedConversation(input: {
   /** A feed beside the main one never announces its window as this browser's view. */
   secondary?: boolean;
 }): {
-  historyWindowRevision: number;
   noteWindowRequest: (window: HistoryWindowState | ThreadWindowState | null) => void;
   requestHistoryWindow: (
     fromTurn: number,
@@ -44,22 +43,12 @@ export function useMessageFeedBoundedConversation(input: {
     targetMessageId?: string,
   ) => boolean;
 } {
-  const historyWindowRevisionRef = useRef<{ window: HistoryWindowState | null; revision: number }>({
-    window: null,
-    revision: 0,
-  });
   const lastAnnouncementRef = useRef<string | null>(null);
   const requestedFromWindowRef = useRef<HistoryWindowState | ThreadWindowState | null | undefined>(undefined);
   const noteWindowRequest = useCallback((window: HistoryWindowState | ThreadWindowState | null) => {
     requestedFromWindowRef.current = window;
     lastAnnouncementRef.current = null;
   }, []);
-  if (historyWindowRevisionRef.current.window !== input.activeHistoryWindow) {
-    historyWindowRevisionRef.current = {
-      window: input.activeHistoryWindow,
-      revision: historyWindowRevisionRef.current.revision + 1,
-    };
-  }
 
   const requestHistoryWindow = useCallback(
     (
@@ -153,7 +142,6 @@ export function useMessageFeedBoundedConversation(input: {
   ]);
 
   return {
-    historyWindowRevision: historyWindowRevisionRef.current.revision,
     noteWindowRequest,
     requestHistoryWindow,
   };

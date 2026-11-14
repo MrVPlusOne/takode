@@ -188,6 +188,20 @@ iOS Safari has none, so the feed corrects the scroll position after each size
 change of its content. The target lets go as soon as the user touches or
 scrolls the feed, navigates elsewhere, switches thread, or after a few seconds.
 
+When the loaded window lacks the target, the feed asks the server for the window
+around it and shows `Loading conversation...` until that window arrives, instead
+of the window it holds (unrelated messages) or nothing but the question card an
+open needs-input notification draws on its own. The feed stays blank for the
+first quarter second, since most jumps land within half a second. Only the reply
+built for the target, which names it, ends the wait: a delivery for something
+else that lands first (the latest window the view asked for when it opened)
+neither ends the loading state nor abandons the jump. A jump into a conversation
+whose first window is still on its way waits for that window and then looks the
+target up. A lookup whose reply is lost (the connection dropped, as when a phone
+goes to the background) is sent again once the connection is back, or after
+about nine seconds without a reply; when that one gets no reply either, or the
+reply comes back without the target, the jump lands on the latest turn.
+
 ### 7. Returning to a recently viewed session
 
 The last three sessions viewed stay mounted but

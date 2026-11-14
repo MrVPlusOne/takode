@@ -174,7 +174,8 @@ function readyQuestHistory(): BrowserIncomingMessage[] {
 let projectionRevision = 0;
 
 /** Deliver the server's selected-thread window and the leader's current thread status. */
-function deliver(history: BrowserIncomingMessage[], status: LeaderThreadStatus | null): void {
+/** Delivers the quest thread's window; with `targetMessageId`, the server's reply to a jump's lookup. */
+function deliver(history: BrowserIncomingMessage[], status: LeaderThreadStatus | null, targetMessageId?: string): void {
   const projection = buildLeaderThreadResponseState({ id: SESSION_ID, messageHistory: history }, QUEST_ID).projection;
   const sync = buildThreadWindowSync({
     messageHistory: history,
@@ -183,6 +184,7 @@ function deliver(history: BrowserIncomingMessage[], status: LeaderThreadStatus |
     itemCount: 20,
     sectionItemCount: 20,
     visibleItemCount: 4,
+    targetMessageId,
     currentThreadResponseProjection: projection,
   });
   projectionRevision += 1;
@@ -307,8 +309,12 @@ describe("MessageFeed Ready auto-collapse", () => {
     expect(screen.queryByText("Main reply that also closes the quest thread.")).not.toBeInTheDocument();
     expectCollapsed(view.container);
 
-    // Opening that Ready result from the quest tab cannot find the Main message there.
+    // Opening that Ready result from the quest tab cannot find the Main message there: the feed
+    // waits for the window around it, and the server's reply without it lands on the
+    // collapsed latest turn.
     openMessage("main-ready");
+    expect(screen.getByTestId("message-feed-centered-state")).toHaveTextContent("Loading conversation...");
+    deliver(history, latestStatus(history), "main-ready");
     expectCollapsed(view.container);
   });
 

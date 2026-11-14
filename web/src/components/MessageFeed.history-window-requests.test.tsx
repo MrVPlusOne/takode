@@ -384,6 +384,53 @@ describe("MessageFeed server history and thread window requests", () => {
     );
   });
 
+  // Opening a conversation from a notification (a worker session, or a leader's log) jumps to a
+  // message before the conversation's first window has arrived. The jump used to give up at
+  // once and land on the latest messages; it now waits for that window, looks the target up,
+  // and says the conversation is loading until the window around the target arrives.
+  it("looks a jump target up once the first history window arrives, loading until then", async () => {
+    const sid = "test-history-jump-before-first-window";
+    const target = makeMessage({
+      id: "a-question-context",
+      role: "assistant",
+      content: "Question context",
+      timestamp: 1,
+    });
+    const recent = makeMessage({ id: "u-recent", role: "user", content: "Recent message", timestamp: 200 });
+    setStoreHistoryLoading(sid, true);
+    setStoreScrollToMessage(sid, target.id);
+
+    const { rerender } = render(<MessageFeed sessionId={sid} />);
+    await flushFeedObservers();
+    expect(mockClearScrollToMessage).not.toHaveBeenCalledWith(sid);
+    expect(screen.getByTestId("message-feed-centered-state").textContent).toContain("Loading conversation...");
+
+    // The latest window arrives first, without the target: still loading, and the target is looked up.
+    setStoreHistoryLoading(sid, false);
+    setStoreMessages(sid, [recent]);
+    setStoreHistoryWindow(sid);
+    rerender(<MessageFeed sessionId={sid} />);
+    await flushFeedObservers();
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({ type: "history_window_request", target_message_id: target.id }),
+    );
+    expect(mockClearScrollToMessage).not.toHaveBeenCalledWith(sid);
+    expect(screen.queryByText("Recent message")).toBeNull();
+    expect(screen.getByTestId("message-feed-centered-state")).toBeTruthy();
+
+    // The window around the target arrives, naming it.
+    setStoreMessages(sid, [target, recent]);
+    const windows = mockStoreValues.historyWindows as Map<string, Record<string, unknown>>;
+    windows.set(sid, { ...windows.get(sid), from_turn: 0, target_message_id: target.id });
+    mockStoreValues.historyWindows = new Map(windows);
+    rerender(<MessageFeed sessionId={sid} />);
+    await flushFeedObservers();
+    expect(screen.queryByTestId("message-feed-centered-state")).toBeNull();
+    expect(screen.getByText("Question context")).toBeTruthy();
+    expect(mockClearScrollToMessage).toHaveBeenCalledWith(sid);
+  });
+
   it("requests a selected-thread window containing a missing message deep-link target", async () => {
     const sid = "test-leader-main-deep-link-target-window";
     const target = makeMessage({

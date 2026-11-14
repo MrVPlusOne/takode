@@ -437,6 +437,21 @@ export function PlaygroundQuestDescriptionSummary() {
             />
           </div>
         </Card>
+        <Card label="Jump to a message the feed hasn't loaded · loading until the messages around it arrive">
+          <div
+            className="flex h-[260px] max-w-[430px] flex-col rounded-xl bg-cc-bg"
+            data-testid="playground-jump-target-loading"
+          >
+            <MessageFeedCenteredState
+              variant="jump-loading"
+              topControls={null}
+              clearancePx={0}
+              sessionId={SESSION_ID}
+              threadKey={DESCRIPTION_QUEST_ID}
+              onVisibleHeightChange={NOOP}
+            />
+          </div>
+        </Card>
       </div>
     </Section>
   );

@@ -80,7 +80,7 @@ import { useMessageFeedSectionWindowLoaders } from "./message-feed-section-windo
 import { useMessageFeedBoundedConversation, useMessageFeedFollowState } from "./message-feed-bounded-conversation.js";
 import type { UserNavigationTarget } from "./message-feed-user-navigation.js";
 import { useMessageFeedUserNavigationTargets, useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
-import { getMissingScrollTargetWindowAction, type PendingTargetWindowRequest } from "./message-feed-scroll-target.js";
+import { findTurnShowingMessage, useJumpTargetLookup } from "./message-feed-scroll-target.js";
 import { useThreadWindowRequester } from "./message-feed-thread-window-request.js";
 import { useViewportAnchorWindowRequest } from "./message-feed-anchor-window-request.js";
 import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
@@ -250,6 +250,9 @@ export function MessageFeed({
     additionalAttentionRecords,
   });
   const { messages, visibleToolUseIds, hasFilteredNativeChildMessages, needsInputAnchorMessageIds } = feedMessageModel;
+  // Attention rows are drawn from notifications, not the conversation: alone they would show a
+  // question card without the messages around it, so they don't count as loaded conversation.
+  const conversationMessageCount = feedMessageModel.visibleBaseMessages.length;
   useMarkSharedResultsRead(sessionId, threadKey, feedMessageModel, markSharedResultsRead);
   const { pendingUserUploads, pendingCodexInputs } = useMessageFeedPending(sessionId, normalizedThreadKey);
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
@@ -314,7 +317,6 @@ export function MessageFeed({
     anchor: viewportAnchor.FeedViewportAnchor | null;
   } | null>(null);
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
-  const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
   const notedDeliberateMessageTargetRef = useRef<string | null>(null);
   const readCurrentRestoreKey = useCallback(
     () => getSavedViewportRestoreKey(viewportKey, readSavedPosition()),
@@ -355,7 +357,7 @@ export function MessageFeed({
     restoredViewportScopeRef.current = scope;
     restoredViewportRef.current = null;
     lastViewportAnchorRef.current = null;
-    pendingTargetWindowRequestRef.current = null;
+    jumpLookup.clear();
     viewportAnchorWindow.clear();
     exactRestoreRef.current = null;
   }, [normalizedThreadKey, sessionId]);
@@ -557,12 +559,12 @@ export function MessageFeed({
         historyWindow,
         selectedFeedWindow,
         historyLoading,
-        messageCount: messages.length,
+        messageCount: conversationMessageCount,
       }),
     [
+      conversationMessageCount,
       historyLoading,
       historyWindow,
-      messages.length,
       sectionTurnCount,
       sectionWindowStart,
       selectedFeedWindow,
@@ -659,7 +661,7 @@ export function MessageFeed({
     return true;
   }, []);
 
-  const { historyWindowRevision, requestHistoryWindow, noteWindowRequest } = useMessageFeedBoundedConversation({
+  const { requestHistoryWindow, noteWindowRequest } = useMessageFeedBoundedConversation({
     activeHistoryWindow,
     activeThreadWindow,
     connectionStatus,
@@ -679,6 +681,22 @@ export function MessageFeed({
     secondary,
     onWindowRequest: noteWindowRequest,
     setPendingInitialThreadWindowKey,
+  });
+  const jumpLookup = useJumpTargetLookup({
+    targetMessageId: scrollToMessageId,
+    sessionId,
+    threadKey: normalizedThreadKey,
+    secondary,
+    threadWindowed: selectedFeedWindowEnabled,
+    threadWindow: activeThreadWindow,
+    historyWindow: activeHistoryWindow,
+    historyLoading,
+    leavesFeed: !secondary && routeLeavesFeed(sessionId, normalizedThreadKey),
+    targetLoaded: !!scrollToMessageId && !!findTurnShowingMessage(turns, scrollToMessageId),
+    connected: connectionStatus === "connected",
+    sectionTurnCount,
+    requestThreadWindow,
+    requestHistoryWindow,
   });
 
   useSelectedThreadWindowRefresh({
@@ -1551,41 +1569,9 @@ export function MessageFeed({
     cancelExactRestore();
     setAutoFollowEnabled(false);
 
-    const targetTurn = turns.find(
-      (t) =>
-        t.allEntries.some(
-          (e) =>
-            (e.kind === "message" && e.msg.id === scrollToMessageId) ||
-            (e.kind === "tool_msg_group" && e.firstId === scrollToMessageId),
-        ) ||
-        (t.userEntry?.kind === "message" && t.userEntry.msg.id === scrollToMessageId),
-    );
+    const targetTurn = findTurnShowingMessage(turns, scrollToMessageId);
     if (!targetTurn) {
-      if (selectedFeedWindowEnabled || activeHistoryWindow) {
-        const key = `${normalizedThreadKey}:${scrollToMessageId}`;
-        const action = getMissingScrollTargetWindowAction({
-          pending: pendingTargetWindowRequestRef.current,
-          requestKey: key,
-          revision: selectedFeedWindowEnabled ? selectedThreadWindowRevision : historyWindowRevision,
-        });
-        if (action.kind === "request") {
-          pendingTargetWindowRequestRef.current = action.pending;
-          if (selectedFeedWindowEnabled) {
-            requestThreadWindow(-1, undefined, scrollToMessageId);
-          } else if (activeHistoryWindow) {
-            requestHistoryWindow(
-              -1,
-              activeHistoryWindow.turn_count || sectionTurnCount * DEFAULT_VISIBLE_SECTION_COUNT,
-              activeHistoryWindow.section_turn_count,
-              activeHistoryWindow.visible_section_count,
-              scrollToMessageId,
-            );
-          }
-          return;
-        }
-        if (action.kind === "wait") return;
-        pendingTargetWindowRequestRef.current = null;
-      }
+      if (jumpLookup.lookUp(scrollToMessageId) === "waiting") return;
       clearScrollToMessage(sessionId);
       clearPendingScrollToMessageId(sessionId);
       const lastTurn = turns[turns.length - 1];
@@ -1602,7 +1588,7 @@ export function MessageFeed({
       }
       return;
     }
-    pendingTargetWindowRequestRef.current = null;
+    jumpLookup.clear();
 
     const targetState = turnStatesRef.current.find((s) => s.turnId === targetTurn.id);
     const jump = planMessageFeedJump(containerRef.current, targetState, scrollToMessageId, scrollLanding, targetTurn);
@@ -1653,25 +1639,21 @@ export function MessageFeed({
     else scheduleScroll();
     return () => cancelAnimationFrame(scrollFrame);
   }, [
-    activeHistoryWindow,
     cancelExactRestore,
     clearExpandAllInTurn,
     clearPendingScrollToMessageId,
     clearScrollToMessage,
     ensureSectionForTurnVisible,
     getRealContentBottom,
-    historyWindowRevision,
     isLeaderSession,
+    jumpLookup.clear,
+    jumpLookup.lookUp,
     markProgrammaticScroll,
     normalizedThreadKey,
     pinJumpTarget,
-    requestThreadWindow,
     reserveTargetScrollSpace,
-    requestHistoryWindow,
     scrollLanding,
     scrollToMessageId,
-    selectedFeedWindowEnabled,
-    selectedThreadWindowRevision,
     sessionId,
     setShowScrollButton,
     setAutoFollowEnabled,
@@ -1766,7 +1748,7 @@ export function MessageFeed({
   }, [firstTaskTurnId, sessionId, setActiveTaskTurnId, taskHistory, visibleTurns]);
 
   const showSelectedWindowLoading = shouldShowSelectedThreadWindowLoading({
-    messageCount: messages.length,
+    messageCount: conversationMessageCount,
     pendingUserUploadCount: pendingUserUploads.length,
     pendingCodexInputCount: pendingCodexInputs.length,
     selectedFeedWindowEnabled,
@@ -1776,7 +1758,9 @@ export function MessageFeed({
     normalizedThreadKey,
   });
 
-  useFeedLoadTiming(sessionId, normalizedThreadKey, showConversationLoading || showSelectedWindowLoading);
+  const feedLoading = showConversationLoading || showSelectedWindowLoading || jumpLookup.waiting;
+
+  useFeedLoadTiming(sessionId, normalizedThreadKey, feedLoading);
 
   const pinnedTop = useFeedPinnedTop(containerRef, contentRootRef, viewportLayoutSignature);
   const [topRoom, setTopRoom] = useState(0);
@@ -1806,10 +1790,10 @@ export function MessageFeed({
       }
     />
   );
-  if (showConversationLoading || showSelectedWindowLoading) {
+  if (feedLoading) {
     return (
       <MessageFeedCenteredState
-        variant="loading"
+        variant={jumpLookup.waiting ? "jump-loading" : "loading"}
         topControls={feedTopControls}
         clearancePx={centeredFeedStatusClearancePx}
         sessionId={sessionId}

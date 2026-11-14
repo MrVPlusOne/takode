@@ -29,6 +29,7 @@ export function hasMissingSelectedThreadWindowContext({
 }
 
 export interface SelectedThreadWindowLoadingInput {
+  /** Conversation messages loaded, not counting attention rows drawn from notifications. */
   messageCount: number;
   pendingUserUploadCount: number;
   pendingCodexInputCount: number;
