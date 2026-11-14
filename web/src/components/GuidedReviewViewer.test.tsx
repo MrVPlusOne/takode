@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -74,6 +74,7 @@ async function openTour(message?: ReturnType<typeof reviewMessage>) {
 describe("guided review", () => {
   beforeEach(() => {
     useGuidedReviewState.setState({ open: null, drafts: {}, reviewSessions: {} });
+    useStore.setState({ sendKeyScheme: "enter" });
     ws.sendToSession.mockReset().mockReturnValue(true);
     ws.release.mockReset();
     ws.holdSessionConnection.mockReset().mockReturnValue(ws.release);
@@ -141,6 +142,40 @@ describe("guided review", () => {
     expect(currentStop(viewer)).toHaveTextContent("Timeout tripled to 15 seconds");
   });
 
+  it("moves on with the send key in an answer, keeping the answer, and never sends by itself", async () => {
+    // Jiayi (Nov 14): arrows move the text cursor in an answer, so the send key (Cmd+Enter in her
+    // setting) keeps the answer and goes to the next stop; plain Enter follows the same setting.
+    useStore.setState({ sendKeyScheme: "mod-enter" });
+    const viewer = await openTour();
+    fireEvent.click(within(viewer).getByRole("button", { name: "Start the walkthrough" }));
+    expect(viewer).toHaveTextContent(/← → to move · (⌘|Ctrl)\+Enter in an answer to go on/);
+    const answer = () => within(currentStop(viewer)).getByRole("textbox");
+    fireEvent.change(answer(), { target: { value: "Only network errors, please" } });
+    fireEvent.keyDown(answer(), { key: "Enter" });
+    expect(currentStop(viewer)).toHaveTextContent("Retry every error up to 4 times?");
+    fireEvent.keyDown(answer(), { key: "Enter", metaKey: true });
+    expect(currentStop(viewer)).toHaveTextContent("Cache profiles for a day?");
+    const reviewId = makeGuidedReviewMetaFixture().reviewId;
+    expect(useGuidedReviewState.getState().drafts[reviewId]?.answers[0]).toBe("Only network errors, please");
+
+    // Under the Enter setting, Enter moves on and Shift+Enter stays for a new line.
+    act(() => useStore.setState({ sendKeyScheme: "enter" }));
+    fireEvent.keyDown(answer(), { key: "Enter", shiftKey: true });
+    expect(currentStop(viewer)).toHaveTextContent("Cache profiles for a day?");
+    fireEvent.keyDown(answer(), { key: "Enter" });
+    expect(currentStop(viewer)).toHaveTextContent("Timeout tripled to 15 seconds");
+
+    // The last stop's send key opens the wrap-up; sending stays the user's click.
+    fireEvent.keyDown(answer(), { key: "Enter" });
+    expect(within(viewer).queryByTestId("guided-review-stop")).toBeNull();
+    expect(within(viewer).getByRole("button", { name: "Send answers" })).toBeInTheDocument();
+    expect(useGuidedReviewState.getState().drafts[reviewId]?.sentAt).toBeUndefined();
+    expect(ws.sendToSession).not.toHaveBeenCalled();
+    // With no text box focused, the arrow keys move between stops as before.
+    fireEvent.keyDown(document.body, { key: "ArrowLeft" });
+    expect(currentStop(viewer)).toHaveTextContent("Timeout tripled to 15 seconds");
+  });
+
   it("moves with the arrow keys, the progress rail, a swipe and the count tiles", async () => {
     const viewer = await openTour();
     fireEvent.keyDown(document.body, { key: "ArrowRight" });
@@ -155,6 +190,17 @@ describe("guided review", () => {
 
     fireEvent.click(railSegment(viewer, 2));
     expect(currentStop(viewer)).toHaveTextContent("Timeout tripled to 15 seconds");
+    // The rail's labelled ends open the overview and the wrap-up in one click (Jiayi, Nov 14),
+    // and mark which of them is open.
+    const rail = within(viewer).getByTestId("guided-review-rail");
+    fireEvent.click(within(rail).getByRole("button", { name: "Wrap-up" }));
+    expect(viewer).toHaveTextContent("Your answers");
+    expect(within(rail).getByRole("button", { name: "Wrap-up" })).toHaveAttribute("aria-current", "step");
+    fireEvent.click(within(rail).getByRole("button", { name: "Overview" }));
+    expect(within(viewer).getByRole("button", { name: "Start the walkthrough" })).toBeInTheDocument();
+    expect(within(rail).getByRole("button", { name: "Overview" })).toHaveAttribute("aria-current", "step");
+    expect(within(rail).getByRole("button", { name: "Wrap-up" })).not.toHaveAttribute("aria-current");
+    fireEvent.click(railSegment(viewer, 2));
 
     // A horizontal swipe turns the page; one that starts on code scrolls the code instead.
     const walkthrough = within(viewer).getByTestId("guided-review-walkthrough");
@@ -487,9 +533,9 @@ function currentStop(viewer: HTMLElement): HTMLElement {
   return within(viewer).getByTestId("guided-review-stop");
 }
 
-/** The progress rail's segment for the n-th stop of the walkthrough (from 0). */
+/** The progress rail's segment for the n-th stop of the walkthrough (from 0), between its labelled ends. */
 function railSegment(viewer: HTMLElement, n: number): HTMLElement {
-  return within(within(viewer).getByTestId("guided-review-rail")).getAllByRole("button")[n];
+  return within(within(viewer).getByTestId("guided-review-rail")).getAllByRole("button", { name: /^Stop / })[n];
 }
 
 /** A one-finger horizontal swipe from `fromX` to `toX` that starts on `start` and ends on `container`. */

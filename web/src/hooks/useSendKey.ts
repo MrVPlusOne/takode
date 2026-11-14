@@ -30,8 +30,12 @@ export function isSendKeyEvent(event: SendKeyEvent, scheme: SendKeyScheme, env: 
 /** Tooltip/hint text describing the active keys, e.g. "Send: Enter; New line: Shift+Enter". */
 export function sendKeyHint(scheme: SendKeyScheme, env: SendKeyEnvironment, action: SendKeyAction = "Send"): string {
   if (env.touchKeyboard) return `${action}: tap button; New line: Enter`;
-  if (scheme === "mod-enter") return `${action}: ${platformIsMac(env.platform) ? "⌘" : "Ctrl"}+Enter; New line: Enter`;
-  return `${action}: Enter; New line: Shift+Enter`;
+  return `${action}: ${sendKeyLabel(scheme, env)}; New line: ${scheme === "mod-enter" ? "Enter" : "Shift+Enter"}`;
+}
+
+/** The send key on a hardware keyboard, e.g. "⌘+Enter" or "Enter". */
+export function sendKeyLabel(scheme: SendKeyScheme, env: SendKeyEnvironment): string {
+  return scheme === "mod-enter" ? `${platformIsMac(env.platform) ? "⌘" : "Ctrl"}+Enter` : "Enter";
 }
 
 /**
@@ -47,5 +51,6 @@ export function useSendKey(action: SendKeyAction = "Send") {
   return {
     isSendKey: (event: ReactKeyboardEvent) => isSendKeyEvent(event.nativeEvent, scheme, env),
     hint: sendKeyHint(scheme, env, action),
+    label: sendKeyLabel(scheme, env),
   };
 }

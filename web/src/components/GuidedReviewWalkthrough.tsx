@@ -17,12 +17,14 @@ import {
   type ReviewPart,
 } from "./GuidedReviewParts.js";
 import { AllLineComments, LineCommentLayer, StopLineComments } from "./GuidedReviewLineComments.js";
+import { useSendKey } from "../hooks/useSendKey.js";
 
 /**
  * A guided review as a walkthrough, one stop at a time: an overview first, then each stop with the
  * agent's explanation and the user's answer beside its code (stacked on phones), then what was checked
  * and summarized and the answers to send. Moves with Back and Next, the arrow keys, a swipe, or the
- * progress rail.
+ * progress rail; in a stop's answer field the user's send key moves on, since the arrow keys move the
+ * text cursor there (Jiayi, Nov 14). It never sends the answers: the last stop's leads to the wrap-up.
  */
 export function Walkthrough({
   target,
@@ -49,6 +51,7 @@ export function Walkthrough({
     setScroller(element);
   }, []);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const sendKey = useSendKey();
 
   const go = (next: number) => {
     const clamped = Math.max(0, Math.min(last, next));
@@ -100,15 +103,13 @@ export function Walkthrough({
     <>
       <div className="border-b border-cc-border bg-cc-card">
         <div className="mx-auto w-full max-w-[1920px] px-4 pb-2">
-          <ProgressRail
-            tour={tour}
-            isAnswered={review.isAnswered}
-            current={current ? step - 1 : undefined}
-            onSelect={(n) => go(n + 1)}
-          />
+          <ProgressRail tour={tour} isAnswered={review.isAnswered} step={step} last={last} onSelect={go} />
           <div className="flex justify-between gap-2 text-[12px] text-cc-muted">
-            <span>{current ? `Stop ${step} of ${tour.length}` : step === 0 ? "Overview" : "Wrap-up"}</span>
-            <span className="max-sm:hidden">← → to move</span>
+            {/* The overview and the wrap-up are named by their marked rail ends. */}
+            <span>{current ? `Stop ${step} of ${tour.length}` : ""}</span>
+            <span className="max-sm:hidden">
+              ← → to move{current && !review.sent ? ` · ${sendKey.label} in an answer to go on` : ""}
+            </span>
           </div>
         </div>
       </div>
@@ -132,7 +133,7 @@ export function Walkthrough({
               </div>
             </div>
           )}
-          {current && <WalkthroughStop target={target} entry={current} />}
+          {current && <WalkthroughStop target={target} entry={current} onNext={() => go(step + 1)} />}
           {step === last && (
             <div className="space-y-4">
               <YourAnswers target={target} tour={tour} onSelect={(n) => go(n + 1)} />
@@ -183,7 +184,15 @@ export function Walkthrough({
  * footer; narrower, where side by side would cramp the code (below roughly 80 characters), they
  * stack as explanation, code, comments, answer.
  */
-function WalkthroughStop({ target, entry: { stop, index } }: { target: GuidedReviewTarget; entry: IndexedStop }) {
+function WalkthroughStop({
+  target,
+  entry: { stop, index },
+  onNext,
+}: {
+  target: GuidedReviewTarget;
+  entry: IndexedStop;
+  onNext: () => void;
+}) {
   return (
     <div
       className="flex flex-col gap-4 @min-[70rem]:grid @min-[70rem]:grid-cols-[minmax(0,1fr)_minmax(18rem,26rem)] @min-[70rem]:items-start @min-[70rem]:gap-6"
@@ -194,7 +203,7 @@ function WalkthroughStop({ target, entry: { stop, index } }: { target: GuidedRev
           <StopHeading stop={stop} sessionId={target.sessionId} />
         </div>
         <div className="order-4">
-          <StopAnswer target={target} stop={stop} index={index} stacked />
+          <StopAnswer target={target} stop={stop} index={index} stacked onNext={onNext} />
         </div>
         {/* Stacked, the comments follow the code they are on; beside the code, they follow the answer. */}
         <div className="order-3">
@@ -252,38 +261,59 @@ function YourAnswers({
 }
 
 /**
- * Where the reader is: one segment per stop in its tier's colour, faint until answered, taller for
- * the current stop. A tap moves to that stop.
+ * Where the reader is: the overview and the wrap-up as small labelled ends (Jiayi, Nov 14: one
+ * click to either, as she often opens the wrap-up just to see how the changed lines spread across
+ * files), and between them one segment per stop in its tier's colour, faint until answered, taller
+ * for the current stop. A tap moves to that place.
  */
 function ProgressRail({
   tour,
   isAnswered,
-  current,
+  step,
+  last,
   onSelect,
 }: {
   tour: IndexedStop[];
   isAnswered: (index: number) => boolean;
-  current?: number;
-  onSelect: (n: number) => void;
+  /** The walkthrough's place: 0 the overview, 1 to `tour.length` the stops, `last` the wrap-up. */
+  step: number;
+  last: number;
+  onSelect: (step: number) => void;
 }) {
+  const end = (label: string, at: number) => (
+    <button
+      type="button"
+      aria-current={step === at ? "step" : undefined}
+      onClick={() => onSelect(at)}
+      className={`flex h-6 shrink-0 items-center rounded-full border px-2 text-[11px] leading-none transition-colors ${
+        step === at
+          ? "border-cc-primary/60 bg-cc-primary/15 text-cc-fg"
+          : "border-cc-border text-cc-muted hover:text-cc-fg"
+      }`}
+    >
+      {label}
+    </button>
+  );
   return (
     <div className="flex items-center gap-1" data-testid="guided-review-rail">
+      {end("Overview", 0)}
       {tour.map(({ stop, index }, n) => (
         <button
           key={index}
           type="button"
           aria-label={`Stop ${n + 1}: ${stop.question ?? stop.title}`}
-          aria-current={current === n ? "step" : undefined}
-          onClick={() => onSelect(n)}
+          aria-current={step === n + 1 ? "step" : undefined}
+          onClick={() => onSelect(n + 1)}
           className="flex h-6 flex-1 items-center"
         >
           <span
             className={`block w-full rounded-full transition-all ${TIER_DOT_CLASSES[stop.tier]} ${
-              current === n ? "h-2.5" : "h-1.5"
-            } ${isAnswered(index) || current === n ? "" : "opacity-30"}`}
+              step === n + 1 ? "h-2.5" : "h-1.5"
+            } ${isAnswered(index) || step === n + 1 ? "" : "opacity-30"}`}
           />
         </button>
       ))}
+      {end("Wrap-up", last)}
     </div>
   );
 }

@@ -196,6 +196,7 @@ export function StopAnswer({
   index,
   stacked = false,
   placeholder,
+  onNext,
 }: {
   target: GuidedReviewTarget;
   stop: GuidedReviewStop;
@@ -203,6 +204,8 @@ export function StopAnswer({
   /** Suggestions one per row at every width, for narrow columns. */
   stacked?: boolean;
   placeholder?: string;
+  /** Called on the user's send key in the field: the answer is already kept, so this moves on. */
+  onNext?: () => void;
 }) {
   const { sessionId, meta } = target;
   const draft = useGuidedReviewState((state) => state.drafts[meta.reviewId]);
@@ -261,6 +264,7 @@ export function StopAnswer({
         threadKey={target.threadKey}
         textareaClassName={ANSWER_TEXTAREA_CLASS}
         onClickStopsPropagation={false}
+        onSubmit={onNext}
       />
     </div>
   );
