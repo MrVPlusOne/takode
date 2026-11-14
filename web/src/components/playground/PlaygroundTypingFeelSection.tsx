@@ -20,7 +20,7 @@ const ANSWERS = [
 export function PlaygroundTypingFeelSection() {
   const style = useScenicStyle();
   const [answers, setAnswers] = useState([0]);
-  const [day, setDay] = useState<DayThrow>("petals");
+  const [day, setDay] = useState<DayThrow>("gold");
   const area = useRef<HTMLTextAreaElement>(null);
   const newest = useRef<HTMLDivElement>(null);
   const arrived = useRef(0);
@@ -37,7 +37,7 @@ export function PlaygroundTypingFeelSection() {
     <PlaygroundSectionGroup groupId="interactive">
       <Section
         title="Typing Feel"
-        description="What every chat input (composers, side chats, comments and answers) does while you type with a scenic background on: the caret glows like forged iron, hotter the faster you type, the composer's edge glows warm, and every key throws a small burst out right of the caret: sparks at night, and by day the choice below (chat inputs use plum petals until one is picked). The text box draws the text as always. A new answer arriving spreads in like ink on xuan paper."
+        description="What every chat input (composers, side chats, comments and answers) does while you type with a scenic background on: the caret glows like forged iron, hotter the faster you type, the composer's edge glows warm, and every key throws a small burst out right of the caret: sparks at night, and by day a flake of gold leaf drifting out on the air (chat inputs use gold leaf; the golden ink splash is there to compare). The text box draws the text as always. A new answer arriving spreads in like ink on xuan paper."
       >
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-cc-muted">

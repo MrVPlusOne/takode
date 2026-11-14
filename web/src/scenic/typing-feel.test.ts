@@ -138,31 +138,52 @@ describe("typing feel", () => {
     }
   });
 
-  it("throws the day choice a chat input names, blown out along the line far enough that fast typing never catches it", () => {
+  it("throws the day choice a chat input names, out to the right where fast typing doesn't reach it", () => {
+    const at = (frame: Keyframe) =>
+      /translate\(([-\d.]+)px, ([-\d.]+)px/.exec(String(frame.transform))!.slice(1).map(Number) as [number, number];
     for (const { id } of DAY_THROWS) {
       animate.mockClear();
       const area = box();
       area.setAttribute(DAY_THROW_ATTRIBUTE, id);
       area.value = "";
-      // jsdom has no "normal" line height to measure, so give the box a real one.
+      // jsdom has no layout: give the box a line height and room below the line.
       Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
+      Object.defineProperty(area, "offsetHeight", { configurable: true, value: 60 });
       handle = attachTypingFeel(area);
       input(area, "a");
       paint();
       expect(animate.mock.calls.length).toBeGreaterThanOrEqual(1);
-      for (const [keyframes, options] of animate.mock.calls as Array<[Keyframe[], KeyframeAnimationOptions]>) {
-        const at = (frame: Keyframe) =>
-          /translate\(([-\d.]+)px, ([-\d.]+)px/.exec(String(frame.transform))!.slice(1).map(Number);
-        const [startX, startY] = at(keyframes[0]!);
-        const [endX, endY] = at(keyframes.at(-1)!);
-        // Far out to the right, and still near its line: below it are the composer's buttons.
-        expect(endX! - startX!).toBeGreaterThanOrEqual(70);
-        expect(Math.abs(endY! - startY!)).toBeLessThanOrEqual(20);
-        // Blown out fast, then drifting, rather than at an even pace.
-        expect(options.easing).toMatch(/^cubic-bezier/);
+      for (const [frames, options] of animate.mock.calls as Array<[Keyframe[], KeyframeAnimationOptions]>) {
+        const [startX, startY] = at(frames[0]!);
+        const [endX, endY] = at(frames.at(-1)!);
+        expect(endX).toBeGreaterThan(startX + 20);
+        if (id === "splash") {
+          // Sprayed: flung fast and slowed by the air.
+          expect(options.easing).toMatch(/^cubic-bezier/);
+          continue;
+        }
+        // Gold leaf drifts like a leaf: carried out sideways first, then sinking as it slows, and
+        // never past the bottom of the box (60 px tall).
+        const [quarterX, quarterY] = at(frames[Math.round((frames.length - 1) / 4)]!);
+        expect(quarterX - startX).toBeGreaterThan((endX - startX) / 2);
+        expect(quarterY - startY).toBeLessThan((endY - startY) / 4);
+        expect(endY).toBeGreaterThan(startY + 5);
+        expect(endY).toBeLessThan(60);
       }
       handle.stop();
     }
+  });
+
+  it("gives the gold leaf the day by default", () => {
+    const area = box();
+    Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
+    handle = attachTypingFeel(area);
+    input(area, "a");
+    paint();
+    // One flake a key, drifting (its time is in its keyframes, so it runs at an even pace).
+    expect(animate.mock.calls.length).toBe(1);
+    expect((animate.mock.calls[0]![1] as KeyframeAnimationOptions).easing).toBe("linear");
+    expect((animate.mock.calls[0]![0] as Keyframe[]).length).toBeGreaterThan(6);
   });
 
   it("fades thrown things out before they leave the text box", () => {
@@ -252,6 +273,21 @@ describe("typing feel", () => {
       vi.advanceTimersByTime(20);
     }
     expect(animate).not.toHaveBeenCalled();
+  });
+
+  it("lets a few night sparks shrink into small red embers that float on farther", () => {
+    document.documentElement.classList.add("dark");
+    // Picks the last free mark of the pool each time, which is one that floats on as an ember.
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const area = box();
+    handle = attachTypingFeel(area);
+    input(area, "a");
+    paint();
+    const [keyframes, options] = animate.mock.calls[0] as [Keyframe[], KeyframeAnimationOptions];
+    // It lives far longer than a spark's third of a second, and cools to red.
+    expect(Number(options.duration)).toBeGreaterThan(600);
+    expect(String(keyframes.at(-1)!.filter)).toContain("hue-rotate");
+    document.documentElement.classList.remove("dark");
   });
 
   it("throws forge sparks right of the caret at night", () => {
