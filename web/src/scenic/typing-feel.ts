@@ -1,11 +1,10 @@
 /**
  * Typing feel: the caret is iron in the forge. The faster you type, the hotter it glows, from dark
  * red through orange to white-gold, while the composer's edge glows warm and every key throws a
- * small burst out right of the caret: sparks from the forge at night, and by day plum petals, ink
- * drops, gold leaf, ginkgo leaves or paper scraps (the day choice is still open). The text box
- * draws its text and caret itself, exactly as without a feel: nothing here renders text, hides the
- * caret or touches the text's position or weight. Each part only colours the native caret or draws
- * around it.
+ * small burst out right of the caret: sparks from the forge at night, and by day plum petals,
+ * gold leaf or ginkgo leaves (the day choice is still open). The text box draws its text and caret
+ * itself, exactly as without a feel: nothing here renders text, hides the caret or touches the
+ * text's position or weight. Each part only colours the native caret or draws around it.
  *
  * No added latency beyond the bursts: the work for a key runs after the frame showing that key has
  * been painted (only the caret light is dimmed as the key lands, so it doesn't glow a frame over
@@ -66,15 +65,13 @@ export function installTypingFeel(scenicOn: () => boolean): () => void {
 }
 
 /** What a key throws out by day; at night it is always a spark from the forge. */
-export type DayThrow = "petals" | "ink" | "gold" | "ginkgo" | "scraps";
+export type DayThrow = "petals" | "gold" | "ginkgo";
 
 /** The day choices, to compare in the Playground; chat inputs use the first. */
 export const DAY_THROWS: ReadonlyArray<{ id: DayThrow; label: string }> = [
   { id: "petals", label: "Plum petals" },
-  { id: "ink", label: "Ink drops" },
   { id: "gold", label: "Gold leaf" },
   { id: "ginkgo", label: "Ginkgo leaves" },
-  { id: "scraps", label: "Paper scraps" },
 ];
 
 /** On a chat input, picks its day throw (one of `DAY_THROWS`); without it, plum petals. */
@@ -123,9 +120,7 @@ const HOLD_MS = 300;
 
 /** The text box being typed in: when keys land, where its caret is, its colours and its marks. */
 class TypingBox {
-  ink = "";
   vermilion = "";
-  gold = "";
   readonly lineHeight: number;
   private heat = 0;
   private typedAt = 0;
@@ -169,12 +164,10 @@ class TypingBox {
     });
   }
 
-  /** The vermilion and gold of the scenic fireworks and seal, by day or by night. */
+  /** The vermilion of the scenic seal, by day or by night. */
   private readColours(): void {
     const dark = document.documentElement.classList.contains("dark");
-    this.ink = getComputedStyle(this.area).color;
     this.vermilion = dark ? "#ef6a4f" : "#c8382c";
-    this.gold = dark ? "#f4c96a" : "#c48a24";
   }
 
   /**
@@ -226,9 +219,10 @@ class TypingBox {
     return keys;
   }
 
-  /** Where the box's top edge is, relative to the host. */
-  top(): number {
-    return offsetIn(this.area, this.host).y;
+  /** Where the box's top, bottom and right edges are, relative to the host. */
+  edges(): Edges {
+    const { x, y } = offsetIn(this.area, this.host);
+    return { top: y, bottom: y + this.area.offsetHeight, right: x + this.area.offsetWidth };
   }
 
   /** How long before the last key the one before it landed, in ms. */
@@ -417,9 +411,9 @@ const MAX_IN_AIR = 12;
 interface Kind {
   /** How many leave together in one key's burst. */
   burst: [number, number];
-  /** Width and height in px, and how the mark at `index` of the pool is drawn. */
+  /** Width and height in px, and how it is drawn. */
   size: [number, number];
-  style: (box: TypingBox, index: number) => Partial<CSSStyleDeclaration>;
+  style: Partial<CSSStyleDeclaration>;
   /** Flight time in ms. */
   life: [number, number];
   /** Launch angle in radians, 0 straight right and negative up, and flatter on a later line. */
@@ -435,8 +429,6 @@ interface Kind {
   spin?: [number, number];
   flips?: number;
   along?: boolean;
-  /** Flattens as it lands, like a drop of ink beading on paper. */
-  beads?: boolean;
   /** Flung fast and slowed by the air, rather than flying at an even pace. */
   flung?: boolean;
   /** Filters at even points of the flight (sparks cool from white-gold to red). */
@@ -450,11 +442,11 @@ function spark(streak: boolean): Kind {
   return {
     burst: [2, 3],
     size: streak ? [6, 1.4] : [2.5, 2.5],
-    style: () => ({
+    style: {
       borderRadius: streak ? "1px" : "50%",
       background: "#ffa640",
       boxShadow: `0 0 2px 0.5px ${forgeColour(0.65)}`,
-    }),
+    },
     life: [260, 380],
     angle: [-1.0, -0.35],
     lowAngle: [-0.3, 0.1],
@@ -467,49 +459,40 @@ function spark(streak: boolean): Kind {
   };
 }
 
-/** By day, the variant's thing: flung out right and down below the line, where it drifts and settles. */
+/**
+ * By day a key's things are blown out along its line, fast at first and then drifting, far enough
+ * (80–100 px) that the next characters don't reach them even typing fast. The line is the one place
+ * with room: the caret's line is the box's last, with the composer's buttons just below it.
+ */
+const DAY_ANGLE: [number, number] = [-0.1, 0.06];
+const DAY_REACH: [number, number] = [80, 100];
+
+/** The day choices' things. */
 const DAY_KINDS: Record<DayThrow, Kind> = {
   petals: {
     burst: [1, 2],
     size: [8.5, 5.6],
-    style: () => ({ borderRadius: "60% 40% 60% 40%", background: "linear-gradient(135deg, #f7cbd4, #e696a9)" }),
+    style: { borderRadius: "60% 40% 60% 40%", background: "linear-gradient(135deg, #f7cbd4, #e696a9)" },
     life: [500, 700],
-    angle: [0.35, 0.8],
-    speed: [46, 66],
-    gravity: 30,
+    angle: DAY_ANGLE,
+    speed: DAY_REACH,
+    gravity: 8,
     flung: true,
     opacity: ARC_OPACITY,
     scale: [0.8, 1, 1, 1, 0.95, 0.9],
     spin: [-160, 160],
   },
-  ink: {
-    burst: [2, 3],
-    size: [4.5, 4.5],
-    // A glossy bead of ink, with a small highlight.
-    style: (box) => ({
-      borderRadius: "50%",
-      background: `radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.45), color-mix(in srgb, ${box.ink} 85%, transparent) 45%)`,
-    }),
-    life: [420, 560],
-    angle: [0.45, 0.95],
-    speed: [34, 50],
-    gravity: 40,
-    flung: true,
-    opacity: [0, 1, 1, 1, 0.75, 0],
-    scale: [0.7, 1, 1, 1, 1.5, 1.8],
-    beads: true,
-  },
   gold: {
     burst: [1, 2],
     size: [7, 5.4],
-    style: () => ({
+    style: {
       clipPath: "polygon(8% 30%, 40% 0%, 92% 12%, 100% 62%, 62% 100%, 0% 78%)",
       background: "linear-gradient(135deg, #f8e391, #cf9a2e 55%, #f4d77a)",
-    }),
+    },
     life: [520, 720],
-    angle: [0.35, 0.85],
-    speed: [44, 64],
-    gravity: 30,
+    angle: DAY_ANGLE,
+    speed: DAY_REACH,
+    gravity: 8,
     flung: true,
     opacity: ARC_OPACITY,
     scale: [0.8, 1, 1, 1, 1, 0.9],
@@ -520,57 +503,39 @@ const DAY_KINDS: Record<DayThrow, Kind> = {
     burst: [1, 2],
     size: [8, 7],
     // A ginkgo fan: a short stem, the fan's rounded edge, and the notch in its middle.
-    style: () => ({
+    style: {
       clipPath:
         "polygon(50% 100%, 44% 70%, 6% 40%, 0% 22%, 10% 8%, 28% 2%, 46% 10%, 50% 4%, 54% 10%, 72% 2%, 90% 8%, 100% 22%, 94% 40%, 56% 70%)",
       background: "linear-gradient(180deg, #f3cf55, #d9a21c)",
-    }),
+    },
     life: [520, 740],
-    angle: [0.35, 0.8],
-    speed: [44, 64],
-    gravity: 30,
+    angle: DAY_ANGLE,
+    speed: DAY_REACH,
+    gravity: 8,
     flung: true,
     opacity: ARC_OPACITY,
     scale: [0.8, 1, 1, 1, 1, 0.95],
     spin: [-140, 140],
     flips: 1,
   },
-  scraps: {
-    burst: [2, 3],
-    size: [5.6, 3.8],
-    style: (_box, index) => ({
-      borderRadius: "0.5px",
-      background: SCRAP_COLOURS[index % SCRAP_COLOURS.length],
-    }),
-    life: [460, 640],
-    angle: [0.4, 0.95],
-    speed: [40, 60],
-    gravity: 40,
-    flung: true,
-    opacity: ARC_OPACITY,
-    scale: [0.8, 1, 1, 1, 1, 0.9],
-    spin: [-300, 300],
-    flips: 2,
-  },
 };
-
-/** Paper scraps in the Ink & Paper colours: seal vermilion, indigo, ochre and rice paper. */
-const SCRAP_COLOURS = ["#c8382c", "#33507a", "#c48a24", "#efe6d2"];
 
 /**
  * Every key that types something throws one small burst out right of the caret, so typing and
- * effect match one to one: two or three sparks from the forge at night, the variant's petals, drops,
- * leaves or scraps by day, all of a burst leaving together. It never covers the next character, and nothing is thrown when there is text after the
- * caret (typing mid-paragraph), since it would cross that text; the caret's glow and the edge still
- * answer each key. On a later line of a message sparks fly flat or fall, so they never cross the
- * line above, and everything fades out before the top of the text box. At most twelve are in the
- * air; past that a burst is cut short. Marks are drawn once and reused on their own layers, and fly by
- * transform, opacity and filter alone, which the compositor runs.
+ * effect match one to one: two or three sparks from the forge at night, the day choice's petals,
+ * flakes or leaves by day, all of a burst leaving together. It never covers the next character,
+ * and nothing is thrown when there is text after the caret (typing mid-paragraph), since it would
+ * cross that text; the caret's glow and the edge still answer each key. On a later line of a
+ * message sparks fly flat or fall, so they never cross the line above, and everything fades out
+ * before the edges of the text box. At most twelve are in the air; when all are, the oldest is
+ * retired, so every key still throws. Marks are drawn once and reused on their own
+ * layers, and fly by transform, opacity and filter alone, which the compositor runs.
  */
 function throwing(box: TypingBox, day: Kind): Part {
   const { lineHeight } = box;
   const pool = Array.from({ length: MAX_IN_AIR }, () => box.mark({ left: "0", top: "0", opacity: "0" }));
-  const flying = new Set<HTMLElement>();
+  // Marks in the air, oldest first.
+  const flying = new Map<HTMLElement, Animation>();
   // Each mark is drawn once for the time of day (a third of the sparks are streaks) and after that
   // only moves, so a throw paints nothing new.
   let drawnFor: boolean | undefined;
@@ -580,14 +545,14 @@ function throwing(box: TypingBox, day: Kind): Part {
     const { area } = box;
     if (!keys || /\S/.test(area.value.slice(area.selectionEnd))) return () => {};
     const { x, y, line } = box.caret();
-    const ceiling = box.top();
+    const edges = box.edges();
     const dark = document.documentElement.classList.contains("dark");
     if (dark !== drawnFor) {
       drawnFor = dark;
       kinds = pool.map((mark, index) => {
         const kind = dark ? spark(index % 3 === 0) : day;
         const [width, height] = kind.size;
-        Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style(box, index) });
+        Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style });
         return kind;
       });
     }
@@ -597,18 +562,24 @@ function throwing(box: TypingBox, day: Kind): Part {
       const size = Math.round(between(kinds[0]!.burst[0], kinds[0]!.burst[1] + 0.49));
       for (let i = 0; i < size; i++) {
         const free = pool.filter((candidate) => !flying.has(candidate));
-        if (!free.length) return () => {};
+        // With every mark in the air, the oldest is retired so this key still throws.
+        if (!free.length) {
+          const [oldest, flight] = flying.entries().next().value!;
+          flight.cancel();
+          flying.delete(oldest);
+          free.push(oldest);
+        }
         const mark = free[Math.floor(Math.random() * free.length)]!;
         const kind = kinds[pool.indexOf(mark)]!;
         const start = { x: x + 6, y: y + lineHeight * 0.45 - kind.size[1] / 2 };
-        const flight = mark.animate(arc(kind, start, line > 0, ceiling), {
+        const flight = mark.animate(arc(kind, start, line > 0, edges), {
           duration: between(...kind.life),
           delay: key * 40,
           easing: kind.flung ? FLUNG : "linear",
           fill: "backwards",
         });
-        flying.add(mark);
-        flight.onfinish = flight.oncancel = () => flying.delete(mark);
+        flying.set(mark, flight);
+        flight.onfinish = () => flying.delete(mark);
       }
     }
     return () => {};
@@ -616,19 +587,29 @@ function throwing(box: TypingBox, day: Kind): Part {
 }
 
 /**
- * A day throw's pace: it covers over half its path in the first fifth of its life, so it is below the
- * line before the next characters reach it even in fast typing, then drifts.
+ * A day throw's pace: it covers over half its path in the first fifth of its life, so it stays
+ * ahead of the next characters even in fast typing, then drifts.
  */
 const FLUNG = "cubic-bezier(0.2, 0.8, 0.4, 1)";
 
-/** Things fade out over this many px before the top of the text box. */
-const CEILING_FADE = 6;
+/** The text box's edges, which thrown things fade out before. */
+interface Edges {
+  top: number;
+  bottom: number;
+  right: number;
+}
+
+/** Things fade out over this many px before an edge of the text box. */
+const EDGE_FADE = 6;
 
 /**
  * A thrown thing's flight from `start` as keyframes, on a falling arc: turning, flipping or drawn
- * along its path by kind, and faded out above `ceiling` (the top of the text box).
+ * along its path by kind, and faded out before the text box's top, bottom and right edges, so it
+ * never crosses a banner above the box or the composer's buttons below it.
  */
-function arc(kind: Kind, start: { x: number; y: number }, low: boolean, ceiling: number): Keyframe[] {
+function arc(kind: Kind, start: { x: number; y: number }, low: boolean, edges: Edges): Keyframe[] {
+  const [width, height] = kind.size;
+  const room = (px: number) => Math.min(1, Math.max(0, px / EDGE_FADE));
   const [least, most] = low && kind.lowAngle ? kind.lowAngle : kind.angle;
   const angle = between(least, most);
   const speed = between(...kind.speed);
@@ -636,17 +617,21 @@ function arc(kind: Kind, start: { x: number; y: number }, low: boolean, ceiling:
   const flight = ballisticPath(angle, speed, kind.gravity);
   return flight.map(([dx, dy], step) => {
     const t = step / (flight.length - 1);
+    const left = start.x + dx;
     const at = start.y + dy;
     const turn = kind.along
       ? `${Math.atan2(Math.sin(angle) * speed + kind.gravity * t, Math.cos(angle) * speed)}rad`
       : `${spin * t}deg`;
-    // A leaf or flake flips by narrowing and widening; a drop beads flat as it lands.
+    // A leaf or flake flips by narrowing and widening.
     const flip = kind.flips ? Math.cos(t * kind.flips * Math.PI * 2) : 1;
-    const bead = kind.beads && t > 0.7 ? 0.45 : 1;
     const scale = kind.scale[step]!;
     return {
-      transform: `translate(${start.x + dx}px, ${at}px) rotate(${turn}) scale(${scale * flip}, ${scale * bead})`,
-      opacity: kind.opacity[step]! * Math.min(1, Math.max(0, (at - ceiling) / CEILING_FADE)),
+      transform: `translate(${left}px, ${at}px) rotate(${turn}) scale(${scale * flip}, ${scale})`,
+      opacity:
+        kind.opacity[step]! *
+        room(at - edges.top) *
+        room(edges.bottom - at - height) *
+        room(edges.right - left - width),
       filter: kind.filter ? kind.filter[Math.min(kind.filter.length - 1, Math.floor(t * kind.filter.length))] : "none",
     };
   });

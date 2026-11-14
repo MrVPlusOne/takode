@@ -94,6 +94,17 @@ describe("typing feel", () => {
   });
 
   it("throws one small burst right of the caret for every typed key, and keeps the air uncrowded", () => {
+    // Counts flights in the air: each starts in the air until cancelled (none finish in jsdom).
+    let inAir = 0;
+    animate.mockImplementation(() => {
+      inAir += 1;
+      return {
+        onfinish: null,
+        cancel() {
+          inAir -= 1;
+        },
+      } as unknown as Animation;
+    });
     const area = box();
     handle = attachTypingFeel(area);
     // Each key, typed slowly, throws its own burst; a deletion throws nothing.
@@ -116,15 +127,18 @@ describe("typing feel", () => {
       const x = (frame: Keyframe) => Number(/translate\(([-\d.]+)px/.exec(String(frame.transform))![1]);
       expect(x(keyframes.at(-1)!)).toBeGreaterThan(x(keyframes[0]!));
     }
-    // Fast typing: these flights never end in jsdom, so the cap of twelve in the air holds them.
+    // Fast typing fills the air. Past twelve the oldest is retired (cancelled), so every key still
+    // throws and no more than twelve are ever in the air.
     for (let i = 0; i < 20; i++) {
+      const before = animate.mock.calls.length;
       input(area, "a");
       paint();
+      expect(animate.mock.calls.length - before).toBeGreaterThanOrEqual(1);
+      expect(inAir).toBeLessThanOrEqual(12);
     }
-    expect(animate.mock.calls.length).toBeLessThanOrEqual(12);
   });
 
-  it("throws the day choice a chat input names, flung down below the line so fast typing never catches it", () => {
+  it("throws the day choice a chat input names, blown out along the line far enough that fast typing never catches it", () => {
     for (const { id } of DAY_THROWS) {
       animate.mockClear();
       const area = box();
@@ -141,12 +155,32 @@ describe("typing feel", () => {
           /translate\(([-\d.]+)px, ([-\d.]+)px/.exec(String(frame.transform))!.slice(1).map(Number);
         const [startX, startY] = at(keyframes[0]!);
         const [endX, endY] = at(keyframes.at(-1)!);
-        expect(endX).toBeGreaterThan(startX!);
-        expect(endY).toBeGreaterThan(startY!);
-        // Flung, not thrown at an even pace: it leaves the line quickly, then drifts.
+        // Far out to the right, and still near its line: below it are the composer's buttons.
+        expect(endX! - startX!).toBeGreaterThanOrEqual(70);
+        expect(Math.abs(endY! - startY!)).toBeLessThanOrEqual(20);
+        // Blown out fast, then drifting, rather than at an even pace.
         expect(options.easing).toMatch(/^cubic-bezier/);
       }
       handle.stop();
+    }
+  });
+
+  it("fades thrown things out before they leave the text box", () => {
+    const area = box();
+    Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
+    // A narrow box (jsdom has no layout, so give it a size): the day's things fly past its right edge.
+    Object.defineProperty(area, "offsetWidth", { configurable: true, value: 30 });
+    Object.defineProperty(area, "offsetHeight", { configurable: true, value: 40 });
+    handle = attachTypingFeel(area);
+    input(area, "a");
+    paint();
+    expect(animate.mock.calls.length).toBeGreaterThanOrEqual(1);
+    for (const [keyframes] of animate.mock.calls as Array<[Keyframe[]]>) {
+      for (const frame of keyframes) {
+        const x = Number(/translate\(([-\d.]+)px/.exec(String(frame.transform))![1]);
+        // Past the right edge (30 px), nothing shows.
+        if (x > 30) expect(frame.opacity).toBe(0);
+      }
     }
   });
 
