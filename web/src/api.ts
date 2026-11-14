@@ -18,6 +18,8 @@ import type {
 } from "../shared/leader-profile-portraits.js";
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
 import type { DiagnosticsSettings } from "../shared/diagnostics-settings.js";
+import type { GuidedReviewHome } from "../shared/guided-review.js";
+import type { SyncedGuidedReviewDraftEntry } from "../shared/session-drafts.js";
 import type { BackupHostTarget, BackupStatus } from "../shared/backup-status.js";
 import type { InputTraceReport } from "../shared/input-trace.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
@@ -1739,6 +1741,14 @@ export const api = {
     return get<QuestCommitLookup>(
       `/sessions/${encodeURIComponent(sessionId)}/guided-reviews/${encodeURIComponent(reviewId)}/commits/${encodeURIComponent(sha)}${qs}`,
     );
+  },
+  /** Where a guided review's answers are kept and sent, with those answers; null for an unknown review. */
+  getGuidedReviewHome: async (sessionId: string, reviewId: string) => {
+    const path = `/sessions/${encodeURIComponent(sessionId)}/guided-reviews/${encodeURIComponent(reviewId)}/home`;
+    const res = await fetch(`${BASE}${path}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Could not look up the review (${res.status})`);
+    return (await res.json()) as { home: GuidedReviewHome; answers?: SyncedGuidedReviewDraftEntry };
   },
   /** One of a guided review's files over its range, whole-file context, read live from git. */
   getGuidedReviewFileDiff: (sessionId: string, reviewId: string, path: string) =>

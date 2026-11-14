@@ -3,11 +3,23 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const ws = vi.hoisted(() => ({ sendToSession: vi.fn(() => true) }));
-vi.mock("../ws.js", () => ({ sendToSession: ws.sendToSession }));
+const ws = vi.hoisted(() => ({
+  sendToSession: vi.fn(() => true),
+  release: vi.fn(),
+  holdSessionConnection: vi.fn(),
+}));
+vi.mock("../ws.js", () => ({ sendToSession: ws.sendToSession, holdSessionConnection: ws.holdSessionConnection }));
 // Answer drafts go to the draft sync; here only what this tab holds matters.
-vi.mock("../draft-sync.js", () => ({ flushPendingDrafts: vi.fn() }));
-const apiMock = vi.hoisted(() => ({ getGuidedReviewCommit: vi.fn(), getGuidedReviewFileDiff: vi.fn() }));
+const drafts = vi.hoisted(() => ({ applyRemoteDraftChange: vi.fn() }));
+vi.mock("../draft-sync.js", () => ({
+  flushPendingDrafts: vi.fn(),
+  applyRemoteDraftChange: drafts.applyRemoteDraftChange,
+}));
+const apiMock = vi.hoisted(() => ({
+  getGuidedReviewCommit: vi.fn(),
+  getGuidedReviewFileDiff: vi.fn(),
+  getGuidedReviewHome: vi.fn(),
+}));
 vi.mock("../api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api.js")>();
   return {
@@ -16,6 +28,7 @@ vi.mock("../api.js", async (importOriginal) => {
       ...actual.api,
       getGuidedReviewCommit: apiMock.getGuidedReviewCommit,
       getGuidedReviewFileDiff: apiMock.getGuidedReviewFileDiff,
+      getGuidedReviewHome: apiMock.getGuidedReviewHome,
     },
   };
 });
@@ -24,7 +37,11 @@ import { MarkdownReport } from "./MarkdownReport.js";
 import { useStore } from "../store.js";
 import { GuidedReviewViewerHost } from "./GuidedReviewViewer.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
-import { formatGuidedReviewAnswers, useGuidedReviewState } from "../guided-review-state.js";
+import {
+  applySyncedGuidedReviewDraft,
+  formatGuidedReviewAnswers,
+  useGuidedReviewState,
+} from "../guided-review-state.js";
 import { resetLiveReviewContextForTest } from "../utils/guided-review-live-context.js";
 import {
   makeGuidedReviewMetaFixture,
@@ -57,8 +74,15 @@ async function openTour(message?: ReturnType<typeof reviewMessage>) {
 describe("guided review", () => {
   beforeEach(() => {
     useGuidedReviewState.setState({ open: null, drafts: {}, reviewSessions: {} });
-    ws.sendToSession.mockClear();
+    ws.sendToSession.mockReset().mockReturnValue(true);
+    ws.release.mockReset();
+    ws.holdSessionConnection.mockReset().mockReturnValue(ws.release);
     apiMock.getGuidedReviewCommit.mockReset();
+    // By default the review was never shared: its answers stay where it was published.
+    apiMock.getGuidedReviewHome
+      .mockReset()
+      .mockImplementation(async (sessionId: string) => ({ home: { sessionId, threadKey: "q-42", questId: "q-42" } }));
+    drafts.applyRemoteDraftChange.mockReset();
     apiMock.getGuidedReviewFileDiff
       .mockReset()
       .mockResolvedValue({ available: false, reason: "commits_not_available" });
@@ -212,6 +236,78 @@ describe("guided review", () => {
     expect(within(reopened).getByTestId("guided-review-message")).toHaveTextContent(
       "Just answer; I'll make the changes myself.",
     );
+  });
+
+  it("keeps the review's session connected while it is open, whichever session is on screen", async () => {
+    // Jiayi (Nov 13): Send answers failed from a review opened while another session was on
+    // screen, because the browser had no connection to the review's session. The open review
+    // holds that connection and lets it go when it closes.
+    useStore.setState({ currentSessionId: "another-session" });
+    await openTour();
+    expect(ws.holdSessionConnection).toHaveBeenCalledWith("review-host");
+    expect(ws.release).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByTestId("guided-review-viewer")).toBeNull();
+    expect(ws.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers a review a leader shared in the leader's thread, from wherever it is opened", async () => {
+    // Jiayi (Nov 13): the worker's review, opened in a separate window, kept answers apart from the
+    // leader's shared card. Once shared, every card resolves to the leader's one set of answers.
+    useStore.setState({
+      sdkSessions: [{ sessionId: "leader-1", sessionNum: 2957, name: "Daily Leader", archived: false } as never],
+    });
+    drafts.applyRemoteDraftChange.mockImplementation((sessionId: string, change: { reviewId: string; draft: never }) =>
+      applySyncedGuidedReviewDraft(sessionId, change.reviewId, change.draft),
+    );
+    apiMock.getGuidedReviewHome.mockResolvedValue({
+      home: { sessionId: "leader-1", threadKey: "q-9", questId: "q-9" },
+      answers: { revision: 3, clientId: "other-tab", updatedAt: 1, draft: { answers: { 0: "Only network errors" } } },
+    });
+    renderReview();
+    const card = screen.getByTestId("guided-review-card");
+    expect(await within(card).findByText("Answers go to Daily Leader #2957")).toBeInTheDocument();
+    expect(apiMock.getGuidedReviewHome).toHaveBeenCalledWith("review-host", "review-fixture");
+
+    fireEvent.click(within(card).getByRole("button", { name: "Start the review" }));
+    const viewer = await screen.findByTestId("guided-review-viewer");
+    expect(ws.holdSessionConnection).toHaveBeenCalledWith("leader-1");
+    expect(viewer).toHaveTextContent("Answers go to Daily Leader #2957, in q-9");
+    fireEvent.click(within(viewer).getByRole("button", { name: "Start the walkthrough" }));
+    // The answer typed elsewhere is here.
+    expect(within(currentStop(viewer)).getByRole("textbox")).toHaveValue("Only network errors");
+    fireEvent.click(within(viewer).getByRole("button", { name: "Next" }));
+    fireEvent.click(within(viewer).getByRole("button", { name: "Next" }));
+    fireEvent.click(within(viewer).getByRole("button", { name: "Wrap up" }));
+    fireEvent.click(within(viewer).getByRole("button", { name: "Send answers" }));
+    expect(ws.sendToSession).toHaveBeenCalledWith(
+      "leader-1",
+      expect.objectContaining({ threadKey: "q-9", questId: "q-9", session_id: "leader-1" }),
+    );
+    expect(useGuidedReviewState.getState().reviewSessions["review-fixture"]).toBe("leader-1");
+  });
+
+  it("keeps the answers when sending fails, says why, and sends them on the next try", async () => {
+    const viewer = await openTour();
+    fireEvent.click(within(viewer).getByRole("button", { name: "Start the walkthrough" }));
+    fireEvent.click(within(currentStop(viewer)).getByRole("button", { name: "Only network errors" }));
+    fireEvent.click(within(viewer).getByRole("button", { name: "Next" }));
+    fireEvent.click(within(viewer).getByRole("button", { name: "Next" }));
+    fireEvent.click(within(viewer).getByRole("button", { name: "Wrap up" }));
+    ws.sendToSession.mockReturnValueOnce(false);
+    fireEvent.click(within(viewer).getByRole("button", { name: "Send answers" }));
+    expect(viewer).toHaveTextContent("Not sent: can't reach the review's session. Your answers are saved; try again.");
+    expect(useGuidedReviewState.getState().drafts["review-fixture"]).toEqual({
+      answers: { 0: "Only network errors" },
+    });
+    fireEvent.click(within(viewer).getByRole("button", { name: "Send answers" }));
+    expect(ws.sendToSession).toHaveBeenCalledTimes(2);
+    expect(ws.sendToSession).toHaveBeenLastCalledWith(
+      "review-host",
+      expect.objectContaining({ content: expect.stringContaining("Answer: Only network errors") }),
+    );
+    expect(screen.queryByTestId("guided-review-viewer")).toBeNull();
+    expect(useGuidedReviewState.getState().drafts["review-fixture"]?.sentAt).toEqual(expect.any(Number));
   });
 
   it("renders Takode links in the overview, explanations, summaries and sent answers, as chat does", async () => {

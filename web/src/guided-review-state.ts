@@ -136,6 +136,10 @@ export function applySyncedGuidedReviewDraft(
   reviewId: string,
   draft: SyncedGuidedReviewDraft | null,
 ): void {
+  // A share moved the answers to another session, which now keeps them; the old place's clear
+  // must not erase them here.
+  const keeper = useGuidedReviewState.getState().reviewSessions[reviewId];
+  if (!draft && keeper && keeper !== sessionId) return;
   writeDraft(sessionId, reviewId, draft);
 }
 

@@ -7,7 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGuidedReviewRoutes } from "./guided-reviews.js";
 import type { RouteContext } from "./context.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { GUIDED_REVIEW_FIXTURE_DIFF, GUIDED_REVIEW_FIXTURE_MAP } from "../../shared/test-fixtures/guided-review.js";
+import type { SessionDraftsState } from "../../shared/session-drafts.js";
+import {
+  GUIDED_REVIEW_FIXTURE_DIFF,
+  GUIDED_REVIEW_FIXTURE_MAP,
+  makeGuidedReviewReportFixture,
+} from "../../shared/test-fixtures/guided-review.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -224,7 +229,7 @@ describe("guided review publication", () => {
     expect(history).toEqual([]);
   });
 
-  it("shares a worker's published review into the leader's thread, reusing its code and git source", async () => {
+  it("shares a worker's published review into the leader's thread as the same review, reusing its code and git source", async () => {
     // The worker published on its own machine; the leader shares it without any repository.
     const { api, post, sessions, history } = await harness();
     const range = { ...validBody.range, repoPaths: ["/laptop/repos/profiles"] };
@@ -238,24 +243,80 @@ describe("guided review publication", () => {
     const res = await post("/takode/reviews/share", { from: "worker", threadKey: "q-42" });
     expect(res.status).toBe(201);
     const receipt = await res.json();
-    expect(receipt).toMatchObject({ threadKey: "q-42", title: "Retry profile loads and cache profiles", questions: 2 });
+    expect(receipt).toMatchObject({
+      reviewId: original,
+      threadKey: "q-42",
+      title: "Retry profile loads and cache profiles",
+      questions: 2,
+    });
 
     const shared = history[0] as Extract<BrowserIncomingMessage, { type: "markdown_report" }>;
     expect(shared).toMatchObject({ type: "markdown_report", threadKey: "q-42", content: workerReview.content });
-    // Answers come to the leader: the copy is the leader's own report, with a new review ID.
+    // The share is the same review, so it has one set of answers wherever it is shown.
     expect(shared.source.sessionId).toBe("review-host");
     expect(shared.guidedReview).toMatchObject({
-      reviewId: receipt.reviewId,
+      reviewId: original,
       sharedFrom: { sessionId: "worker", reviewId: original },
       range: { repoPaths: ["/laptop/repos/profiles"] },
     });
-    expect(receipt.reviewId).not.toBe(original);
     expect(shared.guidedReview!.map.stops[0].code[0].snippet).toContain("withRetry<T>");
-    // Full diff from the leader's copy looks up the copy and reads the original checkout.
-    const commit = await api.request(
-      `/sessions/review-host/guided-reviews/${receipt.reviewId}/commits/${"c".repeat(40)}`,
-    );
+    // Full diff from the leader's share looks up the share and reads the original checkout.
+    const commit = await api.request(`/sessions/review-host/guided-reviews/${original}/commits/${"c".repeat(40)}`);
     expect(await commit.json()).toMatchObject({ available: false, reason: "commit_not_available" });
+  });
+
+  it("sends a shared review's answers to the leader from every place that shows it", async () => {
+    // Jiayi (Nov 13): answers typed in the worker's review, opened in a separate window, never
+    // reached the leader's shared card, which kept its own. The leader decides what happens with the
+    // answers, so once shared, the worker's card, the leader's card and the Library all answer it
+    // in the leader's thread.
+    const { api, post, sessions } = await harness();
+    const { reviewId } = await (await post("/takode/reviews", { ...validBody, threadKey: "main" }, "worker")).json();
+    const home = async (sessionId: string) =>
+      (await api.request(`/sessions/${sessionId}/guided-reviews/${reviewId}/home`)).json();
+    expect(await home("worker")).toEqual({ home: { sessionId: "worker", threadKey: "main" } });
+
+    // Answers typed before the share move with it.
+    const worker = sessions.get("worker")! as { drafts?: SessionDraftsState };
+    const typed = { revision: 1, clientId: "tab", updatedAt: 1, draft: { answers: { "0": "Only network errors" } } };
+    worker.drafts = { revision: 1, guidedReviews: { [reviewId]: typed } };
+    await post("/takode/reviews/share", { from: "worker", threadKey: "q-42" });
+
+    const leaderHome = { sessionId: "review-host", threadKey: "q-42", questId: "q-42" };
+    const answers = { answers: { "0": "Only network errors" } };
+    expect(await home("worker")).toMatchObject({ home: leaderHome, answers: { draft: answers } });
+    expect(await home("review-host")).toMatchObject({ home: leaderHome, answers: { draft: answers } });
+    expect(worker.drafts?.guidedReviews).toBeUndefined();
+    expect(
+      (sessions.get("review-host") as { drafts?: SessionDraftsState }).drafts?.guidedReviews?.[reviewId],
+    ).toMatchObject({
+      draft: answers,
+    });
+  });
+
+  it("leaves answers already sent where they went when the review is shared afterwards", async () => {
+    const { api, post, sessions } = await harness();
+    const { reviewId } = await (await post("/takode/reviews", { ...validBody, threadKey: "main" }, "worker")).json();
+    const worker = sessions.get("worker")! as { drafts?: SessionDraftsState };
+    const sent = { revision: 1, clientId: "tab", updatedAt: 1, draft: { answers: { "0": "Keep" }, sentAt: 5 } };
+    worker.drafts = { revision: 1, guidedReviews: { [reviewId]: sent } };
+    await post("/takode/reviews/share", { from: "worker", threadKey: "q-42" });
+    const res = await api.request(`/sessions/review-host/guided-reviews/${reviewId}/home`);
+    expect(await res.json()).toEqual({ home: { sessionId: "worker", threadKey: "main" }, answers: sent });
+  });
+
+  it("keeps a share made before shares kept the review's ID answering on its own", async () => {
+    // Older shares got their own review ID and their own answers; they keep both.
+    const { api, host } = await harness();
+    const legacy = makeGuidedReviewReportFixture();
+    legacy.guidedReview = {
+      ...legacy.guidedReview!,
+      reviewId: "copy",
+      sharedFrom: { sessionId: "worker", reviewId: "original" },
+    };
+    host.messageHistory.push({ ...legacy, threadKey: "q-7", questId: "q-7" } as BrowserIncomingMessage);
+    const res = await api.request("/sessions/review-host/guided-reviews/copy/home");
+    expect(await res.json()).toEqual({ home: { sessionId: "review-host", threadKey: "q-7", questId: "q-7" } });
   });
 
   it("shares only from the caller's own session or one it herds, and names a missing review", async () => {

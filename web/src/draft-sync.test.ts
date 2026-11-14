@@ -491,6 +491,21 @@ describe("guided review answer sync", () => {
     expect(server.session.drafts?.guidedReviews?.["review-1"]).toBeUndefined();
   });
 
+  it("keeps answers a share moved to another session when their old session clears them", () => {
+    // Sharing a review moves its unsent answers from the publishing worker ("s1") to the sharing
+    // leader. The two changes come from different sessions in either order; the answers survive both.
+    const moved = { revision: 5, clientId: "takode-server", updatedAt: 1 };
+    applyRemoteDraftChange("leader", {
+      kind: "guided-review",
+      reviewId: "review-1",
+      draft: { answers: { "0": "Keep" } },
+      ...moved,
+    });
+    applyRemoteDraftChange("s1", { kind: "guided-review", reviewId: "review-1", draft: null, ...moved, revision: 6 });
+    expect(useGuidedReviewState.getState().drafts["review-1"]).toEqual({ answers: { "0": "Keep" } });
+    expect(useGuidedReviewState.getState().reviewSessions["review-1"]).toBe("leader");
+  });
+
   it("marks a sent review everywhere and refuses changes to it afterwards", async () => {
     setGuidedReviewAnswer("s1", "review-1", 0, "Keep");
     setGuidedReviewMessage("s1", "review-1", "Make the changes");

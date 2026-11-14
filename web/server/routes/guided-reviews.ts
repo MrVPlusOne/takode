@@ -8,10 +8,13 @@ import {
   formatGuidedReviewMarkdown,
   parseGuidedReviewDiff,
   parseGuidedReviewMapInput,
+  guidedReviewPublisher,
   prepareGuidedReview,
+  type GuidedReviewHome,
   type GuidedReviewMeta,
   type GuidedReviewRange,
 } from "../../shared/guided-review.js";
+import { applySessionDraftWrite } from "../bridge/session-drafts-controller.js";
 import { onMachine } from "../remote-host/host-operations.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { publishSessionReport } from "./markdown-reports.js";
@@ -86,8 +89,9 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
   });
 
   // Share a review already published in the caller's own session or a session it herds into one of
-  // the caller's threads. The copy reuses the saved snippets and the original range, so Full diff
-  // still reads git on the machine it was first published from; answers come to the caller.
+  // the caller's threads. The share is the same review: it keeps the review's ID, saved snippets and
+  // range (so Full diff still reads git on the machine it was first published from), and from now on
+  // its one set of answers is kept and sent in the caller's thread, wherever the user answers it.
   api.post("/takode/reviews/share", async (c) => {
     const auth = ctx.authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
@@ -109,18 +113,21 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
         const what = typeof body.reviewId === "string" ? `review ${body.reviewId}` : "guided review";
         return c.json({ error: `That session has no ${what}.` }, 404);
       }
-      const reviewId = crypto.randomUUID();
+      const { reviewId } = source.guidedReview;
+      const publisherId = guidedReviewPublisher(source.guidedReview, fromId);
+      const previousHome = answersHome(ctx, fromId, reviewId)!;
       const receipt = publishSessionReport(ctx, auth.callerId, session, {
         content: source.content,
         sourcePath: source.source.sourcePath,
         threadKey: normalizeThreadTarget(body.threadKey)!.threadKey,
-        guidedReview: {
-          ...source.guidedReview,
-          reviewId,
-          sharedFrom: { sessionId: fromId, reviewId: source.guidedReview.reviewId },
-        },
+        guidedReview: { ...source.guidedReview, sharedFrom: { sessionId: publisherId, reviewId } },
       });
       if ("error" in receipt) return c.json({ error: receipt.error }, receipt.status);
+      moveAnswersHome(ctx, publisherId, reviewId, previousHome, {
+        sessionId: auth.callerId,
+        threadKey: receipt.message.threadKey || "main",
+        ...(receipt.message.questId ? { questId: receipt.message.questId } : {}),
+      });
       const { map } = source.guidedReview;
       return c.json(
         {
@@ -134,6 +141,17 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "Invalid share request." }, 400);
     }
+  });
+
+  // Where a review shown in this session keeps and sends its answers, with those answers, so every
+  // place that shows the review (its publisher's feed, a share, the Library) answers it once.
+  api.get("/sessions/:id/guided-reviews/:reviewId/home", (c) => {
+    const sessionId = ctx.resolveId(c.req.param("id"));
+    const reviewId = c.req.param("reviewId");
+    const home = sessionId ? answersHome(ctx, sessionId, reviewId) : null;
+    if (!home) return c.json({ error: "Review not found" }, 404);
+    const answers = ctx.wsBridge.getSession(home.sessionId)?.drafts?.guidedReviews?.[reviewId];
+    return c.json({ home, ...(answers ? { answers } : {}) });
   });
 
   // One commit of a review's range, read from git like the quest commit view, for the full diff.
@@ -199,6 +217,68 @@ export function createGuidedReviewRoutes(ctx: RouteContext) {
   });
   return api;
 }
+
+/**
+ * Where the answers of a review shown in `sessionId` are kept and sent: what its publisher recorded
+ * when it was last shared, else where it was published. Null when the session shows no such review.
+ */
+function answersHome(ctx: RouteContext, sessionId: string, reviewId: string): GuidedReviewHome | null {
+  const shown = findGuidedReview(ctx.wsBridge.getSession(sessionId)?.messageHistory ?? [], reviewId);
+  if (!shown?.guidedReview) return null;
+  const publisherId = guidedReviewPublisher(shown.guidedReview, sessionId);
+  const publisher = ctx.wsBridge.getSession(publisherId);
+  const recorded = publisher?.drafts?.guidedReviewHomes?.[reviewId];
+  if (recorded) return recorded;
+  const published = publisher && findGuidedReview(publisher.messageHistory, reviewId);
+  const [homeId, message] = published ? [publisherId, published] : [sessionId, shown];
+  return {
+    sessionId: homeId,
+    threadKey: message.threadKey || "main",
+    ...(message.questId ? { questId: message.questId } : {}),
+  };
+}
+
+/**
+ * Makes `next` the place a review's answers are kept and sent, carrying over answers already typed
+ * at the previous place. Answers already sent stay where they went, and so does the review's home.
+ */
+function moveAnswersHome(
+  ctx: RouteContext,
+  publisherId: string,
+  reviewId: string,
+  previous: GuidedReviewHome,
+  next: GuidedReviewHome,
+): void {
+  const publisher = ctx.wsBridge.getSession(publisherId);
+  const from = ctx.wsBridge.getSession(previous.sessionId);
+  const answers = from?.drafts?.guidedReviews?.[reviewId]?.draft;
+  if (!publisher || answers?.sentAt !== undefined) return;
+  const deps = {
+    broadcastToBrowsers: (target: { id: string }, message: BrowserIncomingMessage) =>
+      ctx.wsBridge.broadcastToSession(target.id, message),
+    persistSession: (target: { id: string }) => ctx.wsBridge.persistSessionById(target.id),
+  };
+  const to = ctx.wsBridge.getSession(next.sessionId);
+  if (answers && from && to && from !== to) {
+    // Written at the new place first, so a browser that sees both changes keeps the answers.
+    const write = (session: typeof to, draft: typeof answers | null) =>
+      applySessionDraftWrite(
+        session,
+        { clientId: SERVER_DRAFT_CLIENT, write: { kind: "guided-review", reviewId, draft } },
+        deps,
+      );
+    write(to, answers);
+    write(from, null);
+  }
+  publisher.drafts = {
+    ...(publisher.drafts ?? { revision: 0 }),
+    guidedReviewHomes: { ...publisher.drafts?.guidedReviewHomes, [reviewId]: next },
+  };
+  deps.persistSession(publisher);
+}
+
+/** The writer of answers the server moves, which no browser tab takes for its own echo. */
+const SERVER_DRAFT_CLIENT = "takode-server";
 
 /** The newest guided review in a history, or the one with the given ID. */
 function findGuidedReview(history: readonly BrowserIncomingMessage[], reviewId: unknown) {

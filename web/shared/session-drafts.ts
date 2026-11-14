@@ -1,4 +1,5 @@
 import { readConversationAnnotations, type ConversationAnnotation } from "./conversation-annotations.js";
+import type { GuidedReviewHome } from "./guided-review.js";
 
 /**
  * Unsent drafts the server keeps per session so every browser of the user shares
@@ -105,6 +106,11 @@ export interface SessionDraftsState {
   needsInput?: Record<string, SyncedNeedsInputDraftEntry>;
   /** Guided review answers by review ID, including sent ones. */
   guidedReviews?: Record<string, SyncedGuidedReviewDraftEntry>;
+  /**
+   * Where the answers of reviews this session published are kept and sent, once a review was
+   * shared into another session or thread. Written by the server when it shares a review.
+   */
+  guidedReviewHomes?: Record<string, GuidedReviewHome>;
   /** Finished voice transcriptions no browser has put into its draft yet, by request ID. */
   voiceResults?: Record<string, import("./voice-results.js").PendingVoiceResult>;
 }
@@ -405,6 +411,18 @@ export function readSessionDraftsState(value: unknown): SessionDraftsState | und
       }
     }
     if (Object.keys(guidedReviews).length > 0) state.guidedReviews = guidedReviews;
+  }
+  if (isRecord(value.guidedReviewHomes)) {
+    const homes: Record<string, GuidedReviewHome> = {};
+    for (const [reviewId, home] of Object.entries(value.guidedReviewHomes)) {
+      if (!isRecord(home) || typeof home.sessionId !== "string" || typeof home.threadKey !== "string") continue;
+      homes[reviewId] = {
+        sessionId: home.sessionId,
+        threadKey: home.threadKey,
+        ...(typeof home.questId === "string" ? { questId: home.questId } : {}),
+      };
+    }
+    if (Object.keys(homes).length > 0) state.guidedReviewHomes = homes;
   }
   return state;
 }

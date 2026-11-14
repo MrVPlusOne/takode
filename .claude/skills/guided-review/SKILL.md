@@ -25,7 +25,7 @@ A change can add what the project already has, sometimes landed after the change
 
 ## Sharing a review into another thread
 
-The user reads their leader's threads, not workers' sessions, so a review a worker publishes reaches them only when the leader shares it: `takode review --share <worker session> --thread q-N` (the worker's newest review; `--review <review-id>` picks another). Sharing needs no copy of the repository on the leader's machine: the shared copy keeps the review's saved code, and Full diff still reads git on the machine where it was first published. The user's answers in the shared copy come to the leader, who passes them to the worker unchanged with `takode send <worker> --forward uN` (the answers message's ID), adding at most a short note. A leader may share from its own session or any session it herds.
+The user reads their leader's threads, not workers' sessions, so a review a worker publishes reaches them only when the leader shares it: `takode review --share <worker session> --thread q-N` (the worker's newest review; `--review <review-id>` picks another). Sharing needs no copy of the repository on the leader's machine: the share keeps the review's saved code, and Full diff still reads git on the machine where it was first published. The share is the same review, not a copy: it has one set of answers, and once shared they come to the leader in that thread wherever the user answers it (the leader's card, the worker's or the Library). The leader passes them to the worker unchanged with `takode send <worker> --forward uN` (the answers message's ID), adding at most a short note. A leader may share from its own session or any session it herds.
 
 ## The overview
 

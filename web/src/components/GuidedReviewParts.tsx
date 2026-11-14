@@ -23,6 +23,7 @@ import {
   type GuidedReviewTarget,
 } from "../guided-review-state.js";
 import { sendGuidedReviewAnswers } from "../guided-review-send.js";
+import { useStore } from "../store.js";
 import { DiffViewer, type DiffLineEmphasis, type DiffLineNumbers } from "./DiffViewer.js";
 import { FileStatusBadge, renamedFromLabel } from "./FileStatusBadge.js";
 import { reviewCodeAttributes } from "./GuidedReviewLineComments.js";
@@ -313,7 +314,18 @@ export function ReviewMessage({ target }: { target: GuidedReviewTarget }) {
   );
 }
 
-/** Answers so far and sending them: one message to the publishing session, once. */
+/** A session as people know it, such as "Daily Leader #2957"; null for no session. */
+export function useSessionLabel(sessionId: string | null): string | null {
+  const session = useStore((state) =>
+    sessionId ? state.sdkSessions.find((entry) => entry.sessionId === sessionId) : undefined,
+  );
+  if (!sessionId) return null;
+  const name = session?.name?.trim();
+  const number = typeof session?.sessionNum === "number" ? `#${session.sessionNum}` : null;
+  return [name, number].filter(Boolean).join(" ") || "the review's session";
+}
+
+/** Answers so far and sending them: one message to where the review's answers go, once. */
 export function useReviewSend(target: GuidedReviewTarget) {
   const { reviewId, map } = target.meta;
   const draft = useGuidedReviewState((state) => state.drafts[reviewId]);
@@ -326,10 +338,15 @@ export function useReviewSend(target: GuidedReviewTarget) {
     draft?.sentAt !== undefined
       ? "Answers sent"
       : failed
-        ? "Not sent: the connection is down."
+        ? "Not sent: can't reach the review's session. Your answers are saved; try again."
         : (questions ? `${answered} of ${questions} answered` : "Answers are optional") + commentCount;
+  const destination = useSessionLabel(target.sessionId);
   return {
     status,
+    /** Where the answers go, or went. */
+    destination: `${draft?.sentAt !== undefined ? "Sent to" : "Answers go to"} ${destination}${
+      target.questId ? `, in ${target.questId}` : ""
+    }`,
     failed,
     sent: draft?.sentAt !== undefined,
     canSend:

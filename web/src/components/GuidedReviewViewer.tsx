@@ -6,6 +6,7 @@ import type { GuidedReviewMeta } from "../../shared/guided-review.js";
 import { SECONDARY_VIEWER_LAYER_CLASS, isTopViewerLayer, useSecondaryViewTarget } from "../utils/secondary-view.js";
 import { QuestCommitDiffView, buildCodeCommitEntries, useQuestCommitDiffState } from "./QuestCommitDiffView.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
+import { holdSessionConnection } from "../ws.js";
 import { Walkthrough } from "./GuidedReviewWalkthrough.js";
 
 /** Renders the open guided review; mount once at the app root. */
@@ -26,6 +27,9 @@ export function GuidedReviewViewer({ target }: { target: GuidedReviewTarget }) {
   const dockTarget = useSecondaryViewTarget(true, closeGuidedReview, "full");
   const docked = dockTarget !== null;
   const { map } = target.meta;
+  // Answers are sent over the review's own session connection, which the browser otherwise keeps
+  // only while that session is on screen; the review is often opened with another one showing.
+  useEffect(() => holdSessionConnection(target.sessionId), [target.sessionId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

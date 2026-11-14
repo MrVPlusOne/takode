@@ -28,8 +28,9 @@ The map is JSON you write; Takode reads the diff of base..head from the reposito
 The review keeps only its stops' code; the user opens the full change from git.
 --share posts a review already published in your own session or a session you herd (its newest,
 or the one --review names) into one of your threads. It needs no copy of the repository: the
-copy keeps the saved code, and Full diff still reads git where the review was first published.
-The user's answers in the shared copy come to you.
+share keeps the saved code, and Full diff still reads git where the review was first published.
+The share is the same review, not a copy: it has one set of answers, and from then on they come
+to you in that thread wherever the user answers it (your card, the worker's or the Library).
 
 Map format (paths are repository-relative; lines are new-file line numbers, inclusive):
   {

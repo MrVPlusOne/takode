@@ -3,10 +3,21 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const ws = vi.hoisted(() => ({ sendToSession: vi.fn(() => true) }));
-vi.mock("../ws.js", () => ({ sendToSession: ws.sendToSession }));
+const ws = vi.hoisted(() => ({ sendToSession: vi.fn(() => true), holdSessionConnection: vi.fn() }));
+vi.mock("../ws.js", () => ({ sendToSession: ws.sendToSession, holdSessionConnection: ws.holdSessionConnection }));
 // Drafts go to the draft sync; here only what this tab holds matters.
-vi.mock("../draft-sync.js", () => ({ flushPendingDrafts: vi.fn() }));
+vi.mock("../draft-sync.js", () => ({ flushPendingDrafts: vi.fn(), applyRemoteDraftChange: vi.fn() }));
+// The review was never shared: its answers stay where it was published.
+vi.mock("../api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api.js")>();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      getGuidedReviewHome: async (sessionId: string) => ({ home: { sessionId, threadKey: "q-42", questId: "q-42" } }),
+    },
+  };
+});
 
 import { MarkdownReport } from "./MarkdownReport.js";
 import { GuidedReviewViewerHost } from "./GuidedReviewViewer.js";

@@ -560,6 +560,18 @@ export class DemoBackend {
       const file = review?.files.find((entry) => entry.path === path);
       return response(file ? { available: true, diff: diffText(file) } : { available: false });
     }
+    // The demo never shares a review: its answers stay with the leader that published it.
+    const reviewHome = route.match(/^\/sessions\/[^/]+\/guided-reviews\/([^/]+)\/home$/);
+    if (reviewHome) {
+      const content = [...this.artifacts.values()].find(
+        ({ content }) => content.kind === "review" && content.review?.meta.reviewId === reviewHome[1],
+      )?.content;
+      const review = content?.kind === "review" ? content.review : undefined;
+      if (review) {
+        const { sessionId, threadKey, questId } = review;
+        return response({ home: { sessionId, threadKey, ...(questId ? { questId } : {}) } });
+      }
+    }
     const quest = route.match(/^\/quests\/(q-\d+)$/);
     if (quest && this.quests.has(quest[1])) return response(this.questRecord(this.quests.get(quest[1])!));
     const sessionRoute = route.match(/^\/sessions\/[^/]+\/(.+)$/)?.[1];

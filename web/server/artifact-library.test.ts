@@ -8,6 +8,7 @@ import { ArtifactLibraryStore, UNTITLED_POST_GROUPING_MS } from "./artifact-libr
 import { ArtifactLibrary, type ArtifactLibraryDeps, type LibrarySessionLike } from "./artifact-library.js";
 import { ARTIFACT_PLACEHOLDER_LANGUAGE } from "../shared/artifact-library.js";
 import { parseDraftBlock } from "../shared/draft-posts.js";
+import { makeGuidedReviewReportFixture } from "../shared/test-fixtures/guided-review.js";
 
 /**
  * The artifact library end to end on disposable state: what counts as an artifact in a message,
@@ -294,6 +295,27 @@ describe("versions and projection", () => {
       ["Daily status: 4 runs", 1],
       ["Launch note", 2],
     ]);
+  });
+
+  it("files a leader's share of a guided review under the review's own version, not as a new one", async () => {
+    // A share is the same review in another session; the Library lists it once, as version 1.
+    const original = { ...makeGuidedReviewReportFixture(), timestamp: NOW - 1000 };
+    const share = {
+      ...original,
+      id: "shared-report",
+      timestamp: NOW,
+      source: { ...original.source, sessionId: "leader" },
+      guidedReview: {
+        ...original.guidedReview!,
+        sharedFrom: { sessionId: "worker", reviewId: original.guidedReview!.reviewId },
+      },
+    };
+    const { store, library } = await setup([
+      { id: "worker", messageHistory: [original] },
+      { id: "leader", messageHistory: [share] },
+    ]);
+    await library.backfill();
+    expect(store.list().artifacts.map((artifact) => [artifact.kind, artifact.versionCount])).toEqual([["review", 1]]);
   });
 
   it("keeps only the newest file of a figure redrawn into the same path, with a record of the older one", async () => {

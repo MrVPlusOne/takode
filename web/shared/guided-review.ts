@@ -100,11 +100,30 @@ export interface GuidedReviewStats {
 /** Stored on the published report message; the diff itself is fetched on demand. */
 export interface GuidedReviewMeta {
   reviewId: string;
-  /** Set on a copy shared into another session: the session and review it was shared from. */
+  /**
+   * Set on a review shared into another session: the session and review it was shared from. A
+   * share keeps the original's review ID, so both are one review with one set of answers. Shares
+   * made before that got their own ID, and keep their own answers.
+   */
   sharedFrom?: { sessionId: string; reviewId: string };
   map: GuidedReviewMap;
   range: GuidedReviewRange;
   stats: GuidedReviewStats;
+}
+
+/**
+ * Where a review's answers are kept and sent: the session and thread of its latest share, or
+ * where it was published. Whichever place shows the review, the user answers it there.
+ */
+export interface GuidedReviewHome {
+  sessionId: string;
+  threadKey: string;
+  questId?: string;
+}
+
+/** The session that published a review shown in `sessionId`, which records where its answers go. */
+export function guidedReviewPublisher(meta: GuidedReviewMeta, sessionId: string): string {
+  return meta.sharedFrom && meta.sharedFrom.reviewId === meta.reviewId ? meta.sharedFrom.sessionId : sessionId;
 }
 
 export const MAX_GUIDED_REVIEW_DIFF_BYTES = 8 * 1024 * 1024;

@@ -147,6 +147,7 @@ export function Walkthrough({
         <div className="mx-auto flex w-full max-w-[1920px] items-center gap-3 px-4 py-2.5">
           <span className="min-w-0 flex-1 text-[14px] text-cc-muted" role={review.failed ? "alert" : undefined}>
             {review.status}
+            <span className="block truncate text-[13px]">{review.destination}</span>
           </span>
           {/* Back sits right beside Next, so clicking through takes no travel across a wide window. */}
           {step > 0 && (
