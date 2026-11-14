@@ -198,6 +198,11 @@ class TypingBox {
     this.cleanups.push(() => this.area.removeEventListener("input", hide));
   }
 
+  /** Where the box's top edge is, relative to the host. */
+  top(): number {
+    return offsetIn(this.area, this.host).y;
+  }
+
   /** How long before the last key the one before it landed, in ms. */
   gap(): number {
     return this.lastGap;
@@ -429,7 +434,7 @@ const LOW_FIREFLY: Drifter = { ...FIREFLY, right: [24, 44], down: [-5, -1], sway
 
 /** Plum petals by day: small pink petals that float out, turning, and settle below the line. */
 const PETAL: Drifter = {
-  size: [7, 4.6],
+  size: [8.5, 5.6],
   style: () => ({
     borderRadius: "60% 40% 60% 40%",
     background: "linear-gradient(135deg, #f7cbd4, #e696a9)",
@@ -465,7 +470,7 @@ function drift(box: TypingBox): Part {
     next = (next + 1) % pool.length;
     const [width, height] = kind.size;
     Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style(box) });
-    mark.animate(path(kind, x + 5, y + lineHeight / 2 - height / 2), {
+    mark.animate(path(kind, x + 5, y + lineHeight / 2 - height / 2, box.top()), {
       duration: between(...kind.life),
       easing: "linear",
     });
@@ -481,8 +486,14 @@ function drift(box: TypingBox): Part {
   };
 }
 
-/** A drifter's flight from (x, y) as keyframes: out to the right, wandering side to side. */
-function path(kind: Drifter, x: number, y: number): Keyframe[] {
+/** Drifters fade out over this many px before the top of the text box. */
+const CEILING_FADE = 6;
+
+/**
+ * A drifter's flight from (x, y) as keyframes: out to the right, wandering side to side, faded out
+ * above `ceiling` (the top of the text box).
+ */
+function path(kind: Drifter, x: number, y: number, ceiling: number): Keyframe[] {
   const right = between(...kind.right);
   const down = between(...kind.down);
   const phase = Math.random() * Math.PI * 2;
@@ -492,9 +503,11 @@ function path(kind: Drifter, x: number, y: number): Keyframe[] {
     // Fast at first, then drifting: an ease-out along the way.
     const along = t * (2 - t);
     const wander = kind.sway * Math.sin(phase + t * kind.waves * Math.PI * 2);
+    const at = y + down * along + wander;
     return {
-      transform: `translate(${x + right * along}px, ${y + down * along + wander}px) rotate(${turn * t}deg) scale(${kind.scale[step]})`,
-      opacity,
+      transform: `translate(${x + right * along}px, ${at}px) rotate(${turn * t}deg) scale(${kind.scale[step]})`,
+      // Fades out as it nears the top of the text box, so it never drifts over what is above it.
+      opacity: opacity * Math.min(1, Math.max(0, (at - ceiling) / CEILING_FADE)),
       filter: kind.blur ? `blur(${kind.blur[step]}px)` : "none",
     };
   });
