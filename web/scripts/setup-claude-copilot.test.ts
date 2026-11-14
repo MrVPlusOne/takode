@@ -40,7 +40,7 @@ async function makeFixture(
     join(bin, "claude"),
     [
       "#!/bin/sh",
-      `if [ "$1" = "--version" ]; then echo "${options.claudeVersion ?? "2.1.289"} (Claude Code)"; exit 0; fi`,
+      `if [ "$1" = "--version" ]; then echo "${options.claudeVersion ?? "2.1.290"} (Claude Code)"; exit 0; fi`,
       `printf 'arg:%s\\n' "$@" > "${launchLog}"`,
       `echo "api-key:\${ANTHROPIC_API_KEY-unset}" >> "${launchLog}"`,
     ].join("\n"),
@@ -120,9 +120,10 @@ describe("setup-claude-copilot.sh", () => {
     expect(await readFile(fixture.launchLog, "utf8")).not.toContain("--include-partial-messages");
   });
 
-  it("lists Fable only when the account's Copilot serves the pinned Fable model", async () => {
-    // Fable is gated on Copilot; offering it to an account without access would
-    // put a model in the menu whose every request fails.
+  it("lists Fable only when the account's Copilot serves the pinned Fable model to this Claude Code", async () => {
+    // Fable is gated on Copilot, which also rejects Fable requests from Claude
+    // Code before 2.1.290; offering it then would put a model in the menu whose
+    // every request fails.
     const template = JSON.parse(await readFile(TEMPLATE, "utf8"));
     const fableModel = template.env.ANTHROPIC_DEFAULT_FABLE_MODEL;
     expect(template.availableModels).toContain("fable");
@@ -139,12 +140,14 @@ describe("setup-claude-copilot.sh", () => {
       expect.stringContaining(FAKE_TOKEN),
     );
 
-    // Not served, or the list can't be read: everything else matches the template, minus Fable.
-    for (const [copilotModels, note] of [
-      [MODELS_WITHOUT_FABLE, `doesn't offer ${fableModel}`],
-      [null, "could not read Copilot's model list"],
+    // Not served, the list can't be read, or this Claude Code is too old for it:
+    // everything else matches the template, minus Fable.
+    for (const [copilotModels, claudeVersion, note] of [
+      [MODELS_WITHOUT_FABLE, "2.1.290", `doesn't offer ${fableModel}`],
+      [null, "2.1.290", "could not read Copilot's model list"],
+      [MODELS_WITH_FABLE, "2.1.289", "only to Claude Code 2.1.290 or newer"],
     ] as const) {
-      const fixture = await makeFixture({ copilotModels });
+      const fixture = await makeFixture({ copilotModels, claudeVersion });
       const result = fixture.run();
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain(note);

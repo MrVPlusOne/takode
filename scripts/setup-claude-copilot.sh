@@ -25,6 +25,9 @@ set -euo pipefail
 # Oldest Claude Code release this setup was verified with. Older releases may
 # mishandle the model translations and send settings Copilot rejects.
 MIN_CLAUDE_VERSION="2.1.289"
+# Copilot answers Fable 5.2 requests from older releases with "400 ... version
+# 2.1.290 or newer is required".
+MIN_FABLE_CLAUDE_VERSION="2.1.290"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="$SCRIPT_DIR/claude-copilot-settings.json"
@@ -87,19 +90,22 @@ version_at_least "$claude_version" "$MIN_CLAUDE_VERSION" ||
 
 "$gh_bin" auth token >/dev/null 2>&1 || fail "GitHub CLI is not signed in. Run: gh auth login"
 
-# Copilot offers Fable only to accounts granted gated access. List it only when
-# this account's Copilot serves the model the template pins, so the model menu
-# never offers a model whose every request fails. The token goes to curl
-# through standard input, never on a command line.
+# Copilot offers Fable only to accounts granted gated access, and only to recent
+# Claude Code releases. List it only when both hold, so the model menu never
+# offers a model whose every request fails. The token goes to curl through
+# standard input, never on a command line.
 fable_model="$(sed -n 's/.*"ANTHROPIC_DEFAULT_FABLE_MODEL": "\([^"]*\)".*/\1/p' "$TEMPLATE")"
 copilot_models="$("$gh_bin" auth token | sed 's/^/Authorization: Bearer /' |
   curl -fsS --max-time 30 -H @- https://api.githubcopilot.com/models 2>/dev/null)" || copilot_models=""
 fable_filter=""
 models="Opus 5.5 (default), Fable 5.2, Sonnet 5.5 and Haiku 4.5"
-if [[ "$copilot_models" != *"\"id\":\"$fable_model\""* ]]; then
+if [[ "$copilot_models" != *"\"id\":\"$fable_model\""* ]] ||
+  ! version_at_least "$claude_version" "$MIN_FABLE_CLAUDE_VERSION"; then
   fable_filter='s/"fable", //'
   models="Opus 5.5 (default), Sonnet 5.5 and Haiku 4.5"
-  if [[ -z "$copilot_models" ]]; then
+  if [[ "$copilot_models" == *"\"id\":\"$fable_model\""* ]]; then
+    echo "note: Copilot serves $fable_model only to Claude Code $MIN_FABLE_CLAUDE_VERSION or newer, so Fable is left out. Update Claude Code (claude update), then rerun this script."
+  elif [[ -z "$copilot_models" ]]; then
     echo "note: could not read Copilot's model list, so Fable is left out. Rerun this script to check again."
   else
     echo "note: your Copilot account doesn't offer $fable_model, so Fable is left out. Rerun this script once you have access."

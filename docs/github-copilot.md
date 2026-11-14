@@ -8,8 +8,8 @@ credentials.
 With the settings below, the Claude model menu offers **Opus 5.5 (default),
 Sonnet 5.5 and Haiku 4.5**, and each of them works through Copilot. These
 models were tested with Claude Code 2.1.289 in October 2026. If your Copilot
-account has access to Fable, the menu also offers **Fable 5.2** (see
-[Fable](#fable)).
+account has access to Fable and your Claude Code is 2.1.290 or newer, the menu
+also offers **Fable 5.2** (see [Fable](#fable)).
 
 ## Requirements
 
@@ -19,7 +19,7 @@ account has access to Fable, the menu also offers **Fable 5.2** (see
   with `gh auth login`. If you're signed in to several accounts, Claude Code
   uses the active one; switch accounts with `gh auth switch`.
 - [Claude Code](https://code.claude.com/docs) 2.1.289 or newer, as `claude` on
-  your `PATH`.
+  your `PATH`. Fable 5.2 needs 2.1.290 or newer.
 
 ## Setup
 
@@ -108,12 +108,16 @@ Access can take a few days to show up after approval.
 The setup script asks Copilot which models your account can use (as in
 [Checking which models Copilot serves](#checking-which-models-copilot-serves))
 and keeps Fable in the model list only when Copilot serves
-`claude-fable-5.2`. Otherwise it prints a note and leaves Fable out, so the
-menu never offers a model whose every request fails. Once you have access,
-run the script again; new sessions then offer Fable 5.2.
+`claude-fable-5.2`. Copilot also turns away Fable 5.2 requests from Claude
+Code before 2.1.290 (`400 ... version 2.1.290 or newer is required`), so the
+script leaves Fable out for those releases too. Either way it prints a note,
+so the menu never offers a model whose every request fails. Once you have
+access, or after `claude update`, run the script again; new sessions then
+offer Fable 5.2.
 
-Claude Code 2.1.289 doesn't know Fable 5.2 yet, so the Fable alias is pinned
-to Copilot's ID like Opus and Sonnet. Claude Code then sends Fable 5.2 the
+Claude Code (through at least 2.1.311) doesn't know Fable 5.2 yet: its Fable
+alias means Fable 5.1. So the Fable alias is pinned to Copilot's ID like Opus
+and Sonnet. Claude Code then sends Fable 5.2 the
 same thinking and reasoning-effort settings it sends Opus 5.5.
 
 ## Web search and WebFetch
