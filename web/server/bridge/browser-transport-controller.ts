@@ -141,6 +141,8 @@ type BrowserTransportSocketData = BrowserConversationWindowSocketData &
 export interface ProgrammaticUserMessageOptions {
   annotations?: ProgrammaticUserMessage["annotations"];
   deliveryContent?: ProgrammaticUserMessage["deliveryContent"];
+  /** Stored images the message carries; with deliveryContent, that text must name where they are. */
+  imageRefs?: ProgrammaticUserMessage["imageRefs"];
   historyFollowUps?: ProgrammaticHistoryFollowUp[];
   timerFiring?: ProgrammaticUserMessage["timerFiring"];
   replyContext?: ProgrammaticUserMessage["replyContext"];
@@ -794,6 +796,7 @@ export function injectUserMessage(
     content,
     ...(options?.annotations ? { annotations: options.annotations } : {}),
     ...(options?.deliveryContent ? { deliveryContent: options.deliveryContent } : {}),
+    ...(options?.imageRefs?.length ? { imageRefs: options.imageRefs } : {}),
     ...(options?.historyFollowUps?.length ? { historyFollowUps: options.historyFollowUps } : {}),
     ...(options?.timerFiring ? { timerFiring: options.timerFiring } : {}),
     ...(options?.replyContext ? { replyContext: options.replyContext } : {}),

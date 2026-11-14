@@ -129,6 +129,55 @@ describe("takode send", () => {
     }
   });
 
+  it("forwards user messages by ID, with or without a note, and rejects malformed IDs", async () => {
+    // `--forward u3,u5` asks the server to insert those user messages; the IDs are not part of
+    // the note, a forward needs no note, and an ID not shaped like a tag fails before sending.
+    const messageCalls: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const url = req.url || "";
+      const reply = (body: unknown) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (url === "/api/takode/me") return reply({ sessionId: "leader-send", isOrchestrator: true });
+      if (url === "/api/sessions/worker-send") return reply({ sessionId: "worker-send", sessionNum: 7 });
+      if (url === "/api/sessions/leader-send/herd") return reply([{ sessionId: "worker-send" }]);
+      if (url === "/api/takode/sessions") return reply([]);
+      if (url === "/api/sessions/worker-send/message") {
+        messageCalls.push(await readJson(req));
+        return reply({ ok: true, sessionId: "worker-send", delivery: "sent" });
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = String((server.address() as AddressInfo).port);
+    const env = { ...process.env, COMPANION_SESSION_ID: "leader-send", COMPANION_AUTH_TOKEN: "auth-send" };
+
+    try {
+      const withNote = await runTakode(
+        ["send", "worker-send", "Apply", "these", "--forward", "u3,u5", "--port", port],
+        env,
+      );
+      expect(withNote.status).toBe(0);
+      expect(withNote.stdout).toContain("forwarding u3, u5");
+      const alone = await runTakode(["send", "worker-send", "--forward", "u3", "--port", port], env);
+      expect(alone.status).toBe(0);
+      expect(messageCalls.map(({ content, forwardUserMessageIds }) => ({ content, forwardUserMessageIds }))).toEqual([
+        { content: "Apply these", forwardUserMessageIds: ["u3", "u5"] },
+        { content: "", forwardUserMessageIds: ["u3"] },
+      ]);
+
+      const malformed = await runTakode(["send", "worker-send", "--forward", "3", "--port", port], env);
+      expect(malformed.status).not.toBe(0);
+      expect(malformed.stderr).toContain("--forward takes user message IDs");
+      expect(messageCalls).toHaveLength(2);
+    } finally {
+      server.close();
+    }
+  });
+
   it("reads multiline shell-sensitive content from --stdin without mangling it", async () => {
     const messageCalls: Array<{ id: string; body: JsonObject }> = [];
     const server = createServer(async (req, res) => {

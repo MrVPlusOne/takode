@@ -426,13 +426,15 @@ Show leader-answerable prompts for a session: `AskUserQuestion`, `ExitPlanMode`,
 
 These commands require `TAKODE_ROLE=orchestrator`. Non-orchestrator sessions will get a permission error.
 
-### `takode send <session> <message> [--thread <main|q-N>] [--correction]`
+### `takode send <session> <message> [--forward <uN,...>] [--thread <main|q-N>] [--correction]`
 
 Send a message to a **herded** worker session (injected as a user message). Requires herding first.
 
 You can also send to another **leader** session by its session number, without herding. The recipient sees a `[Leader #N HH:MM]` tag, and its busy state does not block delivery. Only leaders can message a leader, and only a worker's own leader can message that worker.
 
 Messages to a leader require `--thread`, the receiving leader's thread the message belongs in. Use `--thread q-N` when the message is about a quest that leader runs or that you are handing over to it; otherwise use `--thread main`, including for news about your own quests and messages that span several quests. Main is the receiving leader's log, which suits coordination between leaders; whatever the receiver should tell the user, it posts in a thread. Name the receiver's thread, not the thread you are working in, and do not put a `[thread:...]` marker in the message text. A quest that does not exist falls back to Main, and the result says which thread was used and flags a quest that is not on the receiver's board. Workers have no threads, so `--thread` is not used for them.
+
+**Pass the user's messages on with `--forward`, never by retyping them.** When a worker or another leader needs a message the user wrote to you (review answers with line comments, feedback, screenshots, a long request), name it by the `id:uN` its tag shows: `takode send 3 "Apply these review answers" --forward u12`, or `--forward u12,u14` for several. The server inserts each one verbatim after your optional note, marked as the user's words with when they were written, with its comments and images, so it costs you no context and loses nothing. Only messages the user wrote to you can be forwarded. Your note says what to do with them; don't restate them.
 
 **Syntax:** The session ID must always be the **first** argument after `send`. Flags (`--correction`, `--json`) go **after** the message or at the end. Putting flags before the session ID will cause parse errors.
 
@@ -444,6 +446,7 @@ Delivery is reported, not assumed. A message to a running session prints `delive
 takode herd 2
 takode send 2 "Please also add tests for the edge cases"
 takode send 2 "Actually, skip the auth tests" --correction
+takode send 2 "The user's review answers; address them" --forward u12
 takode send 7 "FYI for your q-12: the fix it needs landed" --thread q-12
 ```
 

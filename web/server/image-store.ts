@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
-import { mkdir, writeFile, readdir, rm, access } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, writeFile, readdir, rm, access, copyFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import {
@@ -68,6 +68,10 @@ export class ImageStore {
     return join(this.baseDir, sessionId);
   }
 
+  private newImageId(): string {
+    return `${Date.now()}-${this.counter++}-${randomBytes(3).toString("hex")}`;
+  }
+
   /**
    * Store a base64 image to disk, compressed by the shared optimizer policy (WebP,
    * at most 1920px), and generate a WebP thumbnail.
@@ -79,7 +83,7 @@ export class ImageStore {
     const dir = this.sessionDir(sessionId);
     await mkdir(dir, { recursive: true });
 
-    const imageId = `${Date.now()}-${this.counter++}-${randomBytes(3).toString("hex")}`;
+    const imageId = this.newImageId();
     const thumbPath = join(dir, `${imageId}.thumb.webp`);
 
     const raw = Buffer.from(base64Data, "base64");
@@ -111,6 +115,24 @@ export class ImageStore {
       ...(storedAsOptimized ? { optimized: true } : {}),
       ...(sourceName ? { sourceName } : {}),
     };
+  }
+
+  /**
+   * Copy a stored image and its thumbnail into another session under a new ID, so a message
+   * passed on to that session can show and attach it. Null when the image is no longer stored.
+   */
+  async copy(fromSessionId: string, ref: ImageRef, toSessionId: string): Promise<ImageRef | null> {
+    const original = await this.getOriginalPath(fromSessionId, ref.imageId);
+    if (!original) return null;
+    const imageId = this.newImageId();
+    const dir = this.sessionDir(toSessionId);
+    await mkdir(dir, { recursive: true });
+    // Stored names are `<imageId>.<suffix>`; keep each suffix so the copy reads like the original.
+    const rename = (path: string) => join(dir, imageId + basename(path).slice(ref.imageId.length));
+    await copyFile(original, rename(original));
+    const thumbnail = await this.getThumbnailPath(fromSessionId, ref.imageId);
+    if (thumbnail) await copyFile(thumbnail, rename(thumbnail));
+    return { ...ref, imageId };
   }
 
   /** Get the disk path for an original image, or null if not found. */

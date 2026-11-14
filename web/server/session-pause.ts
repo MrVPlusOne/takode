@@ -23,6 +23,7 @@ export interface ProgrammaticPauseMessageInput {
   options?: {
     annotations?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["annotations"];
     deliveryContent?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["deliveryContent"];
+    imageRefs?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["imageRefs"];
     historyFollowUps?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["historyFollowUps"];
     timerFiring?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["timerFiring"];
     replyContext?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["replyContext"];
@@ -124,6 +125,7 @@ export function buildProgrammaticUserMessage(
     content: input.content,
     ...(input.options?.annotations ? { annotations: input.options.annotations } : {}),
     ...(input.options?.deliveryContent ? { deliveryContent: input.options.deliveryContent } : {}),
+    ...(input.options?.imageRefs?.length ? { imageRefs: input.options.imageRefs } : {}),
     ...(input.options?.historyFollowUps?.length ? { historyFollowUps: input.options.historyFollowUps } : {}),
     ...(input.options?.timerFiring ? { timerFiring: input.options.timerFiring } : {}),
     ...(input.options?.replyContext ? { replyContext: input.options.replyContext } : {}),

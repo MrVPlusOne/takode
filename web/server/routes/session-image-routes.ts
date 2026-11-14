@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import type { Hono } from "hono";
 import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
-import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
+import {
+  getImageUploadSourceName,
+  isSharpUnavailableError,
+  SHARP_UNAVAILABLE_MESSAGE,
+  type ImageRef,
+  type ImageStore,
+} from "../image-store.js";
 import type { RouteContext } from "./context.js";
 
 export function registerSessionImageRoutes(
@@ -43,17 +49,7 @@ export function registerSessionImageRoutes(
       }
       throw error;
     }
-    const paths = deriveAttachmentPaths(id, imageRefs);
-    // A session on a remote host reads its attachments there: copy them over,
-    // in order ahead of the message that will refer to them.
-    const hostId = launcher.getSession(id)?.hostId;
-    const links = launcher.remoteHosts?.links;
-    if (hostId && links) {
-      const sources = await Promise.all(imageRefs.map((ref) => imageStore.getOriginalPath(id, ref.imageId)));
-      for (const [index, source] of sources.entries()) {
-        if (source) links.writeFileInOrder(hostId, paths[index]!, await readFile(source));
-      }
-    }
+    const paths = await sendImagesToSessionHost({ imageStore, launcher }, id, imageRefs);
     return c.json({
       imageRefs,
       paths,
@@ -99,4 +95,25 @@ export function registerSessionImageRoutes(
       "Cache-Control": "public, max-age=31536000, immutable",
     });
   });
+}
+
+/**
+ * Where a session's agent reads these stored images. A session on a remote host reads its
+ * attachments there, so they are copied over, in order ahead of the message that will refer to them.
+ */
+export async function sendImagesToSessionHost(
+  deps: { imageStore: ImageStore; launcher: Pick<RouteContext["launcher"], "getSession" | "remoteHosts"> },
+  sessionId: string,
+  imageRefs: ImageRef[],
+): Promise<string[]> {
+  const paths = deriveAttachmentPaths(sessionId, imageRefs);
+  const hostId = deps.launcher.getSession(sessionId)?.hostId;
+  const links = deps.launcher.remoteHosts?.links;
+  if (hostId && links) {
+    const sources = await Promise.all(imageRefs.map((ref) => deps.imageStore.getOriginalPath(sessionId, ref.imageId)));
+    for (const [index, source] of sources.entries()) {
+      if (source) links.writeFileInOrder(hostId, paths[index]!, await readFile(source));
+    }
+  }
+  return paths;
 }

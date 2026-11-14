@@ -1493,6 +1493,37 @@ describe("Codex image transport", () => {
     expect(sentMsg.images).toBeUndefined();
   });
 
+  it("delivers a programmatic message's images through deliveryContent paths", async () => {
+    // `takode send --forward` passes on a user message with images: Codex reads their paths
+    // from deliveryContent, and the pending input keeps the image refs for the feed entry.
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-forwarded-image" });
+
+    const path = join(homedir(), ".companion", "images", "s1", "img-9.orig.png");
+    const deliveryContent = `[Forwarded user message u3]\nLook\n[📎 Image attachments:\nAttachment 1: ${path}]`;
+    bridge.injectUserMessage(
+      "s1",
+      "[Forwarded user message u3]\nLook",
+      { sessionId: "leader-1" },
+      undefined,
+      undefined,
+      {
+        deliveryContent,
+        imageRefs: [{ imageId: "img-9", media_type: "image/png" }],
+      },
+    );
+    await flush();
+
+    const sentMsg = adapter.sendBrowserMessage.mock.calls[0]![0] as any;
+    expect(sentMsg.type).toBe("codex_start_pending");
+    expect(sentMsg.inputs[0]?.content).toContain(deliveryContent);
+    // The feed entry is written from the pending input once Codex takes it.
+    expect(bridge.getSession("s1")!.pendingCodexInputs[0]?.imageRefs).toEqual([
+      { imageId: "img-9", media_type: "image/png" },
+    ]);
+  });
+
   it("does not require imageStore for prepared Codex image turns", async () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);

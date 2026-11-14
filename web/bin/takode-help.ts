@@ -267,10 +267,14 @@ const EXPORT_HELP = `Usage: takode export <session> <path>
 Export a session's full history to a text file.
 `;
 
-const SEND_HELP = `Usage: takode send <session> <message> [--thread <main|q-N>] [--correction] [--json]
-       takode send <session> --stdin [--thread <main|q-N>] [--correction] [--json]
+const SEND_HELP = `Usage: takode send <session> <message> [--forward <uN,...>] [--thread <main|q-N>] [--correction] [--json]
+       takode send <session> --stdin [--forward <uN,...>] [--thread <main|q-N>] [--correction] [--json]
+       takode send <session> --forward <uN,...> [--thread <main|q-N>] [--correction] [--json]
 
 Send a message to a herded session, or to another leader session.
+--forward passes on user messages written to you, by the IDs their tags show (id:uN), after
+your optional message: the server inserts each one verbatim, marked as the user's words with
+when they were written, with its comments and images. Use it instead of retyping them.
 A leader's or a Scribe's busy state does not block delivery, so --correction is not needed for them.
 Messages to a leader must name the receiving leader's thread with --thread: the quest the
 message is about when that leader runs it or you are handing it over, otherwise main.
@@ -281,6 +285,7 @@ message_delivery herd event follows when it is delivered or fails.
 
 Options:
   --stdin       Read the message body from stdin
+  --forward     User messages to pass on, such as u12 or u12,u14
   --thread      The receiving leader's thread (main or q-N); required for leaders, not used for workers
   --correction  Send steering input to a currently running session
   --json        Output JSON
@@ -930,6 +935,7 @@ Examples:
   takode latency --since 7d
   takode export 1 /tmp/session-1.txt
   takode send 2 "Please add tests for the edge cases"
+  takode send 2 "The user's review answers; address them" --forward u12
   takode reconnect 2,3
   takode reconnect --all
   printf 'Line 1\\nLine 2 with $HOME and \`code\`\\n' | takode send 2 --stdin

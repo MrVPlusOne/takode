@@ -10,6 +10,7 @@ import {
   readStdinText,
 } from "./takode-core.js";
 import { normalizeThreadTarget } from "../shared/thread-routing.js";
+import { isCanonicalLeaderUserMessageId } from "../shared/leader-user-message-id.js";
 
 /** Server record of a message queued for a session that was not running (server/message-delivery-tracker.ts). */
 export interface MessageDelivery {
@@ -30,7 +31,9 @@ interface SentThread {
   notOnRecipientBoard?: true;
 }
 
-const SEND_FLAGS = ["--json", "--correction", "--stdin", "--thread"];
+const SEND_FLAGS = ["--json", "--correction", "--stdin", "--thread", "--forward"];
+/** Flags that take a value, which is not part of the message. */
+const VALUE_FLAGS = ["--thread", "--forward"];
 const THREAD_REQUIRED =
   "Messages to a leader need --thread: the receiving leader's thread for this message. " +
   "Use --thread q-N for the quest it is about when that leader runs it or you are handing it over, " +
@@ -43,16 +46,21 @@ const MAX_WAIT_MS = 40_000;
 export async function handleSend(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   const usage =
-    "Usage: takode send <session> <message> [--thread <main|q-N>] [--correction] [--json]\n       takode send <session> --stdin [--thread <main|q-N>] [--correction] [--json]";
+    "Usage: takode send <session> <message> [--forward <uN,...>] [--thread <main|q-N>] [--correction] [--json]\n" +
+    "       takode send <session> --stdin [--forward <uN,...>] [--thread <main|q-N>] [--correction] [--json]\n" +
+    "       takode send <session> --forward <uN,...> [--thread <main|q-N>] [--correction] [--json]";
   const flags = parseFlags(args.slice(1));
-  assertKnownFlags(flags, new Set(["json", "correction", "stdin", "thread"]), usage);
+  assertKnownFlags(flags, new Set(["json", "correction", "stdin", "thread", "forward"]), usage);
 
   const jsonMode = flags.json === true;
   const isCorrection = flags.correction === true;
   const useStdin = flags.stdin === true;
   const thread = flags.thread === undefined ? undefined : parseThreadFlag(flags.thread);
+  const forward = flags.forward === undefined ? [] : parseForwardFlag(flags.forward);
 
-  const messageParts = args.slice(1).filter((arg, i, rest) => !SEND_FLAGS.includes(arg) && rest[i - 1] !== "--thread");
+  const messageParts = args
+    .slice(1)
+    .filter((arg, i, rest) => !SEND_FLAGS.includes(arg) && !VALUE_FLAGS.includes(rest[i - 1] ?? ""));
 
   if (!sessionRef) err(usage);
   if (useStdin && messageParts.length > 0) {
@@ -61,7 +69,8 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
 
   const cleanContent = useStdin ? await readStdinText() : messageParts.join(" ");
 
-  if (!cleanContent.trim()) err(usage);
+  // A forward needs no note of the sender's own.
+  if (!cleanContent.trim() && forward.length === 0) err(usage);
 
   // Guard: orchestrators can only send to herded sessions or other leaders
   const callerSessionId = getCredentials()?.sessionId;
@@ -160,6 +169,7 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
     content: cleanContent,
     ...(agentSource ? { agentSource } : {}),
     ...(thread ? { threadKey: thread } : {}),
+    ...(forward.length ? { forwardUserMessageIds: forward } : {}),
     trackDelivery: true,
   })) as {
     delivery?: string;
@@ -187,7 +197,8 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
     console.log(`[${formatTime(Date.now())}] ✗ Session ${target} did not accept the message.`);
     process.exitCode = 1;
   } else {
-    printDelivery(`Message to session ${target}`, result.delivery, result.messageDelivery);
+    const forwarding = forward.length ? ` forwarding ${forward.join(", ")}` : "";
+    printDelivery(`Message to session ${target}${forwarding}`, result.delivery, result.messageDelivery);
   }
 }
 
@@ -234,6 +245,15 @@ function parseThreadFlag(value: string | boolean): string {
   const target = typeof value === "string" ? normalizeThreadTarget(value) : null;
   if (!target) err("--thread must be main or a quest ID such as q-42.");
   return target.threadKey;
+}
+
+/** `--forward u12,u14`: the user messages to pass on, by the IDs their tags show (`id:uN`). */
+function parseForwardFlag(value: string | boolean): string[] {
+  const ids = typeof value === "string" ? value.split(",").map((id) => id.trim()) : [];
+  if (ids.length === 0 || ids.some((id) => !isCanonicalLeaderUserMessageId(id))) {
+    err("--forward takes user message IDs as their tags show them, such as u12 or u12,u14.");
+  }
+  return ids;
 }
 
 function describeSentThread(thread: SentThread): string {

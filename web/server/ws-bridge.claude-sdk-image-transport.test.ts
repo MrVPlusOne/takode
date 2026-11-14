@@ -595,4 +595,33 @@ describe("Claude SDK image transport", () => {
     expect(sentMsg.images).toBeUndefined();
     expect(sentMsg.local_images).toBeUndefined();
   });
+
+  it("delivers a programmatic message's images and deliveryContent like a browser upload", async () => {
+    // `takode send --forward` passes on a user message with images: the feed entry shows them,
+    // and the agent reads deliveryContent, which names where they are.
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    const path = join(homedir(), ".companion", "images", "s1", "img-9.orig.png");
+    const deliveryContent = `[Forwarded user message u3]\nLook\n[📎 Image attachments:\nAttachment 1: ${path}]`;
+    bridge.injectUserMessage(
+      "s1",
+      "[Forwarded user message u3]\nLook",
+      { sessionId: "leader-1" },
+      undefined,
+      undefined,
+      {
+        deliveryContent,
+        imageRefs: [{ imageId: "img-9", media_type: "image/png" }],
+      },
+    );
+    await flush();
+
+    const sentMsg = adapter.sendBrowserMessage.mock.calls[0]![0] as any;
+    expect(sentMsg.content).toContain(deliveryContent);
+    expect(sentMsg.imageRefs).toBeUndefined();
+    const stored = bridge.getSession("s1")!.messageHistory.findLast((m) => m.type === "user_message") as any;
+    expect(stored.content).toBe("[Forwarded user message u3]\nLook");
+    expect(stored.images).toEqual([{ imageId: "img-9", media_type: "image/png" }]);
+  });
 });

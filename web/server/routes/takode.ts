@@ -74,6 +74,8 @@ import { notificationThreadKey } from "../bridge/session-notification-controller
 import { registerTakodeReconnectRoute } from "./takode-reconnect.js";
 import { registerTakodeActivityRoute } from "./takode-activity-route.js";
 import { publishWorkerReport } from "../worker-report.js";
+import { composeForwardedMessage } from "../forwarded-user-messages.js";
+import { sendImagesToSessionHost } from "./session-image-routes.js";
 import { registerTakodeThreadHandoffRoute } from "./takode-thread-handoff.js";
 import { buildTakodeCodexPendingDeliveryFields, buildTakodeInfoSafeSession } from "./session-detail-response.js";
 import {
@@ -970,7 +972,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
     // injectUserMessage will queue the message, clear killedByIdleManager,
     // and trigger a relaunch, matching the browser chat UI behavior.
     const body = await c.req.json().catch(() => ({}));
-    if (typeof body.content !== "string" || !body.content.trim()) {
+    const note: string = typeof body.content === "string" ? body.content : "";
+    // `takode send --forward uN`: the sender's user messages, passed on after its optional note.
+    const forwardIds: unknown[] = Array.isArray(body.forwardUserMessageIds) ? body.forwardUserMessageIds : [];
+    if (!note.trim() && forwardIds.length === 0) {
       return c.json({ error: "content is required" }, 400);
     }
     const rawThreadKey =
@@ -989,7 +994,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       ? await resolveSentThread(explicitRoute, session.isOrchestrator ? wsBridge.getSession(id) : undefined)
       : null;
     // Senders that name no thread (older CLIs, direct API callers) still get the text guess.
-    const threadRoute = explicitThread?.route ?? inferThreadRouteFromTextContent(body.content) ?? undefined;
+    const threadRoute = explicitThread?.route ?? inferThreadRouteFromTextContent(note) ?? undefined;
     const threadReport = explicitThread ? { thread: explicitThread.report } : {};
     // Validate optional agentSource label from callers.
     let sessionLabel: string | undefined;
@@ -1016,11 +1021,26 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (session.isOrchestrator && auth.callerId !== id && !auth.caller.isOrchestrator) {
       return c.json({ error: "Only leader sessions can send messages to a leader" }, 403);
     }
-    const manualAutoPauseOptions = { autoPauseSourceKind: "manual" as const };
+    const forward = forwardIds.length
+      ? await composeForwardedMessage(note, forwardIds, {
+          senderHistory: wsBridge.getSession(auth.callerId)?.messageHistory ?? [],
+          copyImage: async (ref) => (ctx.imageStore ? ctx.imageStore.copy(auth.callerId, ref, id) : null),
+          attachmentPaths: (refs) =>
+            ctx.imageStore
+              ? sendImagesToSessionHost({ imageStore: ctx.imageStore, launcher }, id, refs)
+              : Promise.resolve([]),
+        })
+      : null;
+    if (forward && "error" in forward) return c.json({ error: forward.error }, 400);
+    const content = forward?.content ?? note;
+    const manualAutoPauseOptions = {
+      autoPauseSourceKind: "manual" as const,
+      ...(forward ? { deliveryContent: forward.deliveryContent, imageRefs: forward.imageRefs } : {}),
+    };
     if (isSessionPaused(wsBridge.getSession(id))) {
       const delivery = wsBridge.injectUserMessage(
         id,
-        body.content,
+        content,
         agentSource,
         undefined,
         threadRoute,
@@ -1037,7 +1057,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
     const delivery = wsBridge.injectUserMessage(
       id,
-      body.content,
+      content,
       agentSource,
       undefined,
       threadRoute,
@@ -1049,7 +1069,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       sessionId: id,
       delivery,
       ...threadReport,
-      ...trackQueuedMessage(delivery, body, id, auth, body.content, threadRoute?.questId),
+      ...trackQueuedMessage(delivery, body, id, auth, content, threadRoute?.questId),
     });
   });
 

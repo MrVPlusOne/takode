@@ -235,7 +235,7 @@ Work on [q-XX](quest:q-XX). Load the quest skill, read and claim the quest.
 Read this phase brief first: ~/.companion/quest-journey-phases/work/assignee.md
 ```
 
-Point to exact user corrections, relevant memory, or other useful sources the worker cannot otherwise recover. For unaddressed human feedback, tell the worker to read and address it during Work. Do not repeat available context or prescribe a technical plan.
+Point to exact user corrections, relevant memory, or other useful sources the worker cannot otherwise recover. When the worker needs a user message itself (review answers, feedback, screenshots), forward it with `takode send <session> --forward uN` instead of retyping or summarizing it; see the takode-orchestration skill. For unaddressed human feedback, tell the worker to read and address it during Work. Do not repeat available context or prescribe a technical plan.
 
 The Work brief owns understanding, exception-based pauses and optional reports. Deliberately requested reports can use `takode worker-stream --text <report>` or `--text-file <path>|-`; receipt is informational and never requires acknowledgment. Do not add this report to every dispatch as boilerplate.
 
