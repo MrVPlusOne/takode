@@ -2,7 +2,7 @@ import { parse } from "shell-quote";
 import { stripCommandThreadComment } from "../../shared/thread-routing.js";
 
 const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=.*/;
-const FLAG_WITH_VALUE = new Set(["--port", "--thread"]);
+const FLAG_WITH_VALUE = new Set(["--port", "--thread", "--forward"]);
 const FLAG_WITHOUT_VALUE = new Set(["--correction", "--json"]);
 const STDIN_REDIRECT_OPS = new Set(["<", "<<<"]);
 
@@ -44,6 +44,8 @@ export function isPureTakodeSendCommand(rawCommand: unknown): boolean {
   if (!target || target.startsWith("-")) return false;
 
   let useStdin = false;
+  // `--forward uN` sends the user's messages, so it needs no message of its own.
+  let forwards = false;
   const messageWords: string[] = [];
   for (let index = 3; index < words.length; index += 1) {
     const word = words[index];
@@ -54,6 +56,7 @@ export function isPureTakodeSendCommand(rawCommand: unknown): boolean {
     }
     if (FLAG_WITHOUT_VALUE.has(word)) continue;
     if (FLAG_WITH_VALUE.has(word)) {
+      if (word === "--forward") forwards = true;
       index += 1;
       if (!words[index] || words[index].startsWith("-")) return false;
       continue;
@@ -64,7 +67,7 @@ export function isPureTakodeSendCommand(rawCommand: unknown): boolean {
 
   const suppliesStdin = heredoc.suppliesStdin || normalized.suppliesStdin;
   if (useStdin) return suppliesStdin && messageWords.length === 0;
-  return !suppliesStdin && messageWords.length > 0;
+  return !suppliesStdin && (messageWords.length > 0 || forwards);
 }
 
 function normalizeSimpleCommandTokens(

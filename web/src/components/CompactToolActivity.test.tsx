@@ -383,6 +383,16 @@ describe("CompactToolActivity", () => {
     expect(screen.queryByText(/Continue/)).toBeNull();
     unmount();
 
+    // A send that forwards the user's messages (`--forward uN`) is a send too, not a plain command.
+    const forwarded = render(
+      <CompactToolActivity
+        items={[{ id: "send-2", name: "Bash", input: { command: 'takode send 17 "Apply these" --forward u12' } }]}
+        renderDetails={renderDetails}
+      />,
+    );
+    expect(lineTexts()).toEqual(["SendSent a message"]);
+    forwarded.unmount();
+
     render(
       <CompactToolActivity
         items={[{ id: "worker-1", name: "SendMessage", kind: "worker_event", input: { eventCount: 2 } }]}

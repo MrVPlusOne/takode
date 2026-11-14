@@ -18,6 +18,10 @@ describe("isPureTakodeSendCommand", () => {
     ['takode send 2957 --thread main "Please merge once CI is green."', "leader thread flag"],
     ['# thread:main\ntakode send 2957 --thread q-2676 "Please merge."', "thread comment and thread flag"],
     ["# thread:main\ntakode send 2851 --thread main --stdin <<'EOF'\nPlease file this.\nEOF", "thread flag heredoc"],
+    // `--forward uN` passes the user's messages on, with or without a note of the leader's own.
+    ['takode send 17 "Apply the user\'s review answers" --forward u12', "forward with a note"],
+    ["takode send 17 --forward u12,u14", "forward without a note"],
+    ["takode send 17 --forward u12 --stdin <<'EOF'\nApply these.\nEOF", "forward with a heredoc note"],
   ])("recognizes a pure send with %s", (command) => {
     expect(isPureTakodeSendCommand(command)).toBe(true);
   });
@@ -42,6 +46,8 @@ describe("isPureTakodeSendCommand", () => {
     ['command takode send 17 "hello"', "unsupported wrapper"],
     ['takode send 2957 "hello" --thread', "thread flag without a value"],
     ['takode send 2957 --thread --stdin <<< "hello"', "thread flag followed by another flag"],
+    ["takode send 17 --forward", "forward flag without IDs"],
+    ['takode send 17 --forward --stdin <<< "hello"', "forward flag followed by another flag"],
   ])("rejects %s", (command) => {
     expect(isPureTakodeSendCommand(command)).toBe(false);
   });
