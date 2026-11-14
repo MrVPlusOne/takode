@@ -96,7 +96,7 @@ export function attachTypingFeel(area: HTMLTextAreaElement): TypingFeelHandle {
   const day = DAY_THROWS.find((option) => option.id === area.getAttribute(DAY_THROW_ATTRIBUTE))?.id ?? "gold";
   const parts: Part[] = [
     glowingCaret(box, forgeColour),
-    throwing(box, DAY_KINDS[day]),
+    throwing(box, DAY_KINDS[day], frame),
     ...(frame ? [warmEdge(box, frame)] : []),
   ];
   box.onType((warmth) => {
@@ -219,10 +219,22 @@ class TypingBox {
     return keys;
   }
 
-  /** Where the box's top, bottom and right edges are, relative to the host. */
-  edges(): Edges {
+  /**
+   * Where thrown things have room, relative to the host: from the box's top down to its bottom and
+   * right edges, or, in a `frame` (the composer's card), down to the card's own bottom and right,
+   * around its buttons.
+   */
+  space(frame: HTMLElement | null): Space {
     const { x, y } = offsetIn(this.area, this.host);
-    return { top: y, bottom: y + this.area.offsetHeight, right: x + this.area.offsetWidth };
+    if (!frame) return { top: y, bottom: y + this.area.offsetHeight, right: x + this.area.offsetWidth, avoid: [] };
+    const at = offsetIn(frame, this.host);
+    const avoid = [...frame.querySelectorAll<HTMLElement>("button, a, input, select, [role=button]")]
+      .filter((element) => element.offsetWidth)
+      .map((element) => {
+        const { x: left, y: top } = offsetIn(element, this.host);
+        return { left, top, right: left + element.offsetWidth, bottom: top + element.offsetHeight };
+      });
+    return { top: y, bottom: at.y + frame.offsetHeight - 4, right: at.x + frame.offsetWidth - 6, avoid };
   }
 
   /** How long before the last key the one before it landed, in ms. */
@@ -462,17 +474,18 @@ function spark(index: number): Kind {
   if (index % 6 === 5) {
     return {
       burst: [2, 3],
-      size: [2.2, 2.2],
-      style: { borderRadius: "50%", background: "#ff9a3a", boxShadow: `0 0 2px 0.5px ${forgeColour(0.5)}` },
+      size: [2.4, 2.4],
+      // A soft red glow, so it reads as an ember.
+      style: { borderRadius: "50%", background: "#ff9a3a", boxShadow: "0 0 3px 1.5px rgba(255, 70, 30, 0.55)" },
       life: [700, 1000],
       path: { angle: [-0.5, -0.1], lowAngle: [-0.2, 0.12], speed: [80, 110], gravity: 20, flung: true },
       opacity: [0, 1, 1, 0.9, 0.7, 0],
       scale: [1, 0.85, 0.7, 0.6, 0.5, 0.45],
       filter: [
         "brightness(1.3)",
-        "brightness(1) saturate(1.2)",
-        "brightness(0.8) saturate(1.6) hue-rotate(-12deg)",
-        "brightness(0.65) saturate(1.8) hue-rotate(-20deg)",
+        "brightness(1.15)",
+        "brightness(1) saturate(1.3) hue-rotate(-8deg)",
+        "brightness(0.85) saturate(1.6) hue-rotate(-18deg)",
       ],
     };
   }
@@ -497,13 +510,13 @@ const DAY_KINDS: Record<DayThrow, (index: number) => Kind> = {
   // One flake of gold leaf a key, drifting out on the air and settling under the line.
   gold: () => ({
     burst: [1, 1],
-    size: [7, 5.4],
+    size: [8.5, 6.5],
     style: {
       clipPath: "polygon(8% 30%, 40% 0%, 92% 12%, 100% 62%, 62% 100%, 0% 78%)",
       background: "linear-gradient(135deg, #f8e391, #cf9a2e 55%, #f4d77a)",
     },
     life: [1500, 2000],
-    path: { reach: [70, 140], sink: [18, 30], sway: 6, swings: 1.5 },
+    path: { reach: [60, 120], sink: [28, 40], sway: 6, swings: 1.5 },
     opacity: [0, 1, 1, 0.95, 0.8, 0],
     scale: [0.8, 1, 1, 1, 1, 0.9],
     spin: [-40, 40],
@@ -533,16 +546,18 @@ const DAY_KINDS: Record<DayThrow, (index: number) => Kind> = {
  * day, all of a burst leaving together. It never covers the next character, and nothing is thrown
  * when there is text after the caret (typing mid-paragraph), since it would cross that text; the
  * caret's glow and the edge still answer each key. On a later line of a message sparks fly flat or
- * fall, so they never cross the line above, and everything fades out before the edges of the text
- * box. At most twelve are in the air; when all are, the oldest is retired, so every key still
- * throws. Marks are drawn once and reused on their own layers, and fly by transform, opacity and
+ * fall, so they never cross the line above. Everything fades out before the edges of its room:
+ * the text box, or in the composer the card around it, where leaves can fall into the empty strip
+ * beside the buttons but fade out around each button. At most twelve are in the air; when all are,
+ * the oldest is retired, so every key still throws. Marks are drawn once and reused on their own layers, and fly by transform, opacity and
  * filter alone, which the compositor runs.
  */
-function throwing(box: TypingBox, day: (index: number) => Kind): Part {
+function throwing(box: TypingBox, day: (index: number) => Kind, frame: HTMLElement | null): Part {
   const { lineHeight } = box;
   const pool = Array.from({ length: MAX_IN_AIR }, () => box.mark({ left: "0", top: "0", opacity: "0" }));
-  // Marks in the air, oldest first.
+  // Marks in the air, oldest first, and those of them told to hurry.
   const flying = new Map<HTMLElement, Animation>();
+  const hurried = new Set<HTMLElement>();
   // Each mark is drawn once for the time of day and after that only moves, so a throw paints
   // nothing new.
   let drawnFor: boolean | undefined;
@@ -552,7 +567,7 @@ function throwing(box: TypingBox, day: (index: number) => Kind): Part {
     const { area } = box;
     if (!keys || /\S/.test(area.value.slice(area.selectionEnd))) return () => {};
     const { x, y, line } = box.caret();
-    const edges = box.edges();
+    const space = box.space(frame);
     const dark = document.documentElement.classList.contains("dark");
     if (dark !== drawnFor) {
       drawnFor = dark;
@@ -563,8 +578,6 @@ function throwing(box: TypingBox, day: (index: number) => Kind): Part {
         return kind;
       });
     }
-    // Typing fast, a drifting leaf settles sooner, so it is gone before the next characters reach it.
-    const settleSooner = Math.min(1, Math.max(0.55, box.gap() / 150));
     for (let key = 0; key < keys; key++) {
       // Each key throws one small burst, all of it leaving together; keys that landed in the same
       // frame leave a beat apart.
@@ -583,15 +596,24 @@ function throwing(box: TypingBox, day: (index: number) => Kind): Part {
         const start = { x: x + 6, y: y + lineHeight * 0.45 - kind.size[1] / 2 };
         const { path } = kind;
         const drifts = "reach" in path;
-        const flight = mark.animate(keyframes(kind, start, line > 0, edges), {
-          duration: between(...kind.life) * (drifts ? settleSooner : 1),
+        const flight = mark.animate(keyframes(kind, start, line > 0, space), {
+          duration: between(...kind.life),
           delay: key * 40,
           easing: !drifts && path.flung ? FLUNG : "linear",
           fill: "backwards",
         });
         flying.set(mark, flight);
+        hurried.delete(mark);
         flight.onfinish = () => flying.delete(mark);
       }
+    }
+    // Only the newest few leaves drift at their calm pace; older ones hurry to settle, so typing on
+    // keeps a few in the air rather than a band of them, and the last ones drift on when you pause.
+    const drifting = [...flying].filter(([mark]) => "reach" in kinds[pool.indexOf(mark)]!.path);
+    for (const [mark, flight] of drifting.slice(0, -CALM_DRIFTS)) {
+      if (hurried.has(mark)) continue;
+      hurried.add(mark);
+      flight.updatePlaybackRate(HURRY);
     }
     return () => {};
   };
@@ -603,32 +625,46 @@ function throwing(box: TypingBox, day: (index: number) => Kind): Part {
  */
 const FLUNG = "cubic-bezier(0.2, 0.8, 0.4, 1)";
 
-/** The text box's edges, which thrown things fade out before. */
-interface Edges {
+/** How many leaves drift at their calm pace at once, and how much faster the older ones settle. */
+const CALM_DRIFTS = 3;
+const HURRY = 3;
+
+/** A box in host px. */
+interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** Where thrown things have room: edges they fade out before, and buttons they fade out around. */
+interface Space {
   top: number;
   bottom: number;
   right: number;
+  avoid: Rect[];
 }
 
-/** Things fade out over this many px before an edge of the text box. */
+/** Things fade out over this many px before an edge, and from this far around a button. */
 const EDGE_FADE = 6;
+const BUTTON_CLEARANCE = 4;
 
 /** Keyframes for a drift; enough that its sway reads as a curve. */
 const DRIFT_STEPS = 16;
 
 /**
  * A thrown thing's flight from `start` as keyframes: on its arc or drift, turning, flipping or
- * drawn along its path by kind, and faded out before the text box's top, bottom and right edges, so
- * it never crosses a banner above the box or the composer's buttons below it.
+ * drawn along its path by kind, and faded out before the edges of its space and around its
+ * buttons, so it never crosses a banner above the box or a button of the composer.
  */
-function keyframes(kind: Kind, start: { x: number; y: number }, low: boolean, edges: Edges): Keyframe[] {
+function keyframes(kind: Kind, start: { x: number; y: number }, low: boolean, space: Space): Keyframe[] {
   const [width, height] = kind.size;
   const room = (px: number) => Math.min(1, Math.max(0, px / EDGE_FADE));
   const spin = kind.spin ? between(...kind.spin) : 0;
   const { path } = kind;
   const points =
     "reach" in path
-      ? drift(path, Math.min(between(...path.sink), Math.max(0, edges.bottom - start.y - height - 2)))
+      ? drift(path, Math.min(between(...path.sink), Math.max(0, space.bottom - start.y - height - 2)))
       : arc(path, low);
   return points.map(([dx, dy, heading], step) => {
     const t = step / (points.length - 1);
@@ -641,9 +677,15 @@ function keyframes(kind: Kind, start: { x: number; y: number }, low: boolean, ed
       transform: `translate(${left}px, ${at}px) rotate(${heading ?? `${spin * t}deg`}) scale(${scale * flip}, ${scale})`,
       opacity:
         sample(kind.opacity, t) *
-        room(at - edges.top) *
-        room(edges.bottom - at - height) *
-        room(edges.right - left - width),
+        room(at - space.top) *
+        room(space.bottom - at - height) *
+        room(space.right - left - width) *
+        Math.min(
+          1,
+          ...space.avoid.map((button) =>
+            room(gap({ left, top: at, right: left + width, bottom: at + height }, button) - BUTTON_CLEARANCE),
+          ),
+        ),
       filter: kind.filter ? kind.filter[Math.min(kind.filter.length - 1, Math.floor(t * kind.filter.length))] : "none",
     };
   });
@@ -673,9 +715,15 @@ function drift(path: Drifting, sink: number): Array<[number, number, string]> {
     const t = step / DRIFT_STEPS;
     const swing = 2 * Math.PI * path.swings * t;
     const dx = reach * (1 - (1 - t) ** 3) + path.sway * Math.sin(swing) * t;
-    const dy = sink * t ** 1.6;
+    // It starts sinking at once, so it leaves the line, then keeps sinking slowly as it settles.
+    const dy = sink * (0.4 * (1 - (1 - t) ** 3) + 0.6 * t ** 1.6);
     return [dx, dy, `${tilt * t + 20 * Math.cos(swing) * t}deg`];
   });
+}
+
+/** How far apart two boxes are, 0 when they overlap. */
+function gap(a: Rect, b: Rect): number {
+  return Math.max(0, b.left - a.right, a.left - b.right, b.top - a.bottom, a.top - b.bottom);
 }
 
 /** The value at `t` (0 to 1) of values given at even points, between its neighbours. */

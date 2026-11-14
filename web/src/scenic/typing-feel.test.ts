@@ -23,7 +23,15 @@ beforeEach(() => {
   vi.useFakeTimers();
   animate.mockReset();
   animate.mockImplementation(
-    () => ({ onfinish: null, oncancel: null, cancel() {}, pause() {}, play() {} }) as unknown as Animation,
+    () =>
+      ({
+        onfinish: null,
+        oncancel: null,
+        cancel() {},
+        pause() {},
+        play() {},
+        updatePlaybackRate() {},
+      }) as unknown as Animation,
   );
   Element.prototype.animate = animate as unknown as Element["animate"];
   window.matchMedia = ((query: string) => ({ matches: false, media: query })) as unknown as typeof window.matchMedia;
@@ -103,6 +111,7 @@ describe("typing feel", () => {
         cancel() {
           inAir -= 1;
         },
+        updatePlaybackRate() {},
       } as unknown as Animation;
     });
     const area = box();
@@ -146,9 +155,10 @@ describe("typing feel", () => {
       const area = box();
       area.setAttribute(DAY_THROW_ATTRIBUTE, id);
       area.value = "";
-      // jsdom has no layout: give the box a line height and room below the line.
+      // jsdom has no layout: give the box a line height, and its card room below the line.
       Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
-      Object.defineProperty(area, "offsetHeight", { configurable: true, value: 60 });
+      Object.defineProperty(document.getElementById("frame")!, "offsetHeight", { configurable: true, value: 64 });
+      Object.defineProperty(document.getElementById("frame")!, "offsetWidth", { configurable: true, value: 400 });
       handle = attachTypingFeel(area);
       input(area, "a");
       paint();
@@ -162,15 +172,64 @@ describe("typing feel", () => {
           expect(options.easing).toMatch(/^cubic-bezier/);
           continue;
         }
-        // Gold leaf drifts like a leaf: carried out sideways first, then sinking as it slows, and
-        // never past the bottom of the box (60 px tall).
+        // Gold leaf drifts like a leaf: carried out sideways fast, sinking from the start but mostly
+        // as it slows, and never past the bottom of its card (64 px tall, less a margin).
         const [quarterX, quarterY] = at(frames[Math.round((frames.length - 1) / 4)]!);
         expect(quarterX - startX).toBeGreaterThan((endX - startX) / 2);
-        expect(quarterY - startY).toBeLessThan((endY - startY) / 4);
+        expect(quarterY).toBeGreaterThan(startY);
+        expect(quarterY - startY).toBeLessThan((endY - startY) / 2);
         expect(endY).toBeGreaterThan(startY + 5);
         expect(endY).toBeLessThan(60);
       }
       handle.stop();
+    }
+  });
+
+  it("keeps only the newest few leaves drifting calmly and hurries the older ones to settle", () => {
+    const area = box();
+    Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
+    const hurried: number[] = [];
+    animate.mockImplementation(() => {
+      const index = animate.mock.calls.length - 1;
+      return { onfinish: null, cancel() {}, updatePlaybackRate: () => hurried.push(index) } as unknown as Animation;
+    });
+    handle = attachTypingFeel(area);
+    for (let i = 0; i < 6; i++) {
+      input(area, "a");
+      paint();
+    }
+    // Six leaves, one a key: the three oldest are told to hurry, once each; the newest three drift on.
+    expect(animate.mock.calls.length).toBe(6);
+    expect(hurried).toEqual([0, 1, 2]);
+  });
+
+  it("lets leaves fall into the composer card below the box, fading out around its buttons", () => {
+    const area = box();
+    Object.assign(area.style, { fontSize: "14px", lineHeight: "20px" });
+    const frame = document.getElementById("frame")!;
+    const button = document.createElement("button");
+    frame.append(button);
+    // jsdom has no layout: a one-line box 24 px tall in a card 90 px tall, with a button below the
+    // box from 30 to 60 px down, right where leaves fall.
+    const size = (element: HTMLElement, width: number, height: number) => {
+      Object.defineProperty(element, "offsetWidth", { configurable: true, value: width });
+      Object.defineProperty(element, "offsetHeight", { configurable: true, value: height });
+    };
+    size(area, 300, 24);
+    size(frame, 400, 90);
+    size(button, 400, 30);
+    button.getBoundingClientRect = () =>
+      ({ left: 0, top: 30, right: 400, bottom: 60, width: 400, height: 30 }) as DOMRect;
+    handle = attachTypingFeel(area);
+    input(area, "a");
+    paint();
+    const keyframes = animate.mock.calls[0]![0] as Keyframe[];
+    const at = (frame: Keyframe) => Number(/translate\([-\d.]+px, ([-\d.]+)px/.exec(String(frame.transform))![1]);
+    // It falls below the box (24 px) into the card...
+    expect(Math.max(...keyframes.map(at))).toBeGreaterThan(24);
+    for (const step of keyframes) {
+      // ...but never shows over the button, nor within a few px of it.
+      if (at(step) + 5.4 > 26) expect(step.opacity).toBe(0);
     }
   });
 
