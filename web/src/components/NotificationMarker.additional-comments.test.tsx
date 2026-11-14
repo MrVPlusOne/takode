@@ -132,7 +132,7 @@ describe("needs-input card: additional comments", () => {
     );
     renderCard();
     answerBoth();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Include my comment" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Include my 1 comment" }));
     fireEvent.click(screen.getByRole("button", { name: "Additional comments" }));
     fireEvent.change(additionalBox()!, { target: { value: "Ship Friday." } });
 

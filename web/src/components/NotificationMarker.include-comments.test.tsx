@@ -63,6 +63,18 @@ describe("needs-input card: include my pending comments", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
+  it("follows the pending comments as they come and go, always naming how many", () => {
+    // The box appears with the first comment, says the count even for one (the user could not tell
+    // "Include my comment" meant one pending comment), recounts, and goes away with the last comment.
+    renderCard();
+    setPendingComments([comment("a")]);
+    expect(screen.getByRole("checkbox", { name: "Include my 1 comment" })).toBeInTheDocument();
+    setPendingComments([comment("a"), comment("b"), comment("c")]);
+    expect(screen.getByRole("checkbox", { name: "Include my 3 comments" })).toBeInTheDocument();
+    setPendingComments([]);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
   it("offers only the comments made in the thread the main composer is on", () => {
     // A leader's main draft holds every thread's unsent comments; a card in one thread must not offer to
     // send comments made in another (Jiayi's bug of comments following the message box across threads).
@@ -98,7 +110,7 @@ describe("needs-input card: include my pending comments", () => {
     setPendingComments([comment("a")]);
     const reply = renderCard();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Include my comment" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Include my 1 comment" }));
     fireEvent.click(reply);
     expect(vi.mocked(api.sendNeedsInputResponse).mock.calls[0][2]).toMatchObject({
       content: expect.stringContaining("yes"),
@@ -111,7 +123,7 @@ describe("needs-input card: include my pending comments", () => {
     expect(draftComments()).toEqual(["late"]);
     expect(useStore.getState().composerDrafts.get(SESSION)?.text).toBe("half-typed message");
     // The box clears after a send, so a later comment is not included unless the user asks again.
-    expect(screen.getByRole("checkbox", { name: "Include my comment" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Include my 1 comment" })).not.toBeChecked();
   });
 
   it("keeps the comments pending when the reply fails", async () => {
@@ -120,11 +132,11 @@ describe("needs-input card: include my pending comments", () => {
     setPendingComments([comment("a")]);
     const reply = renderCard();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Include my comment" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Include my 1 comment" }));
     await act(async () => fireEvent.click(reply));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Reply failed.");
     expect(draftComments()).toEqual(["a"]);
-    expect(screen.getByRole("checkbox", { name: "Include my comment" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Include my 1 comment" })).toBeChecked();
   });
 });

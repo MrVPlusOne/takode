@@ -70,7 +70,7 @@ export function IncludeCommentsCheckbox({
         onChange={(event) => onChange(event.target.checked)}
         className="accent-cc-primary cursor-pointer"
       />
-      {count === 1 ? "Include my comment" : `Include my ${count} comments`}
+      {count === 1 ? "Include my 1 comment" : `Include my ${count} comments`}
     </label>
   );
 }
