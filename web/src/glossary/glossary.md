@@ -50,7 +50,7 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 ## Places on screen
 
 - **Sessions panel**: the sidebar. Spaces lists sessions by space, Recent by when you used them, and Threads lists every leader's threads by when you last dealt with them.
-- **Side column**: on wide screens, a temporary workspace beside the conversation. Dock a thread you are waiting on, keep working, and its answer or question appears right there. What you put there is grouped as Chats, Quests and Pages, each folding on its own, above the topic page. One chat is open at a time; opening another folds it.
+- **Side column**: on wide screens, a temporary workspace beside the conversation. Dock a thread you are waiting on, keep working, and its answer or question appears right there. Its tabs show one kind at a time: Chats, Quests and Pages for what you put there, and Topic for the topic page. In each tab one item is open at a time and fills the column; opening another folds it.
 - **Library**: reports, slide decks, figures, drafts and topic pages that leaders and workers made.
 - **Universal Search**: finds threads by name, sessions, quests and messages, including everything you wrote.
 - **Scenic background**: an optional painted landscape behind the conversation (Summer Meadow, Seaside Town or Ink & Paper), with a night version for the dark theme. Pick it in Settings > Appearance; it is off unless you turn it on.

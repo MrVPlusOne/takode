@@ -1,28 +1,23 @@
 import { useShallow } from "zustand/react/shallow";
-import { Activity, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Activity, useEffect, useRef, useState, type ReactNode } from "react";
 import { holdSessionConnection } from "../../ws.js";
 import { useRememberedFolds } from "../../utils/remembered-folds.js";
-import { SectionEdge, useSectionHeights } from "../StackedPanes.js";
 import { useStore } from "../../store.js";
 import {
   closeSideItem,
-  focusSideItem,
   HOME_ITEM,
   notePaneClick,
   openInSide,
   isChatItem,
   isConversationItem,
-  rememberSideChatHeight,
   newSideChat,
-  noteSideItemUsed,
   replaceSideItem,
+  selectSideTab,
   unfoldSideItem,
   SIDE_GROUPS,
-  SIDE_HEIGHTS_STACK,
   sideFoldId,
-  sideGroupFold,
   sideItemGroup,
-  type SideGroup,
+  type SideTab,
   sideItemLeader,
   useSideColumn,
   type SideItem,
@@ -41,14 +36,14 @@ import { noteThreadMerged } from "../../utils/thread-viewport.js";
 import { useKnownTopicBrief } from "../../utils/leader-topics.js";
 import { CollapseIcon, GalleryIcon, NewThreadIcon, TopicIcon } from "../library/library-icons.js";
 import { TopicSidePanel } from "../library/TopicSidePanel.js";
-import { ThreadOriginName, useThreadPlace } from "./thread-names.js";
+import { ThreadOriginName } from "./thread-names.js";
 import { useQuestRecord } from "../QuestSummaryCard.js";
 import { getQuestLeaderSessionId } from "../../utils/quest-helpers.js";
 import { QuestInlineLink } from "../QuestInlineLink.js";
 import { THREAD_GROUP_DOT, type ThreadGroupId } from "../ThreadTabGroups.js";
 import { SideConversation } from "./SideConversation.js";
 import { NewSideChat, newSideChatDraftKey } from "./NewSideChat.js";
-import { ChatsGroupToggle, FoldedChatButton, FoldedChatsBar, PageGroupBar } from "./SideGroupBars.js";
+import { SideTabs } from "./SideTabs.js";
 import { SideChatLeaderMenu, useLeaderCard } from "./SideChatLeaders.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { SideQuest } from "./SideQuest.js";
@@ -67,7 +62,6 @@ import {
   MAIN_CHAT,
   sideChatId,
   useChatFocusMarked,
-  useChatFocusStore,
   useSideChat,
 } from "../../utils/chat-focus.js";
 import { ChatFocusMark } from "../ChatFocusMark.js";
@@ -76,106 +70,64 @@ import { ContextMenu, type ContextMenuItem } from "../ContextMenu.js";
 import { InlineThreadUpdate } from "../ThreadUpdate.js";
 import { useThreadNews } from "../home/HomeExtras.js";
 
-/** Items whose page stays mounted (hidden) after another opens, so going back keeps its place. */
+/** Folded pages that stay mounted (hidden), so going back to one keeps its place. */
 const KEPT_MOUNTED = 3;
 
-/** How tall a section's header row is, for the default height of an open section. */
-const ROW_HEIGHT = 36;
-
 /**
- * The side column (Logseq's right sidebar), from the top: what the user put beside the
- * conversation, grouped by kind and newest first in each group, each item with its own leader:
- * chats (threads, other conversations), quest pages, other pages (artifacts, Homes, pinned topic
- * pages); then the main view's leader's topics, for browsing (the topic page of the thread on screen,
- * else the list). Each group folds on its own, the chats from the column's top row, and folded
- * groups leave the column to the topic page (Jiayi, Nov 6: it was below every chat, and a quest's
- * page among the chats read as one more chat). One column for the whole app: what is in it stays
- * when the main view switches leader or session (Jiayi, Nov 1). Each section folds on its own from
- * its header row, any number can be open, and the column scrolls when they don't fit. An open
- * section's bottom edge drags to set its height (Jiayi's choice, Oct 31: like Logseq, the panel
- * scrolls rather than squeezing each section). Folds and heights are remembered in this browser. On a
- * phone it is the same column in a sheet.
+ * The side column (Logseq's right sidebar): what the user put beside the conversation, each item
+ * with its own leader, and the main view's leader's topics. One tab fills it at a time (Jiayi's
+ * choice, Nov 14): Chats (threads, other conversations), Quests (quest pages) and Pages (artifacts,
+ * Homes, pinned topic pages), each newest first and shown while it holds something, then Topic (the
+ * topic page of the thread on screen, else the list). A tab lists its items as rows, and the one
+ * open item fills what the rows leave, scrolling on its own: the column itself never scrolls. It
+ * used to, with its open chat scrolling inside it, and a scrolled column hid the chat's top. One
+ * column for the whole app: what is in it stays when the main view switches leader or session
+ * (Jiayi, Nov 1). On a phone it is the same column in a sheet.
  */
 export function SideColumn({
   leaderId,
   threadKey,
   variant,
 }: {
-  /** The main view's leader, whose topics the column ends with; none for a session without a leader. */
+  /** The main view's leader, whose topics the column shows; none for a session without a leader. */
   leaderId: string | null;
   /** The thread on screen in the main view: the topic page follows it. */
   threadKey: string;
   variant: "docked" | "sheet";
 }) {
-  const { items, focus, focusAt, chatHeight, used = [] } = useSideColumn();
+  const { items, tab: chosenTab, focus, focusAt } = useSideColumn();
   const folds = useRememberedFolds();
-  const groups = SIDE_GROUPS.map((group) => ({
-    group,
-    items: items.filter((item) => sideItemGroup(item) === group),
-    folded: folds.isFolded(sideGroupFold(group)),
-  }));
-  const groupFolded = (group: SideGroup) => groups.find((entry) => entry.group === group)!.folded;
-  const groupOfId = new Map(items.map((item) => [item.id, sideItemGroup(item)]));
-  // A folded group shows none of its items: they are as good as folded, and their feeds unmount.
-  const isOpen = (id: string) => {
-    const group = groupOfId.get(id);
-    return (!group || !groupFolded(group)) && !folds.isFolded(sideFoldId(id));
-  };
-  // Unfolding a chat folds the other chats (`unfoldSideItem`).
+  const groups = SIDE_GROUPS.map((group) => ({ group, items: items.filter((item) => sideItemGroup(item) === group) }));
+  const tabs: SideTab[] = [
+    ...groups.filter((entry) => entry.items.length > 0).map((entry) => entry.group),
+    ...(leaderId ? (["topic"] as const) : []),
+  ];
+  const tab = chosenTab && tabs.includes(chosenTab) ? chosenTab : (tabs[0] ?? "topic");
+  const tabOfId = new Map<string, SideTab>(items.map((item) => [item.id, sideItemGroup(item)]));
+  const isOpen = (id: string) => id === HOME_ITEM || !folds.isFolded(sideFoldId(id));
+  // On screen: open, in the tab on screen.
+  const isShown = (id: string) => isOpen(id) && (tabOfId.get(id) ?? "topic") === tab;
+  // Opening an item folds the others of its tab (`unfoldSideItem`).
   const toggle = (id: string) => (isOpen(id) ? folds.toggle(sideFoldId(id)) : unfoldSideItem(id));
-  const heights = useSectionHeights(SIDE_HEIGHTS_STACK);
-  const allIds = [...items.map((item) => item.id), ...(leaderId ? [HOME_ITEM] : [])];
-  // The sections on screen, which share the column's height.
-  const sectionIds = allIds.filter((id) => {
-    const group = groupOfId.get(id);
-    return !group || !groupFolded(group);
-  });
-  // The groups' bars in the scrolling area beside the sections: the page groups', and the folded chats'.
-  const groupBars = groups.filter(
-    (entry) => entry.items.length > 0 && (entry.group !== "chats" || entry.folded),
-  ).length;
-  const idsKey = allIds.join(",");
-  useEffect(() => heights.keepOnly(idsKey.split(",")), [idsKey]);
-  // The scrolling area's height: one open section fits it beside every header row by default.
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [viewport, setViewport] = useState(0);
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-    const measure = () => setViewport(element.clientHeight);
-    measure();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(element);
-    return () => observer?.disconnect();
-  }, []);
-  const fill = Math.max(160, viewport - ROW_HEIGHT * (sectionIds.length + groupBars));
-  const sharedChatFill = Math.max(160, viewport - ROW_HEIGHT);
-  // Something just opened in the column scrolls into view (not on mount: the column stays as left).
-  const sectionElements = useRef(new Map<string, HTMLElement>());
-  const bodyElements = useRef(new Map<string, HTMLElement>());
+  // Opening a conversation beside the main view focuses it, as opening a window does.
   const shownFocus = useRef(focusAt);
   useEffect(() => {
     if (!focus || focusAt === shownFocus.current) return;
     shownFocus.current = focusAt;
-    sectionElements.current.get(focus)?.scrollIntoView?.({ block: "nearest" });
-    // Opening a conversation beside the main view focuses it, as opening a window does.
     const opened = items.find((item) => item.id === focus);
     if (variant === "docked" && opened && isChatItem(opened)) focusChat(sideChatId(focus));
   }, [focus, focusAt]);
-  // Open sections stay mounted, and so do the last few folded pages. A folded conversation unmounts:
-  // its feed and live messages are what folding saves, and it reopens where it was left.
+  // Each tab's open item stays mounted (hidden while another tab is on screen, so switching back is
+  // instant and keeps its place), and so do the last few folded pages. A folded conversation
+  // unmounts: its feed and live messages are what folding saves, and it reopens where it was left.
   const conversationIds = new Set(items.filter(isConversationItem).map((item) => item.id));
+  const openIds = [...items.map((item) => item.id).filter(isOpen), ...(leaderId ? [HOME_ITEM] : [])];
   const keptRef = useRef<string[]>([]);
-  const openIds = sectionIds.filter(isOpen);
-  keptRef.current = [...openIds, ...keptRef.current.filter((id) => !openIds.includes(id) && !conversationIds.has(id))]
-    .filter((id) => sectionIds.includes(id))
-    .slice(0, openIds.length + KEPT_MOUNTED);
+  keptRef.current = [
+    ...openIds,
+    ...keptRef.current.filter((id) => !openIds.includes(id) && !conversationIds.has(id) && tabOfId.has(id)),
+  ].slice(0, openIds.length + KEPT_MOUNTED);
   const kept = keptRef.current;
-  // Using a pane (focusing it) puts it first in the use order.
-  const focusedChat = useChatFocusStore((state) => state.focused);
-  useEffect(() => {
-    if (focusedChat.startsWith("side:")) noteSideItemUsed(focusedChat.slice("side:".length));
-  }, [focusedChat]);
   const close = () => (variant === "sheet" ? setTopicSheetOpen(false) : setTopicPanelOpen(false));
   useEffect(() => {
     if (leaderId) loadLeaderNamesOnce(leaderId);
@@ -183,11 +135,11 @@ export function SideColumn({
   // The column's conversations read and send over their leaders' connections, which the main view
   // keeps open only for the session it shows. Held per leader, so a new chat turning into its
   // thread keeps the same connection: dropping it in between loses the live messages of its first turn.
-  // Only open conversations, new threads and Homes need theirs: a folded one shows nothing live.
+  // Only conversations, new threads and Homes on screen need theirs: a hidden one shows nothing live.
   const itemLeaders = [
     ...new Set(
       items.flatMap((item) =>
-        (item.kind === "conversation" || item.kind === "new-chat" || item.kind === "home") && isOpen(item.id)
+        (item.kind === "conversation" || item.kind === "new-chat" || item.kind === "home") && isShown(item.id)
           ? [item.leaderId]
           : [],
       ),
@@ -216,76 +168,54 @@ export function SideColumn({
   }, []);
 
   /**
-   * One section: its header row (sticky while its body scrolls past), then, while open, its body at
-   * its height and the edge that sets it. A chat keeps a fixed height, which every chat shares (its
-   * feed scrolls inside); a page is as tall as its content, up to its own height.
+   * One item of a tab: its row (none for the topic page, which is its tab's only content), then,
+   * while open, its body filling what the tab's rows leave.
    */
-  const section = (
-    id: string,
-    row: ReactNode,
-    body: ReactNode,
-    chat: boolean,
-    defaultHeight: number,
-    /** A chat's focus id: a conversation's section can be the focused chat (chat-focus.ts). */
-    chatId?: string,
-  ) => {
+  const itemSection = (entry: SideItem | null) => {
+    const id = entry?.id ?? HOME_ITEM;
     const open = isOpen(id);
-    // Chats share one height: the last a chat was dragged to, else the column's less one header
-    // row, so it doesn't shrink as more go in. Others keep their own heights.
-    const dragged = chat ? chatHeight : heights.heightOf(id);
-    const size = dragged ?? (chat ? sharedChatFill : defaultHeight);
+    const conversation = !!entry && isChatItem(entry);
+    // A page (a quest's details, an artifact, a Home, a pinned topic page) gets a page's quiet bar.
+    const row = !entry ? null : conversation ? (
+      <SideItemRow mainLeaderId={leaderId} item={entry} open={open} onOpen={() => toggle(id)} />
+    ) : (
+      <PageItemRow item={entry} open={open} onOpen={() => toggle(id)} />
+    );
+    // On a phone the sheet is the single view on screen, always focused: its chats use the main
+    // view's id. On a desktop each conversation pane is a chat of its own.
+    const chatId = !conversation ? undefined : variant === "sheet" ? MAIN_CHAT : sideChatId(id);
     const content = (
       <>
-        <div className="sticky top-0 z-10 bg-cc-bg">
-          {/* The focused chat's mark, in the header row so it stays in view while the pane scrolls. */}
-          <span className="hidden group-data-[chat-focused=true]/chat:block">
-            <ChatFocusMark />
-          </span>
-          {row}
-        </div>
+        {row && (
+          <div className="shrink-0">
+            {/* The focused chat's mark, in the header row so it stays in view while the pane scrolls. */}
+            <span className="hidden group-data-[chat-focused=true]/chat:block">
+              <ChatFocusMark />
+            </span>
+            {row}
+          </div>
+        )}
         {kept.includes(id) && (
           <Activity mode={open ? "visible" : "hidden"}>
+            {/* A link clicked here opens in this pane; the open-in-side click opens it in the main view. */}
             <div
-              ref={(element) => {
-                if (element) bodyElements.current.set(id, element);
-                else bodyElements.current.delete(id);
-              }}
-              className="isolate flex min-h-0 overflow-hidden"
-              style={chat || dragged !== undefined ? { height: size } : { maxHeight: size }}
-              data-testid="side-section-body"
+              className="isolate flex min-h-0 flex-1 flex-col overflow-hidden"
+              data-testid="side-item-body"
+              data-item={id}
+              // A Home is a switcher for the main view: what is clicked there opens there, not in its pane.
+              onClickCapture={(event) => entry?.kind !== "home" && notePaneClick(entry?.id ?? null, event)}
             >
-              {variant === "docked" && <ColumnScrollStrip scrollRef={scrollRef} />}
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</div>
+              <SideItemBody mainLeaderId={leaderId} threadKey={threadKey} item={entry} variant={variant} />
             </div>
-            <SectionEdge
-              measure={() => bodyElements.current.get(id)?.getBoundingClientRect().height || size}
-              onResize={(start, delta) => {
-                const height = heights.resize(id, start, delta);
-                if (chat) rememberSideChatHeight(height);
-              }}
-              onReset={() => {
-                heights.reset(id);
-                // A shared chat height goes back to its default for every chat.
-                if (chat) rememberSideChatHeight(undefined);
-              }}
-            />
           </Activity>
         )}
       </>
     );
+    const sectionClass = `flex min-h-0 flex-col ${open ? "min-h-40 flex-1" : "shrink-0"}`;
     return (
-      <section
-        key={id}
-        ref={(element) => {
-          if (element) sectionElements.current.set(id, element);
-          else sectionElements.current.delete(id);
-        }}
-        data-section={id}
-        data-open={open}
-        data-testid="side-section"
-      >
+      <section key={id} className={sectionClass} data-section={id} data-open={open} data-testid="side-section">
         {chatId ? (
-          <SideChatFocus chatId={chatId} onScreen={open && kept.includes(id)}>
+          <SideChatFocus chatId={chatId} onScreen={isShown(id) && kept.includes(id)} className={sectionClass}>
             {content}
           </SideChatFocus>
         ) : (
@@ -295,44 +225,22 @@ export function SideColumn({
     );
   };
 
-  const itemSection = (entry: SideItem | null) => {
-    const id = entry?.id ?? HOME_ITEM;
-    const conversation = !!entry && isChatItem(entry);
-    // A page (a quest's details, an artifact, a Home, a pinned topic page) gets a page's quiet bar.
-    const row =
-      entry && !conversation ? (
-        <PageItemRow item={entry} open={isOpen(id)} onOpen={() => toggle(id)} />
-      ) : (
-        <SideItemRow mainLeaderId={leaderId} item={entry} open={isOpen(id)} onOpen={() => toggle(id)} />
-      );
-    const body = (
-      // A link clicked here opens in this pane; the open-in-side click opens it in the main view.
-      <div
-        className="flex min-h-0 flex-1 flex-col"
-        data-testid="side-item-body"
-        data-item={id}
-        // A Home is a switcher for the main view: what is clicked there opens there, not in its pane.
-        onClickCapture={(event) => entry?.kind !== "home" && notePaneClick(entry?.id ?? null, event)}
-      >
-        <SideItemBody mainLeaderId={leaderId} threadKey={threadKey} item={entry} variant={variant} />
-      </div>
-    );
-    // On a phone the sheet is the single view on screen, always focused: its chats use the main
-    // view's id. On a desktop each conversation pane is a chat of its own.
-    const chatId = !conversation ? undefined : variant === "sheet" ? MAIN_CHAT : sideChatId(id);
-    return section(id, row, body, conversation, fill, chatId);
-  };
-
   const chats = groups[0]!;
+  const panes: { tab: SideTab; content: ReactNode }[] = [
+    ...groups
+      .filter((entry) => entry.items.length > 0)
+      .map(({ group, items: groupItems }) => ({ tab: group as SideTab, content: groupItems.map(itemSection) })),
+    ...(leaderId ? [{ tab: "topic" as const, content: itemSection(null) }] : []),
+  ];
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="side-column">
-      {/* The chats' own row, as tall as the strip under the top bar, so their lines meet. */}
+      {/* The column's own row, as tall as the strip under the top bar, so their lines meet. */}
       <div className="flex h-8 shrink-0 items-center gap-1 border-b border-cc-border/80 px-2">
         {leaderId && (
           <button
             type="button"
             onClick={() => {
-              // Opens in the chats (unfolding them), at their top, ready to type.
+              // Opens on the Chats tab, at its top, ready to type.
               openInSide(newSideChat(leaderId));
               useStore.getState().focusComposer(newSideChatDraftKey(leaderId), { whenShown: true });
             }}
@@ -347,13 +255,6 @@ export function SideColumn({
         )}
         <SideChatLeaderMenu mainLeaderId={leaderId} />
         <span className="flex-1" />
-        {chats.items.length > 0 && (
-          <ChatsGroupToggle
-            folded={chats.folded}
-            onToggle={() => folds.toggle(sideGroupFold("chats"))}
-            chats={chats.items.length}
-          />
-        )}
         {/* The same gallery button as the collapsed rail's, so the Library is one click away either way. */}
         {leaderId && (
           <button
@@ -377,197 +278,85 @@ export function SideColumn({
           {variant === "sheet" ? "✕" : <CollapseIcon className="h-4 w-4" />}
         </button>
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="side-scroll">
-        {groups.map(({ group, items: groupItems, folded }) =>
-          groupItems.length === 0 ? null : (
-            <div key={group} data-testid="side-group" data-group={group}>
-              {group === "chats" && folded && (
-                <FoldedChats
-                  chats={groupItems}
-                  used={used}
-                  onOpen={(id) => (id ? focusSideItem(id) : folds.toggle(sideGroupFold("chats")))}
-                />
-              )}
-              {group !== "chats" && (
-                <PageGroupBar
-                  label={group === "quests" ? "Quests" : "Pages"}
-                  count={groupItems.length}
-                  folded={folded}
-                  onToggle={() => folds.toggle(sideGroupFold(group))}
-                  names={<GroupNames items={groupItems} />}
-                />
-              )}
-              {!folded && groupItems.map(itemSection)}
-            </div>
-          ),
-        )}
-        {leaderId && itemSection(null)}
-      </div>
+      {tabs.length > 1 && (
+        <ColumnTabs
+          tabs={tabs}
+          active={tab}
+          chats={chats.items}
+          counts={Object.fromEntries(groups.map((entry) => [entry.group, entry.items.length]))}
+        />
+      )}
+      {panes.map((pane) => (
+        <Activity key={pane.tab} mode={pane.tab === tab ? "visible" : "hidden"}>
+          {/* A tab's rows, then its open item filling the rest; rows alone taller than the column scroll. */}
+          <div
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+            data-testid="side-tab-panel"
+            data-tab={pane.tab}
+          >
+            {pane.content}
+          </div>
+        </Activity>
+      ))}
     </div>
   );
 }
 
-/**
- * The folded chats' bar (`FoldedChatsBar`): each chat with its status dot, the ones asking first,
- * then those with news, then by when they were used.
- */
-function FoldedChats({
+/** The column's tabs, with what waits in the chats for the Chats tab (`SideTabs`). */
+function ColumnTabs({
+  tabs,
+  active,
   chats,
-  used,
-  onOpen,
+  counts,
 }: {
+  tabs: SideTab[];
+  active: SideTab;
   chats: SideItem[];
-  used: readonly string[];
-  onOpen: (id: string | null) => void;
+  counts: Partial<Record<SideTab, number>>;
 }) {
   const attention = useChatsAttention(chats);
   const questionCue = useAttentionCue(attention.questions, attention.questionsAt);
   const unreadCue = useAttentionCue(attention.unread, attention.unreadAt);
-  const urgency: Record<ThreadGroupId, number> = { "needs-input": 0, "new-results": 1, "in-progress": 2, idle: 3 };
-  const rank = (id: string) => (used.includes(id) ? used.indexOf(id) : used.length);
-  const ordered = chats
-    .map((item, index) => ({ item, index, group: attention.groups.get(item.id) ?? ("idle" as ThreadGroupId) }))
-    .sort((a, b) => urgency[a.group] - urgency[b.group] || rank(a.item.id) - rank(b.item.id) || a.index - b.index);
   return (
-    <FoldedChatsBar
-      questions={attention.questions}
-      unread={attention.unread}
-      onOpen={() => onOpen(null)}
-      questionCue={questionCue}
-      unreadCue={unreadCue}
-    >
-      {ordered.map(({ item, group }, index) => (
-        <FoldedChatEntry key={item.id} item={item} group={group} first={index === 0} onOpen={() => onOpen(item.id)} />
-      ))}
-    </FoldedChatsBar>
-  );
-}
-
-/** A chat in the folded chats' bar, by its name: its quest's number and title, its thread's name, or its session. */
-function FoldedChatEntry({
-  item,
-  group,
-  first,
-  onOpen,
-}: {
-  item: SideItem;
-  group: ThreadGroupId;
-  first: boolean;
-  onOpen: () => void;
-}) {
-  const conversation = item.kind === "conversation" ? item : null;
-  const place = useThreadPlace(conversation?.leaderId ?? "", conversation?.threadKey ?? "");
-  const session = useStore((state) =>
-    item.kind === "session" ? state.sdkSessions.find((candidate) => candidate.sessionId === item.sessionId) : undefined,
-  );
-  const leader = useLeaderCard(item.kind === "new-chat" ? item.leaderId : "");
-  const name =
-    item.kind === "new-chat"
-      ? `New thread with ${leader?.name ?? "another leader"}`
-      : item.kind === "session"
-        ? `#${session?.sessionNum ?? "?"} ${session?.name ?? ""}`.trim()
-        : place.kind === "quest"
-          ? `${place.key} ${place.name === place.key ? "" : place.name}`.trim()
-          : place.name;
-  return <FoldedChatButton name={name} group={group} first={first} onOpen={onOpen} />;
-}
-
-/** What a folded page group holds, by name: quests by number and title, other pages by title. */
-function GroupNames({ items }: { items: SideItem[] }) {
-  return (
-    <>
-      {items.map((item, index) => (
-        <span key={item.id}>
-          {index > 0 && " · "}
-          <PageName item={item} full />
-        </span>
-      ))}
-    </>
+    <SideTabs
+      tabs={tabs}
+      active={active}
+      onSelect={selectSideTab}
+      counts={counts}
+      chats={{ ...attention, questionCue, unreadCue }}
+    />
   );
 }
 
 /**
- * What waits in the chats: open questions and unread answers, when each came last, each chat's
- * status group (by the rows' rule), and the chat asking most recently, else with the newest answer.
+ * What waits in the chats: open questions and unread answers, when each came last, and whether a
+ * chat's leader is writing in it.
  */
 function useChatsAttention(items: SideItem[]) {
   const keysKey = items
-    .flatMap((item) => (item.kind === "conversation" ? [`${item.id}\t${item.leaderId}\t${item.threadKey}`] : []))
+    .flatMap((item) => (item.kind === "conversation" ? [`${item.leaderId}\t${item.threadKey}`] : []))
     .join("\n");
-  const summary = useStore(
+  return useStore(
     useShallow((state) => {
-      const result = { questions: 0, questionsAt: 0, unread: 0, unreadAt: 0, groups: "", leadId: "" };
-      let asking = { id: "", at: -1 };
-      let news = { id: "", at: -1 };
-      const groups: string[] = [];
+      const result = { questions: 0, questionsAt: 0, unread: 0, unreadAt: 0, running: false };
       for (const key of keysKey ? keysKey.split("\n") : []) {
-        const [id = "", leaderId = "", threadKey = ""] = key.split("\t");
-        let questions = 0;
-        let unread = 0;
+        const [leaderId = "", threadKey = ""] = key.split("\t");
         for (const notification of state.sessionNotifications.get(leaderId) ?? []) {
           if (notification.done) continue;
           if (resolveNotificationOwnerThreadKey(notification) !== normalizeThreadKey(threadKey)) continue;
           const at = notification.timestamp ?? 0;
           if (notification.category === "needs-input") {
-            questions++;
+            result.questions++;
             result.questionsAt = Math.max(result.questionsAt, at);
-            if (at > asking.at) asking = { id, at };
           } else if (notification.category === "review") {
-            unread++;
+            result.unread++;
             result.unreadAt = Math.max(result.unreadAt, at);
-            if (at > news.at) news = { id, at };
           }
         }
-        result.questions += questions;
-        result.unread += unread;
-        const group: ThreadGroupId =
-          questions > 0
-            ? "needs-input"
-            : unread > 0
-              ? "new-results"
-              : isLeaderThreadRunning(state, leaderId, threadKey)
-                ? "in-progress"
-                : "idle";
-        groups.push(`${id}\t${group}`);
+        if (isLeaderThreadRunning(state, leaderId, threadKey)) result.running = true;
       }
-      result.groups = groups.join("\n");
-      result.leadId = asking.id || news.id;
       return result;
     }),
-  );
-  const groups = new Map(
-    (summary.groups ? summary.groups.split("\n") : []).map((line) => line.split("\t") as [string, ThreadGroupId]),
-  );
-  return { ...summary, groups };
-}
-
-/** Lines one wheel "line" step moves, in pixels, for wheel events counted in lines. */
-const WHEEL_LINE_PX = 16;
-
-/**
- * A narrow strip on the left of a section's content that scrolls the whole column. The column
- * scrolls and so does each conversation in it, and a wheel over a conversation scrolls that
- * conversation; over this strip it scrolls the column (Jiayi, Oct 31). Header rows span the full
- * width: a wheel over them already scrolls the column, and the indent sets a pane's content apart
- * from its title bar. Desktop only: a phone's sheet scrolls by touch.
- */
-function ColumnScrollStrip({ scrollRef }: { scrollRef: RefObject<HTMLDivElement | null> }) {
-  return (
-    <div
-      className="group/strip flex w-2.5 shrink-0 items-center justify-center border-r border-cc-border/40 transition-colors hover:bg-cc-hover/60"
-      title="Scroll here to move the whole side column"
-      aria-hidden="true"
-      data-testid="side-scroll-strip"
-      onWheel={(event) => {
-        const scroller = scrollRef.current;
-        if (!scroller) return;
-        const unit = event.deltaMode === 1 ? WHEEL_LINE_PX : event.deltaMode === 2 ? scroller.clientHeight : 1;
-        scroller.scrollBy({ top: event.deltaY * unit });
-      }}
-    >
-      {/* A faint grip, brighter on hover, so the strip can be found without drawing the eye. */}
-      <div className="h-8 w-0.5 rounded-full bg-cc-muted/25 transition-colors group-hover/strip:bg-cc-muted/60" />
-    </div>
   );
 }
 
@@ -575,12 +364,27 @@ function ColumnScrollStrip({ scrollRef }: { scrollRef: RefObject<HTMLDivElement 
  * A side pane as a chat: its id for what it contains (composer, feed), registered while on screen,
  * focused by a click or tap anywhere in it, and marked while it is the focused chat.
  */
-function SideChatFocus({ chatId, onScreen, children }: { chatId: string; onScreen: boolean; children: ReactNode }) {
+function SideChatFocus({
+  chatId,
+  onScreen,
+  className,
+  children,
+}: {
+  chatId: string;
+  onScreen: boolean;
+  /** Its layout in the tab, as its section's. */
+  className: string;
+  children: ReactNode;
+}) {
   useSideChat(chatId, onScreen && chatId !== MAIN_CHAT);
   const marked = useChatFocusMarked(chatId) && chatId !== MAIN_CHAT;
   return (
     <ChatFocusContext.Provider value={chatId}>
-      <div className="group/chat" data-chat-focused={marked ? "true" : "false"} {...chatFocusHandlers(chatId)}>
+      <div
+        className={`group/chat ${className}`}
+        data-chat-focused={marked ? "true" : "false"}
+        {...chatFocusHandlers(chatId)}
+      >
         {children}
       </div>
     </ChatFocusContext.Provider>

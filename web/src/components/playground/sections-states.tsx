@@ -24,7 +24,7 @@ import {
   MSG_ASSISTANT,
 } from "./fixtures.js";
 import { PlaygroundSideChatStates } from "./SideChatPlaygroundStates.js";
-import { PlaygroundSideColumnGroup } from "./PlaygroundSideColumnGroup.js";
+import { PlaygroundSideColumnTabs } from "./PlaygroundSideColumnTabs.js";
 import { PlaygroundSidebarOverflowStates, PlaygroundUniversalSearchStates } from "./search-sidebar-states.js";
 import { PlaygroundUserMessageNavigatorSection } from "./PlaygroundUserMessageNavigatorSection.js";
 import { PlaygroundHerdEventStates } from "./HerdEventPlaygroundStates.js";
@@ -175,7 +175,7 @@ export function PlaygroundStateSections() {
         </div>
       </Section>
       <PlaygroundSideChatStates />
-      <PlaygroundSideColumnGroup />
+      <PlaygroundSideColumnTabs />
       <PlaygroundCodexSubagentStates />
 
       {/* ─── Composer — Voice Recording ──────────────────────────────── */}

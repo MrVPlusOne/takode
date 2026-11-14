@@ -10,7 +10,6 @@ import { openLibraryArtifact } from "./library-nav.js";
 import { isNewWindowClick, openArtifactWindow } from "./artifact-window.js";
 import { setLocalStorageItem } from "./scoped-storage.js";
 import { isRememberedFolded, setRememberedFolded } from "./remembered-folds.js";
-import { mergeSectionHeights } from "../components/StackedPanes.js";
 import { sideConversationFeedKey, sideSessionFeedKey } from "../components/secondary-feed.js";
 import { noteClickedPaneFeed, type ClickedPaneFeed } from "./pane-jump.js";
 
@@ -18,10 +17,9 @@ import { noteClickedPaneFeed, type ClickedPaneFeed } from "./pane-jump.js";
  * What the side column holds besides the topic page it follows: things the user put there to keep
  * beside the main conversation (Logseq's right sidebar). One column for the whole app: what the
  * user put there stays when the main view switches to another leader or a worker's session (Jiayi,
- * Nov 1, 2026), and each conversation in it names its own leader. Newest first; each folds and
- * unfolds on its own (remembered folds, `sideFoldId`), except that the chats open one at a time
- * (`isChatItem`), and the column scrolls when the open ones don't fit. Remembered in this browser:
- * local UI state, like the column's width.
+ * Nov 1, 2026), and each conversation in it names its own leader. Newest first, shown by kind in
+ * the column's tabs (`SideTab`), where one item at a time is open and fills the tab (remembered
+ * folds, `sideFoldId`). Remembered in this browser: local UI state, like the column's width.
  */
 export type SideItem =
   /** A topic's page, of its leader. */
@@ -59,33 +57,32 @@ export const HOME_ITEM = "home";
 
 export interface SideColumnState {
   items: SideItem[];
-  /**
-   * Conversation items by when they were last opened or used, most recent first: the order of the
-   * folded chats' bar, after the ones asking or with news.
-   */
-  used?: string[];
-  /** The item opened last (an item's ID or HOME_ITEM), which the column scrolls into view. */
+  /** The tab on screen; when it holds nothing now, the column shows its first tab. */
+  tab?: SideTab;
+  /** The item opened last (an item's ID or HOME_ITEM). */
   focus?: string;
-  /** When it was opened, so opening it again scrolls to it again. */
+  /** When it was opened, so opening it again focuses it again. */
   focusAt?: number;
-  /** The height the user last dragged a side chat to, which every chat shares. */
-  chatHeight?: number;
 }
 
 const STORAGE_KEY = "cc-side-column";
 /** Where each leader kept a column of its own, before there was one column. */
 const LEADER_COLUMNS_KEY = "cc-side-columns";
 const MAX_ITEMS = 16;
-/** The section heights of the column, by item (`useSectionHeights`). */
-export const SIDE_HEIGHTS_STACK = "side";
 
 function stored(): SideColumnState {
   if (typeof localStorage === "undefined") return { items: [] };
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     try {
-      // Chats open one at a time always since Nov 11; the switch that turned it on is gone.
-      const { oneAtATime: _retired, ...parsed } = JSON.parse(raw) as SideColumnState & { oneAtATime?: boolean };
+      // Retired: the one-at-a-time switch (Nov 11), and the chats' use order and shared height,
+      // which the scrolling column had before its tabs.
+      const {
+        oneAtATime: _switch,
+        used: _used,
+        chatHeight: _height,
+        ...parsed
+      } = JSON.parse(raw) as SideColumnState & { oneAtATime?: boolean; used?: string[]; chatHeight?: number };
       return { ...parsed, items: Array.isArray(parsed.items) ? parsed.items.map(asSideTarget) : [] };
     } catch (error) {
       console.warn("[side-column] Ignoring unreadable side column state:", error);
@@ -98,7 +95,7 @@ function stored(): SideColumnState {
 /**
  * The one column made from the columns leaders had of their own: everything any of them held,
  * leader by leader in the order they were first used, each item named with its leader, keeping
- * the folds and heights it had; the same thing kept twice stays once. The leaders' columns go.
+ * the folds it had; the same thing kept twice stays once. The leaders' columns go.
  */
 export function mergeLeaderColumns(raw: string | null): SideColumnState {
   if (!raw) return { items: [] };
@@ -125,10 +122,6 @@ export function mergeLeaderColumns(raw: string | null): SideColumnState {
     }
   }
   const kept = items.slice(0, MAX_ITEMS);
-  mergeSectionHeights(
-    Object.keys(columns).map((columnId) => `side:${columnId}`),
-    SIDE_HEIGHTS_STACK,
-  );
   setLocalStorageItem(STORAGE_KEY, JSON.stringify({ items: kept }));
   localStorage.removeItem(LEADER_COLUMNS_KEY);
   return { items: kept };
@@ -180,26 +173,36 @@ function asSideTarget<Item extends SideItem | SideItemInput>(input: Item): Item 
 }
 
 /**
- * The groups of what was put in the column, above the topic page it follows, each folding on its
- * own (Jiayi, Nov 6: the topic page sat below every chat, and a quest's page in among the chats read
- * as one more chat): its chats, quest pages, and other pages (artifacts, Homes, pinned topic pages).
+ * The kinds of what was put in the column (Jiayi, Nov 6: a quest's page in among the chats read as
+ * one more chat): its chats, quest pages, and other pages (artifacts, Homes, pinned topic pages).
  */
 export type SideGroup = "chats" | "quests" | "pages";
 
-/** The column's groups, top to bottom. */
+/** The column's groups, in the order of their tabs. */
 export const SIDE_GROUPS: readonly SideGroup[] = ["chats", "quests", "pages"];
+
+/**
+ * A tab of the column: a group of what was put there, or the topic page the column follows. The
+ * column shows one tab at a time, which fills it, so the column itself never scrolls (Jiayi, Nov 14:
+ * the column scrolled as a whole and its open chat scrolled inside it, and a scrolled column hid the
+ * chat's top).
+ */
+export type SideTab = SideGroup | "topic";
 
 /** The group an item shows in. */
 export function sideItemGroup(item: Pick<SideItem, "kind">): SideGroup {
   return isChatItem(item) ? "chats" : item.kind === "quest" ? "quests" : "pages";
 }
 
-/**
- * The remembered fold of a group. The chats keep the fold of the one group the column had before
- * (Nov 6), which held everything and was folded mostly to get past its chats.
- */
-export function sideGroupFold(group: SideGroup): string {
-  return group === "chats" ? "side-group" : `side-group:${group}`;
+/** The tab an item of the column (or the topic page it follows, HOME_ITEM) shows in. */
+export function sideTabOf(id: string): SideTab {
+  const item = useSideColumnStore.getState().items.find((candidate) => candidate.id === id);
+  return item ? sideItemGroup(item) : "topic";
+}
+
+/** Shows a tab of the column. */
+export function selectSideTab(tab: SideTab): void {
+  if (useSideColumnStore.getState().tab !== tab) update((column) => ({ ...column, tab }));
 }
 
 /** The remembered fold of an item of the column, or of the topic page it follows (HOME_ITEM). */
@@ -214,60 +217,48 @@ export function isConversationItem(item: Pick<SideItem, "kind">): boolean {
 
 /**
  * Items that are a chat: a conversation, a thread being started, or another session's conversation.
- * The column's chats act as one tab group stacked as an accordion: opening one folds the others,
- * and they share one height (Jiayi, Nov 2: browsing side chats one click at a time, each as tall
- * however many there are). At most one is open, possibly none. Other sections open and fold on
- * their own. This was a switch until Nov 11, when it became the only way (Jiayi: few knew to turn
- * it on, and their columns filled up with open chats).
+ * Jiayi browses side chats one click at a time (Nov 2; the only way since Nov 11), and since the
+ * column's tabs every tab works so: opening an item folds the others of its tab, and the open one
+ * fills the tab. At most one is open, possibly none.
  */
 export function isChatItem(item: Pick<SideItem, "kind">): boolean {
   return item.kind === "conversation" || item.kind === "new-chat" || item.kind === "session";
 }
 
-/** Unfolds an item and marks it used (`noteSideItemUsed`); a chat folds the other chats. */
+/** Unfolds an item, folding the others of its tab. */
 export function unfoldSideItem(id: string): void {
-  foldOtherChats(id);
+  foldOthersInTab(id);
   setRememberedFolded(sideFoldId(id), false);
-  noteSideItemUsed(id);
 }
 
-/** Opening a chat folds the column's other open chats; opening anything else folds nothing. */
-function foldOtherChats(id: string): void {
+function foldOthersInTab(id: string): void {
   const { items } = useSideColumnStore.getState();
-  if (!items.some((item) => item.id === id && isChatItem(item))) return;
+  const opened = items.find((item) => item.id === id);
+  if (!opened) return;
   for (const other of items) {
-    if (other.id !== id && isChatItem(other) && !isRememberedFolded(sideFoldId(other.id)))
-      setRememberedFolded(sideFoldId(other.id), true);
+    if (other.id === id || sideItemGroup(other) !== sideItemGroup(opened)) continue;
+    if (!isRememberedFolded(sideFoldId(other.id))) setRememberedFolded(sideFoldId(other.id), true);
   }
 }
 
 /**
- * A column saved with several chats open (from before chats always opened one at a time) keeps one
- * open: the one opened last if it is open, else the first open one.
+ * A column saved with several items of a tab open (from before the tabs, when pages opened on their
+ * own and the column scrolled) keeps one open in each: the one opened last if it is open, else the
+ * first open one.
  */
-function keepOneChatOpen(): void {
+function keepOneOpenPerTab(): void {
   const { items, focus } = useSideColumnStore.getState();
-  const open = items.filter((item) => isChatItem(item) && !isRememberedFolded(sideFoldId(item.id)));
-  const kept = open.find((item) => item.id === focus) ?? open[0];
-  if (kept) foldOtherChats(kept.id);
+  for (const group of SIDE_GROUPS) {
+    const open = items.filter((item) => sideItemGroup(item) === group && !isRememberedFolded(sideFoldId(item.id)));
+    const kept = open.find((item) => item.id === focus) ?? open[0];
+    if (kept) foldOthersInTab(kept.id);
+  }
 }
 
-/** A conversation item was opened, unfolded or used (its pane focused): it goes first in `used`. */
-export function noteSideItemUsed(id: string): void {
-  const { items, used = [] } = useSideColumnStore.getState();
-  const item = items.find((candidate) => candidate.id === id);
-  if (!item || !isConversationItem(item)) return;
-  const order = [id, ...used.filter((other) => other !== id && items.some((candidate) => candidate.id === other))];
-  if (order.join() !== used.join()) update((column) => ({ ...column, used: order }));
-}
-
-/** Unfolds an item (and its group) and scrolls the column to it. */
+/** Opens an item (or the topic page, HOME_ITEM) in its tab, and shows that tab. */
 export function focusSideItem(id: string): void {
-  // Something put in the column shows in its group, which opens if it was folded.
-  const item = useSideColumnStore.getState().items.find((candidate) => candidate.id === id);
-  if (item) setRememberedFolded(sideGroupFold(sideItemGroup(item)), false);
-  unfoldSideItem(id);
-  update((column) => ({ ...column, focus: id, focusAt: Date.now() }));
+  if (id !== HOME_ITEM) unfoldSideItem(id);
+  update((column) => ({ ...column, tab: sideTabOf(id), focus: id, focusAt: Date.now() }));
 }
 
 /**
@@ -303,7 +294,7 @@ function openInSideFrom(pane: string | null, opened: SideItemInput): string {
   return id;
 }
 
-/** Shows the main view's leader's topics (the column's Topics section, below what was put there). */
+/** Shows the main view's leader's topics (the column's Topic tab). */
 export function openTopicsInSide(): void {
   focusSideItem(HOME_ITEM);
   setTopicPanelOpen(true);
@@ -311,29 +302,25 @@ export function openTopicsInSide(): void {
 }
 
 /**
- * Takes an item out of the column. Taking out the open chat opens another chat in its place, so a column of chats doesn't fold to nothing (Jiayi, Nov 3): the chat below it,
- * else the one above, so closing chats one by one reads them top to bottom (Jiayi, Nov 10).
+ * Takes an item out of the column. Taking out the open item of a tab opens another of that tab in
+ * its place, so a tab doesn't fold to nothing (Jiayi, Nov 3, for chats): the one below it, else the
+ * one above, so closing them one by one reads them top to bottom (Jiayi, Nov 10).
  */
 export function closeSideItem(id: string): void {
   const before = useSideColumnStore.getState();
   const index = before.items.findIndex((item) => item.id === id);
   const closed = before.items[index];
-  const reopen =
-    closed && isChatItem(closed) && !isRememberedFolded(sideFoldId(id))
-      ? nextChatAfterClosing(before, index)
-      : undefined;
-  update((column) => ({
-    ...column,
-    items: column.items.filter((item) => item.id !== id),
-    used: column.used?.filter((other) => other !== id),
-  }));
+  const reopen = closed && !isRememberedFolded(sideFoldId(id)) ? nextInTabAfterClosing(before, index) : undefined;
+  update((column) => ({ ...column, items: column.items.filter((item) => item.id !== id) }));
   if (reopen) unfoldSideItem(reopen);
 }
 
-/** The chat to open after the open chat at `index` goes: the next one down, else the one above. */
-function nextChatAfterClosing(column: SideColumnState, index: number): string | undefined {
-  const below = column.items.slice(index + 1).find(isChatItem);
-  const above = column.items.slice(0, index).reverse().find(isChatItem);
+/** The item to open after the open one at `index` goes: the next one down its tab, else the one above. */
+function nextInTabAfterClosing(column: SideColumnState, index: number): string | undefined {
+  const group = sideItemGroup(column.items[index]!);
+  const sameTab = (item: SideItem) => sideItemGroup(item) === group;
+  const below = column.items.slice(index + 1).find(sameTab);
+  const above = column.items.slice(0, index).reverse().find(sameTab);
   return (below ?? above)?.id;
 }
 
@@ -353,13 +340,6 @@ export function replaceSideItem(id: string, replacement: SideItemInput): void {
       ...(twin && column.focus === twin.id ? { focus: id } : {}),
     };
   });
-  // A new thread that became its conversation now has a place in the use order.
-  if (!isRememberedFolded(sideFoldId(id))) noteSideItemUsed(id);
-}
-
-/** The user dragged a side conversation to `height`: new threads in the column start at it. */
-export function rememberSideChatHeight(height: number | undefined): void {
-  if (useSideColumnStore.getState().chatHeight !== height) update((column) => ({ ...column, chatHeight: height }));
 }
 
 export function useSideColumn(): SideColumnState {
@@ -658,4 +638,4 @@ export function openConversationInSide(leaderId: string, threadKey: string): boo
   return openInSideOnScreen({ kind: "conversation", threadKey: threadKey.toLowerCase(), leaderId });
 }
 
-keepOneChatOpen();
+keepOneOpenPerTab();
