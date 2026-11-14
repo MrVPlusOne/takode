@@ -114,10 +114,11 @@ export const MAX_GUIDED_REVIEW_STOPS = 40;
 /**
  * Lines of surrounding code a stop's code shows above and below the lines it points at, so the
  * reader sees where a change sits. They are read live from git when the review is viewed, not
- * saved with it; "Show more" adds `GUIDED_REVIEW_MORE_CONTEXT_LINES` at a time.
+ * saved with it; "Show more lines above" and "below" each add up to
+ * `GUIDED_REVIEW_MORE_CONTEXT_LINES` on their side.
  */
 export const GUIDED_REVIEW_CONTEXT_LINES = 10;
-export const GUIDED_REVIEW_MORE_CONTEXT_LINES = 20;
+export const GUIDED_REVIEW_MORE_CONTEXT_LINES = 30;
 const MAX_ANSWER_CHARS = 40;
 
 export interface DiffLine {
@@ -440,18 +441,27 @@ export function prepareGuidedReview(
   return { problems, stats, map: withGuidedReviewSnippets({ ...map, summaries }, files) };
 }
 
+/** Lines of surrounding code shown above and below a code reference's lines. */
+export interface GuidedReviewContext {
+  above: number;
+  below: number;
+}
+
 /**
  * The part of a file's diff a code reference points at, as unified diff text the diff viewer
  * renders: the lines in its range, with up to `context` lines of the diff around them (unchanged
- * code, and other changes nearby; none when saving a review). Hunks are rebuilt with correct
- * headers so line numbers stay true.
+ * code, and other changes nearby; none when saving a review), the same on both sides or set per
+ * side. Hunks are rebuilt with correct headers so line numbers stay true.
  */
-export function guidedReviewSnippet(file: DiffFile, ref: GuidedReviewCodeRef, context = 0): string {
+export function guidedReviewSnippet(
+  file: DiffFile,
+  ref: GuidedReviewCodeRef,
+  context: number | GuidedReviewContext = 0,
+): string {
+  const { above, below } = typeof context === "number" ? { above: context, below: context } : context;
   const out = [...file.header];
-  for (const hunk of file.hunks) {
-    const inside = hunk.lines.flatMap((line, index) => (!ref.lines || inRange(ref.lines, line) ? [index] : []));
-    if (!inside.length) continue;
-    const kept = hunk.lines.slice(Math.max(0, inside[0]! - context), inside.at(-1)! + context + 1);
+  for (const { hunk, first, last } of referencedSpans(file, ref)) {
+    const kept = hunk.lines.slice(Math.max(0, first - above), last + below + 1);
     const oldStart = kept.find((line) => line.oldNo !== undefined)?.oldNo ?? 0;
     const newStart = kept.find((line) => line.newNo !== undefined)?.newNo ?? 0;
     const oldCount = kept.filter((line) => line.kind !== "add").length;
@@ -460,6 +470,23 @@ export function guidedReviewSnippet(file: DiffFile, ref: GuidedReviewCodeRef, co
     for (const line of kept) out.push(`${line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}${line.text}`);
   }
   return `${out.join("\n")}\n`;
+}
+
+/**
+ * The lines of the diff around a code reference that its snippet with `context` leaves out, above
+ * and below; with several hunks, the most any hunk leaves out on that side.
+ */
+export function guidedReviewContextLeft(
+  file: DiffFile,
+  ref: GuidedReviewCodeRef,
+  context: GuidedReviewContext,
+): GuidedReviewContext {
+  const left = { above: 0, below: 0 };
+  for (const { hunk, first, last } of referencedSpans(file, ref)) {
+    left.above = Math.max(left.above, first - context.above);
+    left.below = Math.max(left.below, hunk.lines.length - 1 - last - context.below);
+  }
+  return left;
 }
 
 /**
@@ -603,6 +630,14 @@ export function changedLines(file: DiffFile): DiffLine[] {
 
 function refCovers(ref: GuidedReviewCodeRef, line: DiffLine): boolean {
   return !ref.lines || inRange(ref.lines, line);
+}
+
+/** Each hunk with lines in the reference's range, and the indexes of its first and last such line. */
+function referencedSpans(file: DiffFile, ref: GuidedReviewCodeRef): { hunk: DiffHunk; first: number; last: number }[] {
+  return file.hunks.flatMap((hunk) => {
+    const inside = hunk.lines.flatMap((line, index) => (!ref.lines || inRange(ref.lines, line) ? [index] : []));
+    return inside.length ? [{ hunk, first: inside[0]!, last: inside.at(-1)! }] : [];
+  });
 }
 
 /** A removed line belongs to a range when the line it sits before is in it, or it ends the range. */

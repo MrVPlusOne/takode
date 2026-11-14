@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import {
   GUIDED_REVIEW_TIERS,
-  GUIDED_REVIEW_MORE_CONTEXT_LINES,
   guidedReviewFocus,
   parseGuidedReviewDiff,
   guidedReviewSummaryFiles,
@@ -569,7 +569,9 @@ export function ReviewCode({
  * One snippet, shown like the chat feed's code blocks: long lines scroll sideways instead of
  * wrapping, and a tall snippet shows a scrollable window with a bar below that expands it to full
  * height. `full` shows all of it from the start. The lines the stop is about carry a bar and the
- * code around them, read live from git, is dimmed; "Show more" widens it.
+ * code around them, read live from git, is dimmed; "Show more lines above" at the top and "below"
+ * at the bottom widen it on their side (Jiayi, Nov 14: one button at the bottom for both ways
+ * meant scrolling down to see more above).
  */
 function ReviewSnippet({
   codeRef,
@@ -613,6 +615,25 @@ function ReviewSnippet({
     return () => observer?.disconnect();
   }, [open]);
   const changed = changedLineCount(diff);
+  // New lines above push down the ones being read; keep those where they are on screen. The
+  // browser's own scroll anchoring, where there is any, is paused meanwhile: it picks its own
+  // anchor, which may be a line that moves, and would add to this correction.
+  const showMoreAbove = () => {
+    const frame = frameRef.current;
+    const anchor = frame && firstVisibleLine(frame);
+    if (!frame || !anchor) return live.showMore("above");
+    const before = anchor.getBoundingClientRect().top;
+    const selector = lineSelector(anchor);
+    const outer = scrollParent(frame) ?? document.scrollingElement;
+    const scrollers = [...(open ? [] : [frame]), ...(outer instanceof HTMLElement ? [outer] : [])];
+    for (const scroller of scrollers) scroller.style.overflowAnchor = "none";
+    flushSync(() => live.showMore("above"));
+    for (const scroller of scrollers) {
+      const moved = (frame.querySelector(selector)?.getBoundingClientRect().top ?? before) - before;
+      scroller.scrollTop += moved / screenScale(scroller);
+      scroller.style.overflowAnchor = "";
+    }
+  };
   const collapse = () => {
     setExpanded(false);
     requestAnimationFrame(() => {
@@ -622,6 +643,16 @@ function ReviewSnippet({
   };
   return (
     <div className="overflow-hidden rounded-[10px] text-[12px] sm:[&_.diff-viewer]:text-[13px]">
+      {live.more.above > 0 && (
+        <button
+          type="button"
+          onClick={showMoreAbove}
+          className="flex w-full items-center justify-center gap-1.5 rounded-t-[10px] border border-b-0 border-cc-border bg-cc-code-bg/80 py-1.5 text-xs text-cc-muted hover:text-cc-fg"
+          data-testid="guided-review-show-more-above"
+        >
+          Show {moreLinesLabel(live.more.above)} above
+        </button>
+      )}
       <div
         ref={frameRef}
         // No overscroll containment, as for chat code blocks: scrolling past the snippet's edge, or
@@ -656,14 +687,14 @@ function ReviewSnippet({
           )}
         </div>
       )}
-      {live.canShowMore && (
+      {live.more.below > 0 && (
         <button
           type="button"
-          onClick={live.showMore}
+          onClick={() => live.showMore("below")}
           className="flex w-full items-center justify-center gap-1.5 border border-t-0 border-cc-border bg-cc-code-bg/80 py-1.5 text-xs text-cc-muted last:rounded-b-[10px] hover:text-cc-fg"
-          data-testid="guided-review-show-more"
+          data-testid="guided-review-show-more-below"
         >
-          Show {GUIDED_REVIEW_MORE_CONTEXT_LINES} more lines around it
+          Show {moreLinesLabel(live.more.below)} below
         </button>
       )}
       {!full && (overflows || expanded) && (
@@ -682,4 +713,41 @@ function ReviewSnippet({
 
 function changedLineCount(diff: string): number {
   return diff.split("\n").filter((line) => /^[+-](?![+-]{2} )/.test(line)).length;
+}
+
+function moreLinesLabel(count: number): string {
+  return `${count} more line${count === 1 ? "" : "s"}`;
+}
+
+/** The first code line in the snippet frame that shows on screen. */
+function firstVisibleLine(frame: HTMLElement): HTMLElement | null {
+  const top = Math.max(frame.getBoundingClientRect().top, 0);
+  for (const line of frame.querySelectorAll<HTMLElement>(".diff-line")) {
+    if (line.getBoundingClientRect().bottom > top) return line;
+  }
+  return null;
+}
+
+/** Finds the same code line again after the snippet re-renders, by its line numbers. */
+function lineSelector(line: HTMLElement): string {
+  const { oldLine, newLine } = line.dataset;
+  return `.diff-line${oldLine ? `[data-old-line="${oldLine}"]` : ":not([data-old-line])"}${
+    newLine ? `[data-new-line="${newLine}"]` : ":not([data-new-line])"
+  }`;
+}
+
+/**
+ * How much larger an element shows on screen than its own CSS pixels, which its scroll offset is
+ * in: the app's zoom setting scales the whole page.
+ */
+function screenScale(element: HTMLElement): number {
+  return element.offsetHeight ? element.getBoundingClientRect().height / element.offsetHeight : 1;
+}
+
+/** The nearest ancestor that scrolls vertically, or null for the window. */
+function scrollParent(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node;
+  }
+  return null;
 }

@@ -309,6 +309,50 @@ describe("guided review", () => {
     await waitFor(() => expect(apiMock.getGuidedReviewFileDiff.mock.calls.length).toBe(calls + 1));
   });
 
+  it("widens a stop's code above and below, keeping the lines being read in place", async () => {
+    // Jiayi (Nov 14): one button at the bottom meant scrolling down to see more above, so each side
+    // gets its own, each naming the lines it adds: up to 30, fewer when fewer are left.
+    const file = Array.from({ length: 80 }, (_, index) => ` line ${index + 1}`);
+    file.splice(40, 1, "-line 41 old", "+line 41 new");
+    const diff = ["diff --git a/src/retry.ts b/src/retry.ts", "--- a/src/retry.ts", "+++ b/src/retry.ts"];
+    apiMock.getGuidedReviewFileDiff.mockResolvedValue({
+      available: true,
+      diff: [...diff, "@@ -1,80 +1,80 @@", ...file, ""].join("\n"),
+    });
+    // The checked stop points at line 41; its code shows in a height-capped frame that scrolls.
+    const viewer = await openTour(reviewMessage((meta) => (meta.map.stops[3]!.code[0]!.lines = [41, 41])));
+    fireEvent.click(within(viewer).getByRole("button", { name: "Start the walkthrough" }));
+    for (const step of ["Next", "Next", "Wrap up"]) fireEvent.click(within(viewer).getByRole("button", { name: step }));
+    fireEvent.click(within(viewer).getByRole("button", { name: /The helper's comment/ }));
+    const above = await within(viewer).findByRole("button", { name: "Show 30 more lines above" });
+    const stop = above.parentElement!;
+    const frame = within(stop).getByTestId("guided-review-snippet");
+    const below = within(stop).getByRole("button", { name: "Show 29 more lines below" });
+    expect(above.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(frame.compareDocumentPosition(below) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // jsdom has no layout: lay rows out 20px apart in the frame, which scrolls.
+    let scrollTop = 0;
+    Object.defineProperty(frame, "scrollTop", { get: () => scrollTop, set: (value: number) => (scrollTop = value) });
+    const rect = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const rows = [...frame.querySelectorAll(".diff-line")];
+      const top = rows.includes(this) ? rows.indexOf(this) * 20 - scrollTop : 0;
+      return { top, bottom: top + 20, height: 20 } as DOMRect;
+    });
+    const firstShown = () => frame.querySelector<HTMLElement>(".diff-line")!.dataset.newLine;
+    expect(firstShown()).toBe("31");
+    fireEvent.click(above);
+    // Line 31, at the top of the frame, stays there: the 30 new lines sit above it.
+    expect(firstShown()).toBe("1");
+    expect(scrollTop).toBe(600);
+    rect.mockRestore();
+    // Nothing is left above, so that button goes; below still offers the rest.
+    expect(within(stop).queryByRole("button", { name: /more lines? above/ })).toBeNull();
+    fireEvent.click(within(stop).getByRole("button", { name: "Show 29 more lines below" }));
+    expect(within(stop).queryByRole("button", { name: /more lines? below/ })).toBeNull();
+    expect(frame.querySelectorAll(".diff-line")).toHaveLength(81);
+  });
+
   it("opens the full change commit by commit from git", async () => {
     apiMock.getGuidedReviewCommit.mockResolvedValue({
       sha: "c".repeat(40),

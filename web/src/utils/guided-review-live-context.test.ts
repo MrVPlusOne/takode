@@ -11,8 +11,8 @@ import { resetLiveReviewContextForTest, useLiveReviewSnippet } from "./guided-re
 
 /**
  * The code around a guided review stop is read live from git when the review is viewed (Jiayi,
- * Nov 1), instead of being saved with it: 10 lines a side, 20 more per "Show more", and the saved
- * lines alone when git can't be reached.
+ * Nov 1), instead of being saved with it: 10 lines a side, up to 30 more on one side per "Show more
+ * lines above" or "below" (Jiayi, Nov 14), and the saved lines alone when git can't be reached.
  */
 
 /** A 60-line file whose line 30 changed, as git prints it with the whole file as context. */
@@ -42,7 +42,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("useLiveReviewSnippet", () => {
-  it("shows 10 lines around the stop's lines, and 20 more each time Show more is pressed", async () => {
+  it("shows 10 lines around the stop's lines, and widens one side at a time by up to 30 lines", async () => {
     getGuidedReviewFileDiff.mockResolvedValue({ available: true, diff: wholeFileDiff() });
     const { result } = renderHook(() => useLiveReviewSnippet("leader", "r1", REF));
     // The saved lines show until git answers.
@@ -51,12 +51,36 @@ describe("useLiveReviewSnippet", () => {
     expect(getGuidedReviewFileDiff).toHaveBeenCalledWith("leader", "r1", "a.ts");
     let lines = shownNewLines(result.current.snippet);
     expect([lines[0], lines.at(-1)]).toEqual([20, 40]);
-    expect(result.current.canShowMore).toBe(true);
-    act(() => result.current.showMore());
+    // Each button names what it adds: the 19 lines left above line 20, the 20 left below line 40.
+    expect(result.current.more).toEqual({ above: 19, below: 20 });
+    act(() => result.current.showMore("above"));
+    lines = shownNewLines(result.current.snippet);
+    expect([lines[0], lines.at(-1)]).toEqual([1, 40]);
+    // Nothing is left above, so its button goes; below is untouched.
+    expect(result.current.more).toEqual({ above: 0, below: 20 });
+    act(() => result.current.showMore("below"));
     lines = shownNewLines(result.current.snippet);
     expect([lines[0], lines.at(-1)]).toEqual([1, 60]);
-    // The whole file shows: nothing more around it.
-    expect(result.current.canShowMore).toBe(false);
+    expect(result.current.more).toEqual({ above: 0, below: 0 });
+  });
+
+  it("adds at most 30 lines per press when more is left", async () => {
+    // A 200-line file changed at line 100: 89 lines are left above the first 10.
+    const lines = Array.from({ length: 200 }, (_, index) => ` line ${index + 1}`);
+    lines.splice(99, 1, "+line 100 new");
+    const diff = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -1,199 +1,200 @@", ...lines, ""];
+    getGuidedReviewFileDiff.mockResolvedValue({ available: true, diff: diff.join("\n") });
+    const ref = { path: "a.ts", lines: [100, 100] as [number, number], snippet: SAVED };
+    const { result } = renderHook(() => useLiveReviewSnippet("leader", "r7", ref));
+    await waitFor(() => expect(result.current.snippet).not.toBe(SAVED));
+    expect(result.current.more).toEqual({ above: 30, below: 30 });
+    act(() => result.current.showMore("above"));
+    expect(shownNewLines(result.current.snippet)[0]).toBe(60);
+    act(() => result.current.showMore("above"));
+    act(() => result.current.showMore("above"));
+    // 89 left: 30, 30, then the last 29.
+    expect(shownNewLines(result.current.snippet)[0]).toBe(1);
+    expect(result.current.more.above).toBe(0);
   });
 
   it("keeps the saved lines and says why when git can't be reached or the commits are gone", async () => {
@@ -65,7 +89,7 @@ describe("useLiveReviewSnippet", () => {
     getGuidedReviewFileDiff.mockResolvedValueOnce({ available: false, reason: "commits_not_available" });
     const gone = renderHook(() => useLiveReviewSnippet("leader", "r2", REF));
     await waitFor(() => expect(gone.result.current.unavailable).toBe("unreachable"));
-    expect(gone.result.current).toMatchObject({ snippet: SAVED, canShowMore: false });
+    expect(gone.result.current).toMatchObject({ snippet: SAVED, more: { above: 0, below: 0 } });
     getGuidedReviewFileDiff.mockRejectedValueOnce(new Error("offline"));
     const offline = renderHook(() => useLiveReviewSnippet("leader", "r3", REF));
     await waitFor(() => expect(offline.result.current.unavailable).toBe("unreachable"));

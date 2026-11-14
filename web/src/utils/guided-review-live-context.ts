@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   GUIDED_REVIEW_CONTEXT_LINES,
   GUIDED_REVIEW_MORE_CONTEXT_LINES,
+  guidedReviewContextLeft,
   guidedReviewSnippet,
   parseGuidedReviewDiff,
   type DiffFile,
   type GuidedReviewCodeRef,
+  type GuidedReviewContext,
 } from "../../shared/guided-review.js";
 import { api } from "../api.js";
 
@@ -22,32 +24,40 @@ export function useLiveReviewSnippet(
   codeRef: GuidedReviewCodeRef,
 ): {
   snippet: string;
-  canShowMore: boolean;
-  showMore: () => void;
+  /** Lines the next "Show more" on each side adds: up to 30, and 0 when nothing is left there. */
+  more: GuidedReviewContext;
+  showMore: (side: keyof GuidedReviewContext) => void;
   /** Why the code around the stop isn't shown: git or the commits can't be reached, or it is too large. */
   unavailable: LiveContextFailure | null;
   retry: () => void;
 } {
   // A reference to a whole file already shows all of its changes; only a range gets surroundings.
   const { result, retry } = useLiveFileDiff(sessionId, reviewId, codeRef.lines ? codeRef.path : null);
-  const [context, setContext] = useState(GUIDED_REVIEW_CONTEXT_LINES);
+  const [context, setContext] = useState<GuidedReviewContext>(INITIAL_CONTEXT);
   return useMemo(() => {
-    const saved = { snippet: codeRef.snippet!, canShowMore: false, showMore: () => {}, retry };
+    const saved = { snippet: codeRef.snippet!, more: NO_MORE, showMore: () => {}, retry };
     if (!result) return { ...saved, unavailable: null };
     if (!("file" in result)) return { ...saved, unavailable: result.failure };
     const snippet = guidedReviewSnippet(result.file, codeRef, context);
     // A stop whose lines the live change no longer has (a rewritten range) keeps its saved lines.
     if (!snippet.includes("\n@@")) return { ...saved, unavailable: null };
-    const more = guidedReviewSnippet(result.file, codeRef, context + 1);
+    const left = guidedReviewContextLeft(result.file, codeRef, context);
     return {
       snippet,
-      canShowMore: more.length > snippet.length,
-      showMore: () => setContext((current) => current + GUIDED_REVIEW_MORE_CONTEXT_LINES),
+      more: {
+        above: Math.min(GUIDED_REVIEW_MORE_CONTEXT_LINES, left.above),
+        below: Math.min(GUIDED_REVIEW_MORE_CONTEXT_LINES, left.below),
+      },
+      showMore: (side: keyof GuidedReviewContext) =>
+        setContext((current) => ({ ...current, [side]: current[side] + GUIDED_REVIEW_MORE_CONTEXT_LINES })),
       unavailable: null,
       retry,
     };
   }, [result, codeRef, context, retry]);
 }
+
+const INITIAL_CONTEXT: GuidedReviewContext = { above: GUIDED_REVIEW_CONTEXT_LINES, below: GUIDED_REVIEW_CONTEXT_LINES };
+const NO_MORE: GuidedReviewContext = { above: 0, below: 0 };
 
 /** Why the code around a stop can't be shown. */
 export type LiveContextFailure = "unreachable" | "too_large";
