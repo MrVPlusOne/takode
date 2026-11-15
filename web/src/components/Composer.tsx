@@ -18,6 +18,7 @@ import { ComposerMenus } from "./ComposerMenus.js";
 import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
 import { buildComposerPlaceholder } from "./composer-placeholder.js";
 import { ComposerReferencePreview } from "./ComposerReferencePreview.js";
+import { useChatTextBoxMode } from "./chat-text-box-mode.js";
 import { ComposerInputSurface } from "./ComposerSurface.js";
 import { PausedInputChip, useTogglePauseSources } from "./SessionPauseControls.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
@@ -828,6 +829,7 @@ export function Composer({
 
   const sessionView = useComposerSessionView(sessionId);
   const vscodeSelectionState = useStore((s) => s.vscodeSelectionContext);
+  const textBoxMode = useChatTextBoxMode();
   const previewQuestIds = useStore(useShallow((s) => s.quests.map((quest) => quest.questId.toLowerCase())));
   const previewSessionNums = useStore(
     useShallow((s) =>
@@ -1839,7 +1841,8 @@ export function Composer({
                 threadTitle={transcriptionThreadTitle}
                 disabled={!canUseInput}
               />
-              <ComposerReferencePreview references={plainReferencePreviews} />
+              {/* The Markdown box shows references as links in the text itself. */}
+              {textBoxMode === "plain" && <ComposerReferencePreview references={plainReferencePreviews} />}
             </>
           }
           bottomChildren={

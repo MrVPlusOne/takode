@@ -30,7 +30,7 @@ import {
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
 import { SettingsScenicBackgroundSection } from "./SettingsScenicBackgroundSection.js";
-import { setComposerTextBoxMode, useComposerTextBoxMode } from "./composer-text-box-preview.js";
+import { setChatTextBoxMode, useChatTextBoxMode } from "./chat-text-box-mode.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
@@ -151,7 +151,7 @@ export function SettingsPage({
   // Last settings snapshot from the server; self-contained subsections sync their local form state from it.
   const [loadedSettings, setLoadedSettings] = useState<AppSettings | null>(null);
   const colorTheme = useStore((s) => s.colorTheme);
-  const composerTextBoxMode = useComposerTextBoxMode();
+  const chatTextBoxMode = useChatTextBoxMode();
   const setColorTheme = useStore((s) => s.setColorTheme);
   const zoomLevel = useStore((s) => s.zoomLevel);
   const setZoomLevel = useStore((s) => s.setZoomLevel);
@@ -810,18 +810,18 @@ export function SettingsPage({
                 />
               </SettingsRow>
               <SettingsRow
-                label="Message Box (preview)"
-                hidden={settingsSearch.rowHidden("appearance", "message-box-preview")}
-                description="Try the message box that draws basic Markdown and quest and session links as you type. Kept in this browser."
+                label="Message Box"
+                hidden={settingsSearch.rowHidden("appearance", "message-box")}
+                description="Markdown draws basic Markdown and quest and session links as you type, in the message, side chat, comment and answer boxes. Plain shows the text as typed. Kept in this browser."
               >
                 <SegmentedControl
                   label="Message box"
                   options={[
-                    { value: "textarea", label: "Today" },
-                    { value: "rich-markdown", label: "Markdown" },
+                    { value: "markdown", label: "Markdown" },
+                    { value: "plain", label: "Plain" },
                   ]}
-                  value={composerTextBoxMode}
-                  onChange={setComposerTextBoxMode}
+                  value={chatTextBoxMode}
+                  onChange={setChatTextBoxMode}
                 />
               </SettingsRow>
               <SettingsToggle

@@ -5,7 +5,7 @@ import { ComposerVisibilityContext } from "./ComposerMinimizer.js";
 import type { RefObject, ReactNode } from "react";
 import { Lightbox } from "./Lightbox.js";
 import { ChatTextBox } from "./ChatTextBox.js";
-import { useComposerTextBoxMode } from "./composer-text-box-preview.js";
+import { useChatTextBoxMode } from "./chat-text-box-mode.js";
 
 export function ComposerInputSurface({
   imageSrcs,
@@ -76,7 +76,7 @@ export function ComposerInputSurface({
 }) {
   const expanded = useContext(ComposerVisibilityContext);
   const previewDescriptionId = useId();
-  const textBoxMode = useComposerTextBoxMode();
+  const textBoxMode = useChatTextBoxMode();
   useComposerTextareaSize(textareaRef, text, textBoxMode);
   return (
     <div className="max-w-3xl mx-auto">

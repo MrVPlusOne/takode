@@ -36,7 +36,11 @@ export function GuidedReviewViewer({ target }: { target: GuidedReviewTarget }) {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       // Escape while typing an answer leaves the field, not the review.
       const element = event.target;
-      if (element instanceof Element && element.closest("textarea, input, [contenteditable='true']")) return;
+      if (
+        element instanceof Element &&
+        element.closest("textarea, input, [contenteditable]:not([contenteditable='false'])")
+      )
+        return;
       if (fullDiffOpen) setFullDiffOpen(false);
       else if (layerRef.current && isTopViewerLayer(layerRef.current)) closeGuidedReview();
     };

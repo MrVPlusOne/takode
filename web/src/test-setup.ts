@@ -21,6 +21,12 @@ if (typeof window !== "undefined") {
   const { configure } = await import("@testing-library/react");
   configure({ asyncUtilTimeout: 5_000 });
 
+  // jsdom cannot edit a contenteditable element as a browser does, so tests that type into chat
+  // inputs (fireEvent.change on their text box) use the plain textarea, which stays a supported
+  // Message Box setting. The Markdown box has its own tests, which choose it explicitly.
+  const { setUnchosenChatTextBoxModeForTest } = await import("./components/chat-text-box-mode.js");
+  setUnchosenChatTextBoxModeForTest("plain");
+
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: (query: string) => ({

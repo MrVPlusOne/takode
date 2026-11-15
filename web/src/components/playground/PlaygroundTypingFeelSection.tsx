@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { ScenicBackdrop } from "../../scenic/ScenicBackdrop.js";
 import { arrive } from "../../scenic/ink-motion.js";
 import { useScenicStyle } from "../../scenic/scenic-styles.js";
+import { ChatTextBox } from "../ChatTextBox.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const ANSWERS = [
@@ -20,6 +21,7 @@ export function PlaygroundTypingFeelSection() {
   const style = useScenicStyle();
   const [answers, setAnswers] = useState([0]);
   const area = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState("");
   const newest = useRef<HTMLDivElement>(null);
   const arrived = useRef(0);
 
@@ -72,9 +74,10 @@ export function PlaygroundTypingFeelSection() {
               style={{ borderColor: "var(--scenic-edge)", boxShadow: "var(--scenic-shadow)" }}
             >
               <div className="relative">
-                <textarea
+                <ChatTextBox
                   ref={area}
-                  data-chat-input
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
                   rows={3}
                   spellCheck={false}
                   placeholder="Type here to try it..."
@@ -86,7 +89,7 @@ export function PlaygroundTypingFeelSection() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (area.current) area.current.value = "";
+                    setDraft("");
                     area.current?.focus();
                   }}
                   className="rounded-md px-2 py-1 text-[11px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg cursor-pointer"

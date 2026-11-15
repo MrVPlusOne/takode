@@ -17,7 +17,7 @@ The **Report input glitch** button under the toggle is optional: it saves an add
 - **Window and page:** the window gaining or losing focus (`window-focus`, `window-blur`), and the page being hidden or shown.
 - **Takode changes:** the composer expanding or collapsing, pastes inserted by the composer (`composer-paste`, with lengths before and after), and another browser's draft replacing a composer draft (`draft-sync`).
 
-For each event the trace notes the target and focused elements, such as `textarea.composer`, `textarea.side-composer` or `div#composer-input-card`. It also notes the target's text length and selection offsets. For paste it notes the clipboard's types, text length and file count. For keydown, pointerdown, beforeinput and paste it notes whether the default action survived: `default`, `prevented` (a handler cancelled it) or `stopped` (a handler stopped the event before it finished).
+For each event the trace notes the target and focused elements, such as `div[role=textbox].composer` (the message box), `textarea.side-composer` (a side message box with the Message Box setting on Plain) or `div#composer-input-card`. It also notes the target's text length and selection offsets. For paste it notes the clipboard's types, text length and file count. For keydown, pointerdown, beforeinput and paste it notes whether the default action survived: `default`, `prevented` (a handler cancelled it) or `stopped` (a handler stopped the event before it finished).
 
 The trace never records typed or pasted text.
 

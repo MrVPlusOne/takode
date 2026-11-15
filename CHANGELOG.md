@@ -16,6 +16,12 @@ The rest of the release is about spending less effort keeping up with your agent
 
 Under the hood, Claude sessions now run only through the Claude Agent SDK, with Claude's native Auto permission mode, a reasoning effort picker and the model list Claude Code itself reports. Teams that share a branch can turn on a landing queue that tests waiting changes together and lands them, so workers are free as soon as they submit. Switching sessions over a slow connection is much faster thanks to compressed traffic and a reused connection. The dated entries below list every notable change.
 
+## 2026-11-15
+
+### Changed
+
+- **Markdown as you type** -- The message box, side chats, comments and answers to questions now show basic Markdown as you type (bold, italic, code, links, headings, quotes, lists and code blocks) while sending exactly the text you typed. Styles never change the width of the text, so nothing moves while you type, and pasted text arrives without its colours or fonts. Quest and session links are highlighted in the text: hover one for its card, or Cmd/Ctrl+click to open it. Settings > Appearance > Message Box switches back to plain text.
+
 ## 2026-11-12
 
 ### Added

@@ -22,7 +22,7 @@ interface Hint {
 const HINTS: Record<PointerTarget, () => Hint | null> = {
   composer: () =>
     hint(
-      around(visible("textarea"), (el) => parseFloat(getComputedStyle(el).borderTopWidth) > 0),
+      around(visible("[data-chat-input]"), (el) => parseFloat(getComputedStyle(el).borderTopWidth) > 0),
       {
         onBorder: true,
       },
@@ -59,7 +59,7 @@ const HINTS: Record<PointerTarget, () => Hint | null> = {
   },
   "review-answers": () => {
     if (decisionPanel()) return null;
-    const answers = around(buttonWithText(/^Keep as is$/), (el) => el.querySelector("textarea") !== null);
+    const answers = around(buttonWithText(/^Keep as is$/), (el) => el.querySelector("[data-chat-input]") !== null);
     return hint(answers, { align: "end" });
   },
 };

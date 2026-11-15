@@ -1803,6 +1803,11 @@ html.dark [data-rich-text-box][data-chat-input][data-composing] {
   border-radius: 3px;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-cc-quest-link) 12%, transparent);
 }
+/* Cmd/Ctrl held over the box: its links open on click, so they look like links. */
+.rt-box[data-link-modifier] .md-ref {
+  cursor: pointer;
+  text-decoration: underline;
+}
 .rt-box .md-quote {
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-cc-muted) 60%, transparent);
 }

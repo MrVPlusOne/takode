@@ -53,6 +53,7 @@ In Claude Code or the Codex app you talk to one agent and watch it work. In Tako
 - **Side column**: on wide screens, a temporary workspace beside the conversation. Dock a thread you are waiting on, keep working, and its answer or question appears right there. Its tabs show one kind at a time: Chats, Quests and Pages for what you put there, and Topic for the topic page. In each tab one item is open at a time and fills the column; opening another folds it.
 - **Library**: reports, slide decks, figures, drafts and topic pages that leaders and workers made.
 - **Universal Search**: finds threads by name, sessions, quests and messages, including everything you wrote.
+- **Message box**: where you type to a session; side chats, comments and answers to questions use the same box. It shows basic Markdown and quest and session links as you type, while sending exactly the text you typed. Cmd/Ctrl+click a link to open it. Settings > Appearance > Message Box switches it to plain text.
 - **Scenic background**: an optional painted landscape behind the conversation (Summer Meadow, Seaside Town or Ink & Paper), with a night version for the dark theme. Pick it in Settings > Appearance; it is off unless you turn it on.
 - **Coordinator and hosts**: the Takode server you open keeps all sessions, quests and memory; other machines run `takode node` to host sessions near their files.
 

@@ -1,6 +1,7 @@
-import { forwardRef, type Ref, type TextareaHTMLAttributes } from "react";
+import { forwardRef, useCallback, useState, type Ref, type TextareaHTMLAttributes } from "react";
+import { MarkdownReferenceLinks } from "./MarkdownReferenceLinks.js";
 import { RichTextBox } from "./RichTextBox.js";
-import { useComposerTextBoxMode } from "./composer-text-box-preview.js";
+import { useChatTextBoxMode } from "./chat-text-box-mode.js";
 import type { RichTextBoxElement } from "./rich-text-box.js";
 
 type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "wrap"> & {
@@ -12,17 +13,27 @@ type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "wrap">
 };
 
 /**
- * A chat input (message box, side chat, comment or answer): today's textarea, or with the Message
- * Box preview on, the Markdown box ({@link RichTextBox}) that draws basic Markdown and quest and
- * session references as you type. It takes a textarea's props and its ref answers the textarea
+ * A chat input (message box, side chat, comment or answer): the Markdown box ({@link RichTextBox})
+ * that draws basic Markdown and quest and session references as you type, or a plain textarea when
+ * the Message Box setting says so. It takes a textarea's props and its ref answers the textarea
  * API, so a box written for a textarea works with either.
  */
 export const ChatTextBox = forwardRef<HTMLTextAreaElement, Props>(function ChatTextBox(
   { onUndo, onRedo, onChange, rows, wrap, autoFocus, disabled, placeholder, ...rest },
   ref,
 ) {
-  const mode = useComposerTextBoxMode();
-  if (mode === "textarea") {
+  const mode = useChatTextBoxMode();
+  const [box, setBox] = useState<HTMLElement | null>(null);
+  // The box goes both to the caller's ref and to its links.
+  const boxRef = useCallback(
+    (element: RichTextBoxElement | null) => {
+      setBox(element);
+      if (typeof ref === "function") ref(element as unknown as HTMLTextAreaElement);
+      else if (ref) ref.current = element as unknown as HTMLTextAreaElement;
+    },
+    [ref],
+  );
+  if (mode === "plain") {
     return (
       <textarea
         ref={ref}
@@ -44,18 +55,21 @@ export const ChatTextBox = forwardRef<HTMLTextAreaElement, Props>(function ChatT
     "value" | "placeholder"
   >;
   return (
-    <RichTextBox
-      {...richProps}
-      ref={ref as unknown as Ref<RichTextBoxElement>}
-      value={rest.value}
-      data-chat-input
-      onUndo={onUndo}
-      onRedo={onRedo}
-      rows={rows}
-      wrap={wrap}
-      autoFocus={autoFocus}
-      disabled={disabled}
-      placeholder={placeholder ?? ""}
-    />
+    <>
+      <RichTextBox
+        {...richProps}
+        ref={boxRef as Ref<RichTextBoxElement>}
+        value={rest.value}
+        data-chat-input
+        onUndo={onUndo}
+        onRedo={onRedo}
+        rows={rows}
+        wrap={wrap}
+        autoFocus={autoFocus}
+        disabled={disabled}
+        placeholder={placeholder ?? ""}
+      />
+      <MarkdownReferenceLinks box={box} />
+    </>
   );
 });

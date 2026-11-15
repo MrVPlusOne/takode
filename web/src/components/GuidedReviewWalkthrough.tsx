@@ -68,7 +68,11 @@ export function Walkthrough({
     const onKeyDown = (event: KeyboardEvent) => {
       if (paused || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       const element = event.target;
-      if (element instanceof Element && element.closest("textarea, input, [contenteditable='true']")) return;
+      if (
+        element instanceof Element &&
+        element.closest("textarea, input, [contenteditable]:not([contenteditable='false'])")
+      )
+        return;
       if (event.key === "ArrowRight") go(step + 1);
       else if (event.key === "ArrowLeft") go(step - 1);
     };
