@@ -20,9 +20,15 @@
 import { ballisticPath } from "../components/completion-celebration.js";
 import { splitTrailingTranscriptionTag } from "../../shared/transcription-tag.js";
 import { scenicMotionAllowed } from "./scenic-styles.js";
+import { domPointAt, type RichTextBoxElement } from "../components/rich-text-box.js";
 
 /** Marks a text box as a chat input, which gets the typing feel and the composing-text fix. */
 export const CHAT_INPUT_ATTRIBUTE = "data-chat-input";
+/** On the rich-text box (a `contenteditable` that answers the textarea API), whose caret the browser can place. */
+const RICH_TEXT_ATTRIBUTE = "data-rich-text-box";
+
+/** A text box the feel runs on: a textarea, or the rich-text box. */
+type TextField = HTMLTextAreaElement | RichTextBoxElement;
 /** On a chat input while an input method (pinyin) is composing text not yet committed. */
 export const COMPOSING_ATTRIBUTE = "data-composing";
 
@@ -34,9 +40,12 @@ export const COMPOSING_ATTRIBUTE = "data-composing";
  * function.
  */
 export function installTypingFeel(scenicOn: () => boolean): () => void {
-  let running: { area: HTMLTextAreaElement; handle: TypingFeelHandle } | null = null;
-  const chatInput = (target: EventTarget | null) =>
-    target instanceof HTMLTextAreaElement && target.hasAttribute(CHAT_INPUT_ATTRIBUTE) ? target : null;
+  let running: { area: TextField; handle: TypingFeelHandle } | null = null;
+  const chatInput = (target: EventTarget | null): TextField | null => {
+    if (!(target instanceof HTMLElement) || !target.hasAttribute(CHAT_INPUT_ATTRIBUTE)) return null;
+    if (target instanceof HTMLTextAreaElement) return target;
+    return target.hasAttribute(RICH_TEXT_ATTRIBUTE) ? (target as RichTextBoxElement) : null;
+  };
   const focused = (event: Event) => {
     const area = chatInput(event.target);
     if (!area || running?.area === area) return;
@@ -76,7 +85,7 @@ export interface TypingFeelHandle {
  * positioned children would sit); the warm edge glows around the closest `[data-typing-frame]`,
  * and without one there is no edge. Does nothing with reduced motion.
  */
-export function attachTypingFeel(area: HTMLTextAreaElement): TypingFeelHandle {
+export function attachTypingFeel(area: TextField): TypingFeelHandle {
   const host = area.offsetParent instanceof HTMLElement ? area.offsetParent : area.parentElement;
   if (!scenicMotionAllowed() || !host) return { stop() {} };
   const box = new TypingBox(area, host);
@@ -123,7 +132,7 @@ class TypingBox {
   private settling: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
-    readonly area: HTMLTextAreaElement,
+    readonly area: TextField,
     readonly host: HTMLElement,
   ) {
     const style = getComputedStyle(area);
@@ -315,6 +324,7 @@ class TypingBox {
    */
   private at(index: number): { x: number; y: number; line: number } {
     const { area, mirror } = this;
+    if (!(area instanceof HTMLTextAreaElement)) return this.drawnAt(area, index);
     copyTextStyle(area, mirror);
     // The text after the caret goes in too, so a word the caret is inside wraps as a whole, as in
     // the box. The caret is an empty span, which adds no break; at the very end, where a line
@@ -330,6 +340,29 @@ class TypingBox {
     const line = Math.max(0, Math.round((top - Number.parseFloat(mirror.style.paddingTop || "0")) / this.lineHeight));
     const field = offsetIn(area, this.host);
     return { x: field.x + x, y: field.y + area.clientTop + top - area.scrollTop, line };
+  }
+
+  /**
+   * Where the rich-text box draws the text at `index`: the browser places it, so no copy is
+   * needed. An empty line has no text to measure, so its own box gives the line.
+   */
+  private drawnAt(area: RichTextBoxElement, index: number): { x: number; y: number; line: number } {
+    const point = domPointAt(area, index);
+    const range = document.createRange();
+    range.setStart(point.node, point.offset);
+    const glyph = range.getClientRects()[0];
+    const lineBox = (point.node instanceof Element ? point.node : point.node.parentElement!).getBoundingClientRect();
+    const hostBox = this.host.getBoundingClientRect();
+    const scale = this.host.offsetWidth ? hostBox.width / this.host.offsetWidth : 1;
+    const left = glyph?.left ?? lineBox.left;
+    // A text rect spans the glyphs, not the line; centre it on the line, as for the textarea.
+    const top = glyph ? glyph.top + glyph.height / 2 - (this.lineHeight * scale) / 2 : lineBox.top;
+    const first = area.firstElementChild?.getBoundingClientRect().top ?? top;
+    return {
+      x: (left - hostBox.left) / scale - this.host.clientLeft,
+      y: (top - hostBox.top) / scale - this.host.clientTop,
+      line: Math.max(0, Math.round((top - first) / scale / this.lineHeight)),
+    };
   }
 
   stop(): void {

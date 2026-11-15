@@ -30,6 +30,7 @@ import {
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
 import { SettingsScenicBackgroundSection } from "./SettingsScenicBackgroundSection.js";
+import { setComposerTextBoxMode, useComposerTextBoxMode } from "./composer-text-box-preview.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
@@ -150,6 +151,7 @@ export function SettingsPage({
   // Last settings snapshot from the server; self-contained subsections sync their local form state from it.
   const [loadedSettings, setLoadedSettings] = useState<AppSettings | null>(null);
   const colorTheme = useStore((s) => s.colorTheme);
+  const composerTextBoxMode = useComposerTextBoxMode();
   const setColorTheme = useStore((s) => s.setColorTheme);
   const zoomLevel = useStore((s) => s.zoomLevel);
   const setZoomLevel = useStore((s) => s.setZoomLevel);
@@ -805,6 +807,22 @@ export function SettingsPage({
                   decimals={2}
                   suffix="×"
                   onChange={(next) => void saveChatMessageLineHeight(next)}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="Message Box (preview)"
+                hidden={settingsSearch.rowHidden("appearance", "message-box-preview")}
+                description="Try a rich-text message box: one that behaves like today's, or one that draws basic Markdown as you type. Kept in this browser."
+              >
+                <SegmentedControl
+                  label="Message box"
+                  options={[
+                    { value: "textarea", label: "Today" },
+                    { value: "rich-plain", label: "Rich plain" },
+                    { value: "rich-markdown", label: "Markdown" },
+                  ]}
+                  value={composerTextBoxMode}
+                  onChange={setComposerTextBoxMode}
                 />
               </SettingsRow>
               <SettingsToggle

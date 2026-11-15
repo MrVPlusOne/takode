@@ -59,6 +59,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         aliases: ["background", "wallpaper", "scenery"],
       },
       { id: "zoom", text: "Zoom display scale text size" },
+      { id: "message-box-preview", text: "Message Box preview rich text Markdown composer text box" },
       {
         id: "chat-line-height",
         text: "Chat Message Line Height message markdown density leading spacing",

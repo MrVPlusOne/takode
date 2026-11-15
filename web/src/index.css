@@ -1718,10 +1718,117 @@ select {
  * input is composing its text gets a thin warm dark-brown edge, like ink-edged letters: it reads on
  * the yellow, and is invisible on the dark box around it.
  */
-html.dark textarea[data-chat-input][data-composing] {
+html.dark textarea[data-chat-input][data-composing],
+html.dark [data-rich-text-box][data-chat-input][data-composing] {
   text-shadow:
     -0.6px 0 0 rgb(48 28 14 / 0.9),
     0.6px 0 0 rgb(48 28 14 / 0.9),
     0 -0.6px 0 rgb(48 28 14 / 0.9),
     0 0.6px 0 rgb(48 28 14 / 0.9);
+}
+
+/*
+ * Rich-text composer box (preview). Its text is plain and drawn one line per <div>; wrapping
+ * matches a textarea's. The placeholder sits over the first, empty line without taking space.
+ */
+.rt-box {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  cursor: text;
+}
+.rt-box.whitespace-pre {
+  white-space: pre;
+}
+.rt-box .rt-line {
+  position: relative;
+}
+.rt-box[data-empty] > .rt-line:first-child::before {
+  content: var(--rt-placeholder);
+  position: absolute;
+  inset: 0 auto auto 0;
+  color: var(--color-cc-muted);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.rt-box.text-transparent * {
+  color: transparent !important;
+}
+
+/* Basic Markdown drawn as you type: the marks stay in the text, dimmed. */
+.rt-box .md-mark {
+  color: color-mix(in srgb, var(--color-cc-muted) 75%, transparent);
+}
+.rt-box .md-strong {
+  font-weight: 650;
+}
+.rt-box .md-em {
+  font-style: italic;
+}
+.rt-box .md-strike {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-cc-fg) 60%, transparent);
+}
+.rt-box .md-code-span,
+.rt-box .md-code,
+.rt-box .md-fence {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+.rt-box .md-code-span {
+  background: var(--color-cc-code-bg);
+  color: var(--color-cc-code-fg);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.rt-box .md-code,
+.rt-box .md-fence {
+  background: var(--color-cc-code-bg);
+  color: var(--color-cc-code-fg);
+  padding: 0 6px;
+}
+.rt-box .md-fence {
+  color: var(--color-cc-muted);
+}
+.rt-box .md-link {
+  color: var(--color-cc-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rt-box .md-h {
+  font-weight: 650;
+}
+.rt-box .md-h1 {
+  font-size: 1.2em;
+}
+.rt-box .md-h2 {
+  font-size: 1.1em;
+}
+.rt-box .md-quote {
+  color: var(--color-cc-muted);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-cc-muted) 60%, transparent);
+}
+.rt-box .md-quote > .md-mark:first-child {
+  color: transparent;
+}
+.rt-box .md-rule {
+  color: var(--color-cc-muted);
+}
+/* A list's "-", "*" or "+" shows as a bullet in its own space; the character stays in the text. */
+.rt-box .md-bullet {
+  position: relative;
+  color: transparent;
+}
+.rt-box .md-bullet::before {
+  content: "\2022";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--color-cc-muted);
+}
+.rt-box .md-number {
+  color: var(--color-cc-muted);
+}
+.rt-box .md-tag {
+  color: var(--color-cc-muted);
+  font-size: 0.85em;
 }

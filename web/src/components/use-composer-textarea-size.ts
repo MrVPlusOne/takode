@@ -1,8 +1,11 @@
 import { useContext, useLayoutEffect, type RefObject } from "react";
 import { ComposerVisibilityContext } from "./ComposerMinimizer.js";
 
-/** Refit visible draft text after content, restore, or width changes without measuring a hidden box. */
-export function useComposerTextareaSize(ref: RefObject<HTMLTextAreaElement | null>, text: string): void {
+/**
+ * Refit visible draft text after content, restore, or width changes without measuring a hidden box.
+ * `box` names which kind of text box the ref holds, so switching kinds refits the new one.
+ */
+export function useComposerTextareaSize(ref: RefObject<HTMLTextAreaElement | null>, text: string, box?: string): void {
   const visible = useContext(ComposerVisibilityContext);
   useLayoutEffect(() => {
     const textarea = ref.current;
@@ -39,5 +42,5 @@ export function useComposerTextareaSize(ref: RefObject<HTMLTextAreaElement | nul
       observer?.disconnect();
       window.removeEventListener("resize", fit);
     };
-  }, [ref, text, visible]);
+  }, [ref, text, visible, box]);
 }

@@ -33,6 +33,7 @@ const GLOBAL_KEYS = new Set([
   "cc-sidebar-locked",
   "cc-read-aloud-preferences",
   "cc-voiceback",
+  "cc-composer-text-box-preview",
 ]);
 
 /** Server-scoped key names (without dynamic suffixes) for migration */

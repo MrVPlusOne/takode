@@ -1737,6 +1737,8 @@ export function Composer({
           handleSelectionChange={handleSelectionChange}
           handleKeyDown={handleKeyDown}
           handlePaste={handlePaste}
+          onUndo={undoHistory.undo}
+          onRedo={undoHistory.redo}
           placeholder={placeholder}
           isRecording={isRecording}
           recordingCursorBefore={preRecordingTextRef.current.before}
