@@ -8,6 +8,7 @@ import type { ChatMessage, PendingCodexInput, SideChatRecord } from "../types.js
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { getSideChatContextStatus, SideChatContextBadge } from "./SideChatControls.js";
+import { ChatTextBox } from "./ChatTextBox.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_PENDING_CODEX_INPUTS: PendingCodexInput[] = [];
@@ -349,8 +350,7 @@ export function SideChatPanel({
         </div>
         <div className="border-t border-cc-border p-3">
           <div data-typing-frame className="rounded-lg border border-cc-border bg-cc-bg">
-            <textarea
-              data-chat-input
+            <ChatTextBox
               value={text}
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {

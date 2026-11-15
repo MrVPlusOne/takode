@@ -2,7 +2,7 @@
  * The model behind the rich-text text box: a `contenteditable` element whose content is always a
  * plain string, drawn as one `<div>` per line. The string stays the draft, exactly as in a
  * textarea, so drafts, voice input, autocomplete and sending are unchanged; the lines only decide
- * how it looks (plain, or with its Markdown styled).
+ * how it looks.
  *
  * The browser edits the element itself (typing, IME, spell fixes, deleting across lines), and
  * afterwards {@link reconcile} reads the text back with {@link readText} and redraws only the
@@ -24,10 +24,6 @@ export interface DomPoint {
   node: Node;
   offset: number;
 }
-
-/** Plain lines: the text and nothing else, an empty line holding a `<br>` so it has a height. */
-export const plainLines: LineRenderer = (lines) =>
-  lines.map((line) => ({ className: "rt-line", html: line ? escapeHtml(line) : "<br>" }));
 
 /**
  * Reads the text of `root` and the text offsets of `points`, whatever shape the browser left the

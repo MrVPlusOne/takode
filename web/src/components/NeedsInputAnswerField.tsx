@@ -11,6 +11,7 @@ import { buildNeedsInputVoiceFocusedContext, type TextSelectionRange } from "../
 import type { VoiceResultDestination, VoiceResultTarget } from "../../shared/voice-results.js";
 import { claimOwnVoiceResult, insertVoiceText, trackOwnVoiceRequest } from "../voice-results.js";
 import { createVoiceTranscriptionRequestId } from "./composer-voice-transcription-utils.js";
+import { ChatTextBox } from "./ChatTextBox.js";
 
 export const NEEDS_INPUT_ANSWER_MAX_HEIGHT_PX = 132;
 
@@ -381,9 +382,8 @@ export function VoiceAnswerField({
   return (
     <div className={`min-w-0 ${className}`}>
       <div className="flex min-w-0 items-end gap-1">
-        <textarea
+        <ChatTextBox
           ref={textareaRef}
-          data-chat-input
           value={value}
           rows={1}
           autoFocus={autoFocus}

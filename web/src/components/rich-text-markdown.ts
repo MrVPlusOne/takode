@@ -1,4 +1,5 @@
 import { TRANSCRIPTION_TAG } from "../../shared/transcription-tag.js";
+import { splitPlainTakodeReferences } from "./composer-reference-utils.js";
 import { escapeHtml, type LineDrawing, type LineRenderer } from "./rich-text-box.js";
 
 /**
@@ -8,6 +9,10 @@ import { escapeHtml, type LineDrawing, type LineRenderer } from "./rich-text-box
  * "+" shows as a bullet, the way Slack turns "* " into one, and a quote's ">" gives way to the
  * quote's bar. Both stay those characters in the draft, so undo, copying and sending see exactly
  * what was typed. The "[transcribed]" line that dictation adds is drawn as a grey label.
+ *
+ * Quest and session references (`q-12`, `#34`) are drawn as highlighted links, recognised as the
+ * feed recognises them when the message is sent ({@link splitPlainTakodeReferences}); in code they
+ * stay code.
  */
 export const markdownLines: LineRenderer = (lines) => {
   let fence: string | null = null;
@@ -27,6 +32,15 @@ export const markdownLines: LineRenderer = (lines) => {
     return blockLine(line);
   });
 };
+
+/** Draws a run of plain prose: escaped text with its quest and session references highlighted. */
+function prose(text: string): string {
+  return splitPlainTakodeReferences(text)
+    .map((part) =>
+      part.kind === "text" ? escapeHtml(part.text) : `<span class="md-ref">${escapeHtml(part.text)}</span>`,
+    )
+    .join("");
+}
 
 function blockLine(line: string): LineDrawing {
   if (/^ {0,3}([-*_])( *\1){2,} *$/.test(line)) return { className: "rt-line md-rule", html: mark(line) };
@@ -78,7 +92,7 @@ function inline(text: string): string {
   let last = 0;
   for (const match of text.matchAll(INLINE)) {
     const [whole, ticks, code, strongMark, strong, strike, star, under, label, url] = match;
-    html += escapeHtml(text.slice(last, match.index));
+    html += prose(text.slice(last, match.index));
     last = match.index + whole.length;
     if (ticks) html += mark(ticks) + `<span class="md-code-span">${escapeHtml(code!)}</span>` + mark(ticks);
     else if (strongMark) html += wrap(strongMark, "md-strong", inline(strong!));
@@ -87,7 +101,7 @@ function inline(text: string): string {
     else if (under !== undefined) html += wrap("_", "md-em", inline(under));
     else html += mark("[") + `<span class="md-link">${inline(label!)}</span>` + mark(`](${url})`);
   }
-  return html + escapeHtml(text.slice(last));
+  return html + prose(text.slice(last));
 }
 
 function wrap(marks: string, className: string, inner: string): string {

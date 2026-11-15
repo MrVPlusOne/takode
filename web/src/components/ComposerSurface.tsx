@@ -4,9 +4,8 @@ import { ComposerCompactPreview } from "./ComposerCompactPreview.js";
 import { ComposerVisibilityContext } from "./ComposerMinimizer.js";
 import type { RefObject, ReactNode } from "react";
 import { Lightbox } from "./Lightbox.js";
-import { RichTextBox } from "./RichTextBox.js";
+import { ChatTextBox } from "./ChatTextBox.js";
 import { useComposerTextBoxMode } from "./composer-text-box-preview.js";
-import type { RichTextBoxElement } from "./rich-text-box.js";
 
 export function ComposerInputSurface({
   imageSrcs,
@@ -187,55 +186,28 @@ export function ComposerInputSurface({
             if (!expanded) textareaRef.current?.focus();
           }}
         >
-          {textBoxMode === "textarea" ? (
-            <textarea
-              ref={textareaRef}
-              data-chat-input
-              value={text}
-              onChange={handleInput}
-              onSelect={handleSelectionChange}
-              onMouseUp={handleSelectionChange}
-              onKeyUp={handleSelectionChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              spellCheck={false}
-              placeholder={placeholder}
-              rows={1}
-              wrap={expanded ? "soft" : "off"}
-              aria-expanded={expanded}
-              aria-describedby={!expanded ? previewDescriptionId : undefined}
-              className={`block w-full text-base sm:text-sm bg-transparent resize-none focus:outline-none font-sans-ui placeholder:text-cc-muted disabled:opacity-50 ${expanded ? "px-4 pt-3 pb-1 overflow-y-auto" : "p-0 leading-6 overflow-hidden opacity-0"} ${
-                isRecording && recordingCursorAfter ? "text-transparent caret-transparent" : "text-cc-fg"
-              }`}
-              style={{ minHeight: expanded ? "36px" : "24px", maxHeight: expanded ? "200px" : "24px" }}
-            />
-          ) : (
-            // Preview: the rich-text box answers the textarea API the composer uses, so it takes
-            // the textarea's ref and handlers as they are.
-            <RichTextBox
-              ref={textareaRef as unknown as React.Ref<RichTextBoxElement>}
-              data-chat-input
-              value={text}
-              markdown={textBoxMode === "rich-markdown"}
-              onInput={handleInput as unknown as (e: React.FormEvent<RichTextBoxElement>) => void}
-              onSelect={handleSelectionChange as unknown as React.ReactEventHandler<HTMLDivElement>}
-              onMouseUp={handleSelectionChange as unknown as React.MouseEventHandler<HTMLDivElement>}
-              onKeyUp={handleSelectionChange as unknown as React.KeyboardEventHandler<HTMLDivElement>}
-              onKeyDown={handleKeyDown as unknown as React.KeyboardEventHandler<HTMLDivElement>}
-              onPaste={handlePaste as unknown as React.ClipboardEventHandler<HTMLDivElement>}
-              onUndo={onUndo}
-              onRedo={onRedo}
-              spellCheck={false}
-              placeholder={placeholder}
-              wrap={expanded ? "soft" : "off"}
-              aria-expanded={expanded}
-              aria-describedby={!expanded ? previewDescriptionId : undefined}
-              className={`block w-full text-base sm:text-sm bg-transparent focus:outline-none font-sans-ui ${expanded ? "px-4 pt-3 pb-1 overflow-y-auto" : "p-0 leading-6 overflow-hidden opacity-0"} ${
-                isRecording && recordingCursorAfter ? "text-transparent caret-transparent" : "text-cc-fg"
-              }`}
-              style={{ minHeight: expanded ? "36px" : "24px", maxHeight: expanded ? "200px" : "24px" }}
-            />
-          )}
+          <ChatTextBox
+            ref={textareaRef}
+            value={text}
+            onChange={handleInput}
+            onSelect={handleSelectionChange}
+            onMouseUp={handleSelectionChange}
+            onKeyUp={handleSelectionChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onUndo={onUndo}
+            onRedo={onRedo}
+            spellCheck={false}
+            placeholder={placeholder}
+            rows={1}
+            wrap={expanded ? "soft" : "off"}
+            aria-expanded={expanded}
+            aria-describedby={!expanded ? previewDescriptionId : undefined}
+            className={`block w-full text-base sm:text-sm bg-transparent resize-none focus:outline-none font-sans-ui placeholder:text-cc-muted disabled:opacity-50 ${expanded ? "px-4 pt-3 pb-1 overflow-y-auto" : "p-0 leading-6 overflow-hidden opacity-0"} ${
+              isRecording && recordingCursorAfter ? "text-transparent caret-transparent" : "text-cc-fg"
+            }`}
+            style={{ minHeight: expanded ? "36px" : "24px", maxHeight: expanded ? "200px" : "24px" }}
+          />
           {!expanded && (
             <ComposerCompactPreview
               text={text}

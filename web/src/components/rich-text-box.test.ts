@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { domPointAt, installTextBoxApi, plainLines, readText, reconcile } from "./rich-text-box.js";
+import { domPointAt, escapeHtml, installTextBoxApi, readText, reconcile, type LineRenderer } from "./rich-text-box.js";
 import { markdownLines } from "./rich-text-markdown.js";
 
 // The rich-text box keeps a plain string as its value and draws it one <div> per line. These
 // tests pin the three things everything else relies on: reading the text back from whatever DOM
 // the browser left, mapping caret points to text offsets and back, and redrawing only lines that
 // no longer match (so the browser's own edits, caret and IME state are left alone).
+
+// The simplest drawing: each line's text as is, so reconcile's own behaviour is what's tested.
+const plainLines: LineRenderer = (lines) =>
+  lines.map((line) => ({ className: "rt-line", html: line ? escapeHtml(line) : "<br>" }));
 
 function box(html: string): HTMLDivElement {
   const root = document.createElement("div");
@@ -96,6 +100,12 @@ describe("markdownLines", () => {
     expect(draw("`*x*`")[0]!.html).toContain('<span class="md-code-span">*x*</span>');
     expect(draw("snake_case_name")[0]!.html).toBe("snake_case_name");
     expect(draw("a * b * c")[0]!.html).toBe("a * b * c");
+  });
+
+  it("highlights quest and session references as the feed links them, except in code", () => {
+    expect(draw("See q-12 and **#34**, not `q-12`")[0]!.html).toBe(
+      'See <span class="md-ref">q-12</span> and <span class="md-mark">**</span><span class="md-strong"><span class="md-ref">#34</span></span><span class="md-mark">**</span>, not <span class="md-mark">`</span><span class="md-code-span">q-12</span><span class="md-mark">`</span>',
+    );
   });
 
   it("draws list markers, code fences and the transcription label by line", () => {

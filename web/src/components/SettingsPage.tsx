@@ -812,13 +812,12 @@ export function SettingsPage({
               <SettingsRow
                 label="Message Box (preview)"
                 hidden={settingsSearch.rowHidden("appearance", "message-box-preview")}
-                description="Try a rich-text message box: one that behaves like today's, or one that draws basic Markdown as you type. Kept in this browser."
+                description="Try the message box that draws basic Markdown and quest and session links as you type. Kept in this browser."
               >
                 <SegmentedControl
                   label="Message box"
                   options={[
                     { value: "textarea", label: "Today" },
-                    { value: "rich-plain", label: "Rich plain" },
                     { value: "rich-markdown", label: "Markdown" },
                   ]}
                   value={composerTextBoxMode}

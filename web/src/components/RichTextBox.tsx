@@ -1,19 +1,26 @@
 import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, type HTMLAttributes } from "react";
-import { installTextBoxApi, plainLines, readText, reconcile, type RichTextBoxElement } from "./rich-text-box.js";
+import { ComposerUndoHistory } from "./composer-undo-history.js";
+import { installTextBoxApi, readText, reconcile, type RichTextBoxElement } from "./rich-text-box.js";
 import { markdownLines } from "./rich-text-markdown.js";
 
 type Props = Omit<HTMLAttributes<HTMLDivElement>, "onInput" | "placeholder"> & {
   value: string;
-  /** Draws basic Markdown as you type; otherwise the box looks like a plain textarea. */
-  markdown: boolean;
   placeholder: string;
   /** Called after the text changed, with the box's value and selection already current. */
   onInput: (event: React.FormEvent<RichTextBoxElement>) => void;
-  /** The box keeps no undo history of its own (redrawing lines confuses the browser's): these do it. */
-  onUndo: () => void;
-  onRedo: () => void;
+  /**
+   * Undo and redo, for a box whose draft keeps its own history (the composer's, shared with its
+   * undo buttons). Without them the box keeps one itself: the browser's own undo stops working
+   * once lines are redrawn.
+   */
+  onUndo?: () => void;
+  onRedo?: () => void;
   /** "off" keeps every line on one row, as a textarea's `wrap="off"`. */
   wrap?: "soft" | "off";
+  /** At least this many lines tall, as a textarea's `rows`. */
+  rows?: number;
+  autoFocus?: boolean;
+  disabled?: boolean;
 };
 
 /**
@@ -21,20 +28,45 @@ type Props = Omit<HTMLAttributes<HTMLDivElement>, "onInput" | "placeholder"> & {
  * text, paste and drop bring in plain text only (`plaintext-only`, so no colours or fonts from
  * elsewhere), and its element answers the textarea API the composer uses ({@link
  * installTextBoxApi}). Unlike a textarea, the browser can say where any character is drawn, and
- * lines can be styled: with `markdown` it draws basic Markdown as you type ({@link markdownLines}).
+ * lines can be styled: it draws basic Markdown and quest and session references as you type ({@link
+ * markdownLines}).
  *
  * Input methods (pinyin) are left alone while composing; lines are redrawn when the text is
- * committed. Enter and Shift+Enter add a plain line break (continuing a Markdown list), and undo
+ * committed. Enter and Shift+Enter add a line break (continuing a Markdown list), and undo
  * and redo go to `onUndo`/`onRedo`.
  */
 export const RichTextBox = forwardRef<RichTextBoxElement, Props>(function RichTextBox(
-  { value, markdown, placeholder, onInput, onUndo, onRedo, wrap = "soft", className = "", style, ...rest },
+  {
+    value,
+    placeholder,
+    onInput,
+    onUndo,
+    onRedo,
+    wrap = "soft",
+    rows,
+    autoFocus,
+    disabled,
+    className = "",
+    style,
+    ...rest
+  },
   ref,
 ) {
   const rootRef = useRef<RichTextBoxElement>(null);
-  const render = markdown ? markdownLines : plainLines;
-  const latest = useRef({ render, onUndo, onRedo });
-  latest.current = { render, onUndo, onRedo };
+  const render = markdownLines;
+  const ownHistory = useRef<ComposerUndoHistory | null>(null);
+  if (!onUndo && !ownHistory.current) ownHistory.current = new ComposerUndoHistory(value);
+  // Steps through the box's own history: the restored text goes out as typed input would.
+  const step = (direction: "undo" | "redo") => {
+    const state = direction === "undo" ? ownHistory.current?.undo() : ownHistory.current?.redo();
+    const root = rootRef.current;
+    if (!state || !root) return;
+    root.value = state.text;
+    root.setSelectionRange(state.cursor, state.cursor);
+    root.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  const latest = useRef({ render, onUndo: onUndo ?? (() => step("undo")), onRedo: onRedo ?? (() => step("redo")) });
+  latest.current = { render, onUndo: onUndo ?? (() => step("undo")), onRedo: onRedo ?? (() => step("redo")) };
   const composing = useRef(false);
   useImperativeHandle(ref, () => rootRef.current!, []);
 
@@ -63,7 +95,7 @@ export const RichTextBox = forwardRef<RichTextBoxElement, Props>(function RichTe
       event.preventDefault();
       const { selectionStart: start, selectionEnd: end, value: text } = root;
       const lineStart = start === 0 ? 0 : text.lastIndexOf("\n", start - 1) + 1;
-      const item = latest.current.render === markdownLines ? listItem(text.slice(lineStart, start)) : null;
+      const item = listItem(text.slice(lineStart, start));
       if (item?.empty && start === end && !/\S/.test(text.slice(end).split("\n")[0]!)) {
         // Enter on an empty list item ends the list, as in Slack and most editors.
         root.setRangeText(item.indent, lineStart, start, "end");
@@ -113,7 +145,23 @@ export const RichTextBox = forwardRef<RichTextBoxElement, Props>(function RichTe
     }
     drawnWith.current = render;
     root.toggleAttribute("data-empty", value === "");
+    ownHistory.current?.record(value, root.selectionStart, Date.now());
   }, [value, render]);
+
+  useLayoutEffect(() => {
+    const root = rootRef.current!;
+    if (autoFocus) root.focus();
+    if (!rows) return;
+    // A textarea's rows: that many lines of text, plus its padding and border.
+    const style = getComputedStyle(root);
+    const line = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.2;
+    const chrome =
+      root.offsetHeight -
+      root.clientHeight +
+      Number.parseFloat(style.paddingTop) +
+      Number.parseFloat(style.paddingBottom);
+    root.style.minHeight = `${Math.ceil(rows * line + chrome)}px`;
+  }, [autoFocus, rows]);
 
   return (
     <div
@@ -122,9 +170,10 @@ export const RichTextBox = forwardRef<RichTextBoxElement, Props>(function RichTe
       role="textbox"
       aria-multiline="true"
       aria-placeholder={placeholder}
-      contentEditable="plaintext-only"
+      contentEditable={disabled ? "false" : "plaintext-only"}
+      aria-disabled={disabled || undefined}
       suppressContentEditableWarning
-      data-rich-text-box={markdown ? "markdown" : "plain"}
+      data-rich-text-box
       className={`rt-box ${wrap === "off" ? "whitespace-pre" : ""} ${className}`}
       style={{ ...style, "--rt-placeholder": JSON.stringify(placeholder) } as React.CSSProperties}
       onInput={(event) => {

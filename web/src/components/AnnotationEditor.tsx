@@ -14,6 +14,7 @@ import { ReportCommentTarget } from "./ReportCommentTarget.js";
 import { getVisualViewportRect } from "./quest-feed-preview-geometry.js";
 import { backdropClickProps } from "../utils/backdrop-click.js";
 import { VoiceEditPreview } from "./VoiceEditPreview.js";
+import { ChatTextBox } from "./ChatTextBox.js";
 
 type VoiceMode = "dictation" | "append" | "edit";
 interface Capture {
@@ -282,9 +283,8 @@ export function AnnotationEditor({
             The quoted passage is unavailable in this view. You can still edit this comment.
           </p>
         )}
-        <textarea
+        <ChatTextBox
           ref={textarea}
-          data-chat-input
           aria-label="Comment"
           value={text}
           disabled={busy || !!proposal}
