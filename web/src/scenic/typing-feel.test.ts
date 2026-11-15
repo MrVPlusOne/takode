@@ -301,6 +301,36 @@ describe("typing feel", () => {
     expect(area.style.caretColor).toBe("");
     expect(marks()).toHaveLength(0);
   });
+  it("keeps throwing after dictation, while typing before the [transcribed] tag on the last line", () => {
+    // Dictation leaves its tag on its own last line. Typing on after it, the caret sits before the
+    // tag; that used to count as mid-paragraph, so nothing was thrown until the draft changed.
+    const area = box();
+    handle = attachTypingFeel(area);
+    const tag = "\n[transcribed]";
+    let body = "Dictated words";
+    for (let i = 0; i < 3; i++) {
+      body += "a";
+      area.value = body + tag;
+      area.selectionStart = area.selectionEnd = body.length;
+      area.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "a" }));
+      paint();
+      vi.advanceTimersByTime(1500);
+    }
+    expect(animate.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("throws at the end of an earlier line, with text on the lines below", () => {
+    // Only the caret's own line decides: adding to the end of a line above other text still throws
+    // (the things fade out before the next line's text instead).
+    const area = box();
+    handle = attachTypingFeel(area);
+    area.value = "First line\nSecond line";
+    area.selectionStart = area.selectionEnd = "First line".length;
+    area.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "e" }));
+    paint();
+    expect(animate).toHaveBeenCalled();
+  });
+
   it("sends nothing out while typing mid-paragraph, where it would cross the text after the caret", () => {
     const area = box();
     handle = attachTypingFeel(area);

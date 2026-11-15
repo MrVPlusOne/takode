@@ -18,6 +18,7 @@
  * and nothing plays with reduced motion.
  */
 import { ballisticPath } from "../components/completion-celebration.js";
+import { splitTrailingTranscriptionTag } from "../../shared/transcription-tag.js";
 import { scenicMotionAllowed } from "./scenic-styles.js";
 
 /** Marks a text box as a chat input, which gets the typing feel and the composing-text fix. */
@@ -290,11 +291,32 @@ class TypingBox {
    * it (the usual way to find a caret).
    */
   caret(): { x: number; y: number; line: number } {
+    return this.at(this.area.selectionEnd);
+  }
+
+  /**
+   * What comes after the caret: whether its own line goes on (typing mid-line), and if not, the
+   * top of the next line below with text, relative to the host. The "[transcribed]" tag that
+   * dictation leaves on the last line is Takode's label, not the user's text, so it doesn't count:
+   * typing after dictating, before the tag, throws as usual.
+   */
+  ahead(): { midLine: boolean; nextText: number | null } {
+    const { value, selectionEnd } = this.area;
+    const rest = splitTrailingTranscriptionTag(value.slice(selectionEnd)).text;
+    const lineEnd = rest.indexOf("\n");
+    const midLine = /\S/.test(lineEnd < 0 ? rest : rest.slice(0, lineEnd));
+    const next = lineEnd < 0 ? -1 : rest.slice(lineEnd).search(/\S/);
+    if (midLine || next < 0) return { midLine, nextText: null };
+    return { midLine, nextText: this.at(selectionEnd + lineEnd + next).y };
+  }
+
+  /** Where the text at `index` is drawn (its line's top), as for the caret. */
+  private at(index: number): { x: number; y: number; line: number } {
     if (this.area.offsetWidth !== this.mirrorWidth) {
       this.mirrorWidth = this.area.offsetWidth;
       copyTextStyle(this.area, this.mirror);
     }
-    this.mirror.textContent = this.area.value.slice(0, this.area.selectionEnd);
+    this.mirror.textContent = this.area.value.slice(0, index);
     const end = document.createElement("span");
     end.textContent = "\u200b";
     this.mirror.append(end);
@@ -510,14 +532,15 @@ const GOLD_LEAF: Kind = {
 /**
  * Every key that types something throws one small burst out right of the caret, so typing and
  * effect match one to one: sparks from the forge at night, a flake of gold leaf by day, all of a
- * burst leaving together. It never covers the next character, and nothing is thrown
- * when there is text after the caret (typing mid-paragraph), since it would cross that text; the
- * caret's glow and the edge still answer each key. On a later line of a message sparks fly flat or
- * fall, so they never cross the line above. Everything fades out before the edges of its room:
- * the text box, or in the composer the card around it, where leaves can fall into the empty strip
- * beside the buttons but fade out around each button. At most twelve are in the air; when all are,
- * the oldest is retired, so every key still throws. Marks are drawn once and reused on their own layers, and fly by transform, opacity and
- * filter alone, which the compositor runs.
+ * burst leaving together. It never covers the next character, and nothing is thrown when the
+ * caret's line goes on after it (typing mid-line), since it would cross that text; the caret's
+ * glow and the edge still answer each key. On a later line of a message sparks fly flat or fall,
+ * so they never cross the line above. Everything fades out before the edges of its room: the text
+ * box, or in the composer the card around it, where leaves can fall into the empty strip beside
+ * the buttons but fade out around each button, and above any text on a later line. At most twelve
+ * are in the air; when all are, the oldest is retired, so every key still throws. Marks are drawn
+ * once and reused on their own layers, and fly by transform, opacity and filter alone, which the
+ * compositor runs.
  */
 function throwing(box: TypingBox, frame: HTMLElement | null): Part {
   const { lineHeight } = box;
@@ -531,10 +554,13 @@ function throwing(box: TypingBox, frame: HTMLElement | null): Part {
   let kinds: Kind[] = [];
   return () => {
     const keys = box.takeKeys();
-    const { area } = box;
-    if (!keys || /\S/.test(area.value.slice(area.selectionEnd))) return () => {};
+    if (!keys) return () => {};
+    const { midLine, nextText } = box.ahead();
+    if (midLine) return () => {};
     const { x, y, line } = box.caret();
     const space = box.space(frame);
+    // Text on a later line (typing at the end of an earlier line): things fade out above it.
+    if (nextText !== null) space.bottom = Math.min(space.bottom, nextText);
     const dark = document.documentElement.classList.contains("dark");
     if (dark !== drawnFor) {
       drawnFor = dark;
