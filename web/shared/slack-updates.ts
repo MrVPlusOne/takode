@@ -111,21 +111,12 @@ export function parseSlackChannelName(text: string): string | null {
  * field holds the printed conversation.
  */
 export function slackToolResultText(content: unknown): string {
-  const raw =
-    typeof content === "string"
-      ? content
-      : Array.isArray(content)
-        ? content
-            .map((block) => (block && typeof block === "object" && "text" in block ? String(block.text) : ""))
-            .join("\n")
-        : "";
-  try {
-    const parsed = JSON.parse(raw) as { messages?: unknown };
-    if (typeof parsed?.messages === "string") return parsed.messages;
-  } catch {
-    // Not JSON: the tool printed the conversation directly.
-  }
-  return raw;
+  return parseSlackToolResult(content).messages;
+}
+
+/** The paging note of a Slack tool result, such as "There are more messages in this thread." */
+export function slackToolResultPagination(content: unknown): string {
+  return parseSlackToolResult(content).pagination;
 }
 
 /** Order two Slack timestamps. They exceed double precision, so compare the parts. */
@@ -176,6 +167,29 @@ export function formatSlackUpdatesNotice(updates: readonly SlackUpdate[], option
 /** How a notice names a conversation: `channel/ts` for a thread, the channel for direct messages. */
 export function slackConversationId(update: Pick<SlackUpdate, "channelId" | "threadTs">): string {
   return update.threadTs ? `${update.channelId}/${update.threadTs}` : update.channelId;
+}
+
+function parseSlackToolResult(content: unknown): { messages: string; pagination: string } {
+  const raw =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map((block) => (block && typeof block === "object" && "text" in block ? String(block.text) : ""))
+            .join("\n")
+        : "";
+  try {
+    const parsed = JSON.parse(raw) as { messages?: unknown; pagination_info?: unknown };
+    if (typeof parsed?.messages === "string") {
+      return {
+        messages: parsed.messages,
+        pagination: typeof parsed.pagination_info === "string" ? parsed.pagination_info : "",
+      };
+    }
+  } catch {
+    // Not JSON: the tool printed the conversation directly.
+  }
+  return { messages: raw, pagination: "" };
 }
 
 function body(lines: string[]): string {

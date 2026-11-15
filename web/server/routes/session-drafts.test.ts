@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { SessionDraftsState } from "../../shared/session-drafts.js";
 import type { SessionNotification } from "../session-types.js";
 import { addPendingVoiceResult } from "../bridge/session-drafts-controller.js";
+import { refreshSlackUpdates } from "../slack-conversation-watch.js";
 import { createSessionDraftRoutes } from "./session-drafts.js";
+
+vi.mock("../slack-conversation-watch.js", () => ({ refreshSlackUpdates: vi.fn() }));
 
 // Drafts the server keeps so every browser of the user shares them. These tests
 // drive the real routes against a minimal bridge: writes are numbered, broadcast
@@ -248,5 +251,26 @@ describe("session draft routes", () => {
     expect(kept).toHaveLength(20);
     expect(kept).not.toContain("stale");
     expect(kept).toContain("fresh-24");
+  });
+
+  // Typing to a session, or opening one of its questions, checks the Slack
+  // conversations it watches so the updates riding on the answer are fresh.
+  it("checks the session's Slack conversations when the user writes a draft or opens a question", async () => {
+    const { app, put } = setup();
+    vi.mocked(refreshSlackUpdates).mockClear();
+
+    await put({ clientId: "tab-a", write: { kind: "composer", draft: { text: "Hel" } } });
+    expect(refreshSlackUpdates).toHaveBeenCalledWith("s1");
+    await put({ clientId: "tab-a", write: { kind: "needs-input", notificationId: "n-1", answers: { "0": "yes" } } });
+    expect(refreshSlackUpdates).toHaveBeenCalledTimes(2);
+
+    // Clearing a draft (sent or deleted) is not someone about to send.
+    await put({ clientId: "tab-a", write: { kind: "composer", draft: null } });
+    expect(refreshSlackUpdates).toHaveBeenCalledTimes(2);
+
+    expect((await app.request("/sessions/s1/slack-refresh", { method: "POST" })).status).toBe(200);
+    expect(refreshSlackUpdates).toHaveBeenCalledTimes(3);
+    expect((await app.request("/sessions/nope/slack-refresh", { method: "POST" })).status).toBe(404);
+    expect(refreshSlackUpdates).toHaveBeenCalledTimes(3);
   });
 });

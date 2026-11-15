@@ -151,6 +151,101 @@ describe("slackReadsInToolResults", () => {
     ]);
   });
 
+  it("records a group DM read once the session was sent a link to it", () => {
+    // Slack prints group DMs as "Group DM" with a C… ID; older ones have G… IDs.
+    const printed = "Channel: Group DM (C7)\n\n=== Message from A (U1) at t ===\nMessage TS: 5.000001\nhi";
+    const unlinked = sessionWithRead("mcp__slack__slack_read_channel", { channel_id: "C7" }, printed);
+    expect(slackReadsInToolResults(unlinked.session, unlinked.results)).toEqual([]);
+
+    // A link to the conversation itself, without a message part, counts too.
+    const link = {
+      type: "user_message",
+      content: "moved to https://x.slack.com/archives/C7",
+    } as never;
+    const linked = sessionWithRead("mcp__slack__slack_read_channel", { channel_id: "C7" }, printed, [link]);
+    expect(slackReadsInToolResults(linked.session, linked.results)).toEqual([
+      { channelId: "C7", label: "Group DM", seenTs: "5.000001" },
+    ]);
+
+    const oldLink = {
+      type: "user_message",
+      content: "https://x.slack.com/archives/G7/p5000001",
+    } as never;
+    const old = sessionWithRead("mcp__slack__slack_read_channel", { channel_id: "G7" }, "Channel: x (G7)", [oldLink]);
+    expect(slackReadsInToolResults(old.session, old.results, 9_000)).toEqual([
+      { channelId: "G7", label: "x", seenTs: "9.000000" },
+    ]);
+    // A link to another conversation whose ID starts the same is not a link to this one.
+    const other = {
+      type: "user_message",
+      content: "https://x.slack.com/archives/C77",
+    } as never;
+    const notLinked = sessionWithRead("mcp__slack__slack_read_channel", { channel_id: "C7" }, printed, [other]);
+    expect(slackReadsInToolResults(notLinked.session, notLinked.results)).toEqual([]);
+  });
+
+  it("counts a concise read, which prints no message timestamps, as seen up to when it was read", () => {
+    // Agents mostly read with response_format "concise". Without this, such a
+    // read neither starts watching nor moves the seen point, so updates repeat
+    // messages the agent already read.
+    const thread = sessionWithRead(
+      "mcp__slack__slack_read_thread",
+      {
+        channel_id: "C1",
+        message_ts: "100.000001",
+        response_format: "concise",
+      },
+      "THREAD: eval proposal [Jiayi Wei]\n\n> Feng Chen: sounds good\n",
+    );
+    expect(slackReadsInToolResults(thread.session, thread.results, 1_794_727_743_512)).toEqual([
+      {
+        channelId: "C1",
+        threadTs: "100.000001",
+        label: "eval proposal",
+        seenTs: "1794727743.000000",
+      },
+    ]);
+
+    const link = {
+      type: "user_message",
+      content: "https://x.slack.com/archives/D1/p1",
+    } as never;
+    const dm = sessionWithRead(
+      "mcp__slack__slack_read_channel",
+      { channel_id: "D1", limit: 5, response_format: "concise" },
+      "Channel: DM (D1)\n\nYang Zou: hi [2026-11-14 23:09:34 PST]",
+      [link],
+    );
+    expect(slackReadsInToolResults(dm.session, dm.results, 2_000)).toEqual([
+      { channelId: "D1", label: "DM", seenTs: "2.000000" },
+    ]);
+  });
+
+  it("does not take the read time for a concise read of an older part of the conversation", () => {
+    const printed = "THREAD: eval [A]\n\n> B: first reply";
+    const latest = sessionWithRead(
+      "mcp__slack__slack_read_thread",
+      { channel_id: "C1", message_ts: "1.000001", latest: "50.000000" },
+      printed,
+    );
+    expect(slackReadsInToolResults(latest.session, latest.results, 99_000)).toEqual([]);
+
+    const page = sessionWithRead(
+      "mcp__slack__slack_read_thread",
+      { channel_id: "C1", message_ts: "1.000001", cursor: "abc" },
+      printed,
+    );
+    expect(slackReadsInToolResults(page.session, page.results, 99_000)).toEqual([]);
+
+    // A thread read that stopped before its newest replies.
+    const cut = sessionWithRead("mcp__slack__slack_read_thread", { channel_id: "C1", message_ts: "1.000001" }, printed);
+    cut.results[0]!.content = JSON.stringify({
+      messages: printed,
+      pagination_info: "There are more messages in this thread. To view the next page, use cursor: `x`\n",
+    });
+    expect(slackReadsInToolResults(cut.session, cut.results, 99_000)).toEqual([]);
+  });
+
   it("ignores channel reads outside direct messages, other tools and failed reads", () => {
     // A briefing scanning a channel must not start watching it, even when linked.
     const link = {
@@ -275,7 +370,7 @@ describe("SlackConversationWatch", () => {
     expect(watch.takeUpdates("s2")!.updates[0]!.messages.map((m) => m.ts)).toEqual(["4.000001", "6.000001"]);
   });
 
-  it("stops watching a week after the last read, and for archived sessions", async () => {
+  it("stops watching 3 days after the last read, and for archived sessions", async () => {
     const watch = makeWatch();
     watch.recordRead("s1", {
       channelId: "C1",
@@ -290,13 +385,110 @@ describe("SlackConversationWatch", () => {
       seenTs: "1.000001",
     });
     active.delete("s2");
-    now += 7 * DAY;
+    now += 3 * DAY;
     await watch.poll();
     expect(slack.reads).toEqual(["C1/1.000001>1.000001"]);
 
     now += 1;
     await watch.poll();
     expect(slack.reads).toHaveLength(1);
+  });
+
+  it("watches only the 10 conversations a session read most recently", async () => {
+    const watch = makeWatch();
+    const read = (sessionId: string, n: number) =>
+      watch.recordRead(sessionId, {
+        channelId: `C${n}`,
+        threadTs: "1.000001",
+        label: `t${n}`,
+        seenTs: "1.000001",
+      });
+    for (let n = 1; n <= 10; n++) {
+      read("s1", n);
+      now += 1;
+    }
+    read("s2", 99);
+    // A re-read makes C1 recent again, so the 11th read drops C2, the least recently read.
+    read("s1", 1);
+    now += 1;
+    read("s1", 11);
+    await watch.poll();
+    const checked = slack.reads.map((r) => r.split("/")[0]).sort();
+    expect(checked).toEqual(["C1", "C10", "C11", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C99"]);
+  });
+
+  it("checks a session's conversations when its user starts writing, at most once a minute each", async () => {
+    const watch = makeWatch();
+    watch.recordRead("s1", {
+      channelId: "C1",
+      threadTs: "1.000001",
+      label: "eval",
+      seenTs: "1.000001",
+    });
+    watch.recordRead("s2", {
+      channelId: "C2",
+      threadTs: "1.000001",
+      label: "other",
+      seenTs: "1.000001",
+    });
+    slack.thread.set("C1/1.000001", [message("2.000001")]);
+
+    await watch.refresh("s1");
+    // Only the conversations of the session being written to.
+    expect(slack.reads).toEqual(["C1/1.000001>1.000001"]);
+    expect(watch.takeUpdates("s1")?.updates[0]!.messages).toEqual([message("2.000001")]);
+
+    // Typing goes on: nothing is read again within the minute.
+    now += 59_999;
+    await watch.refresh("s1");
+    expect(slack.reads).toHaveLength(1);
+    now += 1;
+    await watch.refresh("s1");
+    expect(slack.reads).toEqual(["C1/1.000001>1.000001", "C1/1.000001>2.000001"]);
+
+    // The regular check still reads everything.
+    await watch.poll();
+    expect(slack.reads.slice(2).sort()).toEqual(["C1/1.000001>2.000001", "C2/1.000001>1.000001"]);
+  });
+
+  it("does not read a conversation twice at once, and counts an unreachable Slack as checked", async () => {
+    const watch = makeWatch();
+    watch.recordRead("s1", {
+      channelId: "C1",
+      threadTs: "1.000001",
+      label: "eval",
+      seenTs: "1.000001",
+    });
+    // The regular check ignores how recently a conversation was read, so only the in-flight guard stops this.
+    const first = watch.poll();
+    await watch.poll();
+    await first;
+    expect(slack.reads).toHaveLength(1);
+
+    // While Slack is unreachable, typing does not retry it within the minute.
+    available = false;
+    now += 60_000;
+    let opened = 0;
+    const counting = new SlackConversationWatch({
+      statePath: join(root, "other.json"),
+      openReader: async () => {
+        opened++;
+        return openReader();
+      },
+      isSessionActive: () => true,
+      now: () => now,
+      log: () => {},
+    });
+    watches.push(counting);
+    counting.recordRead("s1", {
+      channelId: "C1",
+      threadTs: "1.000001",
+      label: "eval",
+      seenTs: "1.000001",
+    });
+    await counting.refresh("s1");
+    await counting.refresh("s1");
+    expect(opened).toBe(1);
   });
 
   it("waits without changes while Slack cannot be read, and saves its state", async () => {

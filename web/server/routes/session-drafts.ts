@@ -5,12 +5,17 @@ import {
   claimPendingVoiceResult,
   getSessionDraftsSnapshot,
 } from "../bridge/session-drafts-controller.js";
+import { refreshSlackUpdates } from "../slack-conversation-watch.js";
 import type { RouteContext } from "./context.js";
 
 /**
  * Unsent drafts shared by the user's browsers. Browsers write each draft change
  * here (debounced) and receive other browsers' changes as `session_draft_update`
  * messages; `state_snapshot` carries the current drafts on every subscribe.
+ *
+ * A draft being written means the user is about to send this session
+ * something, so it also checks the Slack conversations the session watches,
+ * and the Slack updates riding on that input are fresh.
  */
 export function createSessionDraftRoutes(ctx: Pick<RouteContext, "wsBridge" | "resolveId">) {
   const api = new Hono();
@@ -34,7 +39,17 @@ export function createSessionDraftRoutes(ctx: Pick<RouteContext, "wsBridge" | "r
       persistSession: (target) => wsBridge.persistSessionById(target.id),
     });
     if (!result.ok) return c.json({ error: result.error }, 409);
-    return c.json({ change: result.change });
+    const { change } = result;
+    if ((change.kind === "needs-input" ? change.answers : change.draft) !== null) refreshSlackUpdates(session.id);
+    return c.json({ change });
+  });
+
+  // The user opened one of this session's questions, which they may answer without typing a draft.
+  api.post("/sessions/:id/slack-refresh", (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id || !wsBridge.getSession(id)) return c.json({ error: "Session not found" }, 404);
+    refreshSlackUpdates(id);
+    return c.json({ ok: true });
   });
 
   // A browser takes a finished voice transcription to put into its draft. Only the first claim gets it.

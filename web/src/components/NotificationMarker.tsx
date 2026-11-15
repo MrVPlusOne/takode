@@ -2,6 +2,7 @@ import { useComposerTarget } from "./composer-target.js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MouseEvent, SyntheticEvent } from "react";
 import { api } from "../api.js";
+import { requestSlackRefresh } from "../api/session-drafts.js";
 import { useNeedsInputDraft } from "../hooks/useNeedsInputDraft.js";
 import { usePendingAction } from "../hooks/usePendingAction.js";
 import { useStore } from "../store.js";
@@ -115,6 +116,12 @@ export function NotificationMarker({
   useEffect(() => {
     setHistoryOpen(false);
   }, [notif?.id, isDone]);
+  // An open question about to be answered: Slack updates riding on the answer should be fresh.
+  const awaitingAnswer = isAction && !!sessionId && !!notif && !isDone;
+  const refreshSlack = useCallback(() => {
+    if (awaitingAnswer) requestSlackRefresh(sessionId!);
+  }, [awaitingAnswer, sessionId]);
+  useEffect(refreshSlack, [refreshSlack]);
   const hasDraft = Object.keys(answersByQuestion).length > 0;
   useEffect(() => {
     if (isDone && hasDraft) clearAnswers();
@@ -297,6 +304,7 @@ export function NotificationMarker({
       }`}
       data-notification-id={notif?.id ?? notificationId ?? ""}
       data-notification-category={category}
+      onFocusCapture={refreshSlack}
     >
       <div className="flex w-full min-w-0 items-center gap-1.5">
         {/* Checkbox (shown as soon as the marker has a message anchor) */}

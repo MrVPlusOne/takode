@@ -40,3 +40,21 @@ export async function claimVoiceResult(sessionId: string, requestId: string): Pr
   if (!res.ok) throw new Error(`Could not claim the voice result (${res.status})`);
   return ((await res.json()) as { result: PendingVoiceResult }).result;
 }
+
+/** The server skips conversations it checked in the last minute anyway; this spares the requests. */
+const SLACK_REFRESH_INTERVAL_MS = 60_000;
+const lastSlackRefresh = new Map<string, number>();
+
+/**
+ * Asks the server to check the Slack conversations this session watches, because the user opened
+ * one of its questions and may answer it; typing a draft does the same on the server's side. At
+ * most once a minute per session.
+ */
+export function requestSlackRefresh(sessionId: string): void {
+  const now = Date.now();
+  if (now - (lastSlackRefresh.get(sessionId) ?? -Infinity) < SLACK_REFRESH_INTERVAL_MS) return;
+  lastSlackRefresh.set(sessionId, now);
+  fetch(`/api/sessions/${encodeURIComponent(sessionId)}/slack-refresh`, {
+    method: "POST",
+  }).catch((error: unknown) => console.warn("[takode] Could not ask for fresh Slack updates:", error));
+}

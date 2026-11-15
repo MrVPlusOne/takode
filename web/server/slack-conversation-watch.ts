@@ -7,6 +7,7 @@ import {
   parseSlackChannelName,
   parseSlackMessages,
   SLACK_UPDATES_SOURCE,
+  slackToolResultPagination,
   slackToolResultText,
   type SlackMessage,
   type SlackUpdate,
@@ -22,17 +23,25 @@ import type { BrowserIncomingMessage, ContentBlock } from "./session-types.js";
  * without it. Takode remembers each conversation a session read and how far it
  * read, checks those conversations for new messages every few minutes, and
  * attaches what arrived to the session's next input. It never wakes a session
- * for this, and it stops watching a conversation a week after the session last
- * read it.
+ * for this. A session watches at most the 10 conversations it read most
+ * recently, each until 3 days after it last read it.
  *
  * A session watches a thread it read with `slack_read_thread`, and a direct
- * message conversation it read with `slack_read_channel` after it was sent a
- * link into it. Other channel reads, such as a briefing scanning channels,
- * start nothing: the session reads those itself whenever it needs them.
+ * or group message conversation it read with `slack_read_channel` after it was
+ * sent a link into it. Other channel reads, such as a briefing scanning
+ * channels, start nothing: the session reads those itself whenever it needs them.
+ *
+ * Besides the regular check, the user starting to write to a session (or
+ * opening its question card) checks that session's conversations, so the
+ * updates riding on what they send are fresh.
  */
 
 const POLL_INTERVAL_MS = 10 * 60_000;
-const WATCH_WINDOW_MS = 7 * 24 * 60 * 60_000;
+/** A conversation checked this recently is not checked again when the user writes to its session. */
+const REFRESH_MIN_AGE_MS = 60_000;
+const WATCH_WINDOW_MS = 3 * 24 * 60 * 60_000;
+/** A session watches only the conversations it read most recently. */
+const MAX_WATCHED_PER_SESSION = 10;
 /** Text of new messages kept for one conversation; later messages are only counted. */
 const MESSAGE_TEXT_BUDGET = 4_000;
 const READ_TOOL = /(?:^|__|\.)slack_read_(thread|channel)$/;
@@ -87,7 +96,9 @@ export class SlackConversationWatch {
   private conversations: WatchedConversation[] = [];
   private pendingWrite: Promise<void> = Promise.resolve();
   private timer: ReturnType<typeof setInterval> | null = null;
-  private polling = false;
+  /** When each conversation (`conversationKey`) was last checked, and which checks are under way. */
+  private checkedAt = new Map<string, number>();
+  private checking = new Set<string>();
   private lastUnavailableReason: string | null = null;
 
   constructor(private readonly options: SlackConversationWatchOptions) {}
@@ -135,37 +146,35 @@ export class SlackConversationWatch {
     conversation.threadKey = read.threadKey;
     conversation.questId = read.questId;
     markSeen(conversation, read.seenTs);
+    const others = this.conversations
+      .filter((c) => c.sessionId === sessionId && c !== conversation)
+      .sort((a, b) => b.lastReadAt - a.lastReadAt);
+    const dropped = new Set(others.slice(MAX_WATCHED_PER_SESSION - 1));
+    if (dropped.size > 0) this.conversations = this.conversations.filter((c) => !dropped.has(c));
     this.persist();
   }
 
   /** Check every watched conversation once for new messages. */
-  async poll(): Promise<void> {
-    if (this.polling) return;
-    this.polling = true;
-    try {
-      this.dropFinished();
-      const groups = new Map<string, WatchedConversation[]>();
-      for (const conversation of this.conversations) {
-        const key = `${conversation.channelId}|${conversation.threadTs ?? ""}`;
-        groups.set(key, [...(groups.get(key) ?? []), conversation]);
-      }
-      if (groups.size === 0) return;
-      const opened = await this.options.openReader();
-      if (!opened.ok) {
-        if (opened.reason !== this.lastUnavailableReason) this.log(`Not checking Slack: ${opened.reason}`);
-        this.lastUnavailableReason = opened.reason;
-        return;
-      }
-      this.lastUnavailableReason = null;
-      try {
-        for (const watchers of groups.values()) await this.check(opened.connection, watchers);
-      } finally {
-        await opened.connection.close().catch(() => {});
-      }
-      this.persist();
-    } finally {
-      this.polling = false;
-    }
+  poll(): Promise<void> {
+    this.dropFinished();
+    return this.checkConversations(this.conversations);
+  }
+
+  /**
+   * The user is writing to this session: check the conversations it watches
+   * that were not checked in the last minute, so its next input carries fresh
+   * updates. Typing calls this often; within a minute it reads nothing.
+   */
+  refresh(sessionId: string): Promise<void> {
+    this.dropFinished();
+    const now = this.now();
+    return this.checkConversations(
+      this.conversations.filter(
+        (c) =>
+          c.sessionId === sessionId &&
+          now - (this.checkedAt.get(conversationKey(c)) ?? -Infinity) >= REFRESH_MIN_AGE_MS,
+      ),
+    );
   }
 
   /** New messages waiting for the session, and how to mark them told once its input was accepted. */
@@ -209,6 +218,39 @@ export class SlackConversationWatch {
     return this.pendingWrite;
   }
 
+  /** Read each of these conversations once, for every session watching it, unless it is being read already. */
+  private async checkConversations(conversations: readonly WatchedConversation[]): Promise<void> {
+    const keys = [...new Set(conversations.map(conversationKey))].filter((key) => !this.checking.has(key));
+    if (keys.length === 0) return;
+    // Marked checked at the start, so typing does not retry a minute's worth while Slack is unreachable.
+    const now = this.now();
+    for (const key of keys) {
+      this.checking.add(key);
+      this.checkedAt.set(key, now);
+    }
+    try {
+      const opened = await this.options.openReader();
+      if (!opened.ok) {
+        if (opened.reason !== this.lastUnavailableReason) this.log(`Not checking Slack: ${opened.reason}`);
+        this.lastUnavailableReason = opened.reason;
+        return;
+      }
+      this.lastUnavailableReason = null;
+      try {
+        for (const key of keys) {
+          // Looked up now, so a session that started watching meanwhile is included.
+          const watchers = this.conversations.filter((c) => conversationKey(c) === key);
+          if (watchers.length > 0) await this.check(opened.connection, watchers);
+        }
+      } finally {
+        await opened.connection.close().catch(() => {});
+      }
+      this.persist();
+    } finally {
+      for (const key of keys) this.checking.delete(key);
+    }
+  }
+
   private async check(connection: SlackReadConnection, watchers: WatchedConversation[]): Promise<void> {
     const { channelId, threadTs } = watchers[0]!;
     const oldest = watchers.map(newestKnown).sort(compareSlackTs)[0]!;
@@ -241,6 +283,8 @@ export class SlackConversationWatch {
     this.conversations = this.conversations.filter(
       (c) => now - c.lastReadAt <= WATCH_WINDOW_MS && this.options.isSessionActive(c.sessionId),
     );
+    const watched = new Set(this.conversations.map(conversationKey));
+    for (const key of this.checkedAt.keys()) if (!watched.has(key)) this.checkedAt.delete(key);
   }
 
   private find(sessionId: string, channelId: string, threadTs: string | undefined): WatchedConversation | undefined {
@@ -269,13 +313,15 @@ export class SlackConversationWatch {
 }
 
 /**
- * The conversations a session read in these tool results. A thread read with
- * `slack_read_thread` counts; a `slack_read_channel` read counts only for a
- * direct-message conversation (`D…`) the session was sent a link into.
+ * The conversations a session read in these tool results, `readAt` being when
+ * it read them. A thread read with `slack_read_thread` counts; a
+ * `slack_read_channel` read counts only for a direct or group message
+ * conversation the session was sent a link into.
  */
 export function slackReadsInToolResults(
   session: SessionLike,
   toolResults: readonly Extract<ContentBlock, { type: "tool_result" }>[],
+  readAt = Date.now(),
 ): Omit<SlackRead, "threadKey" | "questId">[] {
   const reads: Omit<SlackRead, "threadKey" | "questId">[] = [];
   for (const result of toolResults) {
@@ -286,10 +332,11 @@ export function slackReadsInToolResults(
     if (!kind || !channelId) continue;
     const text = slackToolResultText(result.content);
     const messages = parseSlackMessages(text);
-    const seenTs = messages
-      .map((message) => message.ts)
-      .sort(compareSlackTs)
-      .at(-1);
+    const seenTs =
+      messages
+        .map((message) => message.ts)
+        .sort(compareSlackTs)
+        .at(-1) ?? seenByReadTime(toolUse!.input, result.content, readAt);
     if (!seenTs) continue;
     if (kind === "thread") {
       const threadTs = typeof toolUse!.input.message_ts === "string" ? toolUse!.input.message_ts : "";
@@ -298,12 +345,14 @@ export function slackReadsInToolResults(
       reads.push({
         channelId,
         threadTs,
-        label: firstLine(parent?.text) || `thread ${threadTs}`,
+        // A concise read prints the first message as `THREAD: <text> [<author>]`.
+        label: firstLine(parent?.text ?? text.match(/^THREAD: (.*?)(?: \[[^\]]*\])?$/m)?.[1]) || `thread ${threadTs}`,
         seenTs,
       });
       continue;
     }
-    if (!channelId.startsWith("D") || !wasLinked(session, channelId)) continue;
+    const directOrGroup = /^[DG]/.test(channelId) || parseSlackChannelName(text) === "Group DM";
+    if (!directOrGroup || !wasLinked(session, channelId)) continue;
     reads.push({
       channelId,
       label: parseSlackChannelName(text) ?? channelId,
@@ -336,6 +385,11 @@ export function recordSlackReads(
       ...(route && route.threadKey !== "main" ? { threadKey: route.threadKey, questId: route.questId } : {}),
     });
   }
+}
+
+/** The user is writing to this session (or opened its question card): check its conversations now. */
+export function refreshSlackUpdates(sessionId: string): void {
+  void activeWatch?.refresh(sessionId);
 }
 
 /**
@@ -393,16 +447,32 @@ function markSeen(conversation: WatchedConversation, ts: string): void {
   conversation.pending = conversation.pending.filter((message) => compareSlackTs(message.ts, conversation.seenTs) > 0);
 }
 
+function conversationKey(conversation: Pick<WatchedConversation, "channelId" | "threadTs">): string {
+  return `${conversation.channelId}|${conversation.threadTs ?? ""}`;
+}
+
+/**
+ * How far a read saw when its result shows no message timestamps, as with
+ * `response_format: "concise"`: up to when it was read, unless it showed an
+ * older part of the conversation (`latest`, a later page) or left out newer
+ * thread replies.
+ */
+function seenByReadTime(input: Record<string, unknown>, content: unknown, readAt: number): string | undefined {
+  if (input.latest !== undefined || input.cursor !== undefined) return undefined;
+  if (/more messages in this thread/i.test(slackToolResultPagination(content))) return undefined;
+  return `${Math.floor(readAt / 1000)}.000000`;
+}
+
 function newestKnown(conversation: WatchedConversation): string {
   return conversation.pendingLatestTs ?? conversation.seenTs;
 }
 
+/** A link to the conversation or one of its messages (`/archives/<id>` or `/archives/<id>/p…`). */
 function wasLinked(session: SessionLike, channelId: string): boolean {
+  if (!/^[A-Z0-9]+$/.test(channelId)) return false;
+  const link = new RegExp(`/archives/${channelId}(?![A-Z0-9])`);
   return session.messageHistory.some(
-    (entry) =>
-      entry.type === "user_message" &&
-      typeof entry.content === "string" &&
-      entry.content.includes(`/archives/${channelId}/`),
+    (entry) => entry.type === "user_message" && typeof entry.content === "string" && link.test(entry.content),
   );
 }
 
