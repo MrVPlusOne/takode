@@ -2,12 +2,12 @@ import { TRANSCRIPTION_TAG } from "../../shared/transcription-tag.js";
 import { escapeHtml, type LineDrawing, type LineRenderer } from "./rich-text-box.js";
 
 /**
- * Basic Markdown drawn as you type, the text itself unchanged: the marks stay in the text and in
- * view, only dimmed, and what they mark takes its style (bold, italic, code, strikethrough, links,
- * headings, quotes, lists, code blocks). A list's "-", "*" or "+" shows as a bullet in the same
- * space, the way Slack turns "* " into one, but stays that character in the draft, so undo,
- * copying and sending see exactly what was typed. The "[transcribed]" line that dictation adds is
- * drawn as a small label.
+ * Basic Markdown drawn as you type, the text itself unchanged: the marks stay in the text, dimmed,
+ * and what they mark takes its style (bold, italic, code, strikethrough, links, headings, quotes,
+ * lists, code blocks). Two marks are drawn differently in their own space: a list's "-", "*" or
+ * "+" shows as a bullet, the way Slack turns "* " into one, and a quote's ">" gives way to the
+ * quote's bar. Both stay those characters in the draft, so undo, copying and sending see exactly
+ * what was typed. The "[transcribed]" line that dictation adds is drawn as a grey label.
  */
 export const markdownLines: LineRenderer = (lines) => {
   let fence: string | null = null;

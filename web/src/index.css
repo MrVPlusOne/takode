@@ -1754,12 +1754,18 @@ html.dark [data-rich-text-box][data-chat-input][data-composing] {
   color: transparent !important;
 }
 
-/* Basic Markdown drawn as you type: the marks stay in the text, dimmed. */
+/*
+ * Basic Markdown drawn as you type: the marks stay in the text, dimmed. Every style keeps each
+ * character exactly as wide as plain text (text never moves as a style starts or ends while you
+ * type): bold is a thicker stroke rather than a heavier font, headings keep the text size, code
+ * keeps the text font, and backgrounds reach past the text by shadows rather than padding.
+ */
 .rt-box .md-mark {
   color: color-mix(in srgb, var(--color-cc-muted) 75%, transparent);
 }
-.rt-box .md-strong {
-  font-weight: 650;
+.rt-box .md-strong,
+.rt-box .md-h {
+  -webkit-text-stroke: 0.035em currentColor;
 }
 .rt-box .md-em {
   font-style: italic;
@@ -1768,43 +1774,29 @@ html.dark [data-rich-text-box][data-chat-input][data-composing] {
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--color-cc-fg) 60%, transparent);
 }
-.rt-box .md-code-span,
-.rt-box .md-code,
-.rt-box .md-fence {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.9em;
-}
 .rt-box .md-code-span {
   background: var(--color-cc-code-bg);
   color: var(--color-cc-code-fg);
-  border-radius: 4px;
-  padding: 0 2px;
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px var(--color-cc-code-bg);
 }
 .rt-box .md-code,
 .rt-box .md-fence {
   background: var(--color-cc-code-bg);
   color: var(--color-cc-code-fg);
-  padding: 0 6px;
+  box-shadow:
+    -6px 0 0 var(--color-cc-code-bg),
+    6px 0 0 var(--color-cc-code-bg);
 }
 .rt-box .md-fence {
   color: var(--color-cc-muted);
 }
 .rt-box .md-link {
-  color: var(--color-cc-primary);
   text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-cc-primary) 70%, transparent);
   text-underline-offset: 2px;
 }
-.rt-box .md-h {
-  font-weight: 650;
-}
-.rt-box .md-h1 {
-  font-size: 1.2em;
-}
-.rt-box .md-h2 {
-  font-size: 1.1em;
-}
 .rt-box .md-quote {
-  color: var(--color-cc-muted);
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-cc-muted) 60%, transparent);
 }
 .rt-box .md-quote > .md-mark:first-child {
@@ -1825,10 +1817,7 @@ html.dark [data-rich-text-box][data-chat-input][data-composing] {
   transform: translateX(-50%);
   color: var(--color-cc-muted);
 }
-.rt-box .md-number {
-  color: var(--color-cc-muted);
-}
+.rt-box .md-number,
 .rt-box .md-tag {
   color: var(--color-cc-muted);
-  font-size: 0.85em;
 }
