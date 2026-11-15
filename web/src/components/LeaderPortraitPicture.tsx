@@ -10,13 +10,11 @@ interface LeaderPortraitPictureProps extends Omit<ImgHTMLAttributes<HTMLImageEle
 
 /**
  * A leader portrait's `<img>`. While the Ink & Paper background is on it shows the portrait's
- * ink-wash painting instead, a little dimmed in the dark theme so its cream paper doesn't glare
- * on dark panels. Only the picture shown is ever requested, so the ink files load only with
- * Ink & Paper on.
+ * ink-wash painting instead. Only the picture shown is ever requested, so the ink files load only
+ * with Ink & Paper on.
  */
-export function LeaderPortraitPicture({ portrait, variant = "small", className, ...img }: LeaderPortraitPictureProps) {
+export function LeaderPortraitPicture({ portrait, variant = "small", ...img }: LeaderPortraitPictureProps) {
   const ink = useStore((state) => state.scenicBackground === "ink");
-  const dark = useStore((state) => state.darkMode);
   const inkUrl = ink ? leaderProfilePortraitInkUrl(portrait, variant) : null;
   const size = variant === "small" ? portrait.smallSize : portrait.largeSize;
   return (
@@ -26,7 +24,6 @@ export function LeaderPortraitPicture({ portrait, variant = "small", className, 
       width={size}
       height={size}
       data-ink-portrait={inkUrl ? "" : undefined}
-      className={inkUrl && dark ? `${className ?? ""} brightness-90` : className}
     />
   );
 }

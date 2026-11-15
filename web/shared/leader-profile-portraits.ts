@@ -88,7 +88,7 @@ export function leaderProfilePortraitInkUrl(
 ): string | null {
   if (portrait.poolId === "fallback") return null;
   const size = variant === "small" ? portrait.smallSize : portrait.largeSize;
-  return `/leader-profile-portraits/ink/${portrait.id}.v1.${size}.webp`;
+  return `/leader-profile-portraits/ink/${portrait.id}.v2.${size}.webp`;
 }
 
 export function isLeaderProfilePortraitId(id: string): boolean {
