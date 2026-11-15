@@ -8,9 +8,11 @@ import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
 function ToolbarHarness({
   warmMicrophone = () => {},
   sendQueued = false,
+  sendNotice = null,
 }: {
   warmMicrophone?: () => void;
   sendQueued?: boolean;
+  sendNotice?: string | null;
 }) {
   return (
     <div className="w-[320px]">
@@ -29,7 +31,7 @@ function ToolbarHarness({
         voiceButtonTitle="Voice input"
         canSend={true}
         sendBlocked={false}
-        sendNotice={null}
+        sendNotice={sendNotice}
         sendQueued={sendQueued}
         isRunning={false}
         handleInterrupt={() => {}}
@@ -73,5 +75,12 @@ describe("ComposerMetaToolbar queued send", () => {
 
     view.rerender(<ToolbarHarness />);
     expect(sendWrapper.querySelector("svg.animate-spin-slow")).toBeNull();
+  });
+
+  it("raises the waiting notice above the message box's text", () => {
+    // On a phone the notice overlaps the draft, and without its own stacking order the draft's text
+    // painted over it (seen with Ink & Paper in dark), so it read as see-through.
+    render(<ToolbarHarness sendQueued sendNotice="Sends when 2 images finish uploading." />);
+    expect(screen.getByRole("alert").className.split(" ")).toContain("z-20");
   });
 });

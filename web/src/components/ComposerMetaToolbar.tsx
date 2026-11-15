@@ -170,9 +170,11 @@ export function ComposerMetaToolbar({
             />
           )}
           {(sendNotice || sendBlocked) && (
+            // Raised above the message box's text, which otherwise showed through it where it overlaps
+            // the draft (a phone's narrow composer).
             <div
               role={sendNotice ? "alert" : undefined}
-              className={`pointer-events-none absolute bottom-full right-0 mb-2 ${sendNotice ? "block" : "hidden group-hover:block"}`}
+              className={`pointer-events-none absolute bottom-full right-0 z-20 mb-2 ${sendNotice ? "block" : "hidden group-hover:block"}`}
             >
               <div className="w-max max-w-[16rem] rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-[11px] text-cc-fg shadow-lg">
                 {sendNotice ?? sendButtonTitle}
