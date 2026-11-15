@@ -127,6 +127,21 @@ export interface ClaudeSdkSessionMeta {
   permissionMode?: string;
 }
 
+/**
+ * What the running Claude Code did with a model switch. It checks the model
+ * with a small request first and keeps its current model when it refuses, for
+ * example when the model needs a newer Claude Code or settings it was not
+ * launched with.
+ */
+export type ClaudeModelSwitchOutcome =
+  | {
+      model: string;
+      accepted: true;
+      /** The model's context window as Claude Code counts it. */
+      contextWindow?: number;
+    }
+  | { model: string; accepted: false; error: string };
+
 type PermissionDecision =
   | { behavior: "allow"; updatedInput?: Record<string, unknown>; updatedPermissions?: PermissionUpdate[] }
   | { behavior: "deny"; message: string };
@@ -226,6 +241,7 @@ export class ClaudeSdkAdapter
   private connectCb: (() => void) | null = null;
   private initErrorCb: ((error: string) => void) | null = null;
   private compactRequestedCb: (() => void) | null = null;
+  private modelSwitchCb: ((outcome: ClaudeModelSwitchOutcome) => void) | null = null;
   private pendingPermissions = new Map<string, PendingPermission>();
   private pendingOutgoing: BrowserOutgoingMessage[] = [];
   /** True from handing Claude a prompt until its turn's result arrives. */
@@ -300,6 +316,11 @@ export class ClaudeSdkAdapter
 
   onCompactRequested(cb: () => void): void {
     this.compactRequestedCb = cb;
+  }
+
+  /** Called when the running Claude Code accepted or refused a `set_model`. */
+  onModelSwitch(cb: (outcome: ClaudeModelSwitchOutcome) => void): void {
+    this.modelSwitchCb = cb;
   }
 
   isConnected(): boolean {
@@ -806,15 +827,9 @@ export class ClaudeSdkAdapter
         return true;
       }
 
-      case "set_model": {
-        // The model must reach the CLI so it uses it for the next API call.
-        const model = (msg as any).model;
-        this.sdkQuery.setModel(model).catch((err: Error) => {
-          console.error(`[claude-sdk-adapter] setModel failed for session ${this.sessionId}:`, err);
-        });
-        console.log(`[claude-sdk-adapter] Model changed to "${model}" for session ${this.sessionId}`);
+      case "set_model":
+        void this.switchModel(this.sdkQuery, (msg as { model: string }).model);
         return true;
-      }
 
       case "set_claude_reasoning_effort": {
         // Effort set through the flag-settings layer replaces the process's
@@ -907,6 +922,36 @@ export class ClaudeSdkAdapter
         err instanceof Error ? err.message : err,
       );
     });
+  }
+
+  /**
+   * Switch the running Claude Code to `model` and report the outcome. On
+   * success the context window comes from Claude Code itself (the summary
+   * answer makes no model request), since the model name doesn't tell it.
+   */
+  private async switchModel(query: SdkQuery, model: string): Promise<void> {
+    try {
+      await query.setModel(model);
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[claude-sdk-adapter] Claude Code refused model "${model}" for session ${this.sessionId}: ${error}`,
+      );
+      this.modelSwitchCb?.({ model, accepted: false, error });
+      return;
+    }
+    console.log(`[claude-sdk-adapter] Model changed to "${model}" for session ${this.sessionId}`);
+    let contextWindow: number | undefined;
+    try {
+      const usage = await query.getContextUsage({ detail: "summary" });
+      if (usage?.rawMaxTokens > 0) contextWindow = usage.rawMaxTokens;
+    } catch (err) {
+      console.warn(
+        `[claude-sdk-adapter] Could not read the context window of "${model}" for session ${this.sessionId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+    this.modelSwitchCb?.({ model, accepted: true, contextWindow });
   }
 
   /**

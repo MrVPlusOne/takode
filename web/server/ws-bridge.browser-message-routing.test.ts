@@ -1591,7 +1591,7 @@ describe("Browser message routing", () => {
     spy.mockRestore();
   });
 
-  it("set_model: switches Claude's model", () => {
+  it("set_model: switches Claude's model", async () => {
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
@@ -1601,6 +1601,57 @@ describe("Browser message routing", () => {
     );
 
     expect(cli.query.setModel).toHaveBeenCalledWith("claude-opus-4-5-20250929");
+    await vi.waitFor(() => expect(bridge.getSession("s1")!.state.model).toBe("claude-opus-4-5-20250929"));
+  });
+
+  it("set_model: takes the new model's context window from Claude Code", async () => {
+    // The model name doesn't tell the window: Copilot serves claude-fable-5.2
+    // with 1M tokens, which a name-based guess would call 200K.
+    cli.query.getContextUsage.mockResolvedValueOnce({ rawMaxTokens: 1_000_000 });
+    const session = bridge.getSession("s1")!;
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_model", model: "claude-fable-5.2" }));
+
+    await vi.waitFor(() => expect(session.state.model).toBe("claude-fable-5.2"));
+    expect(cli.query.getContextUsage).toHaveBeenCalledWith({ detail: "summary" });
+    expect(session.state.claude_token_details!.modelContextWindow).toBe(1_000_000);
+  });
+
+  it("set_model: a refused model keeps the running model and restarts the session once idle", async () => {
+    // Claude Code checks the model first and refuses one it can't run, such as
+    // Fable 5.2 on a process started on an older Claude Code. The session must
+    // not claim the new model; it restarts onto the current Claude Code with
+    // the model recorded for its next launch.
+    const launchInfo = { model: "claude-opus-5.5" };
+    bridge.setLauncher({ getSession: vi.fn(() => launchInfo), touchActivity: vi.fn() } as any);
+    const restartWhenIdle = vi.fn();
+    bridge.idleRestarts = { restartWhenIdle } as any;
+    const session = bridge.getSession("s1")!;
+    session.state.model = "claude-opus-5.5";
+    cli.query.setModel.mockRejectedValueOnce(
+      new Error("API error: 400 Claude Code 2.1.289 does not support this model; version 2.1.290 or newer is required"),
+    );
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_model", model: "claude-fable-5.2" }));
+
+    await vi.waitFor(() => expect(restartWhenIdle).toHaveBeenCalledTimes(1));
+    expect(session.state.model).toBe("claude-opus-5.5");
+    expect(launchInfo.model).toBe("claude-fable-5.2");
+    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(sent).toContainEqual(
+      expect.objectContaining({ type: "error", message: expect.stringContaining("version 2.1.290 or newer") }),
+    );
+    expect(sent.some((m: any) => m.type === "session_update" && m.session?.model)).toBe(false);
+
+    // The restart stays wanted while this process runs and the model is still the requested one.
+    const [sessionId, { stillNeeded }] = restartWhenIdle.mock.calls[0];
+    expect(sessionId).toBe("s1");
+    expect(stillNeeded()).toBe(true);
+    launchInfo.model = "claude-opus-5.5";
+    expect(stillNeeded()).toBe(false);
+    launchInfo.model = "claude-fable-5.2";
+    cli.disconnect();
+    expect(stillNeeded()).toBe(false);
   });
 
   it("set_claude_reasoning_effort: applies effort to the running Claude process and the next launch", () => {
@@ -1649,7 +1700,7 @@ describe("Browser message routing", () => {
     expect(bridge.getSession("s1")!.state.permissionMode).toBe("bypassPermissions");
   });
 
-  it("set_model: updates claude_token_details.modelContextWindow for [1m] variant", () => {
+  it("set_model: updates claude_token_details.modelContextWindow for [1m] variant", async () => {
     const session = bridge.getSession("s1")!;
     session.state.claude_token_details = {
       inputTokens: 100,
@@ -1660,7 +1711,8 @@ describe("Browser message routing", () => {
 
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_model", model: "claude-opus-4-6[1m]" }));
 
-    expect(session.state.model).toBe("claude-opus-4-6[1m]");
+    // Without an answer from Claude Code the window follows the model name.
+    await vi.waitFor(() => expect(session.state.model).toBe("claude-opus-4-6[1m]"));
     expect(session.state.claude_token_details!.modelContextWindow).toBe(1_000_000);
     // Existing token counts preserved
     expect(session.state.claude_token_details!.inputTokens).toBe(100);
@@ -1671,12 +1723,13 @@ describe("Browser message routing", () => {
     expect(update.session.claude_token_details.modelContextWindow).toBe(1_000_000);
   });
 
-  it("set_model: creates claude_token_details when switching to [1m] without prior details", () => {
+  it("set_model: creates claude_token_details when switching to [1m] without prior details", async () => {
     const session = bridge.getSession("s1")!;
     session.state.claude_token_details = undefined;
 
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_model", model: "claude-opus-4-6[1m]" }));
 
+    await vi.waitFor(() => expect(session.state.model).toBe("claude-opus-4-6[1m]"));
     expect(session.state.claude_token_details).toEqual({
       inputTokens: 0,
       outputTokens: 0,

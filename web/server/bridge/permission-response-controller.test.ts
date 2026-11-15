@@ -227,8 +227,11 @@ describe("permission response handling in browser routing", () => {
     );
   });
 
-  it("updates launcher session model when Claude model changes", () => {
+  it("records the next launch's model and asks the running Claude Code to switch", () => {
+    // The running process may refuse the model, so the session shows it only once
+    // Claude Code accepted it (handleClaudeModelSwitch); the next launch uses it either way.
     const session = makeSession();
+    session.state.model = "claude-sonnet-4-5-20250929";
     const adapter = withClaudeAdapter(session);
     const launcherInfo = { model: "claude-sonnet-4-5-20250929" };
     const deps = makeDeps();
@@ -236,16 +239,10 @@ describe("permission response handling in browser routing", () => {
 
     handleSetModel(session, "claude-opus-4-5-20250929", deps);
 
-    expect(session.state.model).toBe("claude-opus-4-5-20250929");
     expect(launcherInfo.model).toBe("claude-opus-4-5-20250929");
     expect(adapter.sendBrowserMessage).toHaveBeenCalledWith({ type: "set_model", model: "claude-opus-4-5-20250929" });
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({
-        type: "session_update",
-        session: expect.objectContaining({ model: "claude-opus-4-5-20250929" }),
-      }),
-    );
+    expect(session.state.model).toBe("claude-sonnet-4-5-20250929");
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
   it("updates disconnected Claude model state without queuing a stale CLI control request", () => {

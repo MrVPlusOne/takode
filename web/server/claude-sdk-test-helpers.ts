@@ -22,6 +22,7 @@ export interface ClaudeSdkTestBackend {
     interrupt: ReturnType<typeof vi.fn>;
     setPermissionMode: ReturnType<typeof vi.fn>;
     setModel: ReturnType<typeof vi.fn>;
+    getContextUsage: ReturnType<typeof vi.fn>;
     applyFlagSettings: ReturnType<typeof vi.fn>;
     mcpServerStatus: ReturnType<typeof vi.fn>;
     reconnectMcpServer: ReturnType<typeof vi.fn>;
@@ -53,6 +54,8 @@ export function createClaudeSdkTestBackend(sessionId: string): ClaudeSdkTestBack
     interrupt: vi.fn(async () => {}),
     setPermissionMode: vi.fn(async (_mode: string) => {}),
     setModel: vi.fn(async () => {}),
+    // No answer by default, so the context window falls back to the model name.
+    getContextUsage: vi.fn(async (): Promise<{ rawMaxTokens: number } | undefined> => undefined),
     applyFlagSettings: vi.fn(async (_settings: unknown) => {}),
     mcpServerStatus: vi.fn(async (): Promise<unknown[]> => []),
     reconnectMcpServer: vi.fn(async (_serverName: string) => {}),

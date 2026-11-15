@@ -1,5 +1,6 @@
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { inferContextWindowFromModel } from "./context-usage.js";
+import type { ClaudeModelSwitchOutcome } from "../claude-sdk-adapter.js";
 import type {
   AdapterBrowserRoutingDeps,
   AdapterBrowserRoutingSessionLike,
@@ -21,25 +22,79 @@ import {
   formatCodexReasoningEffortSupportIssue,
 } from "../../shared/codex-reasoning-effort.js";
 
+/**
+ * Record `model` as the session's Claude model for its next launch. A running
+ * Claude Code switches only if it accepts the model, so the session shows the
+ * new model once `handleClaudeModelSwitch` hears that it did.
+ */
 export function handleSetModel(
   session: AdapterBrowserRoutingSessionLike,
   model: string,
   deps: Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo" | "broadcastToBrowsers" | "persistSession">,
 ): void {
-  session.claudeSdkAdapter?.sendBrowserMessage({ type: "set_model", model } as any);
-  session.state.model = model;
   const launchInfo = deps.getLauncherSessionInfo(session.id);
   if (launchInfo) launchInfo.model = model;
-  const inferredWindow = inferContextWindowFromModel(model);
-  if (inferredWindow) {
+  if (session.claudeSdkAdapter) {
+    session.claudeSdkAdapter.sendBrowserMessage({ type: "set_model", model } as any);
+    return;
+  }
+  showClaudeModel(session, model, undefined, deps);
+}
+
+export interface ClaudeModelSwitchDeps
+  extends Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo" | "broadcastToBrowsers" | "persistSession"> {
+  /** Restart the session at its first idle moment while `stillNeeded` holds (see `IdleRestarts`). */
+  restartWhenIdle: (sessionId: string, reason: string, stillNeeded: () => boolean) => void;
+}
+
+/**
+ * Apply what the running Claude Code did with a model switch. A refused model
+ * (one that needs a newer Claude Code or settings than the process started
+ * with) stays the model of the next launch, so the session restarts on the
+ * current Claude Code once it is idle; until then it shows the model it runs.
+ * `processRunning` says whether the process that answered still serves the session.
+ */
+export function handleClaudeModelSwitch(
+  session: AdapterBrowserRoutingSessionLike,
+  outcome: ClaudeModelSwitchOutcome,
+  processRunning: () => boolean,
+  deps: ClaudeModelSwitchDeps,
+): void {
+  if (outcome.accepted) {
+    showClaudeModel(session, outcome.model, outcome.contextWindow, deps);
+    return;
+  }
+  const running = session.state.model ? ` and keeps running on ${session.state.model}` : "";
+  deps.broadcastToBrowsers(session, {
+    type: "error",
+    message:
+      `Claude Code in this session could not switch to ${outcome.model}${running}: ${outcome.error}. ` +
+      `Takode restarts the session on the current Claude Code once it is idle, and it runs on ${outcome.model} from its next message.`,
+  });
+  deps.restartWhenIdle(
+    session.id,
+    `to switch it to ${outcome.model}`,
+    () => processRunning() && deps.getLauncherSessionInfo(session.id)?.model === outcome.model,
+  );
+}
+
+function showClaudeModel(
+  session: AdapterBrowserRoutingSessionLike,
+  model: string,
+  contextWindow: number | undefined,
+  deps: Pick<AdapterBrowserRoutingDeps, "broadcastToBrowsers" | "persistSession">,
+): void {
+  session.state.model = model;
+  const window = contextWindow ?? inferContextWindowFromModel(model);
+  if (window) {
     if (session.state.claude_token_details) {
-      session.state.claude_token_details.modelContextWindow = inferredWindow;
+      session.state.claude_token_details.modelContextWindow = window;
     } else {
       session.state.claude_token_details = {
         inputTokens: 0,
         outputTokens: 0,
         cachedInputTokens: 0,
-        modelContextWindow: inferredWindow,
+        modelContextWindow: window,
       };
     }
   }

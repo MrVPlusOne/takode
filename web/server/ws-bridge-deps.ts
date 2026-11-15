@@ -61,7 +61,8 @@ import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, formatVsCodeSelectionPrompt } f
 import type { QuestJourneyState } from "./session-types.js";
 import { SessionStore } from "./session-store.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot, CodexSessionMeta } from "./codex-adapter.js";
-import type { ClaudeSdkSessionMeta } from "./claude-sdk-adapter.js";
+import type { ClaudeModelSwitchOutcome, ClaudeSdkSessionMeta } from "./claude-sdk-adapter.js";
+import { handleClaudeModelSwitch } from "./bridge/adapter-browser-routing-runtime-settings.js";
 import type { RecorderManager } from "./recorder.js";
 import type { ImageStore } from "./image-store.js";
 import type { CliLauncher } from "./cli-launcher.js";
@@ -1144,6 +1145,12 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
       host.stoppedBackgroundTasks?.reported(sessionId, tasks),
     backendProcessEnded: (sessionId: string) => host.stoppedBackgroundTasks?.processEnded(sessionId),
     backendProcessStarted: (sessionId: string) => host.stoppedBackgroundTasks?.processStarted(sessionId),
+    claudeModelSwitched: (targetSession: unknown, outcome: ClaudeModelSwitchOutcome, processRunning: () => boolean) =>
+      handleClaudeModelSwitch(targetSession as Session, outcome, processRunning, {
+        ...host.getBrowserRoutingDeps(),
+        restartWhenIdle: (sessionId: string, reason: string, stillNeeded: () => boolean) =>
+          host.idleRestarts?.restartWhenIdle(sessionId, { reason, stillNeeded }),
+      }),
     isCurrentSession: (sessionId: string, session: unknown) => host.sessions.get(sessionId) === session,
     maxAdapterRelaunchFailures: MAX_ADAPTER_RELAUNCH_FAILURES,
     adapterFailureResetWindowMs: ADAPTER_FAILURE_RESET_WINDOW_MS,

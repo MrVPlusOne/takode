@@ -126,7 +126,7 @@ import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { createMessageDeliveryProbe, MessageDeliveryTracker } from "./message-delivery-tracker.js";
 import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchestrator-recovery.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
-import { OutdatedInstructionsRestarts } from "./outdated-instructions-restart.js";
+import { IdleRestarts, OUTDATED_RESTART_SETTLE_MS } from "./idle-restarts.js";
 import {
   resumeAfterLeftoverProcess,
   resumeRestartContinuations,
@@ -998,16 +998,20 @@ launcher.onBackgroundTasksStopped = (sessionId, notice) => {
   wsBridge.injectUserMessage(sessionId, notice, STOPPED_BACKGROUND_TASKS_SOURCE);
 };
 
-// A process that outlived the restart with outdated instructions was taken over; its session is
-// restarted at its first idle moment, so it gets the new instructions without a turn being cut off.
-const outdatedInstructionsRestarts = new OutdatedInstructionsRestarts({
-  runsOutdatedInstructions: (sessionId) => launcher.hostTakeovers.runsOutdatedInstructions(sessionId),
+// Sessions whose process must be replaced restart at their first idle moment, so no turn is cut off:
+// a process that outlived the restart with outdated instructions, or one that refused a model switch.
+wsBridge.idleRestarts = new IdleRestarts({
   bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
   coordinatorStartedAt,
   watch: (sessionId, onChange) => wsBridge.subscribeTakodeEvents(new Set([sessionId]), onChange),
   stop: (sessionId) => idleStopSession(sessionId),
 });
-launcher.hostTakeovers.onOutdatedTakeover = (sessionId) => outdatedInstructionsRestarts.tookOver(sessionId);
+launcher.hostTakeovers.onOutdatedTakeover = (sessionId) =>
+  wsBridge.idleRestarts?.restartWhenIdle(sessionId, {
+    reason: "to apply its new instructions",
+    stillNeeded: () => launcher.hostTakeovers.runsOutdatedInstructions(sessionId),
+    settleMs: OUTDATED_RESTART_SETTLE_MS,
+  });
 
 // Start watching PRs when git info is resolved for a session
 wsBridge.onGitInfoReady = (sessionId, cwd, branch) => {

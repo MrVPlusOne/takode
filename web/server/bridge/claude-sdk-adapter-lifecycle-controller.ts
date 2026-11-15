@@ -4,6 +4,7 @@ import { sessionTag } from "../session-tag.js";
 import { handleClaudeNetworkWaitMessage } from "./claude-network-wait.js";
 import { browserSessionInitState } from "../session-types.js";
 import type { BackgroundTaskInfo } from "./adapter-interface.js";
+import type { ClaudeModelSwitchOutcome } from "../claude-sdk-adapter.js";
 
 export interface ClaudeSdkAdapterLifecycleDeps {
   getOrCreateSession: (sessionId: string, backendType: "claude-sdk") => any;
@@ -37,6 +38,8 @@ export interface ClaudeSdkAdapterLifecycleDeps {
   backendProcessEnded?: (sessionId: string) => void;
   /** A new Claude process started for the session without taking the old one over. */
   backendProcessStarted?: (sessionId: string) => void;
+  /** The process accepted or refused a model switch; `processRunning` says whether it still serves the session. */
+  claudeModelSwitched?: (session: any, outcome: ClaudeModelSwitchOutcome, processRunning: () => boolean) => void;
   maxAdapterRelaunchFailures: number;
   adapterFailureResetWindowMs: number;
 }
@@ -216,6 +219,10 @@ export function attachClaudeSdkAdapterLifecycle(
 
     deps.broadcastToBrowsers(session, msg);
     deps.syncSideChatParent?.(session);
+  });
+
+  adapter.onModelSwitch?.((outcome: ClaudeModelSwitchOutcome) => {
+    if (isActiveAdapter()) deps.claudeModelSwitched?.(session, outcome, isActiveAdapter);
   });
 
   adapter.onSessionMeta((meta: any) => {

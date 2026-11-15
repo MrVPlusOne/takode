@@ -446,6 +446,8 @@ export class WsBridge {
   onCLIRelaunchNeeded: ((sessionId: string) => void) | null = null;
   /** Tells Claude sessions which background tasks stopped with their process. */
   stoppedBackgroundTasks: import("./stopped-background-tasks.js").StoppedBackgroundTasks | null = null;
+  /** Restarts sessions whose process must be replaced once they are idle (set by server bootstrap). */
+  idleRestarts: import("./idle-restarts.js").IdleRestarts | null = null;
   onPermissionModeChanged: ((sessionId: string, newMode: string) => void) | null = null;
   onSessionRelaunchRequested: ((sessionId: string) => void) | null = null;
   onUserMessage:
