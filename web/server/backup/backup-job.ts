@@ -99,7 +99,10 @@ export async function runBackup(input: RunBackupInput): Promise<RunBackupResult>
   }
 
   const manifest = await writeBackupSnapshot({ companion, port, target: workDir, memory });
-  await git(workDir, ["add", "-A"]);
+  // The manifest says what is backed up, so ignore rules must not drop any of it:
+  // a `.gitignore` copied with the data (a cache folder ignores itself) or the
+  // machine's own excludes would leave listed files out of the commit.
+  await git(workDir, ["add", "-A", "--force"]);
   const changed = (await git(workDir, ["status", "--porcelain"])) !== "";
   if (changed) {
     await git(workDir, ["commit", "-q", "-m", `Backup ${manifest.createdAt}: ${manifest.quests.count} quests`]);

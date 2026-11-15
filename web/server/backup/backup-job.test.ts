@@ -321,6 +321,36 @@ describe("backup job", () => {
     expect(result.errors[0]).toMatch(/push to the backup repository failed/);
   });
 
+  it("leaves tool caches out, commits every file the manifest lists, and reports one that is missing", async () => {
+    // A skill an agent linted or ran: ruff's cache ignores itself with its own
+    // .gitignore, which once kept its files out of the commit while the manifest
+    // still listed them, so every restore test failed. A skill's own .gitignore
+    // must not drop a listed file either.
+    const skill = "user-skills/all/slides";
+    await put(`${skill}/SKILL.md`, "# Slides\n");
+    await put(`${skill}/.ruff_cache/.gitignore`, "*\n");
+    await put(`${skill}/.ruff_cache/CACHEDIR.TAG`, "Signature: 8a477f597d28d172789f06886806bc55\n");
+    await put(`${skill}/.ruff_cache/0.17.4/123`, "cache");
+    await put(`${skill}/__pycache__/slides.cpython-312.pyc`, "bytecode");
+    await put(`${skill}/.pytest_cache/v/cache/nodeids`, "[]");
+    await put(`${skill}/.gitignore`, "*.local.md\n");
+    await put(`${skill}/notes.local.md`, "kept anyway\n");
+
+    expect(await runBackup({ companion, port: PORT, repoUrl: bare, workDir })).toMatchObject({ ok: true });
+    const listed = Object.keys((await readBackupManifest(workDir)).files).filter((path) => path.startsWith(skill));
+    expect(listed.sort()).toEqual([`${skill}/.gitignore`, `${skill}/SKILL.md`, `${skill}/notes.local.md`]);
+    expect(await testBackupRestore({ repoUrl: bare, serverSlug: "prod" })).toMatchObject({ ok: true, problems: [] });
+
+    // A file the manifest lists but the backup lacks is still reported.
+    git(workDir, "rm", "-q", "todos/todo-list.json");
+    git(workDir, "commit", "-qm", "lose a file");
+    git(workDir, "push", "-q", "origin", backupDataBranch("prod"));
+    expect(await testBackupRestore({ repoUrl: bare, serverSlug: "prod" })).toMatchObject({
+      ok: false,
+      problems: ["todos/todo-list.json is missing"],
+    });
+  });
+
   it("runs as the server's child process and passes its restore test", async () => {
     const service = new BackupService({
       port: PORT,

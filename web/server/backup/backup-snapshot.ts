@@ -343,13 +343,19 @@ async function removeOthers(root: string, keep: Set<string>, prefix = ""): Promi
 }
 
 /**
+ * Folders tools rebuild by themselves, which can turn up in the user's skills
+ * when an agent lints or runs a skill's script there.
+ */
+const TOOL_CACHES = new Set([".ruff_cache", "__pycache__", ".pytest_cache", ".mypy_cache"]);
+
+/**
  * Files below `path` (relative to `root`), or `path` itself, following links
  * (the user's instructions and skills are links into a checkout). Temporary
- * files, locks and `.git` folders are left out.
+ * files, locks, `.git` folders and tool caches are left out.
  */
 async function listFiles(root: string, path: string, seen = new Set<string>()): Promise<string[]> {
   const name = path.slice(path.lastIndexOf("/") + 1);
-  if (name.endsWith(".tmp") || name.endsWith(".lock") || name === ".git") return [];
+  if (name.endsWith(".tmp") || name.endsWith(".lock") || name === ".git" || TOOL_CACHES.has(name)) return [];
   const info = await stat(join(root, path)).catch(() => null);
   if (!info) return [];
   if (!info.isDirectory()) return [path];

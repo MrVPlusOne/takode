@@ -25,6 +25,7 @@ Left out on purpose:
 - **Secrets:** API keys, Pushover keys, env profiles, the browser login password, web-push keys, host and session tokens. You re-enter them after a restore.
 - **Session histories and agent transcripts:** they are large, and resuming a session also needs its Claude or Codex state.
 - **Machine-local state:** logs, leases, worktree checkouts, recordings, and agent working files under `~/.companion/artifacts`.
+- **Tool caches** in your skills (`.ruff_cache`, `__pycache__`, `.pytest_cache`, `.mypy_cache`): the tools rebuild them. Everything else in the backup is committed even where a `.gitignore` would skip it, so the weekly restore test finds every file the backup lists.
 - **Questmaster's own local snapshots** (`~/.companion/questmaster-backups`): they are copies of data that is already backed up.
 
 The same list of coordinator data drives moving the coordinator ([moving-the-coordinator.md](moving-the-coordinator.md)); `web/server/coordinator-state.ts` holds it.
