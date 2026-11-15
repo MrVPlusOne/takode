@@ -65,6 +65,8 @@ import {
   buildFileLinkBrowserUrl,
   buildFileLinkImageVariantUrl,
   downloadFileLink,
+  savesThroughShareSheet,
+  ShareNeedsTapError,
   resolveFileLinkAction,
   revealFileLinkInFinder,
   type FileLinkActionTarget,
@@ -1367,11 +1369,17 @@ function FileMarkdownLink({
     }
     if (fileInfo?.exists && fileInfo.isFile) {
       const tooLarge = (fileInfo.size ?? 0) > MAX_FILE_LINK_DOWNLOAD_BYTES;
+      const saveTarget = { path: fileInfo.absolutePath, isRelative: false, sessionId: actionTarget.sessionId };
+      const verb = savesThroughShareSheet() ? "Save" : "Download";
       items.push({
-        label: tooLarge ? "Download: over 100 MB" : "Download",
+        label: tooLarge ? `${verb}: over 100 MB` : verb,
         disabled: tooLarge,
         onClick: () =>
-          downloadFileLink({ path: fileInfo.absolutePath, isRelative: false, sessionId: actionTarget.sessionId }),
+          void downloadFileLink(saveTarget).catch((error: unknown) => {
+            // The share sheet needs a fresh tap after a slow fetch; the viewer's Save gives it one.
+            if (error instanceof ShareNeedsTapError) openFileViewer(saveTarget);
+            else showEditorOpenError(error instanceof Error ? error.message : String(error));
+          }),
       });
     }
     if (fileInfo && !fileInfo.exists) {

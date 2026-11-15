@@ -461,6 +461,27 @@ describe("HTML file-link browser routes", () => {
     expect(preflight.headers.get("Access-Control-Allow-Headers")).toBe("x-demo");
   });
 
+  // A page's own video must play in Safari, which needs the video's type and byte ranges;
+  // .mov has no entry in the generic MIME table, so it would otherwise be served as raw data.
+  it("serves a page's videos with their type and byte ranges", async () => {
+    await writeFile(join(tempDir, "index.html"), '<video src="clip.mov"></video>');
+    await writeFile(join(tempDir, "clip.mov"), "0123456789");
+    const app = makeApp(tempDir);
+    const contentPath = redirectedPath(await openHtml(app, "index.html"));
+    const videoPath = resolvePreviewPath("clip.mov", contentPath);
+
+    const whole = await app.request(videoPath);
+    expect(whole.status).toBe(200);
+    expect(whole.headers.get("Content-Type")).toBe("video/quicktime");
+    expect(whole.headers.get("Accept-Ranges")).toBe("bytes");
+
+    const part = await app.request(videoPath, { headers: { Range: "bytes=3-4" } });
+    expect(part.status).toBe(206);
+    expect(part.headers.get("Content-Range")).toBe("bytes 3-4/10");
+    expect(part.headers.get("Access-Control-Allow-Origin")).toBe("null");
+    expect(await part.text()).toBe("34");
+  });
+
   it("fails closed across the whole preview namespace before a production SPA fallback", async () => {
     // Production's global index.html fallback must never turn a malformed, stale,
     // or URL-normalized preview URL into a privileged Takode app-shell response.

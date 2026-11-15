@@ -4,13 +4,15 @@ import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { machineFor } from "./session-machine.js";
 
-/** Largest remote file copied for local processing such as image previews. */
-const MAX_CACHED_FILE_BYTES = 50 * 1024 * 1024;
+/** Largest remote file copied for local processing such as image previews and video playback. */
+export const MAX_CACHED_FILE_BYTES = 50 * 1024 * 1024;
+/** Copies in progress, so requests arriving together (a player's first byte ranges) share one fetch. */
+const copying = new Map<string, Promise<string>>();
 
 /**
  * A local copy of a file on a remote host, for code that needs a real local
- * path (image variants). Copies are keyed by host, path and size+mtime, so a
- * changed file is fetched again.
+ * path (image variants, video and audio playback with byte ranges). Copies are
+ * keyed by host, path and size+mtime, so a changed file is fetched again.
  */
 export async function localCopyOfHostFile(hostId: string, path: string, knownSize?: number): Promise<string> {
   const machine = machineFor(hostId);
@@ -27,9 +29,15 @@ export async function localCopyOfHostFile(hostId: string, path: string, knownSiz
   } catch {
     // Not cached yet.
   }
-  await mkdir(dir, { recursive: true });
-  const temp = `${target}.${process.pid}.tmp`;
-  await writeFile(temp, await machine.readFile(path));
-  await rename(temp, target);
-  return target;
+  const pending = copying.get(target);
+  if (pending) return pending;
+  const copy = (async () => {
+    await mkdir(dir, { recursive: true });
+    const temp = `${target}.${process.pid}.tmp`;
+    await writeFile(temp, await machine.readFile(path));
+    await rename(temp, target);
+    return target;
+  })().finally(() => copying.delete(target));
+  copying.set(target, copy);
+  return copy;
 }

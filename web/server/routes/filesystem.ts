@@ -17,10 +17,12 @@ import {
 } from "../local-image-variant-store.js";
 import { getLocalPathOpenCapability, openLocalPathContainingFolder } from "../local-path-actions.js";
 import { hostIsOnline, machineFor, type Machine, type MachineFileStat } from "../remote-host/session-machine.js";
-import { localCopyOfHostFile } from "../remote-host/host-file-cache.js";
+import { localCopyOfHostFile, MAX_CACHED_FILE_BYTES } from "../remote-host/host-file-cache.js";
 import { onMachine } from "../remote-host/host-operations.js";
 import { remoteHostFailure } from "./session-remote-host.js";
 import { MAX_FILE_LINK_DOWNLOAD_BYTES } from "../../shared/file-link-download.js";
+import { fileLinkMediaType } from "../../shared/file-link-media.js";
+import { byteRangeResponse } from "../byte-range-response.js";
 
 const execPromise = promisify(childProcess.exec);
 
@@ -567,6 +569,44 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       });
     } catch (error) {
       return c.text(error instanceof Error ? error.message : "Cannot read the PDF", 404);
+    }
+  });
+
+  /**
+   * A linked video or audio file for the file viewer's player, with its media type and byte
+   * ranges, which Safari needs to play and seek. Only media: other files are not served raw from
+   * Takode's origin. A remote host's file is played from a local copy, so seeking doesn't move
+   * the whole file across the host link again for every range.
+   */
+  api.get("/fs/file-link/media", async (c) => {
+    const request = fileLinkRequestFromQuery(c.req.query("path"), c.req.query("isRelative"), c.req.query("sessionId"));
+    if (!request) return c.text("path required", 400);
+    try {
+      const target = await resolveFileLinkPath(request, wsBridge);
+      const media = fileLinkMediaType(target.absolutePath);
+      if (!media) return c.text("Not a video or audio file", 400);
+      if (!target.exists || !target.isFile) {
+        if (target.hostId && !hostIsOnline(target.hostId)) {
+          const host = await ctx.launcher.remoteHosts?.registry.get(target.hostId);
+          return c.text(`The file is on ${host?.name ?? "a remote host"}, which is offline.`, 503);
+        }
+        return c.text(`No file at ${target.absolutePath}`, 404);
+      }
+      if (target.hostId && (target.size ?? 0) > MAX_CACHED_FILE_BYTES) {
+        return c.text("Files over 50 MB on a remote host can't be played here; download it instead.", 413);
+      }
+      const localPath = target.hostId
+        ? await localCopyOfHostFile(target.hostId, target.absolutePath, target.size)
+        : target.absolutePath;
+      return byteRangeResponse(Bun.file(localPath), target.size ?? 0, c.req.header("Range"), {
+        "Content-Type": media.mimeType,
+        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(basename(target.absolutePath))}`,
+        "Content-Security-Policy": "sandbox",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      });
+    } catch (error) {
+      return c.text(error instanceof Error ? error.message : "Cannot read the file", 404);
     }
   });
 

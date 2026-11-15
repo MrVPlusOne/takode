@@ -5,6 +5,8 @@ import { getMimeType } from "hono/utils/mime";
 import { onMachine } from "../remote-host/host-operations.js";
 import { hostIsOnline, machineFor } from "../remote-host/session-machine.js";
 import { decodeAndNormalizePathname } from "../opaque-origin-guard.js";
+import { byteRangeResponse } from "../byte-range-response.js";
+import { fileLinkMediaType } from "../../shared/file-link-media.js";
 import type { RouteContext } from "./context.js";
 import { getFileLinkRootForSession, resolveFileLinkPath, type FileLinkResolveRequest } from "./filesystem.js";
 
@@ -134,7 +136,7 @@ function decodeVirtualPath(encodedPath: string): string[] | null {
 }
 
 function contentTypeForPath(path: string): string {
-  return getMimeType(path) || "application/octet-stream";
+  return getMimeType(path) || fileLinkMediaType(path)?.mimeType || "application/octet-stream";
 }
 
 function previewHeaders(virtualPath: string): Headers {
@@ -722,12 +724,15 @@ export function createFileLinkBrowserRoutes(
       const info = await machine.stat(realAssetPath);
       if (!info?.isFile) return errorResponse("HTML preview asset was not found", 404);
       await scanLiteralReferences(capability, virtualPath, realAssetPath, scanLimits);
-      if (!hostId) return new Response(Bun.file(realAssetPath), { status: 200, headers: previewHeaders(virtualPath) });
+      // Byte ranges, so a page's own videos play and seek in Safari.
+      const range = c.req.header("Range");
+      const headers = Object.fromEntries(previewHeaders(virtualPath));
+      if (!hostId) return byteRangeResponse(Bun.file(realAssetPath), info.size, range, headers);
       if (info.size > FILE_LINK_BROWSER_REMOTE_FILE_BYTE_LIMIT) {
         return errorResponse("HTML preview asset on a remote host is larger than 100 MB", 413);
       }
       const bytes = await machine.readFile(realAssetPath);
-      return new Response(new Uint8Array(bytes), { status: 200, headers: previewHeaders(virtualPath) });
+      return byteRangeResponse(new Blob([new Uint8Array(bytes)]), bytes.length, range, headers);
     } catch {
       if (hostId && !hostIsOnline(hostId)) {
         return errorResponse("HTML preview asset is on a remote host that is offline", 503);

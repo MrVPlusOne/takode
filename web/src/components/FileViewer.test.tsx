@@ -8,6 +8,7 @@ const mockReadFileLinkText = vi.fn();
 const mockGetSettings = vi.fn();
 const mockUseFileMachine = vi.fn();
 const mockDownloadFileLink = vi.fn();
+const mockSavesThroughShareSheet = vi.fn(() => false);
 
 vi.mock("../api/file-link-actions.js", async () => {
   const actual = await vi.importActual<typeof import("../api/file-link-actions.js")>("../api/file-link-actions.js");
@@ -15,6 +16,7 @@ vi.mock("../api/file-link-actions.js", async () => {
     ...actual,
     readFileLinkText: (...args: unknown[]) => mockReadFileLinkText(...args),
     downloadFileLink: (...args: unknown[]) => mockDownloadFileLink(...args),
+    savesThroughShareSheet: () => mockSavesThroughShareSheet(),
     // Files in FILES exist; anything else is missing.
     resolveFileLinkAction: async ({ path }: { path: string }) => ({
       absolutePath: path,
@@ -46,6 +48,8 @@ const FILES: Record<string, string> = {
   "/reports/notes/details.md": "# Details\n\nNothing else.",
   "/home/coder/run.py": "print('hi')",
   "/data/model.bin": "",
+  "/media/clip.mp4": "",
+  "/media/voice.m4a": "",
 };
 
 /** Sizes the resolver reports where a file's text stands in for much larger content. */
@@ -66,6 +70,7 @@ describe("FileViewer", () => {
     window.history.replaceState(null, "", "#/session/s1");
     mockReadFileLinkText.mockReset();
     mockDownloadFileLink.mockReset();
+    mockSavesThroughShareSheet.mockReturnValue(false);
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
     mockUseFileMachine.mockReturnValue({ name: "devbox", settings: { claudeBinary: "", codexBinary: "" } });
     act(() => closeFileViewers());
@@ -187,6 +192,58 @@ describe("FileViewer", () => {
     expect(button.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(button);
     expect(mockDownloadFileLink).toHaveBeenCalledTimes(1);
+  });
+
+  // A linked video or audio file plays in the viewer, streamed from the media route through the
+  // linking session, instead of being refused as a binary file (which left only a Download that,
+  // in the iPhone Home Screen app, replaced Takode with the system's file page).
+  it("plays videos and audio in place", async () => {
+    render(<FileViewerHost />);
+    act(() => openFileViewer({ path: "/media/clip.mp4", isRelative: false, sessionId: "s1" }));
+    const viewer = await screen.findByRole("dialog", { name: "clip.mp4" });
+    const video = await waitFor(() => {
+      const element = viewer.querySelector("video");
+      if (!element) throw new Error("no video yet");
+      return element;
+    });
+    expect(video.getAttribute("src")).toBe(
+      "/api/fs/file-link/media?path=%2Fmedia%2Fclip.mp4&isRelative=0&sessionId=s1",
+    );
+    expect(video.hasAttribute("controls")).toBe(true);
+    expect(video.hasAttribute("playsinline")).toBe(true);
+    expect(mockReadFileLinkText).not.toHaveBeenCalled();
+    // Desktop keeps the plain Download.
+    expect(within(viewer).getByRole("button", { name: "Download" })).toBeTruthy();
+
+    act(() => openFileViewer({ path: "/media/voice.m4a", isRelative: false, sessionId: "s1" }));
+    const audioViewer = await screen.findByRole("dialog", { name: "voice.m4a" });
+    await waitFor(() => expect(audioViewer.querySelector("audio[controls]")).toBeTruthy());
+
+    // A file the browser can't play says so instead of showing a dead player.
+    fireEvent.error(audioViewer.querySelector("audio")!);
+    expect(within(audioViewer).getByText(/can't play this file here/)).toBeTruthy();
+  });
+
+  // On a phone, Save goes through the share sheet, whose Save Video puts the video in the camera
+  // roll. A slow fetch outlasts the tap's permission to open the sheet; then one more tap does it.
+  it("saves a video to Photos on a phone, asking for another tap after a slow fetch", async () => {
+    const { ShareNeedsTapError } = await import("../api/file-link-actions.js");
+    mockSavesThroughShareSheet.mockReturnValue(true);
+    mockDownloadFileLink.mockRejectedValueOnce(new ShareNeedsTapError()).mockResolvedValueOnce(undefined);
+    render(<FileViewerHost />);
+    act(() => openFileViewer({ path: "/media/clip.mp4", isRelative: false, sessionId: "s1" }));
+    const viewer = await screen.findByRole("dialog", { name: "clip.mp4" });
+
+    fireEvent.click(await within(viewer).findByRole("button", { name: "Save to Photos" }));
+    fireEvent.click(await within(viewer).findByRole("button", { name: "Tap to save" }));
+    await within(viewer).findByRole("button", { name: "Save to Photos" });
+    expect(mockDownloadFileLink).toHaveBeenCalledTimes(2);
+    expect(mockDownloadFileLink).toHaveBeenLastCalledWith({
+      path: "/media/clip.mp4",
+      isRelative: false,
+      sessionId: "s1",
+    });
+    expect(within(viewer).queryByRole("button", { name: "Download" })).toBeNull();
   });
 
   // A Markdown file has what report cards have: Download (the file itself, from its machine) and

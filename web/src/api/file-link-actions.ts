@@ -1,4 +1,6 @@
+import { fileLinkMediaType } from "../../shared/file-link-media.js";
 import { saveUrl } from "../utils/artifact-export.js";
+import { isTouchDevice } from "../utils/mobile.js";
 
 const BASE = "/api";
 
@@ -90,12 +92,77 @@ export function buildFileLinkBrowserUrl(target: FileLinkActionTarget): string {
   return `/file-preview/open?${fileLinkParams(target)}`;
 }
 
+/** Where the file viewer's player streams a linked video or audio file from, with byte ranges. */
+export function buildFileLinkMediaUrl(target: FileLinkActionTarget): string {
+  return `${BASE}/fs/file-link/media?${fileLinkParams(target)}`;
+}
+
 /**
- * Save a linked file, as its original bytes and name, to the device the browser runs on. The file
- * is read on the machine that holds the linking session's files, so this works for remote hosts too.
+ * Whether files are saved through the system share sheet rather than downloaded: on phones that
+ * can share files. There a download replaces Takode with the system's file page (in the iPhone Home
+ * Screen app with no way back), and the share sheet offers Save Video, Save Image and Save to Files.
  */
-export function downloadFileLink(target: FileLinkActionTarget): void {
-  saveUrl(`${BASE}/fs/file-link/download?${fileLinkParams(target)}`, "");
+export function savesThroughShareSheet(): boolean {
+  if (!isTouchDevice() || typeof navigator.canShare !== "function") return false;
+  try {
+    return navigator.canShare({ files: [new File([""], "check.txt", { type: "text/plain" })] });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Thrown when the share sheet needs another tap: fetching the file took longer than a tap lets a
+ * page open the share sheet. The file is kept, so the next save opens the sheet at once.
+ */
+export class ShareNeedsTapError extends Error {
+  constructor() {
+    super("The file is ready: tap again to save it.");
+  }
+}
+
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  heic: "image/heic",
+};
+
+/** The type a shared file is given: the share sheet offers Save Video or Save Image only for a file of that type. */
+function shareTypeFor(name: string): string {
+  const extension = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? "";
+  return fileLinkMediaType(name)?.mimeType ?? IMAGE_TYPES[extension] ?? "application/octet-stream";
+}
+
+/** The file last fetched for the share sheet, kept for the second tap a slow fetch needs. */
+let sharedFile: { url: string; file: File } | null = null;
+
+/**
+ * Save a linked file, as its original bytes and name, to the device the browser runs on: through
+ * the share sheet on phones (see `savesThroughShareSheet`), else as a download. The file is read on
+ * the machine that holds the linking session's files, so this works for remote hosts too. Rejects
+ * with `ShareNeedsTapError` when the share sheet needs another tap; closing the sheet is not an error.
+ */
+export async function downloadFileLink(target: FileLinkActionTarget): Promise<void> {
+  const url = `${BASE}/fs/file-link/download?${fileLinkParams(target)}`;
+  if (!savesThroughShareSheet()) return saveUrl(url, "");
+  let file = sharedFile?.url === url ? sharedFile.file : null;
+  if (!file) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error((await response.text()) || `Download failed with status ${response.status}`);
+    const name = target.path.split(/[\\/]/).pop() || "file";
+    file = new File([await response.blob()], name, { type: shareTypeFor(name) });
+    sharedFile = { url, file };
+  }
+  try {
+    await navigator.share({ files: [file] });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    if (error instanceof DOMException && error.name === "NotAllowedError") throw new ShareNeedsTapError();
+    throw error;
+  }
 }
 
 export function buildFileLinkImageVariantUrl(target: FileLinkActionTarget, variant: "thumbnail" | "full"): string {

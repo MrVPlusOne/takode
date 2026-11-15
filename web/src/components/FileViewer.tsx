@@ -4,17 +4,21 @@ import { create } from "zustand";
 import { api, type EditorKind } from "../api.js";
 import {
   FileLinkRequestError,
+  ShareNeedsTapError,
   buildFileLinkBrowserUrl,
   buildFileLinkImageVariantUrl,
+  buildFileLinkMediaUrl,
   downloadFileLink,
   readFileLinkFolder,
   readFileLinkText,
   resolveFileLinkAction,
+  savesThroughShareSheet,
   type FileLinkActionTarget,
   type FileLinkFolderEntry,
   type FileLinkResolveResponse,
 } from "../api/file-link-actions.js";
 import { MAX_FILE_LINK_DOWNLOAD_BYTES } from "../../shared/file-link-download.js";
+import { fileLinkMediaType } from "../../shared/file-link-media.js";
 import { useFileMachine } from "../remote-hosts.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { usePreviewSheetHistoryEntry } from "./quest-preview-sheet-history.js";
@@ -83,6 +87,7 @@ type ViewerContent =
   | { status: "text"; absolutePath: string; content: string }
   | { status: "folder"; absolutePath: string; entries: FileLinkFolderEntry[]; truncated: boolean }
   | { status: "image"; absolutePath: string }
+  | { status: "media"; absolutePath: string; kind: "video" | "audio" }
   | { status: "unsupported"; absolutePath: string; reason: string }
   | { status: "error"; message: string };
 
@@ -100,6 +105,8 @@ async function loadContent(
     return { status: "folder", absolutePath, entries: folder.entries, truncated: folder.truncated };
   }
   if (info.isImage) return { status: "image", absolutePath };
+  const media = fileLinkMediaType(absolutePath);
+  if (media) return { status: "media", absolutePath, kind: media.kind };
   try {
     const file = await readFileLinkText(target, signal);
     return isMarkdownFilePath(file.absolutePath)
@@ -258,6 +265,13 @@ function FileViewer({ target, isTop, onClose }: { target: FileViewerTarget; isTo
               className="mx-auto max-h-full max-w-full"
             />
           )}
+          {content.status === "media" && (
+            <MediaPlayer
+              kind={content.kind}
+              src={buildFileLinkMediaUrl({ ...target, path: content.absolutePath, isRelative: false })}
+              name={name}
+            />
+          )}
           {content.status === "folder" && (
             <FolderView
               sessionId={target.sessionId}
@@ -410,6 +424,9 @@ function FileDownloadButton({
     ),
   );
   const tooLarge = (info.size ?? 0) > MAX_FILE_LINK_DOWNLOAD_BYTES;
+  if (markdown === null && savesThroughShareSheet()) {
+    return <ShareSaveButton save={download} isVideo={fileLinkMediaType(name)?.kind === "video"} tooLarge={tooLarge} />;
+  }
   return (
     <DownloadButton
       items={
@@ -420,6 +437,77 @@ function FileDownloadButton({
       task={task}
       disabledReason={tooLarge ? "Too large to download (over 100 MB)" : undefined}
     />
+  );
+}
+
+/**
+ * Save on a phone, through the share sheet, which offers Save Video for a video (to the camera
+ * roll) and Save to Files for anything. A download would replace Takode with the system's file page.
+ */
+function ShareSaveButton({
+  save,
+  isVideo,
+  tooLarge,
+}: {
+  save: () => Promise<void>;
+  isVideo: boolean;
+  tooLarge: boolean;
+}) {
+  const [state, setState] = useState<"idle" | "saving" | "tap-again" | { error: string }>("idle");
+  const label = tooLarge
+    ? "Too large to save"
+    : state === "saving"
+      ? "Preparing…"
+      : state === "tap-again"
+        ? "Tap to save"
+        : typeof state === "object"
+          ? "Save failed: retry"
+          : isVideo
+            ? "Save to Photos"
+            : "Save";
+  return (
+    <span title={typeof state === "object" ? state.error : undefined}>
+      <HeaderButton
+        label={label}
+        disabled={tooLarge || state === "saving"}
+        onClick={() => {
+          if (tooLarge || state === "saving") return;
+          setState("saving");
+          save().then(
+            () => setState("idle"),
+            (error: unknown) =>
+              setState(
+                error instanceof ShareNeedsTapError
+                  ? "tap-again"
+                  : { error: error instanceof Error ? error.message : String(error) },
+              ),
+          );
+        }}
+      />
+    </span>
+  );
+}
+
+/**
+ * A video or audio file, played in place: a phone keeps it inline rather than going full screen.
+ * A file the browser can't play (its codec, or too large to fetch from a remote host) says so.
+ */
+function MediaPlayer({ kind, src, name }: { kind: "video" | "audio"; src: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <p className="text-sm text-cc-muted">This browser can't play this file here. Save or download it instead.</p>
+    );
+  }
+  const props = { controls: true, src, "aria-label": name, onError: () => setFailed(true) };
+  return (
+    <div className="flex h-full items-center justify-center">
+      {kind === "audio" ? (
+        <audio {...props} className="w-full max-w-xl" />
+      ) : (
+        <video {...props} playsInline preload="metadata" className="max-h-full max-w-full" />
+      )}
+    </div>
   );
 }
 

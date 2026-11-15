@@ -25,7 +25,7 @@ async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<voi
  * HostAgent reached only through the host link, so a passing remote read proves
  * the route asked the host; every file lives under a temporary directory.
  */
-describe("GET /api/fs/file-link/text", () => {
+describe("file-link reads: text, download and media", () => {
   const hostId = "host-1";
   let manager: HostLinkManager;
   let agent: HostAgent;
@@ -161,5 +161,50 @@ describe("GET /api/fs/file-link/text", () => {
     const res = await app.request(textUrl(join(dir, "report.md"), { sessionId: "remote" }));
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "Host devbox is offline" });
+  });
+
+  const mediaUrl = (path: string, sessionId?: string) =>
+    `/api/fs/file-link/media?path=${encodeURIComponent(path)}&isRelative=0${sessionId ? `&sessionId=${sessionId}` : ""}`;
+
+  // The viewer plays linked videos from this route. Safari plays and seeks only with the video's
+  // own type and byte ranges; other files are never served raw from Takode's origin here.
+  it("serves a linked video with its type and byte ranges, and nothing but media", async () => {
+    const file = join(dir, "clip.mp4");
+    await writeFile(file, "0123456789");
+
+    const whole = await app.request(mediaUrl(file));
+    expect(whole.status).toBe(200);
+    expect(whole.headers.get("content-type")).toBe("video/mp4");
+    expect(whole.headers.get("accept-ranges")).toBe("bytes");
+    expect(whole.headers.get("content-disposition")).toContain("inline");
+    expect(await whole.text()).toBe("0123456789");
+
+    const part = await app.request(mediaUrl(file), { headers: { Range: "bytes=2-5" } });
+    expect(part.status).toBe(206);
+    expect(part.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(await part.text()).toBe("2345");
+
+    await writeFile(join(dir, "notes.txt"), "text");
+    expect((await app.request(mediaUrl(join(dir, "notes.txt")))).status).toBe(400);
+    expect((await app.request(mediaUrl(join(dir, "missing.mov")))).status).toBe(404);
+  });
+
+  // A player opens with several range requests at once; a remote video is copied from its host
+  // once and played from that copy, rather than crossing the host link for every range.
+  it("plays a remote session's video from one copy of it", async () => {
+    const request = vi.spyOn(manager, "request");
+    const file = join(dir, "remote-clip.webm");
+    await writeFile(file, "abcdefghij");
+
+    const responses = await Promise.all(
+      ["bytes=0-1", "bytes=4-", "bytes=-2"].map((range) =>
+        app.request(mediaUrl(file, "remote"), { headers: { Range: range } }),
+      ),
+    );
+    expect(responses.map((res) => res.status)).toEqual([206, 206, 206]);
+    expect(await Promise.all(responses.map((res) => res.text()))).toEqual(["ab", "efghij", "ij"]);
+    expect(responses[0]!.headers.get("content-type")).toBe("video/webm");
+    const reads = request.mock.calls.filter(([, message]) => (message as { kind: string }).kind === "read_file");
+    expect(reads).toHaveLength(1);
   });
 });

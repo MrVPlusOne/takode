@@ -97,7 +97,9 @@ describe("Playground", { timeout: 60_000 }, () => {
     render(<PlaygroundOverviewSections />);
 
     expect(screen.getByRole("heading", { name: "File Link Context Menu" })).toBeTruthy();
-    expect(screen.getByText("Chat markdown with folder, code, Markdown, HTML and image file links")).toBeTruthy();
+    expect(
+      screen.getByText("Chat markdown with folder, code, Markdown, HTML, image and video file links"),
+    ).toBeTruthy();
     expect(screen.getByText(/interactive HTML demo/)).toBeTruthy();
     expect(screen.getByText(/\[its folder\]/)).toBeTruthy();
     expect(screen.getByText(/markdown-reports\.md/)).toBeTruthy();

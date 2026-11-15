@@ -12,6 +12,7 @@ const mockRevealFileLinkInFinder = vi.fn();
 const mockReadFileLinkText = vi.fn();
 const mockReadFileLinkFolder = vi.fn();
 const mockDownloadFileLink = vi.fn();
+const mockSavesThroughShareSheet = vi.fn(() => false);
 const mockUseFileMachine = vi.fn();
 
 vi.mock("../api.js", () => ({
@@ -33,6 +34,7 @@ vi.mock("../api/file-link-actions.js", async () => {
     readFileLinkText: (...args: unknown[]) => mockReadFileLinkText(...args),
     readFileLinkFolder: (...args: unknown[]) => mockReadFileLinkFolder(...args),
     downloadFileLink: (...args: unknown[]) => mockDownloadFileLink(...args),
+    savesThroughShareSheet: () => mockSavesThroughShareSheet(),
   };
 });
 
@@ -1392,7 +1394,7 @@ describe("MarkdownContent quest links", () => {
   // HTML pages, PDFs and images open outside the file viewer, so the link's menu offers Download too:
   // the resolved file, read through the linking session, which may live on a remote host.
   it("downloads a linked file from its context menu, and not files over the limit", async () => {
-    mockDownloadFileLink.mockReset();
+    mockDownloadFileLink.mockReset().mockResolvedValue(undefined);
     const resolved = {
       absolutePath: "/repo/out/report.html",
       requestedPath: "out/report.html",
@@ -1422,6 +1424,45 @@ describe("MarkdownContent quest links", () => {
     fireEvent.contextMenu(screen.getByRole("link", { name: "report" }), { clientX: 10, clientY: 12 });
     fireEvent.click(await screen.findByText("Download: over 100 MB"));
     expect(mockDownloadFileLink).toHaveBeenCalledTimes(1);
+  });
+
+  // On a phone the menu saves through the share sheet. When a slow fetch outlasts the tap's
+  // permission to open the sheet, the file opens in the viewer, whose Save gives it a fresh tap.
+  it("saves a linked file through the share sheet on a phone, falling back to the viewer", async () => {
+    const { ShareNeedsTapError } = await import("../api/file-link-actions.js");
+    const { FileViewerHost, closeFileViewers } = await import("./FileViewer.js");
+    mockSavesThroughShareSheet.mockReturnValue(true);
+    mockDownloadFileLink.mockReset().mockRejectedValue(new ShareNeedsTapError());
+    mockReadFileLinkText.mockResolvedValue({ absolutePath: "/repo/out/clip.mp4", content: "" });
+    mockResolveFileLinkAction.mockResolvedValue({
+      absolutePath: "/repo/out/clip.mp4",
+      requestedPath: "out/clip.mp4",
+      exists: true,
+      isFile: true,
+      isDirectory: false,
+      isImage: false,
+      size: 1200,
+      canRevealInFinder: false,
+      platform: "linux",
+    });
+    setRepoSession();
+
+    render(
+      <>
+        <MarkdownContent text="[clip](file:out/clip.mp4)" />
+        <FileViewerHost />
+      </>,
+    );
+    fireEvent.contextMenu(screen.getByRole("link", { name: "clip" }), { clientX: 10, clientY: 12 });
+    fireEvent.click(await screen.findByText("Save"));
+    expect(mockDownloadFileLink).toHaveBeenCalledWith({
+      path: "/repo/out/clip.mp4",
+      isRelative: false,
+      sessionId: "s1",
+    });
+    expect(await screen.findByRole("dialog", { name: "clip.mp4" })).toBeTruthy();
+    act(() => closeFileViewers());
+    mockSavesThroughShareSheet.mockReturnValue(false);
   });
 
   it("copies the backend-resolved absolute file path from the context menu", async () => {

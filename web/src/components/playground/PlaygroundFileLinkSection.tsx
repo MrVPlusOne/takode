@@ -11,10 +11,10 @@ export function PlaygroundFileLinkSection() {
   return (
     <Section
       title="File Link Context Menu"
-      description="File links open in Takode's file viewer, read on the machine that holds the file: folders as a list, Markdown rendered, code and text with line numbers, images in the image preview, and a notice for files it can't show. HTML pages and PDFs open in a browser tab (an in-app sheet in the iPhone Home Screen app). The viewer's Open in VS Code button and a link's right-click or long-press menu use the editor, as set up per machine under Settings > Hosts."
+      description="File links open in Takode's file viewer, read on the machine that holds the file: folders as a list, Markdown rendered, code and text with line numbers, images in the image preview, videos and audio in a player, and a notice for files it can't show. On phones the viewer's Save goes through the share sheet (Save to Photos for a video) instead of a download. HTML pages and PDFs open in a browser tab (an in-app sheet in the iPhone Home Screen app). The viewer's Open in VS Code button and a link's right-click or long-press menu use the editor, as set up per machine under Settings > Hosts."
     >
       <div className="space-y-4 max-w-3xl">
-        <Card label="Chat markdown with folder, code, Markdown, HTML and image file links">
+        <Card label="Chat markdown with folder, code, Markdown, HTML, image and video file links">
           <div className="space-y-2">
             <p className="text-xs text-cc-muted">
               Live fixture links resolve through the currently selected session. Select a session rooted in this Takode
@@ -22,7 +22,7 @@ export function PlaygroundFileLinkSection() {
             </p>
             <MarkdownContent
               text={
-                "Open the [interactive HTML demo](file:web/src/components/playground/html-file-link-demo/index.html), browse [its folder](file:web/src/components/playground/html-file-link-demo), read [FileViewer.tsx:44-50](file:web/src/components/FileViewer.tsx:44-50) or [markdown-reports.md](file:docs/markdown-reports.md) in Takode, preview [badge.svg](file:web/src/components/playground/html-file-link-demo/badge.svg), or try a [missing file](file:web/does-not-exist.txt)."
+                "Open the [interactive HTML demo](file:web/src/components/playground/html-file-link-demo/index.html), browse [its folder](file:web/src/components/playground/html-file-link-demo), read [FileViewer.tsx:44-50](file:web/src/components/FileViewer.tsx:44-50) or [markdown-reports.md](file:docs/markdown-reports.md) in Takode, preview [badge.svg](file:web/src/components/playground/html-file-link-demo/badge.svg), play [demo.webm](file:web/src/components/playground/html-file-link-demo/demo.webm), or try a [missing file](file:web/does-not-exist.txt)."
               }
             />
           </div>
