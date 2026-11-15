@@ -120,8 +120,6 @@ class TypingBox {
   private readonly cleanups: Array<() => void> = [];
   /** Whether marks are drawn behind the box's text (it has no background of its own). */
   private readonly behind: boolean;
-  /** The box width the mirror's style was copied at; copied again when it changes. */
-  private mirrorWidth = -1;
   private settling: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
@@ -310,25 +308,28 @@ class TypingBox {
     return { midLine, nextText: this.at(selectionEnd + lineEnd + next).y };
   }
 
-  /** Where the text at `index` is drawn (its line's top), as for the caret. */
+  /**
+   * Where the text at `index` is drawn (its line's top), as for the caret. The mirror copies the
+   * box's style on every call, since a scroll bar appearing or a change of padding or font changes
+   * how its text wraps without changing its width.
+   */
   private at(index: number): { x: number; y: number; line: number } {
-    if (this.area.offsetWidth !== this.mirrorWidth) {
-      this.mirrorWidth = this.area.offsetWidth;
-      copyTextStyle(this.area, this.mirror);
-    }
-    this.mirror.textContent = this.area.value.slice(0, index);
+    const { area, mirror } = this;
+    copyTextStyle(area, mirror);
+    // The text after the caret goes in too, so a word the caret is inside wraps as a whole, as in
+    // the box. The caret is an empty span, which adds no break; at the very end, where a line
+    // after a last newline has nothing to give it a height, it holds a zero-width space.
+    const rest = area.value.slice(index);
     const end = document.createElement("span");
-    end.textContent = "\u200b";
-    this.mirror.append(end);
-    const x = end.offsetLeft - this.area.scrollLeft;
+    end.textContent = rest ? "" : "\u200b";
+    mirror.replaceChildren(area.value.slice(0, index), end, rest);
+    // Offsets count from the padding edge, inside the border, as the box's own client offsets do.
+    const x = area.clientLeft + end.offsetLeft - area.scrollLeft;
     // An inline box's offsetTop is the top of its glyphs, not of its line; centre it on the line.
     const top = end.offsetTop + end.offsetHeight / 2 - this.lineHeight / 2;
-    const line = Math.max(
-      0,
-      Math.round((top - Number.parseFloat(this.mirror.style.paddingTop || "0")) / this.lineHeight),
-    );
-    const field = offsetIn(this.area, this.host);
-    return { x: field.x + x, y: field.y + top - this.area.scrollTop, line };
+    const line = Math.max(0, Math.round((top - Number.parseFloat(mirror.style.paddingTop || "0")) / this.lineHeight));
+    const field = offsetIn(area, this.host);
+    return { x: field.x + x, y: field.y + area.clientTop + top - area.scrollTop, line };
   }
 
   stop(): void {
@@ -766,13 +767,30 @@ const TEXT_STYLE = [
   "textIndent",
   "textTransform",
   "tabSize",
+  "wordBreak",
+  "lineBreak",
+  "overflowWrap",
+  "fontStretch",
+  "fontKerning",
+  "fontFeatureSettings",
+  "fontVariationSettings",
+  "textRendering",
 ] as const;
 
-/** Gives `copy` the box and text metrics of `area`, so text wraps and sits exactly as there. */
+/**
+ * Gives `copy` the box and text metrics of `area`, so text wraps and sits exactly as there. A box
+ * that scrolls has a scroll bar taking width from its text (Takode styles them, so they do on a Mac
+ * too); the copy has none, so it takes that width as extra padding on the right. A content-box
+ * width already leaves the scroll bar out.
+ */
 function copyTextStyle(area: HTMLTextAreaElement, copy: HTMLElement): void {
   const style = getComputedStyle(area);
   for (const property of TEXT_STYLE) copy.style[property] = style[property];
-  Object.assign(copy.style, { whiteSpace: area.wrap === "off" ? "pre" : "pre-wrap", overflowWrap: "break-word" });
+  copy.style.whiteSpace = area.wrap === "off" ? "pre" : "pre-wrap";
+  if (style.boxSizing !== "border-box") return;
+  const borders = Number.parseFloat(style.borderLeftWidth) + Number.parseFloat(style.borderRightWidth);
+  const scrollBar = Math.max(0, area.offsetWidth - area.clientWidth - Math.round(borders));
+  copy.style.paddingRight = `${Number.parseFloat(style.paddingRight) + scrollBar}px`;
 }
 
 /**

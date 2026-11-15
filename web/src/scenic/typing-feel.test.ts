@@ -319,6 +319,43 @@ describe("typing feel", () => {
     expect(animate.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 
+  // The caret's place is measured in a hidden copy of the box (the mirror). Where the copy wraps
+  // its text differently from the box, the caret's light and the throws appear a few characters
+  // away from the real caret, and two carets show (seen in a scrolled comment box). jsdom has no
+  // layout, so these check that the copy is set up to wrap exactly as the box does.
+  const mirror = () =>
+    [...document.body.children].find((element) => element.matches("div[aria-hidden]")) as HTMLElement;
+
+  it("measures the caret with the text after it, so a word the caret is inside wraps as a whole", () => {
+    // With only the text up to the caret, a long word cut at the caret could fit at the end of a
+    // line in the copy while the box moves the whole word to the next line.
+    const area = box();
+    handle = attachTypingFeel(area);
+    area.value = "again, with a supercalifragilistic word";
+    area.selectionStart = area.selectionEnd = "again, with a supercalifr".length;
+    area.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "r" }));
+    paint();
+    expect(mirror().textContent).toBe(area.value);
+    // The caret is an empty span, which adds no break opportunity inside the word.
+    const caret = mirror().querySelector("span")!;
+    expect(caret.textContent).toBe("");
+    expect(caret.previousSibling?.textContent).toBe("again, with a supercalifr");
+  });
+
+  it("leaves the box's scroll bar out of the width its copy wraps text in", () => {
+    // A scrolled box has a scroll bar (Takode styles them, so they take room on a Mac too) that
+    // narrows its text; the copy has none and wrapped wider lines, a character or a word more each.
+    const area = box();
+    area.style.cssText = "box-sizing: border-box; padding: 8px 12px; border: 1px solid";
+    Object.defineProperty(area, "offsetWidth", { configurable: true, get: () => 300 });
+    // 300 wide, less two 1 px borders and a 6 px scroll bar.
+    Object.defineProperty(area, "clientWidth", { configurable: true, get: () => 292 });
+    handle = attachTypingFeel(area);
+    input(area, "a");
+    paint();
+    expect(mirror().style.paddingRight).toBe("18px");
+  });
+
   it("throws at the end of an earlier line, with text on the lines below", () => {
     // Only the caret's own line decides: adding to the end of a line above other text still throws
     // (the things fade out before the next line's text instead).
