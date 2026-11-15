@@ -1876,6 +1876,7 @@ export function Composer({
                 canSend={canSend}
                 sendBlocked={!!sendBlockReason}
                 sendNotice={sendNotice ?? queuedSendNotice}
+                sendQueued={sendQueued}
                 isRunning={isRunning}
                 handleInterrupt={handleInterrupt}
                 handleSend={handleSend}

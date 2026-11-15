@@ -5,7 +5,13 @@ import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
 
 // The model, effort and access controls moved to the session title; their tests live in
 // SessionSettingsMenu.test.tsx. This toolbar keeps pause, image, mic, Stop and Send.
-function ToolbarHarness({ warmMicrophone = () => {} }: { warmMicrophone?: () => void }) {
+function ToolbarHarness({
+  warmMicrophone = () => {},
+  sendQueued = false,
+}: {
+  warmMicrophone?: () => void;
+  sendQueued?: boolean;
+}) {
   return (
     <div className="w-[320px]">
       <ComposerMetaToolbar
@@ -24,6 +30,7 @@ function ToolbarHarness({ warmMicrophone = () => {} }: { warmMicrophone?: () => 
         canSend={true}
         sendBlocked={false}
         sendNotice={null}
+        sendQueued={sendQueued}
         isRunning={false}
         handleInterrupt={() => {}}
         handleSend={() => {}}
@@ -48,5 +55,23 @@ describe("ComposerMetaToolbar microphone warm-up", () => {
 
     fireEvent.pointerEnter(micButton, { pointerType: "mouse" });
     expect(warmMicrophone).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ComposerMetaToolbar queued send", () => {
+  it("circles Send with a turning ring only while a send waits", () => {
+    // Jiayi: after pressing Send while images upload, only a tooltip showed that the press was
+    // taken. A ring now turns around the button until the message goes out; it is gone otherwise, so
+    // nothing keeps animating afterwards (the idle-animation rule).
+    const view = render(<ToolbarHarness sendQueued />);
+    const sendWrapper = screen.getByRole("button", { name: "Send message" }).parentElement!;
+    const ring = sendWrapper.querySelector("svg.animate-spin-slow");
+    expect(ring).not.toBeNull();
+    // It must not take the button's clicks, and it holds still for reduced motion.
+    expect(ring!.getAttribute("class")).toContain("pointer-events-none");
+    expect(ring!.getAttribute("class")).toContain("motion-reduce:animate-none");
+
+    view.rerender(<ToolbarHarness />);
+    expect(sendWrapper.querySelector("svg.animate-spin-slow")).toBeNull();
   });
 });

@@ -916,6 +916,8 @@ describe("Composer sending messages", () => {
     expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "user_message" }));
     expect(screen.getByRole("alert").textContent).toBe("Sends when the image finishes uploading.");
     expect(textarea.value).toBe("inspect this screenshot");
+    // A ring turns around Send while the send waits.
+    expect(sendButton.parentElement!.querySelector("svg.animate-spin-slow")).not.toBeNull();
 
     await act(async () => {
       prepared.resolve({
@@ -945,6 +947,8 @@ describe("Composer sending messages", () => {
     );
     expect(userMessageSends).toHaveLength(1);
     expect(screen.queryByText("Sends when the image finishes uploading.")).toBeNull();
+    // The ring ends the moment the message goes out.
+    expect(sendButton.parentElement!.querySelector("svg.animate-spin-slow")).toBeNull();
   });
 
   it("gives up a queued send when its image upload fails and keeps the draft for a retry", async () => {
@@ -984,6 +988,8 @@ describe("Composer sending messages", () => {
     expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "user_message" }));
     expect(textarea.value).toBe("inspect this screenshot");
     expect(screen.getByText("Retry")).toBeTruthy();
+    // A given-up send stops its ring too.
+    expect(container.querySelector("svg.animate-spin-slow")).toBeNull();
   });
 
   it("blocks send on failed image preparation until the image is retried or removed", async () => {

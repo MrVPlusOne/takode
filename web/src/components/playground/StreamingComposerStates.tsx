@@ -40,7 +40,7 @@ export function PlaygroundStreamingComposerStates() {
         />
       </Card>
       <div className="mt-4" />
-      <Card label="Send pressed while an image uploads: the send waits and goes out when the upload finishes">
+      <Card label="Send pressed while an image uploads: a ring circles Send while it waits, and it goes out when the upload finishes">
         <PlaygroundStreamingComposer
           initialDraft="See the attached screenshot"
           queuedNotice="Sends when the image finishes uploading."
@@ -133,6 +133,7 @@ function PlaygroundStreamingComposer({
           canSend={canSend}
           sendBlocked={!!blockedNotice}
           sendNotice={blockedNotice ?? queuedNotice ?? null}
+          sendQueued={!!queuedNotice}
           isRunning={running}
           handleInterrupt={() => {}}
           handleSend={() => {}}

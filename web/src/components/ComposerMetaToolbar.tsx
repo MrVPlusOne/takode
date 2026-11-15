@@ -1,4 +1,5 @@
 import { VoiceInputIcon } from "./VoiceInputIcon.js";
+import { Spinner } from "./LoadingIndicators.js";
 import type { ReactNode } from "react";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
@@ -27,6 +28,7 @@ export function ComposerMetaToolbar({
   canSend,
   sendBlocked,
   sendNotice,
+  sendQueued = false,
   isRunning,
   handleInterrupt,
   handleSend,
@@ -55,6 +57,8 @@ export function ComposerMetaToolbar({
   sendBlocked: boolean;
   /** Why the last press did not send, shown until the draft or its blocker changes. */
   sendNotice: string | null;
+  /** Send was pressed and waits for uploads: a ring circles the button until the message goes out. */
+  sendQueued?: boolean;
   isRunning: boolean;
   handleInterrupt: () => void;
   handleSend: () => void;
@@ -156,6 +160,15 @@ export function ComposerMetaToolbar({
               <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />
             </span>
           </button>
+          {sendQueued && (
+            // The arc's circle sits just outside the button (radius 9 of the 24-unit box, 3 px off its
+            // edge); it turns only while the send waits and holds still under reduced motion.
+            <Spinner
+              slow
+              strokeWidth={1}
+              className="pointer-events-none absolute -left-[11.5px] -top-[11.5px] h-[67px] w-[67px] text-cc-primary motion-reduce:animate-none sm:-left-[9.5px] sm:-top-[9.5px] sm:h-[51px] sm:w-[51px]"
+            />
+          )}
           {(sendNotice || sendBlocked) && (
             <div
               role={sendNotice ? "alert" : undefined}

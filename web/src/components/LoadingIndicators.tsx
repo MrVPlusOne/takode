@@ -6,19 +6,29 @@
 
 /**
  * Thin arc turning on a faint track while something loads. Size it with w-/h- classes. It turns
- * through Tailwind's animate-spin, which steps 12 times a second (index.css).
+ * through Tailwind's animate-spin, which steps 12 times a second (index.css); `slow` turns once in
+ * three seconds (animate-spin-slow, also 12 steps a second), for a calm wait. `strokeWidth` is in the
+ * 24-unit view box, so a large spinner can keep a thin line.
  */
-export function Spinner({ className = "w-4 h-4" }: { className?: string }) {
+export function Spinner({
+  className = "w-4 h-4",
+  slow = false,
+  strokeWidth = 2.5,
+}: {
+  className?: string;
+  slow?: boolean;
+  strokeWidth?: number;
+}) {
   return (
     <svg
       aria-hidden="true"
-      className={`shrink-0 animate-spin ${className}`}
+      className={`shrink-0 ${slow ? "animate-spin-slow" : "animate-spin"} ${className}`}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
     >
-      <circle cx="12" cy="12" r="9" strokeWidth="2.5" opacity="0.2" />
-      <circle cx="12" cy="12" r="9" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="15 100" />
+      <circle cx="12" cy="12" r="9" strokeWidth={strokeWidth} opacity="0.2" />
+      <circle cx="12" cy="12" r="9" strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray="15 100" />
     </svg>
   );
 }
