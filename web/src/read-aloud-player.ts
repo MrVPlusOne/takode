@@ -76,6 +76,13 @@ let unsubscribeStream: (() => void) | null = null;
 let waitingForPiece = false;
 /** The deck being played: its slide, and each slide's audio once asked for (the next is fetched ahead). */
 let deck: { narration: NarratedDeck; index: number; audio: Map<number, ReadAloudStream> } | null = null;
+/** Voice inputs recording now; no read starts by itself meanwhile. */
+let voiceInputs = 0;
+/**
+ * Voice input paused the read (or it was still preparing and starts paused), and it hasn't been
+ * played since. It stays paused after voice input ends: by then the listener has usually moved on.
+ */
+let pausedForVoiceInput = false;
 
 interface ReadAloudInput {
   sessionId: string;
@@ -131,9 +138,42 @@ export function unlockReadAloudAudio(): Promise<boolean> {
   );
 }
 
-/** Whether a read is preparing, playing or paused, rather than finished, failed or closed. */
-export function isReadAloudBusy(): boolean {
-  return !!state && state.status !== "error" && !finished();
+/**
+ * Pause what is being read until the returned release is called, for voice input: the read would
+ * talk over the dictation. Releasing doesn't resume it (Jiayi, Nov 16); the paused read stays in
+ * the player, and voiceback may replace it with the next arrival.
+ */
+export function holdReadAloudForVoiceInput(): () => void {
+  voiceInputs++;
+  const playing =
+    state?.status === "preparing" || waitingForPiece || (state?.status === "ready" && !!audio && !audio.paused);
+  if (playing) {
+    pausedForVoiceInput = true;
+    // A read still preparing starts paused (see load); one waiting for its next piece stays put.
+    waitingForPiece = false;
+    audio?.pause();
+    updatePlayback();
+  }
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    voiceInputs--;
+    notify();
+  };
+}
+
+/**
+ * Whether a read may start by itself (voiceback's next arrival): no voice input is recording, and
+ * nothing is being read except a read voice input paused.
+ */
+export function mayStartReadAloud(): boolean {
+  return voiceInputs === 0 && (pausedForVoiceInput || !isReadAloudBusy());
+}
+
+/** Whether voice input paused the current read and it hasn't been played since. */
+export function isReadAloudPausedForVoiceInput(): boolean {
+  return pausedForVoiceInput;
 }
 
 /** Calls `listener` with the message id each time a message is read through to its end. */
@@ -155,6 +195,7 @@ export function getReadAloudState(): ReadAloudState | null {
 /** Move a played deck to slide `index` and read it from its start. */
 export function goToPlayedSlide(index: number): void {
   if (!deck) return;
+  pausedForVoiceInput = false;
   deck.index = clampSlide(deck.narration, index);
   load(slideInput(deck.index), { piece: 0, fraction: 0 });
 }
@@ -171,12 +212,15 @@ export function stopReadAloud(): void {
   currentLoad = null;
   currentInput = null;
   deck = null;
+  pausedForVoiceInput = false;
   releaseAudio();
   setState(null);
 }
 
 export function toggleReadAloudPause(): void {
   if (!audio || !stream || state?.status !== "ready") return;
+  // Played or paused by hand, the read is the listener's again.
+  pausedForVoiceInput = false;
   if (waitingForPiece) {
     // Paused while the next piece is on its way: it waits instead of starting by itself.
     waitingForPiece = false;
@@ -297,7 +341,7 @@ function load(input: ReadAloudInput, startAt: StartPoint): void {
     if (!started && loaded.pieces.length > start.piece) {
       started = true;
       const firstPieceAt = performance.now();
-      playPiece(start.piece, start.fraction * loaded.pieces[start.piece]!.seconds, true, () => {
+      playPiece(start.piece, start.fraction * loaded.pieces[start.piece]!.seconds, !pausedForVoiceInput, () => {
         if (currentLoad !== token) return;
         firstPlayMs = performance.now() - firstPieceAt;
         setState({ ...read, status: "ready" });
@@ -392,6 +436,11 @@ function readEnded(): void {
 /** The whole read has played to its end. */
 function finished(): boolean {
   return !!audio?.ended && !!stream?.done && pieceIndex === stream.pieces.length - 1;
+}
+
+/** Whether a read is preparing, playing or paused, rather than finished, failed or closed. */
+function isReadAloudBusy(): boolean {
+  return !!state && state.status !== "error" && !finished();
 }
 
 function openStream(input: ReadAloudInput): ReadAloudStream {

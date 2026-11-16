@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import type { VoiceLevelSample } from "../components/composer-voice-types.js";
+import { mayStartReadAloud } from "../read-aloud-player.js";
 import { listVoiceMicrophones, rememberMicrophone } from "../utils/voice-microphone.js";
 import {
   appendVoiceLevelHistorySample,
@@ -1207,6 +1208,32 @@ describe("useVoiceInput — screen wake lock", () => {
     });
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
     expect(requestLock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useVoiceInput — read aloud", () => {
+  // Read aloud would talk over the dictation, so recording holds it paused (see
+  // holdReadAloudForVoiceInput); while held, nothing starts reading by itself.
+  it("holds read aloud from the tap until recording ends, and after a cancel", async () => {
+    const { result } = renderHook(() => useVoiceInput());
+    act(() => {
+      result.current.startRecording();
+    });
+    expect(mayStartReadAloud()).toBe(false);
+
+    await act(async () => {});
+    await act(async () => {
+      result.current.stopRecording();
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(mayStartReadAloud()).toBe(true);
+
+    await act(async () => {
+      result.current.startRecording();
+    });
+    expect(mayStartReadAloud()).toBe(false);
+    act(() => result.current.cancelRecording());
+    expect(mayStartReadAloud()).toBe(true);
   });
 });
 

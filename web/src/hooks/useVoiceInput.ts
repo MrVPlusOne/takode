@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { VoiceLevelSample } from "../components/composer-voice-types.js";
 import type { VoiceRecordingTiming } from "../transcription-progress.js";
+import { holdReadAloudForVoiceInput } from "../read-aloud-player.js";
 import { holdScreenWakeLock } from "../utils/screen-wake-lock.js";
 import {
   getVoiceCaptureDeviceId,
@@ -348,7 +349,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     meterRestarts?: string[];
   } | null>(null);
   const trackListenerCleanupRef = useRef<(() => void) | null>(null);
-  const releaseScreenWakeLockRef = useRef<(() => void) | null>(null);
+  const releaseRecordingHoldsRef = useRef<(() => void) | null>(null);
 
   // Pre-warmed mic stream, kept alive between recordings to avoid getUserMedia latency
   const cachedStreamRef = useRef<MediaStream | null>(null);
@@ -511,9 +512,9 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     trackListenerCleanupRef.current = null;
   }, []);
 
-  const releaseScreenWakeLock = useCallback(() => {
-    releaseScreenWakeLockRef.current?.();
-    releaseScreenWakeLockRef.current = null;
+  const releaseRecordingHolds = useCallback(() => {
+    releaseRecordingHoldsRef.current?.();
+    releaseRecordingHoldsRef.current = null;
   }, []);
 
   const attachTrackListeners = useCallback(
@@ -649,8 +650,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       audioBridgeRef.current?.close();
       audioBridgeRef.current = null;
     }
-    releaseScreenWakeLock();
-  }, [releaseScreenWakeLock, stopRecorder]);
+    releaseRecordingHolds();
+  }, [releaseRecordingHolds, stopRecorder]);
 
   const startRecording = useCallback(async () => {
     if (!support.isSupported) {
@@ -687,7 +688,15 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       // Keep the screen on until recording ends, so a phone's auto-lock can't cut it off. Asked
       // after the microphone, which must be the tap's first request (see requestVoiceCaptureStream),
       // but before awaiting it: WebKit grants the first wake lock only while the tap is recent.
-      releaseScreenWakeLockRef.current ??= holdScreenWakeLock();
+      // Read aloud pauses meanwhile, since it would talk over the dictation.
+      if (!releaseRecordingHoldsRef.current) {
+        const releaseWakeLock = holdScreenWakeLock();
+        const releaseReadAloud = holdReadAloudForVoiceInput();
+        releaseRecordingHoldsRef.current = () => {
+          releaseWakeLock();
+          releaseReadAloud();
+        };
+      }
       // Started in the tap on every browser. WebKit records the mic directly and uses it only for
       // the level meter (see meterDirectRecording), so it does not wait for it.
       const recordsThroughBridge = canRecordThroughVoiceAudioBridge();
@@ -778,7 +787,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         // Stop volume monitor
         stopVolumeMonitor();
         detachTrackListeners();
-        releaseScreenWakeLock();
+        releaseRecordingHolds();
         // Release mic
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
@@ -879,7 +888,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         setInputDeviceLabel(null);
         stopVolumeMonitor();
         detachTrackListeners();
-        releaseScreenWakeLock();
+        releaseRecordingHolds();
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         recorderRef.current = null;
@@ -899,7 +908,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       stopVolumeMonitor();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      releaseScreenWakeLock();
+      releaseRecordingHolds();
       if (err instanceof DOMException && err.name === "NotAllowedError") {
         setError("Microphone access denied");
       } else {
@@ -911,7 +920,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     attachTrackListeners,
     detachTrackListeners,
     meterDirectRecording,
-    releaseScreenWakeLock,
+    releaseRecordingHolds,
     releaseCachedStream,
     startVolumeMonitor,
     stopVolumeMonitor,
@@ -998,9 +1007,9 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       }
       stopVolumeMonitor();
       detachTrackListeners();
-      releaseScreenWakeLock();
+      releaseRecordingHolds();
     };
-  }, [detachTrackListeners, releaseScreenWakeLock, stopRecorder, stopVolumeMonitor]);
+  }, [detachTrackListeners, releaseRecordingHolds, stopRecorder, stopVolumeMonitor]);
 
   return {
     isRecording,

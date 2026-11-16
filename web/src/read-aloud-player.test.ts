@@ -227,6 +227,87 @@ describe("read-aloud player", () => {
     await read.done();
   });
 
+  describe("voice input", () => {
+    // Read aloud talks over a dictation, so voice input pauses it, and it does not resume when
+    // the dictation ends: by then the listener usually no longer wants that message (Jiayi, Nov 16).
+
+    it("pauses a playing read for good, and lets voiceback replace it once recording ends", async () => {
+      const { respond } = deferredFetch();
+      act(() => player.startReadAloud(input));
+      await respond(mp3(60));
+      const audio = lastAudio();
+      Object.defineProperty(audio, "paused", { configurable: true, value: false });
+      const plays = srcAtPlay.length;
+
+      let release = () => {};
+      act(() => void (release = player.holdReadAloudForVoiceInput()));
+      expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
+      Object.defineProperty(audio, "paused", { configurable: true, value: true });
+      // Nothing starts by itself while recording.
+      expect(player.mayStartReadAloud()).toBe(false);
+
+      act(() => release());
+      expect(srcAtPlay).toHaveLength(plays);
+      expect(player.isReadAloudPausedForVoiceInput()).toBe(true);
+      // The paused read no longer holds back voiceback's next arrival.
+      expect(player.mayStartReadAloud()).toBe(true);
+
+      // Played again by hand, it is the listener's read again.
+      act(() => player.toggleReadAloudPause());
+      expect(srcAtPlay).toHaveLength(plays + 1);
+      expect(player.isReadAloudPausedForVoiceInput()).toBe(false);
+      expect(player.mayStartReadAloud()).toBe(false);
+    });
+
+    it("starts a read still being prepared paused, to be played by hand", async () => {
+      const { respond } = deferredFetch();
+      const state = renderHook(() => player.useReadAloudState("m1"));
+      const playback = renderHook(() => player.useReadAloudPlayback());
+      act(() => player.startReadAloud(input));
+      let release = () => {};
+      act(() => void (release = player.holdReadAloudForVoiceInput()));
+      await respond(mp3(10));
+      act(() => release());
+
+      // The audio is loaded and the player shows it, but only the tap's silent unlock has played.
+      expect(state.result.current?.status).toBe("ready");
+      expect(lastAudio().src).toBe("blob:reply-audio-1");
+      expect(srcAtPlay.filter((src) => src.startsWith("blob:"))).toEqual([]);
+      expect(playback.result.current.paused).toBe(true);
+
+      act(() => player.toggleReadAloudPause());
+      expect(srcAtPlay.at(-1)).toBe("blob:reply-audio-1");
+    });
+
+    it("keeps a read waiting for its next piece from going on when it arrives", async () => {
+      const { respond } = deferredFetch();
+      const read = controlledRead();
+      const playback = renderHook(() => player.useReadAloudPlayback());
+      act(() => player.startReadAloud(input));
+      await respond(read.response);
+      await read.piece(2);
+      act(() => {
+        lastAudio().dispatchEvent(new Event("ended"));
+      });
+      act(() => void player.holdReadAloudForVoiceInput()());
+      expect(playback.result.current.paused).toBe(true);
+
+      await read.piece(4);
+      expect(srcAtPlay.at(-1)).toBe("blob:reply-audio-1");
+      await read.done();
+    });
+
+    it("leaves a read the user paused alone", async () => {
+      const { respond } = deferredFetch();
+      act(() => player.startReadAloud(input));
+      await respond(mp3(60));
+      // jsdom's audio reports paused: as if the user had paused it.
+      act(() => void player.holdReadAloudForVoiceInput()());
+      expect(player.isReadAloudPausedForVoiceInput()).toBe(false);
+      expect(player.mayStartReadAloud()).toBe(false);
+    });
+  });
+
   it("seeks across pieces, within the audio received so far", async () => {
     const { respond } = deferredFetch();
     act(() => player.startReadAloud(input));
@@ -309,15 +390,15 @@ describe("read-aloud player", () => {
     expect(srcAtPlay.at(-1)).toBe("blob:reply-audio-2");
   });
 
-  it("tells voiceback when a message is read to its end, and is busy until then", async () => {
+  it("tells voiceback when a message is read to its end, and starts nothing else until then", async () => {
     // Voiceback reads the next waiting reply only once nothing is being read.
     const { respond } = deferredFetch();
     const ended = vi.fn();
     player.onReadAloudEnd(ended);
-    expect(player.isReadAloudBusy()).toBe(false);
+    expect(player.mayStartReadAloud()).toBe(true);
 
     act(() => player.startReadAloud(input));
-    expect(player.isReadAloudBusy()).toBe(true);
+    expect(player.mayStartReadAloud()).toBe(false);
     await respond(mp3(10));
     const audio = lastAudio();
     Object.defineProperty(audio, "ended", { configurable: true, value: true });
@@ -326,7 +407,7 @@ describe("read-aloud player", () => {
     });
 
     expect(ended).toHaveBeenCalledWith("m1");
-    expect(player.isReadAloudBusy()).toBe(false);
+    expect(player.mayStartReadAloud()).toBe(true);
   });
 
   it("does not report a stopped read as read to its end", async () => {
@@ -337,7 +418,7 @@ describe("read-aloud player", () => {
     await respond(mp3(10));
     act(() => player.stopReadAloud());
     expect(ended).not.toHaveBeenCalled();
-    expect(player.isReadAloudBusy()).toBe(false);
+    expect(player.mayStartReadAloud()).toBe(true);
   });
 
   it("unlocks audio from a tap for reads started later, but never cuts off a read", async () => {

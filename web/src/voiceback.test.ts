@@ -17,6 +17,8 @@ const fakePlayer = vi.hoisted(() => {
     unlocks: 0,
     /** Whether the page may play audio without a tap (false is iPhone Safari after a reload). */
     autoplay: true,
+    voiceInputs: 0,
+    pausedForVoiceInput: false,
     notify: () => listeners.forEach((listener) => listener()),
     finish() {
       fake.read!.ended = true;
@@ -30,11 +32,24 @@ const fakePlayer = vi.hoisted(() => {
     },
     stop() {
       fake.read = null;
+      fake.pausedForVoiceInput = false;
       fake.notify();
     },
+    /** Voice input starts recording, pausing the read; call the result when it ends. */
+    holdForVoiceInput() {
+      fake.voiceInputs++;
+      if (fake.read && !fake.read.ended) fake.pausedForVoiceInput = true;
+      fake.notify();
+      return () => {
+        fake.voiceInputs--;
+        fake.notify();
+      };
+    },
+    busy: () => !!fake.read && fake.read.status !== "error" && !fake.read.ended,
     module: {
       startReadAloud: (input: { sessionId: string; messageId: string; text: string }) => {
         fake.read = null;
+        fake.pausedForVoiceInput = false;
         fake.notify();
         fake.started.push({ messageId: input.messageId, text: input.text });
         fake.read = { messageId: input.messageId, sessionId: input.sessionId, status: "preparing", ended: false };
@@ -45,7 +60,8 @@ const fakePlayer = vi.hoisted(() => {
         fake.unlocks++;
         return Promise.resolve(fake.autoplay);
       },
-      isReadAloudBusy: () => !!fake.read && fake.read.status !== "error" && !fake.read.ended,
+      mayStartReadAloud: () => fake.voiceInputs === 0 && (fake.pausedForVoiceInput || !fake.busy()),
+      isReadAloudPausedForVoiceInput: () => fake.pausedForVoiceInput,
       getReadAloudState: () => fake.read,
       subscribeReadAloud: (listener: () => void) => {
         listeners.add(listener);
@@ -145,6 +161,8 @@ beforeEach(() => {
   fakePlayer.read = null;
   fakePlayer.started = [];
   fakePlayer.unlocks = 0;
+  fakePlayer.voiceInputs = 0;
+  fakePlayer.pausedForVoiceInput = false;
   wakeLock.held = 0;
   wakeLock.release = 0;
   markNotificationDone.mockClear();
@@ -213,6 +231,27 @@ describe("voiceback for a leader", () => {
 
     act(() => fakePlayer.finish());
     expect(fakePlayer.started.map((read) => read.text)).toEqual(["Mine", "New"]);
+  });
+
+  it("reads nothing while voice input records, and lets go of a read it paused", () => {
+    // Voice input pauses the read and it doesn't resume (Jiayi, Nov 16): the listener has moved on,
+    // so voiceback lets that read go unread and reads what arrives next, once dictation ends.
+    view("lead");
+    tap();
+    setMessages("lead", [assistant("m-a", "A")]);
+    setNotifications("lead", [answer("n-1", "m-a")]);
+    let endVoiceInput = () => {};
+    act(() => void (endVoiceInput = fakePlayer.holdForVoiceInput()));
+
+    setMessages("lead", [assistant("m-a", "A"), assistant("m-b", "B")]);
+    setNotifications("lead", [answer("n-1", "m-a"), answer("n-2", "m-b")]);
+    expect(fakePlayer.started.map((read) => read.text)).toEqual(["A"]);
+
+    act(() => endVoiceInput());
+    expect(fakePlayer.started.map((read) => read.text)).toEqual(["A", "B"]);
+    act(() => fakePlayer.finish());
+    expect(markNotificationDone).toHaveBeenCalledTimes(1);
+    expect(markNotificationDone).toHaveBeenCalledWith("lead", "n-2", true);
   });
 
   it("ignores answers from before it started that show up later, and read or non-answer results", () => {

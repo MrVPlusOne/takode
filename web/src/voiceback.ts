@@ -4,7 +4,8 @@ import { api } from "./api.js";
 import { readsWhenSeen } from "./hooks/use-unread-messages-seen.js";
 import {
   getReadAloudState,
-  isReadAloudBusy,
+  isReadAloudPausedForVoiceInput,
+  mayStartReadAloud,
   onReadAloudEnd,
   startReadAloud,
   stopReadAloud,
@@ -325,9 +326,12 @@ function readable(sessionId: string, message: ChatMessage): VoicebackItem {
   return { sessionId, messageId: message.id, text: readAloudMessageText(message), historyIndex: message.historyIndex };
 }
 
-/** Read the next waiting message, unless something is being read (a voiceback read or the user's own). */
+/**
+ * Read the next waiting message, unless something is being read (a voiceback read or the user's
+ * own) or voice input is recording.
+ */
 function next(): void {
-  if (!active?.ready || starting || active.current || isReadAloudBusy()) return;
+  if (!active?.ready || starting || active.current || !mayStartReadAloud()) return;
   const item = active.queue.shift();
   if (!item) return;
   starting = true;
@@ -358,11 +362,16 @@ function readEnded(messageId: string): void {
   next();
 }
 
-/** The read changed: one voiceback started that was stopped, replaced or failed is let go unread. */
+/**
+ * The read changed: one voiceback started that was stopped, replaced, failed or paused for voice
+ * input is let go unread, so later arrivals are read once voice input ends.
+ */
 function readChanged(): void {
   if (!active || starting) return;
   const read = getReadAloudState();
-  if (active.current && (read?.messageId !== active.current.messageId || read.status === "error")) {
+  const letGo =
+    read?.messageId !== active.current?.messageId || read?.status === "error" || isReadAloudPausedForVoiceInput();
+  if (active.current && letGo) {
     active.current = null;
     publish();
   }
