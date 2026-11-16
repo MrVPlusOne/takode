@@ -352,6 +352,21 @@ describe("versions and projection", () => {
     expect(textOf(projected[2])).toContain("![evals]");
   });
 
+  it("names a figure's file and star on the message showing it, for the image viewer's star", async () => {
+    // The chat's image viewer finds the figure of the image it shows by this path.
+    const path = join(fixtures, "trend.png");
+    await writeFile(path, "png bytes");
+    const session: LibrarySessionLike = { id: "s1", messageHistory: [assistant(`![](${path})`, NOW)] };
+    const { store, library } = await setup([session]);
+    await library.backfill();
+    const [figure] = store.list().artifacts;
+    store.setStarred(figure.id, true);
+
+    expect((library.projectMessage("s1", session.messageHistory[0]) as { artifacts?: unknown }).artifacts).toEqual([
+      expect.objectContaining({ id: figure.id, kind: "figure", path, starred: true }),
+    ]);
+  });
+
   it("versions a report by its source file across sessions and collapses the older publication", async () => {
     const worker = {
       id: "w1",

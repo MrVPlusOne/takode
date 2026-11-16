@@ -9,6 +9,10 @@ import { canWriteClipboardImage, writeClipboardText } from "../utils/copy-utils.
 import { CopyImageButton } from "./CopyImageButton.js";
 import { formatImageDownload, useImageDownload } from "../hooks/use-image-download.js";
 import { useConversationShown } from "./KeptConversationViews.js";
+import { StarIcon } from "./ArtifactInline.js";
+import { useFigureMarker } from "./artifact-card-menu.js";
+import { artifactApi } from "../api/artifacts.js";
+import type { ArtifactMessageMarker } from "../../shared/artifact-library.js";
 import {
   forgetThumbnailLoaded,
   rememberThumbnailLoaded,
@@ -417,6 +421,8 @@ function ImagePreviewModal({
   const download = useImageDownload(image?.fullUrl ?? "");
   const sizeLabel = formatImageDownload(download);
   const conversationShown = useConversationShown();
+  // An image the message saved to the Library as a figure can be starred here, as in the Library.
+  const figure = useFigureMarker(image?.sourcePath);
 
   const selectOffset = useCallback(
     (offset: number) => {
@@ -516,7 +522,7 @@ function ImagePreviewModal({
             </IconButton>
           </div>
         </div>
-        <ModalCopyRow key={image.id} path={image.sourcePath} imageSrc={download.displaySrc} />
+        <ModalCopyRow key={image.id} path={image.sourcePath} imageSrc={download.displaySrc} figure={figure} />
         <ZoomableImage
           src={download.displaySrc}
           alt={image.filename}
@@ -534,8 +540,20 @@ function ImagePreviewModal({
 const MODAL_COPY_BUTTON_CLASS =
   "shrink-0 rounded-md border border-cc-border px-2 py-1 text-xs text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40 disabled:cursor-not-allowed disabled:opacity-40";
 
-/** The row under the header: the image's full path when it has one, with Copy path, and Copy image. */
-function ModalCopyRow({ path, imageSrc }: { path: string | undefined; imageSrc: string | null }) {
+/**
+ * The row under the header: the image's full path when it has one, its Library star when the
+ * message saved it as a figure, Copy path, and Copy image. The star sits here rather than in the
+ * header, where one more button leaves a phone no room for the file name.
+ */
+function ModalCopyRow({
+  path,
+  imageSrc,
+  figure,
+}: {
+  path: string | undefined;
+  imageSrc: string | null;
+  figure: ArtifactMessageMarker | undefined;
+}) {
   const [pathCopied, setPathCopied] = useState(false);
   useEffect(() => {
     if (!pathCopied) return;
@@ -551,6 +569,7 @@ function ModalCopyRow({ path, imageSrc }: { path: string | undefined; imageSrc: 
       data-testid="image-preview-modal-path"
     >
       <span className="min-w-0 flex-1 select-text break-all font-mono-code text-xs text-cc-muted">{path}</span>
+      {figure && <FigureStarButton figure={figure} />}
       {path && (
         <button
           type="button"
@@ -585,6 +604,26 @@ function ModalHeaderControlFootprint({ selectedIndex, count }: { selectedIndex: 
       </span>
       <span className="h-8 w-8 shrink-0 rounded-md border border-transparent" />
     </div>
+  );
+}
+
+/** The figure's Library star. It reads as starred once the server refreshes the conversation. */
+function FigureStarButton({ figure }: { figure: ArtifactMessageMarker }) {
+  const starred = figure.starred === true;
+  return (
+    <button
+      type="button"
+      className={`${MODAL_COPY_BUTTON_CLASS} ${starred ? "!text-[var(--color-cc-phase-accent-amber)]" : ""}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        void artifactApi.setStarred(figure.id, !starred).catch(console.error);
+      }}
+      aria-pressed={starred}
+      aria-label={starred ? "Unstar image" : "Star image"}
+      data-testid="image-preview-modal-star"
+    >
+      <StarIcon filled={starred} className="h-4 w-4" />
+    </button>
   );
 }
 

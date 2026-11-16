@@ -22,6 +22,13 @@ export function useArtifactMarker(kind: ArtifactKind, title: string | undefined)
   return named ?? (ofKind.length === 1 ? ofKind[0] : undefined);
 }
 
+/** The marker of the figure a message saved from the image at `path`, for the image viewer's star. */
+export function useFigureMarker(path: string | undefined): ArtifactMessageMarker | undefined {
+  const markers = useContext(ArtifactMarkersContext);
+  if (!path) return undefined;
+  return markers?.find((marker) => marker.kind === "figure" && marker.path === path);
+}
+
 /**
  * The More menu items of a card's artifact: opening it elsewhere (in the Library at its version,
  * named when there are several; in the side column while a leader's conversation is on screen; in a

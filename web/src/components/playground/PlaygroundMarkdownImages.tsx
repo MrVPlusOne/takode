@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import type { ArtifactMessageMarker } from "../../../shared/artifact-library.js";
+import { ArtifactMarkersContext } from "../artifact-card-menu.js";
 import { ImagePreviewGroup } from "../ImagePreviewGroup.js";
 import { ImagePathLinkContext, useImagePathLinks } from "../image-path-links.js";
 import { imagePreviewIdForLocalPath, type ImagePreviewItem } from "../image-preview-utils.js";
@@ -9,13 +11,27 @@ const LOADED_PATH = "/tmp/takode-playground/tabs-after.png";
 const LOADING_PATH = "/tmp/takode-playground/tabs-loading.png";
 const MISSING_PATH = "/tmp/takode-playground/tabs-deleted.png";
 
+// The loaded image is a starred Library figure, so its viewer shows the filled star.
+const FIGURE_MARKERS: ArtifactMessageMarker[] = [
+  {
+    id: "playground-figure",
+    kind: "figure",
+    title: "Tabs after",
+    version: 1,
+    versionCount: 1,
+    path: LOADED_PATH,
+    starred: true,
+  },
+];
+
 const TEXT = `Here are the tabs after the change:
 
 ![Tabs after](${LOADED_PATH}) ![Still loading](${LOADING_PATH}) ![Deleted since](${MISSING_PATH})`;
 
 /**
  * An agent message showing images with Markdown image syntax. Each keeps its tile from the first
- * render: loaded, still loading, and missing (the file can no longer be fetched).
+ * render: loaded, still loading, and missing (the file can no longer be fetched). The loaded one
+ * is a starred Library figure, so its viewer has the star.
  */
 export function PlaygroundMarkdownImages() {
   const images = useMemo<ImagePreviewItem[]>(
@@ -41,8 +57,10 @@ export function PlaygroundMarkdownImages() {
   return (
     <div data-testid="playground-markdown-images">
       <ImagePathLinkContext.Provider value={links}>
-        <MarkdownContent text={TEXT} />
-        <ImagePreviewGroup ref={groupRef} images={images} testId="playground-markdown-image-group" />
+        <ArtifactMarkersContext.Provider value={FIGURE_MARKERS}>
+          <MarkdownContent text={TEXT} />
+          <ImagePreviewGroup ref={groupRef} images={images} testId="playground-markdown-image-group" />
+        </ArtifactMarkersContext.Provider>
       </ImagePathLinkContext.Provider>
     </div>
   );

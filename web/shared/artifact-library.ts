@@ -230,6 +230,8 @@ export interface ArtifactMessageMarker {
   repeated?: boolean;
   /** The artifact is starred in the Library. */
   starred?: boolean;
+  /** On a figure: its image file, so the image viewer can find the figure of the image it shows. */
+  path?: string;
 }
 
 /** Fence language of the placeholder that stands in for a superseded version's content. */

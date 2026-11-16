@@ -612,7 +612,8 @@ export class ArtifactLibraryStore {
           ...(changes ? { changes } : {}),
           ...(destination ? { destination } : {}),
           ...(copied?.length ? { copied } : {}),
-          // Only cards show the star (in their More menu); collapsed versions don't.
+          ...(artifact.kind === "figure" && artifact.path ? { path: artifact.path } : {}),
+          // Only cards and the image viewer show the star; collapsed versions don't.
           ...(artifact.starred && !superseded ? { starred: true } : {}),
         },
         superseded,
