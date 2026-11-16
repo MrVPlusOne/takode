@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store.js";
 import {
   closeSideItem,
+  goSidePane,
   HOME_ITEM,
   handleOpenInSideClick,
   isOtherColumnClick,
@@ -513,5 +514,74 @@ describe("opening in the side", () => {
     } finally {
       shown();
     }
+  });
+});
+
+/**
+ * A pane's own Back and Forward (Jiayi, Nov 16): a link clicked in a side pane replaces what it
+ * showed, and the browser's Back and Forward, while the pane is focused, step through what it
+ * showed instead of moving the main view (`useSidePaneBackForward` reads these).
+ */
+describe("a side pane's back and forward", () => {
+  const plain = { shiftKey: false, altKey: false, metaKey: false, ctrlKey: false };
+  /** Opens `input` as a link clicked in `pane` would: in place of what the pane shows. */
+  const clickIn = (pane: string, input: Parameters<typeof openInSide>[0]) => {
+    notePaneClick(pane, plain);
+    openInSide(input);
+    // The click is handled: what opens next is opened from elsewhere.
+    vi.runAllTimers();
+  };
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("goes back to what a pane showed before a link clicked in it, and forward again, showing its tab", () => {
+    const pane = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    expect(goSidePane(pane, "back")).toBe(false);
+    clickIn(pane, { kind: "conversation", threadKey: "q-7", leaderId: "l1" });
+    // A chat can turn into a page (a report linked in it) and moves to that page's tab.
+    clickIn(pane, { kind: "artifact", artifactId: "0f1e2d3c", title: "Report" });
+    expect(items()).toEqual([expect.objectContaining({ id: pane, kind: "artifact" })]);
+    expect(useSideColumnStore.getState().tab).toBe("pages");
+
+    expect(goSidePane(pane, "back")).toBe(true);
+    expect(keys()).toEqual(["q-7"]);
+    expect(useSideColumnStore.getState()).toMatchObject({ tab: "chats", focus: pane });
+    expect(goSidePane(pane, "back")).toBe(true);
+    expect(keys()).toEqual(["q-2"]);
+    expect(goSidePane(pane, "back")).toBe(false);
+    expect(goSidePane(pane, "forward")).toBe(true);
+    expect(goSidePane(pane, "forward")).toBe(true);
+    expect(items()).toEqual([expect.objectContaining({ id: pane, kind: "artifact", artifactId: "0f1e2d3c" })]);
+    expect(goSidePane(pane, "forward")).toBe(false);
+  });
+
+  it("drops the way forward on a new link, records no step for the same thing, and keeps each pane's own", () => {
+    const pane = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    const other = openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
+    clickIn(pane, { kind: "conversation", threadKey: "q-7", leaderId: "l1" });
+    goSidePane(pane, "back");
+    clickIn(pane, { kind: "quest", questId: "q-8" });
+    expect(goSidePane(pane, "forward")).toBe(false);
+    // A link to what the pane already shows (a message of its own thread) is no step.
+    clickIn(other, { kind: "conversation", threadKey: "q-3", leaderId: "l1" });
+    expect(goSidePane(other, "back")).toBe(false);
+    expect(goSidePane(pane, "back")).toBe(true);
+    expect(items().find((item) => item.id === pane)).toMatchObject({ kind: "conversation", threadKey: "q-2" });
+  });
+
+  it("keeps one pane per thing when a link or a step back reaches what another pane shows", () => {
+    const pane = openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" });
+    clickIn(pane, { kind: "conversation", threadKey: "q-7", leaderId: "l1" });
+    const other = openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
+    // A link in the other pane to q-7 takes it over from the first pane, which goes.
+    clickIn(other, { kind: "conversation", threadKey: "q-7", leaderId: "l1" });
+    expect(items().map((item) => item.id)).toEqual([other]);
+    // Going back where a third pane now is moves that thread into this pane.
+    const third = openInSide({ kind: "conversation", threadKey: "q-3", leaderId: "l1" });
+    expect(third).not.toBe(other);
+    expect(goSidePane(other, "back")).toBe(true);
+    expect(items()).toEqual([expect.objectContaining({ id: other, threadKey: "q-3" })]);
+    expect(goSidePane(other, "forward")).toBe(true);
+    expect(keys()).toEqual(["q-7"]);
   });
 });

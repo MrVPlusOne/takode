@@ -44,6 +44,7 @@ import { THREAD_GROUP_DOT, type ThreadGroupId } from "../ThreadTabGroups.js";
 import { SideConversation } from "./SideConversation.js";
 import { NewSideChat, newSideChatDraftKey } from "./NewSideChat.js";
 import { SideTabs } from "./SideTabs.js";
+import { useSidePaneBackForward } from "./side-pane-back-forward.js";
 import { SideChatLeaderMenu, useLeaderCard } from "./SideChatLeaders.js";
 import { LeaderProfilePortraitImage } from "../LeaderProfilePortraitButton.js";
 import { SideQuest } from "./SideQuest.js";
@@ -97,6 +98,7 @@ export function SideColumn({
 }) {
   const { items, tab: chosenTab, focus, focusAt } = useSideColumn();
   const folds = useRememberedFolds();
+  useSidePaneBackForward(variant === "docked");
   const groups = SIDE_GROUPS.map((group) => ({ group, items: items.filter((item) => sideItemGroup(item) === group) }));
   const tabs: SideTab[] = [
     ...groups.filter((entry) => entry.items.length > 0).map((entry) => entry.group),
@@ -181,9 +183,11 @@ export function SideColumn({
     ) : (
       <PageItemRow item={entry} open={open} onOpen={() => toggle(id)} />
     );
-    // On a phone the sheet is the single view on screen, always focused: its chats use the main
-    // view's id. On a desktop each conversation pane is a chat of its own.
-    const chatId = !conversation ? undefined : variant === "sheet" ? MAIN_CHAT : sideChatId(id);
+    // On a phone the sheet is the single view on screen, always focused: its panes use the main
+    // view's id. On a desktop each pane is a chat of its own, a page too, so a chat that a link in it
+    // turned into a page keeps the focus its Back and Forward act on. A Home is a switcher for the
+    // main view, and the topic page opens what is clicked in it elsewhere: neither takes focus.
+    const chatId = !entry || entry.kind === "home" ? undefined : variant === "sheet" ? MAIN_CHAT : sideChatId(id);
     const content = (
       <>
         {row && (

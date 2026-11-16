@@ -922,6 +922,38 @@ describe("SideColumn", () => {
     expect(focusedChat()).toBe(MAIN_CHAT);
   });
 
+  it("takes the browser's Back and Forward to the focused side pane, which a link turned into a page", () => {
+    // Jiayi (Nov 16): with a side chat focused, Back and Forward move that chat, not the main
+    // view. A report linked in the chat opens in its pane as a page, which keeps the focus, so
+    // Back returns from it. jsdom names no platform, so the keys are Alt+Left and Alt+Right.
+    render(<SideColumn leaderId="l1" threadKey="main" variant="docked" />);
+    act(() => void openInSide({ kind: "conversation", threadKey: "q-2", leaderId: "l1" }));
+    const pane = rowsId(0);
+    const press = (key: string) => fireEvent.keyDown(document.body, { key, altKey: true });
+    fireEvent.click(within(openBodies()[0]!).getByTestId("mock-conversation"));
+    act(() => void openInSide({ kind: "artifact", artifactId: "0f1e2d3c", title: "Report" }));
+    expect(activeTab()).toBe("pages");
+    expect(focusedChat()).toBe(sideChatId(pane));
+    expect(screen.getByTestId("mock-artifact").closest("[data-chat-focused]")?.getAttribute("data-chat-focused")).toBe(
+      "true",
+    );
+
+    // The browser never gets them: `fireEvent` returns false when the default was prevented.
+    expect(press("ArrowLeft")).toBe(false);
+    expect(activeTab()).toBe("chats");
+    expect(within(openBodies()[0]!).getByTestId("mock-conversation").textContent).toBe("q-2");
+    expect(focusedChat()).toBe(sideChatId(pane));
+    // Nowhere further back: the main view still doesn't move.
+    expect(press("ArrowLeft")).toBe(false);
+    expect(press("ArrowRight")).toBe(false);
+    expect(useSideColumnStore.getState().items).toEqual([expect.objectContaining({ id: pane, kind: "artifact" })]);
+
+    // With the main view focused, they are the browser's again.
+    act(() => focusChat(MAIN_CHAT));
+    expect(press("ArrowLeft")).toBe(true);
+    expect(useSideColumnStore.getState().items[0]).toMatchObject({ kind: "artifact" });
+  });
+
   it("keeps the main view focused on a phone, where the sheet is the one view on screen", () => {
     useTopicPanel.setState({ sheet: true });
     render(<SideColumn leaderId="l1" threadKey="main" variant="sheet" />);

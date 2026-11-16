@@ -12,7 +12,9 @@ import { create } from "zustand";
  * scrolls the app makes itself (following new messages, jumps, restoring a place). Scrolling
  * focuses as a trial (Jiayi, Nov 1): users may not know the panes have a focus at all, and clicking
  * first felt wrong. On a phone the single view on screen is always focused: a side sheet's chats use
- * the main view's id.
+ * the main view's id. A side pane showing a page (a quest's details, an artifact) is focused the same
+ * way, as a window without a composer: the browser's Back and Forward act on the focused pane, and a
+ * link clicked in a side chat can turn it into a page (`useSidePaneBackForward`).
  *
  * Browser-local UI state: focus belongs to this window, not to the session.
  */
@@ -31,6 +33,11 @@ export const useChatFocusStore = create<ChatFocusState>(() => ({ focused: MAIN_C
 /** The focus id of a side pane: its item. */
 export function sideChatId(itemId: string): string {
   return `side:${itemId}`;
+}
+
+/** The side column item a focus id names; null for the main view. */
+export function sideItemOfChat(id: string): string | null {
+  return id.startsWith("side:") ? id.slice("side:".length) : null;
 }
 
 export function focusChat(id: string): void {

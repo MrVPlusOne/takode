@@ -273,10 +273,16 @@ export function openInSide(opened: SideItemInput): string {
 function openInSideFrom(pane: string | null, opened: SideItemInput): string {
   const input = asSideTarget(opened);
   // A link clicked in one of the column's panes opens in that pane, in place of what it showed.
-  if (pane && useSideColumnStore.getState().items.some((item) => item.id === pane)) {
-    replaceSideItem(pane, input);
-    focusSideItem(pane);
-    return pane;
+  const shown = pane ? useSideColumnStore.getState().items.find((item) => item.id === pane) : undefined;
+  if (shown) {
+    if (!sameTarget(shown, input)) {
+      const history = paneHistoryOf(shown.id);
+      history.back.push(targetOf(shown));
+      history.forward = [];
+    }
+    replaceSideItem(shown.id, input);
+    focusSideItem(shown.id);
+    return shown.id;
   }
   let id = "";
   update((column) => {
@@ -312,6 +318,7 @@ export function closeSideItem(id: string): void {
   const closed = before.items[index];
   const reopen = closed && !isRememberedFolded(sideFoldId(id)) ? nextInTabAfterClosing(before, index) : undefined;
   update((column) => ({ ...column, items: column.items.filter((item) => item.id !== id) }));
+  paneHistories.delete(id);
   if (reopen) unfoldSideItem(reopen);
 }
 
@@ -332,6 +339,7 @@ export function replaceSideItem(id: string, replacement: SideItemInput): void {
   const input = asSideTarget(replacement);
   update((column) => {
     const twin = column.items.find((item) => item.id !== id && sameTarget(item, input));
+    if (twin) paneHistories.delete(twin.id);
     return {
       ...column,
       items: column.items
@@ -340,6 +348,40 @@ export function replaceSideItem(id: string, replacement: SideItemInput): void {
       ...(twin && column.focus === twin.id ? { focus: id } : {}),
     };
   });
+}
+
+/**
+ * What each pane (its item's ID) showed before the links clicked in it, and after, once it went
+ * back: the pane's own Back and Forward, as a browser tab has (Jiayi, Nov 16). Kept for this page
+ * load, as the browser keeps its own history per tab.
+ */
+const paneHistories = new Map<string, { back: SideItemInput[]; forward: SideItemInput[] }>();
+
+function paneHistoryOf(id: string): { back: SideItemInput[]; forward: SideItemInput[] } {
+  let history = paneHistories.get(id);
+  if (!history) paneHistories.set(id, (history = { back: [], forward: [] }));
+  return history;
+}
+
+function targetOf(item: SideItem): SideItemInput {
+  const { id: _id, ...target } = item;
+  return target as SideItemInput;
+}
+
+/**
+ * Takes a pane of the column (its item's ID) back to what it showed before a link clicked in it,
+ * or forward again, showing its tab. Returns false when it has nowhere to go that way.
+ */
+export function goSidePane(id: string, direction: "back" | "forward"): boolean {
+  const item = useSideColumnStore.getState().items.find((candidate) => candidate.id === id);
+  const history = paneHistories.get(id);
+  const steps = direction === "back" ? history?.back : history?.forward;
+  if (!item || !history || !steps?.length) return false;
+  const target = steps.pop()!;
+  (direction === "back" ? history.forward : history.back).push(targetOf(item));
+  replaceSideItem(id, target);
+  focusSideItem(id);
+  return true;
 }
 
 export function useSideColumn(): SideColumnState {
