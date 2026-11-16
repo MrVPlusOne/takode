@@ -22,9 +22,14 @@ import { CliLauncher, REMOTE_CLAUDE_START_WAIT_MS } from "./cli-launcher.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
 import type { HostRegistry } from "./remote-host/host-registry.js";
 
-/** Poll without timers, which these tests fake. */
-async function waitFor(condition: () => boolean): Promise<void> {
-  for (let i = 0; i < 10_000 && !condition(); i++) await new Promise((resolve) => setImmediate(resolve));
+/**
+ * Poll without timers, which these tests fake, for up to 5 s of real time. A bound
+ * in turns was only about 10 ms while the launch waited on file I/O, which a busy
+ * macOS CI runner outlasted.
+ */
+async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = performance.now() + timeoutMs;
+  while (!condition() && performance.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
   if (!condition()) throw new Error("Timed out waiting for condition");
 }
 
