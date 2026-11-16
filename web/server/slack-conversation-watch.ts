@@ -7,6 +7,7 @@ import {
   parseSlackChannelName,
   parseSlackMessages,
   SLACK_UPDATES_SOURCE,
+  slackConversationId,
   slackToolResultPagination,
   slackToolResultText,
   type SlackMessage,
@@ -54,6 +55,7 @@ interface WatchedConversation {
   label: string;
   /** The newest message the session has seen, by reading or through a notice. */
   seenTs: string;
+  /** When the session last read the conversation or was sent a link to it. */
   lastReadAt: number;
   /** The leader thread the session last read it in, when not Main. */
   threadKey?: string;
@@ -129,29 +131,60 @@ export class SlackConversationWatch {
 
   /** The session read a conversation up to `read.seenTs`: watch it, or move its seen point forward. */
   recordRead(sessionId: string, read: SlackRead): void {
-    const existing = this.find(sessionId, read.channelId, read.threadTs);
-    const conversation: WatchedConversation = existing ?? {
-      sessionId,
-      channelId: read.channelId,
-      ...(read.threadTs ? { threadTs: read.threadTs } : {}),
-      label: read.label,
-      seenTs: read.seenTs,
-      lastReadAt: 0,
-      pending: [],
-      pendingOmitted: 0,
-    };
-    if (!existing) this.conversations.push(conversation);
-    conversation.label = read.label || conversation.label;
-    conversation.lastReadAt = this.now();
-    conversation.threadKey = read.threadKey;
-    conversation.questId = read.questId;
-    markSeen(conversation, read.seenTs);
-    const others = this.conversations
-      .filter((c) => c.sessionId === sessionId && c !== conversation)
-      .sort((a, b) => b.lastReadAt - a.lastReadAt);
-    const dropped = new Set(others.slice(MAX_WATCHED_PER_SESSION - 1));
-    if (dropped.size > 0) this.conversations = this.conversations.filter((c) => !dropped.has(c));
+    markSeen(this.watch(sessionId, read), read.seenTs);
     this.persist();
+  }
+
+  /**
+   * The user sent the session links to Slack conversations in a message at
+   * `sentAt`: watch each direct message, group DM and thread linked, from that
+   * moment, whether the session reads it itself or has a worker do it. A link
+   * to a conversation it already watches only renews the watch, since a link
+   * does not mean the session saw the messages waiting for it.
+   */
+  async recordLinks(
+    sessionId: string,
+    text: string,
+    sentAt: number,
+    route: { threadKey?: string; questId?: string } = {},
+  ): Promise<void> {
+    const links = slackLinksIn(text);
+    if (links.length === 0) return;
+    const seenTs = `${Math.floor(sentAt / 1000)}.000000`;
+    const opened = await this.options.openReader();
+    const connection = opened.ok ? opened.connection : null;
+    if (!opened.ok) this.log(`Not looking up linked Slack conversations: ${opened.reason}`);
+    try {
+      for (const link of links) {
+        const targets = await linkedConversations(connection, link, seenTs).catch((error: unknown) => {
+          this.log(`Looking up linked Slack conversation ${link.channelId} failed: ${String(error)}`);
+          return linkedConversations(null, link, seenTs);
+        });
+        for (const target of targets) this.watch(sessionId, { ...target, seenTs, ...route });
+      }
+    } finally {
+      await connection?.close().catch(() => {});
+    }
+    this.persist();
+  }
+
+  /** The conversations a session watches, most recently read or linked first. */
+  watched(sessionId: string): { id: string; label: string; lastReadAt: number }[] {
+    return this.conversations
+      .filter((c) => c.sessionId === sessionId)
+      .sort((a, b) => b.lastReadAt - a.lastReadAt)
+      .map((c) => ({ id: slackConversationId(c), label: c.label, lastReadAt: c.lastReadAt }));
+  }
+
+  /** Stop watching these conversations (by the ID notices show) for the session, or all of them; returns the IDs stopped. */
+  unwatch(sessionId: string, ids: readonly string[] | "all"): string[] {
+    const stopped = this.conversations.filter(
+      (c) => c.sessionId === sessionId && (ids === "all" || ids.includes(slackConversationId(c))),
+    );
+    if (stopped.length === 0) return [];
+    this.conversations = this.conversations.filter((c) => !stopped.includes(c));
+    this.persist();
+    return stopped.map(slackConversationId);
   }
 
   /** Check every watched conversation once for new messages. */
@@ -287,6 +320,35 @@ export class SlackConversationWatch {
     for (const key of this.checkedAt.keys()) if (!watched.has(key)) this.checkedAt.delete(key);
   }
 
+  /**
+   * Watch a conversation for the session, or renew its watch, keeping the
+   * session within its most recent conversations; the seen point is the caller's.
+   */
+  private watch(sessionId: string, read: SlackRead): WatchedConversation {
+    const existing = this.find(sessionId, read.channelId, read.threadTs);
+    const conversation: WatchedConversation = existing ?? {
+      sessionId,
+      channelId: read.channelId,
+      ...(read.threadTs ? { threadTs: read.threadTs } : {}),
+      label: read.label,
+      seenTs: read.seenTs,
+      lastReadAt: 0,
+      pending: [],
+      pendingOmitted: 0,
+    };
+    if (!existing) this.conversations.push(conversation);
+    conversation.label = read.label || conversation.label;
+    conversation.lastReadAt = this.now();
+    conversation.threadKey = read.threadKey;
+    conversation.questId = read.questId;
+    const others = this.conversations
+      .filter((c) => c.sessionId === sessionId && c !== conversation)
+      .sort((a, b) => b.lastReadAt - a.lastReadAt);
+    const dropped = new Set(others.slice(MAX_WATCHED_PER_SESSION - 1));
+    if (dropped.size > 0) this.conversations = this.conversations.filter((c) => !dropped.has(c));
+    return conversation;
+  }
+
   private find(sessionId: string, channelId: string, threadTs: string | undefined): WatchedConversation | undefined {
     return this.conversations.find(
       (c) => c.sessionId === sessionId && c.channelId === channelId && c.threadTs === threadTs,
@@ -387,6 +449,28 @@ export function recordSlackReads(
   }
 }
 
+/**
+ * Watch the Slack conversations the user linked in a message to this session,
+ * from now. Only the user's own messages count: a leader's or Takode's
+ * messages start a watch only once the session reads the conversation.
+ */
+export function recordSlackLinks(session: SessionLike, message: BrowserUserMessage): void {
+  if (!activeWatch || message.agentSource || typeof message.content !== "string") return;
+  const route =
+    message.threadKey && message.threadKey !== "main" ? { threadKey: message.threadKey, questId: message.questId } : {};
+  void activeWatch.recordLinks(session.id, message.content, Date.now(), route);
+}
+
+/** The conversations a session watches; empty when Slack updates are off. */
+export function watchedSlackConversations(sessionId: string): ReturnType<SlackConversationWatch["watched"]> {
+  return activeWatch?.watched(sessionId) ?? [];
+}
+
+/** Stop watching conversations for a session (see `SlackConversationWatch.unwatch`). */
+export function stopWatchingSlack(sessionId: string, ids: readonly string[] | "all"): string[] {
+  return activeWatch?.unwatch(sessionId, ids) ?? [];
+}
+
 /** The user is writing to this session (or opened its question card): check its conversations now. */
 export function refreshSlackUpdates(sessionId: string): void {
   void activeWatch?.refresh(sessionId);
@@ -447,6 +531,59 @@ function markSeen(conversation: WatchedConversation, ts: string): void {
   conversation.pending = conversation.pending.filter((message) => compareSlackTs(message.ts, conversation.seenTs) > 0);
 }
 
+interface SlackLink {
+  channelId: string;
+  /** The linked message, when the link points at one. */
+  messageTs?: string;
+  /** The thread the linked message is a reply in. */
+  threadTs?: string;
+}
+
+/** Links to Slack conversations or messages (`…slack.com/archives/<id>[/p<ts>][?thread_ts=…]`) in a text. */
+function slackLinksIn(text: string): SlackLink[] {
+  const links = new Map<string, SlackLink>();
+  for (const match of text.matchAll(
+    /https?:\/\/[\w.-]*slack\.com\/archives\/([A-Z0-9]+)(?:\/p(\d{10})(\d{6}))?(\?[^\s)>\]|]*)?/g,
+  )) {
+    const [, channelId, seconds, fraction, query] = match;
+    const threadTs = query?.match(/[?&]thread_ts=(\d+\.\d+)/)?.[1];
+    const link: SlackLink = {
+      channelId: channelId!,
+      ...(seconds ? { messageTs: `${seconds}.${fraction}` } : {}),
+      ...(threadTs ? { threadTs } : {}),
+    };
+    links.set(`${link.channelId}|${link.threadTs ?? link.messageTs ?? ""}`, link);
+  }
+  return [...links.values()];
+}
+
+/**
+ * The conversations a link asks to watch: the thread the linked message starts
+ * or belongs to, and the whole conversation when it is a direct message or
+ * group DM; nothing for a link to a whole channel. Group DMs have `C…` IDs like
+ * channels, so without Slack a `C…` link is taken for a channel.
+ */
+async function linkedConversations(
+  connection: SlackReadConnection | null,
+  link: SlackLink,
+  sinceTs: string,
+): Promise<{ channelId: string; threadTs?: string; label: string }[]> {
+  const { channelId } = link;
+  const watched: { channelId: string; threadTs?: string; label: string }[] = [];
+  const name = /^[DG]/.test(channelId) || !connection ? null : await connection.readChannelName(channelId);
+  if (/^[DG]/.test(channelId) || name === "Group DM") {
+    watched.push({ channelId, label: name ?? (channelId.startsWith("D") ? "DM" : "Group DM") });
+  }
+  const threadTs = link.threadTs ?? link.messageTs;
+  if (threadTs) {
+    // Slack returns the thread's first message along with replies newer than `oldest`.
+    const read = connection ? await connection.readThread(channelId, threadTs, sinceTs) : [];
+    const parent = read.find((message) => message.ts === threadTs);
+    watched.push({ channelId, threadTs, label: firstLine(parent?.text) || `thread ${threadTs}` });
+  }
+  return watched;
+}
+
 function conversationKey(conversation: Pick<WatchedConversation, "channelId" | "threadTs">): string {
   return `${conversation.channelId}|${conversation.threadTs ?? ""}`;
 }
@@ -459,7 +596,8 @@ function conversationKey(conversation: Pick<WatchedConversation, "channelId" | "
  */
 function seenByReadTime(input: Record<string, unknown>, content: unknown, readAt: number): string | undefined {
   if (input.latest !== undefined || input.cursor !== undefined) return undefined;
-  if (/more messages in this thread/i.test(slackToolResultPagination(content))) return undefined;
+  // Not "There are no more messages in this thread.", which ends every complete read.
+  if (/^There are more messages in this thread/i.test(slackToolResultPagination(content).trim())) return undefined;
   return `${Math.floor(readAt / 1000)}.000000`;
 }
 
@@ -467,7 +605,11 @@ function newestKnown(conversation: WatchedConversation): string {
   return conversation.pendingLatestTs ?? conversation.seenTs;
 }
 
-/** A link to the conversation or one of its messages (`/archives/<id>` or `/archives/<id>/p…`). */
+/**
+ * Whether the session was sent a link to the conversation or one of its messages
+ * (`/archives/<id>` or `/archives/<id>/p…`) in a message, such as a worker its
+ * leader sent the link to. A link only in a quest's text does not count.
+ */
 function wasLinked(session: SessionLike, channelId: string): boolean {
   if (!/^[A-Z0-9]+$/.test(channelId)) return false;
   const link = new RegExp(`/archives/${channelId}(?![A-Z0-9])`);

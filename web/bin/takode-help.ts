@@ -10,6 +10,7 @@ import {
 } from "./takode-lease.js";
 import { LEASE_RUN_HELP } from "./takode-lease-run.js";
 import { stripHelpFlags, TIMER_CREATE_GUIDANCE } from "./takode-core.js";
+import { SLACK_HELP } from "./takode-misc-commands.js";
 import { RECORD_DELIVERY_HELP } from "./takode-record-delivery.js";
 import { DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
 import { PORT_HELP } from "./takode-port.js";
@@ -773,6 +774,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "todo":
       console.log(TODO_HELP);
       return true;
+    case "slack":
+      console.log(SLACK_HELP);
+      return true;
     case "timer": {
       const sub = args[0];
       if (!sub) {
@@ -890,6 +894,7 @@ Commands:
   board          Quest Journey work board (e.g. takode board show, takode board advance q-12)
   todo           Personal durable to-dos (read, add, or change with the user's approval)
   timer          Session-scoped timers (create, list, cancel)
+  slack          Slack conversations this session gets Slack updates from (list, stop)
   lease          Resource pools (configure, acquire, run, status, renew, release, wait)
   permission     Inspect or update session permission modes
   help           Show detailed help for a command or nested subcommand

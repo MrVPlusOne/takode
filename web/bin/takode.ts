@@ -37,7 +37,13 @@ import { handleLease } from "./takode-lease.js";
 import { handleLeaseRun } from "./takode-lease-run.js";
 import { handleLatency } from "./takode-latency.js";
 import { handleExport, handleGrep, handleLogs, handlePeek, handleRead, handleScan } from "./takode-message-commands.js";
-import { handleBranch, handleOpenAITestKey, handleRefreshBranch, handleTimer } from "./takode-misc-commands.js";
+import {
+  handleBranch,
+  handleOpenAITestKey,
+  handleRefreshBranch,
+  handleSlack,
+  handleTimer,
+} from "./takode-misc-commands.js";
 import { handleTodo } from "./takode-todo-commands.js";
 import {
   handleAnswer,
@@ -320,6 +326,9 @@ try {
       break;
     case "timer":
       await handleTimer(base, args);
+      break;
+    case "slack":
+      await handleSlack(base, args);
       break;
     case "todo":
       await handleTodo(base, args);

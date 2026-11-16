@@ -8,6 +8,7 @@ import type { BrowserIncomingMessage, ContentBlock } from "./session-types.js";
 import type { OpenSlackReader, SlackReadConnection } from "./slack-reader.js";
 import {
   attachSlackUpdates,
+  recordSlackLinks,
   recordSlackReads,
   resetSlackConversationWatchForTest,
   SlackConversationWatch,
@@ -23,6 +24,7 @@ let active: Set<string>;
 let slack: {
   thread: Map<string, SlackMessage[]>;
   channel: Map<string, SlackMessage[]>;
+  names: Map<string, string>;
   reads: string[];
 };
 let available: boolean;
@@ -32,7 +34,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "slack-watch-"));
   now = 1_000_000;
   active = new Set(["s1", "s2"]);
-  slack = { thread: new Map(), channel: new Map(), reads: [] };
+  slack = { thread: new Map(), channel: new Map(), names: new Map(), reads: [] };
   available = true;
   watches = [];
 });
@@ -57,6 +59,10 @@ const openReader: OpenSlackReader = async () => {
     readChannel: async (channelId, oldest) => {
       slack.reads.push(`${channelId}>${oldest}`);
       return newer(slack.channel.get(channelId), oldest).reverse();
+    },
+    readChannelName: async (channelId) => {
+      slack.reads.push(`name ${channelId}`);
+      return slack.names.get(channelId) ?? null;
     },
     close: async () => {},
   };
@@ -218,6 +224,29 @@ describe("slackReadsInToolResults", () => {
     );
     expect(slackReadsInToolResults(dm.session, dm.results, 2_000)).toEqual([
       { channelId: "D1", label: "DM", seenTs: "2.000000" },
+    ]);
+  });
+
+  it("counts a complete concise thread read, whose paging note says there are no more messages", () => {
+    // Shaped like a real result: Slack ends every complete thread read with
+    // "There are no more messages in this thread.", which must not be taken
+    // for a read that left newer replies out.
+    const read = sessionWithRead(
+      "mcp__slack__slack_read_thread",
+      { channel_id: "C1", message_ts: "1.000001", response_format: "concise" },
+      "",
+    );
+    read.results[0]!.content = [
+      {
+        type: "text",
+        text: JSON.stringify({
+          messages: "THREAD: review the refactor PR [Junhong Shen]\n\n> Jiayi Wei: looks good\n",
+          pagination_info: "There are no more messages in this thread.\n",
+        }),
+      },
+    ] as never;
+    expect(slackReadsInToolResults(read.session, read.results, 5_000)).toEqual([
+      { channelId: "C1", threadTs: "1.000001", label: "review the refactor PR", seenTs: "5.000000" },
     ]);
   });
 
@@ -597,5 +626,103 @@ describe("attachSlackUpdates", () => {
     });
     expect(attachSlackUpdates(session, timer)).not.toBeNull();
     expect(watch.takeUpdates("s1")).not.toBeNull();
+  });
+});
+
+describe("watching conversations Jiayi links", () => {
+  // Jiayi's rule (Nov 15): a link she sends a session starts the watch for that
+  // session at once, whether it reads the conversation itself or has a worker do it.
+  const at = 100_000; // the message was sent at Slack time 100.000000
+
+  it("watches a linked group DM from when the link was sent", async () => {
+    // Group DMs have C… IDs like channels, so Slack is asked what the conversation is.
+    const watch = makeWatch();
+    slack.names.set("C7", "Group DM");
+    await watch.recordLinks("s1", "discussion: https://x.enterprise.slack.com/archives/C7\nplease look", at);
+    expect(watch.watched("s1")).toEqual([{ id: "C7", label: "Group DM", lastReadAt: now }]);
+
+    slack.channel.set("C7", [message("99.000001", "before the link"), message("101.000001", "after the link")]);
+    await watch.poll();
+    expect(slack.reads.at(-1)).toBe("C7>100.000000");
+    expect(watch.takeUpdates("s1")?.updates[0]!.messages).toEqual([message("101.000001", "after the link")]);
+  });
+
+  it("watches both the thread and the whole conversation for a message link in a group DM", async () => {
+    // Thread replies don't show in the conversation's history, so a linked
+    // thread in a group DM is watched as a thread too.
+    const watch = makeWatch();
+    slack.names.set("C7", "Group DM");
+    await watch.recordLinks("s1", "https://x.slack.com/archives/C7/p1794600050000001", at);
+    expect(watch.watched("s1").map((c) => c.id)).toEqual(["C7", "C7/1794600050.000001"]);
+  });
+
+  it("watches the thread a channel message link points at, and nothing for a whole channel", async () => {
+    const watch = makeWatch();
+    slack.names.set("C1", "#eng");
+    slack.thread.set("C1/1794600050.000001", [message("1794600050.000001", "eval proposal")]);
+    await watch.recordLinks(
+      "s1",
+      [
+        "https://x.slack.com/archives/C1/p1794600050000001",
+        // A reply's link names its thread.
+        "https://x.slack.com/archives/C1/p1794600060000002?thread_ts=1794600055.000002&cid=C1",
+        "https://x.slack.com/archives/C2",
+      ].join(" "),
+      at,
+    );
+    expect(watch.watched("s1").map((c) => [c.id, c.label])).toEqual([
+      ["C1/1794600050.000001", "eval proposal"],
+      ["C1/1794600055.000002", "thread 1794600055.000002"],
+    ]);
+  });
+
+  it("watches direct messages without asking Slack, and still watches threads when Slack is unreachable", async () => {
+    const watch = makeWatch();
+    available = false;
+    await watch.recordLinks(
+      "s1",
+      "https://x.slack.com/archives/D1 https://x.slack.com/archives/C1/p1794600050000001 https://x.slack.com/archives/C7",
+      at,
+    );
+    // The C7 link could be a group DM or a channel; without Slack it starts nothing.
+    expect(watch.watched("s1").map((c) => c.id)).toEqual(["D1", "C1/1794600050.000001"]);
+  });
+
+  it("only renews a watch the session already has, keeping the messages waiting for it", async () => {
+    const watch = makeWatch();
+    watch.recordRead("s1", { channelId: "D1", label: "DM", seenTs: "10.000001" });
+    slack.channel.set("D1", [message("20.000001")]);
+    await watch.poll();
+    now += 1_000;
+    await watch.recordLinks("s1", "https://x.slack.com/archives/D1", at);
+    expect(watch.watched("s1")[0]!.lastReadAt).toBe(now);
+    expect(watch.takeUpdates("s1")?.updates[0]!.messages).toEqual([message("20.000001")]);
+  });
+
+  it("starts a watch only from the user's own messages", async () => {
+    const watch = makeWatch();
+    resetSlackConversationWatchForTest(watch);
+    const session = { id: "s1", messageHistory: [] };
+    recordSlackLinks(
+      session,
+      userMessage("https://x.slack.com/archives/D1", { agentSource: { sessionId: "leader-1" } }),
+    );
+    recordSlackLinks(session, userMessage("https://x.slack.com/archives/D2"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(watch.watched("s1").map((c) => c.id)).toEqual(["D2"]);
+  });
+});
+
+describe("stopping a watch", () => {
+  it("stops the named conversations, or all of them, for that session only", () => {
+    const watch = makeWatch();
+    watch.recordRead("s1", { channelId: "C1", threadTs: "1.000001", label: "eval", seenTs: "1.000001" });
+    watch.recordRead("s1", { channelId: "D1", label: "DM", seenTs: "1.000001" });
+    watch.recordRead("s2", { channelId: "D1", label: "DM", seenTs: "1.000001" });
+    expect(watch.unwatch("s1", ["C1/1.000001", "C9"])).toEqual(["C1/1.000001"]);
+    expect(watch.watched("s1").map((c) => c.id)).toEqual(["D1"]);
+    expect(watch.unwatch("s1", "all")).toEqual(["D1"]);
+    expect(watch.watched("s1")).toEqual([]);
+    expect(watch.watched("s2").map((c) => c.id)).toEqual(["D1"]);
   });
 });

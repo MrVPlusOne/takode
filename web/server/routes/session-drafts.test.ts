@@ -253,10 +253,10 @@ describe("session draft routes", () => {
     expect(kept).toContain("fresh-24");
   });
 
-  // Typing to a session, or opening one of its questions, checks the Slack
+  // Typing to a session checks the Slack
   // conversations it watches so the updates riding on the answer are fresh.
-  it("checks the session's Slack conversations when the user writes a draft or opens a question", async () => {
-    const { app, put } = setup();
+  it("checks the session's Slack conversations when the user writes a draft", async () => {
+    const { put } = setup();
     vi.mocked(refreshSlackUpdates).mockClear();
 
     await put({ clientId: "tab-a", write: { kind: "composer", draft: { text: "Hel" } } });
@@ -267,10 +267,5 @@ describe("session draft routes", () => {
     // Clearing a draft (sent or deleted) is not someone about to send.
     await put({ clientId: "tab-a", write: { kind: "composer", draft: null } });
     expect(refreshSlackUpdates).toHaveBeenCalledTimes(2);
-
-    expect((await app.request("/sessions/s1/slack-refresh", { method: "POST" })).status).toBe(200);
-    expect(refreshSlackUpdates).toHaveBeenCalledTimes(3);
-    expect((await app.request("/sessions/nope/slack-refresh", { method: "POST" })).status).toBe(404);
-    expect(refreshSlackUpdates).toHaveBeenCalledTimes(3);
   });
 });

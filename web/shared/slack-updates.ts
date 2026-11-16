@@ -146,7 +146,7 @@ export function formatSlackUpdatesNotice(updates: readonly SlackUpdate[], option
     lines.push(
       "Only messages you have not seen are shown, under the conversation's ID: `<channel_id>/<message_ts>` for a thread " +
         "(read it all with `slack_read_thread`), or a direct-message conversation's `<channel_id>` (`slack_read_channel`). " +
-        "Act on them only if they change your work.",
+        "Act on them only if they change your work, and run `takode slack stop <id>` once its topic is closed.",
     );
   }
   for (const update of updates) {

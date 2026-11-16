@@ -38,6 +38,7 @@ import { createRecordingsRoutes } from "./recordings.js";
 import { createSystemRoutes } from "./system.js";
 import { createTimerRoutes } from "./timers.js";
 import { createSessionDraftRoutes } from "./session-drafts.js";
+import { createSlackUpdateRoutes } from "./slack-updates.js";
 import { createTodoRoutes } from "./todos.js";
 import { createResourceLeaseRoutes } from "./resource-leases.js";
 import { createBundleRoutes } from "./bundles.js";
@@ -292,6 +293,7 @@ export function createRoutes(
   api.route("/", createQuestOutcomeRoutes(ctx));
   api.route("/", createTimerRoutes(ctx));
   api.route("/", createSessionDraftRoutes(ctx));
+  api.route("/", createSlackUpdateRoutes(ctx));
   api.route("/", createTodoRoutes(ctx));
   api.route("/", createResourceLeaseRoutes(ctx));
   api.route("/", createBundleRoutes(ctx));

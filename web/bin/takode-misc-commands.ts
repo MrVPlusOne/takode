@@ -250,6 +250,55 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
   }
 }
 
+/** `takode slack list|stop`: the Slack conversations this session watches for Slack updates. */
+export async function handleSlack(base: string, args: string[]): Promise<void> {
+  const sessionId = getCallerSessionId();
+  const [sub, ...rest] = args;
+  if (sub === "list") {
+    const { conversations } = (await apiGet(base, `/sessions/${sessionId}/slack-watch`)) as {
+      conversations: { id: string; label: string; lastReadAt: number }[];
+    };
+    if (conversations.length === 0) {
+      console.log("Not watching any Slack conversations.");
+      return;
+    }
+    for (const c of conversations) {
+      console.log(
+        `${c.id}  ${formatInlineText(c.label)}  (last read or linked ${formatTimestampCompact(c.lastReadAt)})`,
+      );
+    }
+    return;
+  }
+  if (sub === "stop" && rest.length > 0) {
+    const all = rest.length === 1 && rest[0] === "--all";
+    const { stopped } = (await apiPost(
+      base,
+      `/sessions/${sessionId}/slack-watch/stop`,
+      all ? { all: true } : { ids: rest },
+    )) as {
+      stopped: string[];
+    };
+    const missing = all ? [] : rest.filter((id) => !stopped.includes(id));
+    if (stopped.length > 0) console.log(`Stopped watching ${stopped.join(", ")}.`);
+    if (missing.length > 0)
+      err(`Not watching ${missing.join(", ")}. \`takode slack list\` shows what this session watches.`);
+    if (stopped.length === 0 && all) console.log("Not watching any Slack conversations.");
+    return;
+  }
+  err(SLACK_HELP);
+}
+
+export const SLACK_HELP = `Usage: takode slack <list|stop> ...
+
+Slack conversations this session watches: new messages in them are added to
+its next input as Slack updates. A conversation is watched for 3 days after the
+session last read it or the user sent a link to it, at most 10 at a time.
+
+  takode slack list
+      The watched conversations, by the ID Slack updates name them with.
+  takode slack stop <id>... | --all
+      Stop watching, such as when the topic is closed.`;
+
 /** Prints the user's OpenAI test key, failing loudly when none is set so callers never fall back to the live key. */
 export async function handleOpenAITestKey(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);

@@ -88,7 +88,7 @@ import {
 import { buildUserMessageDeliveryPrefix } from "./adapter-browser-routing-source-prefix.js";
 import { SESSION_RECOVERY_SOURCE } from "../session-recovery-notice.js";
 import { checkSkillChanges, markSkillChangesChecked } from "../skill-change-notice.js";
-import { attachSlackUpdates } from "../slack-conversation-watch.js";
+import { attachSlackUpdates, recordSlackLinks } from "../slack-conversation-watch.js";
 import {
   refreshLeaderThreadOutcomeReminder,
   THREAD_RESPONSE_REMINDER_SOURCE_ID,
@@ -592,6 +592,7 @@ export async function routeBrowserMessage(
   if (userMessageRejected) return false;
   if (skillChangeCheck) markSkillChangesChecked(session);
   slackUpdates?.accept();
+  if (msg.type === "user_message") recordSlackLinks(session, msg);
   if (catalogAttachment) {
     acceptMemoryCatalogPrelude(session, catalogAttachment);
     deps.persistSession(session);

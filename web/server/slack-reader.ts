@@ -6,7 +6,12 @@ import { promisify } from "node:util";
 import { readClaudeCredentialStore } from "./claude-credentials.js";
 import { resolveBinary } from "./path-resolver.js";
 import { machineSettingsFor } from "./remote-host/machine-settings.js";
-import { parseSlackMessages, slackToolResultText, type SlackMessage } from "../shared/slack-updates.js";
+import {
+  parseSlackChannelName,
+  parseSlackMessages,
+  slackToolResultText,
+  type SlackMessage,
+} from "../shared/slack-updates.js";
 
 /** One open connection to Slack, for one round of reads. */
 export interface SlackReadConnection {
@@ -14,6 +19,8 @@ export interface SlackReadConnection {
   readThread(channelId: string, threadTs: string, oldest: string): Promise<SlackMessage[]>;
   /** Messages in a conversation newer than `oldest`, newest first as Slack prints them. */
   readChannel(channelId: string, oldest: string): Promise<SlackMessage[]>;
+  /** How Slack names a conversation: `#channel`, `DM`, `Group DM`, or null when it prints none. */
+  readChannelName(channelId: string): Promise<string | null>;
   close(): Promise<void>;
 }
 
@@ -98,6 +105,8 @@ export const openClaudeSlackReader: OpenSlackReader = async () => {
             limit: 100,
           }),
         ),
+      readChannelName: async (channelId) =>
+        parseSlackChannelName(await call("slack_read_channel", { channel_id: channelId, limit: 1 })),
       close: () => client.close(),
     },
   };

@@ -44,14 +44,6 @@ export function createSessionDraftRoutes(ctx: Pick<RouteContext, "wsBridge" | "r
     return c.json({ change });
   });
 
-  // The user opened one of this session's questions, which they may answer without typing a draft.
-  api.post("/sessions/:id/slack-refresh", (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id || !wsBridge.getSession(id)) return c.json({ error: "Session not found" }, 404);
-    refreshSlackUpdates(id);
-    return c.json({ ok: true });
-  });
-
   // A browser takes a finished voice transcription to put into its draft. Only the first claim gets it.
   api.post("/sessions/:id/drafts/voice-results/:requestId/claim", (c) => {
     const id = resolveId(c.req.param("id"));
