@@ -362,6 +362,9 @@ describe("topic store", () => {
     expect(store.threadBecomesQuest(chat.key, "q-9")).toBe(true);
     expect(store.threadBecomesQuest(chat.key, "q-10")).toBe(false);
     expect(store.threadsOf("lead")[0]).toMatchObject({ key: chat.key, quest: "q-9" });
+    // The quest's window reads the chat's messages, including ones still routed to the chat.
+    expect(store.threadsOfQuest("q-9").map((thread) => thread.id)).toEqual([chat.id]);
+    expect(store.threadsOfQuest("q-10")).toEqual([]);
     expect(store.threadsUnder(t7.id)).toEqual([]);
     store.settleThread(chat.key);
     expect(store.settledUnfiledThreads("lead")).toEqual([]);

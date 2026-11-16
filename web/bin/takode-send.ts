@@ -29,6 +29,8 @@ interface SentThread {
   questNotFound?: string;
   /** The named quest is not on the receiving leader's board. */
   notOnRecipientBoard?: true;
+  /** The named thread became part of this one (handed off to a quest or joined), so the message went here. */
+  movedFrom?: string;
 }
 
 const SEND_FLAGS = ["--json", "--correction", "--stdin", "--thread", "--forward"];
@@ -261,8 +263,11 @@ function describeSentThread(thread: SentThread): string {
     return `Thread: Main (${formatInlineText(thread.questNotFound)} does not exist, so the message went to Main)`;
   }
   if (thread.threadKey === "main") return "Thread: Main";
+  const moved = thread.movedFrom
+    ? ` (${formatInlineText(thread.movedFrom)} is part of ${formatInlineText(thread.threadKey)} now)`
+    : "";
   const note = thread.notOnRecipientBoard
     ? " -- not on the receiver's board (expected for a handoff; otherwise check you named the receiver's thread, not your own)"
     : "";
-  return `Thread: ${thread.threadKey}${note}`;
+  return `Thread: ${thread.threadKey}${moved}${note}`;
 }

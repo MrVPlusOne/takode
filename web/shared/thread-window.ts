@@ -55,6 +55,11 @@ export interface BuildThreadWindowInput {
   memberResponseProjection?: (questId: string) => LeaderThreadResponseProjection | undefined;
   /** For a topic conversation's view key: its quests, as the server's topic store says now. */
   topicMembers?: readonly string[];
+  /**
+   * For a quest's thread: the threads that became part of it (handed off or joined onto it), as the
+   * server's topic store says now. Messages still routed to them read in the quest's thread.
+   */
+  joinedThreads?: readonly string[];
 }
 
 interface FeedItem {
@@ -126,8 +131,18 @@ function buildThreadWindowSyncInScope(input: BuildThreadWindowInput): {
   const memberItems = members
     ? buildQuestThreadFeedItemsByThread(input.messageHistory, members, input.includeMessage)
     : undefined;
-  const items = memberItems
-    ? buildTopicConversationItems(memberItems, input.messageHistory, input.includeMessage)
+  // A quest's thread also reads the threads that became part of it; it keeps its own answer state.
+  const joinedItems =
+    !members && input.joinedThreads?.length
+      ? buildQuestThreadFeedItemsByThread(
+          input.messageHistory,
+          [threadKey, ...input.joinedThreads],
+          input.includeMessage,
+        )
+      : undefined;
+  const threadsItems = memberItems ?? joinedItems;
+  const items = threadsItems
+    ? buildTopicConversationItems(threadsItems, input.messageHistory, input.includeMessage)
     : buildThreadConversationItems(input.messageHistory, threadKey, input.includeMessage);
   const ranges = buildVisibleConversationRanges(items);
   const totalItems = ranges.length;
@@ -978,7 +993,10 @@ function buildThreadConversationItems(
   return dedupeFeedItems(addTurnClosingResults(items, messages, includeMessage));
 }
 
-/** A topic conversation is its own thread and its quests' threads merged in time order. */
+/**
+ * A conversation of several threads (a topic's own thread and its quests' threads, or a quest's
+ * thread and the threads that became part of it), merged in time order.
+ */
 function buildTopicConversationItems(
   memberItems: Map<string, FeedItem[]>,
   messages: ReadonlyArray<BrowserIncomingMessage>,

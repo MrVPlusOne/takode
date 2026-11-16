@@ -1,4 +1,4 @@
-import { describeClosestThreads, isUnknownThreadKey } from "../topic-views.js";
+import { describeClosestThreads, isUnknownThreadKey, threadConversationKey } from "../topic-views.js";
 import { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
@@ -1951,12 +1951,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
 /**
  * Resolve a thread the sender named with `takode send --thread`. A quest that doesn't
- * exist falls back to Main. The recipient need not have the thread yet (a handoff starts
- * it), but a quest missing from a leader recipient's board is flagged so a sender who
- * named its own quest instead of the recipient's notices.
+ * exist falls back to Main. A thread that became part of another conversation (handed off
+ * to a quest, or joined onto an earlier thread) no longer opens on its own, so the message
+ * goes to that conversation, where the user reads it. The recipient need not have the thread
+ * yet (a handoff starts it), but a quest missing from a leader recipient's board is flagged
+ * so a sender who named its own quest instead of the recipient's notices.
  */
 async function resolveSentThread(
-  route: ThreadRouteMetadata,
+  named: ThreadRouteMetadata,
   leaderRecipient: { board: Map<string, unknown>; completedBoard: Map<string, unknown> } | undefined,
 ): Promise<{
   route: ThreadRouteMetadata;
@@ -1964,10 +1966,15 @@ async function resolveSentThread(
     threadKey: string;
     questNotFound?: string;
     notOnRecipientBoard?: true;
+    movedFrom?: string;
   };
 }> {
+  const conversation = threadConversationKey(named.threadKey);
+  const movedFrom = conversation === named.threadKey ? undefined : threadAddress(named.threadKey);
+  const route = movedFrom ? threadRouteForTarget(conversation) : named;
+  const moved = movedFrom ? { movedFrom } : {};
   const questId = route.questId;
-  if (!questId) return { route, report: { threadKey: threadAddress(route.threadKey) } };
+  if (!questId) return { route, report: { threadKey: threadAddress(route.threadKey), ...moved } };
   if (!(await questStore.getQuest(questId))) {
     return {
       route: { threadKey: "main" },
@@ -1980,6 +1987,7 @@ async function resolveSentThread(
     report: {
       threadKey: questId,
       ...(onBoard ? {} : { notOnRecipientBoard: true as const }),
+      ...moved,
     },
   };
 }

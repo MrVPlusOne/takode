@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { closestThreads, describeClosestThreads, isUnknownThreadKey, setTopicViewSource } from "./topic-views.js";
+import {
+  closestThreads,
+  describeClosestThreads,
+  isUnknownThreadKey,
+  questConversationThreads,
+  setTopicViewSource,
+  threadConversationKey,
+  viewKeysOfRoutes,
+} from "./topic-views.js";
 import { rememberThreadNumbers, resetThreadNumbersForTest } from "../shared/topic-thread-key.js";
 
 /**
@@ -70,5 +78,36 @@ describe("unknown thread keys", () => {
     ]);
     // A mistyped handle is compared by handle, and the suggestions still read as addresses.
     expect(closestThreads("topic:6fd2c4bc", 1)).toEqual([{ key: "t-12", name: "Relay testing" }]);
+  });
+});
+
+describe("threads that became part of another conversation", () => {
+  // t-17 was handed off to q-40 and t-300 was later joined onto t-17: both read in the quest.
+  const HANDED_OFF = { id: "5d1e7a20-0000", name: "Fresher Slack updates", thread: { quest: "q-40" } };
+  const JOINED = { id: "5b6c7d8e-0000", name: "Slack follow-up", thread: { joinedInto: "topic:5d1e7a20" } };
+
+  function joinedSource() {
+    setTopicViewSource({
+      topicOf: (handle) => [HANDED_OFF, JOINED].find((topic) => topic.id.startsWith(handle)) ?? null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+      threadsOfQuest: (questId) => (questId === "q-40" ? ["5d1e7a20"] : []),
+      threadsJoinedInto: (threadId) => (threadId === "5d1e7a20" ? ["5b6c7d8e"] : []),
+    });
+  }
+
+  it("names the threads a quest's window reads besides its own", () => {
+    joinedSource();
+    expect(questConversationThreads("q-40")).toEqual(["topic:5d1e7a20", "topic:5b6c7d8e"]);
+    expect(questConversationThreads("q-12")).toEqual([]);
+    expect(questConversationThreads("topic:5d1e7a20")).toEqual([]);
+  });
+
+  it("puts a message still routed to such a thread in every conversation it became part of", () => {
+    joinedSource();
+    expect(threadConversationKey("topic:5b6c7d8e")).toBe("q-40");
+    expect(viewKeysOfRoutes(["topic:5b6c7d8e"])).toEqual(["topic:5b6c7d8e", "topic:5d1e7a20", "q-40"]);
+    expect(threadConversationKey("q-12")).toBe("q-12");
   });
 });

@@ -1,4 +1,4 @@
-import { topicViewMembers } from "../topic-views.js";
+import { questConversationThreads, topicViewMembers } from "../topic-views.js";
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { isInactiveCodexRecoverySource } from "./codex-interrupted-turn-recovery.js";
 import { randomUUID } from "node:crypto";
@@ -1330,7 +1330,7 @@ export function sendThreadWindowSync(
       includeMessage: isRootAgentHistoryMessage,
       currentThreadResponseProjection: responseState?.projection,
       memberResponseProjection,
-      ...(members ? { topicMembers: members } : {}),
+      ...(members ? { topicMembers: members } : { joinedThreads: questConversationThreads(threadKey) }),
     });
     sync.entries = projectArtifactsInThreadEntries(session.id, sync.entries);
     if (members) sync.window = { ...sync.window, topic_members: members };

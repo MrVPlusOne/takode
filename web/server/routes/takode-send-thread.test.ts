@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Only q-12 and q-13 exist in this quest store.
 vi.mock("../quest-store.js", () => ({
@@ -7,6 +7,8 @@ vi.mock("../quest-store.js", () => ({
 }));
 
 import { createTakodeRoutes } from "./takode.js";
+import { setTopicViewSource } from "../topic-views.js";
+import { rememberThreadNumbers, resetThreadNumbersForTest } from "../../shared/topic-thread-key.js";
 
 // `takode send --thread` names the receiving leader's thread. The route files the
 // message under it, falls back to Main for a quest that does not exist, and flags a
@@ -57,6 +59,28 @@ function createTestApp(recipient: { isOrchestrator: boolean }) {
 }
 
 describe("takode send thread routes", () => {
+  afterEach(() => {
+    setTopicViewSource(null);
+    resetThreadNumbersForTest();
+  });
+
+  it("files a message for a thread handed off to a quest under that quest, and says so", async () => {
+    // t-17 became q-12's thread, so its own address no longer opens: a message filed under it
+    // showed in no view the user could open, while the receiver's work on it showed in q-12.
+    rememberThreadNumbers([[17, "5d1e7a20"]]);
+    setTopicViewSource({
+      topicOf: (handle) =>
+        handle === "5d1e7a20" ? { id: "5d1e7a20-0000", name: "Slack updates", thread: { quest: "q-12" } } : null,
+      questsOf: () => [],
+      handlesOf: () => [],
+      topicOfQuest: () => null,
+    });
+    const { send } = createTestApp({ isOrchestrator: true });
+    const result = await send({ content: "a data point", threadKey: "t-17" });
+    expect(result.body.thread).toEqual({ threadKey: "q-12", movedFrom: "t-17" });
+    expect(result.route).toMatchObject({ threadKey: "q-12", questId: "q-12" });
+  });
+
   it("files the message under a named quest on the recipient's board", async () => {
     const { send } = createTestApp({ isOrchestrator: true });
     const result = await send({

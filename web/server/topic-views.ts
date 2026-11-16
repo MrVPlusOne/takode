@@ -34,6 +34,8 @@ export interface TopicViewSource {
   } | null;
   /** The handles of threads joined onto a thread: their messages read in its conversation. */
   threadsJoinedInto?(threadId: string): readonly string[];
+  /** The handles of threads that became a quest's thread: their messages read in the quest's. */
+  threadsOfQuest?(questId: string): readonly string[];
   /** The handles of threads filed under a topic: their threads show in its conversation. */
   threadsUnder?(topicId: string): readonly string[];
   questsOf(topicId: string): readonly string[];
@@ -134,16 +136,36 @@ export function topicThreadLabel(threadKey: string): string | null {
  * that became a quest's thread, is that conversation. Other keys come back as they are.
  */
 export function threadConversationKey(threadKey: string): string {
-  let key = threadKey;
+  return conversationChain(threadKey).at(-1) ?? threadKey;
+}
+
+/**
+ * The thread keys whose messages read in a quest's conversation besides the quest's own: threads
+ * handed off or joined onto the quest, and threads joined onto those. Messages still routed to
+ * them (sent after the handoff, or older than the attachment window) belong to the quest's view.
+ */
+export function questConversationThreads(questKey: string): string[] {
+  if (!/^q-\d+$/.test(questKey) || !source?.threadsOfQuest) return [];
+  const keys: string[] = [];
+  for (const handle of source.threadsOfQuest(questKey)) {
+    keys.push(topicViewKey(handle));
+    for (const joined of source.threadsJoinedInto?.(handle) ?? []) keys.push(topicViewKey(joined));
+  }
+  return keys;
+}
+
+/** A thread key and the conversations it became part of, in order (itself first). */
+function conversationChain(threadKey: string): string[] {
+  const chain = [threadKey];
   // A join is onto a thread that is not itself joined, but follow a short chain to be safe.
   for (let hop = 0; hop < 3; hop++) {
-    const handle = topicIdOfViewKey(key);
+    const handle = topicIdOfViewKey(chain.at(-1)!);
     const thread = handle && source ? source.topicOf(handle)?.thread : undefined;
     const next = thread?.quest ?? thread?.joinedInto;
-    if (!next) return key;
-    key = next.toLowerCase();
+    if (!next) break;
+    chain.push(next.toLowerCase());
   }
-  return key;
+  return chain;
 }
 
 /** The topic conversation views showing any of these quests. */
@@ -172,9 +194,9 @@ export function viewKeysOfRoutes(routeKeys: Iterable<string>): string[] {
     const thread = handle && source ? source.topicOf(handle)?.thread : undefined;
     if (thread?.topicId) keys.add(topicViewKey(thread.topicId));
     // A side chat that became a quest's thread shows in that quest, and a thread joined onto an
-    // earlier one in that thread, even for a message still routed to it.
-    if (thread?.quest) keys.add(thread.quest);
-    if (thread?.joinedInto) keys.add(thread.joinedInto);
+    // earlier one in that thread (and in the quest that thread became), even for a message still
+    // routed to it.
+    for (const next of conversationChain(key).slice(1)) keys.add(next);
   }
   for (const key of topicViewKeysOfQuests([...keys].filter((key) => /^q-\d+$/.test(key)))) keys.add(key);
   return [...keys];

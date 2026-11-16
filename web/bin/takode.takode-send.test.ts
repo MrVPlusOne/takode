@@ -458,6 +458,11 @@ describe("takode send", () => {
       reply = { ok: true, delivery: "sent", thread: { threadKey: "q-12" } };
       const onBoard = await send("q-12");
       expect(onBoard.stdout).toMatch(/Thread: q-12\n/);
+
+      // A thread handed off to a quest: the message went to the quest, and the sender learns why.
+      reply = { ok: true, delivery: "sent", thread: { threadKey: "q-12", movedFrom: "t-17" } };
+      const handedOff = await send("t-17");
+      expect(handedOff.stdout).toContain("Thread: q-12 (t-17 is part of q-12 now)");
     } finally {
       server.close();
     }

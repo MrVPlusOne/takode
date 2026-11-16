@@ -197,6 +197,8 @@ export async function startLibraryTopics(input: {
       service.store.loaded ? service.store.threadsUnder(topicId).map((thread) => topicHandle(thread.id)) : [],
     threadsJoinedInto: (threadId) =>
       service.store.loaded ? service.store.threadsJoinedInto(threadId).map((thread) => topicHandle(thread.id)) : [],
+    threadsOfQuest: (questId) =>
+      service.store.loaded ? service.store.threadsOfQuest(questId).map((thread) => topicHandle(thread.id)) : [],
     topicOfQuest: (questId) => (service.store.loaded ? (service.store.topicOfQuest(questId)?.id ?? null) : null),
     listThreads: () => (service.store.loaded ? service.store.allThreads() : []),
   });

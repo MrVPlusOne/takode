@@ -825,6 +825,12 @@ export class TopicStore {
     return true;
   }
 
+  /** The threads that became a quest's thread (handed off or joined onto it): their messages read there. */
+  threadsOfQuest(questId: string): StoredTopic[] {
+    const quest = questId.toLowerCase();
+    return Object.values(this.s().topics).filter((topic) => topic.thread?.quest?.toLowerCase() === quest);
+  }
+
   /** The threads joined onto a thread (by its ID): their messages read in its conversation. */
   threadsJoinedInto(threadId: string): StoredTopic[] {
     const key = `topic:${topicHandle(threadId)}`;
