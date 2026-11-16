@@ -467,10 +467,15 @@ function installActivityViewportGeometry(messages: ChatMessage[], clientHeight: 
   const originalGetComputedStyle = globalThis.getComputedStyle;
   const rowHeight = 27;
   const rowGap = 6;
-  let currentThreadStatusHeight = rowHeight;
+  let currentThreadStatusHeight: number | ((footer: Element) => number) = rowHeight;
   const messageContentBottom = () => Math.max(...positions.values()) + lastMessageHeight;
-  const threadStatusFooterHeight = () =>
-    document.querySelector('[data-testid="turn-thread-status-footer"]') ? currentThreadStatusHeight : 0;
+  const threadStatusFooterHeight = () => {
+    const footer = document.querySelector('[data-testid="turn-thread-status-footer"]');
+    if (!footer) return 0;
+    return typeof currentThreadStatusHeight === "function"
+      ? currentThreadStatusHeight(footer)
+      : currentThreadStatusHeight;
+  };
   const contentBottom = () => messageContentBottom() + threadStatusFooterHeight();
   const renderedSlack = () => {
     const spacer = document.querySelector<HTMLElement>("[data-feed-end-slack]");
@@ -583,7 +588,8 @@ function installActivityViewportGeometry(messages: ChatMessage[], clientHeight: 
     setScrollTop(value: number) {
       scrollTop = clamp(value);
     },
-    setThreadStatusFooterHeight(value: number) {
+    /** A fixed height, or one that follows what the rendered footer shows. */
+    setThreadStatusFooterHeight(value: number | ((footer: Element) => number)) {
       currentThreadStatusHeight = value;
     },
     setPhysicalBottom() {
@@ -1145,7 +1151,11 @@ describe("MessageFeed activity viewport stability", () => {
     );
     const resize = installControlledResizeObserver();
     const geometry = installActivityViewportGeometry(selected.messages, 400, 0);
-    geometry.setThreadStatusFooterHeight(55);
+    // As in a browser, the footer's height follows the status it shows. Shrinking the modeled
+    // footer before the short status rendered let an effect still pending from an earlier commit
+    // (the message navigator's) read the shorter footer early and clamp scrollTop, which a
+    // browser can't do (a CI failure).
+    geometry.setThreadStatusFooterHeight((footer) => (footer.textContent?.includes("short status") ? 27 : 55));
 
     try {
       const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
@@ -1163,7 +1173,6 @@ describe("MessageFeed activity viewport stability", () => {
         anchorTop: lastElement.getBoundingClientRect().top,
       };
 
-      geometry.setThreadStatusFooterHeight(27);
       setProducerThreadStatus(
         sid,
         makeThreadStatus("main", last.id, {
