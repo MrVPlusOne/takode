@@ -5,6 +5,7 @@ import {
   MessageTimeLabel,
   MessageTimestamp,
   formatExactMessageTimestamp,
+  formatMessageTimeLabel,
 } from "./MessageTimestamp.js";
 
 function formatTime(timestamp: number): string {
@@ -118,6 +119,65 @@ describe("MessageTimestamp", () => {
       vi.advanceTimersByTime(12 * 60 * 60 * 1000 + 2000);
     });
     expect(screen.getByTestId("message-time-label").textContent).toBe(`Yesterday ${formatTime(timestamp)}`);
+  });
+
+  it("feed labels break only between the day and the time", () => {
+    // The time beside a user's message is capped in width; when the label doesn't fit, it must
+    // wrap as "Yesterday" / "11:49 PM", never "Yesterday 11:49" / "PM". Each part is its own
+    // unbreakable run, and the label reads the same as one string.
+    const yesterday = new Date(2026, 6, 24, 23, 49, 0).getTime();
+    const older = new Date(2026, 5, 2, 23, 49, 0).getTime();
+
+    render(
+      <>
+        <MessageTimeLabel id="m1" side="user" timestamp={yesterday} />
+        <MessageTimeLabel id="m2" side="user" timestamp={older} />
+      </>,
+    );
+    const [yesterdayLabel, olderLabel] = screen.getAllByTestId("message-time-label");
+    const runs = (label: HTMLElement) =>
+      [...label.querySelectorAll("span.whitespace-nowrap")].map((span) => span.textContent);
+
+    expect(runs(yesterdayLabel)).toEqual(["Yesterday", formatTime(yesterday)]);
+    expect(yesterdayLabel.textContent).toBe(`Yesterday ${formatTime(yesterday)}`);
+    expect(runs(olderLabel)).toEqual([expect.stringMatching(/,$/), formatTime(older)]);
+    expect(olderLabel.textContent).toBe(formatMessageTimeLabel(older, undefined, Date.now()));
+    // Laid out on one line (jsdom puts every box at the top), the date keeps its comma.
+    expect(olderLabel.dataset.broken).toBeUndefined();
+  });
+
+  it("a date label that breaks marks itself, so its day line drops the comma", () => {
+    // index.css hides [data-time-comma] and keeps the day on its own line under [data-broken]:
+    // "Jun 2" / "11:49 PM" rather than "Jun 2," / "11:49 PM". Here the time run lays out a line
+    // below the day run, as it does when the label is wider than its cap.
+    const older = new Date(2026, 5, 2, 23, 49, 0).getTime();
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return new DOMRect(0, this.dataset.timeRun === "time" ? 16 : 0, 50, 16);
+    });
+
+    try {
+      render(<MessageTimeLabel id="m1" side="user" timestamp={older} />);
+      const label = screen.getByTestId("message-time-label");
+
+      expect(label.dataset.broken).toBe("true");
+      expect(label.querySelector("[data-time-run=day]")!.textContent).toMatch(/,$/);
+      expect(label.querySelector("[data-time-comma]")!.textContent).toBe(",");
+    } finally {
+      rect.mockRestore();
+    }
+  });
+
+  it("a label from today is a single unbreakable run", () => {
+    const timestamp = new Date(2026, 6, 25, 9, 30, 0).getTime();
+
+    render(<MessageTimeLabel id="m1" side="user" timestamp={timestamp} />);
+    const label = screen.getByTestId("message-time-label");
+
+    expect([...label.querySelectorAll("span.whitespace-nowrap")].map((span) => span.textContent)).toEqual([
+      formatTime(timestamp),
+    ]);
   });
 
   it("hides inline timing when the feed disables it", () => {

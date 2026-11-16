@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useLayoutEffect, useRef } from "react";
 import { localDaysAgo, useLocalToday } from "./local-today.js";
 import { type MessageTimeSide, useMessageTimeLabelHidden } from "./message-time-labels.js";
 
@@ -24,24 +24,31 @@ export function isValidMessageTimestamp(timestamp: number | undefined): timestam
  * when it differs from this one.
  */
 export function formatMessageTimestamp(timestamp: number, now: number | Date = Date.now()): string {
+  const parts = messageTimestampParts(timestamp, now);
+  if (!parts) return "";
+  return parts.day ? `${parts.day} ${parts.time}` : parts.time;
+}
+
+/** formatMessageTimestamp's text as its day ("" today, "Yesterday", "Mon", "Oct 19,") and its time. */
+function messageTimestampParts(timestamp: number, now: number | Date): { day: string; time: string } | null {
   const d = new Date(timestamp);
   const nowMs = typeof now === "number" ? now : now.getTime();
-  if (Number.isNaN(d.getTime()) || Number.isNaN(nowMs)) return "";
+  if (Number.isNaN(d.getTime()) || Number.isNaN(nowMs)) return null;
 
-  const timeText = formatMessageTime(timestamp);
-  if (!timeText) return "";
+  const time = formatMessageTime(timestamp);
+  if (!time) return null;
 
   const daysAgo = localDaysAgo(timestamp, nowMs);
-  if (daysAgo === 0) return timeText;
-  if (daysAgo === 1) return `Yesterday ${timeText}`;
-  if (daysAgo > 1 && daysAgo < 7) return `${d.toLocaleDateString([], { weekday: "short" })} ${timeText}`;
+  if (daysAgo === 0) return { day: "", time };
+  if (daysAgo === 1) return { day: "Yesterday", time };
+  if (daysAgo > 1 && daysAgo < 7) return { day: d.toLocaleDateString([], { weekday: "short" }), time };
 
   const dateText = d.toLocaleDateString([], {
     month: "short",
     day: "numeric",
     ...(d.getFullYear() === new Date(nowMs).getFullYear() ? {} : { year: "numeric" }),
   });
-  return `${dateText}, ${timeText}`;
+  return { day: `${dateText},`, time };
 }
 
 /** How long ago a message's day was: "today", "yesterday" or "5 days ago". */
@@ -126,10 +133,24 @@ export function MessageTimeLabel({
   const hidden = useMessageTimeLabelHidden(id, side, timestamp);
   const showDuration = useContext(InlineMessageTimingVisibilityContext);
   const today = useLocalToday();
-  const text = formatMessageTimeLabel(timestamp, showDuration ? turnDurationMs : undefined, today);
-  if (!text) return null;
+  const parts = messageTimeLabelParts(timestamp, showDuration ? turnDurationMs : undefined, today);
+  const labelRef = useRef<HTMLTimeElement>(null);
+  const dayComma = parts?.day.endsWith(",") ?? false;
+  // A date's comma ("Oct 24, 2026,") only joins it to the time on one line; when the label breaks,
+  // the day line drops it. Whether it breaks depends on the text and font, not the feed's width,
+  // so measuring when the text changes is enough.
+  useLayoutEffect(() => {
+    const label = labelRef.current;
+    if (!label || !dayComma) return;
+    delete label.dataset.broken;
+    const [day, time] = label.querySelectorAll("[data-time-run]");
+    if (day && time && time.getBoundingClientRect().top > day.getBoundingClientRect().top)
+      label.dataset.broken = "true";
+  }, [dayComma, parts?.day, parts?.time]);
+  if (!parts) return null;
   return (
     <time
+      ref={labelRef}
       data-testid="message-time-label"
       data-side={side}
       data-inline={inline ? "true" : undefined}
@@ -141,15 +162,36 @@ export function MessageTimeLabel({
       aria-hidden={hidden || pending ? true : undefined}
       className={`message-start-time text-[11px] leading-4 tabular-nums text-cc-muted/70 ${pending ? "invisible" : ""}`}
     >
-      {text}
+      {/* Where the label is too narrow for one line, it breaks only between the day and the time. */}
+      {parts.day && (
+        <>
+          <span className="whitespace-nowrap" data-time-run="day">
+            {dayComma ? parts.day.slice(0, -1) : parts.day}
+            {dayComma && <span data-time-comma="true">,</span>}
+          </span>{" "}
+        </>
+      )}
+      <span className="whitespace-nowrap" data-time-run="time">
+        {parts.time}
+      </span>
     </time>
   );
 }
 
 /** Label text: the day-aware time, plus the turn's duration where the feed shows durations. */
 export function formatMessageTimeLabel(timestamp: number, turnDurationMs?: number, now: number = Date.now()): string {
-  const time = isValidMessageTimestamp(timestamp) ? formatMessageTimestamp(timestamp, now) : "";
-  if (!time) return "";
+  const parts = messageTimeLabelParts(timestamp, turnDurationMs, now);
+  if (!parts) return "";
+  return parts.day ? `${parts.day} ${parts.time}` : parts.time;
+}
+
+function messageTimeLabelParts(
+  timestamp: number,
+  turnDurationMs: number | undefined,
+  now: number,
+): { day: string; time: string } | null {
+  const parts = isValidMessageTimestamp(timestamp) ? messageTimestampParts(timestamp, now) : null;
+  if (!parts) return null;
   const duration = typeof turnDurationMs === "number" ? formatTurnDuration(turnDurationMs) : "";
-  return duration ? `${time} · ${duration}` : time;
+  return duration ? { day: parts.day, time: `${parts.time} · ${duration}` } : parts;
 }

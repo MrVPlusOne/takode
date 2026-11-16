@@ -337,6 +337,22 @@ describe("message sheets", () => {
     expect(selector.match(/user-message-bubble/g)).toHaveLength(1);
   });
 
+  it("lets the thread's status row float, with paper only under what is on it", () => {
+    // A full-width sheet under the status row's one chip read as a large empty backing on the
+    // phone (Jiayi). The row stays off the sheet rule; the chip carries its own slip of the sheet's
+    // paper, and the waiting worker's see-through preview card gets a sheet of its own.
+    const sheet = rules.find((rule) =>
+      rule.selectors.some((selector) => /^html\.scenic \.turn-container > :where\(:not\(/.test(selector)),
+    );
+    expect(sheet!.selectors[0]).toContain("[data-feed-thread-status-footer]");
+
+    const bodyFor = (selector: string) => rules.find((rule) => rule.selectors.includes(selector))?.body ?? "";
+    expect(bodyFor("html.scenic [data-thread-status-chip]")).toMatch(/background:\s*var\(--scenic-sheet\)/);
+    expect(bodyFor('html.scenic [data-feed-thread-status-footer] > [data-testid="waiting-worker-preview"]')).toMatch(
+      /background:\s*var\(--scenic-sheet\)/,
+    );
+  });
+
   it("gives your messages on paper a deeper tone of the bubble", () => {
     // The side column's paper, and a turn's sheet, are nearly the bubble's colour (Jiayi: they
     // blended in Ink & Paper), so there the bubble and the time beside it take the deeper tone, by

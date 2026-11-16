@@ -53,8 +53,11 @@ function ThreadStatusMetadata({
                 status.kind === "ready" ? "bg-green-400/70" : "bg-amber-300/70"
               }`}
               aria-hidden="true"
+              data-thread-status-dot="true"
             />
-            <span className="shrink-0 font-medium text-cc-fg/75">{status.kind === "ready" ? "Ready" : "Waiting"}</span>
+            <span className="shrink-0 font-medium text-cc-fg/75" data-thread-status-word="true">
+              {status.kind === "ready" ? "Ready" : "Waiting"}
+            </span>
             <span
               className="min-w-0 basis-full whitespace-normal break-words text-cc-muted/80 sm:basis-auto"
               data-testid="thread-status-summary"
@@ -70,6 +73,7 @@ function ThreadStatusMetadata({
             key={`${status.threadKey}:${status.messageId}:${status.kind}:${status.updatedAt ?? status.timestamp}`}
             type="button"
             className={`${className} cursor-pointer hover:bg-cc-hover/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50`}
+            data-thread-status-chip={status.kind}
             onClick={() => onSelectThread?.(status.threadKey)}
             title={`Open ${accessibleDestinationLabel}`}
             aria-label={`${status.label} for ${accessibleDestinationLabel}: ${status.summary}. Open thread.`}
@@ -80,6 +84,7 @@ function ThreadStatusMetadata({
           <div
             key={`${status.threadKey}:${status.messageId}:${status.kind}:${status.updatedAt ?? status.timestamp}`}
             className={className}
+            data-thread-status-chip={status.kind}
             role="status"
             aria-label={`${status.label} for ${accessibleDestinationLabel}: ${status.summary}`}
           >

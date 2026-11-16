@@ -1580,6 +1580,14 @@ select {
   width: 0;
   margin: 0;
 }
+/* A label too wide for its line breaks between day and time (MessageTimeLabel); the day line then
+   drops the comma that joined it to the time, and keeps the break even though it is narrower now. */
+.message-start-time[data-broken] [data-time-run="day"] {
+  display: block;
+}
+.message-start-time[data-broken] [data-time-comma] {
+  display: none;
+}
 /* A message whose content is spaced with space-y-* keeps its first line tight to the label. */
 .message-start-time + * {
   margin-top: 0 !important;

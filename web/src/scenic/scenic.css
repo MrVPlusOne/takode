@@ -64,11 +64,12 @@ html.dark.scenic {
   --scenic-sheet: color-mix(in srgb, var(--color-cc-card) 94%, transparent);
 }
 
-/* Every item of a turn except the message that opens it and the activity summary, which sit on the
-   painting. Only the turn's first item is that message: messages that arrive during a turn, such as
-   a leader's to its worker, sit inside the activity below, and that activity still needs its sheet.
-   `:where` keeps the rule light, so the header rules below can reshape the sheet under a summary. */
-html.scenic .turn-container > :where(:not(:first-child:has([data-testid="user-message-bubble"]), :has(> [data-turn-toggle], > .rounded-xl))):not(:empty) {
+/* Every item of a turn except the message that opens it, the activity summary and the thread's status
+   row, which sit on the painting. Only the turn's first item is that message: messages that arrive
+   during a turn, such as a leader's to its worker, sit inside the activity below, and that activity
+   still needs its sheet. `:where` keeps the rule light, so the header rules below can reshape the
+   sheet under a summary. */
+html.scenic .turn-container > :where(:not(:first-child:has([data-testid="user-message-bubble"]), :has(> [data-turn-toggle], > .rounded-xl), [data-feed-thread-status-footer])):not(:empty) {
   background: var(--scenic-sheet);
   box-shadow: 0 0 0 1px var(--scenic-edge);
   border-radius: 12px;
@@ -153,15 +154,52 @@ html.scenic :where(
   padding-inline: 0.625rem;
 }
 
+/* The thread's status row floats: a full-width sheet under its one chip read as a large empty backing
+   (Jiayi), so only what is on the row gets paper. The chip is a slip of the sheet's paper, and the
+   waiting worker's preview, whose own card is see-through, gets a sheet of its own. */
+html.scenic [data-thread-status-chip] {
+  background: var(--scenic-sheet);
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px var(--scenic-edge),
+    0 2px 8px -4px rgba(0, 0, 0, 0.25);
+}
+
+/* At night Meadow's and Seaside's faint edge disappears into the painting. */
+html.dark.scenic:not(.scenic-ink) [data-thread-status-chip] {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-cc-fg) 20%, transparent),
+    0 2px 8px -4px rgba(0, 0, 0, 0.4);
+}
+
+/* A chip that opens its thread keeps its hover tint over the paper. */
+html.scenic button[data-thread-status-chip]:hover {
+  background:
+    linear-gradient(var(--color-cc-hover), var(--color-cc-hover)),
+    var(--scenic-sheet);
+}
+
+html.scenic [data-feed-thread-status-footer] > [data-testid="waiting-worker-preview"] {
+  background: var(--scenic-sheet);
+}
+
+html.scenic [data-feed-thread-status-footer] > [data-testid="waiting-worker-preview"][data-worker-status="running"] {
+  background:
+    linear-gradient(color-mix(in srgb, var(--color-cc-success) 5%, transparent), color-mix(in srgb, var(--color-cc-success) 5%, transparent)),
+    var(--scenic-sheet);
+}
+
 /* The live status lines keep their text where it was. */
 html.scenic [data-feed-status-line] {
   width: fit-content;
   margin-inline-start: 1.625rem;
 }
 
-/* The time beside your message is capped at a width that fits it on one line; the slip adds to it. */
+/* The time beside your message is capped at a width that fits it on one line; the slip adds to it.
+   Where it still breaks (day above time), the lines centre in the slip rather than leave a gap on one side. */
 html.scenic [data-testid="message-time-label"][data-side="user"] {
   box-sizing: content-box;
+  text-align: center;
 }
 
 /* The side column's paper is nearly the user bubble's colour, and so is a turn's sheet, where messages
