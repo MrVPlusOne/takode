@@ -133,7 +133,6 @@ function threadAttachmentUpdate(
     attachedBy: "leader-1",
     historyLength: 43,
     affectedThreadKeys: ["main", "q-1087"],
-    maxDistanceFromTail: 300,
     maxChangedMessages: 100,
     updates: [
       {

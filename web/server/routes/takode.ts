@@ -1166,8 +1166,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
     const boundError = buildThreadAttachmentBoundError({
       questId,
-      historyLength: session.messageHistory.length,
-      selectedIndices: sortedIndices,
       changedCount: attached.length,
       pendingChangedCount: pendingThreadAttachmentChangedCount(id),
     });

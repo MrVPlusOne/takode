@@ -20,7 +20,6 @@ import {
   pendingThreadAttachmentChangedCount,
   scheduleThreadAttachmentUpdateBroadcast,
   THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
-  THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
 } from "./routes/takode-thread-attachment-broadcast.js";
 import { TopicStoreError, type TopicStore } from "./topic-store.js";
 
@@ -117,11 +116,10 @@ export function joinThread(
     session.messageHistory.push(marker);
     markers.push(marker);
   }
-  // Browsers hear of the recent messages at once (the update is bounded); a conversation loaded
+  // Browsers hear of the newest messages at once (the update is bounded); a conversation loaded
   // later carries every ref, from the history.
   const room = THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES - pendingThreadAttachmentChangedCount(input.leaderId);
-  const recentFrom = Math.max(0, session.messageHistory.length - THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT);
-  const recent = room > 0 ? indices.filter((index) => index >= recentFrom).slice(-room) : [];
+  const recent = room > 0 ? indices.slice(-room) : [];
   broadcastRefs(bridge, input.leaderId, { target, source: threadKey, indices: recent, markers, markerHistoryIndices });
 
   // What still waits on the user in the thread (a question, an unread answer) moves with it.

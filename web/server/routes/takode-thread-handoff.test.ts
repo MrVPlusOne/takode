@@ -204,7 +204,7 @@ describe("Main-to-quest responsibility handoff", () => {
     expect(await retry.json()).toMatchObject({ alreadyHandedOffNotificationIds: ["n-1"] });
   });
 
-  it("fails atomically for invalid request/decision selections, inactive destinations, and old history", async () => {
+  it("fails atomically for invalid request/decision selections and inactive destinations", async () => {
     // Rejection must leave both request ownership and decision authority untouched.
     for (const body of [
       { questId: "q-42", userMessageIds: ["u1", "u999"] },
@@ -217,10 +217,14 @@ describe("Main-to-quest responsibility handoff", () => {
       expect(session.messageHistory).toEqual(before);
       expect(bridge.persistSessionById).not.toHaveBeenCalled();
     }
-    const old = fixture(Array.from({ length: 305 }, (_, index) => human(`u${index + 1}`)));
-    expect((await old.handoff()).status).toBe(400);
-    expect(old.session.messageHistory[0]?.threadRefs).toBeUndefined();
-    expect(old.bridge.persistSessionById).not.toHaveBeenCalled();
+  });
+
+  it("hands off a request however far back in history it is", async () => {
+    // A request the leader hands off a day later is often thousands of entries back; the browser
+    // needs only its new ref and a fresh window, so age is no reason to refuse.
+    const old = fixture(Array.from({ length: 1005 }, (_, index) => human(`u${index + 1}`)));
+    expect((await old.handoff()).status).toBe(200);
+    expect(old.session.messageHistory[0]?.threadRefs).toEqual([expect.objectContaining({ threadKey: "q-42" })]);
   });
 
   it.each(["absent", "id-less"])("retains retry proof for a legacy %s notification payload", async (kind) => {

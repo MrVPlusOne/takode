@@ -36,7 +36,7 @@ import { awaitDelivery, printDelivery, type MessageDelivery } from "./takode-sen
 import { resolveLeaderSpawnSessionSpace, validateLeaderSpawnFlags } from "./takode-spawn-leader.js";
 import { assertTrackSpawnFlags, resolveTrackForSpawn, spawnTrackNote } from "./takode-track.js";
 
-const THREAD_HELP = `Usage: takode thread new "<name>" [--topic "<topic>"] [--json]
+const THREAD_HELP = `Usage: takode thread new "<name>" [--from <index>] [--topic "<topic>"] [--json]
        takode thread attach <quest-id|t-N> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id> --message 174 175 --json
        takode thread attach <quest-id> --range 174-182
@@ -1955,28 +1955,45 @@ async function resolveHostId(base: string, name: string): Promise<string | undef
   return host.id;
 }
 
+/** `thread new` flags that take a value, which is not the thread's name. */
+const THREAD_NEW_VALUE_FLAGS = new Set(["--topic", "--from"]);
+
 /**
  * A leader opens a thread of its own, for something it proposes or asks that belongs to no quest or
- * thread yet, and writes there (`[thread:t-N:…]`). Filed under a topic when given.
+ * thread yet, and writes there (`[thread:t-N:…]`). Filed under a topic when given. `--from` carries
+ * the message that prompted it (another leader's, say) into the thread, so the thread starts with it.
  */
 async function handleThreadNew(base: string, args: string[]): Promise<void> {
+  const usage = 'Usage: takode thread new "<name>" [--from <index>] [--topic "<topic>"] [--json]';
   const flags = parseFlags(args);
-  assertKnownFlags(flags, new Set(["json", "topic"]), THREAD_HELP.trim());
-  const name = args.filter((arg, index) => !arg.startsWith("--") && args[index - 1] !== "--topic")[0]?.trim();
-  if (!name) err('Usage: takode thread new "<name>" [--topic "<topic>"] [--json]');
+  assertKnownFlags(flags, new Set(["json", "topic", "from"]), THREAD_HELP.trim());
+  const name = args
+    .filter((arg, index) => !arg.startsWith("--") && !THREAD_NEW_VALUE_FLAGS.has(args[index - 1]!))[0]
+    ?.trim();
+  if (!name) err(usage);
   if (flags.topic === true) err("--topic requires a topic name.");
+  const from = flags.from === undefined ? undefined : Number(flags.from);
+  if (from !== undefined && !(Number.isInteger(from) && from >= 0)) {
+    err("--from takes the message's index in your history, as takode scan/peek/grep show it.");
+  }
+  const selfId = getCallerSessionId();
   const result = (await apiPost(base, "/topics/threads", {
-    leader: getCallerSessionId(),
+    leader: selfId,
     name,
     ...(typeof flags.topic === "string" ? { topic: flags.topic } : {}),
   })) as { thread: { key: string; address?: string; name: string; topic?: { name: string } } };
+  const key = result.thread.address ?? result.thread.key;
+  const carried =
+    from === undefined
+      ? undefined
+      : await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/thread/attach`, { questId: key, message: from });
   if (flags.json === true) {
-    console.log(JSON.stringify(result.thread, null, 2));
+    console.log(JSON.stringify(carried ? { ...result.thread, carried } : result.thread, null, 2));
     return;
   }
   const { topic } = result.thread;
-  const key = result.thread.address ?? result.thread.key;
   console.log(`Started the thread "${result.thread.name}" (${key})${topic ? ` under "${topic.name}"` : ""}.`);
+  if (from !== undefined) console.log(`It starts with message ${from}.`);
   console.log(
     `Write in it with [thread:${key}:A] or [thread:${key}:C]; ask with takode notify needs-input --thread ${key}.`,
   );

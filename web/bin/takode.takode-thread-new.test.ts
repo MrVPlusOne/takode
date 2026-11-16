@@ -64,6 +64,13 @@ describe("takode thread new", () => {
         );
         return;
       }
+      if (req.method === "POST" && req.url === "/api/sessions/leader-1/thread/attach") {
+        const body = await readJson(req);
+        calls.push({ attach: body });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, attached: [body.message], alreadyAttached: [], outOfRange: [] }));
+        return;
+      }
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
     });
@@ -84,6 +91,25 @@ describe("takode thread new", () => {
     expect(result.stdout).toContain('Started the thread "Faster eval sweeps" (topic:88beef00) under "T7 run".');
     expect(result.stdout).toContain("[thread:topic:88beef00:A]");
     expect(result.stdout).toContain("--thread topic:88beef00");
+  });
+
+  it("starts the thread with the message that prompted it", async () => {
+    // Another leader's message prompted the thread: carried in, it is the first thing the user
+    // reads there instead of staying behind in Main.
+    const result = await runTakode(["thread", "new", "--from", "4182", "Fresher Slack updates"], port);
+    expect(result.status).toBe(0);
+    expect(calls).toEqual([
+      { leader: "leader-1", name: "Fresher Slack updates" },
+      { attach: { questId: "topic:88beef00", message: 4182 } },
+    ]);
+    expect(result.stdout).toContain("It starts with message 4182.");
+  });
+
+  it("refuses a --from that is not a message index before opening anything", async () => {
+    const result = await runTakode(["thread", "new", "Fresher Slack updates", "--from", "latest"], port);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("--from takes the message's index");
+    expect(calls).toEqual([]);
   });
 
   it("needs a name", async () => {

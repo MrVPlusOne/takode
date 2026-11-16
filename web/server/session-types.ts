@@ -473,7 +473,6 @@ export interface ThreadAttachmentUpdate {
   attachedBy: string;
   historyLength: number;
   affectedThreadKeys: string[];
-  maxDistanceFromTail: number;
   maxChangedMessages: number;
   updates: ThreadAttachmentUpdateEntry[];
 }

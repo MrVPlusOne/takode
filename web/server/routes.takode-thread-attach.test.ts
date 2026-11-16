@@ -112,7 +112,6 @@ describe("POST /api/sessions/:id/thread/attach", () => {
       version: 1,
       historyLength: session.messageHistory.length,
       affectedThreadKeys: expect.arrayContaining(["main", "q-1084", "q-1085", "q-100"]),
-      maxDistanceFromTail: 300,
       maxChangedMessages: 100,
       updates: [
         expect.objectContaining({
@@ -172,9 +171,12 @@ describe("POST /api/sessions/:id/thread/attach", () => {
     );
   });
 
-  it("fails before mutation when selected messages are outside the recent bounded window", async () => {
+  it("attaches a message far back in history and tells browsers about it", async () => {
+    // A leader notices a day later that the Main message which started a quest's work belongs
+    // in the quest. Attaching it used to be refused beyond the last 300 history entries; browsers
+    // only need the changed message's ref and a fresh window for the views it changes.
     const history = Array.from(
-      { length: 305 },
+      { length: 1005 },
       (_, index): BrowserIncomingMessage => ({
         type: "user_message",
         id: `u-${index}`,
@@ -186,16 +188,18 @@ describe("POST /api/sessions/:id/thread/attach", () => {
 
     const res = await attach(app, { questId: "q-1087", message: 4 });
 
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({
-      code: "THREAD_ATTACH_OUTSIDE_RECENT_WINDOW",
-      minAllowedIndex: 5,
-      minSelectedIndex: 4,
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ attached: [4] });
+    expect(session.messageHistory[4]?.threadRefs).toEqual([
+      expect.objectContaining({ threadKey: "q-1087", questId: "q-1087", source: "backfill" }),
+    ]);
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("leader-1", [4]);
+    vi.advanceTimersByTime(100);
+    expect(bridge.broadcastToSession.mock.calls[0]![1]).toMatchObject({
+      type: "thread_attachment_update",
+      affectedThreadKeys: expect.arrayContaining(["q-1087"]),
+      updates: [expect.objectContaining({ changedMessages: [expect.objectContaining({ historyIndex: 4 })] })],
     });
-    expect(session.messageHistory[4]?.threadRefs).toBeUndefined();
-    expect(session.messageHistory).toHaveLength(305);
-    expect(bridge.persistSessionById).not.toHaveBeenCalled();
-    expect(bridge.broadcastToSession).not.toHaveBeenCalled();
   });
 
   it("fails before mutation when a coalesced burst would attach more than the bounded message limit", async () => {

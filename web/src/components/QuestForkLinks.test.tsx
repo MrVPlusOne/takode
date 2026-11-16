@@ -439,7 +439,6 @@ describe("Handoffs from a side chat", () => {
         attachedBy: SESSION_ID,
         historyLength: 2,
         affectedThreadKeys: [SIDE_CHAT, QUEST_ID],
-        maxDistanceFromTail: 300,
         maxChangedMessages: 100,
         updates: [
           {

@@ -16,7 +16,6 @@ import {
   pendingThreadAttachmentChangedCount,
   scheduleThreadAttachmentUpdateBroadcast,
   THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
-  THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
 } from "./takode-thread-attachment-broadcast.js";
 
 /** Transfer exact unfinished Main requests without answering them or changing raw history. */
@@ -143,8 +142,6 @@ function performThreadHandoff(
   const changedIndices = [...changedEntries.keys()].sort((a, b) => a - b);
   const boundError = buildThreadAttachmentBoundError({
     questId,
-    historyLength: session.messageHistory.length,
-    selectedIndices: changedIndices,
     changedCount: changedIndices.length,
     pendingChangedCount: pendingThreadAttachmentChangedCount(id),
   });
@@ -281,10 +278,8 @@ function chatMessageIndices(
   room: number,
 ): number[] {
   const indices: number[] = [];
-  // An attachment reaches only recent history; a chat that started earlier joins from there.
-  const first = Math.max(0, history.length - THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT);
   history.forEach((message, index) => {
-    if (index < first || taken.has(index) || messageHasThreadRef(message, questId)) return;
+    if (taken.has(index) || messageHasThreadRef(message, questId)) return;
     if (messageThreadKeys(message)?.includes(chatKey)) indices.push(index);
   });
   return room > 0 ? indices.slice(-room) : [];

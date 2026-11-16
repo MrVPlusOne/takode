@@ -5,7 +5,6 @@ import { normalizeAffectedThreadKey } from "./takode-route-thread-helpers.js";
 
 const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
 const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
-export const THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT = 300;
 export const THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES = 100;
 
 const pendingThreadAttachmentUpdates = new Map<
@@ -37,31 +36,16 @@ function threadAttachmentEntryAttachedBy(update: ThreadAttachmentUpdateEntry): s
   return undefined;
 }
 
+/**
+ * Refuses an attach that would change more messages than one update carries to browsers. Any
+ * message may be attached, however old: browsers patch the messages they hold and fetch fresh
+ * windows for the views it changes, and views loaded later read every ref from the history.
+ */
 export function buildThreadAttachmentBoundError(input: {
   questId: string;
-  historyLength: number;
-  selectedIndices: number[];
   changedCount: number;
   pendingChangedCount: number;
 }): Record<string, unknown> | null {
-  const minAllowedIndex = Math.max(0, input.historyLength - THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT);
-  const validSelectedIndices = input.selectedIndices.filter((index) => index >= 0 && index < input.historyLength);
-  const minSelectedIndex = validSelectedIndices[0];
-  const maxSelectedIndex = validSelectedIndices[validSelectedIndices.length - 1];
-  if (typeof minSelectedIndex === "number" && minSelectedIndex < minAllowedIndex) {
-    return {
-      error: "Thread attach range is outside the recent bounded update window",
-      code: "THREAD_ATTACH_OUTSIDE_RECENT_WINDOW",
-      questId: input.questId,
-      historyLength: input.historyLength,
-      minSelectedIndex,
-      maxSelectedIndex,
-      minAllowedIndex,
-      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
-      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
-      suggestion: "Attach recent messages only.",
-    };
-  }
   if (input.pendingChangedCount + input.changedCount > THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES) {
     return {
       error: "Thread attach selection exceeds the bounded update message limit",
@@ -70,8 +54,7 @@ export function buildThreadAttachmentBoundError(input: {
       changedMessages: input.changedCount,
       pendingChangedMessages: input.pendingChangedCount,
       maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
-      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
-      suggestion: "Attach fewer messages in this recent burst.",
+      suggestion: "Attach fewer messages at once.",
     };
   }
   return null;
@@ -113,7 +96,6 @@ export function scheduleThreadAttachmentUpdateBroadcast(
       attachedBy: threadAttachmentEntryAttachedBy(updates[0]!) ?? "",
       historyLength: session.messageHistory.length,
       affectedThreadKeys: [...affectedThreadKeys],
-      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
       maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
       updates: updates.map((item) => withViewKeys(session, item)),
     };
