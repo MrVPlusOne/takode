@@ -147,8 +147,16 @@ describe("agent-browser shim", () => {
       stdio: "ignore",
     });
     const exited = new Promise<void>((resolveExit) => shim.on("close", () => resolveExit()));
-    await vi.waitFor(() => expect(existsSync(delegatePidPath)).toBe(true), { timeout: 5000 });
-    const delegatePid = Number(readFileSync(delegatePidPath, "utf-8").trim());
+    // The pid file exists before the delegate writes its pid into it, and an empty file reads
+    // as pid 0, which names our own process group and always looks alive (a CI failure).
+    const delegatePid = await vi.waitFor(
+      () => {
+        const pid = Number(readFileSync(delegatePidPath, "utf-8").trim());
+        expect(pid).toBeGreaterThan(0);
+        return pid;
+      },
+      { timeout: 5000 },
+    );
 
     shim.kill("SIGTERM");
     await exited;
