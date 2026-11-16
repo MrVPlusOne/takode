@@ -16,11 +16,79 @@ The rest of the release is about spending less effort keeping up with your agent
 
 Under the hood, Claude sessions now run only through the Claude Agent SDK, with Claude's native Auto permission mode, a reasoning effort picker and the model list Claude Code itself reports. Teams that share a branch can turn on a landing queue that tests waiting changes together and lands them, so workers are free as soon as they submit. Switching sessions over a slow connection is much faster thanks to compressed traffic and a reused connection. The dated entries below list every notable change.
 
+## 2026-11-16
+
+### Added
+
+- **Typing Effect setting** -- Settings > Appearance > Typing Effect chooses when chat inputs get the typing feel: Off, With Background (only while a scenic background is on, the default) or Always. Without a scenic background the box edge takes the theme's accent and the gold leaf is finer and brighter. The caret's glow now follows the caret when you click, use the arrow keys or scroll, and goes out over a selection.
+- **Starring a figure from the image viewer** -- An image an agent showed in the chat, which the Library keeps as a figure, shows its star beside Copy path and Copy image in the image viewer, so it can be starred without opening the Library.
+
+### Changed
+
+- **Voice input pauses Read aloud** -- Starting voice input pauses a read that is playing or about to play, and it stays paused when dictation ends. No read starts by itself while you dictate, and with Voiceback on, the next reply that arrives is read once dictation ends.
+
+### Fixed
+
+- **Message times that wrap** -- A message time too wide for its space breaks between the day and the time ("Yesterday" / "11:49 PM") instead of inside the time.
+- **Status row over a scenic painting** -- With a scenic background, the thread status chip sits on its own slip of paper instead of a full-width sheet, and a waiting worker's preview card gets a sheet of its own.
+
 ## 2026-11-15
+
+### Added
+
+- **Videos in the file viewer** -- Tapping a link to a video or audio file plays it in Takode's file viewer, seeking included, instead of offering only a download. On a phone, Save opens the share sheet, so Save Video puts a video in Photos; before, a download in the Home Screen app replaced Takode with iOS's file page and no way back. Pages previewed from file links can play their own videos too.
+- **The message that started a thread** -- `takode thread attach` and `takode thread handoff` take any message, however old, and `takode thread new --from <index>` opens a thread with the message that prompted it, so a leader can show the user what started its work.
 
 ### Changed
 
 - **Markdown as you type** -- The message box, side chats, comments and answers to questions now show basic Markdown as you type (bold, italic, code, links, headings, quotes, lists and code blocks) while sending exactly the text you typed. Styles never change the width of the text, so nothing moves while you type, and pasted text arrives without its colours or fonts. Quest and session links are highlighted in the text: hover one for its card, or Cmd/Ctrl+click to open it. Settings > Appearance > Message Box switches back to plain text.
+- **Sending while images upload** -- A thin ring turns around Send while a send waits for its images to finish uploading.
+- **Slack links you send** -- Sending a session a link to a Slack direct message, group DM or thread starts watching it from that moment, even when a worker does the reading. `takode slack list` and `takode slack stop` let a session see and end its watches, and concise reads of a thread are now recorded.
+
+### Fixed
+
+- **Model switches Claude Code refuses** -- Switching a running Claude session to a model its Claude Code can't run, such as Fable 5.2 on an older release, no longer shows as switched while the old model keeps running: the session says why, keeps the new model for its next launch and restarts on the current Claude Code at its first idle moment. An accepted switch takes the model's context window from Claude Code instead of guessing 200K from its name.
+- **Messages to a thread that became a quest** -- A message another leader sends to a thread after it became part of a quest shows in the quest, and a quest also shows earlier messages filed under the threads that joined it.
+- **Typing glow in a scrolled box** -- The typing glow and what it throws stay on the real caret in a text box that has scrolled or wrapped, instead of showing a second caret a word early.
+- **Waiting-to-send notice on a phone** -- The notice above Send no longer lets the draft's text show through it.
+
+## 2026-11-14
+
+### Added
+
+- **Forwarding your messages** -- `takode send --forward <uN>` passes one of your messages on to another session word for word, with its comments and images, instead of the leader retyping it. The feed shows it as a sent message.
+- **Ink-wash leader portraits** -- With Ink & Paper on, every leader portrait shows a matching ink-wash painting, each on a wash of its original portrait's colour so leaders stay easy to tell apart.
+
+### Changed
+
+- **Sparks and gold leaf as you type** -- Every typed character throws its own small burst: forge sparks at night, some floating on as glowing red embers, and by day a flake of gold leaf that drifts out and sinks like a falling leaf into the composer's empty strip. They fade before the box's edges and buttons, and the caret's light stays off the letters around it.
+- **Side column tabs** -- The side column shows one tab at a time, Chats, Quests and Pages (each with its count) and Topic, with one item open in each tab filling the column, so the column itself never scrolls. While another tab is open, the Chats tab shows a question bell, "N new" or a green dot while a leader is writing.
+- **Guided review stops** -- A stop shows more lines above and below separately, the send key moves to the next stop, and the progress rail opens the overview and the wrap-up.
+- **Fresher Slack updates** -- Writing a draft or opening a question checks the session's watched Slack conversations (each at most once a minute), so the updates attached to what you send are current. Group DMs are watched like direct messages, concise reads count, and a session watches its 10 most recently read conversations for 3 days after the last read (was 7 days).
+- **Fewer cat portraits** -- The Tako and Shmi portrait sets keep 16 cats each instead of 48, one per pose or idea; a leader whose cat was retired gets the closest one kept.
+
+### Fixed
+
+- **Claude models after a restart** -- The New Session model menu keeps the model list Claude Code reported across server restarts, and on a new install Takode asks this machine's Claude Code for it, instead of showing generic names that hid models such as Fable 5.2.
+- **Fable 5.2 needs a newer Claude Code** -- The Claude Code Copilot setup offers Fable 5.2 only to Claude Code 2.1.290 or newer, which Copilot requires, and asks you to update older ones.
+- **Guided review answers** -- A shared guided review is the same review as the one it came from, so it has one set of answers, sent to the latest sharer's thread from any card, even with another session on screen. A failed send says what happened and keeps the answers.
+- **Jumping to a question** -- Jumping to a needs-input question from a notification, phone alert or link shows a loading state until the messages around it arrive, instead of the question card alone or the latest messages, and asks again if the reply is lost.
+- **Room for the floating chips** -- Every feed keeps a row of room at its top, so a running turn's chips no longer cover the first line.
+- **Typing after dictating** -- Typing on after dictating throws sparks and gold leaf again.
+- **Include-comments count** -- The checkbox that adds comments to an answer names the count even for one comment.
+- **Backups** -- Backups leave tool caches out and commit every file they list, which had made the weekly restore test fail.
+
+## 2026-11-13
+
+### Added
+
+- **Typing feel** -- With a scenic background on, chat inputs (the message box, side chats, comments and answers to questions) get a forged caret that heats from dark red to white-gold as you type faster, a warm edge on the box, and fireflies at night or plum petals by day drifting out beside the caret, without adding typing latency. In the dark theme, pinyin being composed gets an ink edge so it reads on Chrome's yellow highlight.
+- **Landing page** -- Takode has a [landing page](https://mrvplusone.github.io/takode/) with the living Ink & Paper painting and a demo that plays the real app through a day on a sample project. The README's walkthrough now shows a guided review in its review step.
+
+### Fixed
+
+- **Floating status chips** -- A feed at its bottom keeps its last row clear of the floating "Active in" pill and the chips beside it, opening the side column no longer stops a feed following its bottom, and the pill's timer stays on one line.
+- **Previewed pages with browser login** -- An HTML page opened from a file link loads its own stylesheets, scripts and images while browser login is on. Changing the password or signing out other devices now also ends preview links.
 
 ## 2026-11-12
 
@@ -29,10 +97,21 @@ Under the hood, Claude sessions now run only through the Claude Agent SDK, with 
 - **Ink fireworks for a finished quest** -- In Ink & Paper, a finished quest sets off three ink fireworks that burst in the painting between the message sheets, never across text, and a vermilion seal is pressed onto the completion card where it covers no writing. The celebration plays in the pane that holds the card, a side chat included, and is gone after about four and a half seconds.
 - **Answers arrive like ink** -- With a scenic background on, a new answer spreads in from its centre like an ink blot.
 - **The Library from the side column** -- The open side column's top row has the same gallery button as the folded rail, opening the Library in one click.
+- **New app icon** -- Tako now peeks over an ink mountain under a red sun, and the browser tab gets a simplified mark of his head. In the dark theme the sidebar, login and tab icons switch to a moonlit night version.
+
+### Changed
+
+- **Plain labels** -- Quest details, phase notes, side quests, the thread status chip, topic pages and the Memory page show plain words instead of internal keys and indexes, and Memory badges read in both themes.
+- **README** -- The README leads with leaders, quests and memory, and every screenshot is retaken from a demo project in the current UI.
 
 ### Fixed
 
 - **Scenic fonts** -- Scenic styles keep the app's fonts: Ink & Paper no longer sets a serif on headings, so answers with Markdown headings match the rest.
+- **Cranes behind the pines** -- In Ink & Paper, cranes, the boat and the quest fireworks pass behind the near cliffs and pines instead of showing through their pale parts.
+- **Session #0** -- The first session on a fresh install keeps its number instead of showing as #?, and new installs start numbering at 1.
+- **Plain previews** -- Live worker cards, sessions' last-message lines and side chat names show links as plain text instead of raw Markdown.
+- **Flickering slides** -- A slide or deck whose size depends on its own layout settles on one size instead of flipping between two.
+- **Sheets in scenic styles** -- The turn summary heads its message sheet, and a worker's activity keeps its sheet when its leader's messages arrive mid-turn.
 - **Your messages in the side chat** -- In the side column, your messages and their times take a deeper tone of the bubble, so they no longer blend into Ink & Paper's or Seaside's paper.
 - **Choosing a thread over an open page** -- Choosing a thread while Settings, Questmaster or the Library is open over the chat closes the page, so on a phone the tap no longer seems to do nothing.
 - **Session commands inside `takode exec`** -- `quest`, `takode`, `memory` and `stream` run through `takode exec` stop with a clear message that it carries no session identity, instead of failing with "command not found" or a bare 401.
