@@ -57,6 +57,7 @@ export const DEMO_SETTINGS = {
   },
   chatMessageLineHeight: 1.45,
   scenicBackground: "off",
+  typingEffect: "scenic",
   sendKeyScheme: "enter",
   codexLeaderContextWindowOverrideTokens: 1000000,
   codexNonLeaderAutoCompactThresholdPercent: 90,

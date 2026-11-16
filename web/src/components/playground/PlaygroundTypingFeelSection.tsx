@@ -1,13 +1,13 @@
 /**
  * Typing feel: a composer-like chat input over the scenic painting, to type in and see the feel
- * every chat input gets with a scenic background on (it is marked as a chat input like the real
- * ones, so the same shared installer drives it), and a new answer arriving in ink to replay. With
- * no scenic background on, the section asks for one, as the effects are scenic-only.
+ * every chat input gets while the Typing Effect setting has it on (it is marked as a chat input like
+ * the real ones, so the same shared installer drives it), and a new answer arriving in ink to
+ * replay. With the effect off, the section says how to turn it on.
  */
 import { useEffect, useRef, useState } from "react";
 import { ScenicBackdrop } from "../../scenic/ScenicBackdrop.js";
 import { arrive } from "../../scenic/ink-motion.js";
-import { useScenicStyle } from "../../scenic/scenic-styles.js";
+import { useTypingEffectOn } from "../../scenic/scenic-styles.js";
 import { ChatTextBox } from "../ChatTextBox.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
@@ -18,7 +18,7 @@ const ANSWERS = [
 ];
 
 export function PlaygroundTypingFeelSection() {
-  const style = useScenicStyle();
+  const effectOn = useTypingEffectOn();
   const [answers, setAnswers] = useState([0]);
   const area = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState("");
@@ -49,9 +49,9 @@ export function PlaygroundTypingFeelSection() {
           </button>
         </div>
         <p className="mt-2 text-[11px] text-cc-muted">
-          {style
+          {effectOn
             ? "Type in the box below, in English or Chinese."
-            : "Turn on a scenic background in Scenic Backgrounds above to see it."}
+            : "Turn on a scenic background above, or set Typing Effect to Always in Settings, to see it."}
         </p>
         <div
           data-testid="playground-typing-feel-pane"

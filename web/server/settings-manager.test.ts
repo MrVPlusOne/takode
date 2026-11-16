@@ -86,6 +86,7 @@ describe("settings-manager", () => {
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       scenicBackground: "off",
+      typingEffect: "scenic",
       sendKeyScheme: "enter",
       remindLaterUnit: "hours",
       leaderProfilePools: { tako: false, shmi: false, animals: true },
@@ -566,6 +567,20 @@ describe("settings-manager", () => {
     expect(getSettings().scenicBackground).toBe("off");
   });
 
+  it("saves the typing effect and reads anything unknown as the default", async () => {
+    // The typing effect is kept on the server for every browser. It defaults to playing only with a
+    // scenic background, as it did before it had its own setting, and an unknown value loads as that.
+    expect(getSettings().typingEffect).toBe("scenic");
+    updateSettings({ typingEffect: "always" });
+    await _flushForTest();
+    _resetForTest(settingsPath);
+    expect(getSettings().typingEffect).toBe("always");
+
+    writeFileSync(settingsPath, JSON.stringify({ typingEffect: "sometimes" }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().typingEffect).toBe("scenic");
+  });
+
   it("persists Questmaster compact sort across reloads", async () => {
     // Compact-table sort is server-owned so browser reloads and tabs converge.
     updateSettings({ questmasterCompactSort: { column: "feedback", direction: "desc" } });
@@ -804,6 +819,7 @@ describe("settings-manager", () => {
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
       scenicBackground: "off",
+      typingEffect: "scenic",
       sendKeyScheme: "enter",
       remindLaterUnit: "hours",
       leaderProfilePools: { tako: false, shmi: false, animals: true },

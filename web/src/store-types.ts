@@ -248,6 +248,10 @@ export interface AppState {
   scenicBackground: import("../shared/scenic-background.js").ScenicBackground;
   /** Saves the choice on the server, which keeps one background for every browser. */
   setScenicBackground: (background: import("../shared/scenic-background.js").ScenicBackground) => void;
+  /** When chat inputs get the typing feel; loaded from the server's settings. */
+  typingEffect: import("../shared/typing-effect.js").TypingEffect;
+  /** Saves the choice on the server, for every browser. */
+  setTypingEffect: (effect: import("../shared/typing-effect.js").TypingEffect) => void;
   /** Portrait pools collapsed in the leader portrait picker; loaded from the server's settings. */
   leaderProfileCollapsedPools: import("../shared/leader-profile-portraits.js").LeaderProfilePoolId[];
   /** Collapses or expands one pool and saves the choice on the server, so every device shows the same. */

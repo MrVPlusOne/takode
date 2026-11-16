@@ -58,6 +58,11 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         text: "Scenic Background painted landscape painting scenery wallpaper Summer Meadow Seaside Town Ink & Paper",
         aliases: ["background", "wallpaper", "scenery"],
       },
+      {
+        id: "typing-effect",
+        text: "Typing Effect caret glow gold leaf sparks typing animation chat input",
+        aliases: ["typing", "caret", "sparks"],
+      },
       { id: "zoom", text: "Zoom display scale text size" },
       {
         id: "message-box",

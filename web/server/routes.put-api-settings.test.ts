@@ -1327,6 +1327,31 @@ describe("PUT /api/settings", () => {
     expect(json.scenicBackground).toBe("ink");
   });
 
+  it("saves the typing effect, and refuses an unknown one", async () => {
+    // The Settings row saves through the normal settings route; a value no build knows is refused
+    // rather than stored.
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      typingEffect: "always",
+      updatedAt: Date.now(),
+    });
+    const put = (typingEffect: unknown) =>
+      app.request("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ typingEffect }),
+      });
+
+    const res = await put("always");
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ typingEffect: "always" }));
+    expect((await res.json()).typingEffect).toBe("always");
+
+    const bad = await put("sometimes");
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toEqual({ error: 'typingEffect must be "off", "scenic" or "always"' });
+  });
+
   it("returns 400 for an unknown scenic background", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",

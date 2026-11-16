@@ -695,6 +695,7 @@ export interface AppSettings {
   questmasterCompactSort: QuestmasterCompactSort;
   chatMessageLineHeight?: number;
   scenicBackground?: import("../shared/scenic-background.js").ScenicBackground;
+  typingEffect?: import("../shared/typing-effect.js").TypingEffect;
   sendKeyScheme?: SendKeyScheme;
   codexLeaderContextWindowOverrideTokens: number;
   codexNonLeaderAutoCompactThresholdPercent?: number;
@@ -1400,6 +1401,7 @@ export const api = {
     questmasterCompactSort?: QuestmasterCompactSort;
     chatMessageLineHeight?: number;
     scenicBackground?: import("../shared/scenic-background.js").ScenicBackground;
+    typingEffect?: import("../shared/typing-effect.js").TypingEffect;
     sendKeyScheme?: SendKeyScheme;
     codexLeaderContextWindowOverrideTokens?: number;
     codexNonLeaderAutoCompactThresholdPercent?: number;

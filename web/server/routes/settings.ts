@@ -61,6 +61,7 @@ import {
   normalizeChatMessageLineHeight,
 } from "../../shared/chat-display-settings.js";
 import { isSendKeyScheme, normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
+import { isTypingEffect, normalizeTypingEffect } from "../../shared/typing-effect.js";
 import { normalizeRemindLaterUnit } from "../../shared/remind-later-unit.js";
 import {
   CLAUDE_1M_CONTEXT_TOKENS,
@@ -1094,6 +1095,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
       chatMessageLineHeight: normalizeChatMessageLineHeight(settings.chatMessageLineHeight),
       scenicBackground: normalizeScenicBackground(settings.scenicBackground),
+      typingEffect: normalizeTypingEffect(settings.typingEffect),
       sendKeyScheme: normalizeSendKeyScheme(settings.sendKeyScheme),
       codexLeaderContextWindowOverrideTokens: settings.codexLeaderContextWindowOverrideTokens,
       ...(typeof settings.codexNonLeaderAutoCompactThresholdPercent === "number"
@@ -1328,6 +1330,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (body.scenicBackground !== undefined && !isScenicBackground(body.scenicBackground)) {
       return c.json({ error: 'scenicBackground must be "off", "meadow", "seaside" or "ink"' }, 400);
     }
+    if (body.typingEffect !== undefined && !isTypingEffect(body.typingEffect)) {
+      return c.json({ error: 'typingEffect must be "off", "scenic" or "always"' }, 400);
+    }
     if (body.questmasterCompactSort !== undefined) {
       if (
         typeof body.questmasterCompactSort !== "object" ||
@@ -1501,6 +1506,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "questmasterCompactSort",
       "chatMessageLineHeight",
       "scenicBackground",
+      "typingEffect",
       "sendKeyScheme",
       "codexLeaderContextWindowOverrideTokens",
       "codexNonLeaderAutoCompactThresholdPercent",
@@ -1556,6 +1562,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         ? { chatMessageLineHeight: normalizeChatMessageLineHeight(body.chatMessageLineHeight) }
         : {}),
       scenicBackground: isScenicBackground(body.scenicBackground) ? body.scenicBackground : undefined,
+      typingEffect: isTypingEffect(body.typingEffect) ? body.typingEffect : undefined,
       sendKeyScheme: isSendKeyScheme(body.sendKeyScheme) ? body.sendKeyScheme : undefined,
       codexLeaderContextWindowOverrideTokens:
         typeof body.codexLeaderContextWindowOverrideTokens === "number"

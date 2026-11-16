@@ -34,12 +34,12 @@ export const COMPOSING_ATTRIBUTE = "data-composing";
 
 /**
  * Gives every chat input (a text box marked with `data-chat-input`) its typing feel while it has
- * focus and a scenic background is on, and marks it `data-composing` while an input method is
+ * focus and `effectOn()` says so (the Typing Effect setting), and marks it `data-composing` while an input method is
  * composing, whatever the background (the stylesheet keeps composing pinyin readable at night).
  * One place for every chat input: the composers, side chats, comments and answers. Returns a stop
  * function.
  */
-export function installTypingFeel(scenicOn: () => boolean): () => void {
+export function installTypingFeel(effectOn: () => boolean): () => void {
   let running: { area: TextField; handle: TypingFeelHandle } | null = null;
   const chatInput = (target: EventTarget | null): TextField | null => {
     if (!(target instanceof HTMLElement) || !target.hasAttribute(CHAT_INPUT_ATTRIBUTE)) return null;
@@ -50,7 +50,7 @@ export function installTypingFeel(scenicOn: () => boolean): () => void {
     const area = chatInput(event.target);
     if (!area || running?.area === area) return;
     running?.handle.stop();
-    running = scenicOn() ? { area, handle: attachTypingFeel(area) } : null;
+    running = effectOn() ? { area, handle: attachTypingFeel(area) } : null;
   };
   const left = (event: Event) => {
     if (!running || event.target !== running.area) return;
@@ -116,7 +116,10 @@ const HOLD_MS = 300;
 
 /** The text box being typed in: when keys land, where its caret is, its colours and its marks. */
 class TypingBox {
-  vermilion = "";
+  /** The warm edge's colour. */
+  edgeColour = "";
+  /** Whether a scenic background is on; without one the feel plays on the plain theme. */
+  scenic = false;
   readonly lineHeight: number;
   private heat = 0;
   private typedAt = 0;
@@ -158,10 +161,16 @@ class TypingBox {
     });
   }
 
-  /** The vermilion of the scenic seal, by day or by night. */
+  /**
+   * The vermilion of the scenic seal, by day or by night, in a scenic background; on the plain theme
+   * (Typing Effect set to Always), the theme's own accent, so the edge matches its buttons.
+   */
   private readColours(): void {
-    const dark = document.documentElement.classList.contains("dark");
-    this.vermilion = dark ? "#ef6a4f" : "#c8382c";
+    const root = document.documentElement;
+    const dark = root.classList.contains("dark");
+    this.scenic = root.classList.contains("scenic");
+    if (!this.scenic) this.edgeColour = "var(--color-cc-primary)";
+    else this.edgeColour = dark ? "#ef6a4f" : "#c8382c";
   }
 
   /**
@@ -170,30 +179,62 @@ class TypingBox {
    * been painted, so it never delays the text.
    */
   onType(play: (warmth: number) => void): void {
-    let frame = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let scheduled = false;
+    const later = this.afterPaint(() => play(Math.min(1, this.heat / FULL_HEAT)));
     const typed = (event: Event) => {
       if ((event as InputEvent).inputType?.startsWith("insert")) this.keys += 1;
       const now = performance.now();
       this.heat = this.heat * 0.5 ** ((now - this.typedAt) / COOL_MS) + 1;
       this.lastGap = now - this.typedAt;
       this.typedAt = now;
+      later();
+    };
+    this.area.addEventListener("input", typed);
+    this.cleanups.push(() => this.area.removeEventListener("input", typed));
+  }
+
+  /**
+   * Runs `moved` when the caret moves without typing (a click, arrow keys, a selection) or the box
+   * scrolls, so a light at the caret can follow it at once instead of glowing on at the old place.
+   * Like a key's work, it runs at most once a frame, after that frame has been painted.
+   */
+  onMove(moved: () => void): void {
+    const later = this.afterPaint(moved);
+    // A textarea reports its own caret moves; the rich-text box's are the document's selection.
+    const selection = (event: Event) => {
+      if (event.target === this.area || document.activeElement === this.area) later();
+    };
+    document.addEventListener("selectionchange", selection, true);
+    this.area.addEventListener("scroll", later);
+    this.cleanups.push(() => {
+      document.removeEventListener("selectionchange", selection, true);
+      this.area.removeEventListener("scroll", later);
+    });
+  }
+
+  /** Whether text is selected rather than a caret placed. */
+  selecting(): boolean {
+    return this.area.selectionStart !== this.area.selectionEnd;
+  }
+
+  /** A trigger that runs `run` once after the next painted frame, however often it is pulled meanwhile. */
+  private afterPaint(run: () => void): () => void {
+    let frame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let scheduled = false;
+    this.cleanups.push(() => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    });
+    return () => {
       if (scheduled) return;
       scheduled = true;
       frame = requestAnimationFrame(() => {
         timer = setTimeout(() => {
           scheduled = false;
-          play(Math.min(1, this.heat / FULL_HEAT));
+          run();
         });
       });
     };
-    this.area.addEventListener("input", typed);
-    this.cleanups.push(() => {
-      this.area.removeEventListener("input", typed);
-      cancelAnimationFrame(frame);
-      clearTimeout(timer);
-    });
   }
 
   /**
@@ -410,16 +451,33 @@ function glowingCaret(box: TypingBox, colour: (warmth: number) => string): Part 
   box.onKey(() => {
     line.style.opacity = "0";
   });
-  return (warmth) => {
+  // Where the light was last put: the caret's index and the box's scroll, so a move it already
+  // follows (each typed key also moves the caret) isn't measured again.
+  let placedAt = "";
+  const place = () => {
+    placedAt = `${area.selectionEnd}:${area.scrollTop}:${area.scrollLeft}`;
     const { x, y } = box.caret();
     line.style.transform = `translate(${x - 1}px, ${y + (box.lineHeight - height) / 2}px)`;
+  };
+  // When the caret moves elsewhere, the light goes with it at once, so two carets never show; over
+  // a selection there is no caret to light.
+  box.onMove(() => {
+    if (box.selecting()) {
+      clearTimeout(brighten);
+      line.style.opacity = "0";
+    } else if (placedAt !== `${area.selectionEnd}:${area.scrollTop}:${area.scrollLeft}`) {
+      place();
+    }
+  });
+  return (warmth) => {
+    place();
     return (cooled) => {
       const heat = warmth * (1 - cooled);
       area.style.caretColor = cooled < 1 ? colour(heat) : native;
       light(heat);
       // While pinyin is being composed, the browser may highlight it; the caret's light would add to
       // that highlight right where the pinyin ends, so it stays off until the text is committed.
-      const opacity = box.composing ? 0 : (0.55 + 0.45 * warmth) * (1 - cooled);
+      const opacity = box.composing || box.selecting() ? 0 : (0.55 + 0.45 * warmth) * (1 - cooled);
       // After a key the light comes back in two steps, a soft pulse rather than a flicker. Steps,
       // not an animation, so the page draws just those two frames.
       clearTimeout(brighten);
@@ -564,6 +622,21 @@ const GOLD_LEAF: Kind = {
 };
 
 /**
+ * Gold leaf on the plain light theme: on white, without paper behind it, the ochre flake read as a
+ * crumb, so it is smaller, with a bright metallic glint, and settles sooner, so fewer are in the
+ * air. Sparks were tried there too; without a dark page to glow against they read as smudges.
+ */
+const PLAIN_GOLD_LEAF: Kind = {
+  ...GOLD_LEAF,
+  size: [6, 4.5],
+  life: [1000, 1300],
+  style: {
+    ...GOLD_LEAF.style,
+    background: "linear-gradient(135deg, #fffbe6, #f3cf62 30%, #c9962a 55%, #ffeeb0 80%, #fff8dc)",
+  },
+};
+
+/**
  * Every key that types something throws one small burst out right of the caret, so typing and
  * effect match one to one: sparks from the forge at night, a flake of gold leaf by day, all of a
  * burst leaving together. It never covers the next character, and nothing is thrown when the
@@ -584,7 +657,7 @@ function throwing(box: TypingBox, frame: HTMLElement | null): Part {
   const hurried = new Set<HTMLElement>();
   // Each mark is drawn once for the time of day and after that only moves, so a throw paints
   // nothing new.
-  let drawnFor: boolean | undefined;
+  let drawnFor: string | undefined;
   let kinds: Kind[] = [];
   return () => {
     const keys = box.takeKeys();
@@ -596,10 +669,11 @@ function throwing(box: TypingBox, frame: HTMLElement | null): Part {
     // Text on a later line (typing at the end of an earlier line): things fade out above it.
     if (nextText !== null) space.bottom = Math.min(space.bottom, nextText);
     const dark = document.documentElement.classList.contains("dark");
-    if (dark !== drawnFor) {
-      drawnFor = dark;
+    const look = dark ? "night" : box.scenic ? "day" : "plain day";
+    if (look !== drawnFor) {
+      drawnFor = look;
       kinds = pool.map((mark, index) => {
-        const kind = dark ? spark(index) : GOLD_LEAF;
+        const kind = dark ? spark(index) : box.scenic ? GOLD_LEAF : PLAIN_GOLD_LEAF;
         const [width, height] = kind.size;
         Object.assign(mark.style, { width: `${width}px`, height: `${height}px`, ...kind.style });
         return kind;
@@ -764,14 +838,22 @@ function between(least: number, most: number): number {
   return least + Math.random() * (most - least);
 }
 
-/** Warm edge: the composer's edge glows softly while you type, brighter the faster, then settles. */
+/**
+ * Warm edge: the composer's edge glows softly while you type, brighter the faster, then settles. On
+ * the plain theme its line is the theme's accent at full strength, drawn over the box's own border
+ * (a translucent line over a white box read as pink), with only a tight, faint glow outside.
+ */
 function warmEdge(box: TypingBox, frame: HTMLElement): Part {
   if (getComputedStyle(frame).position === "static") box.restyle(frame, { position: "relative" });
   const edge = box.mark({ inset: "-1px", borderRadius: getComputedStyle(frame).borderRadius, opacity: "0" }, frame);
   return (warmth) => {
-    edge.style.boxShadow = `0 0 0 1px color-mix(in srgb, ${box.vermilion} 55%, transparent), 0 0 14px color-mix(in srgb, ${box.vermilion} 35%, transparent)`;
+    const colour = box.edgeColour;
+    edge.style.boxShadow = box.scenic
+      ? `0 0 0 1px color-mix(in srgb, ${colour} 55%, transparent), 0 0 14px color-mix(in srgb, ${colour} 35%, transparent)`
+      : `inset 0 0 0 1px ${colour}, 0 0 5px color-mix(in srgb, ${colour} 22%, transparent)`;
     return (cooled) => {
-      edge.style.opacity = String((0.35 + 0.6 * warmth) * (1 - cooled));
+      const strength = box.scenic ? 0.35 + 0.6 * warmth : 0.8 + 0.2 * warmth;
+      edge.style.opacity = String(strength * (1 - cooled));
     };
   };
 }

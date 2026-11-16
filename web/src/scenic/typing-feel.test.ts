@@ -29,12 +29,15 @@ beforeEach(() => {
   );
   Element.prototype.animate = animate as unknown as Element["animate"];
   window.matchMedia = ((query: string) => ({ matches: false, media: query })) as unknown as typeof window.matchMedia;
+  // Most tests are of the feel as it plays in a scenic background; the plain theme has its own test.
+  document.documentElement.classList.add("scenic");
   document.body.innerHTML =
     '<div id="frame" data-typing-frame><div id="host" style="position:relative"><textarea></textarea></div></div>';
 });
 
 afterEach(() => {
   handle.stop();
+  document.documentElement.classList.remove("scenic");
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -292,6 +295,64 @@ describe("typing feel", () => {
     expect(marks()).toHaveLength(0);
   });
 
+  it("moves the caret's light with the caret at once, and puts it out over a selection", () => {
+    // Moving the caret without typing (a click, arrow keys) left the light glowing at the old place
+    // until it settled, beside the real caret, so two carets showed. jsdom has no layout, so the
+    // mirror's caret span is given 10 px per character before it.
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (this: HTMLElement) {
+      return this.tagName === "SPAN" ? (this.previousSibling?.textContent?.length ?? 0) * 10 : 0;
+    });
+    const area = box();
+    area.style.cssText = "font-size: 16px; line-height: 24px";
+    handle = attachTypingFeel(area);
+    input(area, "hello world");
+    paint();
+    const light = document.querySelector<HTMLElement>("#host > div[aria-hidden]")!;
+    const x = () => Number(/translate\(([-\d.]+)px/.exec(light.style.transform)![1]);
+    expect(x()).toBe(109);
+    const lit = light.style.opacity;
+    // A click puts the caret after "hello": the browser reports the caret move, and the light
+    // follows it after the frame, still lit.
+    area.setSelectionRange(5, 5);
+    area.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+    paint();
+    expect(x()).toBe(49);
+    expect(light.style.opacity).toBe(lit);
+    // Over a selection there is no caret to light, and settling doesn't bring it back.
+    area.setSelectionRange(0, 5);
+    area.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+    paint();
+    expect(light.style.opacity).toBe("0");
+    vi.advanceTimersByTime(600);
+    expect(light.style.opacity).toBe("0");
+  });
+
+  it("on the plain theme, edges the box in the theme's accent and throws finer gold leaf", () => {
+    // Typing Effect "Always" plays without a scenic background. There a translucent vermilion edge
+    // read as pink on a white box, and the scenic flake read as a crumb on white.
+    document.documentElement.classList.remove("scenic");
+    const area = box();
+    handle = attachTypingFeel(area);
+    input(area, "a");
+    paint();
+    const edge = document.querySelector<HTMLElement>("#frame > div[aria-hidden]")!;
+    expect(edge.style.boxShadow).toContain("inset 0 0 0 1px var(--color-cc-primary)");
+    const leaf = [...document.querySelectorAll<HTMLElement>("#host > div[aria-hidden]")].find((m) => m.style.clipPath)!;
+    expect(leaf.style.width).toBe("6px");
+    handle.stop();
+
+    // In a scenic background the edge and the leaf stay as they were.
+    document.documentElement.classList.add("scenic");
+    handle = attachTypingFeel(area);
+    input(area, "b");
+    paint();
+    expect(document.querySelector<HTMLElement>("#frame > div[aria-hidden]")!.style.boxShadow).not.toContain("inset");
+    const scenicLeaf = [...document.querySelectorAll<HTMLElement>("#host > div[aria-hidden]")].find(
+      (m) => m.style.clipPath,
+    )!;
+    expect(scenicLeaf.style.width).toBe("8.5px");
+  });
+
   it("does nothing with reduced motion", () => {
     window.matchMedia = ((query: string) => ({ matches: true, media: query })) as unknown as typeof window.matchMedia;
     const area = box();
@@ -417,9 +478,9 @@ describe("typing feel", () => {
     document.documentElement.classList.remove("dark");
   });
 
-  it("gives chat inputs the feel while they have focus and a scenic background is on", () => {
-    let scenic = true;
-    const uninstall = installTypingFeel(() => scenic);
+  it("gives chat inputs the feel while they have focus and the typing effect is on", () => {
+    let on = true;
+    const uninstall = installTypingFeel(() => on);
     const area = box();
     area.setAttribute("data-chat-input", "");
     area.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
@@ -429,8 +490,8 @@ describe("typing feel", () => {
     // Leaving the box stops it and puts the box back.
     area.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
     expect(area.style.caretColor).toBe("");
-    // With no scenic background, focus brings no feel.
-    scenic = false;
+    // With the effect off, focus brings no feel.
+    on = false;
     area.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
     input(area, "b");
     paint();

@@ -41,6 +41,22 @@ export function getScenicStyle(): ScenicStyle | null {
   return background === "off" ? null : background;
 }
 
+/**
+ * Whether chat inputs get the typing feel: the Typing Effect setting, which by default plays it only
+ * while a scenic background is on.
+ */
+export function useTypingEffectOn(): boolean {
+  return useStore((state) => typingEffectOn(state));
+}
+
+export function getTypingEffectOn(): boolean {
+  return typingEffectOn(useStore.getState());
+}
+
+function typingEffectOn({ typingEffect, scenicBackground }: { typingEffect: string; scenicBackground: string }) {
+  return typingEffect === "always" || (typingEffect === "scenic" && scenicBackground !== "off");
+}
+
 /** Puts the classes for `background` on <html>, removing any other style's. */
 export function applyScenicClass(background: ScenicBackground): void {
   const root = document.documentElement;

@@ -152,6 +152,8 @@ export function SettingsPage({
   const [loadedSettings, setLoadedSettings] = useState<AppSettings | null>(null);
   const colorTheme = useStore((s) => s.colorTheme);
   const chatTextBoxMode = useChatTextBoxMode();
+  const typingEffect = useStore((s) => s.typingEffect);
+  const setTypingEffect = useStore((s) => s.setTypingEffect);
   const setColorTheme = useStore((s) => s.setColorTheme);
   const zoomLevel = useStore((s) => s.zoomLevel);
   const setZoomLevel = useStore((s) => s.setZoomLevel);
@@ -771,6 +773,22 @@ export function SettingsPage({
                 />
               </SettingsRow>
               <SettingsScenicBackgroundSection hidden={settingsSearch.rowHidden("appearance", "scenic-background")} />
+              <SettingsRow
+                label="Typing Effect"
+                hidden={settingsSearch.rowHidden("appearance", "typing-effect")}
+                description="While you type in the message, side chat, comment and answer boxes, the caret glows like hot iron and each key throws a flake of gold leaf by day or sparks at night. With Background plays it only while a scenic background is on."
+              >
+                <SegmentedControl
+                  label="Typing effect"
+                  options={[
+                    { value: "off", label: "Off" },
+                    { value: "scenic", label: "With Background" },
+                    { value: "always", label: "Always" },
+                  ]}
+                  value={typingEffect}
+                  onChange={setTypingEffect}
+                />
+              </SettingsRow>
               <SettingsRow label="Zoom" htmlFor="settings-zoom" hidden={settingsSearch.rowHidden("appearance", "zoom")}>
                 <NumberStepper
                   id="settings-zoom"

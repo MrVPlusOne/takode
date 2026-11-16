@@ -22,7 +22,7 @@ import { playScenicMoment } from "./scenic-moments.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeScenicBackground } from "../../shared/scenic-background.js";
-import { SCENIC_REVEAL_EVENT, applyScenicClass } from "./scenic-styles.js";
+import { SCENIC_REVEAL_EVENT, applyScenicClass, getTypingEffectOn } from "./scenic-styles.js";
 
 // Read from disk: Vitest turns a raw stylesheet import into an empty string, so a check on it passed
 // whatever the stylesheet held.
@@ -95,6 +95,31 @@ describe("scenic background setting", () => {
   it("reads a saved Ink & Colour choice as Ink & Paper", () => {
     expect(normalizeScenicBackground("inkColor")).toBe("ink");
     expect(normalizeScenicBackground("sakura")).toBe("off");
+  });
+});
+
+describe("typing effect setting", () => {
+  it("plays the typing feel by its setting: never, with a scenic background, or always", () => {
+    // With Background (the default) keeps the old behaviour; Always plays on the plain theme too.
+    const on = (typingEffect: "off" | "scenic" | "always", scenicBackground: "off" | "ink") => {
+      useStore.setState({ typingEffect, scenicBackground });
+      return getTypingEffectOn();
+    };
+    expect(useStore.getState().typingEffect).toBe("scenic");
+    expect([on("scenic", "ink"), on("scenic", "off")]).toEqual([true, false]);
+    expect([on("always", "ink"), on("always", "off")]).toEqual([true, true]);
+    expect([on("off", "ink"), on("off", "off")]).toEqual([false, false]);
+  });
+
+  it("saves a choice on the server and goes back to the previous one when saving fails", async () => {
+    useStore.setState({ typingEffect: "scenic" });
+    useStore.getState().setTypingEffect("always");
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ typingEffect: "always" });
+    mockUpdateSettings.mockRejectedValueOnce(new Error("offline"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    useStore.getState().setTypingEffect("off");
+    await act(async () => {});
+    expect(useStore.getState().typingEffect).toBe("always");
   });
 });
 

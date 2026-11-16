@@ -122,6 +122,7 @@ export function isDarkTheme(theme: ColorTheme): boolean {
 import { scopedGetItem, scopedSetItem, scopedRemoveItem, setLocalStorageItem } from "./utils/scoped-storage.js";
 import { forgetReceivedLists } from "./utils/synced-lists.js";
 import { DEFAULT_SEND_KEY_SCHEME } from "../shared/send-key-scheme.js";
+import { DEFAULT_TYPING_EFFECT } from "../shared/typing-effect.js";
 import { DEFAULT_DIAGNOSTICS_SETTINGS } from "../shared/diagnostics-settings.js";
 import { DEFAULT_REMIND_LATER_UNIT } from "../shared/remind-later-unit.js";
 import { canonicalThreadStatusKey } from "../shared/thread-status-marker.js";
@@ -293,6 +294,7 @@ export const useStore = create<AppState>((set, get) => ({
       : "created",
   sidebarViewMode: "spaces",
   scenicBackground: "off",
+  typingEffect: DEFAULT_TYPING_EFFECT,
   leaderProfileCollapsedPools: DEFAULT_LEADER_PROFILE_COLLAPSED_POOLS,
   taskPanelOpen: false,
   searchPreviewSessionId: null,
@@ -546,6 +548,14 @@ export const useStore = create<AppState>((set, get) => ({
     api.updateSettings({ scenicBackground: background }).catch((err) => {
       console.warn("[store] failed to save scenic background:", err);
       if (get().scenicBackground === background) set({ scenicBackground: previous });
+    });
+  },
+  setTypingEffect: (effect) => {
+    const previous = get().typingEffect;
+    set({ typingEffect: effect });
+    api.updateSettings({ typingEffect: effect }).catch((err) => {
+      console.warn("[store] failed to save typing effect:", err);
+      if (get().typingEffect === effect) set({ typingEffect: previous });
     });
   },
   setRemindLaterUnit: (unit) => {

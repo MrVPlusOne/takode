@@ -1435,6 +1435,17 @@ describe("SettingsPage", () => {
     expect(mockState.setColorTheme).toHaveBeenCalledWith("system");
   });
 
+  it("chooses when the typing effect plays: off, with a scenic background, or always", async () => {
+    // The default plays it only with a scenic background; Always plays it on the plain theme too.
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const effect = screen.getByRole("radiogroup", { name: "Typing effect" });
+    expect(within(effect).getByRole("radio", { name: "With Background" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(within(effect).getByRole("radio", { name: "Always" }));
+    expect(mockState.setTypingEffect).toHaveBeenCalledWith("always");
+  });
+
   it("updates chat message line height through server settings", async () => {
     mockApi.getSettings.mockResolvedValue(settingsWithChatLineHeight(1.5));
     mockApi.updateSettings.mockResolvedValue(settingsWithChatLineHeight(1.36));
