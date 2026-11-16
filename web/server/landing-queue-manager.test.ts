@@ -28,6 +28,8 @@ describe("landing queue manager", () => {
   let now: number;
   let launches: LandingRunnerRequest[];
   let launchFailure: Error | null;
+  /** Launches wait for this before they succeed or fail, so a test can order them against its submits. */
+  let launchHold: Promise<void>;
   const leaseMessages = vi.fn((_sessionId: string, _content: string) => "sent" as const);
   const notify = vi.fn((_sessionId: string, _text: string) => undefined);
   const alertLeaders = vi.fn((_entries: LandingEntry[], _text: string) => undefined);
@@ -40,6 +42,7 @@ describe("landing queue manager", () => {
         notify,
         alertLeaders,
         launchRunner: async (request) => {
+          await launchHold;
           if (launchFailure) throw launchFailure;
           launches.push(request);
         },
@@ -60,6 +63,7 @@ describe("landing queue manager", () => {
     now = Date.parse("2026-10-09T12:00:00Z");
     launches = [];
     launchFailure = null;
+    launchHold = Promise.resolve();
     leaseMessages.mockClear();
     notify.mockClear();
     alertLeaders.mockClear();
@@ -346,10 +350,17 @@ describe("landing queue manager", () => {
   });
 
   it("gives up on a runner that could not start, frees the lease and tries the next machine", async () => {
-    // Fail launches before submitting: the first submit's runner start may run while the second submit is saved.
+    // The laptop launch fails only after the second submit's runner start has found it still
+    // starting. Had it failed first, that start would retry at once on the next machine, devbox,
+    // before the sweep below (a race that failed on CI).
+    let releaseLaunch!: () => void;
+    launchHold = new Promise((resolve) => (releaseLaunch = resolve));
     launchFailure = new Error("the host is offline");
     await submit("a", 1, { hostId: "laptop" });
     await submit("b", 2, { hostId: "devbox" });
+    // The second submit's runner start runs on this timer turn, before the launch is released.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseLaunch();
     await settle();
     expect(launches).toEqual([]);
     const snapshot = await queue.snapshot(target);
