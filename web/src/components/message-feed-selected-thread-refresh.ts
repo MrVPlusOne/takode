@@ -8,6 +8,12 @@ export function useSelectedThreadWindowRefresh(input: {
   requestThreadWindow: (fromItem: number, requestedItemCount?: number, targetMessageId?: string) => boolean;
   selectedFeedWindowEnabled: boolean;
   selectedThreadWindowNeedsRefresh: boolean;
+  /**
+   * The session's connection generation (bumped whenever its socket opens). A feed still without
+   * a window asks again on each one: its last request may have been dropped while the session had
+   * no socket, and a switch onto an already-open socket changes no connection status it could see.
+   */
+  threadWindowRefreshRevision: number;
   sessionId: string;
   targetMessageId?: string;
 }): void {
@@ -33,6 +39,7 @@ export function useSelectedThreadWindowRefresh(input: {
     input.requestThreadWindow,
     input.selectedFeedWindowEnabled,
     input.selectedThreadWindowNeedsRefresh,
+    input.threadWindowRefreshRevision,
     input.sessionId,
     input.targetMessageId,
   ]);

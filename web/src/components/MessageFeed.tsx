@@ -706,6 +706,7 @@ export function MessageFeed({
     requestThreadWindow,
     selectedFeedWindowEnabled,
     selectedThreadWindowNeedsRefresh,
+    threadWindowRefreshRevision,
     sessionId,
     targetMessageId: getInitialThreadWindowTarget(
       scrollToMessageId,
