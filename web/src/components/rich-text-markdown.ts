@@ -7,7 +7,7 @@ import { escapeHtml, type LineDrawing, type LineRenderer } from "./rich-text-box
  * and what they mark takes its style (bold, italic, code, strikethrough, links, headings, quotes,
  * lists, code blocks). Two marks are drawn differently in their own space: a list's "-", "*" or
  * "+" shows as a bullet, the way Slack turns "* " into one, and a quote's ">" gives way to the
- * quote's bar. Both stay those characters in the draft, so undo, copying and sending see exactly
+ * quote's bar (one per level), with a wrapped quote's later lines indented under its first. Both stay those characters in the draft, so undo, copying and sending see exactly
  * what was typed. The "[transcribed]" line that dictation adds is drawn as a grey label.
  *
  * Quest and session references (`q-12`, `#34`) are drawn as highlighted links, recognised as the
@@ -49,8 +49,16 @@ function blockLine(line: string): LineDrawing {
     const [, hashes, space, rest] = heading;
     return { className: `rt-line md-h md-h${hashes!.length}`, html: mark(hashes! + space!) + inline(rest!) };
   }
-  const quote = /^( {0,3}>+ ?)(.*)$/.exec(line);
-  if (quote) return { className: "rt-line md-quote", html: mark(quote[1]!) + inline(quote[2]!) };
+  const quote = /^( {0,3}(?:> ?)+)(.*)$/.exec(line);
+  if (quote) {
+    // One bar per level, up to three; the marks give way to the bars in a fixed space per level,
+    // so a wrapped quote's later lines line up under its first.
+    const depth = Math.min(3, quote[1]!.split(">").length - 1);
+    return {
+      className: `rt-line md-quote md-quote-${depth}`,
+      html: `<span class="md-mark md-quote-mark">${escapeHtml(quote[1]!)}</span>` + inline(quote[2]!),
+    };
+  }
   const bullet = /^( *)([-*+])( +)(.*)$/.exec(line);
   if (bullet) {
     const [, indent, sign, space, rest] = bullet;

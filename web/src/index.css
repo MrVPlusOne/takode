@@ -1816,10 +1816,38 @@ html.dark [data-rich-text-box][data-chat-input][data-composing] {
   cursor: pointer;
   text-decoration: underline;
 }
+/*
+ * A quote: one bar per level, each in a fixed 1em space that its ">" marks give way to. The line
+ * hangs from that space, so every wrapped line starts after the bars, as the first does. The marks
+ * keep their space at any spacing ("> > " or ">>"), so a mark typed or removed in the quote's
+ * prefix never moves its text.
+ */
 .rt-box .md-quote {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-cc-muted) 60%, transparent);
+  --quote-indent: calc(var(--quote-depth) * 1em);
+  padding-left: var(--quote-indent);
+  text-indent: calc(-1 * var(--quote-indent));
+  background-image: repeating-linear-gradient(
+    to right,
+    color-mix(in srgb, var(--color-cc-muted) 60%, transparent) 0 2px,
+    transparent 2px 1em
+  );
+  background-size: var(--quote-indent) 100%;
+  background-repeat: no-repeat;
 }
-.rt-box .md-quote > .md-mark:first-child {
+.rt-box .md-quote-1 {
+  --quote-depth: 1;
+}
+.rt-box .md-quote-2 {
+  --quote-depth: 2;
+}
+.rt-box .md-quote-3 {
+  --quote-depth: 3;
+}
+.rt-box .md-quote-mark {
+  display: inline-block;
+  width: var(--quote-indent);
+  text-indent: 0;
+  white-space: pre;
   color: transparent;
 }
 .rt-box .md-rule {

@@ -90,7 +90,9 @@ export function readText(root: Node, points: DomPoint[] = []): { text: string; o
 
 /**
  * Where text offset `index` is in a box drawn by {@link reconcile}: in its line's text, at the end
- * of the text before it (so typing there continues that text), or at an empty line's start.
+ * of the text before it (so typing there continues that text), or at an empty line's start. Right
+ * after a Markdown mark (`.md-mark`) it is at the start of the text that follows instead, so the
+ * caret sits where that text is drawn and typing continues it, not the mark.
  */
 export function domPointAt(root: HTMLElement, index: number): DomPoint {
   const lines = Array.from(root.children);
@@ -104,11 +106,20 @@ export function domPointAt(root: HTMLElement, index: number): DomPoint {
     left = Math.min(left, length);
     const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
     let first: Text | null = null;
+    let afterMark: DomPoint | null = null;
     for (let text = walker.nextNode() as Text | null; text; text = walker.nextNode() as Text | null) {
+      if (afterMark) return { node: text, offset: 0 };
       first ??= text;
-      if (left <= text.data.length && (left > 0 || text === first)) return { node: text, offset: left };
+      if (left <= text.data.length && (left > 0 || text === first)) {
+        if (left === 0 || left < text.data.length || !text.parentElement?.classList.contains("md-mark")) {
+          return { node: text, offset: left };
+        }
+        afterMark = { node: text, offset: left };
+        continue;
+      }
       left -= text.data.length;
     }
+    if (afterMark) return afterMark;
     return { node: line, offset: 0 };
   }
   return { node: root, offset: 0 };

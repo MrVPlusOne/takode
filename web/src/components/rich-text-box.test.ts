@@ -61,6 +61,19 @@ describe("domPointAt", () => {
   });
 });
 
+describe("domPointAt after a mark", () => {
+  it("puts the caret at the start of the text after the mark, where that text is drawn", () => {
+    const root = box("");
+    reconcile(root, "> quoted **bold**", markdownLines);
+    const afterQuoteMark = domPointAt(root, 2);
+    expect(afterQuoteMark.node.textContent).toBe("quoted ");
+    expect(afterQuoteMark.offset).toBe(0);
+    // A mark at the end of its line has nothing after it, so the caret stays at its end.
+    const lineEnd = domPointAt(root, "> quoted **bold**".length);
+    expect(lineEnd.node.parentElement?.classList.contains("md-mark")).toBe(true);
+  });
+});
+
 describe("reconcile", () => {
   it("leaves lines that still match untouched and redraws the rest", () => {
     const root = box("");
@@ -106,6 +119,17 @@ describe("markdownLines", () => {
     expect(draw("See q-12 and **#34**, not `q-12`")[0]!.html).toBe(
       'See <span class="md-ref">q-12</span> and <span class="md-mark">**</span><span class="md-strong"><span class="md-ref">#34</span></span><span class="md-mark">**</span>, not <span class="md-mark">`</span><span class="md-code-span">q-12</span><span class="md-mark">`</span>',
     );
+  });
+
+  it("draws a quote's marks in one fixed space per level, so its wrapped lines can hang under them", () => {
+    // The marks keep the space of their level whatever their spacing; CSS hangs the line from it.
+    expect(draw("> one")[0]).toEqual({
+      className: "rt-line md-quote md-quote-1",
+      html: '<span class="md-mark md-quote-mark">&gt; </span>one',
+    });
+    expect(draw("> > two")[0]!.className).toBe("rt-line md-quote md-quote-2");
+    expect(draw(">>> three")[0]!.className).toBe("rt-line md-quote md-quote-3");
+    expect(draw(">>>> deep")[0]!.className).toBe("rt-line md-quote md-quote-3");
   });
 
   it("draws list markers, code fences and the transcription label by line", () => {
