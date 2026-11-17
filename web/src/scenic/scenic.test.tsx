@@ -9,6 +9,13 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUpdateSettings = vi.hoisted(() => vi.fn());
+// The living Ink & Paper scene; by default it finds no WebGL, as in jsdom.
+const mockStartInkAlive = vi.hoisted(() => vi.fn());
+
+vi.mock("./ink-alive/ink-alive-gl.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./ink-alive/ink-alive-gl.js")>()),
+  startInkAlive: (...args: unknown[]) => mockStartInkAlive(...args),
+}));
 
 vi.mock("../api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api.js")>();
@@ -37,6 +44,7 @@ beforeEach(() => {
   paneSize = { width: 1000, height: 800 };
   reducedMotion = false;
   mockUpdateSettings.mockReset().mockResolvedValue({});
+  mockStartInkAlive.mockReset().mockReturnValue(null);
   useStore.setState({ scenicBackground: "off", darkMode: false });
   globalThis.ResizeObserver = class {
     constructor(private readonly callback: ResizeObserverCallback) {}
@@ -157,6 +165,48 @@ describe("ScenicBackdrop", () => {
     render(<ScenicBackdrop />);
     expect(screen.queryByTestId("scenic-ink-alive")).toBeNull();
     expect(screen.getByTestId("scenic-painting").style.backgroundImage).toContain("/scenic/ink-day.v1.webp");
+  });
+
+  it("brings Ink & Paper's living painting back after a failure that may pass", () => {
+    // On a Mac a WebGL context is lost after sleep or a GPU reset, and a layer fails to load while
+    // the server restarts. That used to leave the still painting until the tab was reloaded.
+    vi.useFakeTimers();
+    let fail = () => {};
+    mockStartInkAlive.mockImplementation((_canvas: HTMLCanvasElement, options: { onFail: () => void }) => {
+      fail = options.onFail;
+      return () => {};
+    });
+    useStore.setState({ scenicBackground: "ink" });
+    render(<ScenicBackdrop />);
+    const first = screen.getByTestId("scenic-ink-alive");
+
+    act(() => fail());
+    expect(screen.queryByTestId("scenic-ink-alive")).toBeNull();
+    expect(screen.getByTestId("scenic-painting")).toBeInTheDocument();
+    // A little later it starts again, on a fresh canvas, which gets a fresh context.
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(screen.getByTestId("scenic-ink-alive")).not.toBe(first);
+    expect(screen.queryByTestId("scenic-painting")).toBeNull();
+
+    // Each failure waits longer, but showing the tab again tries at once.
+    act(() => fail());
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(screen.queryByTestId("scenic-ink-alive")).toBeNull();
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(screen.getByTestId("scenic-ink-alive")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("does not keep trying where the living painting cannot run at all", () => {
+    // No WebGL (or a shader that does not compile on this GPU) fails the same way every time.
+    vi.useFakeTimers();
+    useStore.setState({ scenicBackground: "ink" });
+    render(<ScenicBackdrop />);
+    act(() => vi.advanceTimersByTime(10 * 60_000));
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(screen.queryByTestId("scenic-ink-alive")).toBeNull();
+    expect(mockStartInkAlive).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
   it("asks for the repainted Ink & Paper thumbnails by their new version", () => {

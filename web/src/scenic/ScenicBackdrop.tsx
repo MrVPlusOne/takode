@@ -6,7 +6,8 @@
  *   sits, and small lights (pollen, fireflies, glints).
  *   Ink & Paper is instead a living painting drawn with WebGL (`ink-alive/`): a sea of clouds
  *   streams slowly through the valleys, and now and then cranes cross. Without WebGL it falls back
- *   to its still painting.
+ *   to its still painting; after a failure that may pass (a lost WebGL context, a layer that did
+ *   not load) it shows the still painting only until it can start again.
  * - `ScenicPanels` lays the same painting, faded, under the sessions panel and the side column.
  * The paintings are bundled WebP files that load only when a style is on, and only the day or the
  * night one for the theme in use. Lights run on one canvas at about 30 frames a second and pause
@@ -104,11 +105,10 @@ export function ScenicBackdrop() {
     if (!style || !pane) return;
     return startInkMotion(pane);
   }, [style]);
-  const [aliveFailed, setAliveFailed] = useState(false);
-  const onAliveUnavailable = useCallback(() => setAliveFailed(true), []);
+  const living = useLivingScene();
   if (!style) return null;
   // Ink & Paper is a living painting drawn with WebGL; without WebGL it shows its still painting.
-  const alive = style === "ink" && !aliveFailed;
+  const alive = style === "ink" && !living.failed;
   const art = SCENES[style];
   const motion = scenicMotionAllowed();
   const lights = art.lights[dark ? 1 : 0];
@@ -125,7 +125,9 @@ export function ScenicBackdrop() {
       data-scenic-style={style}
       className="pointer-events-none absolute inset-0 overflow-hidden"
     >
-      {alive && <InkAliveCanvas dark={dark} motion={motion} onUnavailable={onAliveUnavailable} />}
+      {alive && (
+        <InkAliveCanvas key={living.attempt} dark={dark} motion={motion} onUnavailable={living.onUnavailable} />
+      )}
       {!alive && (
         <div className="absolute inset-0">
           <div
@@ -167,6 +169,42 @@ export function ScenicBackdrop() {
       {motion && lights && <LightCanvas kind={lights} from={art.lightsFrom} />}
     </div>
   );
+}
+
+/** First wait before starting the living scene again after a failure that may pass; it doubles each time. */
+const RETRY_MS = 5_000;
+const MAX_RETRY_MS = 5 * 60_000;
+
+/**
+ * Whether the living scene has failed, and which attempt is running. A failure that may pass
+ * (on a Mac a WebGL context is lost after sleep or a GPU reset, and a layer fails to load while
+ * the server restarts) starts it again on a fresh canvas: after a wait that doubles with each
+ * failure, up to five minutes, or at once when the tab is shown again or the network comes back.
+ * Without it one such moment left the still painting until the tab was reloaded.
+ */
+function useLivingScene() {
+  const [state, setState] = useState({ failed: false, retry: false, attempt: 0 });
+  const onUnavailable = useCallback(
+    (retry: boolean) => setState((current) => ({ ...current, failed: true, retry })),
+    [],
+  );
+  const { failed, retry, attempt } = state;
+  useEffect(() => {
+    if (!failed || !retry) return;
+    const again = () => setState((current) => ({ failed: false, retry: false, attempt: current.attempt + 1 }));
+    const timer = window.setTimeout(again, Math.min(RETRY_MS * 2 ** attempt, MAX_RETRY_MS));
+    const shown = () => {
+      if (!document.hidden) again();
+    };
+    document.addEventListener("visibilitychange", shown);
+    window.addEventListener("online", again);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", shown);
+      window.removeEventListener("online", again);
+    };
+  }, [failed, retry, attempt]);
+  return { failed, attempt, onUnavailable };
 }
 
 /** Soft sun rays fanning from an upper corner, slowly breathing. */
