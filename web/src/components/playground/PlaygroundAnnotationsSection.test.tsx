@@ -19,6 +19,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+// The fixture's comments float above its box as chips whether the box is collapsed or expanded.
+const commentChips = () =>
+  within(screen.getByTestId("composer-floating-comments")).getAllByRole("button", { name: /^Comment \d$/ });
+
 it("demonstrates compact indicators with preserved multiline text and hidden attachment content", () => {
   // This fixture uses the same expansion boundary and sizing hook as the assembled composer.
   render(<PlaygroundAnnotationsSection />);
@@ -28,7 +32,7 @@ it("demonstrates compact indicators with preserved multiline text and hidden att
   expect(input.getAttribute("aria-expanded")).toBe("false");
   expect(screen.getByTestId("composer-compact-preview").textContent).toContain("…");
   expect(screen.getByTestId("compact-image-count").textContent).toBe("1");
-  expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
+  expect(commentChips()).toHaveLength(2);
   expect(screen.queryByRole("img", { name: "Example attached image" })).toBeNull();
   act(() => input.focus());
   const image = screen.getByRole("img", { name: "Example attached image" });
@@ -43,7 +47,7 @@ it("demonstrates compact indicators with preserved multiline text and hidden att
   fireEvent.pointerDown(screen.getByRole("heading", { name: "Conversation annotations" }));
   expect(input.getAttribute("aria-expanded")).toBe("false");
   expect(screen.getByTestId("compact-image-count").textContent).toBe("1");
-  expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
+  expect(commentChips()).toHaveLength(2);
 });
 
 it("keeps simulated voice completion visible until an outside interaction", async () => {
@@ -63,7 +67,7 @@ it("keeps simulated voice completion visible until an outside interaction", asyn
   fireEvent.pointerDown(screen.getByRole("heading", { name: "Conversation annotations" }));
   expect(input.getAttribute("aria-expanded")).toBe("false");
   expect(input.value).toBe(`${original}\nSimulated voice text.`);
-  expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
+  expect(commentChips()).toHaveLength(2);
 });
 
 it("keeps the compact draft stable on approach and expands only on a click", async () => {
@@ -87,7 +91,7 @@ it("keeps the compact draft stable on approach and expands only on a click", asy
   pointer("pointerover");
   expect(input.getAttribute("aria-expanded")).toBe("false");
   expect(screen.getByTestId("compact-image-count").textContent).toBe("1");
-  expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
+  expect(commentChips()).toHaveLength(2);
   await user.click(input);
   input.setSelectionRange(8, 20, "backward");
   pointer("pointerout");

@@ -10,18 +10,12 @@ export { AnnotationSourceMarkers } from "./AnnotationSourceMarkers.js";
 /** Structured attachment previews; ordinary message text is never parsed as attachment syntax. */
 export function AnnotationAttachments({
   annotations,
-  onEdit,
-  onRemove,
   sessionId,
-  disabled = false,
   variant = "preview",
 }: {
   variant?: "preview" | "message";
-  disabled?: boolean;
   sessionId?: string;
   annotations: readonly ConversationAnnotation[];
-  onEdit?: (annotation: ConversationAnnotation, position: { x: number; y: number }) => void;
-  onRemove?: (id: string) => void;
 }) {
   if (!annotations.length) return null;
   return (
@@ -32,9 +26,6 @@ export function AnnotationAttachments({
           annotation={annotation}
           number={index + 1}
           sessionId={sessionId}
-          onEdit={onEdit}
-          onRemove={onRemove}
-          disabled={disabled}
           variant={variant}
         />
       ))}
@@ -46,43 +37,16 @@ function AnnotationAttachment({
   annotation,
   number,
   sessionId,
-  onEdit,
-  onRemove,
-  disabled,
   variant,
 }: {
   variant: "preview" | "message";
-  disabled?: boolean;
   annotation: ConversationAnnotation;
   number: number;
   sessionId?: string;
-  onEdit?: (annotation: ConversationAnnotation, position: { x: number; y: number }) => void;
-  onRemove?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(variant === "message");
   const { preview, triggerProps, close } = useAnnotationPreview(annotation, number, sessionId);
   const comment = splitTrailingTranscriptionTag(annotation.comment);
-  if (onEdit)
-    return (
-      <>
-        <button
-          type="button"
-          disabled={disabled}
-          {...triggerProps}
-          aria-label={`Comment ${number}`}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-cc-border bg-cc-hover/60 px-3 py-2 text-sm text-cc-fg"
-          onClick={(event) => {
-            close();
-            const rect = event.currentTarget.getBoundingClientRect();
-            onEdit(annotation, { x: rect.left, y: rect.top });
-          }}
-        >
-          {annotation.reportSource && <ReportCommentTarget source={annotation.reportSource} compact />}
-          Comment {number}
-        </button>
-        {preview}
-      </>
-    );
   return (
     <>
       <details
@@ -121,22 +85,6 @@ function AnnotationAttachment({
             >
               Open source report
             </button>
-          )}
-          {onRemove && (
-            <div className="flex gap-3 text-xs">
-              {onRemove && (
-                <button
-                  type="button"
-                  className="cursor-pointer text-cc-muted hover:text-red-400"
-                  onClick={() => {
-                    close();
-                    onRemove(annotation.id);
-                  }}
-                >
-                  Remove comment {number}
-                </button>
-              )}
-            </div>
           )}
         </div>
       </details>

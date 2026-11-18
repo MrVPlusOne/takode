@@ -164,7 +164,7 @@ describe("saved Markdown reports", () => {
       ],
     });
     render(<ComposerAnnotations sessionId={report.source.sessionId} threadKey={report.threadKey} />);
-    expect(screen.getByTestId("annotation-attachments").textContent).toContain("Comment 1");
+    expect(screen.getByRole("button", { name: "Comment 1" }).textContent).toContain("Why?");
     expect(screen.queryByLabelText("Report comment recipient")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
   });

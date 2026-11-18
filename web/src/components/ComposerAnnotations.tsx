@@ -1,11 +1,16 @@
 import { useAnnotationSourceNavigation } from "./use-annotation-source-navigation.js";
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
 import { useStore } from "../store.js";
-import { AnnotationAttachments } from "./AnnotationAttachments.js";
+import { ComposerCommentChips } from "./ComposerCommentChips.js";
+import { ComposerVisibilityContext } from "./ComposerMinimizer.js";
 import { AnnotationEditor } from "./AnnotationEditor.js";
 import { editsHere } from "./annotation-editor-target.js";
 import { commentsShownIn } from "./composer-target.js";
 
+/**
+ * The draft's comments, floating just above the message box (collapsed or expanded), and the editor of
+ * the comment being written or edited.
+ */
 export function ComposerAnnotations({
   sessionId,
   draftKey = sessionId,
@@ -21,6 +26,7 @@ export function ComposerAnnotations({
   disabled?: boolean;
 }) {
   const openSource = useAnnotationSourceNavigation(sessionId, threadKey, draftKey);
+  const expanded = useContext(ComposerVisibilityContext);
   const draft = useStore((state) => state.composerDrafts.get(draftKey));
   const editor = useStore((state) => state.annotationEditor);
   // A session's main draft is shared by the threads of a leader's main view: show this thread's comments.
@@ -46,24 +52,37 @@ export function ComposerAnnotations({
   };
   return (
     <>
-      <AnnotationAttachments
-        sessionId={sessionId}
-        annotations={annotations}
-        disabled={disabled}
-        onEdit={(annotation) => void openSource(annotation)}
-        onRemove={disabled ? undefined : remove}
-      />
-      {activeEditor?.navigateToSource && (
-        <p role="status" className="text-xs text-cc-muted">
-          Opening comment at its source…{" "}
-          <button
-            type="button"
-            className="underline hover:text-cc-fg"
-            onClick={() => useStore.getState().setAnnotationEditor(null)}
-          >
-            Cancel
-          </button>
-        </p>
+      {(annotations.length > 0 || activeEditor?.navigateToSource) && (
+        // Lines up with the message box below it; the gaps between chips let clicks reach the feed.
+        <div
+          data-testid="composer-floating-comments"
+          className={`pointer-events-none pb-1.5 ${expanded ? "px-2 sm:px-4" : "px-2"}`}
+        >
+          <div className="mx-auto flex max-w-3xl min-w-0 items-center gap-2">
+            <ComposerCommentChips
+              annotations={annotations}
+              sessionId={sessionId}
+              disabled={disabled}
+              onOpen={(annotation) => void openSource(annotation)}
+              onRemove={disabled ? undefined : remove}
+            />
+            {activeEditor?.navigateToSource && (
+              <p
+                role="status"
+                className="pointer-events-auto shrink-0 rounded-full border border-cc-border bg-cc-card px-2.5 py-1 text-xs text-cc-muted shadow-sm"
+              >
+                Opening comment at its source…{" "}
+                <button
+                  type="button"
+                  className="underline hover:text-cc-fg"
+                  onClick={() => useStore.getState().setAnnotationEditor(null)}
+                >
+                  Cancel
+                </button>
+              </p>
+            )}
+          </div>
+        </div>
       )}
       {activeEditor && !activeEditor.navigateToSource && !disabled && (
         <AnnotationEditor

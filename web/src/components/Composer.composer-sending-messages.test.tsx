@@ -1329,7 +1329,8 @@ it.each([
   expect(screen.getByRole("textbox")).toBe(textarea);
   expect(textarea.getAttribute("aria-expanded")).toBe("false");
   expect(image.closest("[hidden]")).toBeTruthy();
-  expect(container.querySelector("[data-testid=annotation-attachments]")?.closest("[hidden]")).toBeTruthy();
+  // Images hide with the box; comment chips float above it and stay visible.
+  expect(screen.getByRole("button", { name: "Comment 1" }).closest("[hidden]")).toBeNull();
   expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual(draft);
   act(() => textarea.focus());
   expect(container.querySelector("textarea")).toBe(textarea);

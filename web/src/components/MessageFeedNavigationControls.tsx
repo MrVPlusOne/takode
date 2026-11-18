@@ -84,7 +84,7 @@ export function MessageFeedNavigationControls({
       ref={stackRef}
       data-testid="message-feed-nav-fabs"
       className={`absolute ${DESKTOP_NAV_STACK_BOTTOM_CLASS} right-3 z-10 flex flex-col items-center transition-opacity duration-300 ${navFabStackClassName} ${visibilityClassName}`}
-      style={isTouch ? { bottom: `${mobileNavBottomOffsetPx}px` } : composerOverlayLift}
+      style={isTouch ? { ...composerOverlayLift, bottom: `${mobileNavBottomOffsetPx}px` } : composerOverlayLift}
     >
       <button onClick={onScrollToTop} className={navFabButtonClassName} title="Go to top" aria-label="Go to top">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">

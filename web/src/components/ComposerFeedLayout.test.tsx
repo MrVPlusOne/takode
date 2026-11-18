@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { ComposerFeedLayout, useComposerOverlayMeasurement, useComposerScrollSpace } from "./ComposerFeedLayout.js";
+import {
+  ComposerFeedLayout,
+  useComposerCoversFeedEdge,
+  useComposerOverlayLift,
+  useComposerOverlayMeasurement,
+  useComposerScrollSpace,
+} from "./ComposerFeedLayout.js";
 
 afterEach(() => {
   cleanup();
@@ -62,4 +68,39 @@ it("reserves nothing for an in-flow composer and measures overlay clearance in l
   expect(screen.getByRole("status").textContent).toBe("240");
   view.unmount();
   expect(disconnect).toHaveBeenCalledOnce();
+});
+
+function FloatingPill() {
+  return <div data-testid="pill" style={useComposerOverlayLift()} />;
+}
+
+function Popup({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  useComposerCoversFeedEdge(open);
+  return (
+    <button type="button" onClick={() => setOpen((value) => !value)}>
+      {id}
+    </button>
+  );
+}
+
+it("hides the controls floating at the feed's bottom edge while any composer popup covers it", () => {
+  // A comment preview or list opened above the message box would cut through the floating pills.
+  // The pills come back only once every popup has closed.
+  render(
+    <ComposerFeedLayout>
+      <FloatingPill />
+      <Popup id="first" />
+      <Popup id="second" />
+    </ComposerFeedLayout>,
+  );
+  const pill = screen.getByTestId("pill");
+  expect(pill.style.opacity).toBe("");
+  act(() => screen.getByText("first").click());
+  act(() => screen.getByText("second").click());
+  expect(pill.style.opacity).toBe("0");
+  act(() => screen.getByText("first").click());
+  expect(pill.style.opacity).toBe("0");
+  act(() => screen.getByText("second").click());
+  expect(pill.style.opacity).toBe("");
 });

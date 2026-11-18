@@ -69,7 +69,7 @@ export function ComposerMinimizer({
     <div className={`relative shrink-0 ${overlay ? "composer-dock" : ""}`}>
       <div
         ref={root}
-        className="composer-boundary shrink-0 bg-cc-card"
+        className="composer-boundary shrink-0"
         data-testid="composer-minimizer"
         data-collapsed={!expanded}
         onPointerDownCapture={(event) => {

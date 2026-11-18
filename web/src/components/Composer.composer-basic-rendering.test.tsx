@@ -1308,6 +1308,7 @@ it.each([
 ] as const)("previews draft continuation and attachment presence (%s, %s, %s)", (text, imageCount, commentCount) => {
   // Indicators describe local draft state, including image/comment-only drafts; they must
   // not replace full attachments, expose their content, or change the stored text.
+  // Comments are not counted in the box: their chips float above it, collapsed and expanded.
   const draft = {
     text,
     images: Array.from({ length: imageCount }, (_, index) => ({
@@ -1332,16 +1333,21 @@ it.each([
   expect(preview.textContent).not.toContain("A complete comment");
   expect(preview.textContent).not.toContain("A complete quotation");
   expect(screen.queryByTestId("compact-image-count")?.textContent ?? "").toBe(imageCount ? String(imageCount) : "");
-  expect(screen.queryByTestId("compact-comment-count")?.textContent ?? "").toBe(
-    commentCount ? String(commentCount) : "",
-  );
+  const commentChips = () => screen.queryAllByRole("button", { name: /^Comment \d$/ });
+  expect(commentChips()).toHaveLength(commentCount);
+  // The chip row sits inside the composer's measured boundary, so on desktop the feed gets that much
+  // more room to scroll and the chips never cover its last lines.
+  if (commentCount)
+    expect(screen.getByTestId("composer-minimizer").contains(screen.getByTestId("composer-floating-comments"))).toBe(
+      true,
+    );
   const description = document.getElementById(textarea.getAttribute("aria-describedby")!)!;
   if (imageCount) expect(description.textContent).toContain("1 image attachment");
-  if (commentCount) expect(description.textContent).toContain("2 comment attachments");
   expect(screen.queryAllByRole("img")).toHaveLength(0);
   act(() => textarea.focus());
   expect(screen.queryByTestId("composer-compact-preview")).toBeNull();
   expect(screen.queryAllByRole("img")).toHaveLength(imageCount);
+  expect(commentChips()).toHaveLength(commentCount);
   fireEvent.pointerDown(document.body); // a press outside collapses the composer
   expect(textarea.value).toBe(text);
   expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual(draft);

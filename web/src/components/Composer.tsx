@@ -1715,6 +1715,13 @@ export function Composer({
       collapseOnEscape={typeToCompose && !keepComposerOpen}
       overlay
     >
+      <ComposerAnnotations
+        sessionId={sessionId}
+        draftKey={draftKey}
+        threadKey={transcriptionThreadKey ?? threadKey}
+        threadTitle={transcriptionThreadTitle}
+        disabled={!canUseInput}
+      />
       <div
         className={`shrink-0 border-t border-cc-border bg-cc-card ${isCollapsed ? "composer-collapsed-lift px-2 py-1.5" : "px-2 sm:px-4 py-2 sm:py-3"}`}
       >
@@ -1734,7 +1741,6 @@ export function Composer({
           isPlan={isPlan}
           textareaRef={textareaRef}
           text={text}
-          commentCount={annotations?.length ?? 0}
           handleInput={handleInput}
           handleSelectionChange={handleSelectionChange}
           handleKeyDown={handleKeyDown}
@@ -1833,13 +1839,6 @@ export function Composer({
                 }
                 onResume={() => void resumeSources.toggle()}
                 resuming={resumeSources.busy}
-              />
-              <ComposerAnnotations
-                sessionId={sessionId}
-                draftKey={draftKey}
-                threadKey={transcriptionThreadKey ?? threadKey}
-                threadTitle={transcriptionThreadTitle}
-                disabled={!canUseInput}
               />
               {/* The Markdown box shows references as links in the text itself. */}
               {textBoxMode === "plain" && <ComposerReferencePreview references={plainReferencePreviews} />}

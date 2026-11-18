@@ -61,11 +61,11 @@ export function PlaygroundAnnotationsSection() {
         Attached passages stay dimly highlighted, including across bold and italic text. Click a chip to open its editor
         at the passage, or hover to strengthen its highlight and preview the comment. Clicking outside an open comment
         editor saves a non-empty comment; Cancel or Escape discards it. Click outside the composer to minimize the draft
-        and read more of the feed: an ellipsis indicates more text, and small image/comment counts keep attachments
-        discoverable. Clear the text to try an attachment-only draft. Click the compact draft to expand and focus it.
-        Moving the pointer over or away from the composer leaves it unchanged. Simulate voice completion to insert text
-        and release focus without leaving the composer. This preview changes only local fixture state and records no
-        audio.
+        and read more of the feed: an ellipsis indicates more text, a small image count keeps images discoverable, and
+        comment chips float above the box in both states. Clear the text to try an attachment-only draft. Click the
+        compact draft to expand and focus it. Moving the pointer over or away from the composer leaves it unchanged.
+        Simulate voice completion to insert text and release focus without leaving the composer. This preview changes
+        only local fixture state and records no audio.
       </p>
       <div
         ref={root}
@@ -81,6 +81,7 @@ export function PlaygroundAnnotationsSection() {
         </div>
         <SelectionContextMenu selection={selection} sessionId={SESSION} onClose={selection.dismiss} />
         <ComposerMinimizer destination={SESSION} expanded={visible} onExpandedChange={setExpanded}>
+          <ComposerAnnotations sessionId={SESSION} threadKey="main" />
           <div className="rounded-2xl border border-cc-border bg-cc-input-bg">
             <div hidden={!visible}>
               <img
@@ -88,11 +89,9 @@ export function PlaygroundAnnotationsSection() {
                 src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='90'%3E%3Crect width='120' height='90' rx='8' fill='%233b4252'/%3E%3Cpath d='M12 72l30-28 22 18 24-36 20 46z' fill='%2388a6ac'/%3E%3C/svg%3E"
                 className="mb-2 h-24 rounded-lg border border-cc-border"
               />
-              <ComposerAnnotations sessionId={SESSION} threadKey="main" />
             </div>
             <DraftTextarea
               textareaRef={textareaRef}
-              commentCount={draft?.annotations?.length ?? 0}
               aria-label="Annotation main message"
               value={draft?.text ?? ""}
               onChange={(event) =>
@@ -212,10 +211,8 @@ function SentCommentExamples() {
 
 function DraftTextarea({
   textareaRef: ref,
-  commentCount,
   ...props
 }: TextareaHTMLAttributes<HTMLTextAreaElement> & {
-  commentCount: number;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 }) {
   const previewDescriptionId = useId();
@@ -242,7 +239,6 @@ function DraftTextarea({
           text={String(props.value ?? "")}
           placeholder="Add a message..."
           imageCount={1}
-          commentCount={commentCount}
           descriptionId={previewDescriptionId}
         />
       )}

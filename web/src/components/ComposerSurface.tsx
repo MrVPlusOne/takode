@@ -23,7 +23,6 @@ export function ComposerInputSurface({
   isPlan,
   textareaRef,
   text,
-  commentCount,
   handleInput,
   handleSelectionChange,
   handleKeyDown,
@@ -60,7 +59,6 @@ export function ComposerInputSurface({
   isPlan: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   text: string;
-  commentCount: number;
   handleInput: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleSelectionChange: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -213,7 +211,6 @@ export function ComposerInputSurface({
               text={text}
               placeholder={placeholder}
               imageCount={imageSrcs.length}
-              commentCount={commentCount}
               descriptionId={previewDescriptionId}
             />
           )}
