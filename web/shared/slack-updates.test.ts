@@ -4,6 +4,7 @@ import {
   formatSlackUpdatesNotice,
   parseSlackChannelName,
   parseSlackMessages,
+  parseSlackPermalinkOrigin,
   slackToolResultText,
 } from "./slack-updates.js";
 
@@ -100,6 +101,33 @@ describe("slackToolResultText", () => {
   });
 });
 
+describe("parseSlackPermalinkOrigin", () => {
+  it("reads the workspace address from a search result's permalink", () => {
+    // As `slack_search_public_and_private` returned it (from a live search, text shortened).
+    const result = JSON.stringify({
+      results: [
+        "# Search Results for: ",
+        "",
+        "## Messages (1 results)",
+        "### Result 1 of 1",
+        "Channel: #sq-bc-coding-qa (ID: C0BQED9JD8F)",
+        "Message_ts: 1795036624.571469",
+        "Permalink: [link](https://microsoft-ai.enterprise.slack.com/archives/C0BQED9JD8F/p1795036624571469?thread_ts=1794776813.089009&cid=C0BQED9JD8F)",
+        "Text: ",
+        "thx I see",
+      ].join("\n"),
+      pagination_info: "",
+    });
+    expect(parseSlackPermalinkOrigin([{ type: "text", text: result }])).toBe(
+      "https://microsoft-ai.enterprise.slack.com",
+    );
+    expect(parseSlackPermalinkOrigin(JSON.stringify({ results: "## Messages (0 results)" }))).toBeNull();
+    // Only Slack's own addresses become link targets.
+    const elsewhere = JSON.stringify({ results: "Permalink: [link](https://example.com/archives/C1)" });
+    expect(parseSlackPermalinkOrigin(elsewhere)).toBeNull();
+  });
+});
+
 describe("compareSlackTs", () => {
   it("orders timestamps exactly, beyond double precision", () => {
     // These two differ only in the last microsecond digit, which doubles lose.
@@ -141,6 +169,29 @@ describe("formatSlackUpdatesNotice", () => {
     );
     expect(notice).toContain("+2 newer messages not shown.");
     expect(notice).toContain('`D1`: direct messages "@Yang Zou"');
+  });
+
+  it("links each conversation's first new message in Slack when given the workspace address", () => {
+    const notice = formatSlackUpdatesNotice(
+      [
+        { ...thread, omitted: 0, introduce: false },
+        {
+          channelId: "D1",
+          label: "DM",
+          messages: [{ ts: "3.000001", author: "Yang Zou", time: "17:03 PST", text: "sent" }],
+          omitted: 0,
+          introduce: false,
+        },
+        // Only an oversized message waiting: the thread itself is linked.
+        { ...thread, threadTs: "5.000001", messages: [], omitted: 1, introduce: false },
+      ],
+      { explain: false, linkOrigin: "https://acme.slack.com" },
+    );
+    expect(notice).toContain(
+      "`C1/1.000001` · [Open in Slack](https://acme.slack.com/archives/C1/p2000001?thread_ts=1.000001&cid=C1)",
+    );
+    expect(notice).toContain("`D1` · [Open in Slack](https://acme.slack.com/archives/D1/p3000001)");
+    expect(notice).toContain("`C1/5.000001` · [Open in Slack](https://acme.slack.com/archives/C1/p5000001)");
   });
 
   it("carries only the conversation ID and new messages in a repeated update", () => {

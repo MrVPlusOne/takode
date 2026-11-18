@@ -26,6 +26,9 @@ let slack: {
   channel: Map<string, SlackMessage[]>;
   names: Map<string, string>;
   reads: string[];
+  /** The workspace address Slack's search permalinks show, and the conversations searched. */
+  origin: string | null;
+  searches: string[];
 };
 let available: boolean;
 let watches: SlackConversationWatch[];
@@ -34,7 +37,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "slack-watch-"));
   now = 1_000_000;
   active = new Set(["s1", "s2"]);
-  slack = { thread: new Map(), channel: new Map(), names: new Map(), reads: [] };
+  slack = { thread: new Map(), channel: new Map(), names: new Map(), reads: [], origin: null, searches: [] };
   available = true;
   watches = [];
 });
@@ -63,6 +66,10 @@ const openReader: OpenSlackReader = async () => {
     readChannelName: async (channelId) => {
       slack.reads.push(`name ${channelId}`);
       return slack.names.get(channelId) ?? null;
+    },
+    readLinkOrigin: async (channelId) => {
+      slack.searches.push(channelId);
+      return slack.origin;
     },
     close: async () => {},
   };
@@ -608,6 +615,42 @@ describe("attachSlackUpdates", () => {
     expect(second).toContain("> another reply");
     expect(second).not.toContain("> new reply");
     expect(second).toContain('`C2/9.000001`: thread "other thread"');
+  });
+
+  it("links each conversation in Slack in the feed's copy only", async () => {
+    // Jiayi (Nov 18) wanted to jump from an update in the feed into its Slack
+    // conversation. The workspace address comes from one search permalink; the
+    // link opens the first new reply in its thread. The agent's copy stays
+    // compact: its tools need only the ID.
+    slack.origin = "https://acme.enterprise.slack.com";
+    const { watch, session } = await watchWithUpdates();
+    const attached = attachSlackUpdates(session, userMessage("hello"))!;
+    const link = "[Open in Slack](https://acme.enterprise.slack.com/archives/C1/p2000001?thread_ts=1.000001&cid=C1)";
+    expect(attached.message.historyFollowUps![0]!.content).toContain(
+      `\`C1/1.000001\`: thread "eval proposal" · ${link}`,
+    );
+    expect(attached.message.deliveryContent).not.toContain("Open in Slack");
+
+    // Learned once: later checks don't search again.
+    expect(slack.searches).toEqual(["C1"]);
+    now += 60 * 60_000;
+    await watch.poll();
+    expect(slack.searches).toEqual(["C1"]);
+  });
+
+  it("looks for the workspace address again only after a poll interval when Slack showed none", async () => {
+    const { watch, session } = await watchWithUpdates();
+    const notice = attachSlackUpdates(session, userMessage("hello"))!.message.historyFollowUps![0]!.content;
+    expect(notice).not.toContain("Open in Slack");
+    await watch.refresh("s1");
+    now += 2 * 60_000;
+    await watch.refresh("s1");
+    expect(slack.searches).toEqual(["C1"]);
+    now += 10 * 60_000;
+    slack.origin = "https://acme.slack.com";
+    await watch.poll();
+    expect(slack.searches).toEqual(["C1", "C1"]);
+    expect(watch.takeUpdates("s1")?.linkOrigin).toBe("https://acme.slack.com");
   });
 
   it("leaves Takode's own messages and inputs with images alone", async () => {

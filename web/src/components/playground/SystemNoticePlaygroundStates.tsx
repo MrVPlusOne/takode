@@ -215,7 +215,8 @@ export function PlaygroundSlackUpdatesMessage({ repeat }: { repeat: boolean }) {
   const message: ChatMessage = {
     id: `playground-slack-updates-${repeat ? "repeat" : "first"}`,
     role: "user",
-    content: formatSlackUpdatesNotice(updates, { explain: !repeat }),
+    // The feed's copy, which links each conversation in Slack.
+    content: formatSlackUpdatesNotice(updates, { explain: !repeat, linkOrigin: "https://acme.enterprise.slack.com" }),
     timestamp: Date.now() - 4_000,
     agentSource: SLACK_UPDATES_SOURCE,
   };

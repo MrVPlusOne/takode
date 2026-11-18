@@ -102,6 +102,15 @@ export class SlackConversationWatch {
   private checkedAt = new Map<string, number>();
   private checking = new Set<string>();
   private lastUnavailableReason: string | null = null;
+  /**
+   * The web address of the Slack workspace the login reads, for the "Open in
+   * Slack" links people see. One login reads one workspace (or one Enterprise
+   * Grid organization, whose address opens any of its conversations), so it is
+   * learned once per run.
+   */
+  private linkOrigin: string | null = null;
+  /** Looked for at most once per poll interval, so a failing search does not add a read to every check. */
+  private linkOriginTriedAt = -Infinity;
 
   constructor(private readonly options: SlackConversationWatchOptions) {}
 
@@ -215,6 +224,8 @@ export class SlackConversationWatch {
     updates: (SlackUpdate & { questId?: string })[];
     /** The session has had no notice yet (among the conversations it watches): explain the format. */
     explain: boolean;
+    /** The Slack workspace's web address, once known, for links in the copy people see. */
+    linkOrigin?: string;
     accept: () => void;
   } | null {
     const ready = this.conversations.filter((c) => c.sessionId === sessionId && c.pendingLatestTs);
@@ -236,6 +247,7 @@ export class SlackConversationWatch {
         introduce: !conversation.introduced,
       })),
       explain,
+      ...(this.linkOrigin ? { linkOrigin: this.linkOrigin } : {}),
       accept: () => {
         for (const { conversation, latestTs } of told) {
           markSeen(conversation, latestTs);
@@ -270,6 +282,10 @@ export class SlackConversationWatch {
       }
       this.lastUnavailableReason = null;
       try {
+        if (!this.linkOrigin && now - this.linkOriginTriedAt >= POLL_INTERVAL_MS) {
+          this.linkOriginTriedAt = now;
+          await this.learnLinkOrigin(opened.connection, keys[0]!.split("|")[0]!);
+        }
         for (const key of keys) {
           // Looked up now, so a session that started watching meanwhile is included.
           const watchers = this.conversations.filter((c) => conversationKey(c) === key);
@@ -281,6 +297,14 @@ export class SlackConversationWatch {
       this.persist();
     } finally {
       for (const key of keys) this.checking.delete(key);
+    }
+  }
+
+  private async learnLinkOrigin(connection: SlackReadConnection, channelId: string): Promise<void> {
+    try {
+      this.linkOrigin = await connection.readLinkOrigin(channelId);
+    } catch (error) {
+      this.log(`Finding Slack's web address failed: ${error instanceof Error ? error.message : error}`);
     }
   }
 
@@ -497,9 +521,10 @@ export function attachSlackUpdates(
     const key = update.threadKey ?? "";
     byThread.set(key, [...(byThread.get(key) ?? []), update]);
   }
-  // The format is explained once, in the first notice.
-  const notices = [...byThread.values()].map((updates, index) => ({
-    content: formatSlackUpdatesNotice(updates, { explain: taken.explain && index === 0 }),
+  // The format is explained once, in the first notice. The feed's copy also links each conversation in Slack.
+  const groups = [...byThread.values()].map((updates, index) => ({ updates, explain: taken.explain && index === 0 }));
+  const notices = groups.map(({ updates, explain }) => ({
+    content: formatSlackUpdatesNotice(updates, { explain, linkOrigin: taken.linkOrigin }),
     agentSource: SLACK_UPDATES_SOURCE,
     ...(updates[0]!.threadKey ? { threadKey: updates[0]!.threadKey } : {}),
     ...(updates[0]!.questId ? { questId: updates[0]!.questId } : {}),
@@ -507,7 +532,10 @@ export function attachSlackUpdates(
   return {
     message: {
       ...message,
-      deliveryContent: [primary.content, ...notices.map((notice) => notice.content)].join("\n\n"),
+      deliveryContent: [
+        primary.content,
+        ...groups.map(({ updates, explain }) => formatSlackUpdatesNotice(updates, { explain })),
+      ].join("\n\n"),
       historyFollowUps: [...(message.historyFollowUps ?? []), ...notices],
     },
     accept: taken.accept,

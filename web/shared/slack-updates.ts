@@ -108,7 +108,7 @@ export function parseSlackChannelName(text: string): string | null {
 /**
  * The text of a Slack tool result, from a Claude `tool_result` block's content
  * or an MCP `callTool` result's content: the tools return JSON whose `messages`
- * field holds the printed conversation.
+ * (or, for searches, `results`) field holds the printed text.
  */
 export function slackToolResultText(content: unknown): string {
   return parseSlackToolResult(content).messages;
@@ -138,8 +138,16 @@ export function compareSlackTs(a: string, b: string): number {
  * tools take. Its title appears only in its first notice, and the reading
  * instructions only with `explain`, the session's first notice, so repeated
  * updates carry little more than the new messages.
+ *
+ * With `linkOrigin` (the Slack workspace's web address, such as
+ * `https://acme.slack.com`), each conversation also gets an "Open in Slack"
+ * link to its first new message. That is for the copy people see in the feed;
+ * the agent's copy leaves it out, since the ID is all its tools need.
  */
-export function formatSlackUpdatesNotice(updates: readonly SlackUpdate[], options: { explain: boolean }): string {
+export function formatSlackUpdatesNotice(
+  updates: readonly SlackUpdate[],
+  options: { explain: boolean; linkOrigin?: string },
+): string {
   const total = updates.reduce((sum, update) => sum + update.messages.length + update.omitted, 0);
   const lines = [`${SLACK_UPDATES_TAG} ${plural(total, "new message")} in Slack conversations you read.`];
   if (options.explain) {
@@ -154,7 +162,8 @@ export function formatSlackUpdatesNotice(updates: readonly SlackUpdate[], option
     const intro = update.introduce
       ? `: ${update.threadTs ? "thread" : "direct messages"} "${update.label}"${update.threadKey ? `, read in ${update.threadKey}` : ""}`
       : "";
-    lines.push("", `${id}${intro}`);
+    const link = options.linkOrigin ? ` · [Open in Slack](${slackUpdateUrl(options.linkOrigin, update)})` : "";
+    lines.push("", `${id}${intro}${link}`);
     for (const message of update.messages) {
       // A blank line ends the quote above, or Markdown folds the next line into it.
       lines.push("", `**${message.author || "Someone"}** (${message.time})`, quote(message.text));
@@ -169,6 +178,35 @@ export function slackConversationId(update: Pick<SlackUpdate, "channelId" | "thr
   return update.threadTs ? `${update.channelId}/${update.threadTs}` : update.channelId;
 }
 
+/**
+ * The web address (`https://<workspace>.slack.com`) of the first Slack
+ * permalink in a `slack_search_*` result, or null when it shows none.
+ */
+export function parseSlackPermalinkOrigin(content: unknown): string | null {
+  const url = slackToolResultText(content).match(/^Permalink: \[[^\]]*\]\((https:\/\/[^)\s]+)\)/m)?.[1];
+  if (!url) return null;
+  try {
+    const { hostname, origin } = new URL(url);
+    return hostname === "slack.com" || hostname.endsWith(".slack.com") ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where an update starts in Slack: its first new message, opened in its thread
+ * for a thread reply, or the conversation when no message is kept.
+ */
+function slackUpdateUrl(origin: string, update: SlackUpdate): string {
+  const ts = update.messages[0]?.ts ?? update.threadTs;
+  const base = `${origin}/archives/${update.channelId}`;
+  if (!ts) return base;
+  const message = `${base}/p${ts.replace(".", "")}`;
+  return update.threadTs && ts !== update.threadTs
+    ? `${message}?thread_ts=${update.threadTs}&cid=${update.channelId}`
+    : message;
+}
+
 function parseSlackToolResult(content: unknown): { messages: string; pagination: string } {
   const raw =
     typeof content === "string"
@@ -179,10 +217,12 @@ function parseSlackToolResult(content: unknown): { messages: string; pagination:
             .join("\n")
         : "";
   try {
-    const parsed = JSON.parse(raw) as { messages?: unknown; pagination_info?: unknown };
-    if (typeof parsed?.messages === "string") {
+    const parsed = JSON.parse(raw) as { messages?: unknown; results?: unknown; pagination_info?: unknown };
+    // Read tools put the conversation in `messages`, search tools in `results`.
+    const text = parsed?.messages ?? parsed?.results;
+    if (typeof text === "string") {
       return {
-        messages: parsed.messages,
+        messages: text,
         pagination: typeof parsed.pagination_info === "string" ? parsed.pagination_info : "",
       };
     }

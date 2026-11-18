@@ -9,6 +9,7 @@ import { machineSettingsFor } from "./remote-host/machine-settings.js";
 import {
   parseSlackChannelName,
   parseSlackMessages,
+  parseSlackPermalinkOrigin,
   slackToolResultText,
   type SlackMessage,
 } from "../shared/slack-updates.js";
@@ -21,6 +22,8 @@ export interface SlackReadConnection {
   readChannel(channelId: string, oldest: string): Promise<SlackMessage[]>;
   /** How Slack names a conversation: `#channel`, `DM`, `Group DM`, or null when it prints none. */
   readChannelName(channelId: string): Promise<string | null>;
+  /** The workspace's web address, from the permalink Slack's search gives a message in the conversation. */
+  readLinkOrigin(channelId: string): Promise<string | null>;
   close(): Promise<void>;
 }
 
@@ -80,18 +83,19 @@ export const openClaudeSlackReader: OpenSlackReader = async () => {
       reason: `Connecting to Slack failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
-  const call = async (name: string, args: Record<string, unknown>): Promise<string> => {
+  const call = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
     const result = await client.callTool({ name, arguments: args });
-    const text = slackToolResultText(result.content);
-    if (result.isError) throw new Error(`${name} failed: ${text}`);
-    return text;
+    if (result.isError) throw new Error(`${name} failed: ${slackToolResultText(result.content)}`);
+    return result.content;
   };
+  const read = async (name: string, args: Record<string, unknown>): Promise<string> =>
+    slackToolResultText(await call(name, args));
   return {
     ok: true,
     connection: {
       readThread: async (channelId, threadTs, oldest) =>
         parseSlackMessages(
-          await call("slack_read_thread", {
+          await read("slack_read_thread", {
             channel_id: channelId,
             message_ts: threadTs,
             oldest,
@@ -99,14 +103,23 @@ export const openClaudeSlackReader: OpenSlackReader = async () => {
         ),
       readChannel: async (channelId, oldest) =>
         parseSlackMessages(
-          await call("slack_read_channel", {
+          await read("slack_read_channel", {
             channel_id: channelId,
             oldest,
             limit: 100,
           }),
         ),
       readChannelName: async (channelId) =>
-        parseSlackChannelName(await call("slack_read_channel", { channel_id: channelId, limit: 1 })),
+        parseSlackChannelName(await read("slack_read_channel", { channel_id: channelId, limit: 1 })),
+      readLinkOrigin: async (channelId) =>
+        parseSlackPermalinkOrigin(
+          await call("slack_search_public_and_private", {
+            filters: `in:<#${channelId}>`,
+            natural_language_query: "",
+            include_context: false,
+            limit: 1,
+          }),
+        ),
       close: () => client.close(),
     },
   };
