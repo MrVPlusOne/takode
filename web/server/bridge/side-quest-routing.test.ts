@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 import { questSources } from "../quest-source-index.js";
 import { findSideQuestSource, indexLeaderRequests } from "../side-quest.js";
 import { updateLeaderThreadStatusesForAssistantOutput } from "./thread-routing-reminder.js";
+import { validateLeaderThreadOutcomes } from "./leader-thread-outcome-validator.js";
 
 // q-43 is a side quest filed from the user's request u1, asked in q-42's thread.
 questSources.record([
@@ -127,22 +128,35 @@ describe("Thread Ready while a side quest owes its result", () => {
     };
   }
 
-  it("shows the asking thread as waiting for the side quest, even after a partial answer", () => {
+  it("refuses the asking thread's Ready, leaving its status to the leader, and says why", () => {
     // The leader answered the first part of u1 when filing q-43 (turn started at 10, quest on
-    // the board at 15) and marked q-42 Ready: the side quest's part is still owed there.
+    // the board at 15) and marked q-42 Ready: the side quest's part is still owed there. Takode
+    // does not set a status the leader did not write (Jiayi, Nov 18): it refuses the Ready, and
+    // the reminder at the end of the turn names the side quest and what to do.
     const partial = answerIn("q-42", "partial", 20, ["u1"], 1);
-    const session = leaderSession([request(), partial]);
+    const session = { ...leaderSession([request(), partial]), notifications: [] };
     finalizeRoutedLeaderResponseMessage(session, partial);
 
     const update = updateLeaderThreadStatusesForAssistantOutput(session, [readyMarker("q-42")], {
       messageId: "partial",
       timestamp: 20,
     });
-    expect(update.rejectedReadyRoutes).toBeUndefined();
-    expect(session.state.leaderThreadStatuses?.["q-42"]).toMatchObject({
-      kind: "waiting",
-      summary: "waiting for side quest q-43's result",
-    });
+    expect(update.rejectedReadyRoutes?.map((route) => route.threadKey)).toEqual(["q-42"]);
+    expect(session.state.leaderThreadStatuses?.["q-42"]).toBeUndefined();
+
+    const injectUserMessage = vi.fn((..._args: unknown[]) => "sent" as const);
+    validateLeaderThreadOutcomes(
+      session,
+      { isLeaderSession: () => true, getTurnSource: () => "user", injectUserMessage },
+      { rejectedReadyThreadKeys: ["q-42"] },
+    );
+    const reminder = String(injectUserMessage.mock.calls[0]?.[1]);
+    expect(reminder).toContain("Missing outcome marker for: q-42.");
+    expect(reminder).toContain("q-42 cannot be Ready yet: its side quest q-43 has not had its result posted there.");
+    expect(reminder).toContain("{[(Thread Waiting: q-42 | waiting for q-43)]}");
+    expect(reminder).toContain(
+      "When its result exists, post it in q-42 as an answer to u1, even if you already answered part",
+    );
   });
 
   it("lets the asking thread be Ready once the side quest's result was posted there", () => {

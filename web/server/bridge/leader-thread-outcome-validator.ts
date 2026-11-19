@@ -32,7 +32,8 @@ import type {
   LeaderThreadOutcomeReminderGuard,
   LeaderThreadOutcomeReminderGuardTarget,
 } from "../leader-thread-response-types.js";
-import { clearLeaderReadyStatusesBlockedByNeedsInput } from "./thread-routing-reminder.js";
+import { clearLeaderReadyStatusesBlockedByNeedsInput, owedSideQuestsForThread } from "./thread-routing-reminder.js";
+import { threadAddress } from "../../shared/topic-thread-key.js";
 import { findFoldedResults } from "./folded-result-check.js";
 
 export const THREAD_RESPONSE_REMINDER_SOURCE_ID = THREAD_OUTCOME_REMINDER_SOURCE_ID;
@@ -43,6 +44,8 @@ type LeaderThreadOutcomeSession = {
   messageHistory: BrowserIncomingMessage[];
   pendingCodexInputs?: LeaderThreadResponseSession["pendingCodexInputs"];
   notifications?: SessionNotification[];
+  /** The leader's active work board, for the side quests a thread waits for. */
+  board?: ReadonlyMap<string, { questId: string; createdAt: number }>;
   state?: { leaderThreadStatuses?: Record<string, LeaderThreadStatus> };
   leaderThreadOutcomeValidatedHistoryLength?: number;
   pendingLeaderRejectedReadyThreadKeys?: string[];
@@ -281,7 +284,7 @@ function checkLeaderThreadOutcomes(
     deps,
     pendingResponseMissing.length > 0
       ? buildPendingResponseReminderContent(session, pendingResponseMissing, outcomeMissing)
-      : buildOutcomeReminderContent(outcomeMissing),
+      : buildOutcomeReminderContent(session, outcomeMissing),
     primary.route,
     {
       version: 1,
@@ -513,7 +516,7 @@ export function refreshLeaderThreadOutcomeReminder(
     content:
       pendingResponseMissing.length > 0
         ? buildPendingResponseReminderContent(session, pendingResponseMissing, outcomeMissing)
-        : buildOutcomeReminderContent(outcomeMissing),
+        : buildOutcomeReminderContent(session, outcomeMissing),
     guard: {
       version: 1,
       pendingResponseTargets: pendingTargets,
@@ -854,15 +857,35 @@ function buildRejectedAnswerCorrection(rejected: { thread: TouchedThread; userMe
   ];
 }
 
-function buildOutcomeReminderContent(missing: TouchedThread[]): string {
+function buildOutcomeReminderContent(session: LeaderThreadOutcomeSession, missing: TouchedThread[]): string {
   return [
     "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
     `Missing outcome marker for: ${formatThreadLabels(missing)}.`,
+    ...missing.flatMap((thread) => buildOwedSideQuestLines(session, thread)),
     "This is about outcome status for already routed leader output, not a request for another answer; it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers.",
     ...buildOutcomeOnlyAuthoringGuidance(),
     "Before marking a thread Ready, verify any promised durable action is actually complete: quest creation/refinement, board rows, needs-input notifications, worker sends, phase dispatches, Port/push, or other external records. If not, mark the thread Waiting or incomplete instead.",
     'Use `takode notify needs-input "..."` only for user-blocking prompts. For non-blocking thread status, add a standalone `{[(Thread Waiting: thread | summary)]}` or `{[(Thread Ready: thread | summary)]}` line to your assistant response.',
   ].join("\n");
+}
+
+/**
+ * Why a thread waiting for a side quest's result cannot be Ready, and what to do: Takode refuses
+ * the Ready and leaves the status to the leader, so the reminder must say what it waits for.
+ */
+function buildOwedSideQuestLines(session: LeaderThreadOutcomeSession, thread: TouchedThread): string[] {
+  const owed = owedSideQuestsForThread(session, thread.route.threadKey);
+  if (owed.length === 0) return [];
+  const asked = threadAddress(thread.route.threadKey);
+  const quests = owed.map((entry) => entry.questId).join(", ");
+  const post =
+    owed.length === 1
+      ? `When its result exists, post it in ${asked} as an answer to ${owed[0]!.source.userMessageId}`
+      : `When a result exists, post it in ${asked} as an answer to its request (${owed.map((entry) => `${entry.questId}: ${entry.source.userMessageId}`).join("; ")})`;
+  return [
+    `${asked} cannot be Ready yet: its side quest${owed.length === 1 ? "" : "s"} ${quests} ${owed.length === 1 ? "has" : "have"} not had ${owed.length === 1 ? "its result" : "their results"} posted there. Mark it \`{[(Thread Waiting: ${asked} | waiting for ${quests})]}\` until then.`,
+    `${post}, even if you already answered part of that request. A side quest that is long work and should be its own conversation instead: \`quest edit <q-N> --own-thread\`, and ${asked} stops waiting for it.`,
+  ];
 }
 
 function buildOutcomeOnlyAuthoringGuidance(): string[] {

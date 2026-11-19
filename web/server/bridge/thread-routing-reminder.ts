@@ -1,5 +1,5 @@
 import { recordMonitoredThreadResult } from "../thread-monitoring.js";
-import { owedSideQuests } from "../side-quest.js";
+import { owedSideQuests, type OwedSideQuest } from "../side-quest.js";
 import { describeClosestThreads, isUnknownThreadKey } from "../topic-views.js";
 import type {
   BrowserIncomingMessage,
@@ -620,7 +620,10 @@ export function updateLeaderThreadStatusesForAssistantOutput(
         marker.target.threadKey,
       ).projection.pendingMessageCount > 0 ||
         pendingLeaderAnswerInputsForThread(session, marker.target.threadKey).count > 0 ||
-        hasUnresolvedLeaderNeedsInputForThread(session, marker.target.threadKey));
+        hasUnresolvedLeaderNeedsInputForThread(session, marker.target.threadKey) ||
+        // A side quest asked from this thread still owes its result here: the leader keeps the
+        // status its own, and the outcome reminder says why its Ready did not stand.
+        owedSideQuestsForThread(session, marker.target.threadKey).length > 0);
     if (blockedReady) {
       rejectedReadyRoutes.push(threadRouteForTarget(marker.target.threadKey));
       if (statuses[key]) {
@@ -630,15 +633,12 @@ export function updateLeaderThreadStatusesForAssistantOutput(
       continue;
     }
     markerThreadKeys.add(key);
-    // Ready is not true while a side quest asked from this thread still owes its result
-    // here: the thread shows it is waiting for that result instead.
-    const owed = marker.kind === "ready" ? owedSideQuestsForThread(session, marker.target.threadKey) : [];
     const record: LeaderThreadStatus = {
-      ...(owed.length > 0
-        ? { kind: "waiting" as const, label: "Thread Waiting" as const, summary: waitingForSideQuests(owed) }
-        : { kind: marker.kind, label: marker.label, summary: marker.summary }),
+      kind: marker.kind,
+      label: marker.label,
       threadKey: marker.target.threadKey,
       ...(marker.target.questId ? { questId: marker.target.questId } : {}),
+      summary: marker.summary,
       messageId: anchor.messageId,
       timestamp: anchor.timestamp,
       updatedAt: Date.now(),
@@ -676,17 +676,13 @@ export function updateLeaderThreadStatusesForAssistantOutput(
   };
 }
 
-function owedSideQuestsForThread(session: LeaderThreadStatusSessionLike, threadKey: string): string[] {
+/** The side quests on the leader's board that still owe their result to this thread (owedSideQuests). */
+export function owedSideQuestsForThread(
+  session: Pick<LeaderThreadStatusSessionLike, "id" | "messageHistory" | "board">,
+  threadKey: string,
+): OwedSideQuest[] {
   if (!session.id || !session.messageHistory || !session.board?.size) return [];
-  return owedSideQuests(session.messageHistory, session.id, threadKey, session.board.values()).map(
-    (owed) => owed.questId,
-  );
-}
-
-function waitingForSideQuests(questIds: string[]): string {
-  return questIds.length === 1
-    ? `waiting for side quest ${questIds[0]}'s result`
-    : `waiting for the results of side quests ${questIds.join(", ")}`;
+  return owedSideQuests(session.messageHistory, session.id, threadKey, session.board.values());
 }
 
 function findTriggeringTurnRoute(session: ThreadRoutingReminderSessionLike): ThreadRouteMetadata {
