@@ -51,6 +51,7 @@ import {
   type TranscriptionWorkspaceContext,
   type WorkspaceVocabulary,
 } from "../transcription-workspace-context.js";
+import { learnMisheardPhrases } from "../transcription-misheard-phrases.js";
 
 const TRANSCRIPTION_FOCUSED_CONTEXT_MAX_CHARS = 4000;
 /** The workspace terms change by about one word an hour, so a rebuild every 10 minutes is plenty. */
@@ -542,7 +543,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           (quest) =>
             getQuestSessionSpaceSlug(quest, { resolveSessionSpaceSlug, defaultSessionSpaceSlug }) === questSpace,
         );
-        return buildWorkspaceVocabulary({ quests, activity: await activitySince(TERM_HOURS), now, customVocabulary });
+        const [activity, misheard] = await Promise.all([
+          activitySince(TERM_HOURS),
+          learnMisheardPhrases({ now, inSpace: (id) => spaceOf(id) === space }),
+        ]);
+        return { ...buildWorkspaceVocabulary({ quests, activity, now, customVocabulary }), misheard };
       };
       cached = { builtAt: now, customVocabulary, vocabulary: build() };
       vocabularyCache.set(key, cached);
@@ -1228,7 +1233,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         ].join("\n");
         const workspace = spaceContext && { ...spaceContext, terms: rankTermsFor(spaceContext.terms, focusText) };
         // The leading workspace terms join the user's own vocabulary: as keywords for gpt-transcribe, in the prompt otherwise.
-        const vocabulary = sttVocabulary(transcriptionConfig.customVocabulary, workspace?.terms ?? []);
+        const vocabulary = sttVocabulary(transcriptionConfig.customVocabulary, workspace);
         const sanitizedKeywords = usesGptTranscribeContext
           ? sanitizeTranscriptionKeywords(vocabulary)
           : { keywords: [], droppedKeywordCount: 0 };

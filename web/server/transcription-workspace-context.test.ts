@@ -230,11 +230,18 @@ describe("term ranking for one request", () => {
   it("caps the speech-to-text vocabulary at 48 entries but never drops the user's own terms", () => {
     // 108 keywords diluted the recognizer in real replays; the user's Settings vocabulary always comes first.
     const terms = Array.from({ length: 100 }, (_, i) => `Term${i}`);
-    const list = sttVocabulary("Takode, Claude Code", terms)!.split(", ");
+    const list = sttVocabulary("Takode, Claude Code", { terms })!.split(", ");
     expect(list).toHaveLength(48);
     expect(list.slice(0, 3)).toEqual(["Takode", "Claude Code", "Term0"]);
     const own = Array.from({ length: 60 }, (_, i) => `Own${i}`).join(", ");
-    expect(sttVocabulary(own, terms)!.split(", ")).toHaveLength(60);
-    expect(sttVocabulary(undefined, [])).toBeUndefined();
+    expect(sttVocabulary(own, { terms })!.split(", ")).toHaveLength(60);
+    expect(sttVocabulary(undefined, { terms: [] })).toBeUndefined();
+    expect(sttVocabulary(undefined, undefined)).toBeUndefined();
+  });
+
+  it("puts phrases misheard before right after the user's own terms", () => {
+    // Replays showed the keyword helps most early in the list.
+    const misheard = [{ phrase: "tool call", heardAs: ["two cores"] }];
+    expect(sttVocabulary("Takode", { terms: ["Condor", "Wenxu"], misheard })).toBe("Takode, tool call, Condor, Wenxu");
   });
 });

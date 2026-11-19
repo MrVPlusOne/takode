@@ -1045,6 +1045,21 @@ describe("workspace context in prompts", () => {
     expect(prompt.indexOf("<RECENT_ACTIVITY>")).toBeLessThan(prompt.indexOf("<TRANSCRIPT>"));
   });
 
+  it("names the phrases speech recognition misheard before, with what it heard", () => {
+    const prompt = buildEnhancementPrompt("the total two-core time", "", {
+      workspace: {
+        ...workspace,
+        misheard: [
+          { phrase: "tool call", heardAs: ["two cores", "two-core"] },
+          { phrase: "vendor test", heardAs: ["venter test"] },
+        ],
+      },
+    });
+    expect(prompt).toContain(
+      `Speech recognition has misheard these terms before in this speaker's dictations: "tool call" (heard as "two cores", "two-core"); "vendor test" (heard as "venter test").\n</CUSTOM_VOCABULARY>`,
+    );
+  });
+
   it("adds quest titles and activity to the speech-to-text prompt within its character budget", () => {
     // A long thread fills the conversation budget; the workspace still fits and the cap holds.
     const messageHistory = Array.from({ length: 40 }, (_, i) => userMsg(`message ${i} ${"word ".repeat(200)}`));

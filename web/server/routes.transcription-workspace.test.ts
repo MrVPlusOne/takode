@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createTranscriptionRoutes } from "./routes/transcription.js";
 import type { RouteContext } from "./routes/context.js";
 import { _setTranscriptionRecordingRootForTest } from "./transcription-recordings.js";
 import { _resetTranscriptionLogForTest } from "./transcription-enhancer.js";
+import { _resetMisheardPhrasesForTest } from "./transcription-misheard-phrases.js";
 import * as settingsManager from "./settings-manager.js";
 import * as questStore from "./quest-store.js";
 
@@ -29,6 +30,7 @@ beforeEach(async () => {
   recordingRoot = await mkdtemp(join(tmpdir(), "transcription-workspace-recordings-"));
   _setTranscriptionRecordingRootForTest(recordingRoot);
   _resetTranscriptionLogForTest();
+  _resetMisheardPhrasesForTest();
   vi.stubGlobal(
     "fetch",
     vi.fn(() => Promise.reject(new Error("Unmocked provider request"))),
@@ -135,6 +137,19 @@ describe("transcription workspace context", () => {
       transcriptionConfig: { ...settings.transcriptionConfig, customVocabulary: "Takode, condor" },
     });
     expect((await transcribe()).getAll("keywords[]")).toEqual(["Takode", "condor", "Kestrel", "seeded-QA", "Wenxu"]);
+  });
+
+  it("sends phrases the cleanup fixed in earlier dictations of the space right after the user's vocabulary", async () => {
+    // Two earlier dictations in the space whose cleanup turned "two cores" into "tool calls".
+    for (const name of ["a", "b"]) {
+      const directory = join(recordingRoot, new Date(now).toISOString().slice(0, 10), name);
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, "raw-transcript.txt"), "count the two cores");
+      await writeFile(join(directory, "final-result.txt"), "count the tool calls");
+      const manifest = { status: "success", mode: "dictation", sessionId: "session-2", createdAt: now - 60_000 };
+      await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest));
+    }
+    expect((await transcribe()).getAll("keywords[]").slice(0, 4)).toEqual(["Takode", "Yes", "tool call", "Kestrel"]);
   });
 
   it("reuses the quest titles and terms between dictations but reads recent activity fresh", async () => {
