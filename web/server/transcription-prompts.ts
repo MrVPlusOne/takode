@@ -517,11 +517,13 @@ function appendCustomVocabulary(parts: string[], extra: EnhancementContextInput 
   if (extra?.workspace?.terms.length)
     lines.push(`Terms used recently in this workspace, most relevant first: ${extra.workspace.terms.join(", ")}`);
   // Naming the known mishearings lets the model fix a phrase that reads as plausible English ("two-core
-  // time"), which the general rule keeps as said; a real "two cores" stayed in replays.
+  // time"), which the general rule keeps as said; a real "two cores" stayed in replays. Replaying 100 dictations,
+  // the line fixed all 26 "two-core" runs against 22 with the phrase only in the term list, and its one other
+  // change ("token limit" to "tool-call limit") matched what the speaker meant.
   const misheard = extra?.workspace?.misheard ?? [];
   if (misheard.length) {
-    const list = misheard.map(
-      ({ phrase, heardAs }) => `"${phrase}" (heard as ${heardAs.map((heard) => `"${heard}"`).join(", ")})`,
+    const list = misheard.map(({ phrase, heardAs }) =>
+      heardAs.length ? `"${phrase}" (heard as ${heardAs.map((heard) => `"${heard}"`).join(", ")})` : `"${phrase}"`,
     );
     lines.push(`Speech recognition has misheard these terms before in this speaker's dictations: ${list.join("; ")}.`);
   }

@@ -1051,12 +1051,12 @@ describe("workspace context in prompts", () => {
         ...workspace,
         misheard: [
           { phrase: "tool call", heardAs: ["two cores", "two-core"] },
-          { phrase: "vendor test", heardAs: ["venter test"] },
+          { phrase: "vendor test", heardAs: [] },
         ],
       },
     });
     expect(prompt).toContain(
-      `Speech recognition has misheard these terms before in this speaker's dictations: "tool call" (heard as "two cores", "two-core"); "vendor test" (heard as "venter test").\n</CUSTOM_VOCABULARY>`,
+      `Speech recognition has misheard these terms before in this speaker's dictations: "tool call" (heard as "two cores", "two-core"); "vendor test".\n</CUSTOM_VOCABULARY>`,
     );
   });
 

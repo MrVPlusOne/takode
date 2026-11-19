@@ -68,17 +68,18 @@ export function phraseCorrections(rawTranscript: string, finalText: string): Phr
 
 /**
  * Phrases corrected in at least MIN_DICTATIONS of the given dictations, most often corrected first, each
- * with its most frequent heard forms.
+ * with its heard forms that also recur in that many dictations, most frequent first.
  */
 export function rankMisheardPhrases(dictations: ReadonlyArray<ReadonlyArray<PhraseCorrection>>): MisheardPhrase[] {
   const byPhrase = new Map<string, { dictations: number; heard: Map<string, number> }>();
   for (const corrections of dictations) {
+    // Phrases and heard forms count once per dictation: one dictation repeating a form ("token" three times) is one case.
     const seen = new Set<string>();
     for (const { phrase, heard } of corrections) {
       const entry = byPhrase.get(phrase) ?? { dictations: 0, heard: new Map<string, number>() };
       if (!seen.has(phrase)) entry.dictations += 1;
-      seen.add(phrase);
-      entry.heard.set(heard, (entry.heard.get(heard) ?? 0) + 1);
+      if (!seen.has(`${phrase}\n${heard}`)) entry.heard.set(heard, (entry.heard.get(heard) ?? 0) + 1);
+      seen.add(phrase).add(`${phrase}\n${heard}`);
       byPhrase.set(phrase, entry);
     }
   }
@@ -89,6 +90,7 @@ export function rankMisheardPhrases(dictations: ReadonlyArray<ReadonlyArray<Phra
     .map(([phrase, entry]) => ({
       phrase,
       heardAs: [...entry.heard]
+        .filter(([, count]) => count >= MIN_DICTATIONS)
         .sort((a, b) => b[1] - a[1])
         .slice(0, HEARD_LIMIT)
         .map(([heard]) => heard),

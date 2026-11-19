@@ -44,19 +44,20 @@ describe("phraseCorrections", () => {
 });
 
 describe("rankMisheardPhrases", () => {
-  it("keeps phrases corrected in two or more dictations, most often corrected first, with their usual heard forms", () => {
+  it("keeps phrases corrected in two or more dictations, most often corrected first, with heard forms seen in two or more", () => {
     const tool = (heard: string) => ({ phrase: "tool call", heard });
     const ranked = rankMisheardPhrases([
       [tool("two cores"), tool("two cores")],
       [tool("two-core"), { phrase: "vendor test", heard: "venter test" }],
       [tool("two cores"), { phrase: "vendor test", heard: "vendor tests" }],
-      [tool("to course"), tool("two call")],
+      [tool("token"), tool("token"), tool("token")],
       [{ phrase: "hack judge", heard: "hag judge" }],
     ]);
-    // A phrase counts once per dictation; one dictation's correction is not enough (hack judge).
+    // Phrases and heard forms count once per dictation: one dictation's correction is not enough (hack judge),
+    // and neither is a form repeated within one dictation ("token") or seen once ("two-core", "venter test").
     expect(ranked).toEqual([
-      { phrase: "tool call", heardAs: ["two cores", "two-core", "to course"] },
-      { phrase: "vendor test", heardAs: ["venter test", "vendor tests"] },
+      { phrase: "tool call", heardAs: ["two cores"] },
+      { phrase: "vendor test", heardAs: [] },
     ]);
   });
 });
@@ -101,10 +102,14 @@ describe("learnMisheardPhrases", () => {
     const inSpace = (sessionId: string) => sessionId.startsWith("work");
     expect(await learnMisheardPhrases({ now, inSpace })).toEqual([]);
 
-    await record("f", now - 2 * DAY, { ...dictation, sessionId: "work-2" }, "two-core time", "tool-call time");
-    expect(await learnMisheardPhrases({ now, inSpace })).toEqual([
-      { phrase: "tool call", heardAs: ["two-core", "two cores"] },
-    ]);
+    await record(
+      "f",
+      now - 2 * DAY,
+      { ...dictation, sessionId: "work-2" },
+      "the two cores time",
+      "the tool calls time",
+    );
+    expect(await learnMisheardPhrases({ now, inSpace })).toEqual([{ phrase: "tool call", heardAs: ["two cores"] }]);
   });
 
   it("reads a recording still being written once it is complete", async () => {
